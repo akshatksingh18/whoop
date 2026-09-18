@@ -22,7 +22,9 @@ enabling it verified that the direct `CMPedometer` path imports iPhone steps. Th
 deliberately excludes the Apple Health aggregate. Current source is `0.9.32` build `65`: it retains
 the personal GPS/Oura changes from the uninstalled build-64 artifact and records zero-step phone
 windows so confirmed phone stillness can veto low-density wrist false positives. Build 64 is
-superseded and must not be installed; build 65 still needs its macOS IPA build and device pass.
+superseded and must not be installed. Build 65 passed the macOS workflow, payload validator, and
+downloaded SHA-256 check and is cached under `../final-ipas/whoop/testing/`; it still needs the
+install-over and physical-device pass.
 Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data is too
 low-rate for honest all-day step reconstruction. Background/recovery, GPS, and other device gates
 remain before daily use. Android development is out of scope.
@@ -91,8 +93,9 @@ macOS-built candidate was installed and exposed the malformed AccessorySetupKit 
 The bridge is now fixed and replacement `0.9.30`/63 passed automated macOS payload/hash validation;
 the accepted rollback is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\`
 (`setup.md` owns the location) and was installed through Sideloadly. The cached `0.9.31`/64 artifact
-passed automated checks but is now superseded without installation. Current `0.9.32`/65 source adds
-the confirmed-phone-stillness step guard and needs a fresh artifact plus install-over/device pass.
+passed automated checks but is now superseded without installation. Current `0.9.32`/65 adds the
+confirmed-phone-stillness step guard; its validated artifact is cached under `testing\` and needs
+the install-over/device pass.
 Daily-use activation still requires
 confirming history import, exact identity/profile, pairing, sync, recovery, and the other
 physical-device evidence below.

@@ -125,8 +125,9 @@ is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHO
 `D:\AI Important Files\personal-project\final-ipas\README.md`); it is the accepted rollback and last
 installed build, reconfirmed in-app by Akshat. The cached `0.9.31` build `64` artifact passed the
 automated macOS build, payload, manifest, and downloaded-checksum gates but is superseded without
-installation. Current `0.9.32` build `65` source retains its personal GPS/Oura changes and adds the
-confirmed-phone-stillness step guard; produce and test build 65 instead.
+installation. Current `0.9.32` build `65` retains its personal GPS/Oura changes and adds the
+confirmed-phone-stillness step guard. Its automated macOS build, payload, manifest, and downloaded
+checksum gates pass; test build 65 on the phone instead.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
 Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
@@ -171,8 +172,12 @@ validator, and downloaded checksum all pass. Superseded `0.9.31` build `64` was 
 run `35376151690` from source `75689dbfd17ccf999231a0bb3d0a92645c62f817`; its SHA-256 is
 `d6434cef15ca6860368afb0b1d3a454f0258a8fc80ade6db8ea35e687c1d362f` and its IPA, manifest, and
 checksum are cached at `../final-ipas/whoop/testing/WHOOP-0.9.31-build64-75689dbf`. It was not
-installed or device-verified and must not be promoted. Current source is `0.9.32+65`; its artifact
-has not yet been built. The accepted-build ledger prevents reuse of `0.9.30+63`.
+installed or device-verified and must not be promoted. Current `0.9.32` build `65` was produced by
+workflow run `35382626928` from source `f25fcbd6b9461b70f964738221bd8ea3b8bee22b`;
+its SHA-256 is `d936d8819aa2290430ec17ff930135a76787896153564509a327f0a76d07feda`.
+The IPA, manifest, and checksum are cached at
+`../final-ipas/whoop/testing/WHOOP-0.9.32-build65-f25fcbd6`; automated validation passes, but it is
+not installed or device-accepted. The accepted-build ledger prevents reuse of `0.9.30+63`.
 
 **A known Sideloadly failure mode, found here first:** its own internal cache of a previously
 installed app's IPA can go missing independent of this file — the first wireless refresh attempt

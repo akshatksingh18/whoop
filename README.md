@@ -13,8 +13,9 @@
 > excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
 > processing/fetch, while retaining the phone app and CoreBluetooth restoration. Build 63 excludes
 > GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Current `0.9.32` build `65`
-> source reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering
-> for wrist step noise; it still needs an IPA build and device pass — see `CLAUDE.md`.
+> reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for
+> wrist step noise. Its macOS build and local artifact validation pass; it still needs the device
+> pass — see `CLAUDE.md`.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
 > This personal monorepo is publicly backed up at

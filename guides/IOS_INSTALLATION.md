@@ -11,8 +11,8 @@ all-day step reconstruction. History-import state, exact installed identity/prof
 pairing, and the remaining physical behavior remain unverified. Akshat reconfirmed that build 63 is
 installed. It excludes GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Current
 `0.9.32` build `65` source enables the route runtime and matching While-In-Use/background capability,
-hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for wrist step noise;
-it still needs a macOS IPA build and device acceptance.
+hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for wrist step noise.
+Its macOS build, payload, manifest, and downloaded checksum gates pass; it still needs device acceptance.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
@@ -83,9 +83,10 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 
 It packages a conventional `Payload/Runner.app`, validates it, and emits a capability/source
 manifest plus SHA-256. The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`. Current source is build 65; produce its IPA before the next
-install-over pass. The cached build-64 artifact passed automated checks but is superseded and must
-not be installed. Keep the accepted build-63 rollback cached on Windows outside Git.
+ID is `com.akshat.personal.whoop`. The validated build-65 candidate is cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6`.
+The cached build-64 artifact passed automated checks but is superseded and must not be installed.
+Keep the accepted build-63 rollback cached on Windows outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
 black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.
 

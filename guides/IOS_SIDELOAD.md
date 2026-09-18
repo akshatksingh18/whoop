@@ -12,19 +12,20 @@ reconstruction. History-import state, installed identity/profile, complete pairi
 physical behavior remain unverified; Windows refresh automation remains unimplemented. Installed
 build 63 excludes GPS. The uninstalled `0.9.31` build `64` artifact is superseded and must not be
 installed. Current `0.9.32` build `65` source enables personal GPS, hides the unsupported Oura
-pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests
-pass, but its IPA has not yet been built. Do not
+pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests,
+macOS build, payload validation, manifest, and downloaded checksum pass. The candidate is cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6`. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
 ### Next build-65 candidate pass
 
-1. Keep `0.9.30 (63)` installed until the build-65 IPA has passed the automated build, payload,
-   manifest, and downloaded-checksum gates. Do not install cached build 64.
+1. Keep `0.9.30 (63)` installed until you are ready for this controlled install-over pass. Do not
+   install cached build 64.
 2. In the running app, use **Profile → Settings → Your data → Export, backup, import → Export an
    encrypted backup**. Save the file somewhere independent of the app and retain its passphrase.
-3. Once downloaded and validated under `final-ipas\whoop\testing\`, select the build-65 unsigned IPA
-   in Sideloadly and install over the existing app with the same Apple Account and bundle ID. Do not
-   uninstall.
+3. In Sideloadly, select
+   `D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6\whoop-personal-f25fcbd6b946-unsigned.ipa`
+   and install over the existing app with the same Apple Account and bundle ID. Do not uninstall.
 4. Confirm **About → Version** shows `0.9.32 (65)`; history, settings, and pairing remain; **This
    phone → Steps** is still enabled and advances plausibly; and no Oura pairing row appears.
 5. Include a phone-stillness check: leave the phone stationary during ordinary wrist/household

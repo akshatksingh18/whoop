@@ -21,13 +21,14 @@ device-capture fixtures from every reachable commit. The pre-rewrite history rem
 private same-machine safety mirrors and must never be pushed to a public remote. Public commits,
 documentation, fixtures, releases, and artifacts must contain synthetic data only.
 
-The sanitized branch ref is verified on GitHub, and the known sensitive commits are no longer
-served by their object IDs. GitHub still serves the pre-rewrite branch tip when its exact object ID
-is supplied, despite that commit being unreachable from every public ref. Treat GitHub Support's
-cached-view/object removal as the remaining erasure step; do not republish the old object ID in
-issues or documentation. The repository has no forks or releases. Its two retained Actions
-artifacts are the reviewed personal IPA builds, not source-history archives; Actions caches contain
-only Flutter/pub dependencies.
+The sanitized branch ref is verified on GitHub, and the known leak-introducing commits are no
+longer served by their object IDs. GitHub still serves some pre-rewrite commits, including the old
+branch tip and accepted build source, when their exact object IDs are supplied despite those
+commits being unreachable from every public ref. Treat GitHub Support's cached-view/object removal
+as the remaining erasure step; do not republish old object IDs in issues or documentation. The
+repository has no forks or releases. All legacy Actions runs and artifacts that pinned old commit
+IDs were deleted after preserving and hashing the accepted IPA locally; current sanitized-history
+CI may remain. Actions caches contain only Flutter/pub dependencies.
 
 The app's `pubspec.yaml` uses tracked local paths for both packages, so a checkout of this one
 repository is self-contained. Do not restore floating Git refs or create a
@@ -149,11 +150,12 @@ remain off. The full upstream source targets stay for reference and possible sou
 Creating a new IPA uses the manual public-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
 minimal phone-only Runner in its ephemeral checkout, builds with
 `flutter build ios --release --no-codesign --dart-define-from-file=.env`, validates the
-conventional IPA payload, and uploads the IPA, capability/source manifest, and SHA-256 as a
+conventional IPA payload, and uploads the IPA, capability/source manifest, and SHA-256 as an
 artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
 material.
 
-The accepted installed artifact is version `0.9.30` build `63`, produced by run `34428183924`; its
+The accepted installed artifact is version `0.9.30` build `63`, originally produced by the now-
+retired personal-sideload workflow run recorded in its local manifest; its
 sanitized-history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`. Its SHA-256 is
 `ff8eb3565ddc97c85163d92b7e1bbafee4ab1e385083b6b99a21f168ef07a5e1`, and the downloaded IPA,
 manifest, and checksum are cached at

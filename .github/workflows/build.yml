@@ -226,7 +226,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk dist/openstrap-edge-${GITHUB_REF_NAME}.apk
           echo "apk=dist/openstrap-edge-${GITHUB_REF_NAME}.apk" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openstrap-edge-apk
           path: ${{ steps.rename.outputs.apk }}
@@ -337,7 +337,7 @@ jobs:
           zip -qr -y "$IPA" Payload
           echo "ipa=openstrap-edge-${GITHUB_REF_NAME}-unsigned.ipa" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: openstrap-edge-ipa
           path: ${{ steps.ipa.outputs.ipa }}

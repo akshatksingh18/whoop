@@ -21,6 +21,14 @@ device-capture fixtures from every reachable commit. The pre-rewrite history rem
 private same-machine safety mirrors and must never be pushed to a public remote. Public commits,
 documentation, fixtures, releases, and artifacts must contain synthetic data only.
 
+The sanitized branch ref is verified on GitHub, and the known sensitive commits are no longer
+served by their object IDs. GitHub still serves the pre-rewrite branch tip when its exact object ID
+is supplied, despite that commit being unreachable from every public ref. Treat GitHub Support's
+cached-view/object removal as the remaining erasure step; do not republish the old object ID in
+issues or documentation. The repository has no forks or releases. Its two retained Actions
+artifacts are the reviewed personal IPA builds, not source-history archives; Actions caches contain
+only Flutter/pub dependencies.
+
 The app's `pubspec.yaml` uses tracked local paths for both packages, so a checkout of this one
 repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the

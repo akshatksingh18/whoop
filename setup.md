@@ -94,9 +94,11 @@ The current imported source baseline is not test-clean:
 The Android release build is validated on Windows. The first personal iOS candidate was built on
 GitHub's macOS runner, signed/installed through Sideloadly, and exposed an AccessorySetupKit
 discovery-descriptor validation abort when **Find my band** was tapped. The bridge fix is now in
-source and replacement `0.9.30` build `63` passed the macOS build/package gates and is installed.
-Its direct iPhone-pedometer path is verified; history migration, exact installed identity/profile
-inspection, Bluetooth pairing, and the remaining runtime behavior still require device verification.
+source and replacement `0.9.30` build `63` passed the macOS build/package gates and was installed.
+It is the last documented installed build, but the version/build currently running on the phone now
+needs an in-app reconfirmation. Its direct iPhone-pedometer path is verified; history migration,
+exact installed identity/profile inspection, Bluetooth pairing, and the remaining runtime behavior
+still require device verification.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -122,7 +124,10 @@ The accepted daily-use target is now Akshat's iPhone through a standard unsigned
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
 manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and
 is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (not in Downloads — see
-`D:\AI Important Files\personal-project\final-ipas\README.md`); it is installed on the iPhone.
+`D:\AI Important Files\personal-project\final-ipas\README.md`); it is the accepted rollback and last
+documented installed build. Candidate `0.9.31` build `64` passed the automated macOS build, payload,
+manifest, and downloaded-checksum gates and is cached under `whoop\testing\` pending install-over and
+physical-device verification.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
 Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
@@ -142,9 +147,10 @@ owned by `../akshatos/`; consult its build guide for implementation and device e
 The personal artifact must preserve the root phone app, local database/analytics, local
 notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
 drain invariants. Installed build 63 excludes the Watch companion, widget/Live Activity extension,
-App Groups, HealthKit, GPS, and background processing/fetch. Current source for unbuilt build 64
-reopens GPS with While-In-Use authorization and the location background mode while retaining all
-other exclusions. Required telemetry, health-data contribution, backend, and OTA dependencies
+App Groups, HealthKit, GPS, and background processing/fetch. Candidate build 64 reopens GPS with
+While-In-Use authorization and the location background mode while retaining all other exclusions;
+its packaged capability manifest passed automated validation, but its route behavior still needs the
+phone pass. Required telemetry, health-data contribution, backend, and OTA dependencies
 remain off. The full upstream source targets stay for reference and possible source-signed builds.
 
 Creating a new IPA uses the manual public-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
@@ -162,8 +168,12 @@ manifest, and checksum are cached at
 `../final-ipas/whoop/backup/WHOOP-0.9.30-build63-accepted` — the stable release cache outside
 Downloads, excluded from the OneDrive backup archive the same way every `personal-project/`
 subfolder is; `../final-ipas/README.md` owns the backup/testing model. The macOS workflow, local
-validator, and downloaded checksum all pass. Current source is `0.9.31` build `64`; it has not been
-built, installed, or device-verified. The accepted-build ledger prevents reuse of `0.9.30+63`.
+validator, and downloaded checksum all pass. Candidate `0.9.31` build `64` was produced by workflow
+run `35376151690` from source `75689dbfd17ccf999231a0bb3d0a92645c62f817`; its SHA-256 is
+`d6434cef15ca6860368afb0b1d3a454f0258a8fc80ade6db8ea35e687c1d362f` and its IPA, manifest, and
+checksum are cached at `../final-ipas/whoop/testing/WHOOP-0.9.31-build64-75689dbf`. It has not been
+installed or device-verified and is not accepted. The accepted-build ledger prevents reuse of
+`0.9.30+63`.
 
 **A known Sideloadly failure mode, found here first:** its own internal cache of a previously
 installed app's IPA can go missing independent of this file — the first wireless refresh attempt

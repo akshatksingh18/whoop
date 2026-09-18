@@ -9,8 +9,9 @@ Apple Health aggregate. Device testing verified the direct iPhone-pedometer impo
 for normal iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest
 all-day step reconstruction. History-import state, exact installed identity/profile, complete
 pairing, and the remaining physical behavior remain unverified. Installed build 63 excludes GPS;
-current unbuilt `0.9.31` build `64` source enables the route runtime and declares the matching
-While-In-Use/background capability, but is not yet an accepted artifact.
+candidate `0.9.31` build `64` enables the route runtime and declares the matching
+While-In-Use/background capability. Its macOS build, payload validation, manifest, and downloaded
+checksum pass, but it is not installed or device-accepted.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
@@ -81,9 +82,10 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 
 It packages a conventional `Payload/Runner.app`, validates it, and emits a capability/source
 manifest plus SHA-256. The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`. Sideloadly installation succeeded, but inspect the installed
-identity/profile to confirm that exact ID was preserved. Cache the accepted unsigned IPA and previous known-good artifact on Windows
-outside Git.
+ID is `com.akshat.personal.whoop`. The current build-64 candidate is cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.31-build64-75689dbf`;
+its automated checks pass, but inspect the installed version, identity/profile, and runtime behavior
+before promotion. Keep the accepted build-63 rollback cached on Windows outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
 black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.
 

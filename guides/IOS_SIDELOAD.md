@@ -11,8 +11,30 @@ iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for
 reconstruction. History-import state, installed identity/profile, complete pairing, and the remaining
 physical behavior remain unverified; Windows refresh automation remains unimplemented. Installed
 build 63 excludes GPS. Current `0.9.31` build `64` source enables personal GPS and hides the
-unsupported Oura pairing row, but no build-64 IPA has been produced or accepted. Do not
+unsupported Oura pairing row. Its IPA passed automated macOS build, payload, manifest, and local
+checksum validation and is cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.31-build64-75689dbf`,
+but it has not been installed or accepted. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
+
+### Current build-64 candidate pass
+
+1. Before changing the install, open **WHOOP → Profile → Settings → About → Version** and record the
+   displayed `version (build)`; the last documented installed value is `0.9.30 (63)`, but the phone
+   must decide the current fact.
+2. In the running app, use **Profile → Settings → Your data → Export, backup, import → Export an
+   encrypted backup**. Save the file somewhere independent of the app and retain its passphrase.
+3. In Sideloadly, select
+   `D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.31-build64-75689dbf\whoop-personal-75689dbfd17c-unsigned.ipa`
+   and install over the existing app with the same Apple Account and bundle ID. Do not uninstall.
+4. Confirm **About → Version** shows `0.9.31 (64)`; history, settings, and pairing remain; **This
+   phone → Steps** is still enabled and advances plausibly; and no Oura pairing row appears.
+5. Record a short outdoor walk/run: grant While Using location, verify the route continues while the
+   phone is locked/backgrounded, stop it, relaunch, and inspect the saved route. Also confirm the band
+   reconnects and drains normally.
+6. Leave the candidate in `testing\` until all checks pass. If the upgrade fails, reinstall the
+   accepted build-63 IPA from `whoop\backup\` over the app with the same identity; do not delete the
+   app container.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that

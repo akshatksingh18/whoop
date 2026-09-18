@@ -14,12 +14,16 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification — accepted personal IPA `0.9.30` build `63`, whose sanitized-
-history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`, remains installed.
+**Status:** Active iPhone verification — personal IPA `0.9.30` build `63`, whose sanitized-history
+source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`, remains the accepted rollback
+and last documented installed build; the exact version/build currently running on the phone needs
+an in-app reconfirmation.
 The initial roughly-6,000-versus-200 step mismatch was the disabled **This phone → Steps** setting;
 enabling it verified that the direct `CMPedometer` path imports iPhone steps. The profile still
-deliberately excludes the Apple Health aggregate. Current source is the unbuilt `0.9.31` build `64`
-candidate: its personal GPS runtime path is enabled and its unsupported Oura pairing row is hidden.
+deliberately excludes the Apple Health aggregate. The `0.9.31` build `64` candidate from source
+`75689dbfd17ccf999231a0bb3d0a92645c62f817` passed the macOS workflow, payload validator, and
+downloaded SHA-256 check and is cached under `../final-ipas/whoop/testing/`; it is not installed or
+device-accepted. Its personal GPS runtime path is enabled and its unsupported Oura pairing row is hidden.
 Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data is too
 low-rate for honest all-day step reconstruction. Background/recovery, GPS, and other device gates
 remain before daily use. Android development is out of scope.
@@ -69,7 +73,8 @@ remain before daily use. Android development is out of scope.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; the
-  replacement `0.9.30`/63 artifact is installed; enabling **This phone → Steps** verified its direct
+  replacement `0.9.30`/63 artifact is the last documented installed build, though the phone's exact
+  current version/build needs reconfirmation. Enabling **This phone → Steps** verified its direct
   iPhone-pedometer import. Apple Health’s aggregate is deliberately not read. History migration,
   installed identity, complete sync/recovery, background behavior, and refresh remain unverified.
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
@@ -85,8 +90,10 @@ migration is required by this decision. Seven-day profiles and the refresh/recov
 Akshat has activated iPhone implementation. The personal flavor exists in source, its first
 macOS-built candidate was installed and exposed the malformed AccessorySetupKit descriptor crash.
 The bridge is now fixed and replacement `0.9.30`/63 passed automated macOS payload/hash validation;
-the IPA is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location) and installed
-through Sideloadly. Daily-use activation still requires
+the accepted rollback is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\`
+(`setup.md` owns the location) and was installed through Sideloadly. Candidate `0.9.31`/64 passed
+automated build, payload, and checksum validation and is cached under `testing\`, but has not had its
+install-over or physical-device pass. Daily-use activation still requires
 confirming history import, exact identity/profile, pairing, sync, recovery, and the other
 physical-device evidence below.
 

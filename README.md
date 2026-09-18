@@ -3,15 +3,17 @@
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced accepted `0.9.30` build `63`,
-> which passed macOS/package validation after the AccessorySetupKit bridge fix and is installed via
-> Sideloadly. It does not import Apple Health’s aggregate: the minimal personal profile excludes
+> which passed macOS/package validation after the AccessorySetupKit bridge fix and is the last
+> documented installed build; confirm the exact current phone version in the app. It does not import
+> Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
 > enabling **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone
 > steps enabled for normal iPhone-carried use: WHOOP 4 band-only historical data is too low-rate for
 > honest all-day step reconstruction. The personal profile
 > excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
-> processing/fetch, while retaining the phone app and CoreBluetooth restoration. Installed build
-> 63 excludes GPS; current unbuilt `0.9.31` build `64` source reopens it — see `CLAUDE.md`.
+> processing/fetch, while retaining the phone app and CoreBluetooth restoration. Build 63 excludes
+> GPS. Candidate `0.9.31` build `64` reopens it and has passed automated macOS build, payload, and
+> checksum validation, but is not installed or device-accepted — see `CLAUDE.md`.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
 > This personal monorepo is publicly backed up at

@@ -207,10 +207,12 @@ The personal build selects the supplied black-and-white circular logo from
 their existing icon catalog.
 
 Windows is partly ready already: iTunes 12.13.10.3 and Apple Mobile Device Support 19.4.0.10 are
-installed, the Apple Mobile Device Service is automatic/running, and the Sideloadly daemon is
-running from `C:\Users\aksha\AppData\Local\Sideloadly`. The installed Sideloadly version and
-Local Anisette configuration are not yet verified, and no iPhone was detected during the readiness
-check. These facts are setup inventory, not proof of an install or refresh.
+installed, the Apple Mobile Device Service is automatic/running, and the Sideloadly daemon runs
+from `C:\Users\aksha\AppData\Local\Sideloadly`. Apple Bonjour 2.0.2 is also installed as an
+automatic running service; its signed installer added the UDP 5353 firewall rules, and a local
+`_apple-mobdev2._tcp` browse detects the iPhone over Wi-Fi. The installed Sideloadly version and
+Local Anisette configuration are not yet verified, and Bonjour discovery alone is not proof of an
+actual wireless refresh.
 
 See `guides/IOS_INSTALLATION.md` for the personal-versus-full build boundary and
 `guides/IOS_SIDELOAD.md` for the accepted Windows install/refresh/recovery workflow. `CLAUDE.md`

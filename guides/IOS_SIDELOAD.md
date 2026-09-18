@@ -102,7 +102,8 @@ For migration from an existing Android installation, preserve this order:
    history and a fresh encrypted iPhone backup have both been verified.
 
 1. On Windows, connect the iPhone over USB, trust the computer, enable iOS Developer Mode, and use
-   iTunes to enable **Sync with this iPhone over Wi-Fi**.
+   iTunes to enable **Sync with this iPhone over Wi-Fi**. Keep Apple's Bonjour service installed,
+   automatic, and running; Sideloadly's Windows Wi-Fi path depends on Apple mobile-device discovery.
 2. Open Sideloadly, select the accepted personal IPA and iPhone, choose Local Anisette, and enter the
    permanent custom bundle ID exactly as recorded. Disable tweak/dylib injection and identity
    randomization.
@@ -128,7 +129,10 @@ For migration from an existing Android installation, preserve this order:
 - Raise a persistent Windows alert at the three-day threshold, escalate by two days, and require USB
   recovery inside the final day. Test every alert and one failed-network retry.
 - Wi-Fi discovery may occasionally need iTunes open, the iPhone screen on, current Apple Windows
-  components, or re-pairing. USB is the deterministic recovery route.
+  components, or re-pairing. If USB works but Wi-Fi does not, verify **Bonjour Service** is running
+  and that UDP 5353 rules exist before changing broader firewall settings. A short
+  `dns-sd -B _apple-mobdev2._tcp local.` browse can distinguish Apple discovery from a Sideloadly
+  UI/daemon problem. USB is the deterministic recovery route.
 - After Sideloadly, Apple-device-component, or iOS updates, prove one Wi-Fi and one USB refresh again
   before trusting unattended operation.
 

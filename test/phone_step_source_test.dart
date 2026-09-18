@@ -42,83 +42,98 @@ void main() {
 
   test('phone WINS outright when present — the two are never added', () async {
     await LocalDb.addLiveCoverage(1000, 1600, 120, day); // wrist
-    await LocalDb.replacePhoneCoverageForDay(
-      day,
-      [(startTs: 1000, endTs: 4600, steps: 350)],
-    );
+    await LocalDb.replacePhoneCoverageForDay(day, [
+      (startTs: 1000, endTs: 4600, steps: 350),
+    ]);
     // NOT 470. The phone measured the same walking from a better place.
     expect(await LocalDb.liveStepsForDay(day), 350);
   });
 
-  test('phone sync is idempotent — re-syncing a day never accumulates',
-      () async {
-    for (var i = 0; i < 3; i++) {
-      await LocalDb.replacePhoneCoverageForDay(
-        day,
-        [
+  test(
+    'phone sync is idempotent — re-syncing a day never accumulates',
+    () async {
+      for (var i = 0; i < 3; i++) {
+        await LocalDb.replacePhoneCoverageForDay(day, [
           (startTs: 1000, endTs: 4600, steps: 350),
           (startTs: 4600, endTs: 8200, steps: 120),
-        ],
-      );
-    }
-    expect(await LocalDb.liveStepsForDay(day), 470);
-  });
+        ]);
+      }
+      expect(await LocalDb.liveStepsForDay(day), 470);
+    },
+  );
 
-  test('a later sync REPLACES an earlier partial one rather than adding',
-      () async {
-    await LocalDb.replacePhoneCoverageForDay(
-      day,
-      [(startTs: 1000, endTs: 4600, steps: 100)],
-    );
-    // The day filled in; the same hour now reads higher.
-    await LocalDb.replacePhoneCoverageForDay(
-      day,
-      [(startTs: 1000, endTs: 4600, steps: 900)],
-    );
-    expect(await LocalDb.liveStepsForDay(day), 900);
-  });
+  test(
+    'a later sync REPLACES an earlier partial one rather than adding',
+    () async {
+      await LocalDb.replacePhoneCoverageForDay(day, [
+        (startTs: 1000, endTs: 4600, steps: 100),
+      ]);
+      // The day filled in; the same hour now reads higher.
+      await LocalDb.replacePhoneCoverageForDay(day, [
+        (startTs: 1000, endTs: 4600, steps: 900),
+      ]);
+      expect(await LocalDb.liveStepsForDay(day), 900);
+    },
+  );
 
-  test('phone replace is scoped to its day and never touches band rows',
-      () async {
-    await LocalDb.addLiveCoverage(1000, 1600, 55, otherDay);
-    await LocalDb.replacePhoneCoverageForDay(
-      otherDay,
-      [(startTs: 1000, endTs: 4600, steps: 700)],
-    );
-    await LocalDb.replacePhoneCoverageForDay(day, const []);
+  test(
+    'phone replace is scoped to its day and never touches band rows',
+    () async {
+      await LocalDb.addLiveCoverage(1000, 1600, 55, otherDay);
+      await LocalDb.replacePhoneCoverageForDay(otherDay, [
+        (startTs: 1000, endTs: 4600, steps: 700),
+      ]);
+      await LocalDb.replacePhoneCoverageForDay(day, const []);
 
-    // Clearing today's phone rows must not disturb yesterday.
-    expect(await LocalDb.liveStepsForDay(otherDay), 700);
-    // And with today's phone rows gone, the band fallback returns.
-    await LocalDb.addLiveCoverage(9000, 9600, 42, day);
-    expect(await LocalDb.liveStepsForDay(day), 42);
-  });
+      // Clearing today's phone rows must not disturb yesterday.
+      expect(await LocalDb.liveStepsForDay(otherDay), 700);
+      // And with today's phone rows gone, the band fallback returns.
+      await LocalDb.addLiveCoverage(9000, 9600, 42, day);
+      expect(await LocalDb.liveStepsForDay(day), 42);
+    },
+  );
 
-  test('an empty phone sync leaves the day with no steps, not a zero row',
-      () async {
-    await LocalDb.replacePhoneCoverageForDay(day, const []);
-    expect(await LocalDb.liveStepsForDay(day), 0);
-  });
+  test(
+    'an empty phone sync leaves the day with no steps, not a zero row',
+    () async {
+      await LocalDb.replacePhoneCoverageForDay(day, const []);
+      expect(await LocalDb.liveStepsForDay(day), 0);
+    },
+  );
 
-  test('zero/negative/inverted phone windows are dropped, not stored',
-      () async {
-    await LocalDb.replacePhoneCoverageForDay(
-      day,
-      [
-        (startTs: 1000, endTs: 4600, steps: 0), // no steps that hour
-        (startTs: 5000, endTs: 4000, steps: 50), // inverted
-        (startTs: 6000, endTs: 9600, steps: 75), // the only real one
-      ],
-    );
+  test('zero phone windows are stored as confirmed-still evidence', () async {
+    await LocalDb.replacePhoneCoverageForDay(day, [
+      (startTs: 1000, endTs: 4600, steps: 0), // confirmed motionless hour
+      (startTs: 5000, endTs: 4000, steps: 50), // inverted
+      (startTs: 6000, endTs: 9600, steps: 75), // the only real one
+    ]);
     expect(await LocalDb.liveStepsForDay(day), 75);
+    final db = await LocalDb.instance;
+    final zeroRows = await db.query(
+      'live_coverage',
+      where: 'day = ? AND source = ? AND steps = 0',
+      whereArgs: [day, LocalDb.kStepSourcePhone],
+    );
+    expect(zeroRows, hasLength(1));
+    expect(zeroRows.single['start_ts'], 1000);
+    expect(zeroRows.single['end_ts'], 4600);
+    final allPhoneRows = await db.query(
+      'live_coverage',
+      where: 'day = ? AND source = ?',
+      whereArgs: [day, LocalDb.kStepSourcePhone],
+    );
+    expect(
+      allPhoneRows,
+      hasLength(2),
+      reason: 'the inverted window is still rejected',
+    );
   });
 
   test('clearing phone coverage falls back to the band, not to zero', () async {
     await LocalDb.addLiveCoverage(1000, 1600, 64, day); // band
-    await LocalDb.replacePhoneCoverageForDay(
-      day,
-      [(startTs: 1000, endTs: 4600, steps: 900)],
-    );
+    await LocalDb.replacePhoneCoverageForDay(day, [
+      (startTs: 1000, endTs: 4600, steps: 900),
+    ]);
     expect(await LocalDb.liveStepsForDay(day), 900, reason: 'phone preferred');
 
     // User turns phone steps off: the phone rows must go, or they would keep
@@ -142,12 +157,14 @@ void main() {
         options: OpenDatabaseOptions(
           version: 26,
           onCreate: (db, _) async {
-            await db.execute('CREATE TABLE live_coverage ('
-                'id INTEGER PRIMARY KEY AUTOINCREMENT,'
-                'start_ts INTEGER NOT NULL,'
-                'end_ts INTEGER NOT NULL,'
-                'steps INTEGER NOT NULL,'
-                'day TEXT NOT NULL)');
+            await db.execute(
+              'CREATE TABLE live_coverage ('
+              'id INTEGER PRIMARY KEY AUTOINCREMENT,'
+              'start_ts INTEGER NOT NULL,'
+              'end_ts INTEGER NOT NULL,'
+              'steps INTEGER NOT NULL,'
+              'day TEXT NOT NULL)',
+            );
           },
         ),
       );
@@ -164,16 +181,21 @@ void main() {
       await seedV26();
 
       // Reopening through LocalDb runs the real migration ladder.
-      expect(await LocalDb.liveStepsForDay(day), 137,
-          reason: 'the legacy row must still count after upgrading');
+      expect(
+        await LocalDb.liveStepsForDay(day),
+        137,
+        reason: 'the legacy row must still count after upgrading',
+      );
 
       // ...and it must be BAND, so a phone sync can still take precedence.
-      await LocalDb.replacePhoneCoverageForDay(
-        day,
-        [(startTs: 1000, endTs: 4600, steps: 900)],
+      await LocalDb.replacePhoneCoverageForDay(day, [
+        (startTs: 1000, endTs: 4600, steps: 900),
+      ]);
+      expect(
+        await LocalDb.liveStepsForDay(day),
+        900,
+        reason: 'legacy rows defaulting to phone would block this override',
       );
-      expect(await LocalDb.liveStepsForDay(day), 900,
-          reason: 'legacy rows defaulting to phone would block this override');
 
       // Dropping the phone rows reveals the legacy band row again — proof it
       // was never silently relabelled.

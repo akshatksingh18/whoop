@@ -3,8 +3,8 @@
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced accepted `0.9.30` build `63`,
-> which passed macOS/package validation after the AccessorySetupKit bridge fix and is the last
-> documented installed build; confirm the exact current phone version in the app. It does not import
+> which passed macOS/package validation after the AccessorySetupKit bridge fix; Akshat confirmed it
+> is the version currently installed. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
 > enabling **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone
@@ -12,8 +12,9 @@
 > honest all-day step reconstruction. The personal profile
 > excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
 > processing/fetch, while retaining the phone app and CoreBluetooth restoration. Build 63 excludes
-> GPS. Candidate `0.9.31` build `64` reopens it and has passed automated macOS build, payload, and
-> checksum validation, but is not installed or device-accepted — see `CLAUDE.md`.
+> GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Current `0.9.32` build `65`
+> source reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering
+> for wrist step noise; it still needs an IPA build and device pass — see `CLAUDE.md`.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
 > This personal monorepo is publicly backed up at
@@ -158,7 +159,7 @@ spot-check, real-time breathing coherence.
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate zones.
 Current personal-build source keeps GPS route capture — reopened on Akshat's decision since he runs
 — with While-In-Use permission only, never Always. That path is not present in installed build 63
-and still needs a build-64 device pass; see `CLAUDE.md`.
+and still needs a build-65 device pass; see `CLAUDE.md`.
 
 **Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
 Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.

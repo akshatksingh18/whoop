@@ -207,12 +207,20 @@ class PhonePedometer {
         // capped short — under-reporting today's most recent steps until some
         // later sync happened to re-read the day.
         final now = DateTime.now();
-        final from = DateTime(dayStartLocal.year, dayStartLocal.month,
-            dayStartLocal.day, h);
+        final from = DateTime(
+          dayStartLocal.year,
+          dayStartLocal.month,
+          dayStartLocal.day,
+          h,
+        );
         if (!from.isBefore(nextMidnight)) break; // spring-forward short day
         if (from.isAfter(now)) break; // future hours of today
-        var to = DateTime(dayStartLocal.year, dayStartLocal.month,
-            dayStartLocal.day, h + 1);
+        var to = DateTime(
+          dayStartLocal.year,
+          dayStartLocal.month,
+          dayStartLocal.day,
+          h + 1,
+        );
         if (to.isAfter(nextMidnight)) to = nextMidnight;
         final capped = to.isAfter(now) ? now : to;
         // SKIP a zero-length bucket, never END the walk on one. On a
@@ -237,7 +245,11 @@ class PhonePedometer {
         // that is entirely uncovered still comes back "unknown" below.
         if (n == intervalNotCovered) continue;
         anyRead = true;
-        if (n <= 0) continue;
+        if (n < 0) continue;
+        // A confirmed zero is useful evidence: it lets resolveDaySteps veto a
+        // low-density wrist false-positive over the same hour. Dropping zero
+        // hours here made WHOOP 4 passive arm motion additive to the phone's
+        // real total whenever the phone had correctly observed no steps.
         windows.add((
           startTs: from.millisecondsSinceEpoch ~/ 1000,
           endTs: capped.millisecondsSinceEpoch ~/ 1000,
@@ -267,8 +279,10 @@ class PhonePedometer {
       // report: this day was NOT confirmed, so it must not count toward
       // `daysRead` in the diagnostic the Profile screen shows.
       if (total == 0 && await LocalDb.phoneStepsForDay(dayId) > 0) {
-        debugPrint('[phone_pedometer] $dayId read all-zero over a day that '
-            'already holds phone steps — keeping the banked day');
+        debugPrint(
+          '[phone_pedometer] $dayId read all-zero over a day that '
+          'already holds phone steps — keeping the banked day',
+        );
         return null;
       }
 

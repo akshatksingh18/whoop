@@ -1193,7 +1193,6 @@ class LocalDb {
   static Future<void> _ensureBeatTimeColumn(Database db) =>
       _addColumnIfMissing(db, 'decoded_rr', 'beat_ts_ms', 'INTEGER');
 
-
   /// v46: retire what v34 banked into `on_wrist` / `hr_valid`, and any
   /// `skin_temp_c` that is really the sensor's unavailable sentinel.
   ///
@@ -1673,14 +1672,7 @@ class LocalDb {
       '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
       'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
-      [
-        if (!blankAdapter) adapterId,
-        remoteId,
-        label,
-        tier,
-        now,
-        id,
-      ],
+      [if (!blankAdapter) adapterId, remoteId, label, tier, now, id],
     );
   }
 
@@ -1885,11 +1877,7 @@ class LocalDb {
     int limit = 200,
   }) async {
     final db = await instance;
-    return db.query(
-      'imported_workout',
-      orderBy: 'start_ts DESC',
-      limit: limit,
-    );
+    return db.query('imported_workout', orderBy: 'start_ts DESC', limit: limit);
   }
 
   /// Drop one imported workout AND its route. `deleteSession` cannot do this —
@@ -2085,6 +2073,11 @@ class LocalDb {
   /// same day can be synced repeatedly as it fills in. So the phone sync is
   /// delete-then-insert scoped to `source = 'phone'`, which is idempotent by
   /// construction and needs no window-clipping. Band rows are untouched.
+  ///
+  /// A `steps == 0` window is stored deliberately: it is the phone confirming
+  /// that it saw no motion over that hour. `resolveDaySteps` uses that evidence
+  /// to veto a low-density wrist false-positive over the same window. Only a
+  /// negative count or an inverted window is dropped.
   static Future<void> replacePhoneCoverageForDay(
     String day,
     List<({int startTs, int endTs, int steps})> windows,
@@ -2097,7 +2090,7 @@ class LocalDb {
         whereArgs: [day, kStepSourcePhone],
       );
       for (final w in windows) {
-        if (w.steps <= 0 || w.endTs <= w.startTs) continue;
+        if (w.steps < 0 || w.endTs <= w.startTs) continue;
         await txn.insert('live_coverage', {
           'start_ts': w.startTs,
           'end_ts': w.endTs,
@@ -2582,7 +2575,9 @@ class LocalDb {
         checkpoint('decoded_archive_committed');
         await setCursor('counter_hw', '$maxCounter', txn: txn);
         await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
-        if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
+        if (trimToken != null) {
+          await setCursor('strap_trim', trimToken, txn: txn);
+        }
         if (extraCursors != null) {
           for (final e in extraCursors.entries) {
             await setCursor(e.key, e.value, txn: txn);
@@ -4105,12 +4100,14 @@ class LocalDb {
     List<String> prepend = const [],
     List<String>? primaryKey,
   }) {
-    final own = [
-      for (final c in info)
-        if ((((c['pk'] as num?)?.toInt()) ?? 0) > 0) c,
-    ]..sort(
-        (a, b) => ((a['pk'] as num).toInt()).compareTo((b['pk'] as num).toInt()),
-      );
+    final own =
+        [
+          for (final c in info)
+            if ((((c['pk'] as num?)?.toInt()) ?? 0) > 0) c,
+        ]..sort(
+          (a, b) =>
+              ((a['pk'] as num).toInt()).compareTo((b['pk'] as num).toInt()),
+        );
     final key = primaryKey ?? [for (final c in own) c['name'] as String];
     final inline = key.length == 1 ? key.first : null;
     final defs = <String>[...prepend];
@@ -4183,14 +4180,7 @@ class LocalDb {
     final tmp = '_${table}_v47';
     await db.execute('DROP TABLE IF EXISTS $tmp');
     await db.execute(
-      'CREATE TABLE $tmp (${_rebuildDdlBody(
-        info,
-        prepend: const [
-          "device_id TEXT NOT NULL DEFAULT ''",
-          'ts_ms INTEGER NOT NULL DEFAULT 0',
-        ],
-        primaryKey: ['device_id', 'ts_ms', ...keyTail],
-      )})',
+      'CREATE TABLE $tmp (${_rebuildDdlBody(info, prepend: const ["device_id TEXT NOT NULL DEFAULT ''", 'ts_ms INTEGER NOT NULL DEFAULT 0'], primaryKey: ['device_id', 'ts_ms', ...keyTail])})',
     );
     final cols = names.join(', ');
     // COALESCE because a declared PRIMARY KEY on a legacy rowid table does NOT
@@ -4734,7 +4724,6 @@ class LocalDb {
     return (rawRecTs != null && rawRecTs > 0) ? rawRecTs : decoded.tsEpoch;
   }
 
-
   /// Replaces this second's RR beats. Returns the ops queued.
   ///
   /// Clear the second before reinserting so a SHRINKING beat count can't strand
@@ -5004,7 +4993,9 @@ class LocalDb {
   /// retention edge anyway, so the cap is a backstop and not the normal case.
   /// INSERT OR IGNORE, so it can never overwrite a row the live writer already
   /// wrote.
-  static Future<void> _backfillBandBatteryFromEvents(DatabaseExecutor db) async {
+  static Future<void> _backfillBandBatteryFromEvents(
+    DatabaseExecutor db,
+  ) async {
     // A DB whose ladder has not created these yet (or is mid-ladder) must
     // NO-OP rather than throw. `redriveArchivedRecords` guards the same way and
     // for the same reason: a throw in here rolls the WHOLE upgrade back and
@@ -5406,8 +5397,10 @@ class LocalDb {
     // the oldV<44 ladder step, where `decoded_onehz` is still keyed by rec_ts
     // alone and naming `device_id` would throw inside onUpgrade (quarantining
     // the database), and from the app/tests on a re-keyed table. One PRAGMA.
-    final preDeviceKey =
-        !(await _columnsOf(db, 'decoded_onehz')).contains('device_id');
+    final preDeviceKey = !(await _columnsOf(
+      db,
+      'decoded_onehz',
+    )).contains('device_id');
 
     final marks = List.filled(redrivableArchiveReasons.length, '?').join(',');
     // Paged on `hex`, which is the table's PRIMARY KEY — a stable, total order
@@ -5472,12 +5465,7 @@ class LocalDb {
         // `sample` is handed back as `preferred` so the hex is decoded once,
         // not twice; `_queueDecodedOneHz` returns it straight back out.
         // `deviceFamily` is deliberately omitted — see the doc comment.
-        if (_queueDecodedOneHz(
-              batch,
-              raw,
-              sample,
-              preDeviceKey: preDeviceKey,
-            ) >
+        if (_queueDecodedOneHz(batch, raw, sample, preDeviceKey: preDeviceKey) >
             0) {
           queued++;
           recovered++;
@@ -7805,7 +7793,8 @@ class LocalDb {
     final db = await instance;
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL'
+      where:
+          'key = ? AND value IS NOT NULL'
           '${measuredOnly ? ' AND date NOT IN ($_importedDatesSql)' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',

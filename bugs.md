@@ -89,6 +89,12 @@ historical wrist stream is too low-rate for honest step reconstruction. Keep pho
 normal iPhone-carried use. If steps without the iPhone are later required, first prove that the WHOOP
 protocol exposes a trustworthy on-band counter; do not fabricate one from 1 Hz historical data.
 
+**Current source fix (`0.9.32` build `65`):** zero-step `CMPedometer` windows are now retained as
+confirmed-still evidence. When a low-density wrist span overlaps such a phone window, the resolver
+voids only that overlap; real gait-density spans survive, and partial overlaps keep their uncovered
+share. The focused database/source-ladder tests pass. This behavior is not in installed build 63 and
+still requires the build-65 IPA/device pass.
+
 The secondary-sensor screen provides a separate observation, not a WHOOP-pairing fallback. After
 skipping onboarding, **Settings → My Device → Add a Sensor → Bluetooth Heart Rate Sensor** reports
 “The phone’s radio is off…”. That screen is for a standard Bluetooth heart-rate chest strap, not the

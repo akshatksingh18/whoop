@@ -99,8 +99,8 @@ LiveCoverageWindow? deriveLiveCoverageWindow({
   final int? anchor = (bandStartTs != null && bandStartTs > 0)
       ? bandStartTs
       : (firstIngestMs != null && firstIngestMs > 0
-          ? firstIngestMs ~/ 1000
-          : null);
+            ? firstIngestMs ~/ 1000
+            : null);
   // Steps with no timestamp at all from either clock: we cannot place the
   // window on any timeline, and a misplaced window would exclude the WRONG
   // minutes. Drop it rather than invent a position.
@@ -179,6 +179,63 @@ LiveCoverageWindow? deriveLiveCoverageWindow({
 /// somewhere else on this axis.
 const double kBandSpanMinSpm = 10.0;
 
+/// A band span below this density is treated as wrist noise when it overlaps
+/// an hour the phone explicitly confirmed at zero steps. The floor is above
+/// the documented 22-27 false steps/min seen during chores/driving and below
+/// ordinary walking cadence, so a real walk with the phone left behind stays.
+const double kConfirmedStillMinSpm = 40.0;
+
+/// Remove only the portion of a low-density band span that overlaps a
+/// confirmed-zero phone window. Phone rows are never modified.
+List<CoverageSpan> _vetoAgainstConfirmedStill(List<CoverageSpan> rows) {
+  final stillWindows = [
+    for (final r in rows)
+      if (!r.fromBand && r.steps == 0 && r.endTs > r.startTs) r,
+  ];
+  if (stillWindows.isEmpty) return rows;
+
+  // ponytail: phone coverage is written as non-overlapping hourly windows, so
+  // a direct overlap sum is simpler than a merge pass. Merge first if that
+  // storage contract ever changes.
+  final out = <CoverageSpan>[];
+  for (final r in rows) {
+    if (!r.fromBand || r.steps <= 0 || r.endTs <= r.startTs) {
+      out.add(r);
+      continue;
+    }
+    final dur = r.endTs - r.startTs;
+    final spm = r.steps * 60 / dur;
+    if (spm >= kConfirmedStillMinSpm) {
+      out.add(r);
+      continue;
+    }
+    var voidedSec = 0;
+    for (final z in stillWindows) {
+      final lo = math.max(r.startTs, z.startTs);
+      final hi = math.min(r.endTs, z.endTs);
+      if (hi > lo) voidedSec += hi - lo;
+    }
+    if (voidedSec <= 0) {
+      out.add(r);
+      continue;
+    }
+    final keptSec = math.max(0, dur - voidedSec);
+    if (keptSec <= 0) continue;
+    final keptSteps = (r.steps * keptSec / dur).round();
+    if (keptSteps <= 0) continue;
+    out.add(
+      CoverageSpan(
+        startTs: r.startTs,
+        endTs: r.endTs,
+        steps: keptSteps,
+        fromBand: true,
+        deviceId: r.deviceId,
+      ),
+    );
+  }
+  return out;
+}
+
 /// One `live_coverage` row, as the resolver sees it.
 class CoverageSpan {
   const CoverageSpan({
@@ -245,8 +302,14 @@ class ResolvedDaySteps {
 }
 
 class _Ranked {
-  _Ranked(this.startTs, this.endTs, this.steps, this.rank, this.fromBand,
-      this.deviceId);
+  _Ranked(
+    this.startTs,
+    this.endTs,
+    this.steps,
+    this.rank,
+    this.fromBand,
+    this.deviceId,
+  );
   final int startTs, endTs, rank;
   final double steps;
   final bool fromBand;
@@ -266,7 +329,7 @@ class _Ranked {
 // ever carries thousands, sort by start and sweep instead.
 ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
   final spans = <_Ranked>[];
-  for (final r in rows) {
+  for (final r in _vetoAgainstConfirmedStill(rows.toList())) {
     // Legacy zero-width rows are real counts with a lost extent; repair them
     // the same way the writer does rather than dropping a measurement.
     final w = sanitizeCoverageWindow(r.startTs, r.endTs, r.steps);
@@ -275,8 +338,14 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
     // 2 = band that looks like gait, 1 = phone, 0 = band that does not.
     final rank = r.fromBand ? (spm >= kBandSpanMinSpm ? 2 : 0) : 1;
     spans.add(
-      _Ranked(w.startTs, w.endTs, r.steps.toDouble(), rank, r.fromBand,
-          r.deviceId),
+      _Ranked(
+        w.startTs,
+        w.endTs,
+        r.steps.toDouble(),
+        rank,
+        r.fromBand,
+        r.deviceId,
+      ),
     );
   }
   // Rank first, then start time — `List.sort` is NOT stable in Dart, and once
@@ -361,6 +430,8 @@ LiveCoverageWindow? sanitizeCoverageWindow(int startTs, int endTs, int steps) {
   if (steps <= 0) return null;
   if (endTs < startTs) return null;
   final minS = math.max(1, minCoverageSecondsForSteps(steps));
-  if (endTs - startTs < minS) return LiveCoverageWindow(startTs, startTs + minS);
+  if (endTs - startTs < minS) {
+    return LiveCoverageWindow(startTs, startTs + minS);
+  }
   return LiveCoverageWindow(startTs, endTs);
 }

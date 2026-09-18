@@ -3,36 +3,36 @@
 **State:** The matching minimal build profile and public-repository macOS workflow produced and
 verified accepted `0.9.30` build `63` after the AccessorySetupKit bridge fix, cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (`../setup.md` owns the cache location)
-and installed via Sideloadly. The current
+and installed via Sideloadly. Akshat reconfirmed the installed About value as `0.9.30 (63)`. The current
 minimal profile intentionally has no HealthKit capability, so it does not import the Apple Health
 aggregate. Device testing verified the direct-pedometer path after enabling **This phone → Steps**;
 the earlier roughly-200 count was the band fallback. Keep phone steps enabled for normal
 iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest all-day step
 reconstruction. History-import state, installed identity/profile, complete pairing, and the remaining
 physical behavior remain unverified; Windows refresh automation remains unimplemented. Installed
-build 63 excludes GPS. Current `0.9.31` build `64` source enables personal GPS and hides the
-unsupported Oura pairing row. Its IPA passed automated macOS build, payload, manifest, and local
-checksum validation and is cached at
-`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.31-build64-75689dbf`,
-but it has not been installed or accepted. Do not
+build 63 excludes GPS. The uninstalled `0.9.31` build `64` artifact is superseded and must not be
+installed. Current `0.9.32` build `65` source enables personal GPS, hides the unsupported Oura
+pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests
+pass, but its IPA has not yet been built. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
-### Current build-64 candidate pass
+### Next build-65 candidate pass
 
-1. Before changing the install, open **WHOOP → Profile → Settings → About → Version** and record the
-   displayed `version (build)`; the last documented installed value is `0.9.30 (63)`, but the phone
-   must decide the current fact.
+1. Keep `0.9.30 (63)` installed until the build-65 IPA has passed the automated build, payload,
+   manifest, and downloaded-checksum gates. Do not install cached build 64.
 2. In the running app, use **Profile → Settings → Your data → Export, backup, import → Export an
    encrypted backup**. Save the file somewhere independent of the app and retain its passphrase.
-3. In Sideloadly, select
-   `D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.31-build64-75689dbf\whoop-personal-75689dbfd17c-unsigned.ipa`
-   and install over the existing app with the same Apple Account and bundle ID. Do not uninstall.
-4. Confirm **About → Version** shows `0.9.31 (64)`; history, settings, and pairing remain; **This
+3. Once downloaded and validated under `final-ipas\whoop\testing\`, select the build-65 unsigned IPA
+   in Sideloadly and install over the existing app with the same Apple Account and bundle ID. Do not
+   uninstall.
+4. Confirm **About → Version** shows `0.9.32 (65)`; history, settings, and pairing remain; **This
    phone → Steps** is still enabled and advances plausibly; and no Oura pairing row appears.
-5. Record a short outdoor walk/run: grant While Using location, verify the route continues while the
+5. Include a phone-stillness check: leave the phone stationary during ordinary wrist/household
+   motion and confirm the app does not invent a large band-step block; then carry the phone on a
+   short walk and confirm real steps advance. Record a short outdoor walk/run: grant While Using location, verify the route continues while the
    phone is locked/backgrounded, stop it, relaunch, and inspect the saved route. Also confirm the band
    reconnects and drains normally.
-6. Leave the candidate in `testing\` until all checks pass. If the upgrade fails, reinstall the
+6. Leave build 65 in `testing\` until all checks pass. If the upgrade fails, reinstall the
    accepted build-63 IPA from `whoop\backup\` over the app with the same identity; do not delete the
    app container.
 

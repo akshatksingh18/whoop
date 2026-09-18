@@ -8,10 +8,11 @@ Apple Health aggregate. Device testing verified the direct iPhone-pedometer impo
 **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone steps enabled
 for normal iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest
 all-day step reconstruction. History-import state, exact installed identity/profile, complete
-pairing, and the remaining physical behavior remain unverified. Installed build 63 excludes GPS;
-candidate `0.9.31` build `64` enables the route runtime and declares the matching
-While-In-Use/background capability. Its macOS build, payload validation, manifest, and downloaded
-checksum pass, but it is not installed or device-accepted.
+pairing, and the remaining physical behavior remain unverified. Akshat reconfirmed that build 63 is
+installed. It excludes GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Current
+`0.9.32` build `65` source enables the route runtime and matching While-In-Use/background capability,
+hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for wrist step noise;
+it still needs a macOS IPA build and device acceptance.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
@@ -82,10 +83,9 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 
 It packages a conventional `Payload/Runner.app`, validates it, and emits a capability/source
 manifest plus SHA-256. The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`. The current build-64 candidate is cached at
-`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.31-build64-75689dbf`;
-its automated checks pass, but inspect the installed version, identity/profile, and runtime behavior
-before promotion. Keep the accepted build-63 rollback cached on Windows outside Git.
+ID is `com.akshat.personal.whoop`. Current source is build 65; produce its IPA before the next
+install-over pass. The cached build-64 artifact passed automated checks but is superseded and must
+not be installed. Keep the accepted build-63 rollback cached on Windows outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
 black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.
 
@@ -153,7 +153,7 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. Current source aligns all targets at `0.9.31+64`. The personal phone-only artifact
+targets ship. Current source aligns all targets at `0.9.32+65`. The personal phone-only artifact
 excludes them, but its Runner version/build and source manifest still change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.
 

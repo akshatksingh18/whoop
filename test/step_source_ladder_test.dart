@@ -19,23 +19,24 @@ import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_edge/data/live_coverage_policy.dart';
 import 'package:openstrap_edge/models/metric.dart';
-import 'package:openstrap_edge/ui2/screens/home_screen.dart' show stepSensorLabel;
+import 'package:openstrap_edge/ui2/screens/home_screen.dart'
+    show stepSensorLabel;
 
 const _t0 = 1_786_000_000; // arbitrary local midnight
 
 CoverageSpan _band(int fromSec, int toSec, int steps) => CoverageSpan(
-      startTs: _t0 + fromSec,
-      endTs: _t0 + toSec,
-      steps: steps,
-      fromBand: true,
-    );
+  startTs: _t0 + fromSec,
+  endTs: _t0 + toSec,
+  steps: steps,
+  fromBand: true,
+);
 
 CoverageSpan _phone(int fromSec, int toSec, int steps) => CoverageSpan(
-      startTs: _t0 + fromSec,
-      endTs: _t0 + toSec,
-      steps: steps,
-      fromBand: false,
-    );
+  startTs: _t0 + fromSec,
+  endTs: _t0 + toSec,
+  steps: steps,
+  fromBand: false,
+);
 
 const _h = 3600;
 
@@ -117,7 +118,11 @@ void main() {
       ]);
       expect(r.total, 4000, reason: 'the same walk must not be counted twice');
       expect(r.strap, 3000, reason: 'the strap owns the minutes it supervised');
-      expect(r.phone, 1000, reason: 'the phone keeps only the rest of the hour');
+      expect(
+        r.phone,
+        1000,
+        reason: 'the phone keeps only the rest of the hour',
+      );
     });
 
     test('a PARTIAL overlap only costs the overlapping half', () {
@@ -159,10 +164,7 @@ void main() {
     });
 
     test('a band-only day is unchanged — every span keeps its count', () {
-      final r = resolveDaySteps([
-        _band(0, 600, 120),
-        _band(1000, 1600, 80),
-      ]);
+      final r = resolveDaySteps([_band(0, 600, 120), _band(1000, 1600, 80)]);
       expect(r.total, 200);
       expect(r.phone, 0);
       expect(r.dominant, 'strap');
@@ -188,10 +190,11 @@ void main() {
         _phone(9 * _h, 10 * _h, 4000),
         _band(9 * _h + 600, 9 * _h + 2400, 3000),
       ]);
-      expect(r.spans.map((s) => (s.startTs - _t0, s.steps, s.fromBand)), [
-        (9 * _h, 1000, false),
-        (9 * _h + 600, 3000, true),
-      ], reason: 'time order, credited counts');
+      expect(
+        r.spans.map((s) => (s.startTs - _t0, s.steps, s.fromBand)),
+        [(9 * _h, 1000, false), (9 * _h + 600, 3000, true)],
+        reason: 'time order, credited counts',
+      );
       // A span the ladder took everything back from is not drawn at all: it
       // contributed no steps, and an empty bar on a timeline is a claim.
       final swallowed = resolveDaySteps([
@@ -202,6 +205,33 @@ void main() {
       expect(swallowed.spans.single.fromBand, isTrue);
     });
 
+    test('confirmed-motionless phone hour vetoes wrist chores noise', () {
+      final r = resolveDaySteps([
+        _phone(9 * _h, 10 * _h, 0),
+        _band(9 * _h, 10 * _h, 1320), // 22 spm: known wrist-noise range
+        _phone(14 * _h, 15 * _h, 3000),
+      ]);
+      expect(r.total, 3000);
+      expect(r.strap, 0);
+    });
+
+    test('real gait-density band span survives a zero phone hour', () {
+      final r = resolveDaySteps([
+        _phone(9 * _h, 10 * _h, 0),
+        _band(9 * _h + 600, 9 * _h + 720, 200), // 100 spm
+      ]);
+      expect(r.total, 200);
+      expect(r.strap, 200);
+    });
+
+    test('confirmed-still overlap voids only its share of a band span', () {
+      final r = resolveDaySteps([
+        _phone(0, _h, 0),
+        _band(_h - 600, _h + 600, 8),
+      ]);
+      expect(r.strap, 4);
+    });
+
     test('nothing covered anything → nothing, and no dominant sensor', () {
       expect(resolveDaySteps(const []).total, 0);
       expect(resolveDaySteps(const []).dominant, isNull);
@@ -210,83 +240,105 @@ void main() {
     });
   });
 
-  group('the gen5 on-chip counter is a whole-day FALLBACK, not a day-winner',
-      () {
-    // A cumulative counter advancing 622 over the day. `step: 600` keeps each
-    // delta inside hardwareStepsFromCounter's plausibility budget.
-    final gen5 = _sub([0, 300, 622]);
+  group(
+    'the gen5 on-chip counter is a whole-day FALLBACK, not a day-winner',
+    () {
+      // A cumulative counter advancing 622 over the day. `step: 600` keeps each
+      // delta inside hardwareStepsFromCounter's plausibility budget.
+      final gen5 = _sub([0, 300, 622]);
 
-    test('622 on-chip steps NEVER override 18,856 windowed phone steps', () {
-      final (steps, scalars) = _derive(
-        gen5,
-        liveStepsReal: 18856,
-        liveStepsFromStrap: 0,
+      test('622 on-chip steps NEVER override 18,856 windowed phone steps', () {
+        final (steps, scalars) = _derive(
+          gen5,
+          liveStepsReal: 18856,
+          liveStepsFromStrap: 0,
+        );
+        expect(
+          scalars['steps'],
+          18856.0,
+          reason: 'the whole-day-precedence bug',
+        );
+        expect(steps['value'], 18856);
+        expect(steps['source'], 'phone');
+        // The counter is still disclosed — it is just not the answer.
+        expect(steps['band_measured'], 622);
+        expect(steps['by_source'], {'phone': 18856});
+      });
+
+      test('it DOES answer when no span source covered the day at all', () {
+        final (steps, scalars) = _derive(
+          gen5,
+          liveStepsReal: 0,
+          liveStepsFromStrap: 0,
+        );
+        expect(scalars['steps'], 622.0);
+        expect(steps['source'], 'strap_counter');
+        expect(steps['by_source'], {'strap_counter': 622});
+      });
+
+      test('a mixed day names both sensors and splits them', () {
+        final (steps, _) = _derive(
+          gen5,
+          liveStepsReal: 5200,
+          liveStepsFromStrap: 4000,
+        );
+        expect(steps['value'], 5200);
+        expect(steps['source'], 'mixed');
+        expect(steps['by_source'], {'strap': 4000, 'phone': 1200});
+        expect(steps['inputs_used'], [
+          'band_pedometer_100hz',
+          'phone_pedometer',
+        ]);
+      });
+
+      // THE DISCLOSURE CONTRACT, end to end: what the derivation writes is what
+      // the card reads. `inputs_used` names the SENSOR, so a phone count can
+      // never render as the wrist's or the other way round.
+      test(
+        'the card can name the sensor off the envelope the derive wrote',
+        () {
+          String? label(int total, int strap) => stepSensorLabel(
+            Metric.parse(
+              _derive(gen5, liveStepsReal: total, liveStepsFromStrap: strap).$1,
+            ),
+          );
+
+          expect(label(5200, 4000), 'Strap + phone');
+          expect(label(4000, 4000), 'Strap');
+          expect(label(4000, 0), 'Phone');
+          expect(
+            label(0, 0),
+            'Strap',
+            reason: 'the on-chip counter is the strap',
+          );
+          expect(
+            stepSensorLabel(
+              Metric.parse(
+                _derive(
+                  _sub([-1, -1]),
+                  liveStepsReal: 0,
+                  liveStepsFromStrap: 0,
+                ).$1,
+              ),
+            ),
+            isNull,
+            reason: 'nothing counted — the card must not name a sensor',
+          );
+        },
       );
-      expect(scalars['steps'], 18856.0, reason: 'the whole-day-precedence bug');
-      expect(steps['value'], 18856);
-      expect(steps['source'], 'phone');
-      // The counter is still disclosed — it is just not the answer.
-      expect(steps['band_measured'], 622);
-      expect(steps['by_source'], {'phone': 18856});
-    });
 
-    test('it DOES answer when no span source covered the day at all', () {
-      final (steps, scalars) = _derive(
-        gen5,
-        liveStepsReal: 0,
-        liveStepsFromStrap: 0,
-      );
-      expect(scalars['steps'], 622.0);
-      expect(steps['source'], 'strap_counter');
-      expect(steps['by_source'], {'strap_counter': 622});
-    });
-
-    test('a mixed day names both sensors and splits them', () {
-      final (steps, _) = _derive(
-        gen5,
-        liveStepsReal: 5200,
-        liveStepsFromStrap: 4000,
-      );
-      expect(steps['value'], 5200);
-      expect(steps['source'], 'mixed');
-      expect(steps['by_source'], {'strap': 4000, 'phone': 1200});
-      expect(steps['inputs_used'], ['band_pedometer_100hz', 'phone_pedometer']);
-    });
-
-    // THE DISCLOSURE CONTRACT, end to end: what the derivation writes is what
-    // the card reads. `inputs_used` names the SENSOR, so a phone count can
-    // never render as the wrist's or the other way round.
-    test('the card can name the sensor off the envelope the derive wrote', () {
-      String? label(int total, int strap) =>
-          stepSensorLabel(Metric.parse(_derive(
-            gen5,
-            liveStepsReal: total,
-            liveStepsFromStrap: strap,
-          ).$1));
-
-      expect(label(5200, 4000), 'Strap + phone');
-      expect(label(4000, 4000), 'Strap');
-      expect(label(4000, 0), 'Phone');
-      expect(label(0, 0), 'Strap', reason: 'the on-chip counter is the strap');
-      expect(
-        stepSensorLabel(Metric.parse(
-            _derive(_sub([-1, -1]), liveStepsReal: 0, liveStepsFromStrap: 0).$1)),
-        isNull,
-        reason: 'nothing counted — the card must not name a sensor',
-      );
-    });
-
-    test('no counter and no coverage stays ABSENT, never a zero', () {
-      final (steps, scalars) = _derive(
-        _sub([-1, -1, -1]), // gen4: this hardware cannot count steps
-        liveStepsReal: 0,
-        liveStepsFromStrap: 0,
-      );
-      expect(scalars.containsKey('steps'), isFalse);
-      expect(steps['value'], isNull);
-      expect(steps['source'], isNull);
-      expect(steps['tier'], isNull);
-      expect(steps['by_source'], isEmpty);
-    });
-  });
+      test('no counter and no coverage stays ABSENT, never a zero', () {
+        final (steps, scalars) = _derive(
+          _sub([-1, -1, -1]), // gen4: this hardware cannot count steps
+          liveStepsReal: 0,
+          liveStepsFromStrap: 0,
+        );
+        expect(scalars.containsKey('steps'), isFalse);
+        expect(steps['value'], isNull);
+        expect(steps['source'], isNull);
+        expect(steps['tier'], isNull);
+        expect(steps['by_source'], isEmpty);
+      });
+    },
+  );
 }

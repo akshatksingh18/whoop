@@ -16,19 +16,16 @@ same-machine bare repository at `C:\Users\aksha\git-remotes\whoop.git` is preser
 `local-backup` remote. GitHub is the primary collaboration/recovery remote; `local-backup` is an
 additional same-machine copy, not an off-device backup.
 
-The public `main` history has been rewritten to remove ignored personal health exports and real
-device-capture fixtures from every reachable commit. The pre-rewrite history remains only in the
-private same-machine safety mirrors and must never be pushed to a public remote. Public commits,
-documentation, fixtures, releases, and artifacts must contain synthetic data only.
-
-The sanitized branch ref is verified on GitHub, and the known leak-introducing commits are no
-longer served by their object IDs. GitHub still serves some pre-rewrite commits, including the old
-branch tip and accepted build source, when their exact object IDs are supplied despite those
-commits being unreachable from every public ref. Treat GitHub Support's cached-view/object removal
-as the remaining erasure step; do not republish old object IDs in issues or documentation. The
-repository has no forks or releases. All legacy Actions runs and artifacts that pinned old commit
-IDs were deleted after preserving and hashing the accepted IPA locally; current sanitized-history
-CI may remain. Actions caches contain only Flutter/pub dependencies.
+The public `main` history was rewritten as a precaution around suspected personal-health content.
+The three questioned CSV/test objects were then verified byte-for-byte as the intentionally public,
+anonymized OpenStrap analytics fixture introduced by upstream PR #21: timestamps are relative and
+the fixture contains no absolute date, device identity, email, UUID, SpO2, temperature, or counter
+fields. They are restored from pinned analytics revision
+`1fa8144a5e3b728ce91eeed6ecbc15d482933b44`; no GitHub Support object purge is required for them.
+The pre-rewrite history remains only in same-machine safety mirrors and must not be pushed wholesale.
+Real Akshat exports, databases, BLE captures, credentials, and signing material remain prohibited
+from commits, documentation, releases, and artifacts. The repository has no forks or releases;
+legacy Actions runs and artifacts were removed after preserving and hashing the accepted IPA.
 
 The app's `pubspec.yaml` uses tracked local paths for both packages, so a checkout of this one
 repository is self-contained. Do not restore floating Git refs or create a
@@ -86,23 +83,24 @@ The current imported source baseline is not test-clean:
   command`, a path-with-spaces quoting bug. The likely cause is exactly that move: Flutter's own SDK
   now lives at `D:\AI Important Files\personal-project\dev\flutter`, which contains a space for the
   first time — the project checkout has always been under a space-containing path and that was never
-  the problem. Not yet confirmed by moving Flutter back to a space-free path and re-testing.
-  GitHub Actions (`ubuntu-latest`, no spaces in its checkout path) is unaffected and stays the real
-  test gate; see `CLAUDE.md`'s "How to review this repo". The failures listed above (Windows timezone/ZIP/ASK-plist/
-  policy tests) are therefore last confirmed pre-move, not re-verified since.
+  the problem. A non-destructive workaround is verified: map temporary drive aliases to the repo
+  and Flutter SDK (for example `W:` and `X:`) and run Flutter through those space-free paths. The
+  focused step-source tests pass that way. GitHub Actions (`ubuntu-latest`, no spaces in its checkout
+  path) remains the full-suite gate; see `CLAUDE.md`'s "How to review this repo". The previously
+  listed full-suite failures remain last confirmed pre-move, not re-verified since.
 
 The Android release build is validated on Windows. The first personal iOS candidate was built on
 GitHub's macOS runner, signed/installed through Sideloadly, and exposed an AccessorySetupKit
 discovery-descriptor validation abort when **Find my band** was tapped. The bridge fix is now in
 source and replacement `0.9.30` build `63` passed the macOS build/package gates and was installed.
-It is the last documented installed build, but the version/build currently running on the phone now
-needs an in-app reconfirmation. Its direct iPhone-pedometer path is verified; history migration,
+Akshat reconfirmed `0.9.30 (63)` in the app. Its direct iPhone-pedometer path is verified; history migration,
 exact installed identity/profile inspection, Bluetooth pairing, and the remaining runtime behavior
 still require device verification.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
-test fixtures, not Akshat's personal health exports.
+test fixtures, not Akshat's personal health exports. The real-night fixture is an anonymized public
+OpenStrap regression asset restored byte-for-byte from the pinned analytics revision.
 
 ## Updating from OpenStrap
 
@@ -125,9 +123,10 @@ Personal Team. The deterministic personal flavor, contract tests, payload valida
 manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and
 is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (not in Downloads — see
 `D:\AI Important Files\personal-project\final-ipas\README.md`); it is the accepted rollback and last
-documented installed build. Candidate `0.9.31` build `64` passed the automated macOS build, payload,
-manifest, and downloaded-checksum gates and is cached under `whoop\testing\` pending install-over and
-physical-device verification.
+installed build, reconfirmed in-app by Akshat. The cached `0.9.31` build `64` artifact passed the
+automated macOS build, payload, manifest, and downloaded-checksum gates but is superseded without
+installation. Current `0.9.32` build `65` source retains its personal GPS/Oura changes and adds the
+confirmed-phone-stillness step guard; produce and test build 65 instead.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
 Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
@@ -147,10 +146,10 @@ owned by `../akshatos/`; consult its build guide for implementation and device e
 The personal artifact must preserve the root phone app, local database/analytics, local
 notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
 drain invariants. Installed build 63 excludes the Watch companion, widget/Live Activity extension,
-App Groups, HealthKit, GPS, and background processing/fetch. Candidate build 64 reopens GPS with
+App Groups, HealthKit, GPS, and background processing/fetch. Current build-65 source reopens GPS with
 While-In-Use authorization and the location background mode while retaining all other exclusions;
-its packaged capability manifest passed automated validation, but its route behavior still needs the
-phone pass. Required telemetry, health-data contribution, backend, and OTA dependencies
+its route behavior and new step guard still need the phone pass. Required telemetry,
+health-data contribution, backend, and OTA dependencies
 remain off. The full upstream source targets stay for reference and possible source-signed builds.
 
 Creating a new IPA uses the manual public-GitHub macOS workflow. It pins Flutter 3.41.6, derives a
@@ -168,12 +167,12 @@ manifest, and checksum are cached at
 `../final-ipas/whoop/backup/WHOOP-0.9.30-build63-accepted` — the stable release cache outside
 Downloads, excluded from the OneDrive backup archive the same way every `personal-project/`
 subfolder is; `../final-ipas/README.md` owns the backup/testing model. The macOS workflow, local
-validator, and downloaded checksum all pass. Candidate `0.9.31` build `64` was produced by workflow
+validator, and downloaded checksum all pass. Superseded `0.9.31` build `64` was produced by workflow
 run `35376151690` from source `75689dbfd17ccf999231a0bb3d0a92645c62f817`; its SHA-256 is
 `d6434cef15ca6860368afb0b1d3a454f0258a8fc80ade6db8ea35e687c1d362f` and its IPA, manifest, and
-checksum are cached at `../final-ipas/whoop/testing/WHOOP-0.9.31-build64-75689dbf`. It has not been
-installed or device-verified and is not accepted. The accepted-build ledger prevents reuse of
-`0.9.30+63`.
+checksum are cached at `../final-ipas/whoop/testing/WHOOP-0.9.31-build64-75689dbf`. It was not
+installed or device-verified and must not be promoted. Current source is `0.9.32+65`; its artifact
+has not yet been built. The accepted-build ledger prevents reuse of `0.9.30+63`.
 
 **A known Sideloadly failure mode, found here first:** its own internal cache of a previously
 installed app's IPA can go missing independent of this file — the first wireless refresh attempt

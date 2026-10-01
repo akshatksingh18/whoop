@@ -1,41 +1,44 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** The matching minimal build profile and public-repository macOS workflow produced and
-verified accepted `0.9.30` build `63` after the AccessorySetupKit bridge fix, cached under
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (`../setup.md` owns the cache location)
-and installed via Sideloadly. Akshat reconfirmed the installed About value as `0.9.30 (63)`. The current
+**State:** The matching minimal build profile and public-repository macOS workflow produced accepted
+rollback `0.9.30` build `63`, cached under
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted`
+(`../setup.md` owns the cache location). Current `0.9.32` build `65` is installed after a clean
+same-identity reinstall and verified encrypted restore; Akshat confirmed the recovered app works. The current
 minimal profile intentionally has no HealthKit capability, so it does not import the Apple Health
 aggregate. Device testing verified the direct-pedometer path after enabling **This phone → Steps**;
 the earlier roughly-200 count was the band fallback. Keep phone steps enabled for normal
 iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest all-day step
-reconstruction. History-import state, installed identity/profile, complete pairing, and the remaining
-physical behavior remain unverified; Windows refresh automation remains unimplemented. Installed
-build 63 excludes GPS. The uninstalled `0.9.31` build `64` artifact is superseded and must not be
-installed. Current `0.9.32` build `65` source enables personal GPS, hides the unsupported Oura
+reconstruction. History/data restore, signed identity, pairing preservation, exact-ID manual refresh,
+and a controlled forced-due Wi-Fi daemon cycle are verified; installed About/profile details and the
+remaining physical behavior remain open. Build 63 excludes GPS. The uninstalled `0.9.31`
+build `64` artifact is superseded and must not be installed. Build `65` enables personal GPS, hides the unsupported Oura
 pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests,
 macOS build, payload validation, manifest, and downloaded checksum pass. The candidate is cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6`. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
-### Next build-65 candidate pass
+### Remaining build-65 candidate pass
 
-1. Keep `0.9.30 (63)` installed until you are ready for this controlled install-over pass. Do not
-   install cached build 64.
-2. In the running app, use **Profile → Settings → Your data → Export, backup, import → Export an
-   encrypted backup**. Save the file somewhere independent of the app and retain its passphrase.
-3. In Sideloadly, select
-   `D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6\whoop-personal-f25fcbd6b946-unsigned.ipa`
-   and install over the existing app with the same Apple Account and bundle ID. Do not uninstall.
-4. Confirm **About → Version** shows `0.9.32 (65)`; history, settings, and pairing remain; **This
+1. Build 65 was installed cleanly after same-ID overwrite attempts stalled. The encrypted build-63
+   export was restored into an isolated test install before removal, then restored into build 65.
+   Keep that backup and passphrase; do not install cached build 64.
+2. Confirm **About → Version** shows `0.9.32 (65)`; history is present, pairing works; **This
    phone → Steps** is still enabled and advances plausibly; and no Oura pairing row appears.
-5. Include a phone-stillness check: leave the phone stationary during ordinary wrist/household
+3. Include a phone-stillness check: leave the phone stationary during ordinary wrist/household
    motion and confirm the app does not invent a large band-step block; then carry the phone on a
    short walk and confirm real steps advance. Record a short outdoor walk/run: grant While Using location, verify the route continues while the
    phone is locked/backgrounded, stop it, relaunch, and inspect the saved route. Also confirm the band
    reconnects and drains normally.
-6. Leave build 65 in `testing\` until all checks pass. If the upgrade fails, reinstall the
-   accepted build-63 IPA from `whoop\backup\` over the app with the same identity; do not delete the
-   app container.
+4. Use the verified refresh identity: turn **Use automatic bundle ID** off, enter exact final ID
+   `com.akshat.personal.whoop.5564K8D4SV`, and leave the separate automatic-refresh control enabled.
+   This exact-ID overwrite reaches 100%, advances signing, and preserves data/pairing; the base-ID
+   automatic transformation stalls at 0%. `ENROLLED` plus an advanced signing timestamp are both
+   required. A controlled forced-due unattended Wi-Fi daemon cycle passes; the next naturally elapsed
+   cycle remains open. The real app retained its data and band connection after that daemon cycle.
+   The shared health check must also print `IDENTITY` with mode `exact`; this prevents a future build
+   from recreating the automatic-rewrite failure while still appearing enrolled.
+5. Leave build 65 in `testing\` until all checks pass. Build 63 remains the accepted rollback.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that
@@ -61,7 +64,7 @@ free-sideload artifact.
 
 ## Portfolio and prerequisites
 
-- Install standalone WHOOP plus the native Squats/PageVault/ReelVault hub: two slots under free
+- Install standalone WHOOP plus the native AkshatOS hub: two slots under free
   signing, with the third unallocated. `../../akshatos/hub-plan.md` owns the accepted packaging;
   WHOOP stays independent, with active iPhone-only implementation but no daily-use activation until
   its own gates pass. Android is not part of the personal build or acceptance plan. No paid tier or
@@ -104,9 +107,10 @@ For migration from an existing Android installation, preserve this order:
 1. On Windows, connect the iPhone over USB, trust the computer, enable iOS Developer Mode, and use
    iTunes to enable **Sync with this iPhone over Wi-Fi**. Keep Apple's Bonjour service installed,
    automatic, and running; Sideloadly's Windows Wi-Fi path depends on Apple mobile-device discovery.
-2. Open Sideloadly, select the accepted personal IPA and iPhone, choose Local Anisette, and enter the
-   permanent custom bundle ID exactly as recorded. Disable tweak/dylib injection and identity
-   randomization.
+2. Open Sideloadly, select the accepted personal IPA and iPhone, and choose Local Anisette. Turn
+   **Use automatic bundle ID** off and enter exact final ID
+   `com.akshat.personal.whoop.5564K8D4SV`; keep the separate automatic-refresh control enabled.
+   Disable tweak/dylib injection and other identity changes.
 3. Use the selected Apple Account and enroll the app for automatic refresh. Keep credentials/2FA
    out of Git, scripts, task arguments, and plaintext logs.
 4. Complete the iOS developer trust flow if prompted, then launch from the Home Screen. Confirm the
@@ -118,8 +122,10 @@ For migration from an existing Android installation, preserve this order:
 
 ## Refresh automation and proof
 
-- Start the Sideloadly daemon at Windows sign-in and keep automatic refresh plus trusted Wi-Fi sync
-  enabled. The computer must be available and the phone detected over Wi-Fi or USB.
+- Start the Sideloadly daemon at Windows sign-in and keep trusted Wi-Fi sync enabled. WHOOP has a
+  completed `one_off: 0` registration, exact-final-ID manual refresh evidence, and one controlled
+  forced-due Wi-Fi daemon refresh. Keep observing the next naturally elapsed cycle before calling the
+  long-term schedule proven. The computer must be available and the phone detected over Wi-Fi or USB.
 - Check health daily or at worst every 48 hours. The check can be lightweight, but it must record
   actual WHOOP refresh success/new expiry. A running daemon, opened GUI, scheduled-task exit code,
   or cache timestamp is not device-install proof.
@@ -128,6 +134,10 @@ For migration from an existing Android installation, preserve this order:
   Manually** or the normal same-IPA install path.
 - Raise a persistent Windows alert at the three-day threshold, escalate by two days, and require USB
   recovery inside the final day. Test every alert and one failed-network retry.
+- On the phone (from `0.9.33`/`66`, not yet built), **Settings → About → Status** shows the installed
+  profile's expiry. The app also sets local alerts **48 h and 24 h** before it; tapping one opens
+  Status. The alerts re-arm from the installed profile every time WHOOP opens, so a refresh moves
+  them. They supplement the Windows health check and do not replace it.
 - Wi-Fi discovery may occasionally need iTunes open, the iPhone screen on, current Apple Windows
   components, or re-pairing. If USB works but Wi-Fi does not, verify **Bonjour Service** is running
   and that UDP 5353 rules exist before changing broader firewall settings. A short
@@ -142,11 +152,16 @@ For migration from an existing Android installation, preserve this order:
   for routine signing; uninstalling can delete the database, pairing state, and preferences.
 - Before a new-IPA upgrade, bundle/signing migration, or recovery experiment, create and restore-test
   the app's passphrase-encrypted full database export off the phone.
+- From `0.9.33`/`66` (not yet built), **Your data → Automatic backup** writes encrypted, verified
+  `.osbk` backups on its own once a backup passphrase is set. They sit in the app's `OpenStrap
+  Backups` folder and are deleted with the app, so they do not replace the off-phone copy above.
+  To make an off-phone copy, copy the newest one to Windows through Files or iTunes File Sharing.
 - A same-IPA refresh must preserve pairing, settings, database row counts/key samples, and latest
   sync. A newer IPA additionally must pass schema migration and in-place upgrade gates.
-- If the profile expires and the app will not launch, leave it installed and sign/install the cached
-  same-ID IPA over it. Uninstall only after a verified backup and an explicit conclusion that
-  container-preserving recovery failed.
+- Sideloadly's proven WHOOP recovery path is an install over the existing app with automatic
+  bundle-ID rewriting off and exact final ID `com.akshat.personal.whoop.5564K8D4SV`; it preserves
+  data and pairing. Keep a verified encrypted backup anyway. Backup/delete/clean-install/restore is
+  the fallback only if the exact-ID container-preserving path fails.
 - Keep current and previous known-good unsigned IPAs, hashes, source revisions, and capability
   manifests outside Git so a compatible replacement signer can be used if Sideloadly temporarily
   breaks after an Apple change.

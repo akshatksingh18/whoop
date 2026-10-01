@@ -34,7 +34,6 @@ import 'package:share_plus/share_plus.dart';
 import '../../coach/coach_config.dart';
 import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
-import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../ai/nightly_sweep.dart' show SweepFinding;
 import '../../compute/findings.dart';
@@ -464,16 +463,21 @@ Map<String, Widget> _nutritionAndWellnessCases() {
       fatG: 9,
       confirmed: true);
   return {
-    // A day that summed past an unknown: the number is a FLOOR and says so.
-    'day_energy_floor': DayEnergyCard(
+    // Calories left against a typed goal; exercise never added back.
+    'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
+    'calorie_card_over': const CalorieCard(eaten: 2210, goal: 2000),
+    'calorie_card_no_goal': const CalorieCard(eaten: 820, goal: null),
+    'macro_card': MacroCard(
       day: rollupDay('2026-08-14', const [known, bare], today: '2026-08-15'),
-      burned: const Metric(
-          value: 2350, unit: 'kcal', confidence: .6, tier: MetricTier.estimate),
+      profile: const {'protein_target': 150, 'carbs_target': 220, 'fat_target': 60},
     ),
-    'meal_row': const Column(children: [
-      MealRow(meal: 'breakfast', entries: [known]),
-      MealRow(meal: 'dinner', entries: []),
+    'meal_section': Column(children: [
+      MealSection(meal: 'breakfast', entries: const [known], onAdd: () {}),
+      MealSection(meal: 'dinner', entries: const [], onAdd: () {}),
     ]),
+    'pick_row': const Surface(
+        pad: EdgeInsets.symmetric(horizontal: S.x4),
+        child: PickRow('Oats', 'per 100 g: 380 kcal · P 13.0 · C 66.0')),
     'food_row': const Surface(
         pad: EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(children: [
@@ -504,20 +508,6 @@ Map<String, Widget> _nutritionAndWellnessCases() {
         label: 'Anything else',
         lines: 3),
     'breath_circle': const BreathCircle(t: .7, label: 'Inhale'),
-    'driver_row': const Surface(
-        pad: EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
-          DriverRow(
-              label: 'HRV above your baseline',
-              detail: '68 ms against a 14-night mean of 61'),
-          DriverRow(
-              label: 'Slept 52 minutes short', detail: '7h 08m against 8h 00m'),
-        ])),
-    'med_row': Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
-          for (final s in _medSlots) MedRow(slot: s),
-        ])),
   };
 }
 
@@ -587,29 +577,6 @@ final _bare = ActivityResult(
   start: DateTime(2026, 8, 13, 22, 5),
   duration: Motion.tick * 900,
 );
-
-const _medDef = MedDef(
-    key: 'custom_d',
-    label: 'Vitamin D',
-    doseValue: 2000,
-    doseUnit: 'IU',
-    schedule: [MedSchedule(480, [1, 2, 3, 4, 5, 6, 7])]);
-
-/// Taken, missed and not-yet-due, side by side — the third is the one that
-/// must never read as a failure.
-const _medSlots = <MedSlot>[
-  MedSlot(def: _medDef, date: '2026-08-14', slotMin: 480, state: DoseState.taken),
-  MedSlot(
-      def: MedDef(key: 'custom_m', label: 'Magnesium', doseValue: 300, doseUnit: 'mg'),
-      date: '2026-08-14',
-      slotMin: 780,
-      state: DoseState.missed),
-  MedSlot(
-      def: MedDef(key: 'custom_z', label: 'Zinc'),
-      date: '2026-08-14',
-      slotMin: 1260,
-      state: DoseState.upcoming),
-];
 
 // ══════════════════ the rest of the vocabulary ══════════════════
 //
@@ -1458,13 +1425,6 @@ Map<String, Widget> _listCases() => {
           ('Awake', C.orange),
         ]),
       ),
-      'mono_table': const MonoTable('What went into this number', [
-        ('rmssd_ms', '61.4'),
-        ('baseline_mean_ms', '67.2'),
-        ('nights_in_baseline', '14'),
-        ('artifact_share', '2.1%'),
-      ]),
-      'investigate_row': Builder(builder: (c) => investigateRow(c, () {})),
       'no_data': const Surface(
           child: NoData(message: 'No nights recorded this week')),
       'moment_row': Builder(
@@ -1582,6 +1542,23 @@ TimelineData get _tlFull => TimelineData(
     );
 
 Map<String, Widget> _dayTimelineCases() => {
+      // The whole-day heart-rate card on its own, unscrubbed (range readout).
+      'day_heart_card': DayHeartCard(DayGraph(
+        // A synthetic day: asleep till 07:00, a workout 18:00–19:00, and a
+        // few unrecorded minutes so the gaps and lanes all draw.
+        hr: [
+          for (var m = 0; m < 1440; m++)
+            m % 97 == 0
+                ? null
+                : m < 420
+                    ? 50 + (m % 30) / 5
+                    : m >= 1080 && m < 1140
+                        ? 140 + (m % 20) / 2
+                        : 72 + (m % 60) / 3,
+        ],
+        rest: const [(0, 420, C.blue)],
+        work: const [(1080, 1140, C.orange)],
+      )),
       'timeline_day': Builder(
           builder: (c) =>
               Column(children: timelineBody(c, _tlFull))),

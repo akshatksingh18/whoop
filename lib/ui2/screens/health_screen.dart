@@ -3,9 +3,9 @@
 //
 // Rows, not a wall of cards. A card is a claim that something deserves your
 // attention; forty of them side by side is a claim about nothing. Overview is
-// a list you scan, Trends is where change lives, Vitals is what the sensor
-// measured, and Labs is what a laboratory measured — the only numbers in this
-// app that are absolute.
+// a list you scan (it also carries today's heart-rate range, skin temperature
+// and wear time), Explore is every metric's history, and Trends is where
+// change lives.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -13,15 +13,15 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../compute/findings.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
-import '../../data/lab_catalogue.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
+import 'beats.dart';
 import 'circadian_detail.dart';
+import 'day_timeline.dart' show DayTimelineScreen;
 import 'findings_log.dart';
 import 'home_screen.dart';
-import 'investigate.dart';
 import 'metric_detail.dart';
 import 'naps.dart';
 
@@ -267,39 +267,6 @@ int? _behind(String? dayId) {
   return d == null ? null : calendarDaysBetween(d, DateTime.now());
 }
 
-class LabsData {
-  final List<Map<String, dynamic>> results;
-  final List<LabMarker> markers;
-  const LabsData({this.results = const [], this.markers = const []});
-
-  static Future<LabsData> load() async {
-    final rows = await LocalDb.labResults();
-    final defs = await LocalDb.labMarkerDefs();
-    return LabsData(
-      results: rows,
-      markers: [
-        ...kLabMarkers,
-        for (final d in defs)
-          if (!kLabMarkersByKey.containsKey(d['key']))
-            LabMarker(
-              key: d['key'].toString(),
-              label: (d['label'] ?? d['key']).toString(),
-              unit: (d['unit'] ?? '').toString(),
-              category: LabCategory.blood,
-              decimals: (d['decimals'] as num?)?.toInt() ?? 1,
-              ranges: [
-                if (d['ref_low'] is num && d['ref_high'] is num)
-                  LabRefRange(
-                      low: (d['ref_low'] as num).toDouble(),
-                      high: (d['ref_high'] as num).toDouble()),
-              ],
-              custom: true,
-            ),
-      ],
-    );
-  }
-}
-
 // ═══════════════════ the catalogue ═══════════════════
 //
 // EXPLORE. The app persists 39 daily series and carries 25 written metric
@@ -439,7 +406,6 @@ class ExploreData {
 class HealthScreen extends StatefulWidget {
   final HealthData? data;
   final VitalsData? vitals;
-  final LabsData? labs;
   final ExploreData? explore;
 
   /// Which sub-tab to open on. Goldens use it; production always starts at 0.
@@ -449,7 +415,6 @@ class HealthScreen extends StatefulWidget {
       {super.key,
       this.data,
       this.vitals,
-      this.labs,
       this.explore,
       this.tab = 0});
 
@@ -458,23 +423,17 @@ class HealthScreen extends StatefulWidget {
 }
 
 class _HealthScreenState extends State<HealthScreen> with RevisionReload {
-  // EXPLORE SITS SECOND, not last. Five chips do not fit a 390 pt frame at 1×:
-  // the fifth is clipped by the edge, and a half-visible chip is exactly the
-  // discoverability failure this tab exists to fix. Labs takes the clip instead
-  // — it is the manual-entry tab, the one a user goes looking for on purpose,
-  // and the only one here that holds numbers this app did not measure.
+  // Three tabs. Vitals was folded into Overview (it repeated its rows) and
+  // Labs, a manual-entry tab, was removed from the personal build.
   List<String> _tabsOf(AppLocalizations? l) => [
         l?.healthTabOverview ?? 'Overview',
         l?.healthTabExplore ?? 'Explore',
         l?.healthTabTrends ?? 'Trends',
-        l?.healthTabVitals ?? 'Vitals',
-        l?.healthTabLabs ?? 'Labs',
       ];
   late int _tab = widget.tab;
 
   HealthData? _d;
   VitalsData? _v;
-  LabsData? _l;
   ExploreData? _e;
   bool _loading = true;
 
@@ -483,7 +442,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     super.initState();
     _d = widget.data;
     _v = widget.vitals;
-    _l = widget.labs;
     _e = widget.explore;
     if (widget.data != null) {
       _loading = false;
@@ -510,10 +468,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   void reload() {
     _load();
     if (hasRead(#vitals)) _loadVitals(force: true);
-    if (hasRead(#labs)) {
-      _l = null;
-      _loadLabs();
-    }
     if (hasRead(#explore)) {
       _e = null;
       _loadExplore();
@@ -539,17 +493,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   /// spinner, so swallowing the error left the tab spinning silently for as
   /// long as the user stayed on it — there was no absent state on that path at
   /// all, whatever the old comment here said.
-  bool _vFailed = false, _lFailed = false, _eFailed = false;
+  bool _vFailed = false, _eFailed = false;
 
-  /// The day the Vitals tab is showing, once the user has steered off the
-  /// default. Null means "whatever the loader resolves", which is today.
+  /// The day the vitals rows show. Always null now (today): Overview has no
+  /// day stepper. Kept as the loader's `want`.
   String? _vDay;
 
   Future<void> _loadVitals({bool force = false}) async {
     final repo = repoOf(context);
     if (repo == null || (_v != null && !force)) return;
     // Keyed per sub-tab: steering to another day starts a read that must beat
-    // the one already in flight, and neither may cancel Labs or Explore.
+    // the one already in flight, and neither may cancel Explore.
     final t = beginRead(#vitals);
     try {
       final v = await VitalsData.load(repo, want: _vDay);
@@ -559,21 +513,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     }
   }
 
-  void _goVitalsDay(String day) {
-    setState(() => _vDay = day);
-    _loadVitals(force: true);
-  }
-
-  Future<void> _loadLabs() async {
-    if (_l != null) return;
-    final t = beginRead(#labs);
-    try {
-      final l = await LabsData.load();
-      if (stillNewest(#labs, t)) setState(() => (_l = l, _lFailed = false));
-    } catch (_) {
-      if (stillNewest(#labs, t)) setState(() => _lFailed = true);
-    }
-  }
 
   /// The one card both failed reads render. Not "nothing logged yet" — a read
   /// that went wrong and an empty table are different states.
@@ -604,8 +543,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   void _select(int i) {
     setState(() => _tab = i);
     if (i == 1) _loadExplore();
-    if (i == 3) _loadVitals();
-    if (i == 4) _loadLabs();
   }
 
   @override
@@ -625,9 +562,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         switch (_tab) {
           0 => _overview(c, d),
           1 => _explore(c),
-          2 => _trends(c, d),
-          3 => _vitals(c, d),
-          _ => _labs(c),
+          _ => _trends(c, d),
         },
     ]);
   }
@@ -831,6 +766,10 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         ),
       for (final g in gaps) ...[const SizedBox(height: S.x3), g],
 
+      // Today's heart-rate range (opens the all-day chart), skin temperature,
+      // wear time and the HRV deep dive — what used to be the Vitals tab.
+      _vitals(c, d),
+
       // OBSERVATIONS — the illness watch, wrapped, plus a door to the other
       // three detectors.
       //
@@ -858,48 +797,27 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         ),
       ],
 
-      // NAPS — the display and the correction, which are one feature. The
-      // section is here on a day with no naps too, because the door to logging
-      // one has to exist on exactly the day the detector found nothing.
-      Section(
-        l?.healthNapsTitle ?? 'Naps',
-        d.napCount == null
-            // `napDay` defaults to '' and `prettyDay` returns '' for anything
-            // it cannot parse, so this printed "No nap reading for" with the
-            // sentence hanging off the end of the word "for". Name the day only
-            // when there is one to name.
-            ? StatusCard(
-                prettyDay(d.napDay).isEmpty
-                    ? (l?.healthNoNapReading ?? 'No nap reading')
-                    : (l?.healthNoNapReadingFor(prettyDay(d.napDay)) ??
-                        'No nap reading for ${prettyDay(d.napDay)}'),
-                l?.healthNapsBody ??
-                    'Naps come off the same second-by-second recording as the '
-                        'rest of the day, and this day does not have enough of '
-                        'it.',
-                icon: LucideIcons.sun,
-              )
-            : Surface(
-                pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                child: MetricRow(
-                  LucideIcons.sun,
-                  C.indigo,
-                  l?.healthDaytimeSleep ?? 'Daytime sleep',
-                  // A MEASURED zero, not a dash: the day was judged and held
-                  // no nap. The two are different answers and read as two.
-                  d.napCount == 0 ? (l?.healthValueNone ?? 'None') : hm(d.napMin),
-                  sub: d.napCount == 0
-                      ? (l?.healthNoneDetectedOn(prettyDay(d.napDay)) ??
-                          'None detected · ${prettyDay(d.napDay)}')
-                      : '${l?.healthNapCountLabel(d.napCount!) ?? '${d.napCount} '
-                              'nap${d.napCount == 1 ? '' : 's'}'} · '
-                          '${prettyDay(d.napDay)}',
-                  onTap: () => go(c, NapsScreen(day: d.napDay)),
-                ),
-              ),
-        action: l?.healthAddOrCorrect ?? 'Add or correct',
-        onAction: () => go(c, NapsScreen(day: d.napDay)),
-      ),
+      // NAPS — only on a day that had one. An empty "no nap" card every other
+      // day was noise.
+      if ((d.napCount ?? 0) > 0)
+        Section(
+          l?.healthNapsTitle ?? 'Naps',
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: MetricRow(
+              LucideIcons.sun,
+              C.indigo,
+              l?.healthDaytimeSleep ?? 'Daytime sleep',
+              hm(d.napMin),
+              sub: '${l?.healthNapCountLabel(d.napCount!) ?? '${d.napCount} '
+                      'nap${d.napCount == 1 ? '' : 's'}'} · '
+                  '${prettyDay(d.napDay)}',
+              onTap: () => go(c, NapsScreen(day: d.napDay)),
+            ),
+          ),
+          action: l?.healthAddOrCorrect ?? 'Add or correct',
+          onAction: () => go(c, NapsScreen(day: d.napDay)),
+        ),
 
       // THERE IS NO "BODY COMPOSITION" SECTION, AND THE NEXT PERSON SHOULD NOT
       // BUILD ONE. It used to print the onboarding weight scalar, and the ask
@@ -1099,15 +1017,10 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final l = AppLocalizations.of(c);
     final v = _v;
     if (v == null) {
-      return _vFailed
-          ? _readFailed(l?.healthWhatVitals ?? 'vitals', () {
-              setState(() => _vFailed = false);
-              _loadVitals();
-            })
-          : const Padding(
-              padding: EdgeInsets.only(top: S.x8),
-              child: Center(child: CircularProgressIndicator()),
-            );
+      if (!_vFailed && !hasRead(#vitals)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _loadVitals());
+      }
+      return const SizedBox.shrink();
     }
 
     // WHICH DAY this tab is showing. Every row here used to say "Today" for a
@@ -1126,8 +1039,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     }
 
     final lo = high('low_hr'), hi = high('peak_hr');
-    final respBlock = v.lungs['resp'];
-    final resp = respBlock is Map ? respBlock['value'] as num? : null;
     final worn = v.wear['worn_min'] as num?;
     final coverage = v.wear['coverage_pct'] as num?;
     final skinTemp = metricOf(d.today['skin_temp']);
@@ -1142,11 +1053,10 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       if (lo != null && hi != null)
         MetricRow(LucideIcons.heart, C.red, l?.healthRowHeartRate ?? 'Heart rate',
             '${lo.round()} – ${hi.round()}',
-            sub: dayWord, unit: 'bpm'),
-      if (resp != null)
-        MetricRow(LucideIcons.wind, C.teal, l?.healthRowRespRate ?? 'Respiratory rate',
-            resp.toStringAsFixed(1),
-            sub: l?.healthSubAsleep ?? 'Asleep', unit: 'br/min'),
+            sub: dayWord, unit: 'bpm',
+            // The range opens the minute-by-minute day it was taken from.
+            onTap: () => go(c, const DayTimelineScreen())),
+      // Breathing rate is already an Overview row; not repeated here.
       if (skinTemp.value != null)
         // NAME THE QUANTITY. This is `skin_temp_z` — standard deviations from
         // the user's own baseline. It printed signed and unitless beside a
@@ -1180,16 +1090,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      ...dayNavRow(_vDay ?? v.day, v.days, _goVitalsDay),
-      if (rows.isEmpty)
-        StatusCard(
-          l?.healthNothingMeasuredDay ?? 'Nothing measured for this day',
-          l?.healthNoBandRecordings ?? 'No band recordings reached this day.',
-          fix: syncOf(c) == null ? '' : (l?.healthSyncTheBand ?? 'Sync the band'),
-          icon: LucideIcons.watch,
-          onFix: syncOf(c),
-        )
-      else
+      if (rows.isNotEmpty) ...[
+        const SizedBox(height: S.x3),
         Surface(
           pad: const EdgeInsets.symmetric(horizontal: S.x4),
           child: Column(children: [
@@ -1199,6 +1101,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             ],
           ]),
         ),
+      ],
 
       // No skin-temperature caveat card here. The row's own unit already says
       // the reading is relative, and `metric_detail` carries the method for
@@ -1215,10 +1118,10 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               l?.healthHeartRateVariability ?? 'Heart rate variability',
               '${rmssd.round()}',
               'ms',
-              l?.healthTimeFrequencyNonLinear ?? 'Time, frequency and non-linear',
+              'Last night, beat by beat',
               C.green,
               preview: _hrvPreview(c, d),
-              onTap: () => go(c, const Investigate('hrv'))),
+              onTap: () => go(c, const Beats())),
         ),
     ]);
   }
@@ -1373,381 +1276,4 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     );
   }
 
-  // ─────────────── LABS ───────────────
-  Widget _labs(BuildContext c) {
-    final p = P.of(c);
-    final loc = AppLocalizations.of(c);
-    final l = _l;
-    if (l == null) {
-      return _lFailed
-          ? _readFailed(loc?.healthWhatLabResults ?? 'lab results', () {
-              setState(() => _lFailed = false);
-              _loadLabs();
-            })
-          : const Padding(
-              padding: EdgeInsets.only(top: S.x8),
-              child: Center(child: CircularProgressIndicator()),
-            );
-    }
-
-    final sex = (_d?.profile['sex'])?.toString();
-    // Newest draw per marker. `labResults` is already taken_on DESC.
-    final latest = <String, Map<String, dynamic>>{};
-    for (final r in l.results) {
-      latest.putIfAbsent(r['marker'].toString(), () => r);
-    }
-    final byKey = {for (final m in l.markers) m.key: m};
-    // A stored result with no number is not a measurement — it is dropped, the
-    // way MonoTable drops an empty row. A bare em-dash in a lab column reads as
-    // "the assay failed", which is a claim about your blood.
-    final rows = latest.values.where((r) => r['value'] is num).toList()
-      ..sort((a, b) => (byKey[a['marker']]?.label ?? '')
-          .compareTo(byKey[b['marker']]?.label ?? ''));
-    final lastDraw = l.results.isEmpty ? null : l.results.first['taken_on'];
-    // Markers the user named themselves — the only ones whose DEFINITION is
-    // theirs to remove. A catalogue marker is the app's and stays.
-    final mine = l.markers.where((m) => m.custom).toList();
-    final counts = <String, int>{};
-    for (final r in l.results) {
-      final k = r['marker'].toString();
-      counts[k] = (counts[k] ?? 0) + 1;
-    }
-
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (rows.isEmpty)
-        StatusCard(
-          loc?.healthNoLabResults ?? 'No lab results',
-          loc?.healthNoLabResultsBody ??
-              'Nothing logged. Anything you add here stays on this device, '
-                  'and anything you remove is gone from it.',
-          icon: LucideIcons.testTube,
-        )
-      else ...[
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Column(children: [
-            for (var i = 0; i < rows.length; i++) ...[
-              if (i > 0) Divider(color: p.line, height: 1),
-              _lab(p, byKey[rows[i]['marker'].toString()], rows[i], sex,
-                  () => _removeResult(byKey[rows[i]['marker'].toString()],
-                      rows[i], l)),
-            ],
-          ]),
-        ),
-        const SizedBox(height: S.x3),
-        Text(
-            loc?.healthLastPanel(lastDraw?.toString() ?? '') ??
-                'Last panel ${lastDraw ?? ''} · logged by hand',
-            style: F.over.copyWith(color: p.ink3)),
-      ],
-      if (mine.isNotEmpty) _myMarkers(p, mine, counts),
-      const SizedBox(height: S.x4),
-      BigButton(loc?.healthAddAResult ?? 'Add a result',
-          icon: LucideIcons.plus,
-          color: C.blue,
-          soft: true,
-          onTap: () => _addLab(c, l)),
-      const SizedBox(height: S.x4),
-      // The app never prints "abnormal" anywhere, so it does not need to say
-      // it does not. What the user cannot know without being told is that the
-      // range shown here is not the range their own lab used.
-      Text(loc?.healthRangesDifferByLab ??
-              'Ranges differ by lab. Use the one on your report.',
-          style: F.over.copyWith(color: p.ink3, height: 1.6)),
-    ]);
-  }
-
-  Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex,
-      VoidCallback onRemove) {
-    final l = AppLocalizations.of(context);
-    final v = (r['value'] as num?)?.toDouble();
-    final unit = (r['unit'] ?? m?.unit ?? '').toString();
-    final range = m?.rangeFor(sex);
-    final inRange = v == null || m == null ? null : m.inRange(v, sex: sex);
-
-    // The whole row is the control, with the bin as its affordance — the same
-    // shape a logged meal takes, and it costs no width, which at 3x text is
-    // the difference between a row that fits and one that overflows.
-    return Pressable(
-      onTap: onRemove,
-      semanticLabel: l?.healthRemoveMarkerFrom(
-              (m?.label ?? r['marker']).toString(), r['taken_on'].toString()) ??
-          'Remove ${m?.label ?? r['marker']} from ${r['taken_on']}',
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              // No interval means NO OPINION — a grey dot, never a green one.
-              color: inRange == null
-                  ? p.ink3
-                  : (inRange ? p.on(C.green) : p.on(C.orange)),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(m?.label ?? r['marker'].toString(),
-                  style: F.body.copyWith(color: p.ink)),
-              Text(
-                  range == null
-                      ? (l?.healthNoReferenceInterval(r['taken_on'].toString()) ??
-                          'No reference interval · ${r['taken_on']}')
-                      : (l?.healthTypicalRange(_num(range.low), _num(range.high),
-                              r['taken_on'].toString()) ??
-                          'Typical ${_num(range.low)}–${_num(range.high)} · '
-                              '${r['taken_on']}'),
-                  style: F.over.copyWith(color: p.ink3)),
-            ]),
-          ),
-          const SizedBox(width: S.x2),
-          Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(v == null ? '' : (m?.format(v) ?? v.toString()),
-                    style: F.n17.copyWith(
-                        color: inRange == false ? p.on(C.orange) : p.ink)),
-                const SizedBox(width: 3),
-                Text(unit, style: F.over.copyWith(color: p.ink3)),
-              ]),
-          // This is the user's own blood work in an app that keeps it on their
-          // phone; being able to take it back out is the premise, not a setting.
-          const SizedBox(width: S.x2),
-          Icon(LucideIcons.trash2, size: 16, color: p.ink3),
-        ]),
-      ),
-    );
-  }
-
-  /// One reading of one marker on one date. Named in full before it goes:
-  /// there is no undo here, and a generic "are you sure?" over a column of
-  /// blood results is how the wrong one is lost.
-  Future<void> _removeResult(
-      LabMarker? m, Map<String, dynamic> r, LabsData l) async {
-    final loc = AppLocalizations.of(context);
-    final marker = r['marker'].toString();
-    final takenOn = r['taken_on'].toString();
-    final label = m?.label ?? marker;
-    final v = (r['value'] as num).toDouble();
-    final unit = (r['unit'] ?? m?.unit ?? '').toString();
-    // The row on screen is the NEWEST draw of its marker, so an earlier one
-    // takes its place rather than the marker disappearing — which without
-    // being told reads as the delete having failed.
-    final older = l.results.firstWhere(
-      (o) => o['marker'] == marker && o['taken_on'] != takenOn,
-      orElse: () => const <String, dynamic>{},
-    )['taken_on'];
-
-    final ok = await confirmRemove(
-      context,
-      title: loc?.healthRemoveLabelFrom(label, takenOn) ??
-          'Remove $label from $takenOn?',
-      body: (loc?.healthRemoveLabBody(m?.format(v) ?? _num(v), unit) ??
-              'The ${m?.format(v) ?? _num(v)} $unit you logged for that draw. '
-                  'It leaves this device and there is no undo.') +
-          (older == null
-              ? ''
-              : (loc?.healthRemoveLabOlderNote(older) ??
-                  ' Your $older draw stays, and shows here instead.')),
-    );
-    if (!ok || !mounted) return;
-    await LocalDb.deleteLabResult(marker, takenOn);
-    _l = null;
-    await _loadLabs();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(older == null
-          ? (loc?.healthRemovedNoneLeft(label, takenOn) ??
-              'Removed $label from $takenOn. No $label results left.')
-          : (loc?.healthRemovedShowingOlder(label, takenOn, older) ??
-              'Removed $label from $takenOn. Showing your $older draw now.')),
-    ));
-  }
-
-  /// Markers the user named. Only the DEFINITION is theirs to remove here —
-  /// see [_removeMarker] for why one holding results is refused.
-  Widget _myMarkers(P p, List<LabMarker> mine, Map<String, int> counts) {
-    final l = AppLocalizations.of(context);
-    return Section(
-      l?.healthMarkersYouNamed ?? 'Markers you named',
-      Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
-          for (var i = 0; i < mine.length; i++) ...[
-            if (i > 0) Divider(color: p.line, height: 1),
-            Pressable(
-              semanticLabel: l?.healthRemoveTheMarker(mine[i].label) ??
-                  'Remove the ${mine[i].label} marker',
-              onTap: () => _removeMarker(mine[i], counts[mine[i].key] ?? 0),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: S.x3),
-                child: Row(children: [
-                  Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(mine[i].label,
-                              style: F.body.copyWith(color: p.ink)),
-                          Text(
-                              (counts[mine[i].key] ?? 0) == 0
-                                  ? (l?.healthNothingLoggedUnderIt ??
-                                      'Nothing logged under it')
-                                  : (l?.healthResultsCount(
-                                          counts[mine[i].key] ?? 0,
-                                          mine[i].unit) ??
-                                      '${counts[mine[i].key]} '
-                                          '${(counts[mine[i].key] ?? 0) == 1 ? 'result' : 'results'} · '
-                                          '${mine[i].unit}'),
-                              style: F.over.copyWith(color: p.ink3)),
-                        ]),
-                  ),
-                  const SizedBox(width: S.x2),
-                  Icon(LucideIcons.trash2, size: 16, color: p.ink3),
-                ]),
-              ),
-            ),
-          ],
-        ]),
-      ),
-    );
-  }
-
-  /// Removing a marker DEFINITION, which is not the same act as removing its
-  /// readings — `deleteLabMarkerDef` deliberately leaves those alone, because
-  /// they were real draws and each row carries its own unit.
-  ///
-  /// But this screen labels a result THROUGH its marker, so a definition
-  /// deleted out from under one leaves the reading rendering as its raw
-  /// storage key with no interval. Both ways out of that are worse than this
-  /// one: deleting the readings too destroys blood work nobody asked to
-  /// destroy, and keeping them degrades a number this app calls absolute. So
-  /// a marker that still holds results is refused, and says how to proceed —
-  /// the results are one screen up, each removable on its own.
-  Future<void> _removeMarker(LabMarker m, int results) async {
-    final l = AppLocalizations.of(context);
-    if (results > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(l?.healthStillHoldsResults(results, m.label) ??
-            '${m.label} still holds $results '
-                '${results == 1 ? 'result' : 'results'}. Remove those first — '
-                'the marker is what labels them.'),
-      ));
-      return;
-    }
-    final ok = await confirmRemove(
-      context,
-      title: l?.healthRemoveMarkerQ(m.label) ?? 'Remove ${m.label}?',
-      body: l?.healthRemoveMarkerBody ??
-          'It leaves the marker list, so you can no longer log it. Nothing '
-              'measured goes with it — you have no results under it.',
-    );
-    if (!ok || !mounted) return;
-    await LocalDb.deleteLabMarkerDef(m.key);
-    _l = null;
-    await _loadLabs();
-  }
-
-  String _num(double v) =>
-      v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(1);
-
-  /// Deliberately plain. Entering blood work is a rare, careful act; it does
-  /// not need a designed flow, it needs the marker, the number and the date.
-  Future<void> _addLab(BuildContext c, LabsData l) async {
-    final loc = AppLocalizations.of(c);
-    var marker = l.markers.first;
-    final value = TextEditingController();
-    final now = DateTime.now();
-    final takenOn = TextEditingController(
-        text: '${now.year.toString().padLeft(4, '0')}-'
-            '${now.month.toString().padLeft(2, '0')}-'
-            '${now.day.toString().padLeft(2, '0')}');
-
-    final ok = await showDialog<bool>(
-      context: c,
-      builder: (dc) => StatefulBuilder(
-        builder: (dc, setLocal) => AlertDialog(
-          title: Text(loc?.healthAddAResult ?? 'Add a result'),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              // Unlabelled it announces only its current value — a marker
-              // name, with no statement of what the field is.
-              Semantics(
-                label: loc?.healthMarkerLabel ?? 'Marker',
-                child: DropdownButton<LabMarker>(
-                  isExpanded: true,
-                  value: marker,
-                  items: [
-                    for (final m in l.markers)
-                      DropdownMenuItem(value: m, child: Text(m.label)),
-                  ],
-                  onChanged: (m) => setLocal(() => marker = m ?? marker),
-                ),
-              ),
-              TextField(
-                controller: value,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                    labelText:
-                        loc?.healthValueUnit(marker.unit) ?? 'Value (${marker.unit})'),
-              ),
-              TextField(
-                controller: takenOn,
-                decoration: InputDecoration(
-                    labelText: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)'),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.of(dc).pop(false),
-                child: Text(loc?.actionCancel ?? 'Cancel')),
-            TextButton(
-                onPressed: () => Navigator.of(dc).pop(true),
-                child: Text(loc?.actionSave ?? 'Save')),
-          ],
-        ),
-      ),
-    );
-
-    if (ok != true || !mounted) return;
-    // Blood work typed by hand is exactly the input nobody notices is missing,
-    // so nothing here fails quietly: the dialog used to close on Save and the
-    // result was dropped whenever the value carried its unit ("78 ng/mL") or
-    // the date was written the other way round.
-    final v = Typed.of(value.text);
-    final date = takenOn.text.trim();
-    if (v.value == null || DateTime.tryParse(date) == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(v.value == null
-            ? (loc?.healthValueMustBeNumber ??
-                'The value needs to be a number on its own, without the unit. '
-                    'Nothing was saved.')
-            : (loc?.healthDateFormatError ??
-                'The date needs to be YYYY-MM-DD. Nothing was saved.')),
-      ));
-      return;
-    }
-    try {
-      await LocalDb.putLabResult(
-        marker: marker.key,
-        takenOn: date,
-        value: v.value!,
-        unit: marker.unit,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                loc?.healthCouldNotSaveIt(e.toString()) ?? 'Could not save it: $e')));
-      }
-      return;
-    }
-    _l = null;
-    await _loadLabs();
-  }
 }

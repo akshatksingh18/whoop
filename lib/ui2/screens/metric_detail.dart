@@ -1,10 +1,8 @@
-// The shared metric drill-down — density 2 of 3.
+// The shared metric drill-down — the deepest level the app shows.
 //
 // Glance (a row on Health) → MetricDetail (your normal range, what moves it,
-// how this week compares) → Nerd stats (everything, in mono). There is no
-// "advanced mode" switch: depth is a place you walk to, not a preference you
-// set, so the same person gets the shallow read on Monday and the deep one
-// when something looks wrong.
+// how this week compares). The raw-figures "Nerd stats" layer was removed from
+// the personal build: this screen is the end of the walk.
 //
 // Every metric goes through THIS screen. Forty bespoke detail screens is how
 // the old UI ended up with forty different opinions about what a chart is.
@@ -21,7 +19,6 @@ import '../ui2.dart';
 import 'beats.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
-import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
 import 'sleep_detail.dart';
 
@@ -42,7 +39,7 @@ class MetricSpec {
   final String? suppress;
   final String? suppressFix;
 
-  /// How it is computed, and who published the method. Rendered by Nerd stats.
+  /// How it is computed, and who published the method.
   final String method;
   final String citation;
 
@@ -565,8 +562,6 @@ class _MetricDetailState extends State<MetricDetail> {
           fix: spec.suppressFix ?? '',
           icon: spec.icon,
         ),
-        const SizedBox(height: S.x5),
-        investigateRow(c, () => go(c, Investigate(widget.metricKey))),
       ] else if (vals.isEmpty) ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
@@ -610,8 +605,6 @@ class _MetricDetailState extends State<MetricDetail> {
           _StepGoalGauge(
               steps: null, goal: d.stepGoal, color: spec.color, onSaved: _load),
         ],
-        const SizedBox(height: S.x5),
-        investigateRow(c, () => go(c, Investigate(widget.metricKey))),
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
@@ -682,7 +675,6 @@ class _MetricDetailState extends State<MetricDetail> {
               () => go(c, const DayStepsDetail())),
           const SizedBox(height: S.x3),
         ],
-        investigateRow(c, () => go(c, Investigate(widget.metricKey))),
       ],
     ]);
   }
@@ -940,17 +932,21 @@ class _MetricDetailState extends State<MetricDetail> {
     final i = _pick!.clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
     final v = series[i];
+    final door = v == null ? null : _dayScreen(widget.metricKey, day);
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Surface(
         color: p.card2,
         elevation: 0,
-        onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
+        onTap: door == null ? null : () => go(c, door),
         semanticLabel: v == null
             ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
                 '${prettyDay(day, l)}, no record')
-            : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
-                'Open ${prettyDay(day, l)}'),
+            : door == null
+                ? '${prettyDay(day, l)}, ${_fmt(spec, v)} ${unitBeside(spec.unit)}'
+                    .trimRight()
+                : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
+                    'Open ${prettyDay(day, l)}'),
         child: Row(children: [
           Expanded(
             child: Text(dayNavLabel(day),
@@ -968,7 +964,7 @@ class _MetricDetailState extends State<MetricDetail> {
                 ? F.cap.copyWith(color: p.ink3)
                 : F.n17.copyWith(color: p.ink),
           ),
-          if (v != null) ...[
+          if (door != null) ...[
             const SizedBox(width: S.x2),
             Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
           ],
@@ -978,9 +974,8 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   /// Where a day opens. Each metric lands on the screen that actually shows
-  /// that day — Nerd stats is the fallback because it is the one screen that
-  /// exists for every key.
-  Widget _dayScreen(String key, String day) => switch (key) {
+  /// that day; a metric with no per-day screen has no door (null).
+  Widget? _dayScreen(String key, String day) => switch (key) {
         'sleep' ||
         'deep' ||
         'rem' ||
@@ -988,7 +983,7 @@ class _MetricDetailState extends State<MetricDetail> {
           SleepDetail(day: day),
         'hrv' => Beats(day: day),
         'steps' => DayStepsDetail(day: day),
-        _ => Investigate(key, day: day),
+        _ => null,
       };
 
   /// [latestTs] is the stamp on the newest STORED point — the day the rank was
@@ -1457,24 +1452,6 @@ Widget detailLinkRow(BuildContext c, IconData icon, String title, String sub,
   );
 }
 
-/// The door into density 3 — the screen the user sees as "Nerd stats". Kept
-/// deliberately plain: it is a workbench entrance, not a feature, and it now
-/// reads as a companion to the picture above it rather than as the place the
-/// interesting numbers are hiding.
-///
-/// The identifier stays `investigateRow` to match `investigate.dart` and the
-/// `investigate_row` gallery key; only the string changed.
-Widget investigateRow(BuildContext c, VoidCallback onTap) => detailLinkRow(
-    c,
-    LucideIcons.cpu,
-    AppLocalizations.of(c)?.metricDetailNerdStatsTitle ?? 'Nerd stats',
-    // One line at 1x. A subtitle that wraps makes this row taller than every
-    // other `detailLinkRow` in the app, which is a layout change dressed up as
-    // a copy change — keep it at or under the old string's length.
-    AppLocalizations.of(c)?.metricDetailNerdStatsSub ??
-        'The figures behind the picture',
-    onTap);
-
 /// A two-column legend. Used by the hypnogram and the overnight stack.
 class Legend extends StatelessWidget {
   final List<(String, Color)> items;
@@ -1501,48 +1478,3 @@ class Legend extends StatelessWidget {
   }
 }
 
-/// The mono table Nerd stats is built from — label left, value right, both in
-/// a fixed-pitch face so columns line up and nothing pretends to be prose.
-class MonoTable extends StatelessWidget {
-  final String title;
-  final List<(String, String)> rows;
-  const MonoTable(this.title, this.rows, {super.key});
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    // A row with nothing behind it is dropped, not dashed. On a workbench an
-    // em-dash reads as "we tried and got nothing", which is indistinguishable
-    // from "this metric does not apply to this night".
-    final present = [for (final r in rows) if (r.$2 != '—' && r.$2.isNotEmpty) r];
-    if (present.isEmpty) return const SizedBox.shrink();
-    return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title.toUpperCase(), style: F.over.copyWith(color: p.ink3)),
-        const SizedBox(height: S.x3),
-        for (final r in present)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(r.$1,
-                        style: F.cap
-                            .copyWith(color: p.ink3, fontFamily: 'Menlo')),
-                  ),
-                  const SizedBox(width: S.x3),
-                  Flexible(
-                    child: Text(r.$2,
-                        textAlign: TextAlign.right,
-                        style: F.cap.copyWith(
-                            color: p.ink,
-                            fontFamily: 'Menlo',
-                            fontWeight: FontWeight.w600)),
-                  ),
-                ]),
-          ),
-      ]),
-    );
-  }
-}

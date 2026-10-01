@@ -33,6 +33,7 @@ import '../ai/reminder_plan.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart';
 import '../data/med_store.dart';
+import '../platform/signing_profile.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
@@ -306,6 +307,41 @@ class NotificationCenter {
     if (windDownMin != null) await _armWindDown(svc, windDownMin);
     if (checkIn != null) await _armCheckIn(svc, checkIn);
     await _armMedSlots(svc, meds);
+  }
+
+  /// Arm the 48 h / 24 h signing-expiry warnings for [expiry] (the installed
+  /// profile's), replacing whatever an earlier pass armed. A null expiry — not
+  /// the personal sideload, or the profile could not be read — cancels both
+  /// rather than leaving warnings for an expiry nobody can confirm.
+  ///
+  /// ponytail: fires at the exact moment even inside quiet hours; the profile
+  /// is signed at install time, which is when someone is awake, so the 48 h and
+  /// 24 h marks land at a waking hour too. Clamp into waking hours if a
+  /// refresh ever lands at night and the alert becomes the complaint.
+  Future<void> scheduleSigningExpiryAlerts(DateTime? expiry,
+      {DateTime? now}) async {
+    final svc = NotificationService.instance;
+    await svc.cancel(NotificationService.idSigningExpiry48);
+    await svc.cancel(NotificationService.idSigningExpiry24);
+    final plan = signingAlertPlan(expiry, now ?? DateTime.now());
+    if (plan.isEmpty) return;
+    await svc.ensureTimezone();
+    for (final a in plan) {
+      await svc.scheduleOnce(
+        id: a.hoursBefore == 48
+            ? NotificationService.idSigningExpiry48
+            : NotificationService.idSigningExpiry24,
+        category: NotifCategory.device,
+        title: a.hoursBefore == 48
+            ? 'WHOOP signing ends in 2 days'
+            : 'WHOOP signing ends tomorrow',
+        body: 'Refresh it with Sideloadly on your PC. Once it lapses the app '
+            'will not open. Opening WHOOP re-checks — if it was already '
+            'refreshed, this warning moves.',
+        at: a.at,
+        route: kRouteStatus,
+      );
+    }
   }
 
   /// One notification per dose still due — never one per day, never a summary.

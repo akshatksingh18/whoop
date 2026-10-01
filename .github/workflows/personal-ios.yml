@@ -45,7 +45,8 @@ jobs:
             'PERSONAL_SIDELOAD=true' \
             'COMPANION_URL=' \
             'BACKEND_URL=' \
-            'ENABLE_HEALTH_DATA_CONTRIBUTION=false' > .env
+            'ENABLE_HEALTH_DATA_CONTRIBUTION=false' \
+            "SOURCE_REVISION=${GITHUB_SHA}" > .env
           printf '%s\n' \
             'APP_BUNDLE_IDENTIFIER = com.akshat.personal.whoop' \
             'APP_WIDGET_BUNDLE_IDENTIFIER = $(APP_BUNDLE_IDENTIFIER).OpenStrapWidget' \

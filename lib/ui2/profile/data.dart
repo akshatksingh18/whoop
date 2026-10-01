@@ -61,6 +61,12 @@ class _DataScreenState extends State<DataScreen> {
   bool _noteFailed = false;
   ImportOutcome? _outcome;
 
+  @override
+  void initState() {
+    super.initState();
+    context.read<AppState>().refreshBackupPassphraseState();
+  }
+
   void _say(String s, {bool failed = false}) {
     if (mounted) {
       setState(() {
@@ -177,8 +183,62 @@ class _DataScreenState extends State<DataScreen> {
     );
   }
 
+  /// Ask for a new backup passphrase and store it in the keychain. Null when
+  /// the prompt was closed or the keychain refused it (then [_say] has said so).
+  Future<bool> _choosePassphrase(AppState app) async {
+    final pass = await askBackupPassphrase(context, creating: true);
+    if (pass == null) return false;
+    final ok = await app.setBackupPassphrase(pass);
+    if (!ok) {
+      _say(
+          'The passphrase could not be saved to this phone\'s keychain, so '
+          'automatic backups cannot run yet. Try again.',
+          failed: true);
+    }
+    return ok;
+  }
+
+  Future<_Note> _setPassphrase(AppState app) async {
+    if (!await _choosePassphrase(app)) return ('', false);
+    return (
+      'Saved. The next automatic backup is sealed with it; backups already '
+          'written keep the passphrase they were made with. Keep it somewhere '
+          'of your own — a restore on another phone asks for it.',
+      false
+    );
+  }
+
+  /// Off → Daily → Weekly → Off, but never ON without a passphrase: an
+  /// automatic backup that cannot be sealed writes nothing.
+  Future<_Note> _cycleCadence(AppState app) async {
+    final l = AppLocalizations.of(context);
+    final next = _nextCadence(app.backupCadence);
+    if (next != BackupCadence.off && app.hasBackupPassphrase != true) {
+      await app.refreshBackupPassphraseState();
+      if (!mounted) return ('', false);
+      if (app.hasBackupPassphrase != true && !await _choosePassphrase(app)) {
+        return ('', false);
+      }
+    }
+    // Turning it on runs the first backup straight away, so its result is
+    // what gets reported.
+    await app.setBackupCadence(next);
+    if (next == BackupCadence.off) return ('', false);
+    final err = app.lastBackupError;
+    return err == null
+        ? ('Automatic backup is on. The first one is written.', false)
+        : (l?.dataBackupFailed(err) ?? 'Backup failed: $err', true);
+  }
+
   Future<_Note> _backupNow(AppState app) async {
     final l = AppLocalizations.of(context);
+    if (app.hasBackupPassphrase != true) {
+      await app.refreshBackupPassphraseState();
+      if (!mounted) return ('', false);
+      if (app.hasBackupPassphrase != true && !await _choosePassphrase(app)) {
+        return ('', false);
+      }
+    }
     final outcome = await app.runBackupNow();
     if (outcome.error != null) {
       return (l?.dataBackupFailed(outcome.error!) ?? 'Backup failed: ${outcome.error}', true);
@@ -278,23 +338,32 @@ class _DataScreenState extends State<DataScreen> {
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, l?.dataAutoBackupGroup ?? 'Automatic backup', [
+                  // Encrypted, always: sealed with the stored passphrase, and
+                  // decrypted once to check before it is kept. It lives inside
+                  // the app, so it does NOT survive deleting the app — that
+                  // still needs a copy moved off the phone.
                   SetRow(LucideIcons.calendarClock, C.purple,
                       l?.dataHowOften ?? 'How often',
-                      // Unencrypted, and it says so. The encrypted format is
-                      // new and its restore path has not yet run green against
-                      // a file written by an older build — defaulting the
-                      // automatic copy to a format that might not open is
-                      // worse than the plaintext it replaced.
-                      sub: l?.dataHowOftenSub(kBackupDirName, kBackupsKept) ??
-                          'Writes a compressed, unencrypted copy to '
-                              '$kBackupDirName, keeping the last $kBackupsKept',
+                      sub: 'Writes an encrypted, checked copy to '
+                          '$kBackupDirName when you open the app, keeping the '
+                          'last $kBackupsKept. It is deleted with the app, so '
+                          'copy one off the phone now and then',
                       value: app.backupCadence.label,
-                      onTap: _busy
-                          ? null
-                          : () => app.setBackupCadence(_nextCadence(
-                              app.backupCadence))),
+                      onTap: _busy ? null : () => _run(() => _cycleCadence(app))),
+                  SetRow(LucideIcons.keyRound, C.purple, 'Backup passphrase',
+                      sub: 'Stored in this phone\'s keychain so backups can run '
+                          'on their own. There is no recovery if you forget it',
+                      value: switch (app.hasBackupPassphrase) {
+                        true => 'Set',
+                        false => 'Not set',
+                        null => '',
+                      },
+                      onTap: _busy ? null : () => _run(() => _setPassphrase(app))),
                   SetRow(LucideIcons.clock, C.n500,
                       l?.dataLastBackup ?? 'Last backup',
+                      sub: app.lastBackupError == null
+                          ? ''
+                          : 'The last attempt failed: ${app.lastBackupError}',
                       value: last == null
                           ? (l?.dataNever ?? 'Never')
                           : _stamp(last),

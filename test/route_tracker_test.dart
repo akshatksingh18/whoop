@@ -621,4 +621,57 @@ void main() {
       await ctrl2.close();
     });
   });
+
+  test('a re-armed tracker continues after the stored route, never over it',
+      () async {
+    // workout_route is keyed (session_id, seq) and written INSERT OR REPLACE:
+    // a resumed workout that restarted at seq 0 overwrote the first part of
+    // the run it was resuming.
+    final batches = <List<RoutePoint>>[];
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(
+        sink: (b) async => batches.add(b), batchSize: 2, firstSeq: 57);
+    t.start(ctrl.stream);
+    ctrl.add(_fix(0));
+    ctrl.add(_fix(1));
+    await pumpEventQueue();
+    expect(batches.single.map((p) => p.seq).toList(), [57, 58]);
+    expect(t.pointCount, 2, reason: 'points accepted by this tracker only');
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test('flush() persists the buffered tail without stopping', () async {
+    final batches = <List<RoutePoint>>[];
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (b) async => batches.add(b), batchSize: 10);
+    t.start(ctrl.stream);
+    ctrl.add(_fix(0));
+    ctrl.add(_fix(1));
+    await pumpEventQueue();
+    expect(batches, isEmpty);
+    await t.flush();
+    expect(batches.single.length, 2);
+    expect(t.isRunning, isTrue);
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test('receivingFixes is false until a fix lands, and again once quiet', () {
+    fakeAsync((async) {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(
+          sink: (_) async {}, stallAfter: const Duration(seconds: 15));
+      t.start(ctrl.stream);
+      expect(t.receivingFixes, isFalse, reason: 'armed is not recording');
+      ctrl.add(_fix(0));
+      async.flushMicrotasks();
+      expect(t.receivingFixes, isTrue);
+      async.elapse(const Duration(seconds: 20));
+      expect(t.receivingFixes, isFalse, reason: 'a silent stream is a stall');
+      t.dispose();
+      ctrl.close();
+    });
+  });
+
 }

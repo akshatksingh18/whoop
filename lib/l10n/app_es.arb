@@ -1666,7 +1666,7 @@
   "sleepDetailLight": "Ligero",
   "sleepDetailNoStageSplitTitle": "No hay desglose de fases para esta noche",
   "sleepDetailNoStageSplitBody": "No hubo ritmo cardíaco medido en toda la ventana.",
-  "sleepDetailStageRangeExplain": "Cada fase es un rango, no un recuento: cuanto mejor viéramos la noche, más estrecho es. El sueño profundo es el más amplio. El sueño despierto se mantiene como una sola cifra. Estadísticas avanzadas tiene los recuentos exactos.",
+  "sleepDetailStageRangeExplain": "Cada fase es un rango, no un recuento: cuanto mejor viéramos la noche, más estrecho es. El sueño profundo es el más amplio. El sueño despierto se mantiene como una sola cifra.",
   "sleepDetailTimeAsleep": "Tiempo dormido",
   "sleepDetailShorterThanUsual": "más corto de lo habitual",
   "sleepDetailLongerThanUsual": "más largo de lo habitual",

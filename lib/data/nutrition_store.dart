@@ -14,6 +14,8 @@
 // Pure rollup logic lives at the bottom as top-level functions so it is
 // testable without a database.
 
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 import 'day_label.dart';
@@ -75,6 +77,18 @@ Future<void> createNutritionTables(Database db) async {
       calcium_mg_100 REAL,
       source         TEXT NOT NULL DEFAULT 'manual',
       created_at     INTEGER NOT NULL
+    )
+  ''');
+  // A saved meal: a named set of the user's own foods at fixed grams, filed
+  // under the occasion it is usually eaten at. Logging it writes one ordinary
+  // `food_entry` per item, so nothing downstream knows templates exist.
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS meal_template (
+      key         TEXT PRIMARY KEY,
+      label       TEXT NOT NULL,
+      meal        TEXT NOT NULL,
+      items_json  TEXT NOT NULL,
+      created_at  INTEGER NOT NULL
     )
   ''');
 }
@@ -573,3 +587,171 @@ class NutritionDb {
     ]);
   }
 }
+
+// ══════════════════ MY FOODS & SAVED MEALS ══════════════════
+
+/// Nutrients for [grams] of a `food_def` row (stored per 100 g). A field the
+/// food never had stays null — scaling cannot invent one.
+({double? kcal, double? protein, double? carbs, double? fat, double? fibre})
+    nutrientsFor(Map<String, Object?> def, double grams) {
+  double? at(String k) {
+    final v = (def[k] as num?)?.toDouble();
+    return v == null ? null : v * grams / 100;
+  }
+
+  return (
+    kcal: at('kcal_100'),
+    protein: at('protein_g_100'),
+    carbs: at('carbs_g_100'),
+    fat: at('fat_g_100'),
+    fibre: at('fibre_g_100'),
+  );
+}
+
+/// A `food_def` row from label numbers as the user reads them: "50 g of oats
+/// is 200 kcal, 6.5 g protein, 33 g carbs". Stored per 100 g so any later
+/// portion scales from it.
+Map<String, Object?> myFoodDef({
+  required String key,
+  required String label,
+  required double refGrams,
+  double? kcal,
+  double? protein,
+  double? carbs,
+  double? fat,
+  double? fibre,
+}) {
+  double? per100(double? v) => v == null ? null : v * 100 / refGrams;
+  return {
+    'key': key,
+    'label': label,
+    'serving_g': refGrams,
+    'kcal_100': per100(kcal),
+    'protein_g_100': per100(protein),
+    'carbs_g_100': per100(carbs),
+    'fat_g_100': per100(fat),
+    'fibre_g_100': per100(fibre),
+    'source': 'manual',
+  };
+}
+
+/// A food logged at [grams] into [meal] on [date].
+FoodEntry entryFromFood(
+  Map<String, Object?> def,
+  double grams, {
+  required String id,
+  required String date,
+  required String meal,
+  int? atTs,
+}) {
+  final n = nutrientsFor(def, grams);
+  return FoodEntry(
+    id: id,
+    date: date,
+    meal: meal,
+    label: (def['label'] ?? '').toString(),
+    atTs: atTs,
+    foodKey: def['key']?.toString(),
+    quantity: grams,
+    kcal: n.kcal,
+    proteinG: n.protein,
+    carbsG: n.carbs,
+    fatG: n.fat,
+    fibreG: n.fibre,
+    source: FoodSource.repeat,
+    confirmed: true,
+  );
+}
+
+class MealTemplate {
+  const MealTemplate({
+    required this.key,
+    required this.label,
+    required this.meal,
+    required this.items,
+  });
+
+  final String key, label, meal;
+
+  /// (food_def key, grams), in the order they were added.
+  final List<(String, double)> items;
+
+  Map<String, Object?> toRow(int nowMs) => {
+        'key': key,
+        'label': label,
+        'meal': meal,
+        'items_json': jsonEncode([
+          for (final (f, g) in items) {'food': f, 'g': g},
+        ]),
+        'created_at': nowMs,
+      };
+
+  static MealTemplate fromRow(Map<String, Object?> r) {
+    final items = <(String, double)>[];
+    try {
+      for (final e in (jsonDecode(r['items_json'] as String) as List)) {
+        if (e is Map && e['food'] is String && e['g'] is num) {
+          items.add((e['food'] as String, (e['g'] as num).toDouble()));
+        }
+      }
+    } catch (_) {/* a damaged row logs nothing rather than crashing */}
+    return MealTemplate(
+      key: r['key'] as String,
+      label: (r['label'] ?? '').toString(),
+      meal: (r['meal'] ?? 'snack').toString(),
+      items: items,
+    );
+  }
+}
+
+class MyFoods {
+  MyFoods._();
+
+  /// Every food the user can pick: typed ones and cached barcode products,
+  /// most recently eaten first, then alphabetical.
+  static Future<List<Map<String, Object?>>> all(Database db) => db.rawQuery(
+        'SELECT d.* FROM food_def d '
+        'LEFT JOIN (SELECT food_key, MAX(created_at) AS last FROM food_entry '
+        'GROUP BY food_key) e ON e.food_key = d.key '
+        'ORDER BY e.last IS NULL, e.last DESC, d.label COLLATE NOCASE ASC',
+      );
+
+  static Future<void> deleteFood(Database db, String key) =>
+      db.delete('food_def', where: 'key = ?', whereArgs: [key]);
+
+  static Future<List<MealTemplate>> meals(Database db) async {
+    final rows = await db.query('meal_template',
+        orderBy: 'label COLLATE NOCASE ASC');
+    return [for (final r in rows) MealTemplate.fromRow(r)];
+  }
+
+  static Future<void> putMeal(Database db, MealTemplate m) => db.insert(
+      'meal_template', m.toRow(DateTime.now().millisecondsSinceEpoch),
+      conflictAlgorithm: ConflictAlgorithm.replace);
+
+  static Future<void> deleteMeal(Database db, String key) =>
+      db.delete('meal_template', where: 'key = ?', whereArgs: [key]);
+
+  /// Log every item of [m] into [meal] on [date]. Items whose food was since
+  /// deleted are skipped. Returns how many entries were written.
+  static Future<int> logMeal(
+      Database db, MealTemplate m, String date, String meal) async {
+    var n = 0;
+    final now = DateTime.now();
+    for (final (key, grams) in m.items) {
+      final def = await NutritionDb.foodDef(db, key);
+      if (def == null) continue;
+      await NutritionDb.put(
+        db,
+        entryFromFood(def, grams,
+            id: '${NutritionDb.newId()}_$n',
+            date: date,
+            meal: meal,
+            atTs: now.millisecondsSinceEpoch ~/ 1000),
+      );
+      n++;
+    }
+    return n;
+  }
+}
+

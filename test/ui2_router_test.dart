@@ -32,7 +32,6 @@ import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
 import 'package:openstrap_edge/ui2/screens/log_workout.dart'
     show WorkoutSuggestionScreen;
-import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -143,20 +142,17 @@ void main() {
       const routes = {
         kRouteAiMorning: ShellDomain.home,
         kRouteAiEvening: ShellDomain.home,
-        kRouteJournalCompose: ShellDomain.wellness,
-        kRouteBreathing: ShellDomain.wellness,
+        kRouteJournalCompose: ShellDomain.home,
+        kRouteBreathing: ShellDomain.home,
         kRouteWorkoutSuggestion: ShellDomain.workout,
         kRouteWater: ShellDomain.nutrition,
       };
       routes.forEach((route, domain) {
         expect(domainForRoute(route), domain, reason: route);
       });
-      // The hydration reminder says "tap to log a glass": it has to open the
-      // control, not the tab the control is buried on.
-      // The water reminder lands on Nutrition now — the water tile there
-      // steps and clears in place, and the single-field screen it used to
-      // open was reachable from nowhere else.
-      expect(screenForRoute(kRouteWater), isA<NutritionScreen>());
+      // Water logging was removed from the personal build; a hydration tap
+      // armed by an older build lands on the Nutrition tab and pushes nothing.
+      expect(screenForRoute(kRouteWater), isNull);
       // Payload routes that predate the five-tab shell, and that
       // `resolveTapRoute` does not carry yet — the destinations exist here so
       // they stop landing on Home the moment it does.

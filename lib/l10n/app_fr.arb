@@ -1656,7 +1656,7 @@
   "sleepDetailLight": "Léger",
   "sleepDetailNoStageSplitTitle": "Aucune répartition des phases pour cette nuit",
   "sleepDetailNoStageSplitBody": "Aucun rythme cardiaque mesuré sur toute la fenêtre.",
-  "sleepDetailStageRangeExplain": "Chaque phase est une fourchette, pas un décompte : mieux la nuit a été observée, plus elle est étroite. Le sommeil profond est le plus large. L'éveil reste un chiffre unique. Les statistiques avancées donnent les décomptes exacts.",
+  "sleepDetailStageRangeExplain": "Chaque phase est une fourchette, pas un décompte : mieux la nuit a été observée, plus elle est étroite. Le sommeil profond est le plus large. L'éveil reste un chiffre unique.",
   "sleepDetailTimeAsleep": "Temps de sommeil",
   "sleepDetailShorterThanUsual": "plus court que d'habitude",
   "sleepDetailLongerThanUsual": "plus long que d'habitude",

@@ -1,18 +1,23 @@
 # WHOOP iOS build and installation profiles
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
-personal-sideload build profile and manual public-GitHub workflow. Accepted `0.9.30` build `63`
-was built and payload/hash verified after the AccessorySetupKit bridge fix, then installed via
-Sideloadly. The current minimal profile intentionally excludes HealthKit, so it does not import the
+personal-sideload build profile and manual public-GitHub workflow. Accepted rollback `0.9.30` build
+`63` was built and payload/hash verified after the AccessorySetupKit bridge fix. Current `0.9.32`
+build `65` is installed after a clean same-identity reinstall and verified encrypted restore; the
+recovered app opens. The current minimal profile intentionally excludes HealthKit, so it does not import the
 Apple Health aggregate. Device testing verified the direct iPhone-pedometer import after enabling
 **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone steps enabled
 for normal iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest
-all-day step reconstruction. History-import state, exact installed identity/profile, complete
-pairing, and the remaining physical behavior remain unverified. Akshat reconfirmed that build 63 is
-installed. It excludes GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Current
-`0.9.32` build `65` source enables the route runtime and matching While-In-Use/background capability,
+all-day step reconstruction. History restore is verified; exact About/profile details, complete
+pairing, and the remaining physical behavior remain unverified. Build 63 excludes GPS. The
+uninstalled `0.9.31` build `64` artifact is superseded. Build `65` enables the route runtime and matching While-In-Use/background capability,
 hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for wrist step noise.
-Its macOS build, payload, manifest, and downloaded checksum gates pass; it still needs device acceptance.
+Its macOS build, payload, manifest, downloaded checksum, clean installation, encrypted restore,
+launch/data, scheduled enrollment, and exact-final-ID same-app refresh gates pass. Sideloadly's
+automatic bundle-ID transformation stalls at 0%; disabling it and entering
+`com.akshat.personal.whoop.5564K8D4SV` reaches 100% and preserves data/pairing. A controlled
+forced-due unattended Wi-Fi daemon cycle passes; the next naturally elapsed cycle and remaining
+device acceptance gates remain open.
 
 The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
@@ -82,7 +87,9 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 ```
 
 It packages a conventional `Payload/Runner.app`, validates it, and emits a capability/source
-manifest plus SHA-256. The iPhone display/bundle name is `WHOOP` and the permanent bundle
+manifest plus SHA-256. The workflow also writes `SOURCE_REVISION=<commit>` into the ephemeral
+`.env`, which is what the in-app **Status** screen shows as the source; a local build shows "not
+recorded". The iPhone display/bundle name is `WHOOP` and the permanent bundle
 ID is `com.akshat.personal.whoop`. The validated build-65 candidate is cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6`.
 The cached build-64 artifact passed automated checks but is superseded and must not be installed.
@@ -96,8 +103,10 @@ New source binaries require macOS/Xcode; free-profile refreshes do not. Follow
 ### Personal flavor acceptance
 
 Before promotion, inspect the payload/entitlements, perform a fresh install and same-ID in-place
-upgrade, pair and drain offline, prove CoreBluetooth background/restoration behavior, complete the
-72-hour soak, restore an encrypted export, and pass the refresh/expiry gates in `CLAUDE.md`.
+upgrade, require the shared signing-health check to print `ENROLLED` for the exact WHOOP signed
+identity and current version, pair and drain offline, prove CoreBluetooth background/restoration
+behavior, complete the 72-hour soak, restore an encrypted export, and pass the refresh/expiry gates
+in `CLAUDE.md`. A successful one-off install is not automatic-refresh coverage.
 
 ## Profile B: full source-signed upstream build
 

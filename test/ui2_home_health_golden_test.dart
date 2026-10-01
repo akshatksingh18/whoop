@@ -1,7 +1,7 @@
 // Goldens for Home, Health and the shared drill-down.
 //
 // Every screen is captured twice: once with data and once with none. The
-// second half is the point — "absent" is a first-class state in this app, it
+// second half is the point â€” "absent" is a first-class state in this app, it
 // is where `StatusCard` copy lives, and it is the state a new user spends
 // their first fortnight in. A screen whose empty state nobody ever looked at
 // is a screen that ships with an em-dash in it.
@@ -14,12 +14,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/data/lab_catalogue.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
-/// Deterministic — a golden that depends on a random number is a golden that
+/// Deterministic â€” a golden that depends on a random number is a golden that
 /// records noise.
 List<double> _series(int n, double base, double amp) => List<double>.generate(
   n,
@@ -31,7 +30,7 @@ List<double> _series(int n, double base, double amp) => List<double>.generate(
 ///
 /// Anchored to the run date on purpose. The screens label their axes and their
 /// "as of" line RELATIVE to today, so a fixture pinned to a fixed calendar date
-/// would render "88 days ago" on one morning and "89 days ago" the next — a
+/// would render "88 days ago" on one morning and "89 days ago" the next â€” a
 /// golden that fails on the passage of time. Anchored here, the rendered text
 /// is identical on every run, and a gap in the fixture would show up as one.
 List<ChartPoint> _points(int n, double base, double amp) {
@@ -54,14 +53,14 @@ List<ChartPoint> _points(int n, double base, double amp) {
 }
 
 Map<String, dynamic> _metric(num? v, String tier, {String? note}) => {
-  'value': v ?? '—',
+  'value': v ?? 'â€”',
   'confidence': v == null ? 0 : 0.8,
   'tier': tier,
   'inputs_used': const <String>[],
   'note': ?note,
 };
 
-// ── fixtures ──
+// â”€â”€ fixtures â”€â”€
 
 final _home = HomeData(
   name: 'Alex',
@@ -138,7 +137,7 @@ final _health = HealthData(
     'sleep': {'duration_min': _metric(465, 'ESTIMATE')},
     'hrv': {'rmssd': 68, 'confidence': .6},
     // The pipeline emits a full envelope for stress (value + confidence +
-    // tier), not a bare score — the screen reads the tier off it.
+    // tier), not a bare score â€” the screen reads the tier off it.
     'stress': {
       'value': 28,
       'score': 28,
@@ -149,7 +148,7 @@ final _health = HealthData(
     'resp': {'value': 14.2, 'confidence': .6},
     // The ENVELOPE the repo emits, not a bare `{'value': z}`. The bare form is
     // what shipped, and `Metric.isEmpty` reads a confidence-less block as
-    // absent — so the golden was recording a real deviation dotted "Not
+    // absent â€” so the golden was recording a real deviation dotted "Not
     // measured".
     'skin_temp': {
       'value': 0.31,
@@ -157,7 +156,7 @@ final _health = HealthData(
       'tier': 'RELATIVE',
       'inputs_used': const ['skin_temp_raw'],
       'note':
-          'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
+          'relative deviation (z) vs your baseline; raw ADC, no absolute Â°C',
     },
     'illness': {'state': 'green'},
   },
@@ -223,26 +222,6 @@ final _vitals = VitalsData(
   },
   wear: const {'worn_min': 1300, 'coverage_pct': 94},
   hrv: const {'rmssd': 68.2},
-);
-
-const _labs = LabsData(
-  markers: kLabMarkers,
-  results: [
-    {
-      'marker': 'ldl',
-      'taken_on': '2026-03-12',
-      'value': 104.0,
-      'unit': 'mg/dL',
-    },
-    {'marker': 'hdl', 'taken_on': '2026-03-12', 'value': 58.0, 'unit': 'mg/dL'},
-    {'marker': 'hba1c', 'taken_on': '2026-03-12', 'value': 5.2, 'unit': '%'},
-    {
-      'marker': 'ferritin',
-      'taken_on': '2026-03-12',
-      'value': 96.0,
-      'unit': 'ng/mL',
-    },
-  ],
 );
 
 // The fill rates SURFACE_MAP measured on 17 real gen4 days, rounded to the
@@ -387,7 +366,7 @@ Map<String, dynamic> _night({bool elevated = false}) => {
   'efficiency': .91,
   'onset_ts': _onsetTs,
   'wake_ts': _onsetTs + 486 * 60,
-  'light_min': 170,
+  'light_min': 263, // 443 − 85 − 95: stages sum to total sleep, as in real data
   'deep_min': 85,
   'rem_min': 95,
   'hypnogram': _hypno(),
@@ -418,7 +397,7 @@ final _timeline = {
     for (var i = 0; i < 120; i++)
       {'t': _onsetTs + i * 240, 'v': 14 + (i % 5) / 2},
   ],
-  // Relative skin temperature — the fourth lane, in deviation units, never °C.
+  // Relative skin temperature â€” the fourth lane, in deviation units, never Â°C.
   'skin_temp': [
     for (var i = 0; i < 60; i++)
       {'t': _onsetTs + i * 480, 'v': -0.2 + (i % 7) / 20},
@@ -426,14 +405,14 @@ final _timeline = {
 };
 
 /// [n] nights of history, deterministic, centred on [base] with a spread of
-/// ±[amp]. The screen's comparison is quartiles of the user's own nights, so a
-/// fixture only has to be a distribution — not a plausible calendar.
+/// Â±[amp]. The screen's comparison is quartiles of the user's own nights, so a
+/// fixture only has to be a distribution â€” not a plausible calendar.
 List<double> _nights(int n, double base, double amp) => [
   for (var i = 0; i < n; i++) base + ((i * 37) % 17) / 17 * amp - amp / 2,
 ];
 
 /// Last night landed OUTSIDE the recent range on deep sleep (85 min against a
-/// 55–80 history) and the sleeping heart rate ran high — so the comparison
+/// 55â€“80 history) and the sleeping heart rate ran high â€” so the comparison
 /// rows, both extremes and the nocturnal detection are all on screen.
 final _sleep = SleepData(
   day: '2026-05-20',
@@ -531,7 +510,7 @@ CircadianData _circadian() {
     nFree: 9,
     nWork: 22,
     // The non-parametric battery and the cosinor, as the cross-day pipeline
-    // emits them — on HOURLY HR, which is what the card's footnote discloses.
+    // emits them â€” on HOURLY HR, which is what the card's footnote discloses.
     rhythm: const Metric(value: .68, confidence: .7, tier: MetricTier.high),
     rhythmV: const {
       'IS': 0.68,
@@ -559,135 +538,14 @@ CircadianData _circadian() {
   );
 }
 
-/// A cycle with four logged starts — three measured gaps, so the prediction
-/// can state a width — plus a partial current cycle of derived nights behind
-/// it.
-final _cycle = CycleData(
-  enabled: true,
-  phase: 'luteal',
-  cycleDay: 19,
-  daysUntilNext: 9,
-  medianLength: 28,
-  gapN: 3,
-  // A phase only exists once she has declared she cycles (WH-07).
-  reproState: 'cycling',
-  predictedNext: '2026-05-29',
-  predictedFrom: '2026-05-25',
-  predictedTo: '2026-06-02',
-  logs: const [
-    {'date': '2026-02-18', 'kind': 'start'},
-    {'date': '2026-03-14', 'kind': 'start'},
-    {'date': '2026-04-13', 'kind': 'start'},
-    {'date': '2026-05-11', 'kind': 'start'},
-  ],
-  overlay: [
-    for (var i = 1; i <= 19; i++)
-      {
-        'date': '2026-05-${(10 + i).toString().padLeft(2, '0')}',
-        'cycle_day': i,
-        'resting_hr': 52.0 + ((i * 31) % 9) / 3,
-        'hrv_rmssd': 64.0,
-        'skin_temp_idx': 0.2,
-      },
-  ],
-  // Enough logged days across three cycles for the WH-06 look-back to have
-  // something to count. It renders folded away; the disclosure is the point.
-  symptoms: const {
-    '2026-02-19': ['cramps', 'fatigue'],
-    '2026-02-21': ['cramps'],
-    '2026-03-01': ['bloating'],
-    '2026-03-15': ['cramps', 'low mood'],
-    '2026-04-14': ['cramps'],
-    '2026-04-30': ['acne'],
-    '2026-05-12': ['cramps', 'fatigue'],
-  },
-);
-
-/// Tracking on, nothing logged: the state a user lands in the moment they
-/// enable it, and the only one with no numbers in it.
-const _cycleEmpty = CycleData(enabled: true);
-
-final _investigate = InvestigateData(
-  day: '2026-05-20',
-  algoVersion: 65,
-  hrv: const {
-    'rmssd': 68.2,
-    'sdnn': 84.1,
-    'ln_rmssd': 4.22,
-    'baseline': 64.0,
-    'hrv_time': {
-      'value': {
-        'rmssd_ms': 68.2,
-        'sdnn_ms': 84.1,
-        'sdann_ms': 61.4,
-        'pnn50_pct': 18.6,
-        'n_beats': 28441,
-      },
-      'confidence': .7,
-      'tier': 'ESTIMATE',
-    },
-    'hrv_freq': {
-      'value': {
-        'lf': 1204.0,
-        'hf': 892.0,
-        'vlf': 1314.0,
-        'total': 3410.0,
-        'lf_hf': 1.35,
-        'nu_lf': 57.4,
-        'nu_hf': 42.6,
-        'hf_gated': false,
-      },
-      'confidence': .6,
-      'tier': 'ESTIMATE',
-    },
-    'prsa_dc': {
-      'value': {'capacity_ms': 6.8, 'anchors': 4120, 'kind': 'dc'},
-      'confidence': .6,
-      'tier': 'ESTIMATE',
-    },
-    'prsa_ac': {
-      'value': {'capacity_ms': -7.1, 'anchors': 4108, 'kind': 'ac'},
-      'confidence': .6,
-      'tier': 'ESTIMATE',
-    },
-  },
-  heart: const {
-    'hrv': {'cv': 12.4},
-    // Production shape: a plain map for the sleep window...
-    'irregular': {'sd1': 29.2, 'sd2': 76.8, 'flag': false, 'confidence': .5},
-    // ...and an envelope for the 24 h screen, which is the only one carrying
-    // the ratio and pNNx.
-    'irregular_24h': {
-      'value': {
-        'sd1_ms': 31.4,
-        'sd2_ms': 80.2,
-        'sd1_sd2': 0.39,
-        'pnn_pct': 1.2,
-        'n_beats': 71204,
-        'flag': false,
-      },
-      'confidence': .7,
-      'tier': 'ESTIMATE',
-    },
-  },
-  coveragePct: 94,
-  windowStart: _onsetTs,
-  windowEnd: _onsetTs + 486 * 60,
-);
-
 Map<String, Widget> _cases() => {
   'home': HomeScreen(data: _home, hour: 20),
   'home_cold': const HomeScreen(data: _homeCold, hour: 20),
   'health_overview': HealthScreen(data: _health, tab: 0),
   'health_overview_cold': const HealthScreen(data: _healthCold, tab: 0),
   'health_trends': HealthScreen(data: _health, tab: 2),
-  'health_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 3),
-  'health_labs': HealthScreen(data: _health, labs: _labs, tab: 4),
-  'health_labs_cold': HealthScreen(
-    data: _health,
-    labs: const LabsData(),
-    tab: 4,
-  ),
+  // Overview now carries the former Vitals rows.
+  'health_overview_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 0),
   'health_explore': HealthScreen(data: _health, explore: _explore, tab: 1),
   'health_explore_cold': const HealthScreen(
     data: _healthCold,
@@ -708,40 +566,7 @@ Map<String, Widget> _cases() => {
   'sleep_detail_cold': const SleepDetail(data: _sleepCold),
   'circadian_detail': CircadianDetail(data: _circadian()),
   'circadian_detail_cold': const CircadianDetail(data: CircadianData()),
-  'investigate_hrv': Investigate('hrv', data: _investigate),
-  'investigate_generic': const Investigate(
-    'steps',
-    data: InvestigateData(series: []),
-  ),
-  // THE LADDER, DISCLOSED. A day the strap streamed part of and the phone
-  // carried the rest of — the split the Steps card names in one word. The
-  // strap's on-chip counter read 622 and did not win; it is still shown,
-  // because "what the wrist thought" is a fact this screen owes the user.
-  'investigate_steps': const Investigate(
-    'steps',
-    data: InvestigateData(
-      day: '2026-03-15',
-      algoVersion: 71,
-      coveragePct: 86,
-      steps: {
-        'value': 5200,
-        'band_measured': 622,
-        'by_source': {'strap': 4000, 'phone': 1200},
-      },
-      series: [],
-    ),
-  ),
-  // CycleTab renders a Column so it drops into Wellness's own ListView;
-  // the golden supplies the scroller the tab does not own.
-  'cycle': _scroll(CycleTab(data: _cycle)),
-  'cycle_empty': _scroll(const CycleTab(data: _cycleEmpty)),
-  'cycle_off': _scroll(const CycleTab(data: CycleData())),
 };
-
-Widget _scroll(Widget child) => ListView(
-  padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
-  children: [child],
-);
 
 final _shot = GlobalKey();
 
@@ -783,8 +608,8 @@ Future<void> _loadType() async {
   }
 }
 
-/// The golden PNGs are NOT in the repo. They are machine-specific — two Flutter
-/// SDKs disagree on antialiasing — and 27 MB of them was purged from history,
+/// The golden PNGs are NOT in the repo. They are machine-specific â€” two Flutter
+/// SDKs disagree on antialiasing â€” and 27 MB of them was purged from history,
 /// so this group can only pass on a machine that has them.
 ///
 /// Skipped with a stated reason rather than filtered out by a CI flag: the run
@@ -792,7 +617,7 @@ Future<void> _loadType() async {
 /// report. Drop the images back into test/goldens/ and it runs again.
 final Object _noGoldens = Directory('test/goldens').existsSync()
     ? false
-    : 'golden images are not committed — run this suite locally';
+    : 'golden images are not committed â€” run this suite locally';
 
 void main() {
   final cases = _cases();
@@ -806,7 +631,7 @@ void main() {
     final tag = scale == 1.0 ? '1x' : '2x';
     for (final brightness in Brightness.values) {
       final theme = brightness.name;
-      group('$theme · $tag text', () {
+      group('$theme Â· $tag text', () {
         cases.forEach((name, widget) {
           testWidgets(name, (tester) async {
             tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
@@ -880,7 +705,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // The screen opens on Today, which has no stored point here — the rank is
+    // The screen opens on Today, which has no stored point here â€” the rank is
     // a property of the history, so the sentence lives on a wider range.
     await tester.tap(find.text('30 days'));
     await tester.pumpAndSettle();
@@ -904,14 +729,8 @@ void main() {
       const CircadianDetail(data: CircadianData()),
       const MetricDetail('resting_hr', data: MetricData()),
       const MetricDetail('skin_temp', data: MetricData()),
-      const Investigate('hrv', data: InvestigateData()),
-      const Investigate('steps', data: InvestigateData()),
-      const HealthScreen(data: _healthCold, vitals: VitalsData(), tab: 3),
-      const HealthScreen(data: _healthCold, labs: LabsData(), tab: 4),
+      const HealthScreen(data: _healthCold, vitals: VitalsData(), tab: 0),
       const HealthScreen(data: _healthCold, explore: ExploreData(), tab: 1),
-      _scroll(const CycleTab(data: CycleData())),
-      _scroll(const CycleTab(data: _cycleEmpty)),
-      const JournalFindings(rows: [], weekday: {}),
       // The readiness row that used to hold the app's one reachable em-dash:
       // a driver marked used whose weighted contribution never arrived.
       const ReadinessDetail(
@@ -928,7 +747,7 @@ void main() {
       await tester.pumpAndSettle();
       final dashes = tester
           .widgetList<Text>(find.byType(Text))
-          .where((t) => (t.data ?? '').trim() == '—');
+          .where((t) => (t.data ?? '').trim() == 'â€”');
       expect(
         dashes,
         isEmpty,
@@ -938,162 +757,4 @@ void main() {
       );
     }
   });
-
-  // ── MIND-01 / MIND-04 / MT-06 / MT-07 ────────────────────────────────────
-  testWidgets(
-    'journal findings say nothing when nothing survived, and phrase a dose and '
-    'a tick box as the different things they are',
-    (tester) async {
-      tester.view.physicalSize = const Size(390 * 3, 1800 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-
-      // MIND-01's required empty state. 36 simultaneous tests corrected as one
-      // family means most people see this, and it has to be shippable copy.
-      await tester.pumpWidget(
-        _frame(
-          const JournalFindings(rows: [], weekday: {}),
-          Brightness.light,
-          1,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Nothing separated itself yet'), findsOneWidget);
-
-      await tester.pumpWidget(
-        _frame(
-          const JournalFindings(
-            key: ValueKey('rows'),
-            rows: [
-              // MIND-04: a habit is a group difference, with both day counts.
-              {
-                'field': 'walk_after_lunch',
-                'field_label': 'Walk after lunch',
-                'binary': true,
-                'outcome_label': 'HRV',
-                'unit': 'ms',
-                'delta': 4.2,
-                'cohens_d': .61,
-                'n_with': 9,
-                'n_without': 21,
-                'n': 30,
-              },
-              // MT-07: the outcome's own units on the days she logged it, not
-              // a rank correlation read out loud.
-              {
-                'field': 'alcohol_units',
-                'field_label': 'Alcohol',
-                'field_unit': 'units',
-                'binary': false,
-                'outcome_label': 'Resting HR',
-                'unit': 'bpm',
-                'rho': .52,
-                'rho_low': .18,
-                'rho_high': .74,
-                'slope_per_unit': 2.0,
-                'n': 11,
-              },
-              // MT-06: minutes past midnight is unreadable per minute, and a
-              // cutoff time is a threshold read off a dozen self-reports.
-              {
-                'field': 'caffeine_last_min',
-                'field_label': 'Last caffeine, clock time',
-                'field_unit': 'min past midnight',
-                'binary': false,
-                'outcome_label': 'Sleep efficiency',
-                'unit': '%',
-                'rho': -.44,
-                'rho_low': -.7,
-                'rho_high': -.1,
-                'slope_per_unit': -0.05,
-                'n': 14,
-              },
-            ],
-            weekday: {},
-          ),
-          Brightness.light,
-          1,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('On the 9 days you logged Walk after lunch'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Against the 21 days you did not'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining(
-          'On the 11 days you logged Alcohol, Resting HR ran 2.0 bpm '
-          'higher per unit',
-        ),
-        findsOneWidget,
-      );
-      // Per hour, never a cutoff time.
-      expect(
-        find.textContaining('Sleep efficiency ran 3.0 % lower per hour later'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('last caffeine of the day only'),
-        findsOneWidget,
-      );
-      // Nothing here may read as a cause or a recommendation.
-      expect(find.textContaining('never a cause'), findsOneWidget);
-    },
-  );
-
-  // ── WH-06 ────────────────────────────────────────────────────────────────
-  testWidgets(
-    'the symptom look-back counts against the days she LOGGED, is folded away '
-    'until asked for, and stays absent under two cycles',
-    (tester) async {
-      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(
-        _frame(_scroll(CycleTab(data: _cycle)), Brightness.light, 1),
-      );
-      await tester.pumpAndSettle();
-      // Folded: the chips are the thing, the history is behind a tap.
-      expect(find.text('What you usually notice'), findsOneWidget);
-      expect(find.textContaining('one per week of the cycle'), findsNothing);
-
-      await tester.tap(find.text('What you usually notice'));
-      await tester.pumpAndSettle();
-      // cramps on 5 of the 7 logged days; the denominator sentence names the
-      // days she logged, never the calendar.
-      expect(find.text('cramps'), findsWidgets);
-      expect(find.textContaining('You logged something on'), findsOneWidget);
-
-      // One logged start is not two cycles — nothing to count over, so the
-      // control is not offered at all.
-      await tester.pumpWidget(
-        _frame(
-          // Own key: CycleTab takes its fixture in initState, so reusing the
-          // element would keep the previous one alive.
-          _scroll(
-            CycleTab(
-              key: const ValueKey('one-start'),
-              data: CycleData(
-                enabled: true,
-                cycleDay: 3,
-                logs: const [
-                  {'date': '2026-05-11', 'kind': 'start'},
-                ],
-                symptoms: _cycle.symptoms,
-              ),
-            ),
-          ),
-          Brightness.light,
-          1,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('What you usually notice'), findsNothing);
-    },
-  );
 }

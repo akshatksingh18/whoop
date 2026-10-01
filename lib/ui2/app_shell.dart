@@ -1,13 +1,14 @@
-// The five-tab shell.
+// The four-tab shell.
 //
-// Home · Health · Nutrition · Workout · Wellness. Stable forever: the contents
+// Home · Health · Nutrition · Workout. (The personal build removed Wellness.)
+// Stable: the contents
 // personalise, the mental map does not. Each domain owns an accent, so colour
 // tells you where you are before the label does.
 //
-// There is no sixth tab, and the type system is what says so — [ShellDomain]
+// There is no fifth tab, and the type system is what says so — [ShellDomain]
 // is a closed enum and [AppShell] takes a builder keyed by it, so "just add a
 // tab for X" is a change to this file with a reviewer attached, not something
-// a screen can do on its own. Anything that feels like a sixth destination is
+// a screen can do on its own. Anything that feels like a fifth destination is
 // a `SubTabs` inside the domain that owns it.
 
 import 'package:flutter/material.dart';
@@ -16,13 +17,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'grammar.dart';
 import 'theme.dart';
 
-/// The five primary destinations, in bar order.
+/// The four primary destinations, in bar order.
 enum ShellDomain {
   home('Home', LucideIcons.house, C.domHome),
   health('Health', LucideIcons.heartPulse, C.domHealth),
   nutrition('Nutrition', LucideIcons.utensils, C.domFood),
-  workout('Workout', LucideIcons.dumbbell, C.domMove),
-  wellness('Wellness', LucideIcons.leaf, C.domMind);
+  workout('Workout', LucideIcons.dumbbell, C.domMove);
 
   const ShellDomain(this.label, this.icon, this.accent);
 

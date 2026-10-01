@@ -81,6 +81,9 @@ class LiveFeed {
   /// one is being recorded.
   final bool gpsActive;
 
+  /// A route recorder is armed but no fix is being accepted right now.
+  final bool gpsWaiting;
+
   /// Why no route is being recorded, when the reason is a location permission
   /// the user can still fix. Null when nothing is wrong. Without this a denied
   /// permission simply produced no map and no sentence.
@@ -110,6 +113,7 @@ class LiveFeed {
     this.hrCurve = const [],
     this.route = const [],
     this.gpsActive = false,
+    this.gpsWaiting = false,
     this.routeIssue,
     this.onFixRoute,
     this.bandConnected = false,
@@ -855,6 +859,14 @@ Widget? _routeIssueCard(
         onFix: onFix,
         icon: LucideIcons.mapPin,
       ),
+    GpsPermissionStatus.reducedAccuracy => StatusCard(
+        'No route: Precise Location is off',
+        'Location is allowed but only approximately, which is too coarse to '
+            'trace a run. Turn on Precise Location for WHOOP in Settings.',
+        fix: l?.activityLiveOpenSettings ?? 'Open Settings',
+        onFix: onFix,
+        icon: LucideIcons.mapPin,
+      ),
     // `granted` cannot reach here: it is never stored as an issue.
     _ => StatusCard(
         l?.activityLiveNoRouteFailedTitle ?? 'No route: location failed',
@@ -1054,6 +1066,12 @@ class LiveMeasured extends StatelessWidget {
             const SizedBox(height: S.x3),
             Pill(l?.activityLiveRecordingRoute ?? 'Recording route', C.green,
                 icon: LucideIcons.mapPin),
+          ] else if (f.gpsWaiting) ...[
+            // Armed, but no usable fix yet or the signal went quiet. Said
+            // rather than claiming "Recording route" over an empty stream.
+            const SizedBox(height: S.x3),
+            const Pill('Waiting for GPS', C.orange,
+                icon: LucideIcons.mapPinOff),
           ] else if (_routeIssueCard(ctx, f.routeIssue, f.onFixRoute)
               case final card?) ...[
             const SizedBox(height: S.x4),

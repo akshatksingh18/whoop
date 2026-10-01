@@ -9081,6 +9081,18 @@ class LocalDb {
     await batch.commit(noResult: true);
   }
 
+  /// The `seq` a new recorder for [sessionId] must start at: one past the
+  /// highest stored, or 0 for a session with no route yet.
+  static Future<int> nextRouteSeq(String sessionId) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT MAX(seq) AS m FROM workout_route WHERE session_id = ?',
+      [sessionId],
+    );
+    final m = rows.isEmpty ? null : (rows.first['m'] as num?)?.toInt();
+    return m == null ? 0 : m + 1;
+  }
+
   /// All route rows for a session, ordered by seq.
   static Future<List<Map<String, dynamic>>> routePoints(
     String sessionId,

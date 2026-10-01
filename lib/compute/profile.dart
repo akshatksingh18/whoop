@@ -97,3 +97,26 @@ String workoutSex(String? sex) {
       return 'nonbinary';
   }
 }
+
+/// Energy spent WALKING for [steps], shown on its own and never added to the
+/// day's calories.
+///
+/// Distance from a height-based stride (0.415 × height for men, 0.413 for
+/// women, their mean otherwise — the standard pedometer stride estimate),
+/// costed at the ACSM net walking rate of about 0.5 kcal per kg per km on level
+/// ground: the energy ABOVE resting, so it does not repeat the resting burn.
+/// An estimate with no error band, like every stride rule. Null without a
+/// height and weight, or with no steps.
+({double kcal, double km})? walkingEnergy(num? steps, Profile p) {
+  final h = p.heightCm, w = p.weightKg;
+  if (steps == null || steps <= 0 || h == null || w == null || h <= 0 || w <= 0) {
+    return null;
+  }
+  final factor = switch (p.sex) {
+    'm' || 'male' => 0.415,
+    'f' || 'female' => 0.413,
+    _ => 0.414,
+  };
+  final km = steps * factor * h / 100 / 1000;
+  return (kcal: 0.5 * w * km, km: km);
+}

@@ -18,18 +18,36 @@
 // BGProcessingTask is best-effort — and a backup that fires when you open the
 // app is honest about that. The alternative is a schedule that claims "daily"
 // and delivers whenever the OS feels like it.
+//
+// ENCRYPTED, ALWAYS. Every automatic backup is the same `OSBK` file the manual
+// "Export an encrypted backup" writes (`backup_crypto.dart`), sealed under the
+// backup passphrase the user stored in the platform keychain. There is no
+// plaintext automatic path any more: with no stored passphrase a run reports
+// [BackupOutcome.needsPassphrase] and writes nothing. The snapshot is gzipped
+// BEFORE sealing — roughly a third of the bytes through the ~1.5 MB/s pure-Dart
+// AES-GCM — and `LocalDb.importFromDbFile` already inflates gzip by magic
+// bytes, so the existing encrypted-restore path opens these unchanged.
+//
+// VERIFIED BEFORE PUBLISHED. A sealed file is decrypted again (GCM tag and
+// all) and compared before it gets its final name, so a published backup is
+// one this code has already opened once. All of it runs on a worker isolate.
+//
+// NOT OFF-DEVICE. The folder lives inside the app container: uninstalling the
+// app deletes it with the database. These copies cover a bad upgrade, a
+// corrupt database or a mistaken delete; surviving a lost phone or an
+// uninstall still needs a copy moved off the phone.
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../import/backup_crypto.dart';
 import 'db.dart';
 
-/// How often a backup is taken. Off is the default: this writes an unencrypted
-/// copy of everything the app knows about you into a folder other apps can
-/// reach, and that is a choice to make deliberately rather than one to
-/// discover later.
+/// How often a backup is taken. Off is the default: turning it on needs a
+/// backup passphrase, and that is a choice to make deliberately.
 enum BackupCadence {
   off,
   daily,
@@ -80,10 +98,9 @@ bool backupIsDue({
   return now.difference(lastRun) >= interval;
 }
 
-/// Extension for a backup written by the CURRENT code. Backups are gzipped:
-/// the database is JSON-heavy and mostly text, so this is roughly a 3x saving
-/// on the one thing here that is kept five times over.
-const kBackupExtension = '.db.gz';
+/// Extension for a backup written by the CURRENT code: an `OSBK` encrypted
+/// file whose plaintext is the gzipped database snapshot.
+const kBackupExtension = '.osbk';
 
 /// Filename for a backup taken at [when].
 ///
@@ -101,17 +118,19 @@ String backupFileName(DateTime when) {
 /// can put files into. A loose `openstrap-*.db` glob would happily eat
 /// someone's `openstrap-notes.db`.
 ///
-/// Covers THREE shapes deliberately:
-///   • `.db.gz` — what is written now.
-///   • `.db` — what earlier versions wrote. An install that upgrades still has
-///     up to [kBackupsKept] of these. If the pattern stopped matching them they
-///     would become invisible to [sortBackupsNewestFirst], never be counted
-///     toward retention and never be pruned — five stale full-size copies
-///     leaked permanently, which is the opposite of what this change is for.
+/// Covers these shapes deliberately:
+///   • `.osbk` — what is written now (encrypted).
+///   • `.db.gz` / `.db` — the PLAINTEXT backups earlier versions wrote. They
+///     stay matchable so retention sees them, and [prunePlaintextBackups]
+///     deletes them once an encrypted backup has been published.
 ///   • a `-N` collision suffix — [_uniqueDestination] emits these when two runs
-///     land in the same second, and the pattern never matched them, so they
-///     leaked for the same reason.
-final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
+///     land in the same second.
+final _backupNamePattern =
+    RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?(\.db(\.gz)?|\.osbk)$');
+
+/// The plaintext shapes older builds wrote.
+final _plaintextBackupPattern =
+    RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
 
 /// Appended while a backup is still being written. Chosen so
 /// [_backupNamePattern] does NOT match it: a partial file must be invisible to
@@ -190,7 +209,12 @@ List<File> sortBackupsNewestFirst(Iterable<FileSystemEntity> entries) {
 
 /// What a backup attempt did.
 class BackupOutcome {
-  const BackupOutcome({this.path, this.error, this.skipped = false});
+  const BackupOutcome({
+    this.path,
+    this.error,
+    this.skipped = false,
+    this.needsPassphrase = false,
+  });
 
   /// The file written, or null when nothing was.
   final String? path;
@@ -202,6 +226,10 @@ class BackupOutcome {
 
   /// Not due yet. Distinct from both success and failure.
   final bool skipped;
+
+  /// No backup passphrase is stored, so nothing was written. Also carries an
+  /// [error] so a caller that only checks for failure still reports it.
+  final bool needsPassphrase;
 
   bool get succeeded => path != null;
 }
@@ -252,25 +280,45 @@ Future<T> _serialize<T>(Future<T> Function() body) {
   return result;
 }
 
+/// What a run without a stored passphrase reports.
+const kBackupNeedsPassphrase =
+    'no backup passphrase is set, so no backup was written';
+
 /// Take a backup now, regardless of schedule, and prune old ones.
+///
+/// [passphrase] is read INSIDE the lock, like the schedule in
+/// [runBackupIfDue]. [iterations] is a test seam only; production takes the
+/// default KDF cost.
 ///
 /// Serialized against every other backup path.
 Future<BackupOutcome> runBackup({
+  required Future<String?> Function() passphrase,
   DateTime? now,
   Future<String> Function()? exportSnapshot,
-}) => _serialize(() => _runBackup(now: now, exportSnapshot: exportSnapshot));
+  int iterations = kDefaultIterations,
+}) =>
+    _serialize(() => _runBackup(
+        passphrase: passphrase,
+        now: now,
+        exportSnapshot: exportSnapshot,
+        iterations: iterations));
 
 Future<BackupOutcome> _runBackup({
+  required Future<String?> Function() passphrase,
   DateTime? now,
   // Test seam. A failing export is otherwise unreachable from a test, which
   // left the queue-recovery case unverifiable.
   Future<String> Function()? exportSnapshot,
+  int iterations = kDefaultIterations,
 }) async {
   final when = now ?? DateTime.now();
   try {
+    final pass = await passphrase();
+    if (pass == null || pass.isEmpty) {
+      return const BackupOutcome(
+          error: kBackupNeedsPassphrase, needsPassphrase: true);
+    }
     final dir = await backupDirectory();
-    // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
-    // not a file copy of a database that may be mid-write.
     // Destination FIRST. Exporting before checking meant a failure here left a
     // full copy of the database sitting in temp, once per attempt.
     final dest = _uniqueDestination(dir, when);
@@ -279,28 +327,20 @@ Future<BackupOutcome> _runBackup({
         error: 'no free backup filename for this second',
       );
     }
+    // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
+    // not a file copy of a database that may be mid-write.
     final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
-    final tmp = File(snapshot);
-    // STAGE, then publish by rename. Compressing straight into `dest` meant the
-    // final backup name existed while it was still being written: kill the
-    // process mid-stream and a truncated file is left behind carrying a name
-    // `_backupNamePattern` matches, so retention counts it as one of the five
-    // and evicts a good backup to make room. `catch` cannot help — the process
-    // is gone. The staging name is deliberately one retention does NOT match,
-    // and rename is atomic within the directory, so `dest.path` only ever
-    // exists as a complete file.
+    // STAGE, then publish by rename. The staging name is one retention does
+    // NOT match, and rename is atomic within the directory, so `dest.path`
+    // only ever exists as a complete, verified file — a process killed
+    // mid-seal leaves a `.partial` that [pruneStagingFiles] sweeps later.
     final staging = File('${dest.path}$kBackupStagingSuffix');
     try {
-      // STREAMED, not read-then-compress: the snapshot is the whole database
-      // and buffering it twice in memory to save disk would trade one resource
-      // problem for a worse one on the devices that have the most data.
-      //
-      // This also replaces the old rename/copy fallback — that existed because
-      // temp and external storage are different filesystems on Android, where
-      // rename fails outright. Staging lives in the destination directory, so
-      // the publish step is a same-filesystem rename.
-      final sink = staging.openWrite();
-      await tmp.openRead().transform(gzip.encoder).pipe(sink);
+      final stagingPath = staging.path;
+      // Nothing in here touches a plugin, which is what makes the worker
+      // legal; minutes of pure-Dart crypto on the UI isolate is a frozen app.
+      await Isolate.run(() =>
+          sealAndVerifyBackup(snapshot, stagingPath, pass, iterations));
       await staging.rename(dest.path);
     } catch (_) {
       try {
@@ -309,18 +349,86 @@ Future<BackupOutcome> _runBackup({
       rethrow;
     } finally {
       try {
+        final tmp = File(snapshot);
         if (await tmp.exists()) await tmp.delete();
       } catch (_) {}
     }
 
-    // Sweep any staging files a previous run was killed midway through. They
-    // are invisible to retention by design, so nothing else would ever remove
-    // them.
     await pruneStagingFiles(dir);
+    await prunePlaintextBackups(dir);
     await pruneBackups(dir, keep: kBackupsKept);
     return BackupOutcome(path: dest.path);
   } catch (e) {
     return BackupOutcome(error: e.toString());
+  }
+}
+
+/// gzip [snapshotPath], seal it into [stagingPath], then decrypt the sealed
+/// file once and require it to reproduce the compressed bytes exactly.
+///
+/// Every intermediate lives beside the snapshot (temp) and is deleted whatever
+/// happens. Throws on any failure; the caller discards the staging file.
+Future<void> sealAndVerifyBackup(String snapshotPath, String stagingPath,
+    String passphrase, int iterations) async {
+  final gz = File('$snapshotPath.gz');
+  final check = File('$snapshotPath.verify');
+  try {
+    await File(snapshotPath)
+        .openRead()
+        .transform(gzip.encoder)
+        .pipe(gz.openWrite());
+    await encryptBackupFile(gz, File(stagingPath), passphrase,
+        iterations: iterations);
+    // The GCM tag already proves integrity on a good decrypt; comparing the
+    // bytes as well catches a sealing bug that authenticates the wrong input.
+    await decryptBackupFile(File(stagingPath), check, passphrase);
+    if (!await _sameContent(gz, check)) {
+      throw const BackupFormatException(
+          'the sealed backup did not decrypt back to its own snapshot');
+    }
+  } finally {
+    for (final f in [gz, check]) {
+      try {
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
+  }
+}
+
+Future<bool> _sameContent(File a, File b) async {
+  if (await a.length() != await b.length()) return false;
+  final ra = await a.open(), rb = await b.open();
+  try {
+    while (true) {
+      final x = await ra.read(1 << 20);
+      final y = await rb.read(1 << 20);
+      if (x.length != y.length) return false;
+      if (x.isEmpty) return true;
+      for (var i = 0; i < x.length; i++) {
+        if (x[i] != y[i]) return false;
+      }
+    }
+  } finally {
+    await ra.close();
+    await rb.close();
+  }
+}
+
+/// Delete every PLAINTEXT automatic backup an older build left in [dir].
+///
+/// Called only after an encrypted backup has been published, so there is
+/// always a newer, verified copy when these go. Leaving them would keep an
+/// unencrypted health record in a Files-visible folder after the user chose
+/// encryption. Matches only this feature's exact names.
+Future<void> prunePlaintextBackups(Directory dir) async {
+  try {
+    for (final f in dir.listSync().whereType<File>()) {
+      if (_plaintextBackupPattern.hasMatch(p.basename(f.path))) {
+        await f.delete();
+      }
+    }
+  } catch (_) {
+    /* housekeeping only */
   }
 }
 
@@ -372,19 +480,25 @@ Future<BackupOutcome> runBackupIfDue({
   required BackupCadence Function() cadence,
   required DateTime? Function() lastRun,
   required Future<void> Function(DateTime) markRun,
+  required Future<String?> Function() passphrase,
   DateTime? now,
   Future<String> Function()? exportSnapshot,
+  int iterations = kDefaultIterations,
 }) => _serialize(() async {
   final when = now ?? DateTime.now();
   // Cadence is read here too, for the same reason as the timestamp: a call
   // that waits behind an export would otherwise act on the setting as it was
   // when it queued. Someone who switches backup OFF while one is running would
-  // still get another unencrypted copy of their health data written after
-  // they disabled it.
+  // still get another copy of their health data written after they disabled
+  // it.
   if (!backupIsDue(cadence: cadence(), lastRun: lastRun(), now: when)) {
     return const BackupOutcome(skipped: true);
   }
-  final outcome = await _runBackup(now: when, exportSnapshot: exportSnapshot);
+  final outcome = await _runBackup(
+      passphrase: passphrase,
+      now: when,
+      exportSnapshot: exportSnapshot,
+      iterations: iterations);
   if (outcome.succeeded) await markRun(when);
   return outcome;
 });

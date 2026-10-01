@@ -15,6 +15,7 @@
 //      success branch, which lives inside the connect path that the pause
 //      prevents from running. Self-sealing.
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart';
 
@@ -156,4 +157,42 @@ void main() {
       expect(g.stillPaused(DateTime(2026, 8, 8)), isFalse);
     });
   });
+
+  // iOS: a suspended process runs no Dart timers, so a reconnect loop parked
+  // in a long backoff never tried inside the few seconds a restore wake
+  // grants. The wake has to be able to end the wait.
+  group('WakeableDelay', () {
+    test('a wake ends the backoff early', () {
+      fakeAsync((async) {
+        final d = WakeableDelay();
+        var done = false;
+        d.wait(const Duration(minutes: 5)).then((_) => done = true);
+        async.elapse(const Duration(seconds: 1));
+        expect(done, isFalse);
+        expect(d.waiting, isTrue);
+        expect(d.wake(), isTrue);
+        async.flushMicrotasks();
+        expect(done, isTrue);
+        expect(d.waiting, isFalse);
+      });
+    });
+
+    test('without a wake it waits the full backoff', () {
+      fakeAsync((async) {
+        final d = WakeableDelay();
+        var done = false;
+        d.wait(const Duration(seconds: 30)).then((_) => done = true);
+        async.elapse(const Duration(seconds: 29));
+        expect(done, isFalse);
+        async.elapse(const Duration(seconds: 1));
+        expect(done, isTrue);
+      });
+    });
+
+    test('a wake with nothing waiting is a no-op, and says so', () {
+      final d = WakeableDelay();
+      expect(d.wake(), isFalse);
+    });
+  });
+
 }

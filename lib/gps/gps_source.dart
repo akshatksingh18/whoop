@@ -26,6 +26,10 @@ enum GpsPermissionStatus {
   serviceOff, // device location services are disabled
   denied, // user declined this time (can re-prompt)
   deniedForever, // user permanently declined → only Settings can fix it
+  // Allowed, but iOS Precise Location is off: fixes arrive kilometres wide and
+  // every one fails RouteTracker's accuracy gate, so the route would silently
+  // never record. Only Settings can turn Precise back on.
+  reducedAccuracy,
   error, // platform exception while checking
 }
 
@@ -46,6 +50,11 @@ class GpsSource {
       switch (perm) {
         case LocationPermission.always:
         case LocationPermission.whileInUse:
+          if (Platform.isIOS &&
+              await Geolocator.getLocationAccuracy() ==
+                  LocationAccuracyStatus.reduced) {
+            return GpsPermissionStatus.reducedAccuracy;
+          }
           return GpsPermissionStatus.granted;
         case LocationPermission.deniedForever:
           return GpsPermissionStatus.deniedForever;

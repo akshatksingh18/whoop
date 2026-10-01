@@ -32,6 +32,7 @@ import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
+import '../../compute/profile.dart' show Profile, walkingEnergy;
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart' show whyFromNote;
@@ -75,7 +76,12 @@ class DayStepsData {
     this.daySource,
     this.note,
     this.bandLabel = _defaultBand,
+    this.walking,
   });
+
+  /// Estimated walking energy and distance for [dayTotal], from the profile's
+  /// height and weight. Shown on its own; never added to the calorie totals.
+  final ({double kcal, double km})? walking;
 
   /// The fallback name for the strap. Nothing is paired, or the link has not
   /// said which generation it is this process — either way, naming a model we
@@ -116,7 +122,9 @@ class DayStepsData {
     final days = await repo.availableDays();
     final day = pickDay(days, want, todayLabel()) ?? todayLabel();
     final d = await repo.getDaySteps(day);
+    final profile = Profile.fromMap(await repo.getProfile());
     return DayStepsData(
+      walking: walkingEnergy(d['day_total'] as num? ?? d['total'] as num?, profile),
       day: day,
       days: days,
       spans: [
@@ -301,6 +309,23 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
         _absent(c, d)
       else ...[
         _chart(c, p, d),
+        if (d.walking case final w?) ...[
+          const SizedBox(height: S.x3),
+          Surface(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
+                Text('≈${w.kcal.round()} kcal', style: F.n24.copyWith(color: p.ink)),
+                Text('from walking · about ${w.km.toStringAsFixed(1)} km',
+                    style: F.cap.copyWith(color: p.ink3)),
+              ]),
+              const SizedBox(height: S.x1),
+              Text(
+                  'Estimated from your steps, height and weight. Shown on its '
+                  'own — not added to your calories.',
+                  style: F.over.copyWith(color: p.ink3, height: 1.4)),
+            ]),
+          ),
+        ],
         Section(l?.dayStepsThroughDay ?? 'Through the day', _rows(c, p, d)),
       ],
     ]);

@@ -139,61 +139,38 @@ void main() {
   // The share column that used to be here is gone with the exact minutes it was
   // computed from — a percentage beside a range restores, on the same row, the
   // precision the range exists to retire.
-  group('stage ranges', () {
-    Map<String, dynamic> staged({double? conf}) => {
+  group('stage minutes', () {
+    // deep 80 + light 250 + rem 90 = 420 = total sleep, as the segmenter
+    // always publishes them.
+    Map<String, dynamic> staged() => {
           ..._night(tst: 420, deep: 80),
           'light_min': 250,
           'rem_min': 90,
           'awake_min': 60,
-          'stages_confidence': ?conf,
         };
 
-    testWidgets('a stage is a range, never a count', (t) async {
+    testWidgets('each stage is its counted minutes and share of sleep',
+        (t) async {
       await _pump(t,
           SleepData(day: '2026-05-20', night: staged(), tstHistory: _flat(20, 420)));
-      // No confidence published => the WIDEST interval, which is the honest
-      // default: we do not know how well we saw the night, so we say least.
-      // deep 80m, half-width 0.75x = 60m.
-      // Twice: the Stages row, and the header of the Deep comparison below it.
-      // Both had to move — one card showing a range while the other still
-      // showed a count is the contradiction this item exists to remove.
-      expect(find.text('20m–2h 20m'), findsNWidgets(2));
-      // And the share column is gone with the count it was computed from.
-      for (final share in const ['52%', '17%', '19%', '13%']) {
-        expect(find.text(share), findsNothing);
-      }
-      expect(find.textContaining('Shares of'), findsNothing);
+      expect(find.text('1h 20m · 19%'), findsOneWidget); // deep
+      expect(find.text('4h 10m · 60%'), findsOneWidget); // light
+      expect(find.text('1h 30m · 21%'), findsOneWidget); // rem
     });
 
-    testWidgets('a better-seen night gets a narrower range', (t) async {
-      await _pump(
-          t,
-          SleepData(
-              day: '2026-05-20',
-              night: staged(conf: 0.6), // the segmenter's ceiling
-              tstHistory: _flat(20, 420)));
-      // Same 80 minutes, half-width 0.45x = 36m. Narrower than the 60m above,
-      // from the night's own confidence rather than one published figure.
-      expect(find.text('44m–1h 56m'), findsNWidgets(2));
-    });
-
-    testWidgets('the deep comparison stops asserting a difference', (t) async {
+    testWidgets('the deep comparison uses the same counted minutes', (t) async {
       await _pump(
         t,
         SleepData(
           day: '2026-05-20',
           night: staged(),
           tstHistory: _flat(20, 420),
-          // Every past night 70 minutes: a degenerate band that last night's 80
-          // sits above. On the old scalar row that printed "10m more than
-          // usual" — a confident difference between two numbers neither of
-          // which is a count.
           deepHistory: _flat(20, 70),
         ),
       );
-      expect(find.textContaining('more than usual'), findsNothing);
-      expect(find.textContaining('Not far enough from usual to call'),
-          findsOneWidget);
+      // The Deep row reads the same 80 minutes the Stages card shows.
+      expect(find.text('1h 20m'), findsWidgets);
+      expect(find.textContaining('more than usual'), findsOneWidget);
     });
   });
 

@@ -83,6 +83,9 @@ class Prefs {
   static const String backupCadence = 'backup.cadence';
   static const String backupLastRunMs = 'backup.last_run_ms';
 
+  /// The last backup attempt's failure reason; empty after a success.
+  static const String backupLastError = 'backup.last_error';
+
   /// Developer mode. Off unless somebody deliberately turned it on — it is a
   /// tool for us, not a feature, so it has no switch in the normal settings
   /// list and nothing reads it except the surfaces it reveals.

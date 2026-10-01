@@ -378,7 +378,13 @@ class DayGraph {
     this.movement = const [],
     this.rest = const [],
     this.work = const [],
+    this.dayStartSec,
   });
+
+  /// Epoch seconds of this day's local midnight — slot 0. Null in fixtures
+  /// that only care about shape; the scrub readout then falls back to the
+  /// minute-of-day.
+  final int? dayStartSec;
 
   /// Beats per minute, one slot per minute of the day, `null` where nothing
   /// was recorded.
@@ -514,7 +520,8 @@ DayGraph dayGraph(Map<String, dynamic> timeline) {
       if (s is Map) ?span(s['start_ts'], s['end_ts'], C.orange),
   ];
 
-  return DayGraph(hr: hr, movement: movement, rest: rest, work: work);
+  return DayGraph(
+      hr: hr, movement: movement, rest: rest, work: work, dayStartSec: dayStart);
 }
 
 // ═══════════════════ the screen ═══════════════════
@@ -706,66 +713,155 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
 /// is the right shape for it — a handful of things that happened, in order.
 Widget? dayGraphCard(BuildContext c, DayGraph g) {
   if (!g.hasCurve) return null;
-  final p = P.of(c);
-  final l = AppLocalizations.of(c);
-  final n = g.slots;
-  double at(int m) => n <= 0 ? 0 : m / n;
-  final axis = AxisSpec.of([for (final v in g.hr) ?v], ticks: 3);
-  if (axis == null) return null;
+  if (AxisSpec.of([for (final v in g.hr) ?v], ticks: 3) == null) return null;
+  return DayHeartCard(g);
+}
 
-  final asleep = p.on(C.blue), workout = p.on(C.orange);
-  final gaps = g.unmeasured;
-  return Surface(
-    child: ChartFrame(
-      title: l?.dayTimelineHeartRateTitle ?? 'Heart rate',
-      unit: 'bpm',
-      height: 200,
-      yAxis: axis,
-      // Three, and only three, because ChartFrame lays the first flush left,
-      // the last flush right and the rest centred — which puts a middle label
-      // exactly on the middle of the plot and a five-label row 5 % out.
-      xLabels: [
-        l?.dayTimelineMidnight ?? 'Midnight',
-        l?.dayTimelineNoon ?? 'Noon',
-        l?.dayTimelineMidnight ?? 'Midnight',
-      ],
-      legend: [
-        if (g.rest.isNotEmpty) (l?.dayTimelineAsleep ?? 'Asleep', asleep),
-        if (g.work.isNotEmpty) (l?.dayTimelineWorkout ?? 'Workout', workout),
-        if (g.movement.any((v) => v != null))
-          (l?.dayTimelineMoving ?? 'Moving', p.on(C.domMove)),
-        if (gaps.isNotEmpty) (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
-      ],
-      series: g.hr,
-      child: Stack(children: [
-        Positioned.fill(
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: DayLanes(
-              p: p,
-              gaps: [for (final (a, b) in gaps) (at(a), at(b))],
-              rest: [
-                for (final (a, b, _) in g.rest) (at(a), at(b), asleep),
-              ],
-              work: [
-                for (final (a, b, _) in g.work) (at(a), at(b), workout),
-              ],
-              movement: g.movement,
-            ),
+/// The whole day's heart rate, minute by minute, with a finger-scrub readout.
+///
+/// Touch or drag across the chart and the line under it reads the minute:
+/// time, bpm, and whether you were asleep or in a workout. With no finger on
+/// it, the same line states the day's range instead.
+class DayHeartCard extends StatefulWidget {
+  const DayHeartCard(this.g, {super.key});
+  final DayGraph g;
+
+  @override
+  State<DayHeartCard> createState() => _DayHeartCardState();
+}
+
+class _DayHeartCardState extends State<DayHeartCard> {
+  double? _scrub;
+
+  int _slot(double v) =>
+      (v * (widget.g.slots - 1)).round().clamp(0, widget.g.slots - 1);
+
+  String _clock(int slot) {
+    final start = widget.g.dayStartSec;
+    if (start != null) return clockOfTs(start + slot * 60);
+    final h = slot ~/ 60, m = slot % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  /// The nearest recorded minute to [slot] within five minutes, so a finger
+  /// resting between two samples still reads a value instead of flickering.
+  (int, double)? _nearest(int slot) {
+    final hr = widget.g.hr;
+    for (var d = 0; d <= 5; d++) {
+      for (final i in [slot - d, slot + d]) {
+        if (i >= 0 && i < hr.length && hr[i] != null) return (i, hr[i]!);
+      }
+    }
+    return null;
+  }
+
+  String _state(int slot) {
+    for (final (a, b, _) in widget.g.rest) {
+      if (slot >= a && slot < b) return 'asleep';
+    }
+    for (final (a, b, _) in widget.g.work) {
+      if (slot >= a && slot < b) return 'workout';
+    }
+    return '';
+  }
+
+  String _describe(double v) {
+    final slot = _slot(v);
+    final hit = _nearest(slot);
+    if (hit == null) return '${_clock(slot)}, not recorded';
+    final st = _state(hit.$1);
+    return '${_clock(hit.$1)}, ${hit.$2.round()} bpm${st.isEmpty ? '' : ', $st'}';
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final g = widget.g;
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final n = g.slots;
+    double at(int m) => n <= 0 ? 0 : m / n;
+    final vals = [for (final v in g.hr) ?v];
+    final axis = AxisSpec.of(vals, ticks: 3);
+    // A day with no recorded minute draws nothing — a frame with an axis and
+    // no line under it reads as a measurement of zero.
+    if (vals.isEmpty || axis == null) return const SizedBox.shrink();
+    final lo = vals.reduce((a, b) => a < b ? a : b).round();
+    final hi = vals.reduce((a, b) => a > b ? a : b).round();
+    final avg = (vals.reduce((a, b) => a + b) / vals.length).round();
+
+    final asleep = p.on(C.blue), workout = p.on(C.orange);
+    final gaps = g.unmeasured;
+    final readout = _scrub == null
+        ? 'Low $lo · average $avg · high $hi bpm'
+        : _describe(_scrub!);
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        ChartFrame(
+          title: l?.dayTimelineHeartRateTitle ?? 'Heart rate',
+          unit: 'bpm',
+          height: 200,
+          yAxis: axis,
+          xLabels: [
+            l?.dayTimelineMidnight ?? 'Midnight',
+            l?.dayTimelineNoon ?? 'Noon',
+            l?.dayTimelineMidnight ?? 'Midnight',
+          ],
+          legend: [
+            if (g.rest.isNotEmpty) (l?.dayTimelineAsleep ?? 'Asleep', asleep),
+            if (g.work.isNotEmpty) (l?.dayTimelineWorkout ?? 'Workout', workout),
+            if (g.movement.any((v) => v != null))
+              (l?.dayTimelineMoving ?? 'Moving', p.on(C.domMove)),
+            if (gaps.isNotEmpty)
+              (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
+          ],
+          series: g.hr,
+          child: Scrubber(
+            value: _scrub,
+            onChanged: (v) => setState(() => _scrub = v),
+            label: 'Heart rate through the day',
+            describe: _describe,
+            step: 1 / 96, // a quarter-hour per accessibility step
+            child: Stack(children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: DayLanes(
+                    p: p,
+                    gaps: [for (final (a, b) in gaps) (at(a), at(b))],
+                    rest: [for (final (a, b, _) in g.rest) (at(a), at(b), asleep)],
+                    work: [
+                      for (final (a, b, _) in g.work) (at(a), at(b), workout),
+                    ],
+                    movement: g.movement,
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
+                ),
+              ),
+              if (_scrub != null)
+                Align(
+                  alignment: Alignment(_scrub! * 2 - 1, 0),
+                  child: SizedBox(
+                      width: 2,
+                      height: double.infinity,
+                      child: ColoredBox(color: p.ink)),
+                ),
+            ]),
           ),
         ),
-        Positioned.fill(
-          child: CustomPaint(
-            size: Size.infinite,
-            // No fill under the line: the area would swallow the bands behind
-            // it, and the bands are the half of this picture the curve cannot
-            // say on its own.
-            painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
-          ),
-        ),
+        const SizedBox(height: S.x3),
+        Text(readout,
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        if (_scrub == null)
+          Text('Touch and drag across the chart to read any minute.',
+              style: F.over.copyWith(color: p.ink3)),
       ]),
-    ),
-  );
+    );
+  }
 }
 
 /// The page's body, given loaded data. Split out so the gallery can build every

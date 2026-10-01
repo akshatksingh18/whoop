@@ -1656,7 +1656,7 @@
   "sleepDetailLight": "हल्की",
   "sleepDetailNoStageSplitTitle": "इस रात के लिए कोई चरण विभाजन नहीं",
   "sleepDetailNoStageSplitBody": "पूरी समय-सीमा में हृदय-धड़कन की कोई टाइमिंग नहीं मिली।",
-  "sleepDetailStageRangeExplain": "हर चरण एक सीमा है, गिनती नहीं — हमने रात को जितना बेहतर देखा, वह उतनी ही संकरी होती है। गहरी नींद सबसे चौड़ी है। जागृति एक ही आंकड़े के रूप में रहती है। सटीक गिनती Nerd stats में मौजूद है।",
+  "sleepDetailStageRangeExplain": "हर चरण एक सीमा है, गिनती नहीं — हमने रात को जितना बेहतर देखा, वह उतनी ही संकरी होती है। गहरी नींद सबसे चौड़ी है। जागृति एक ही आंकड़े के रूप में रहती है।",
   "sleepDetailTimeAsleep": "सोने का समय",
   "sleepDetailShorterThanUsual": "सामान्य से कम",
   "sleepDetailLongerThanUsual": "सामान्य से ज़्यादा",

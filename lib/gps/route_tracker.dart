@@ -93,7 +93,8 @@ class RouteTracker {
     this.zoneNow,
     this.stallAfter = const Duration(seconds: 15),
     this.pathEmitEvery = const Duration(seconds: 1),
-  });
+    int firstSeq = 0,
+  }) : _seq = firstSeq;
 
   /// Minimum spacing between [path] emissions (the ~1/s throttle — see the fix
   /// handler). Injectable so tests that feed many fixes inside one wall-clock
@@ -127,7 +128,12 @@ class RouteTracker {
   Timer? _watchdog;
   final List<RoutePoint> _buffer = [];
   final List<RouteVertex> _vertices = [];
-  int _seq = 0;
+  /// Next `seq` to write. Starts at [firstSeq]: a tracker re-armed for a
+  /// session that already has stored points (a resumed workout after the app
+  /// was killed, or a retry after a permission fix) must continue AFTER them.
+  /// `workout_route` is keyed (session_id, seq) and written INSERT OR REPLACE,
+  /// so restarting at 0 silently overwrote the first part of the route.
+  int _seq;
   RoutePoint? _last;
   int _rejectStreak = 0;
   int _movingMs = 0;
@@ -138,7 +144,15 @@ class RouteTracker {
   int _lastPathEmitMs = 0;
 
   bool get isRunning => _sub != null && !_stopped;
-  int get pointCount => _seq;
+
+  /// Points accepted by THIS tracker (not counting any it continued after).
+  int _accepted = 0;
+  int get pointCount => _accepted;
+
+  /// True once fixes are actually being accepted and have not gone quiet —
+  /// what "recording the route" means to the person running.
+  bool get receivingFixes =>
+      isRunning && _accepted > 0 && !stalled.value && error.value == null;
 
   /// Moving time in seconds so far — the sum of inter-fix intervals, excluding
   /// gaps > 60 s (paused / no signal). Drives the LIVE pace so pre-first-fix
@@ -237,6 +251,7 @@ class RouteTracker {
       speed: currentSpeedMps.value,
     );
     _last = p;
+    _accepted++;
     _buffer.add(p);
 
     _vertices.add(RouteVertex(p.latLng, zoneNow?.call(), gapBefore: gapBefore));
@@ -256,6 +271,12 @@ class RouteTracker {
       unawaited(_flush());
     }
   }
+
+  /// Persist whatever is buffered now. Called when the app goes to the
+  /// background: iOS keeps a route session running there, but a backgrounded
+  /// process is also the first one jetsam reclaims, and up to [batchSize]
+  /// buffered fixes would go with it.
+  Future<void> flush() => _flush();
 
   Future<void> _flush() async {
     if (_buffer.isEmpty) return;

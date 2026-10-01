@@ -38,6 +38,7 @@ import '../ui2.dart';
 import 'alarm.dart';
 import 'band_notifications.dart';
 import 'data.dart';
+import 'status.dart';
 import 'gallery.dart';
 import 'gestures.dart';
 import 'profile.dart';
@@ -157,7 +158,6 @@ class _MoreSettingsState extends State<MoreSettings> {
       onGallery: () => goto(c, const GalleryScreen()),
       units: units.system.label,
       appearance: theme.choice.label,
-      cycleTracking: app.cycleTrackingEnabled,
       appIcon: _icon,
       onPickIcon: _pickIcon,
       phoneSteps: app.phoneStepsEnabled,
@@ -186,8 +186,6 @@ class _MoreSettingsState extends State<MoreSettings> {
           : UnitSystem.imperial),
       onCycleAppearance: () => theme.setChoice(AppThemeChoice.values[
           (theme.choice.index + 1) % AppThemeChoice.values.length]),
-      onToggleCycleTracking: () =>
-          app.setCycleTrackingEnabled(!app.cycleTrackingEnabled),
       onTogglePhoneSteps: () => app.phoneStepsEnabled
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
@@ -476,7 +474,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
 
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
-  final bool phoneSteps, telemetry, barcodeLookup, cycleTracking;
+  final bool phoneSteps, telemetry, barcodeLookup;
 
   /// The home-screen icon, or null where the OS will not change it — Android,
   /// and the managed iOS configurations that refuse. Null means the row is not
@@ -523,7 +521,6 @@ class MoreSettingsView extends StatelessWidget {
       onTogglePhoneSteps,
       onToggleTelemetry,
       onToggleBarcodeLookup,
-      onToggleCycleTracking,
       onToggleHealthShare,
       onToggleHealthSync,
       onToggleUpdateChecks,
@@ -541,7 +538,6 @@ class MoreSettingsView extends StatelessWidget {
     this.healthStore = 'Apple Health',
     this.telemetry = false,
     this.barcodeLookup = true,
-    this.cycleTracking = false,
     this.showHealthShare = false,
     this.healthShare = false,
     this.showUpdateChecks = false,
@@ -563,7 +559,6 @@ class MoreSettingsView extends StatelessWidget {
     this.onTogglePhoneSteps,
     this.onToggleTelemetry,
     this.onToggleBarcodeLookup,
-    this.onToggleCycleTracking,
     this.onToggleHealthShare,
     this.onToggleHealthSync,
     this.onToggleUpdateChecks,
@@ -632,16 +627,6 @@ class MoreSettingsView extends StatelessWidget {
                       value: appearance, onTap: onCycleAppearance),
                   if (appIcon != null)
                     _IconRow(chosen: appIcon!, onPick: onPickIcon),
-                  // Opt-in, and it says what it does rather than what it is
-                  // about — "Cycle tracking" alone leaves you guessing whether
-                  // switching it off throws the entries away.
-                  SetRow(LucideIcons.droplet, C.pink,
-                      l?.settingsCycleTrackingRowTitle ?? 'Cycle tracking',
-                      sub: l?.settingsCycleTrackingRowSub ??
-                          'Adds the Cycle tab to Wellness. Off hides it and '
-                              'keeps everything already logged',
-                      value: cycleTracking ? on : off,
-                      onTap: onToggleCycleTracking),
                 ]),
                 settingsGroup(c, l?.settingsGroupYourData ?? 'Your data', [
                   SetRow(LucideIcons.download, C.green,
@@ -745,6 +730,12 @@ class MoreSettingsView extends StatelessWidget {
                         onTap: onToggleUpdateChecks),
                 ]),
                 settingsGroup(c, l?.settingsGroupAbout ?? 'About', [
+                  // Signing expiry, newest band data, last backup, build and
+                  // source — the facts that decide whether this install keeps
+                  // working, in one place.
+                  SetRow(LucideIcons.activity, C.green, 'Status',
+                      sub: 'Signing, sync, backup and build',
+                      onTap: () => goto(c, const StatusScreen())),
                   if (version.isNotEmpty)
                     SetRow(LucideIcons.info, C.n500,
                         l?.settingsVersionRowTitle ?? 'Version',
@@ -1063,60 +1054,6 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             stepGoalEnabled: !prefs.stepGoalEnabled))),
-                    // The one prompt whose time is not a guess: it is the
-                    // schedule already typed into the Medication tab. Only a
-                    // dose still due is armed, and the notification names no
-                    // drug — it lands on a lock screen in front of whoever is
-                    // in the room.
-                    SetRow(LucideIcons.pill, C.blue,
-                        l?.settingsMedicationRemindersRowTitle ??
-                            'Medication reminders',
-                        sub: l?.settingsMedicationRemindersRowSub ??
-                            'One notification per scheduled dose, at the '
-                                'times you entered — with a buzz on the band if '
-                                'it is connected. Nothing is sent for a dose '
-                                'already marked taken or skipped',
-                        value: prefs.medsEnabled ? on : off,
-                        chevron: false,
-                        onTap: () =>
-                            set(prefs.copyWith(medsEnabled: !prefs.medsEnabled))),
-                    // ONE prompt for the whole journal, not one per field —
-                    // mood, energy, stress and the rest are all the same
-                    // screen, so five rows would be five interruptions for one
-                    // minute of typing.
-                    SetRow(LucideIcons.notebookPen, C.purple,
-                        l?.settingsDailyCheckInRowTitle ?? 'Daily check-in',
-                        sub: l?.settingsDailyCheckInRowSub ??
-                            'One prompt in the evening to write the day — '
-                                'mood, energy, stress. Skipped once the day '
-                                'already has a rating in it',
-                        value: prefs.checkInEnabled ? on : off,
-                        chevron: false,
-                        onTap: () => set(prefs.copyWith(
-                            checkInEnabled: !prefs.checkInEnabled))),
-                    // A prompt to log, not a reading. The app measures no
-                    // hydration and this row may never imply it does.
-                    SetRow(LucideIcons.glassWater, C.teal,
-                        l?.settingsWaterReminderRowTitle ?? 'Water reminder',
-                        sub: l?.settingsWaterReminderRowSub ??
-                            'A buzz on the strap and a notification on your '
-                                'phone through your waking hours, to remind you to '
-                                'log a drink. Nothing is measured either way',
-                        value: prefs.waterEnabled ? on : off,
-                        chevron: false,
-                        onTap: () => set(
-                            prefs.copyWith(waterEnabled: !prefs.waterEnabled))),
-                    // only while it's on — the group is dense enough, and an
-                    // interval for a reminder nobody armed is furniture.
-                    if (prefs.waterEnabled)
-                      SetRow(LucideIcons.timer, C.teal,
-                          l?.settingsRemindMeEveryRowTitle ??
-                              'Remind me every',
-                          value: _everyLabel(prefs.waterIntervalMin),
-                          chevron: false,
-                          onTap: () => set(prefs.copyWith(
-                              waterIntervalMin:
-                                  _nextEvery(prefs.waterIntervalMin)))),
                   ]),
                   if (relaySupported)
                     settingsGroup(c, l?.settingsGroupTheStrap ?? 'The strap', [
@@ -1182,30 +1119,7 @@ class NotificationSettingsView extends StatelessWidget {
     );
   }
 
-  /// The water intervals on offer, all inside
-  /// [NotificationPrefs.waterIntervalMinAllowed]..[NotificationPrefs.waterIntervalMaxAllowed].
-  /// None of them is "recommended" — we have no basis for one.
-  static const waterEvery = [
-    (30, '30m'),
-    (60, '1h'),
-    (90, '90m'),
-    (120, '2h'),
-    (180, '3h'),
-    (240, '4h'),
-  ];
-
-  static String _everyLabel(int min) =>
-      waterEvery.firstWhere((e) => e.$1 == min, orElse: () => (min, '${min}m'))
-          .$2;
-
-  /// Tapped through in place, like Units and Appearance. An unknown stored
-  /// value (an older build, a hand-edited pref) lands on the first choice.
-  static int _nextEvery(int min) {
-    final i = waterEvery.indexWhere((e) => e.$1 == min);
-    return waterEvery[(i + 1) % waterEvery.length].$1;
-  }
-
-  /// Low-battery alert thresholds, tapped through in place like [waterEvery].
+  /// Low-battery alert thresholds, tapped through in place.
   /// Bounds match NotificationPrefs.batteryPctMin/Max, so every choice here is
   /// one the pref will store unclamped.
   static const batteryChoices = [10, 15, 20, 25, 30, 40];

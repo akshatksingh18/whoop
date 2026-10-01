@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 
 import '../sync/background_sync.dart';
 import '../sync/headless_gate.dart';
+import '../sync/sync_policy.dart' show RestoreWakeOutcome;
 
 class IosBleRestore {
   static const _ch = MethodChannel('openstrap/ble_restore');
@@ -24,6 +25,13 @@ class IosBleRestore {
   /// band, so we skip it — the foreground session is already draining.
   static bool foregroundActive = false;
 
+  /// Set by the live app (AppState). A restore wake is offered here BEFORE the
+  /// headless drain: when the app process is alive and still wants the link,
+  /// its own reconnect loop is what has to land the connection — a headless
+  /// drain would be refused the band by that loop's ownership intent, report
+  /// "done", and leave the native side idle with nothing watching the band.
+  static Future<RestoreWakeOutcome> Function()? onWake;
+
   /// Register the wake handler and tell native Flutter is ready. Call once at startup.
   static Future<void> init() async {
     if (!Platform.isIOS) return;
@@ -32,6 +40,22 @@ class IosBleRestore {
       if (foregroundActive) {
         await _done();
         return null;
+      }
+      final handler = onWake;
+      if (handler != null) {
+        var outcome = RestoreWakeOutcome.notHandled;
+        try {
+          outcome = await handler();
+        } catch (e) {
+          debugPrint('[ios-restore] live-app wake handler threw: $e');
+        }
+        if (outcome == RestoreWakeOutcome.connected) {
+          await _done();
+          return null;
+        }
+        // Re-armed: the recovery connect is pending again and the native side
+        // already released its handoff — saying "done" now would cancel it.
+        if (outcome == RestoreWakeOutcome.rearmed) return null;
       }
       // Shared gate with the BGProcessingTask/BGAppRefreshTask entry points
       // (HeadlessSyncGate): if another headless sync is mid-flight, skip this

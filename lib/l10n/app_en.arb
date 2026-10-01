@@ -8377,7 +8377,7 @@
   "@sleepDetailNoStageSplitBody": {
     "description": "Status card body explaining why no stage breakdown is available."
   },
-  "sleepDetailStageRangeExplain": "Each stage is a range, not a count — the better we saw the night, the narrower it is. Deep is the widest. Awake stays one figure. Nerd stats has the exact counts.",
+  "sleepDetailStageRangeExplain": "Each stage is a range, not a count — the better we saw the night, the narrower it is. Deep is the widest. Awake stays one figure.",
   "@sleepDetailStageRangeExplain": {
     "description": "Explanatory footnote under the stage breakdown table about ranges vs. counts."
   },

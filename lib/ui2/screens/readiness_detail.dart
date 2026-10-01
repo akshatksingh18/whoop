@@ -16,7 +16,6 @@ import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
-import 'investigate.dart';
 import 'metric_detail.dart';
 
 class ReadinessData {
@@ -257,8 +256,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 )
               : Surface(child: _history(c, d)),
         ),
-        const SizedBox(height: S.x5),
-        investigateRow(c, () => go(c, const Investigate('readiness'))),
       ],
     ]);
   }

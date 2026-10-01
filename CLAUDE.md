@@ -14,22 +14,43 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification — Akshat confirmed that personal IPA `0.9.30` build `63` is
-installed; its sanitized-history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`,
-and it remains the accepted rollback.
+**Status:** Active iPhone verification — personal IPA `0.9.32` build `65` is installed and opens
+after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
+isolated test install before the old container was removed, then restored into build 65; Akshat
+confirmed the recovered app works. Build `0.9.30`/63 remains the accepted rollback, with sanitized-
+history source equivalent `7132d2ab29a007da9e650ef802e7340a0cf39677`.
 The initial roughly-6,000-versus-200 step mismatch was the disabled **This phone → Steps** setting;
 enabling it verified that the direct `CMPedometer` path imports iPhone steps. The profile still
-deliberately excludes the Apple Health aggregate. Current source is `0.9.32` build `65`: it retains
-the personal GPS/Oura changes from the uninstalled build-64 artifact and records zero-step phone
-windows so confirmed phone stillness can veto low-density wrist false positives. Build 64 is
-superseded and must not be installed. Build 65 passed the macOS workflow, payload validator, and
-downloaded SHA-256 check and is cached under `../final-ipas/whoop/testing/`; it still needs the
-install-over and physical-device pass.
+deliberately excludes the Apple Health aggregate. Build 65 retains the personal GPS/Oura changes
+from the uninstalled build-64 artifact and records zero-step phone windows so confirmed phone
+stillness can veto low-density wrist false positives. Build 64 is superseded and must not be
+installed. Build 65 passed the macOS workflow, payload validator, downloaded SHA-256 check, fresh
+install, encrypted restore, and launch checks. A temporary bundle-ID copy also installed
+successfully, proving the IPA/framework payload is installable. A backup/delete/clean-install/restore
+cycle with automatic refresh enabled created a completed scheduled registration and Akshat confirmed
+the data works. The original refresh failure was isolated to Sideloadly v0.60's **Use automatic
+bundle ID** path: the same production overwrite reached 100% when that option was disabled and the
+exact final ID `com.akshat.personal.whoop.5564K8D4SV` was entered. Its signing time advanced and data
+and band pairing remained intact. A controlled forced-due daemon cycle then refreshed WHOOP over
+Wi-Fi with USB disconnected and no GUI/manual refresh command; the health task logged `REFRESHED`
+and `ENROLLED`, and the subsequent real-app launch confirmed its data and band connection intact.
+The next naturally elapsed cycle, About/version, phone-step retention, GPS and background behavior
+still need confirmation.
 Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data is too
 low-rate for honest all-day step reconstruction. Background/recovery, GPS, and other device gates
 remain before daily use. Android development is out of scope.
+Local source is now `0.9.33`/`66` and is **not yet built or installed**. It simplifies the UI:
+Nerd stats, the Wellness tab, the journal, water logging and Health → Labs are removed, and Vitals
+is folded into Overview. It adds a scrubbable all-day heart-rate chart, a cleaner Sleep screen and a
+rebuilt Nutrition log (saved meals, foods by grams, macros, month history), and keeps the sleep-breathing card and the
+training-load part of sleep need. It also adds the Status screen with 48 h/24 h
+signing-expiry alerts, encrypted automatic backups, GPS route-recording hardening, and the iOS
+restore-wake reconnect fix recorded in `bugs.md`. Its tests pass locally; it still needs the macOS
+workflow, an IPA and a device pass.
 
 ## Files
+- `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
+  and the pending layout decisions; read before adding, moving or removing any screen.
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
   validation, installed personal-iPhone candidate, and remaining migration/device decisions.
 - `bugs.md` — retained Android reconnection evidence plus active iPhone CoreBluetooth and verified
@@ -74,31 +95,34 @@ remain before daily use. Android development is out of scope.
 
 ## Environment
 - Dev machine: Windows laptop, no local Mac
-- Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA; Akshat
-  confirmed that replacement `0.9.30`/63 is currently installed. Enabling **This phone → Steps** verified its direct
-  iPhone-pedometer import. Apple Health’s aggregate is deliberately not read. History migration,
-  installed identity, complete sync/recovery, background behavior, and refresh remain unverified.
+- Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA;
+  `0.9.32`/65 is currently installed after a verified encrypted restore. Enabling **This phone →
+  Steps** on build 63 verified direct iPhone-pedometer import; recheck that setting and behavior on
+  build 65. Apple Health’s aggregate is deliberately not read. Band reconnection, installed About/
+  profile details, complete sync/background behavior, GPS, and same-ID refresh remain unverified.
 - Personal platform scope: iPhone only. Preserve the imported Android source as upstream/reference
   code, but do not spend implementation or validation effort on Android unless Akshat reopens it.
 
 ## Personal iPhone deployment plan
 
 This is the durable free-compatible plan for making the iPhone the primary WHOOP device. The
-accepted portfolio is standalone WHOOP plus one native hub containing Squats, PageVault, and
-ReelVault: two free-signing slots. `../akshatos/hub-plan.md` owns that packaging. WHOOP remains an
+accepted portfolio is standalone WHOOP plus the native AkshatOS hub (its modules are listed in
+`../akshatos/hub-plan.md`): two free-signing slots. `../akshatos/hub-plan.md` owns that packaging. WHOOP remains an
 independent Flutter app/process, not embedded in the hub; no paid tier, rotation, or identity
 migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
 Akshat has activated iPhone implementation. The personal flavor exists in source, its first
 macOS-built candidate was installed and exposed the malformed AccessorySetupKit descriptor crash.
-The bridge is now fixed and replacement `0.9.30`/63 passed automated macOS payload/hash validation;
-the accepted rollback is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\`
-(`setup.md` owns the location) and was installed through Sideloadly. The cached `0.9.31`/64 artifact
-passed automated checks but is now superseded without installation. Current `0.9.32`/65 adds the
-confirmed-phone-stillness step guard; its validated artifact is cached under `testing\` and needs
-the install-over/device pass.
-Daily-use activation still requires
-confirming history import, exact identity/profile, pairing, sync, recovery, and the other
-physical-device evidence below.
+The bridge is now fixed and `0.9.30`/63 remains the accepted rollback cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
+The cached `0.9.31`/64 artifact passed automated checks but is superseded without installation.
+Current `0.9.32`/65 adds the confirmed-phone-stillness step guard; its validated artifact remains
+under `testing\` while physical acceptance is incomplete. Its encrypted restore, launch, scheduled
+enrollment and exact-final-ID same-app refresh work. The base-ID automatic-rewrite path stalls at 0%,
+so every Sideloadly refresh/upgrade must use the exact final signed ID instead.
+History/data, exact signed identity, pairing preservation, manual recovery, and a controlled
+forced-due Wi-Fi daemon refresh are verified. Daily-use activation still requires the remaining
+About/version, phone-step-retention, GPS/background, naturally elapsed refresh, and physical-device
+evidence below.
 
 ### Chosen delivery model and non-negotiable constraints
 
@@ -106,7 +130,7 @@ physical-device evidence below.
   `.ipa`, then let Sideloadly sign and install it directly from the Windows laptop with Akshat's
   free Apple Personal Team. Do not use a Flutter debug build for daily use: debug builds require
   Flutter/Xcode to relaunch from the home screen.
-- WHOOP uses one slot and the native Squats/PageVault/ReelVault hub uses a second; the third is
+- WHOOP uses one slot and the native AkshatOS hub uses a second; the third is
   unallocated. Sideloadly has no phone-side host. AltStore/SideStore would use a further slot and
   require an explicit workflow choice; neither is needed. Preserve WHOOP's independent lifecycle,
   minimal personal flavor, encrypted exports, and stable identity rather than embedding it in the hub.
@@ -163,7 +187,17 @@ The personal artifact must have these properties:
   `personal_ios.py`'s personal `Info.plist`; `NSLocationAlwaysAndWhenInUseUsageDescription` stays
   forbidden — authorization is While-In-Use only, matching `lib/gps/gps_source.dart`'s own design,
   which relies on the background mode rather than Always to keep a run tracked with the screen
-  locked. `tool/test_personal_ios.py` enforces both halves. **Buildable, not yet verified**: the
+  locked. `tool/test_personal_ios.py` enforces both halves.
+  - **Code audit hardening (source, unbuilt):**
+    - A re-armed recorder (a run resumed after the app was killed, or a retry after a location fix)
+      continues after the stored `workout_route` sequence. Before, it restarted at 0 and overwrote
+      the start of the route.
+    - "Recording route" shows only while fixes are actually accepted; otherwise the screen says
+      "Waiting for GPS".
+    - iOS Precise Location off gets its own fixable reason.
+    - Returning from Settings retries a blocked route.
+    - The buffered tail is flushed when the app goes to the background.
+  - **Buildable, not yet verified**: the
   permission, battery, background, and stop-semantics evidence this reopening still calls for needs
   a real outdoor run on the phone, not a code review. Do not describe route tracking as accepted
   until that pass happens and is recorded here.
@@ -172,6 +206,65 @@ The personal artifact must have these properties:
   `kPersonalSideload`; the full upstream-capable build retains it. This is an explicit unsupported-
   hardware product decision, not an AccessorySetupKit limitation: Oura pairing uses the direct BLE
   sensor path rather than the primary-WHOOP AccessorySetupKit picker.
+- **Simple day-to-day UI is an explicit product decision.** Akshat removed three surfaces from the
+  app source:
+  - **Nerd stats** (`Investigate`). Metric drill-downs now end at the metric detail screen.
+  - **The Wellness tab.** This took Mind, Recovery drivers, Habits, Medication and Cycle with it; the
+    shell has four tabs.
+  - **Water logging** on Nutrition.
+
+  Medication and water reminders are forced off at load, so anything an older build armed is
+  cancelled. Their Settings switches and the Cycle-tracking switch are gone. The daily check-in and
+  wind-down still open their own screens.
+
+  **Selection rule:** keep what serves Akshat's goals (lifting, running, sleep, recovery) and drop
+  noise and anything needing manual entry. He logs nothing by hand in WHOOP. `metrics-map.md`
+  lists everything stored, where it appears, and the pending layout decisions.
+  - **Journal removed** at Akshat's request, and the daily check-in is forced off. No Home or
+    Readiness entry and no findings screen; a rough-night card on Sleep states the measurements and
+    never asks for tags. `journal_compose.dart` stays only because it hosts shared input widgets
+    (`OsTextField`, `FieldStepper`).
+  - **Kept in minimal form:**
+    - **Breathing pattern in sleep:** `sleep_breathing.dart`, one tap below Sleep, showing the
+      across-nights card only.
+    - **Training load in the sleep need:** the Sleep "Tonight" sentence names the minutes it adds.
+    - **All-day heart rate:** a scrubbable minute-by-minute chart (`DayHeartCard` in
+      `day_timeline.dart`), reached from Home ("Heart rate, all day") and from Health → Vitals'
+      heart-rate row. It reads the day bundle's permanent per-minute `hr_curve`.
+  - **Sleep cleanup:**
+    - Stages and the deep-sleep usual row show counted minutes and % of sleep, which sum to total
+      sleep, in place of wide ranges.
+    - The title date is readable.
+    - The sleep-window correction card sits last.
+  - **Health tab:** reduced to Overview · Explore · Trends. Labs (manual lab entry) was removed.
+    Vitals was merged into Overview: today's heart-rate range (which opens the all-day chart), skin
+    temperature, wear time and the HRV card, with no duplicate breathing row. The Naps card shows
+    only on a day with a nap.
+  - **Nutrition rebuilt** (`nutrition_screen.dart`, `food_picker.dart`), in the MyFitnessPal shape.
+    Akshat logs meals here.
+    - **Today:**
+      - Calories left = the typed goal − food; exercise is never added back.
+      - Protein, carbs, fat and fibre against typed targets.
+      - Breakfast, lunch, dinner and snacks, each with its own Add.
+    - **Adding food:**
+      - From saved meals (`meal_template`, one tap writes an entry per food).
+      - From his own foods (`food_def`, typed once from a label and stored per 100 g, then logged by
+        grams with every number scaled; the grams can be edited later).
+      - Or by quick add / barcode (the existing sheet).
+    - **History:** the last month's days against the goal; each day opens for late edits.
+    - **Foods:** manage foods and saved meals.
+    - **Goals:** five targets. The sheet shows the 14-day average of total burn for reference only.
+  - **Calories:** the band's active and total kcal stay heart-rate-only. Steps are not added, by
+    Akshat's decision. A separate walking estimate appears on the Home steps tile and the Steps
+    breakdown (`walkingEnergy`, from steps, height and weight); it is never summed into any total.
+    Apple Health energy was considered and not pursued: with no Apple Watch it would only repeat
+    phone-step motion. HealthKit stays excluded; `metrics-map.md` has the calorie method.
+  - **Left out as noise:**
+    - extra HRV numbers, awake breathing rate, and per-day coverage/algorithm version;
+    - guided breathing (the wind-down reminder still opens it);
+    - medication, habits, cycle, water and labs.
+
+  Computation and storage are untouched throughout, and git history holds the removed screens.
 - The initial personal profile removes `processing`/`fetch` modes, BG task identifiers,
   native registration, and Dart scheduling. They remain optional future experiments, never
   correctness requirements.
@@ -206,13 +299,12 @@ The personal artifact must have these properties:
 
 ### Bundle identity, upgrades, and data continuity
 
-- The personal app's iPhone display/bundle name is `WHOOP`. The permanent bundle identifier
-  is `com.akshat.personal.whoop`; Sideloadly signing and installation succeeded, but the installed
-  profile/bundle identity must still be inspected to prove that exact identifier was preserved.
-  Use that exact identifier, the same Apple
-  Account, and the same Sideloadly custom
-  bundle-ID behavior for every refresh and upgrade. Never accept a new random identifier merely
-  to make an installation succeed.
+- The personal app's iPhone display/bundle name is `WHOOP`. Its permanent source bundle identifier
+  is `com.akshat.personal.whoop`; its verified installed signed identity is
+  `com.akshat.personal.whoop.5564K8D4SV`. For every refresh and upgrade, use the same Apple Account,
+  turn Sideloadly's **Use automatic bundle ID** option off, enter that exact final signed identity,
+  and keep the separate automatic-refresh control enabled. Never accept a new random identifier
+  merely to make an installation succeed.
 - The personal iPhone build uses the black-and-white circular mark in
   `ios/Runner/Assets.xcassets/AppIconPersonal.appiconset`; the general upstream target retains its
   existing `AppIcon` artwork.
@@ -225,10 +317,15 @@ The personal artifact must have these properties:
 - Treat overwrite preservation as a tested behavior, not the only backup. Sideloadly's cached IPA
   and signing state are replaceable; health history is not. An accidental uninstall, changed
   bundle ID, device restore, or failed signing migration can still orphan the container.
-- Add a personal-build Settings status that reads the installed provisioning profile when
-  feasible and shows its expiration date, last successful band sync, backup state, build version,
-  and source revision. Local alerts at 72, 48, and 24 hours before profile expiry are useful but
-  supplement, not replace, Windows-side verification.
+- **Settings → About → Status** (`lib/ui2/profile/status.dart`) is implemented in source, unbuilt.
+  - It reads the installed `embedded.mobileprovision` expiry (`lib/platform/signing_profile.dart`).
+  - It also shows the newest band data, automatic-backup state, build version, and the source commit
+    (`SOURCE_REVISION`, written into `.env` by `personal-ios.yml`).
+  - Local alerts fire **48 and 24 hours** before expiry. Akshat dropped the 72-hour one; the Windows
+    health check owns the earlier warnings.
+  - The alerts are re-armed from the installed profile at launch and on every foreground return, and
+    they open the Status screen.
+  - They supplement, not replace, Windows-side verification.
 
 ### Building and caching the IPA
 
@@ -247,8 +344,9 @@ The personal artifact must have these properties:
   the final cache path in `setup.md` when activated. Do not rely solely on Sideloadly's internal
   cache or a GitHub Actions artifact-retention window.
 - A new IPA is promoted only after payload inspection, hash recording, a fresh-device install,
-  and an in-place upgrade test. The previous known-good IPA remains available until the new build
-  passes the soak and refresh gates.
+  an in-place upgrade test, and signing-health results of `ENROLLED` for the exact signed identity and
+  current version plus `IDENTITY` in `exact` mode. A one-off install that launches is not enough. The
+  previous known-good IPA remains available until the new build passes the soak and refresh gates.
 
 ### Windows signing and refresh automation
 
@@ -298,15 +396,24 @@ The personal artifact must have these properties:
 - Restore-test an encrypted export before making the iPhone authoritative, and repeat after a
   backup-format or schema change. A successfully written file is not a proven backup until the
   current app can decrypt, import, and reconcile it without overwriting measured days incorrectly.
-- Do not describe `lib/data/auto_backup.dart` as encrypted: its current foreground-triggered
-  `.db.gz` snapshots are plaintext, default off, and retained in the Files-visible Documents
-  directory. They may be an additional short-term local safety net, but they do not satisfy the
-  encrypted off-device backup requirement. Automating encrypted backups requires a deliberately
-  implemented, performant platform-backed encryption/export path and its own restore test.
-- Never uninstall WHOOP merely because its profile expired. First preserve an encrypted export if
-  the app still opens, then re-sign/install the cached IPA over the existing bundle. If it no
-  longer opens, leave it installed and perform the same-ID recovery install; uninstall only after
-  a verified backup and an explicit decision that container preservation has failed.
+- Automatic backups are **encrypted** in source (`lib/data/auto_backup.dart`, unbuilt).
+  - They run on foreground when due, Daily or Weekly, and are off until Akshat sets a backup
+    passphrase under **Your data**. The passphrase is kept in the iOS keychain
+    (`lib/data/backup_passphrase.dart`).
+  - Each run gzips a `VACUUM INTO` snapshot and seals it as an `OSBK` file (`backup_crypto.dart`).
+  - The file is decrypted and compared before it is published; the work runs on a worker isolate.
+  - The newest 5 go to `OpenStrap Backups`. Plaintext automatic backups are no longer written, and
+    old ones are deleted after the first encrypted success.
+  - A restore uses the existing **Import a file** path with the passphrase.
+- **Still not off-device:** the backup folder is inside the app container and is deleted with the
+  app. The manual off-phone copy to Windows (Files / iTunes File Sharing) is still required.
+  Encryption uses pure-Dart AES-GCM at about 1.5 MB/s, so a large database takes a while. It needs a
+  measured on-phone run and a restore test.
+- Never uninstall WHOOP merely because its profile expired. Preserve a verified encrypted export
+  while the app still opens, then install the cached IPA over the existing container with automatic
+  bundle-ID rewriting off and exact final ID `com.akshat.personal.whoop.5564K8D4SV`. That path is
+  proven to advance signing while preserving data and pairing. Backup/delete/clean-install/restore
+  remains the fallback only if exact-ID container-preserving recovery fails.
 
 ### Physical-device validation matrix
 
@@ -364,7 +471,7 @@ fully quit so it does not own the peripheral:
    installation, record the Apple Account/team
    continuity choice, Windows artifact-cache path, encrypted-backup destination, and exact alert
    behavior without credentials or personal data. The installed set is standalone WHOOP plus the
-   native three-feature hub under free signing.
+   native AkshatOS hub under free signing.
 3. **Build the personal flavor:** the core entitlement/extension/location/network exclusions,
    packaging checks, and tests are implemented. A local installed-profile expiry/status surface
    remains desirable but does not block producing the first controlled candidate.
@@ -406,6 +513,12 @@ As implementation proceeds, update all affected sources in the same coherent cha
   source of truth and remove superseded planned wording in the same change.
 
 ## Working agreement
+- **Before removing any feature, screen or tab, audit what only it shows and ask Akshat.** List
+  every metric, insight or entry point that would become unreachable, and say whether it is a
+  primary WHOOP/wearable metric (recovery, strain, sleep, HRV, heart rate, breathing, stress,
+  steps, workouts) or redundant with another screen. Get Akshat's yes per item before deleting it.
+  He often wants redundant features gone, but never a core metric lost by accident. Removing a UI
+  surface must not stop the underlying computation or storage unless he asks for that too.
 - Keep this as one repository. Route byte/protocol work to `packages/protocol/`, metric work to
   `packages/analytics/`, and app/flow/storage/UI work to the root app areas.
 - Preserve the algorithm-version rules below: any analytics output change must still be

@@ -1656,7 +1656,7 @@
   "sleepDetailLight": "浅睡",
   "sleepDetailNoStageSplitTitle": "这一夜没有阶段划分数据",
   "sleepDetailNoStageSplitBody": "整个时间段内没有心跳时序数据。",
-  "sleepDetailStageRangeExplain": "每个阶段显示为一个范围而非精确计数——夜间监测得越好，范围就越窄。深睡的范围最宽，清醒仍以单一数值表示。详细统计中有精确计数。",
+  "sleepDetailStageRangeExplain": "每个阶段显示为一个范围而非精确计数——夜间监测得越好，范围就越窄。深睡的范围最宽，清醒仍以单一数值表示。",
   "sleepDetailTimeAsleep": "入睡时长",
   "sleepDetailShorterThanUsual": "比平时短",
   "sleepDetailLongerThanUsual": "比平时长",

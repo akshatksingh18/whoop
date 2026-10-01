@@ -54,6 +54,8 @@ import '../stress/breath_phases.dart';
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import '../data/backup_passphrase.dart';
+import '../platform/signing_profile.dart';
 import 'prefs.dart';
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
@@ -96,7 +98,9 @@ import '../sync/sync_policy.dart'
     show
         isLinkStale,
         ReconnectSupervisorAction,
-        superviseReconnect;
+        RestoreWakeOutcome,
+        superviseReconnect,
+        WakeableDelay;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -916,6 +920,35 @@ class AppState extends ChangeNotifier {
     return ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms);
   }
 
+  /// Why the most recent automatic/manual backup attempt failed, or null when
+  /// it succeeded (or none has run). Persisted so the Status screen can say
+  /// "the last one failed" on a later launch instead of only the last success.
+  String? get lastBackupError {
+    final e = Prefs.getString(Prefs.backupLastError, '');
+    return e.isEmpty ? null : e;
+  }
+
+  /// Whether a backup passphrase is stored in the keychain. Null until the
+  /// first read lands; refreshed by [refreshBackupPassphraseState].
+  bool? hasBackupPassphrase;
+
+  Future<void> refreshBackupPassphraseState() async {
+    final has = await BackupPassphrase.read() != null;
+    if (has == hasBackupPassphrase) return;
+    hasBackupPassphrase = has;
+    notifyListeners();
+  }
+
+  /// Store the passphrase automatic backups are sealed with. Returns false
+  /// when the keychain refused it. Older backups keep the passphrase they were
+  /// sealed with; this only changes the next one.
+  Future<bool> setBackupPassphrase(String passphrase) async {
+    final ok = await BackupPassphrase.write(passphrase);
+    hasBackupPassphrase = ok || hasBackupPassphrase == true;
+    notifyListeners();
+    return ok;
+  }
+
   /// Change the cadence. Switching it ON takes a backup immediately rather
   /// than waiting for the interval — otherwise nothing visible happens and the
   /// setting looks broken.
@@ -930,12 +963,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Persist the last attempt's result: cleared on success, the reason on
+  /// failure. A skipped (not due) run changes nothing.
+  void _recordBackupOutcome(BackupOutcome outcome) {
+    if (outcome.skipped) return;
+    Prefs.setString(Prefs.backupLastError,
+        outcome.succeeded ? '' : (outcome.error ?? 'unknown error'));
+    notifyListeners();
+  }
+
   /// Take one now, whatever the schedule says. Returns what happened so the
   /// caller can say so — a backup that silently did not happen is the failure
   /// this feature exists to prevent.
   Future<BackupOutcome> runBackupNow() async {
-    final outcome = await runBackup();
+    final outcome = await runBackup(passphrase: BackupPassphrase.read);
     if (outcome.succeeded) _markBackupRun(DateTime.now());
+    _recordBackupOutcome(outcome);
     return outcome;
   }
 
@@ -966,7 +1009,9 @@ class AppState extends ChangeNotifier {
       cadence: () => backupCadence,
       lastRun: () => lastBackupAt,
       markRun: (when) async => _markBackupRun(when),
+      passphrase: BackupPassphrase.read,
     );
+    _recordBackupOutcome(outcome);
     if (outcome.error != null) _log('Backup failed: ${outcome.error}');
   }
 
@@ -1023,6 +1068,8 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('[reset] keychain clear failed: $e');
     }
+    await BackupPassphrase.clear();
+    hasBackupPassphrase = false;
 
     // 3 · the whole preference namespace, not a remembered subset — same
     // reason as wipeAll. A fresh install is the state being restored, and a
@@ -1263,6 +1310,7 @@ class AppState extends ChangeNotifier {
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
+    IosBleRestore.onWake = _onRestoreWake;
     taskerBridge; // force init: register the method channel handler
     _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
@@ -1337,6 +1385,9 @@ class AppState extends ChangeNotifier {
     _tapSub?.cancel();
     _stopBackfillTimer();
     _stopReconnectSupervisor();
+    if (identical(IosBleRestore.onWake, _onRestoreWake)) {
+      IosBleRestore.onWake = null;
+    }
     _alarmGraceTimer?.cancel();
     _alarmGraceTimer = null;
     _breathingRecomputeTimer?.cancel();
@@ -2195,6 +2246,8 @@ class AppState extends ChangeNotifier {
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
     if (isPaired) unawaited(_ensureRemindersScheduled());
+    // Not gated on pairing: an unpaired app still expires.
+    unawaited(refreshSigningStatus());
     if (isPaired) {
       if (_background) {
         _keepAlive = true;
@@ -2308,6 +2361,27 @@ class AppState extends ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 500));
     }
     return true;
+  }
+
+  /// The installed signing profile's expiry (personal sideload only), as read
+  /// on the last foreground pass. Null when not sideloaded or unreadable.
+  DateTime? signingExpiry;
+
+  /// Re-read the installed profile and re-arm the 48 h / 24 h warnings from
+  /// it. Every foreground pass: a Sideloadly refresh replaces the profile, and
+  /// warnings armed from the old one must move with it.
+  Future<void> refreshSigningStatus() async {
+    if (!kPersonalSideload) return;
+    try {
+      final expiry = await readSigningExpiry();
+      if (expiry != signingExpiry) {
+        signingExpiry = expiry;
+        notifyListeners();
+      }
+      await NotificationCenter.instance.scheduleSigningExpiryAlerts(expiry);
+    } catch (e) {
+      _log('Signing status check failed: $e');
+    }
   }
 
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
@@ -2548,6 +2622,10 @@ class AppState extends ChangeNotifier {
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
   Future<void> pauseForBackground() async {
     _background = true;
+    // Persist the route recorder's buffered tail now: a backgrounded process is
+    // the first one jetsam reclaims, and the buffer would go with it.
+    final rt = _routeTracker;
+    if (rt != null) unawaited(rt.flush());
     // Step the Android link down to a power-saving connection interval — see
     // `desiredLinkPriority` (issue #200).
     engine.setBackground(true);
@@ -3517,6 +3595,50 @@ class AppState extends ChangeNotifier {
   /// await that never returns), after which the app sits at 'disconnected' with
   /// no edge left to re-trigger it and, on Android, a foreground service making
   /// sure the process never restarts to clear the state.
+  /// The reconnect loop's between-attempt wait; a restore wake cuts it short.
+  final WakeableDelay _reconnectBackoff = WakeableDelay();
+
+  /// iOS restore wake while this process is alive: the band just became
+  /// reachable. Reconnect NOW, inside the wake window, instead of leaving it
+  /// to a backoff timer the suspended process may never run.
+  ///
+  /// Not handled (headless drain instead) when there is no session that wants
+  /// the link. If the link does not land in time, the recovery pending connect
+  /// is re-armed so the band stays watched — never left idle.
+  Future<RestoreWakeOutcome> _onRestoreWake() async {
+    if (_disposed ||
+        paired == null ||
+        !_keepAlive ||
+        device.autoReconnectPaused) {
+      return RestoreWakeOutcome.notHandled;
+    }
+    if (engine.isConnected) return RestoreWakeOutcome.connected;
+    _log('[RESTORE] wake — band reachable; reconnecting now '
+        '(loop running: $_reconnecting, parked: ${_reconnectBackoff.waiting})');
+    if (!_reconnectBackoff.wake() && !_reconnecting) unawaited(_reconnect());
+    // The wake's background time is short; give the attempt most of it.
+    if (await _waitUntil(() => engine.isConnected, const Duration(seconds: 20))) {
+      return RestoreWakeOutcome.connected;
+    }
+    if (_disposed || paired == null) return RestoreWakeOutcome.notHandled;
+    // ponytail: one re-arm per 10 min. A band that is reachable yet refuses
+    // this engine would otherwise wake → fail → re-arm → wake every ~20 s and
+    // drain the battery; past the cap the wake falls back to the old
+    // headless-drain-then-idle path until the next real disconnect re-arms.
+    final last = _lastRestoreRearmAt;
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < const Duration(minutes: 10)) {
+      _log('[RESTORE] wake — no link again within 10 min; not re-arming');
+      return RestoreWakeOutcome.notHandled;
+    }
+    _lastRestoreRearmAt = now;
+    _log('[RESTORE] wake — no link inside the window; re-arming recovery');
+    await _armRecovery();
+    return RestoreWakeOutcome.rearmed;
+  }
+
+  DateTime? _lastRestoreRearmAt;
+
   void _startReconnectSupervisor() {
     _reconnectSupervisor ??= Timer.periodic(
       _reconnectSupervisorInterval,
@@ -4393,7 +4515,9 @@ class AppState extends ChangeNotifier {
             connected = false;
           }
         } else {
-          await Future.delayed(engine.reconnectDelay(attempt));
+          // Wakeable: an iOS restore wake (the band is reachable NOW) ends the
+          // backoff early — see [WakeableDelay] and [_onRestoreWake].
+          await _reconnectBackoff.wait(engine.reconnectDelay(attempt));
           if (!_keepAlive) break;
           await _ensureForegroundLease();
           connected = await engine.connectToRemoteId(paired!.remoteId,
@@ -5135,9 +5259,18 @@ class AppState extends ChangeNotifier {
     return rt == null ? null : rt.distanceMeters.value / 1000;
   }
 
-  /// Whether a route recorder is actually running and taking fixes — as
-  /// opposed to the activity merely being one that deserves a route.
-  bool get routeTracking => _routeTracker?.isRunning ?? false;
+  /// Whether a route recorder is actually running AND fixes are arriving — as
+  /// opposed to the activity merely being one that deserves a route, or a
+  /// recorder that has gone quiet (no fix for its stall window).
+  bool get routeTracking => _routeTracker?.receivingFixes ?? false;
+
+  /// A recorder is armed but no fix is being accepted right now — waiting for
+  /// the first one, or the signal went quiet. Distinct from a permission
+  /// problem ([routeLocationIssue]), which means nothing is armed at all.
+  bool get routeWaitingForFix {
+    final rt = _routeTracker;
+    return rt != null && rt.isRunning && !rt.receivingFixes;
+  }
 
   void startWorkout({
     double targetKcal = 300,
@@ -5293,12 +5426,26 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    // Continue after any points this session already stored (a resumed
+    // workout, or a retry after a permission fix) — see RouteTracker._seq.
+    var firstSeq = 0;
+    try {
+      firstSeq = await LocalDb.nextRouteSeq(id);
+    } catch (_) {
+      // Unknown is not zero: a later seq can only cost a gap in numbering,
+      // while 0 would overwrite whatever is stored.
+      firstSeq = DateTime.now().millisecondsSinceEpoch;
+    }
+    if (_disposed || activeWorkout?.workoutId != id || _routeTracker != null) {
+      return;
+    }
     final tracker = RouteTracker(
       sink: (batch) => LocalDb.appendRoutePoints(
         id,
         [for (final p in batch) p.toRow(id)],
       ),
       zoneNow: () => _zoneFor(activeWorkout?.currentHr ?? 0),
+      firstSeq: firstSeq,
     );
     _routeTracker = tracker;
     try {

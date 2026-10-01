@@ -129,8 +129,8 @@ void main() {
     // precision beat timing recovered from 1 Hz records carries.
     expect(text, contains('30 ms'));
     expect(text, contains('151 ms'));
-    // Nerd stats is one tap away, and this screen is where the picture is.
-    expect(text, contains('Nerd stats'));
+    // Nerd stats was removed from the personal build; no door to it remains.
+    expect(text, isNot(contains('Nerd stats')));
   });
 
   testWidgets('the rhythm panel screens, never diagnoses, and never reassures',

@@ -16,7 +16,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart';
@@ -27,8 +26,8 @@ import '../../state/locale_controller.dart';
 import '../../state/prefs.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
+import 'sleep_breathing.dart';
 import 'home_screen.dart';
-import 'investigate.dart';
 import 'metric_detail.dart';
 import 'rough_night.dart';
 
@@ -102,36 +101,16 @@ int? _noonOf(String? day) => day == null
 String _pct(double v) => '${v.round()}%';
 String _pts(double v) => '${v.round()} points';
 
-/// SLP-13 — the three staged figures of a night, as the intervals they are.
-///
-/// Null when the night published no stage split. The half-widths come from
-/// `stageIntervals`, which scales them by THIS night's own segmentation
-/// confidence — a well-covered night gets a narrow range and one scraping the
-/// observed floor gets a wide one. A missing confidence is the widest case, not
-/// the narrowest: we do not know how well we saw the night, so we say the least.
-({ana.StageInterval light, ana.StageInterval deep, ana.StageInterval rem})?
-    _ranges(Map<String, dynamic> n) {
-  final l = (n['light_min'] as num?)?.round();
-  final d = (n['deep_min'] as num?)?.round();
-  final r = (n['rem_min'] as num?)?.round();
-  final t = (n['duration_min'] as num?)?.round();
-  if (l == null || d == null || r == null || t == null) return null;
-  return ana.stageIntervals(
-    lightSec: l * 60,
-    deepSec: d * 60,
-    remSec: r * 60,
-    tstSec: t * 60,
-    confidence: (n['stages_confidence'] as num?)?.toDouble() ?? 0.0,
-  );
+/// A stage's counted minutes and its share of total sleep, e.g. "1h 12m · 16%".
+/// These are the same minutes the hypnogram draws, so Deep + REM + Light add
+/// up to the total at the top of the screen.
+String _stageText(num min, num? totalMin) {
+  final share = (totalMin == null || totalMin <= 0)
+      ? ''
+      : ' · ${(min / totalMin * 100).round()}%';
+  return '${hm(min)}$share';
 }
 
-/// A stage interval as one label. Seconds in, because that is what the analytics
-/// interval carries; `hm` wants minutes.
-String _rangeText(ana.StageInterval i) =>
-    '${hm(i.loSec / 60)}–${hm(i.hiSec / 60)}';
-
-String _capitalise(String s) =>
-    s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
 class SleepData {
   final String? day;
@@ -162,6 +141,10 @@ class SleepData {
   ///   * [solMin] — sleep-onset latency, and ONLY on a user-set window.
   final double? unobservedMin, awakenings, longestSleepMin, solMin;
 
+  /// Minutes the Sleep Coach added to tonight's need for training load.
+  /// Null when it added nothing measurable or has not learned a need yet.
+  final double? strainBonusMin;
+
   const SleepData({
     this.day,
     this.days = const [],
@@ -178,6 +161,7 @@ class SleepData {
     this.awakenings,
     this.longestSleepMin,
     this.solMin,
+    this.strainBonusMin,
   });
 
   bool get hasNight => night['duration_min'] is num;
@@ -258,6 +242,9 @@ class SleepData {
     final debtEnv = cd['sleep_debt'];
     final debtH = envValue(debtEnv)?['debt_hours'] as num?;
     final bedEnv = coach is Map ? coach['bedtime'] : null;
+    final strainRaw = coach is Map ? coach['strain_bonus_min'] : null;
+    final strainBonus =
+        strainRaw is num && strainRaw.isFinite ? strainRaw.toDouble() : null;
 
     // Personal history for the comparisons. These are `metric_series` reads —
     // one small row per day per key — not day bundles, so the whole comparison
@@ -298,6 +285,7 @@ class SleepData {
       awakenings: wakeups,
       longestSleepMin: longest,
       solMin: sol,
+      strainBonusMin: strainBonus,
     );
   }
 }
@@ -473,7 +461,7 @@ class _SleepDetailState extends State<SleepDetail> {
     // one night on disk there is no stepper, and then the subtitle is the only
     // thing that dates the screen.
     return detailScaffold(c, title,
-        sub: d.days.length < 2 ? (d.day ?? '').toUpperCase() : '', [
+        sub: d.days.length < 2 && d.day != null ? prettyDay(d.day, l) : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 
       // ── 1 · THE ANSWER ──
@@ -483,9 +471,6 @@ class _SleepDetailState extends State<SleepDetail> {
       const SizedBox(height: S.x3),
       _night(c, p, d, n),
       if (_scrub != null) _scrubCard(c, p, d),
-
-      // ── 2b · WHOSE WINDOW IS THIS ──
-      ...?_windowCard(c, p, d, n),
 
       // ── 3 · WHAT IT WAS MADE OF ──
       Section(l?.sleepDetailStagesSection ?? 'Stages', _stages(c, p, n)),
@@ -513,13 +498,20 @@ class _SleepDetailState extends State<SleepDetail> {
       // ── 7 · ONE TAKEAWAY ──
       Section(l?.sleepDetailTonightSection ?? 'Tonight', _tonight(c, p, d)),
 
+      // Correcting the sleep window is an occasional fix, not a reading, so it
+      // sits last rather than between the chart and the stages.
+      ...?_windowCard(c, p, d, n),
+
+      // Across nights, never one: kept one tap down so it cannot read as a
+      // headline about last night (see sleep_breathing.dart).
       const SizedBox(height: S.x5),
-      // The night this screen is steered to, not the newest one. Dropping it
-      // meant stepping back to Tuesday and then tapping Nerd stats landed
-      // on last night — the same numbers every time, whichever day you
-      // came from.
-      investigateRow(
-          c, () => go(c, Investigate('sleep', day: _day ?? d.day))),
+      detailLinkRow(
+        c,
+        LucideIcons.wind,
+        'Breathing pattern in sleep',
+        'Heart-rate cycling across your recent nights',
+        () => go(c, const SleepBreathingScreen()),
+      ),
     ]);
   }
 
@@ -1091,12 +1083,16 @@ class _SleepDetailState extends State<SleepDetail> {
   /// precision this item removes.
   Widget _stages(BuildContext c, P p, Map<String, dynamic> n) {
     final l = AppLocalizations.of(c);
-    final r = _ranges(n);
+    final total = n['duration_min'] as num?;
+    final deep = n['deep_min'] as num?,
+        rem = n['rem_min'] as num?,
+        light = n['light_min'] as num?;
+    final staged = deep != null && rem != null && light != null;
     final awake = n['awake_min'] as num?;
     final rows = <(String, String, Color)>[
-      if (r != null) (l?.sleepDetailDeep ?? 'Deep', _rangeText(r.deep), C.blue),
-      if (r != null) (l?.sleepDetailStageRem ?? 'REM', _rangeText(r.rem), C.teal),
-      if (r != null) (l?.sleepDetailLight ?? 'Light', _rangeText(r.light), C.sky),
+      if (staged) (l?.sleepDetailDeep ?? 'Deep', _stageText(deep, total), C.blue),
+      if (staged) (l?.sleepDetailStageRem ?? 'REM', _stageText(rem, total), C.teal),
+      if (staged) (l?.sleepDetailLight ?? 'Light', _stageText(light, total), C.sky),
       if (awake != null)
         (l?.sleepDetailStageAwake ?? 'Awake', hm(awake), C.orange),
     ];
@@ -1121,17 +1117,11 @@ class _SleepDetailState extends State<SleepDetail> {
           ],
         ]),
       ),
-      if (r != null) ...[
+      if (staged) ...[
         const SizedBox(height: S.x2),
-        // The range IS the reading, and the copy says so straight. A wrist
-        // infers stages from beat timing and movement; it does not count them.
-        // The width is this night's own — better coverage, narrower range —
-        // rather than one published figure applied to every night.
-        Text(
-            l?.sleepDetailStageRangeExplain ??
-                'Each stage is a range, not a count — the better we saw the night, '
-                    'the narrower it is. Deep is the widest. Awake stays one figure. '
-                    'Nerd stats has the exact counts.',
+        // One plain caveat instead of printing every stage as a wide range:
+        // a wrist estimates stages, it does not count them.
+        Text('Estimated from heart rate and movement at the wrist.',
             style: F.over.copyWith(color: p.ink3, height: 1.5)),
       ],
     ]);
@@ -1168,20 +1158,12 @@ class _SleepDetailState extends State<SleepDetail> {
       ));
     }
 
-    // SLP-13 — the deep row keeps its band but stops asserting a difference off
-    // a figure the Stages card has just published as a range. `blur` is this
-    // night's own half-width in minutes: the verdict only fires when the WHOLE
-    // interval sits outside the band, and it drops the magnitude, because the
-    // size of a gap between one fuzzy number and a band of fuzzy numbers is the
-    // most confident thing on the card and the least supported.
-    final deepRange = _ranges(n)?.deep;
-    if (deepRange != null) {
-      final deep = deepRange.pointSec / 60;
+    final deep = (n['deep_min'] as num?)?.toDouble();
+    if (deep != null) {
       rows.add(_Compare(
         label: l?.sleepDetailStageDeep ?? 'Deep sleep',
-        value: _rangeText(deepRange),
+        value: hm(deep),
         tonight: deep,
-        blur: (deepRange.hiSec - deepRange.loSec) / 120,
         history: d.deepHistory,
         color: C.blue,
         low: l?.sleepDetailLessThanUsual ?? 'less than usual',
@@ -1348,6 +1330,9 @@ class _SleepDetailState extends State<SleepDetail> {
     if (rough != null) {
       items.add(RoughNightCard(
         night: rough,
+        // Stats only: the personal build logs nothing by hand, so the card
+        // states which measurements moved and never asks what caused it.
+        ask: 'never',
         onDismiss: () => setState(() => _rough = null),
       ));
     }
@@ -1601,6 +1586,10 @@ class _SleepDetailState extends State<SleepDetail> {
 
     final reason = [
       if (need != null) l?.sleepDetailYourNeedIs(hm(need)) ?? 'Your need is ${hm(need)}',
+      // Training load is the lever a lifter/runner actually pulls, so the
+      // part of the need it added is named rather than folded in silently.
+      if (need != null && (d.strainBonusMin ?? 0) >= 5)
+        'including ${hm(d.strainBonusMin!)} for your training load',
       if (debt != null && debt >= 1)
         l?.sleepDetailYouAreDown(hm(debt)) ?? 'you are ${hm(debt)} down',
     ].join(', ');
@@ -1648,14 +1637,6 @@ class _Compare extends StatelessWidget {
   final List<double> history;
   final Color color;
 
-  /// How far [tonight] could be wrong on this row's own axis, in the same
-  /// units. Zero for a measured quantity. Non-zero on a row whose value is an
-  /// ESTIMATE with a published interval (SLP-13): the verdict then needs the
-  /// whole interval to clear the band, and it states the direction without a
-  /// size, because the size would be a difference of two things neither of
-  /// which is a count.
-  final double blur;
-
   /// [fmt] renders a value on this row's axis (minutes → `7h 23m`, relative
   /// minutes → a clock time). [dfmt] renders the SIZE of a difference on it.
   final String Function(double) fmt, dfmt;
@@ -1664,7 +1645,6 @@ class _Compare extends StatelessWidget {
     required this.label,
     required this.value,
     required this.tonight,
-    this.blur = 0,
     required this.history,
     required this.color,
     required this.low,
@@ -1702,19 +1682,11 @@ class _Compare extends StatelessWidget {
       ]);
     }
 
-    final verdict = tonight + blur < band.lo
-        ? (blur > 0 ? _capitalise(low) : '${dfmt((band.mid - tonight).abs())} $low')
-        : tonight - blur > band.hi
-            ? (blur > 0
-                ? _capitalise(high)
-                : '${dfmt((tonight - band.mid).abs())} $high')
-            : blur > 0
-                // NOT "typical". The interval overlaps the band, which means
-                // this night is not far enough from usual for us to tell —
-                // a different statement, and the honest one.
-                ? (l?.sleepDetailNotFarEnoughToCall ??
-                    'Not far enough from usual to call')
-                : (l?.sleepDetailTypicalForYou ?? 'Typical for you');
+    final verdict = tonight < band.lo
+        ? '${dfmt((band.mid - tonight).abs())} $low'
+        : tonight > band.hi
+            ? '${dfmt((tonight - band.mid).abs())} $high'
+            : (l?.sleepDetailTypicalForYou ?? 'Typical for you');
 
     final lo = math.min(tonight, history.reduce(math.min));
     final hi = math.max(tonight, history.reduce(math.max));

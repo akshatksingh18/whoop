@@ -76,26 +76,34 @@ The current imported source baseline is not test-clean:
 - `flutter analyze` completes with 35 info-level lint/deprecation findings and no compile errors;
   the command exits nonzero because infos are treated as fatal. Still true after the `dev/` move
   below — confirmed clean of new errors.
-- `flutter test` reported 3,219 passed, 439 skipped, and 13 failed as of 2026-08-31, when Flutter
-  lived at `D:\dev\flutter` (no space in that path). **It does not run at all as of the 2026-09-13
-  `dev/` relocation** — `flutter test` fails before collecting a single test, in a native-assets
-  build hook for the `objective_c` package: `'D:\AI' is not recognized as an internal or external
-  command`, a path-with-spaces quoting bug. The likely cause is exactly that move: Flutter's own SDK
-  now lives at `D:\AI Important Files\personal-project\dev\flutter`, which contains a space for the
-  first time — the project checkout has always been under a space-containing path and that was never
-  the problem. A non-destructive workaround is verified: map temporary drive aliases to the repo
-  and Flutter SDK (for example `W:` and `X:`) and run Flutter through those space-free paths. The
-  focused step-source tests pass that way. GitHub Actions (`ubuntu-latest`, no spaces in its checkout
-  path) remains the full-suite gate; see `CLAUDE.md`'s "How to review this repo". The previously
-  listed full-suite failures remain last confirmed pre-move, not re-verified since.
+- `flutter test` does not run from the space-containing SDK path. Flutter's own SDK now lives at
+  `D:\AI Important Files\personal-project\dev\flutter`, and the `objective_c` native-assets build
+  hook fails with `'D:\AI' is not recognized as an internal or external command`.
+  - **Working local route:**
+    1. `subst W: "<this repo>"` and `subst X: "<dev\flutter>"`.
+    2. Delete `.dart_tool\hooks_runner` once, because a failed spaced-path attempt leaves a stale
+       hook.
+    3. Run `X:\bin\flutter.bat test` from `W:\`.
+  - **Full suite on source `0.9.33`/`66`, run that way:** everything passes except 13 environment
+    failures on this Windows machine:
+    - 9 also fail on the unmodified previous commit: `day_window_dst` (its setUp and tearDown),
+      `import_container` (3), `ios_ask_plist`, `movement_floor_policy`, `noop_backup_import` and
+      `substrate_admission`.
+    - 4 are `ui2_tokens_test` allow-list checks that compare forward-slash paths against Windows
+      backslashes. They flag only `theme.dart`, `grammar.dart` and `home_screen.dart`, none of which
+      changed.
+  - GitHub Actions (`ubuntu-latest`) remains the full-suite gate; see `CLAUDE.md`'s "How to review
+    this repo".
 
-The Android release build is validated on Windows. The first personal iOS candidate was built on
-GitHub's macOS runner, signed/installed through Sideloadly, and exposed an AccessorySetupKit
-discovery-descriptor validation abort when **Find my band** was tapped. The bridge fix is now in
-source and replacement `0.9.30` build `63` passed the macOS build/package gates and was installed.
-Akshat reconfirmed `0.9.30 (63)` in the app. Its direct iPhone-pedometer path is verified; history migration,
-exact installed identity/profile inspection, Bluetooth pairing, and the remaining runtime behavior
-still require device verification.
+The Android release build is validated on Windows. The first personal iOS candidate exposed an
+AccessorySetupKit discovery-descriptor validation abort; the bridge fix shipped in `0.9.30` build
+`63`. Current `0.9.32` build `65` is installed after a clean same-identity reinstall. Before the old
+container was removed, its encrypted export was restored successfully into an isolated test install;
+the same backup was then restored into build 65, and Akshat confirmed the app works. Data and band
+pairing survived an exact-final-ID overwrite, and a controlled forced-due Wi-Fi daemon refresh
+advanced signing successfully. The direct iPhone-pedometer path was verified on build 63; exact
+About/profile details, retained phone-step setting, GPS/background behavior, and the next naturally
+elapsed refresh still need build-65 device verification.
 
 `.env` is ignored. Keep provider keys, signing material, device exports, BLE captures, databases,
 health records, and other personal data out of Git. The checked-in analytics CSVs are upstream
@@ -120,14 +128,15 @@ personal build.
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
-manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and
-is cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted` (not in Downloads — see
-`D:\AI Important Files\personal-project\final-ipas\README.md`); it is the accepted rollback and last
-installed build, reconfirmed in-app by Akshat. The cached `0.9.31` build `64` artifact passed the
+manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and is
+cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted`
+(not in Downloads — see `D:\AI Important Files\personal-project\final-ipas\README.md`); it remains
+the accepted rollback. The cached `0.9.31` build `64` artifact passed the
 automated macOS build, payload, manifest, and downloaded-checksum gates but is superseded without
 installation. Current `0.9.32` build `65` retains its personal GPS/Oura changes and adds the
 confirmed-phone-stillness step guard. Its automated macOS build, payload, manifest, and downloaded
-checksum gates pass; test build 65 on the phone instead.
+checksum gates pass. It is installed and its encrypted restore/app launch work, but it remains in
+`testing\` until band, steps, GPS/background, and same-ID refresh checks pass.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
 Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
@@ -138,8 +147,8 @@ Personal implementation scope is iPhone only. Do not schedule Android fixes, bui
 validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
 from the IPA, so deleting it would not simplify signing, installation, runtime, or iPhone testing.
 
-The accepted shared portfolio is standalone WHOOP plus one native hub containing Squats, PageVault,
-and ReelVault (two free-signing slots). See `../akshatos/hub-plan.md`. WHOOP retains its independent
+The accepted shared portfolio is standalone WHOOP plus the native AkshatOS hub (two free-signing
+slots). See `../akshatos/hub-plan.md`. WHOOP retains its independent
 Flutter process, identity, and Bluetooth lifecycle; it is not embedded in the hub. No paid tier,
 rotation, WHOOP source move, capability expansion, or activation is implied. The native hub is
 owned by `../akshatos/`; consult its build guide for implementation and device evidence.
@@ -160,8 +169,8 @@ conventional IPA payload, and uploads the IPA, capability/source manifest, and S
 artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
 material.
 
-The accepted installed artifact is version `0.9.30` build `63`, originally produced by the now-
-retired personal-sideload workflow run recorded in its local manifest; its
+The accepted rollback is version `0.9.30` build `63`, originally produced by the now-retired
+personal-sideload workflow run recorded in its local manifest; its
 sanitized-history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`. Its SHA-256 is
 `ff8eb3565ddc97c85163d92b7e1bbafee4ab1e385083b6b99a21f168ef07a5e1`, and the downloaded IPA,
 manifest, and checksum are cached at
@@ -176,8 +185,21 @@ installed or device-verified and must not be promoted. Current `0.9.32` build `6
 workflow run `35382626928` from source `f25fcbd6b9461b70f964738221bd8ea3b8bee22b`;
 its SHA-256 is `d936d8819aa2290430ec17ff930135a76787896153564509a327f0a76d07feda`.
 The IPA, manifest, and checksum are cached at
-`../final-ipas/whoop/testing/WHOOP-0.9.32-build65-f25fcbd6`; automated validation passes, but it is
-not installed or device-accepted. The accepted-build ledger prevents reuse of `0.9.30+63`.
+`../final-ipas/whoop/testing/WHOOP-0.9.32-build65-f25fcbd6`; automated validation passes, it is
+installed, and encrypted restore plus launch are verified. It is not yet fully device-accepted.
+The accepted-build ledger prevents reuse of `0.9.30+63`.
+
+**Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
+and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall
+was isolated to Sideloadly v0.60's **Use automatic bundle ID** transformation. For WHOOP refresh or
+upgrade, turn that option off and enter the exact installed final ID
+`com.akshat.personal.whoop.5564K8D4SV`; keep the separate automatic-refresh control enabled. That
+production overwrite reached 100%, advanced the signing time, and preserved data and pairing. Do not
+substitute the base ID `com.akshat.personal.whoop` in this path. A controlled forced-due test then
+refreshed WHOOP through the real daemon over Wi-Fi with USB disconnected and no GUI/manual refresh
+command; the timestamp advanced, expiry reset, the health task recorded `REFRESHED`/`ENROLLED`, and
+the subsequent real-app launch confirmed its data and band connection intact. Keep the encrypted
+backup and build-63 rollback; the next naturally elapsed cycle remains open.
 
 **A known Sideloadly failure mode, found here first:** its own internal cache of a previously
 installed app's IPA can go missing independent of this file — the first wireless refresh attempt
@@ -186,20 +208,25 @@ it failed with `Install failed: Guru Meditation … __init__() missing 1 require
 'orig'` instead of a clean error. Fix: reinstall from the file above (USB, to isolate the variable),
 which repopulates Sideloadly's cache with a real file. The IPA is installed; enabling **This phone → Steps** verified its
 direct iPhone-pedometer import after the initially low band fallback. The personal profile does not
-read Apple Health. History import, installed bundle/profile identity, complete pairing/sync,
-background behavior, and refresh remain unverified.
+read Apple Health. History/data restore, signed bundle identity, pairing preservation, exact-ID
+manual refresh, and a controlled forced-due Wi-Fi daemon cycle are verified. Exact About/profile UI,
+retained phone-step behavior, GPS/background behavior, and the next naturally elapsed cycle remain.
 
 The first private-repository build crossed the account's included Actions-minute threshold; the
 account notice reports reset on October 1, 2026. The repository was audited and changed to public
 before future builds. Do not run this macOS workflow if the repository becomes private again.
 
-Windows then caches the current and previous accepted unsigned IPAs outside Git and performs routine
-re-sign/refresh without Flutter, CocoaPods, Xcode, or a source rebuild. The permanent bundle ID,
-Windows cache path, encrypted-backup destination, Sideloadly/Local Anisette settings, monitoring,
-and alert implementation are intentionally unset until activation and must be recorded here when
-chosen. The iPhone display/bundle name is `WHOOP` and the permanent bundle ID is
-`com.akshat.personal.whoop`. The first installation proves Sideloadly could provision an app, but
-the installed identity/profile still must be inspected to confirm that exact ID was preserved.
+Windows caches accepted and candidate unsigned IPAs outside Git and routine re-sign/refresh does not
+need Flutter, CocoaPods, Xcode, or a source rebuild. The permanent base bundle ID is
+`com.akshat.personal.whoop`; Sideloadly's current signed identity is
+`com.akshat.personal.whoop.5564K8D4SV`. The accepted rollback and installed candidate paths are
+recorded above. Local Anisette and the sign-in daemon are configured, and
+`../akshatos/scripts/check-signing-health.ps1` monitors the exact signed identity and requires a
+completed scheduled registration for the current version plus WHOOP's proven `exact` identity mode.
+That monitor is deliberately critical
+when WHOOP nears expiry without its timestamp advancing. Build 65 is enrolled, exact-final-ID manual
+refresh works, and a controlled forced-due daemon cycle reused that identity successfully over Wi-Fi.
+The next naturally elapsed cycle remains the long-term proof.
 Never commit Apple/GitHub
 credentials, 2FA codes, signing material, Anisette data, personal health exports, or IPAs.
 The personal build selects the supplied black-and-white circular logo from

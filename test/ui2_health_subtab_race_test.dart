@@ -25,17 +25,16 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 
 const _day = '2026-08-16';
 
-/// The Vitals read, with a hand on its clock.
+/// The vitals read (now part of Overview), with a hand on its clock.
 ///
 /// Only the four calls `VitalsData.load` makes are answered; the Overview
 /// load's own queries throw their `re-layer` default, which that loader
-/// catches, and nothing in this test looks at Overview.
+/// catches.
 class _Repo extends LocalRepository {
-  /// The respiratory rate the database holds. Changing it is "an import
-  /// landed".
-  double resp = 11;
+  /// Minutes worn that the database holds. Changing it is "an import landed".
+  int worn = 300;
 
-  /// Parks the NEXT lungs read until completed. One-shot.
+  /// Parks the NEXT wear read until completed. One-shot.
   Completer<void>? hold;
 
   @override
@@ -51,22 +50,20 @@ class _Repo extends LocalRepository {
       {'date': date};
 
   @override
-  Future<Map<String, dynamic>> getDayLungs(String date) async {
+  Future<Map<String, dynamic>> getDayLungs(String date) async => const {};
+
+  @override
+  Future<Map<String, dynamic>> getDayWear(String date) async {
     // Read the value BEFORE parking: a read that started before the import
     // saw the pre-import database, whenever it happens to be resumed.
-    final v = resp;
+    final v = worn;
     final h = hold;
     if (h != null) {
       hold = null;
       await h.future;
     }
-    return {
-      'resp': {'value': v}
-    };
+    return {'worn_min': v};
   }
-
-  @override
-  Future<Map<String, dynamic>> getDayWear(String date) async => const {};
 
   @override
   Future<Map<String, dynamic>> getDayHrv(String date) async => const {};
@@ -81,7 +78,6 @@ Future<void> _settle(WidgetTester t) async {
 void main() {
   testWidgets('a read in flight when the revision lands does not win',
       (t) async {
-    // Wide enough that all five sub-tab chips are on screen to be tapped.
     t.view.physicalSize = const Size(800 * 3, 2400 * 3);
     t.view.devicePixelRatio = 3;
     addTearDown(t.view.reset);
@@ -91,6 +87,9 @@ void main() {
     final repo = _Repo();
     app.repo = repo;
 
+    // Overview's first vitals read parks mid-flight.
+    final parked = Completer<void>();
+    repo.hold = parked;
     await t.pumpWidget(MaterialApp(
       theme: buildTheme(Brightness.light),
       home: ChangeNotifierProvider<AppState>.value(
@@ -99,19 +98,13 @@ void main() {
       ),
     ));
     await _settle(t);
-
-    // The user opens Vitals for the first time. Its read parks mid-flight.
-    final parked = Completer<void>();
-    repo.hold = parked;
-    await t.tap(find.text('Vitals'));
-    await _settle(t);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget,
-        reason: 'the sub-tab should still be loading — nothing to race yet');
+    expect(find.text('Wear time'), findsNothing,
+        reason: 'the vitals read should still be in flight');
 
     final before = t.state(find.byType(HealthScreen));
 
-    // An import lands while that read is parked. Its cache is still null.
-    repo.resp = 17;
+    // An import lands while that read is parked.
+    repo.worn = 420;
     app.bumpInsights();
     await _settle(t);
 
@@ -119,9 +112,9 @@ void main() {
     parked.complete();
     await _settle(t);
 
-    expect(find.text('17.0'), findsOneWidget,
+    expect(find.text('7h 00m'), findsOneWidget,
         reason: 'the post-revision read must be what is on screen');
-    expect(find.text('11.0'), findsNothing,
+    expect(find.text('5h 00m'), findsNothing,
         reason: 'a read that started before the revision committed after it');
     expect(identical(t.state(find.byType(HealthScreen)), before), isTrue,
         reason: 'the screen was remounted — that is the workaround, not the fix');

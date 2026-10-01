@@ -202,6 +202,15 @@ const _notComponents = {
   'ProfileHome', 'ProfileHomeView', 'MoreSettings', 'MoreSettingsView',
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
+  // Reads the installed signing profile, AppState and the keychain on open.
+  'StatusScreen',
+  // Nutrition logging sheets and the per-day log: each reads or writes the
+  // food tables on open. Their rows (PickRow, CalorieCard, MacroCard,
+  // MealSection) ARE in the gallery.
+  'AddFoodSheet', 'GramsSheet', 'FoodEditor', 'MealEditor', 'NutritionDayView',
+  // Reads up to 30 nights of stored bundles on open; its card copy is pinned
+  // by sleep_breathing_test.dart.
+  'SleepBreathingScreen',
   'MyDevices', 'MyDevicesView', 'DeviceDetail', 'DeviceDetailView', 'RePair',
   // The strap-buzz relay picker: a Scaffold route over a live
   // NotificationRelay, whose list is whatever the OS notification stream has
@@ -235,14 +244,13 @@ const _notComponents = {
   'StartCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
-  'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
+  'MetricDetail', 'ReadinessDetail',
   'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'DayStepsDetail',
   'ZonesDetail',
   // Reads the day bundle AND the raw beat store to draw one night's Poincaré
   // cloud — a gallery case would have to mock 27 000 beat intervals.
   'Beats',
-  'Investigate',
-  'JournalCompose', 'JournalFindings',
+  'JournalCompose',
   'LogFoodSheet', 'CalmBreathing',
   // Where the hydration notification lands: a Scaffold route that reads and
   // writes the day's journal metrics. The one control on it — FieldStepper —

@@ -1656,7 +1656,7 @@
   "sleepDetailLight": "Leicht",
   "sleepDetailNoStageSplitTitle": "Keine Phasenaufteilung für diese Nacht",
   "sleepDetailNoStageSplitBody": "Kein Herzschlag-Timing über das gesamte Zeitfenster.",
-  "sleepDetailStageRangeExplain": "Jede Phase ist ein Bereich, keine Zählung — je besser die Nacht erfasst wurde, desto enger ist er. Tiefschlaf ist am breitesten. Wachphasen bleiben eine einzelne Zahl. Detailstatistik enthält die genauen Zahlen.",
+  "sleepDetailStageRangeExplain": "Jede Phase ist ein Bereich, keine Zählung — je besser die Nacht erfasst wurde, desto enger ist er. Tiefschlaf ist am breitesten. Wachphasen bleiben eine einzelne Zahl.",
   "sleepDetailTimeAsleep": "Schlafzeit",
   "sleepDetailShorterThanUsual": "kürzer als üblich",
   "sleepDetailLongerThanUsual": "länger als üblich",

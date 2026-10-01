@@ -10,6 +10,7 @@
 // alongside actual WHOOP5 support when that's built; it won't be identical
 // to the speculative shape anyway once real integration requirements exist.
 
+import 'dart:async';
 import 'dart:math' as math;
 
 // ── timing constants (seconds) ───────────────────────────────────────────────
@@ -944,4 +945,59 @@ ReconnectSupervisorAction superviseReconnect({
     return ReconnectSupervisorAction.restartStale;
   }
   return ReconnectSupervisorAction.none;
+}
+
+// ── restore wake vs. a parked reconnect backoff (iOS) ────────────────────────
+
+/// A reconnect backoff that an iOS restore wake can end early.
+///
+/// WHY: backgrounded on iOS, the in-process reconnect loop sleeps in a Dart
+/// timer between attempts — and a suspended process runs no timers. When the
+/// band comes back, the native restore central wakes the process for a few
+/// seconds. If the loop is still parked in a multi-minute backoff, that wake
+/// ends before the loop ever tries, the native side goes idle, and nothing is
+/// left watching for the band: background sync stops until the app is opened.
+/// A wake means "the band is reachable NOW", so it cuts the wait short.
+class WakeableDelay {
+  Completer<void>? _pending;
+
+  /// Wait [d], or less if [wake] is called first.
+  Future<void> wait(Duration d) async {
+    final c = _pending = Completer<void>();
+    final timer = Timer(d, () {
+      if (!c.isCompleted) c.complete();
+    });
+    try {
+      await c.future;
+    } finally {
+      timer.cancel();
+      if (identical(_pending, c)) _pending = null;
+    }
+  }
+
+  /// End the current [wait] now. True when one was actually waiting.
+  bool wake() {
+    final c = _pending;
+    if (c == null || c.isCompleted) return false;
+    c.complete();
+    return true;
+  }
+
+  bool get waiting => _pending != null;
+}
+
+/// What a restore wake did when the foreground app was alive to take it.
+enum RestoreWakeOutcome {
+  /// The app is not in a position to reconnect (unpaired, session ended,
+  /// reconnect paused) — run the ordinary headless drain instead.
+  notHandled,
+
+  /// The foreground engine reconnected and now owns the band. The native side
+  /// may go idle; the next drop re-arms it.
+  connected,
+
+  /// The attempt did not land inside the wake window and the recovery pending
+  /// connect was re-armed. The native side must NOT be told the sync is done —
+  /// that would cancel the connect that was just armed.
+  rearmed,
 }

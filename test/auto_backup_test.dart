@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/import/backup_crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -34,6 +35,13 @@ class _FakePathProvider extends PathProviderPlatform {
   @override
   Future<String?> getExternalStoragePath() async => root;
 }
+
+/// The backup passphrase every run below is sealed with.
+const _kPass = 'correct horse battery staple';
+Future<String?> _pass() async => _kPass;
+
+/// A cheap KDF for tests only; production takes kDefaultIterations.
+const _kIt = 1000;
 
 void main() {
   group('backupIsDue', () {
@@ -147,7 +155,7 @@ void main() {
 
     test('is zero-padded so widths match', () {
       expect(backupFileName(DateTime(2026, 1, 2, 3, 4, 5)),
-          'openstrap-20260102-030405.db.gz');
+          'openstrap-20260102-030405.osbk');
     });
 
     test('two runs in the same minute get different names', () {
@@ -201,7 +209,7 @@ void main() {
       touch('openstrap-20260101-000000.db.gz.bak');
       final out = sortBackupsNewestFirst(tmp.listSync());
       expect(out.map((f) => p.basename(f.path)), [
-        'openstrap-20260101-000000.db.gz',
+        'openstrap-20260101-000000.osbk',
       ]);
     });
 
@@ -320,7 +328,7 @@ void main() {
 
     test('skips rather than failing when nothing is due', () async {
       var marked = 0;
-      final outcome = await runBackupIfDue(
+      final outcome = await runBackupIfDue(passphrase: _pass, iterations: _kIt, 
         cadence: () => BackupCadence.daily,
         lastRun: () => DateTime(2026, 8, 9, 11),
         markRun: (_) async => marked++,
@@ -342,7 +350,7 @@ void main() {
       final reads = <DateTime?>[];
       final now = DateTime(2026, 8, 9, 12);
 
-      Future<BackupOutcome> trigger() => runBackupIfDue(
+      Future<BackupOutcome> trigger() => runBackupIfDue(passphrase: _pass, iterations: _kIt, 
         cadence: () => BackupCadence.daily,
         lastRun: () {
           reads.add(last);
@@ -374,8 +382,8 @@ void main() {
       // one second would otherwise share a destination and the first snapshot
       // would be silently replaced by the second.
       final when = DateTime(2026, 8, 9, 12, 30, 15);
-      final first = await runBackup(now: when);
-      final second = await runBackup(now: when);
+      final first = await runBackup(passphrase: _pass, iterations: _kIt, now: when);
+      final second = await runBackup(passphrase: _pass, iterations: _kIt, now: when);
 
       expect(first.succeeded, isTrue, reason: '${first.error}');
       expect(second.succeeded, isTrue, reason: '${second.error}');
@@ -392,14 +400,14 @@ void main() {
       var cadence = BackupCadence.daily;
       var wrote = 0;
 
-      final running = runBackup(
+      final running = runBackup(passphrase: _pass, iterations: _kIt, 
         exportSnapshot: () async {
           // Flip the setting while the first export is in flight.
           cadence = BackupCadence.off;
           return LocalDb.exportCopy();
         },
       );
-      final queued = runBackupIfDue(
+      final queued = runBackupIfDue(passphrase: _pass, iterations: _kIt, 
         cadence: () => cadence,
         lastRun: () => null,
         markRun: (_) async => wrote++,
@@ -414,13 +422,13 @@ void main() {
     test('a failed backup does not wedge every later one', () async {
       // The queue is chained; without an error guard on the tail, a single
       // throw would leave every subsequent call waiting on a failed future.
-      final failed = await runBackup(
+      final failed = await runBackup(passphrase: _pass, iterations: _kIt, 
         exportSnapshot: () async => throw const FileSystemException('nope'),
       );
       expect(failed.succeeded, isFalse);
       expect(failed.error, isNotNull);
 
-      final after = await runBackup(now: DateTime(2026, 8, 9, 13, 0, 0));
+      final after = await runBackup(passphrase: _pass, iterations: _kIt, now: DateTime(2026, 8, 9, 13, 0, 0));
       expect(
         after.succeeded,
         isTrue,
@@ -428,32 +436,71 @@ void main() {
       );
     });
 
-    test('a backup is gzip on disk and inflates back to the database', () async {
-      // The whole point of the extension change. A backup that is smaller but
-      // cannot be read back is not a backup, so this asserts BOTH: the file is
-      // really gzip, and what comes out of it is really the snapshot.
-      final outcome = await runBackup(now: DateTime(2026, 8, 9, 15, 0, 0));
+    test('a backup is sealed on disk and opens back to the database', () async {
+      // Encrypted on disk, and what the passphrase opens is the gzipped
+      // snapshot — which `importFromDbFile` inflates by magic bytes.
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, now: DateTime(2026, 8, 9, 15, 0, 0));
       expect(outcome.succeeded, isTrue, reason: outcome.error);
 
       final file = File(outcome.path!);
-      expect(p.basename(file.path), endsWith('.db.gz'));
+      expect(p.basename(file.path), endsWith('.osbk'));
+      final head = (await file.readAsBytes()).take(4).toList();
+      expect(head, kBackupMagic, reason: 'an OSBK encrypted file');
+      expect(String.fromCharCodes(await file.readAsBytes()),
+          isNot(contains('SQLite format 3')),
+          reason: 'nothing readable may sit in the Files-visible folder');
 
-      final bytes = await file.readAsBytes();
-      expect(bytes.length, greaterThan(2));
-      expect(bytes[0], 0x1F, reason: 'gzip magic byte 0');
-      expect(bytes[1], 0x8B, reason: 'gzip magic byte 1');
+      final opened = File(p.join(tmp.path, 'opened.gz'));
+      await decryptBackupFile(file, opened, _kPass);
+      final inflated = gzip.decode(await opened.readAsBytes());
+      expect(String.fromCharCodes(inflated.take(15)), 'SQLite format 3');
+      await opened.delete();
+    });
 
-      final inflated = gzip.decode(bytes);
-      expect(
-        String.fromCharCodes(inflated.take(15)),
-        'SQLite format 3',
-        reason: 'the inflated backup must be an openable database',
+    test('the wrong passphrase opens nothing', () async {
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, now: DateTime(2026, 8, 9, 15, 30, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+      final out = File(p.join(tmp.path, 'wrong.gz'));
+      await expectLater(
+          decryptBackupFile(File(outcome.path!), out, 'not the passphrase'),
+          throwsA(isA<BackupFormatException>()));
+      expect(out.existsSync(), isFalse);
+    });
+
+    test('no stored passphrase writes nothing and says why', () async {
+      final dir = await backupDirectory();
+      final before = dir.listSync().length;
+      var marked = 0;
+      final outcome = await runBackupIfDue(
+        passphrase: () async => null,
+        cadence: () => BackupCadence.daily,
+        lastRun: () => null,
+        markRun: (_) async => marked++,
+        now: DateTime(2026, 8, 9, 21, 0, 0),
       );
-      expect(
-        inflated.length,
-        greaterThan(bytes.length),
-        reason: 'a compressed backup must be smaller than the database',
-      );
+      expect(outcome.succeeded, isFalse);
+      expect(outcome.needsPassphrase, isTrue);
+      expect(outcome.error, kBackupNeedsPassphrase);
+      expect(marked, 0, reason: 'a backup that did not happen is not a run');
+      expect(dir.listSync().length, before, reason: 'no plaintext fallback');
+    });
+
+    test('plaintext backups an older build left are removed once an encrypted '
+        'one is published', () async {
+      final dir = await backupDirectory();
+      final oldGz = File(p.join(dir.path, 'openstrap-20250101-000000.db.gz'))
+        ..writeAsStringSync('an old unencrypted copy');
+      final oldDb = File(p.join(dir.path, 'openstrap-20250102-000000.db'))
+        ..writeAsStringSync('an older one');
+      final notOurs = File(p.join(dir.path, 'openstrap-notes.db'))
+        ..writeAsStringSync('the user\'s own file');
+
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, now: DateTime(2026, 8, 9, 22, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+      expect(oldGz.existsSync(), isFalse);
+      expect(oldDb.existsSync(), isFalse);
+      expect(notOurs.existsSync(), isTrue);
+      notOurs.deleteSync();
     });
 
     test('the final backup name never exists as a partial file', () async {
@@ -470,7 +517,7 @@ void main() {
       final dir = await backupDirectory();
       final before = dir.listSync().length;
 
-      final outcome = await runBackup(
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, 
         now: DateTime(2026, 8, 9, 17, 0, 0),
         exportSnapshot: () async => throw const FileSystemException('boom'),
       );
@@ -500,7 +547,7 @@ void main() {
 
       final unreadable = Directory(p.join(tmp.path, 'not-a-snapshot'))
         ..createSync();
-      final outcome = await runBackup(
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, 
         now: when,
         exportSnapshot: () async => unreadable.path,
       );
@@ -580,13 +627,13 @@ void main() {
         'partial': 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-      final outcome = await runBackup(now: DateTime(2026, 8, 9, 20, 0, 0));
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, now: DateTime(2026, 8, 9, 20, 0, 0));
       expect(outcome.succeeded, isTrue, reason: outcome.error);
-      expect(outcome.path, endsWith('.db.gz'));
-      // Out of the retention folder, so a later backup in this group cannot
-      // evict the file under the assertion.
-      final picked = File(p.join(tmp.path, 'picked-backup.db.gz'));
-      await File(outcome.path!).copy(picked.path);
+      expect(outcome.path, endsWith('.osbk'));
+      // The restore path `runImport` takes: decrypt to a temp `.db`, then
+      // `importFromDbFile`, which inflates the gzip by magic bytes.
+      final picked = File(p.join(tmp.path, 'restore-picked.db'));
+      await decryptBackupFile(File(outcome.path!), picked, _kPass);
 
       await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
       expect(
@@ -638,7 +685,7 @@ void main() {
     test('a snapshot is never left behind in temp', () async {
       // The export is a full second copy of the database. The old code renamed
       // it into place; the new one streams and must still delete the source.
-      final outcome = await runBackup(now: DateTime(2026, 8, 9, 16, 0, 0));
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, now: DateTime(2026, 8, 9, 16, 0, 0));
       expect(outcome.succeeded, isTrue, reason: outcome.error);
       final leftovers = tmp
           .listSync()
@@ -662,7 +709,7 @@ void main() {
       }
 
       var exported = 0;
-      final outcome = await runBackup(
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt, 
         now: when,
         exportSnapshot: () async {
           exported++;

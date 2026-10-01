@@ -2,9 +2,9 @@
 
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
-> deterministic build profile and public manual workflow produced accepted `0.9.30` build `63`,
-> which passed macOS/package validation after the AccessorySetupKit bridge fix; Akshat confirmed it
-> is the version currently installed. It does not import
+> deterministic build profile and public manual workflow produced accepted rollback `0.9.30` build
+> `63`. Current `0.9.32` build `65` is installed after a clean same-identity reinstall and verified
+> encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
 > enabling **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone
@@ -12,10 +12,22 @@
 > honest all-day step reconstruction. The personal profile
 > excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
 > processing/fetch, while retaining the phone app and CoreBluetooth restoration. Build 63 excludes
-> GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Current `0.9.32` build `65`
+> GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Build `65`
 > reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for
-> wrist step noise. Its macOS build and local artifact validation pass; it still needs the device
-> pass — see `CLAUDE.md`.
+> wrist step noise. Its macOS build, local artifact validation, clean installation, encrypted
+> restore, launch, data, scheduled enrollment, and exact-final-ID same-app refresh gates pass. The
+> former 0% stall is specific to Sideloadly's automatic bundle-ID rewriting; disabling it and using
+> `com.akshat.personal.whoop.5564K8D4SV` preserves data and pairing while advancing signing. A
+> controlled forced-due unattended Wi-Fi daemon cycle also passes; the next naturally elapsed cycle
+> and remaining GPS/background checks remain open — see `CLAUDE.md`.
+> Local source `0.9.33`/`66` has not been built yet. It removes Nerd stats, the Wellness tab and
+> water logging, the journal and Health → Labs for a simpler stats-only UI, and folds Vitals into
+> Overview. It adds a scrubbable all-day heart-rate chart, a cleaner Sleep screen and a rebuilt
+> Nutrition log (saved meals, foods by grams, macros, month history); `metrics-map.md` lists every
+> stored metric. It adds a Status screen (signing expiry with 48 h/24 h
+> alerts, sync, backup, build), encrypted automatic backups, GPS route hardening and an iOS
+> background-reconnect fix. The upstream feature descriptions below therefore overstate the
+> personal build's UI.
 > Android remains in the imported source for upstream/reference value but is not part of Akshat's
 > personal implementation, build, or device-validation roadmap.
 > This personal monorepo is publicly backed up at
@@ -24,9 +36,9 @@
 > Public TestFlight/release instructions and full-capability descriptions below refer to upstream,
 > not to a completed personal build. See [`CLAUDE.md`](CLAUDE.md),
 > [`setup.md`](setup.md), and [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md).
-> The accepted personal portfolio is standalone WHOOP plus a native hub containing Squats,
-> PageVault, and ReelVault: two free-signing slots. WHOOP is not embedded in that hub. This plan
-> does not activate WHOOP or change its minimal capability profile; the hub is not built yet.
+> The accepted personal portfolio is standalone WHOOP plus the native AkshatOS hub: two
+> free-signing slots. WHOOP is not embedded in that hub, and the hub does not change WHOOP's minimal
+> capability profile. `../akshatos/hub-plan.md` owns that packaging.
 
 An app that makes your wearable useful without its subscription. Pairs over Bluetooth, computes everything on your phone, iOS and Android. WHOOP 4/5/MG get full support today; see [Supports](#supports) for what else it talks to.
 
@@ -158,9 +170,9 @@ Every screenshot above is real output from a WHOOP 4.0.
 spot-check, real-time breathing coherence.
 
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate zones.
-Current personal-build source keeps GPS route capture — reopened on Akshat's decision since he runs
-— with While-In-Use permission only, never Always. That path is not present in installed build 63
-and still needs a build-65 device pass; see `CLAUDE.md`.
+Current personal build 65 keeps GPS route capture — reopened on Akshat's decision since he runs —
+with While-In-Use permission only, never Always. The code is installed but the route/background
+device pass remains open; see `CLAUDE.md`.
 
 **Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
 Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.
@@ -191,8 +203,9 @@ shortcuts, a smart alarm that buzzes the band.
 - Metrics are approximations off published research — not medical-grade, not validated
   against a lab, don't treat any of it as a diagnosis.
 - Upstream iOS is a public TestFlight beta and Android is an APK from Releases. Akshat's personal
-  iPhone flavor has a validated unsigned source artifact and an installed Sideloadly-signed copy;
-  history migration, pairing, and device behavior remain unverified.
+  iPhone flavor has a validated unsigned source artifact and an installed Sideloadly-signed copy.
+  History/data restore, signed identity, pairing preservation, exact-ID overwrite, and a controlled
+  forced-due Wi-Fi daemon refresh are verified; remaining device behavior is tracked above.
 - WHOOP 5 and MG support is newer than 4.0's and hasn't had as many bands, firmwares,
   and daily hours put on it. Expect the occasional rough edge, and open an issue when
   you hit one.

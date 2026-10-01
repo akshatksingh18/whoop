@@ -175,12 +175,19 @@ class NotificationPrefs {
       quietStartMin: p.getInt(_kQuietStart) ?? 22 * 60,
       quietEndMin: p.getInt(_kQuietEnd) ?? 7 * 60,
       criticalOverridesQuiet: p.getBool(_kCriticalOverride) ?? true,
-      waterEnabled: p.getBool(_kWater) ?? false,
+      // Water logging and the medication checklist (Wellness) are removed
+      // from the personal build, so neither reminder has anywhere to land.
+      // Read as OFF whatever an older build stored: the standing-reminder pass
+      // then cancels any water/dose notification that build armed, and the
+      // strap buzzers stay silent.
+      waterEnabled: false,
       waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
       autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
       movementEnabled: p.getBool(_kMovement) ?? false,
-      medsEnabled: p.getBool(_kMeds) ?? false,
-      checkInEnabled: p.getBool(_kCheckIn) ?? false,
+      medsEnabled: false,
+      // The journal is removed from the personal build; its check-in prompt
+      // is read as OFF so one armed by an older build is cancelled.
+      checkInEnabled: false,
       batteryAlertPct: ((p.getInt(_kBatteryPct) ?? batteryPctDefault)
               .clamp(batteryPctMin, batteryPctMax))
           .toInt(),

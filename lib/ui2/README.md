@@ -7,7 +7,7 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 ```
 
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
-and `paint_activity.dart` (painters), `app_shell.dart` (the five tabs).
+and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs).
 
 ---
 
@@ -405,12 +405,12 @@ AppShell({required Widget Function(BuildContext, ShellDomain) builder,
           ShellDomain initial = ShellDomain.home,
           void Function(ShellDomain)? onSelect})
 
-enum ShellDomain { home, health, nutrition, workout, wellness }
+enum ShellDomain { home, health, nutrition, workout }
   // .label · .icon · .accent
 ```
 
-Tabs build lazily and are kept alive after first visit. **There is no sixth
-tab.** Anything that feels like one is `SubTabs` inside the domain that owns
+Tabs build lazily and are kept alive after first visit. The personal build
+removed the Wellness tab. **There is no fifth tab.** Anything that feels like one is `SubTabs` inside the domain that owns
 it.
 
 ### The catalogue — Health › Explore

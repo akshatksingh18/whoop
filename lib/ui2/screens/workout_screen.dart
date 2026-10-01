@@ -1248,6 +1248,7 @@ LiveFeed _feedOf(AppState app) {
     hrCurve: _curveOverSession(w),
     distanceKm: app.liveDistanceKm,
     gpsActive: app.routeTracking,
+    gpsWaiting: app.routeWaitingForFix,
     bandConnected: app.isConnected,
     // Both were implemented at the state layer and read by nothing, so a
     // location denial showed as an absent map and no sentence at all.

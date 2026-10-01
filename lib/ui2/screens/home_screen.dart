@@ -32,6 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../compute/profile.dart' show Profile, walkingEnergy;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
@@ -1057,6 +1058,11 @@ class HomeData {
   final List<Map<String, dynamic>> drivers;
   final Metric sleepMin, rhr, steps, calories, caloriesTotal;
 
+  /// Estimated kcal spent walking today, from steps, height and weight. Shown
+  /// beside the steps and NEVER added to the calorie totals. Null when the
+  /// profile has no height/weight or no steps were counted.
+  final double? walkingKcal;
+
   /// The day's 0–21 strain, read from the same `getToday` bundle the Workout
   /// tab reads. Nothing on this screen computes it.
   final Metric strain;
@@ -1104,6 +1110,7 @@ class HomeData {
     this.steps = Metric.empty,
     this.calories = Metric.empty,
     this.caloriesTotal = Metric.empty,
+    this.walkingKcal,
     this.strain = Metric.empty,
     this.stepGoal = kDefaultStepGoal,
     this.sleepNeedMin = Metric.empty,
@@ -1129,6 +1136,7 @@ class HomeData {
         steps: steps,
         calories: calories,
         caloriesTotal: caloriesTotal,
+        walkingKcal: walkingKcal,
         strain: strain,
         stepGoal: stepGoal,
         sleepNeedMin: sleepNeedMin,
@@ -1190,6 +1198,9 @@ class HomeData {
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
       caloriesTotal: metricOf(d('calories_total')),
+      walkingKcal: walkingEnergy(
+              metricOf(d('steps')).value, Profile.fromMap(profile))
+          ?.kcal,
       stepGoal: (today['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
       // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
       // 480 and must never be shown as "your sleep need".
@@ -1598,9 +1609,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // Home decides; the day view is where you go to look, and until this
         // row existed the only ways in were two screens deep.
         const SizedBox(height: S.x5),
-        detailLinkRow(c, LucideIcons.chartGantt,
-            l?.homeBreakdownTitle ?? 'Breakdown of your day',
-            l?.homeBreakdownSubtitle ?? 'Hour by hour',
+        detailLinkRow(c, LucideIcons.heartPulse, 'Heart rate, all day',
+            'Minute by minute — touch the chart to read any time',
             () => go(c, const DayTimelineScreen())),
       ],
     ]));
@@ -1723,7 +1733,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // The sensor rides the line that is already there rather than adding a
       // row: the day is resolved per window now, so "8,412" can be the strap's
       // count, the phone's, or both, and the card has to say which. The split
-      // behind a mixed day is on Nerd stats, one tap down.
+      // behind a mixed day is on the Steps breakdown, two taps down.
       sub: d.steps.value == null
           ? (l?.homeStepsNotRecorded ?? 'NOT RECORDED')
           : [
@@ -1732,6 +1742,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                         ((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()) ??
                     '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
               ?stepSensorLabel(d.steps, l),
+              // Walking energy, on its own — not part of active or total kcal.
+              if (d.walkingKcal != null) '≈${d.walkingKcal!.round()} kcal walking',
             ].join(' · '),
       onTap: () => go(c, const MetricDetail('steps')),
       trailing: d.steps.value == null || d.stepGoal <= 0

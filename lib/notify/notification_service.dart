@@ -128,6 +128,13 @@ class NotificationService {
   static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
   static const int idCheckIn = 2201; // daily ("how was today?" → the journal)
 
+  /// The personal sideload's signing-expiry warnings, 48 h and 24 h before the
+  /// installed profile lapses (`signing_profile.dart`). One-shots, re-armed on
+  /// every foreground pass from the profile actually installed, so a refresh
+  /// that moved the expiry replaces them.
+  static const int idSigningExpiry48 = 2410;
+  static const int idSigningExpiry24 = 2411;
+
   /// Slot band [idMedsBase .. idMedsBase + maxMedSlots) — one ONE-SHOT per
   /// scheduled dose that is still upcoming, armed by
   /// [NotificationCenter.scheduleStandingReminders] from the user's own
@@ -190,6 +197,10 @@ class NotificationService {
   /// refused. Its caller keeps CANCELLING, which is how an upgrade cleans out
   /// whatever an older build left standing.
   static const Set<int> schedulableIds = {
+    // The signing-expiry warnings: armed only on the personal sideload, only
+    // from the expiry of the profile actually installed.
+    idSigningExpiry48,
+    idSigningExpiry24,
     idWeeklyRecap,
     idEveningBrief,
     idMorningBrief,

@@ -45,6 +45,41 @@ assuming correct):**
 range-loss cases. If the iPhone path fails, fix that path or surface an honest recovery prompt.
 Do not reopen or patch the Android-specific hypotheses above as part of the iPhone work.
 
+## iPhone background reconnect: restore wake landing on a parked backoff
+
+**Found by code review. Fixed in source `0.9.33`/`66`; not yet built or device-verified.**
+
+The failure sequence while backgrounded, after the live link dropped:
+1. `_onEngineState` arms the native restore central (`_armRecovery`) and starts `_reconnect()`.
+2. `_reconnect()` waits between attempts in a Dart timer. A suspended iOS process runs no Dart
+   timers.
+3. When the band came back, the restore central's `didConnect` woke the process for a few seconds.
+4. The Dart wake handler ran the headless drain. `BandOwnership` refused it the band, because the
+   live reconnect loop held foreground intent, so it returned at once and sent `syncDone`.
+5. Native then went `idleAfterSync` and cancelled its pending connect.
+6. The parked loop never fired inside the wake window. The band was then unwatched, and background
+   sync stopped until the app was opened. That matches the reported "never silently recovers"
+   pattern above.
+
+**Source fix:**
+- A restore wake is offered to the live app first (`IosBleRestore.onWake` → `AppState._onRestoreWake`).
+- The wake cuts the reconnect backoff short (`WakeableDelay`, `lib/sync/sync_policy.dart`), so the
+  attempt happens inside the wake window.
+- If no link lands within about 20 s, the recovery connect is **re-armed** rather than left idle, and
+  `syncDone` is not sent over it.
+- Re-arming is capped at once per 10 minutes, so a reachable-but-refusing band cannot wake-loop the
+  battery.
+- The headless drain is unchanged when no live session wants the link.
+- `reconnect_supervisor_test.dart` covers the wakeable backoff.
+
+**Still unproven on the phone:**
+- out-of-range → return while locked and backgrounded, then data arriving without opening the app;
+- a restore relaunch after ordinary system termination.
+
+**Known iOS limits, not defects:**
+- after a manual force-quit, iOS will not relaunch the app for Bluetooth until it is opened again;
+- after an iPhone reboot, restoration is not guaranteed until WHOOP is opened once.
+
 ## Active iPhone pairing crash
 
 **Confirmed on the installed personal candidate:** the app launches, but tapping **Find my band**

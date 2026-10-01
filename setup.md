@@ -97,7 +97,8 @@ The current imported source baseline is not test-clean:
 
 The Android release build is validated on Windows. The first personal iOS candidate exposed an
 AccessorySetupKit discovery-descriptor validation abort; the bridge fix shipped in `0.9.30` build
-`63`. Current `0.9.32` build `65` is installed after a clean same-identity reinstall. Before the old
+`63`. `0.9.32` build `65` was installed after a clean same-identity reinstall, and `0.9.33` build
+`66` is now installed over it with its device pass open. Before the old
 container was removed, its encrypted export was restored successfully into an isolated test install;
 the same backup was then restored into build 65, and Akshat confirmed the app works. Data and band
 pairing survived an exact-final-ID overwrite, and a controlled forced-due Wi-Fi daemon refresh
@@ -131,12 +132,13 @@ Personal Team. The deterministic personal flavor, contract tests, payload valida
 manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and is
 cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted`
 (not in Downloads — see `D:\AI Important Files\personal-project\final-ipas\README.md`); it remains
-the accepted rollback. The cached `0.9.31` build `64` artifact passed the
+the accepted rollback. The `0.9.31` build `64` artifact passed the
 automated macOS build, payload, manifest, and downloaded-checksum gates but is superseded without
 installation. Current `0.9.32` build `65` retains its personal GPS/Oura changes and adds the
 confirmed-phone-stillness step guard. Its automated macOS build, payload, manifest, and downloaded
-checksum gates pass. It is installed and its encrypted restore/app launch work, but it remains in
-`testing\` until band, steps, GPS/background, and same-ID refresh checks pass.
+checksum gates pass. It is installed and its encrypted restore/app launch work, but it was never promoted: band,
+steps, GPS/background, and same-ID refresh checks were still open when build 66 replaced it as the
+one candidate in `testing\`.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
 Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
@@ -179,14 +181,18 @@ Downloads, excluded from the OneDrive backup archive the same way every `persona
 subfolder is; `../final-ipas/README.md` owns the backup/testing model. The macOS workflow, local
 validator, and downloaded checksum all pass. Superseded `0.9.31` build `64` was produced by workflow
 run `35376151690` from source `75689dbfd17ccf999231a0bb3d0a92645c62f817`; its SHA-256 is
-`d6434cef15ca6860368afb0b1d3a454f0258a8fc80ade6db8ea35e687c1d362f` and its IPA, manifest, and
-checksum are cached at `../final-ipas/whoop/testing/WHOOP-0.9.31-build64-75689dbf`. It was not
-installed or device-verified and must not be promoted. Current `0.9.32` build `65` was produced by
+`d6434cef15ca6860368afb0b1d3a454f0258a8fc80ade6db8ea35e687c1d362f`. It was not installed or
+device-verified, must not be promoted, and is no longer cached. Current `0.9.32` build `65` was produced by
 workflow run `35382626928` from source `f25fcbd6b9461b70f964738221bd8ea3b8bee22b`;
 its SHA-256 is `d936d8819aa2290430ec17ff930135a76787896153564509a327f0a76d07feda`.
-The IPA, manifest, and checksum are cached at
-`../final-ipas/whoop/testing/WHOOP-0.9.32-build65-f25fcbd6`; automated validation passes, it is
-installed, and encrypted restore plus launch are verified. It is not yet fully device-accepted.
+Automated validation passed, it is installed, and encrypted restore plus launch are verified. It
+was not fully device-accepted and is no longer cached; re-run that workflow to reproduce it.
+`testing\` holds exactly one candidate at a time, as `../final-ipas/README.md` requires.
+Candidate `0.9.33` build `66` was produced by workflow run `36805031736` from source
+`648c1b2e215418e64757b8e711a1b617e0798502` (Linux test run `36804984992` passed); its SHA-256 is
+`174bc6001b4efe52de9f39436dd510b6235ad8519eaefcb8e885b71b9af9c31d`. The IPA, manifest, and checksum
+are cached at `../final-ipas/whoop/testing/WHOOP-0.9.33-build66-648c1b2e`; the downloaded hash and
+payload validation pass. It is not installed yet and supersedes build 65 as the next install.
 The accepted-build ledger prevents reuse of `0.9.30+63`.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install

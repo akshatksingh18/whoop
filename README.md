@@ -3,7 +3,7 @@
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced accepted rollback `0.9.30` build
-> `63`. Current `0.9.32` build `65` is installed after a clean same-identity reinstall and verified
+> `63`. `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
@@ -20,7 +20,9 @@
 > `com.akshat.personal.whoop.5564K8D4SV` preserves data and pairing while advancing signing. A
 > controlled forced-due unattended Wi-Fi daemon cycle also passes; the next naturally elapsed cycle
 > and remaining GPS/background checks remain open — see `CLAUDE.md`.
-> Local source `0.9.33`/`66` has not been built yet. It removes Nerd stats, the Wellness tab and
+> Source `0.9.34`/`67` (local, not yet pushed or built) redesigns the app as four single-page tabs,
+> Today · Trends · Food · Train; see `metrics-map.md`.
+> Candidate `0.9.33`/`66` is now installed over build 65; its device pass is open. It removes Nerd stats, the Wellness tab and
 > water logging, the journal and Health → Labs for a simpler stats-only UI, and folds Vitals into
 > Overview. It adds a scrubbable all-day heart-rate chart, a cleaner Sleep screen and a rebuilt
 > Nutrition log (saved meals, foods by grams, macros, month history); `metrics-map.md` lists every

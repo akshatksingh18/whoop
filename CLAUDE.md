@@ -14,8 +14,8 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification — personal IPA `0.9.32` build `65` is installed and opens
-after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
+**Status:** Active iPhone verification — personal IPA `0.9.33` build `66` is installed over build
+`65` and awaits its device pass. Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
 isolated test install before the old container was removed, then restored into build 65; Akshat
 confirmed the recovered app works. Build `0.9.30`/63 remains the accepted rollback, with sanitized-
 history source equivalent `7132d2ab29a007da9e650ef802e7340a0cf39677`.
@@ -39,14 +39,20 @@ still need confirmation.
 Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only historical data is too
 low-rate for honest all-day step reconstruction. Background/recovery, GPS, and other device gates
 remain before daily use. Android development is out of scope.
-Local source is now `0.9.33`/`66` and is **not yet built or installed**. It simplifies the UI:
+Candidate `0.9.33`/`66` (commit `648c1b2e`) is **installed but not device-verified**: the Linux test suite and the macOS workflow passed, the downloaded IPA matches its SHA-256 and passes the payload validator, and it is cached under `final-ipas\whoop\testing\WHOOP-0.9.33-build66-648c1b2e`. It simplifies the UI:
 Nerd stats, the Wellness tab, the journal, water logging and Health → Labs are removed, and Vitals
 is folded into Overview. It adds a scrubbable all-day heart-rate chart, a cleaner Sleep screen and a
 rebuilt Nutrition log (saved meals, foods by grams, macros, month history), and keeps the sleep-breathing card and the
 training-load part of sleep need. It also adds the Status screen with 48 h/24 h
 signing-expiry alerts, encrypted automatic backups, GPS route-recording hardening, and the iOS
-restore-wake reconnect fix recorded in `bugs.md`. Its tests pass locally; it still needs the macOS
-workflow, an IPA and a device pass.
+restore-wake reconnect fix recorded in `bugs.md`. Akshat installed it over build 65; it still
+needs its device pass and current-version refresh enrollment, and none of its new behavior is
+phone-verified.
+Source `0.9.34`/`67` is committed locally and **not pushed or built**. It redesigns the app as
+four single-page tabs (Today · Trends · Food · Train) with flat rounded cards and short labels, and
+removes the screens listed under "Simple day-to-day UI" below; `metrics-map.md` owns the layout
+and the list of metrics still stored but no longer shown. Local `flutter analyze` is clean and the
+Windows test run fails only the 13 known Windows-only tests; Linux CI has not run on it.
 
 ## Files
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
@@ -114,9 +120,10 @@ Akshat has activated iPhone implementation. The personal flavor exists in source
 macOS-built candidate was installed and exposed the malformed AccessorySetupKit descriptor crash.
 The bridge is now fixed and `0.9.30`/63 remains the accepted rollback cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
-The cached `0.9.31`/64 artifact passed automated checks but is superseded without installation.
-Current `0.9.32`/65 adds the confirmed-phone-stillness step guard; its validated artifact remains
-under `testing\` while physical acceptance is incomplete. Its encrypted restore, launch, scheduled
+`0.9.31`/64 passed automated checks but was superseded without installation.
+Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
+`testing\` holds only the newest candidate (build 66), and both are reproducible from their workflow
+runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. The base-ID automatic-rewrite path stalls at 0%,
 so every Sideloadly refresh/upgrade must use the exact final signed ID instead.
 History/data, exact signed identity, pairing preservation, manual recovery, and a controlled
@@ -188,7 +195,7 @@ The personal artifact must have these properties:
   forbidden — authorization is While-In-Use only, matching `lib/gps/gps_source.dart`'s own design,
   which relies on the background mode rather than Always to keep a run tracked with the screen
   locked. `tool/test_personal_ios.py` enforces both halves.
-  - **Code audit hardening (source, unbuilt):**
+  - **Code audit hardening (in build 66, not device-verified):**
     - A re-armed recorder (a run resumed after the app was killed, or a retry after a location fix)
       continues after the stored `workout_route` sequence. Before, it restarted at 0 and overwrote
       the start of the route.
@@ -224,22 +231,39 @@ The personal artifact must have these properties:
     Readiness entry and no findings screen; a rough-night card on Sleep states the measurements and
     never asks for tags. `journal_compose.dart` stays only because it hosts shared input widgets
     (`OsTextField`, `FieldStepper`).
+  - **Build 67 redesign** (source `0.9.34`), Akshat's "cleaner, minimalist, no paragraphs" ask:
+    - **Tabs:** Today · Trends · Food · Train, each one scrolling page (`ShellDomain` keeps the
+      `home/health/nutrition/workout` names). Dark cards are flat; the tab bar is a floating pill.
+    - **Today** (`home_screen.dart`): recovery ring with HRV and resting HR, sleep and strain
+      cards, an all-day heart-rate line (opens the scrubbable chart), steps, calories burned, and
+      tonight's bedtime. The greeting and "Today's plan" are gone.
+    - **Trends** (`health_screen.dart`): one row per core metric with Week / Month / 3 months,
+      then the illness watch / findings and naps. Explore, Beats, Body clock, the Stress row and
+      the Consistency cards were removed; their metrics are still computed and stored.
+    - **Train** (`workout_screen.dart`): Run / Lift / Other, 7-day strain bars, recent sessions.
+      Fitness/fatigue/form, the kg-lifted chart, morning-after and overreach cards, the mascot
+      card and the share button were removed. **Lifting sets are not logged**: in the personal
+      build `Track.sets` activities run as a timed session (`archOf`), because Akshat logs lifts
+      in AkshatOS Lift Log. `strength_set` rows and the sets UI stay in source for a possible
+      later migration into WHOOP.
+    - **Settings:** one list opened from Today (`MoreSettings`); the profile hub, AI coach, AI
+      briefings, language picker and paced-breathing screen were removed. In the personal build
+      the Automation group, app-icon row, add-a-sensor row and the movement-nudge and step-goal
+      notifications are hidden (the two notifications are forced off at load).
+    - **Kept on purpose:** the band alarm and barcode scanning (Open Food Facts; accuracy still to
+      be checked on the phone against real labels).
   - **Kept in minimal form:**
     - **Breathing pattern in sleep:** `sleep_breathing.dart`, one tap below Sleep, showing the
       across-nights card only.
     - **Training load in the sleep need:** the Sleep "Tonight" sentence names the minutes it adds.
     - **All-day heart rate:** a scrubbable minute-by-minute chart (`DayHeartCard` in
-      `day_timeline.dart`), reached from Home ("Heart rate, all day") and from Health → Vitals'
-      heart-rate row. It reads the day bundle's permanent per-minute `hr_curve`.
+      `day_timeline.dart`), reached from the heart-rate card on Today. It reads the day bundle's permanent per-minute `hr_curve`.
   - **Sleep cleanup:**
     - Stages and the deep-sleep usual row show counted minutes and % of sleep, which sum to total
       sleep, in place of wide ranges.
     - The title date is readable.
     - The sleep-window correction card sits last.
-  - **Health tab:** reduced to Overview · Explore · Trends. Labs (manual lab entry) was removed.
-    Vitals was merged into Overview: today's heart-rate range (which opens the all-day chart), skin
-    temperature, wear time and the HRV card, with no duplicate breathing row. The Naps card shows
-    only on a day with a nap.
+  - **Labs** (manual lab entry) was removed. The Naps section shows only on a day with a nap.
   - **Nutrition rebuilt** (`nutrition_screen.dart`, `food_picker.dart`), in the MyFitnessPal shape.
     Akshat logs meals here.
     - **Today:**
@@ -317,7 +341,7 @@ The personal artifact must have these properties:
 - Treat overwrite preservation as a tested behavior, not the only backup. Sideloadly's cached IPA
   and signing state are replaceable; health history is not. An accidental uninstall, changed
   bundle ID, device restore, or failed signing migration can still orphan the container.
-- **Settings → About → Status** (`lib/ui2/profile/status.dart`) is implemented in source, unbuilt.
+- **Settings → About → Status** (`lib/ui2/profile/status.dart`) is implemented in build 66, not yet device-verified.
   - It reads the installed `embedded.mobileprovision` expiry (`lib/platform/signing_profile.dart`).
   - It also shows the newest band data, automatic-backup state, build version, and the source commit
     (`SOURCE_REVISION`, written into `.env` by `personal-ios.yml`).
@@ -339,9 +363,11 @@ The personal artifact must have these properties:
   upstream-capable release path and must not supply this personal artifact. GitHub/macOS is a build
   dependency only when code changes, not a runtime or routine refresh dependency.
 - Cache the current signed-input IPA on Windows in a stable, non-temporary directory outside Git.
-  Keep the current and immediately previous known-good artifacts, each with filename/version,
-  SHA-256, source commit, Flutter version, build date, and the feature/capability manifest. Record
-  the final cache path in `setup.md` when activated. Do not rely solely on Sideloadly's internal
+  The cache is exactly two slots, owned by `../final-ipas/README.md`: `backup\` holds the one
+  accepted build and `testing\` holds at most ONE candidate. Downloading a new candidate deletes the
+  previous one in the same step; never leave superseded builds beside it. Each cached build keeps
+  its filename/version, SHA-256, source commit and capability manifest, and `setup.md` records the
+  run and hash of every build so a removed one can be reproduced. Do not rely solely on Sideloadly's internal
   cache or a GitHub Actions artifact-retention window.
 - A new IPA is promoted only after payload inspection, hash recording, a fresh-device install,
   an in-place upgrade test, and signing-health results of `ENROLLED` for the exact signed identity and
@@ -396,7 +422,7 @@ The personal artifact must have these properties:
 - Restore-test an encrypted export before making the iPhone authoritative, and repeat after a
   backup-format or schema change. A successfully written file is not a proven backup until the
   current app can decrypt, import, and reconcile it without overwriting measured days incorrectly.
-- Automatic backups are **encrypted** in source (`lib/data/auto_backup.dart`, unbuilt).
+- Automatic backups are **encrypted** from build 66 (`lib/data/auto_backup.dart`), not yet device-verified.
   - They run on foreground when due, Daily or Weekly, and are off until Akshat sets a backup
     passphrase under **Your data**. The passphrase is kept in the iOS keychain
     (`lib/data/backup_passphrase.dart`).

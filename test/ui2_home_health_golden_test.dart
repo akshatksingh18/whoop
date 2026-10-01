@@ -160,99 +160,19 @@ final _health = HealthData(
     },
     'illness': {'state': 'green'},
   },
-  insights: {
-    'chronotype': {
-      'value': {'type_label': 'slight evening type'},
-      'confidence': .6,
-      'tier': 'ESTIMATE',
-    },
-    'social_jetlag': {
-      'value': {
-        'abs_hours': 1.7,
-        'mid_sleep_free_h': 4.2,
-        'mid_sleep_work_h': 2.5,
-        'n_free': 9,
-        'n_work': 22,
-      },
-      'confidence': .6,
-      'tier': 'ESTIMATE',
-    },
-    'regularity': {
-      'value': {'sri': 78, 'band': 'steady'},
-      'confidence': .7,
-      'tier': 'ESTIMATE',
-    },
-    'sleep_coach': {
-      'need': {
-        'value': {'need_sec': 27720},
-        'confidence': .7,
-        'tier': 'ESTIMATE',
-      },
-    },
-  },
-  profile: const {'weight_kg': 72.4, 'sex': 'm'},
   charts: {
     'resting_hr': _points(60, 54, 6),
     'hrv': _points(60, 66, 16),
     'sleep': _points(60, 440, 70),
-    'stress': _points(60, 30, 14),
+    'recovery': _points(60, 62, 30),
+    'strain': _points(60, 10, 8),
+    'steps': _points(60, 8000, 5000),
     'resp_rate': _points(60, 14.2, 1.8),
   },
-  daysWithData: 24,
-  need: const Metric(
-    value: 462,
-    unit: 'min',
-    confidence: .7,
-    tier: MetricTier.estimate,
-  ),
 );
 
-const _healthCold = HealthData(daysWithData: 2);
+const _healthCold = HealthData();
 
-final _vitals = VitalsData(
-  timeline: const {
-    'highs': {
-      'low_hr': {'v': 48},
-      'peak_hr': {'v': 142},
-      'avg_hr': {'v': 71},
-    },
-  },
-  lungs: const {
-    'resp': {'value': 14.2, 'confidence': .6},
-  },
-  wear: const {'worn_min': 1300, 'coverage_pct': 94},
-  hrv: const {'rmssd': 68.2},
-);
-
-// The fill rates SURFACE_MAP measured on 17 real gen4 days, rounded to the
-// stored day counts. Deliberately MIXED: `hrr_bpm` and `resp_rate` are the
-// half-firing pair, and three keys are absent outright, so the case captures
-// both a family that has everything and a family that is missing part of
-// itself.
-const _explore = ExploreData(
-  counts: {
-    'rhr': 16,
-    'rmssd': 14,
-    'hrv_cv': 14,
-    'lf_hf': 14,
-    'dip_pct': 14,
-    'hrr_bpm': 9,
-    'tst_min': 15,
-    'efficiency': 15,
-    'deep_min': 15,
-    'rem_min': 15,
-    'nap_min': 17,
-    'resp_rate': 9,
-    'brv_cv': 14,
-    'steps': 17,
-    'active_min': 17,
-    'calories': 17,
-    'strain': 16,
-    'trimp': 0,
-    'skin_temp_z': 11,
-    'worn_min': 17,
-  },
-);
 
 final _metricDetail = MetricData(
   series: _points(60, 54, 6),
@@ -473,85 +393,12 @@ final _sleepNew = SleepData(
 
 const _sleepCold = SleepData();
 
-/// Six weeks of nights, drifting an hour later at weekends.
-CircadianData _circadian() {
-  final cols = <List<double>?>[];
-  final labels = <String>[];
-  for (var d = 0; d < 42; d++) {
-    if (d % 13 == 5) {
-      cols.add(null); // a night the band was off
-      labels.add('2026-04-${(d + 1).toString().padLeft(2, '0')}');
-      continue;
-    }
-    final free = d % 7 >= 5;
-    final onset = free ? 12.5 : 10.9; // hours after local noon
-    final len = free ? 8.4 : 7.2;
-    cols.add([
-      for (var h = 0; h < 24; h++)
-        (((onset + len) < h + 1 ? (onset + len) : h + 1) -
-                (onset > h ? onset : h))
-            .clamp(0.0, 1.0)
-            .toDouble(),
-    ]);
-    labels.add('2026-04-${(d % 30 + 1).toString().padLeft(2, '0')}');
-  }
-  return CircadianData(
-    actogram: cols,
-    labels: labels,
-    chronotypeLabel: 'slight evening type',
-    jetlag: const Metric(value: 1.7, confidence: .6, tier: MetricTier.estimate),
-    regularity: const Metric(
-      value: 78,
-      confidence: .7,
-      tier: MetricTier.estimate,
-    ),
-    midFreeH: 4.2,
-    midWorkH: 2.5,
-    nFree: 9,
-    nWork: 22,
-    // The non-parametric battery and the cosinor, as the cross-day pipeline
-    // emits them â€” on HOURLY HR, which is what the card's footnote discloses.
-    rhythm: const Metric(value: .68, confidence: .7, tier: MetricTier.high),
-    rhythmV: const {
-      'IS': 0.68,
-      'IV': 0.74,
-      'M10': 82.4,
-      'L5': 54.1,
-      'RA': 0.21,
-      'm10_start_epoch': 10,
-      'l5_start_epoch': 2,
-    },
-    cosinorV: const {
-      'mesor': 66.2,
-      'amplitude': 9.4,
-      'acrophase_hours': 15.3,
-      'period_hours': 24.0,
-      'r2': 0.61,
-      'r2_adj': 0.58,
-    },
-    coverage: const {
-      'days_used': 6,
-      'days_need_np': 7,
-      'days_need_cosinor': 3,
-      'signal': 'hourly_hr',
-    },
-  );
-}
-
 Map<String, Widget> _cases() => {
   'home': HomeScreen(data: _home, hour: 20),
   'home_cold': const HomeScreen(data: _homeCold, hour: 20),
-  'health_overview': HealthScreen(data: _health, tab: 0),
-  'health_overview_cold': const HealthScreen(data: _healthCold, tab: 0),
-  'health_trends': HealthScreen(data: _health, tab: 2),
-  // Overview now carries the former Vitals rows.
-  'health_overview_vitals': HealthScreen(data: _health, vitals: _vitals, tab: 0),
-  'health_explore': HealthScreen(data: _health, explore: _explore, tab: 1),
-  'health_explore_cold': const HealthScreen(
-    data: _healthCold,
-    explore: ExploreData(),
-    tab: 1,
-  ),
+  'trends': HealthScreen(data: _health),
+  'trends_week': HealthScreen(data: _health, range: 0),
+  'trends_cold': const HealthScreen(data: _healthCold),
   'metric_detail': MetricDetail('resting_hr', data: _metricDetail),
   'metric_detail_cold': const MetricDetail('resting_hr', data: MetricData()),
   'metric_detail_suppressed': const MetricDetail(
@@ -564,8 +411,6 @@ Map<String, Widget> _cases() => {
   'sleep_detail_typical': SleepDetail(data: _sleepTypical),
   'sleep_detail_new': SleepDetail(data: _sleepNew),
   'sleep_detail_cold': const SleepDetail(data: _sleepCold),
-  'circadian_detail': CircadianDetail(data: _circadian()),
-  'circadian_detail_cold': const CircadianDetail(data: CircadianData()),
 };
 
 final _shot = GlobalKey();
@@ -726,11 +571,8 @@ void main() {
       const ReadinessDetail(data: _readinessCold),
       const SleepDetail(data: _sleepCold),
       SleepDetail(data: _sleepNew),
-      const CircadianDetail(data: CircadianData()),
       const MetricDetail('resting_hr', data: MetricData()),
       const MetricDetail('skin_temp', data: MetricData()),
-      const HealthScreen(data: _healthCold, vitals: VitalsData(), tab: 0),
-      const HealthScreen(data: _healthCold, explore: ExploreData(), tab: 1),
       // The readiness row that used to hold the app's one reachable em-dash:
       // a driver marked used whose weighted contribution never arrived.
       const ReadinessDetail(

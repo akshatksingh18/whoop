@@ -1,14 +1,8 @@
 // The Home / Health / drill-down screens, and the plumbing they share.
-export 'ai_briefing.dart';
-export 'beats.dart';
-export 'circadian_detail.dart';
-export 'coach.dart';
-export 'coach_figures.dart';
 export 'findings_log.dart';
 export 'food_picker.dart';
 export 'health_screen.dart';
 export 'home_screen.dart';
-export 'calm_breathing.dart';
 export 'day_steps.dart';
 export 'day_timeline.dart';
 export 'driver_breakdown.dart';

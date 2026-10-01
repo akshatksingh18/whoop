@@ -615,7 +615,7 @@ class MyDevicesView extends StatelessWidget {
                 // gated on having a band: a sensor is a second source, and
                 // someone with no band at all is exactly who benefits most
                 // from being able to pair one.
-                if (onAddSensor != null)
+                if (onAddSensor != null && !kPersonalSideload)
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
                     child: SetRow(LucideIcons.plus, C.green,
@@ -627,6 +627,7 @@ class MyDevicesView extends StatelessWidget {
                 // NOT YET — removed from this screen per product decision
                 // (owner's call, live review). `kNotYet`/`NotYet` still hold
                 // the reasons and permanences below; only the render is gone.
+                if (!kPersonalSideload) ...[
                 const SizedBox(height: S.x5),
                 Text(l?.devicesQualityLadder ?? 'THE QUALITY LADDER',
                     style: F.over.copyWith(color: p.ink3)),
@@ -642,6 +643,7 @@ class MyDevicesView extends StatelessWidget {
                     TierRow(t, filled: sources.any((s) => s.tier == t)),
                     const SizedBox(height: S.x3),
                   ],
+                ],
               ],
             ),
           ),

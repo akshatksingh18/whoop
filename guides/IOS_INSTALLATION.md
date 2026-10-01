@@ -2,8 +2,9 @@
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
 personal-sideload build profile and manual public-GitHub workflow. Accepted rollback `0.9.30` build
-`63` was built and payload/hash verified after the AccessorySetupKit bridge fix. Current `0.9.32`
-build `65` is installed after a clean same-identity reinstall and verified encrypted restore; the
+`63` was built and payload/hash verified after the AccessorySetupKit bridge fix. `0.9.33` build `66` is now installed over build `65` and awaits its
+device pass. `0.9.32`
+build `65` was installed after a clean same-identity reinstall and verified encrypted restore; the
 recovered app opens. The current minimal profile intentionally excludes HealthKit, so it does not import the
 Apple Health aggregate. Device testing verified the direct iPhone-pedometer import after enabling
 **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone steps enabled
@@ -90,9 +91,10 @@ It packages a conventional `Payload/Runner.app`, validates it, and emits a capab
 manifest plus SHA-256. The workflow also writes `SOURCE_REVISION=<commit>` into the ephemeral
 `.env`, which is what the in-app **Status** screen shows as the source; a local build shows "not
 recorded". The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`. The validated build-65 candidate is cached at
-`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6`.
-The cached build-64 artifact passed automated checks but is superseded and must not be installed.
+ID is `com.akshat.personal.whoop`. The installed, not-yet-device-verified build-66 candidate is the only build in `testing\`:
+`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.33-build66-648c1b2e`.
+Replaced build 65 and superseded build 64 are no longer cached; both are reproducible from their
+workflow runs in `setup.md`.
 Keep the accepted build-63 rollback cached on Windows outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
 black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.

@@ -9,6 +9,7 @@
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../build_profile.dart';
 import 'notification_event.dart';
 import 'tap_router.dart';
 
@@ -183,7 +184,9 @@ class NotificationPrefs {
       waterEnabled: false,
       waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
       autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
-      movementEnabled: p.getBool(_kMovement) ?? false,
+      // The personal build has no movement nudge or step-goal alert.
+      movementEnabled:
+          !kPersonalSideload && (p.getBool(_kMovement) ?? false),
       medsEnabled: false,
       // The journal is removed from the personal build; its check-in prompt
       // is read as OFF so one armed by an older build is cancelled.
@@ -191,7 +194,8 @@ class NotificationPrefs {
       batteryAlertPct: ((p.getInt(_kBatteryPct) ?? batteryPctDefault)
               .clamp(batteryPctMin, batteryPctMax))
           .toInt(),
-      stepGoalEnabled: p.getBool(_kStepGoal) ?? true,
+      stepGoalEnabled:
+          !kPersonalSideload && (p.getBool(_kStepGoal) ?? true),
       windDownEnabled: p.getBool(_kWindDown) ?? false,
     );
   }

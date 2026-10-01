@@ -91,7 +91,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
       children: [
         ScreenTitle(
-          'Nutrition',
+          'Food',
           trailing: Pressable(
             semanticLabel: 'Goals',
             onTap: () async {

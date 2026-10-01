@@ -2,10 +2,11 @@
 
 Everything the app stores and where each item appears, plus the proposed layout. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal build from source `0.9.33`/`66`.
+the personal build from source `0.9.34`/`67`.
 
-**Status:** Current map of stored data and screens. The layout decisions at the bottom are
-applied in unbuilt source; any further removal still needs Akshat's per-item yes.
+**Status:** Current map of stored data and screens for source `0.9.34`/`67`. Everything in
+"What is stored" keeps being recorded whether or not a screen shows it; any further removal still
+needs Akshat's per-item yes.
 
 ## What is stored
 
@@ -88,9 +89,10 @@ The full analysis of each day, including curves:
 These are still stored but no longer entered in the personal build:
 - **Removed from the UI:** `journal_metric`/`journal` (the journal), `med_*` (medications),
   `cycle_log`, and water (a journal field).
-- **Removed from the UI as well:** `lab_result` (Health → Labs).
-- **Still in the UI:** meals under Nutrition (see below), `imported_measurement` (phone imports),
-  and `breathing_session`.
+- **Removed from the UI as well:** `lab_result` (Health → Labs), `breathing_session` (the paced
+  breathing screen), `strength_set` entry (lifting sets; a Lift is now a timed session, and old sets
+  stay stored for a later migration), and `imported_measurement` (phone imports).
+- **Still in the UI:** meals under Food (see below).
 
 ### 6. Nutrition
 
@@ -103,20 +105,35 @@ These are still stored but no longer entered in the personal build:
 
 ## Where each core metric appears now
 
-| Metric | Home | Health | Detail screen |
+Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
+
+| Metric | Today | Trends row | Detail screen |
 |---|---|---|---|
-| Recovery | ring | — | Readiness: drivers and 90-day history |
-| Strain | ring | trend | Day strain: curve and zones |
-| Sleep | ring | overview row | Sleep: chart, stages, against your usual, overnight signals, tonight |
-| Heart rate, all day | "Heart rate, all day" row | Overview → Heart rate range | Scrubbable minute-by-minute chart and moments |
-| Resting HR, HRV | resting HR tile | overview rows | metric detail, Beats (HRV) |
-| Stress | — | overview row | metric detail |
-| Breathing rate | — | overview row | metric detail; Sleep overnight lane |
+| Recovery | ring with the score, verdict, HRV and resting HR | yes | Readiness: drivers and 90-day history |
+| Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals, tonight |
+| Strain | card with a bar and today's target | yes | Day strain: curve and zones |
+| Heart rate, all day | line card with the day's range | — | Scrubbable minute-by-minute chart |
+| HRV, resting HR | inside the recovery card | yes | metric detail |
+| Steps, walking kcal | card | yes | metric detail, steps breakdown |
+| Calories burned | card (total, with active under it) | active calories | metric detail |
+| Breathing rate, skin temperature, wear time | — | yes | metric detail; Sleep overnight lanes |
 | Breathing pattern in sleep | — | — | one tap below Sleep |
-| Steps, active energy | tiles | trends | steps detail |
-| Workouts, GPS, lifting | — | — | Workout tab |
-| Food, calories left, macros | — | — | Nutrition tab: Today, History (month), Foods |
-| Skin temperature, wear time | — | Overview (former Vitals rows) | metric detail |
+| Tonight's bedtime and sleep need | row | — | Sleep → Tonight |
+| Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
+| Naps | — | section on a day with one | Naps |
+| Workouts, GPS | — | — | Train: Run / Lift / Other, 7-day strain, recent sessions |
+| Food, calories left, macros | — | — | Food: Today, History (month), Foods |
+
+Trends has a Week / Month / 3 months switch. Each row shows the average for the range, a small
+line, and the newest reading.
+
+### Computed and stored, but shown on no screen
+
+Still calculated every day and kept in `metric_series`, so a screen can be added back with its
+history intact: stress score, LF/HF, HRV night-to-night swing, deceleration capacity, heart-rate
+dip, heart-rate recovery, breathing variability, TRIMP, active minutes, sleep efficiency / deep /
+REM as their own trend charts, chronotype, social jetlag and sleep regularity, fitness / fatigue /
+form (training load), next-morning session cost, and the beat-by-beat night data.
 
 ## Sleep screen: what each section shows
 
@@ -160,14 +177,17 @@ These are still stored but no longer entered in the personal build:
   - **Steps:** already come directly from the iPhone's motion sensor (the same source Apple Health
     uses), when **This phone → Steps** is on.
 
-## Layout decisions (applied in source `0.9.33`/`66`, unbuilt)
+## Layout decisions (source `0.9.34`/`67`)
 
 | Item | Decision |
 |---|---|
-| Home: rings, at-a-glance tiles, today's plan, heart rate all day | Kept |
-| Health: Overview (now including the former Vitals rows), Explore, Trends | Kept; three tabs |
-| Health → Labs | Removed |
-| Health → Vitals | Merged into Overview, without the duplicate breathing row |
-| Naps card | Shown only on a day with a nap |
-| Nutrition | Kept and rebuilt; see section 6 |
-| Workout tab | Kept |
+| Tabs | Today · Trends · Food · Train; no sub-tabs except Food's Today/History/Foods |
+| Look | Flat rounded cards on a near-black page, floating tab bar, short labels, no paragraphs on main screens |
+| Health → Explore, Beats, Body clock, Stress row, Consistency cards | Removed (data still stored) |
+| Home greeting and "Today's plan" | Removed; strain target and bedtime moved into the Today cards |
+| AI coach, AI briefings, language picker, paced breathing | Removed |
+| Train | One page. Removed the activity library tab, mascot card, fitness/fatigue/form, kg-lifted chart, morning-after and overreach cards, and the share poster button |
+| Lifting sets | Removed. A Lift is a timed session scored from heart rate |
+| Settings | One list (band, profile, alarm, steps, notifications, units, data, privacy, status). Removed Tasker/Shortcuts, double-tap, app icon, add-a-sensor, phone import |
+| Notifications | Movement nudge and step-goal alert removed |
+| Band alarm, barcode scanning, Sleep screen, Nutrition | Kept |

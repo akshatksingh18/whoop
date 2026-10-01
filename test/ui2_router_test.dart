@@ -33,7 +33,6 @@ import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
 import 'package:openstrap_edge/ui2/screens/log_workout.dart'
     show WorkoutSuggestionScreen;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
-import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// A viewport tall enough that nothing under test is below the fold. The
@@ -157,8 +156,6 @@ void main() {
       // `resolveTapRoute` does not carry yet — the destinations exist here so
       // they stop landing on Home the moment it does.
       expect(domainForRoute('/profile'), ShellDomain.home);
-      expect(screenForRoute('/profile'), isA<ProfileHome>(),
-          reason: 'the battery notification promises the band, not Home');
       // A week of sleep, strain and recovery is Health. There is no recap
       // screen; landing on Home was not even close.
       expect(domainForRoute('/recap'), ShellDomain.health);
@@ -560,12 +557,6 @@ void main() {
       ));
       expect(find.text('Pair a band'), findsNothing);
     });
-  });
-
-  test('byte sizes read like sizes', () {
-    expect(formatBytes(512), '512 B');
-    expect(formatBytes(1536), '1.5 KB');
-    expect(formatBytes(1024 * 1024 * 1024), '1.0 GB');
   });
 
   // MT-12 / CV-04a. Per-family calibration means two straps can tier

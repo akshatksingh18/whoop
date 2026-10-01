@@ -16,7 +16,6 @@ import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
-import 'beats.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
 import 'journal_compose.dart' show OsTextField;
@@ -636,25 +635,6 @@ class _MetricDetailState extends State<MetricDetail> {
         // counted by a different sensor. That breakdown is a day's worth of
         // detail and it belongs behind a tap, not on the tile and not as a
         // fourth card here.
-        // HRV's own substrate. RMSSD is one number squeezed out of tens of
-        // thousands of beat intervals, and the geometry of those intervals —
-        // the Poincaré cloud, the night's curve, deceleration capacity, the
-        // rhythm screen — is the most differentiated thing this app computes.
-        // It is a screen, not a fourth card here: one number's drill-down does
-        // not become five pictures.
-        if (widget.metricKey == 'hrv') ...[
-          // Wording, not a gate: this door opens the newest night and Beats
-          // carries its own day stepper, so it is honest under any range — but
-          // "behind this number" was not, with a 30-day average as the number.
-          detailLinkRow(
-              c,
-              LucideIcons.heartPulse,
-              l?.metricDetailBeatsLinkTitle ?? 'Beats',
-              l?.metricDetailBeatsLinkSub ??
-                  'The intervals a night is made of, drawn',
-              () => go(c, const Beats())),
-          const SizedBox(height: S.x3),
-        ],
         // TODAY ONLY, and it is called Breakdown.
         //
         // It describes how TODAY's number was put together, and it rendered
@@ -981,7 +961,6 @@ class _MetricDetailState extends State<MetricDetail> {
         'rem' ||
         'efficiency' =>
           SleepDetail(day: day),
-        'hrv' => Beats(day: day),
         'steps' => DayStepsDetail(day: day),
         _ => null,
       };

@@ -15,9 +15,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -25,16 +22,6 @@ import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
-import 'package:provider/provider.dart';
-
-/// A [CoachConfig] that just answers the one question Home asks it, without a
-/// keychain or a prefs store behind it.
-class _Coach extends CoachConfig {
-  _Coach(this._on);
-  final bool _on;
-  @override
-  bool get configured => _on;
-}
 
 /// Local noon of `today - back`, the stamp `getChart` puts on a stored point.
 int _noon(int back) {
@@ -49,39 +36,25 @@ String _day(int back) {
 }
 
 class _FakeRepo extends LocalRepository {
-  final Map<String, dynamic> insights;
-  final List<String> days;
   final Map<String, dynamic> today;
 
-  /// day id -> the `daytime_hrv` block `getDayHeart` serves for it.
-  final Map<String, Map<String, dynamic>> daytimeHrv;
-
-  _FakeRepo(
-      {this.insights = const {},
-      this.days = const [],
-      this.today = const {},
-      this.daytimeHrv = const {}});
+  _FakeRepo({this.today = const {}});
 
   @override
-  Future<Map<String, dynamic>> getDayHeart(String date) async =>
-      {'daytime_hrv': ?daytimeHrv[date]};
+  Future<Map<String, dynamic>> getDayHeart(String date) async => const {};
   @override
   Future<Map<String, dynamic>> getDaySleepV2(String date) async => const {};
-
   @override
   Future<Map<String, dynamic>> getToday() async => today;
   @override
-  Future<Map<String, dynamic>> getInsights() async => insights;
+  Future<Map<String, dynamic>> getInsights() async => const {};
   @override
   Future<Map<String, dynamic>> getProfile() async => const {};
   @override
-  Future<List<String>> availableDays() async => days;
+  Future<List<String>> availableDays() async => const [];
   @override
   Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) async =>
       const {'points': []};
-  // Health reads the wear block for the night's off-wrist stretches and the
-  // day's naps. Absent here on purpose: an empty map is "we never looked",
-  // which is what a fake with no fixture is.
   @override
   Future<Map<String, dynamic>> getDayWear(String date) async => const {};
   @override
@@ -227,92 +200,8 @@ void main() {
   });
 
   // ── the last thirty CALENDAR days ──
-  group('HealthData.load', () {
-    test('consistency counts the last 30 calendar days, not all history', () async {
-      final repo = _FakeRepo(
-        // 45 derived days, but only 10 of them inside the last month.
-        days: [
-          for (var i = 0; i < 10; i++) _day(i),
-          for (var i = 40; i < 75; i++) _day(i),
-        ],
-      );
-      expect((await HealthData.load(repo)).daysWithData, 10);
-    });
-
-    test('a withheld rollup arrives as a reason, not as silence', () async {
-      final d = await HealthData.load(_FakeRepo(insights: const {
-        'stale': {'kind': 'algo_version'},
-      }));
-      expect(d.insightsStale?['kind'], 'algo_version');
-      expect(d.need.value, isNull);
-    });
-  });
 
   // ── the caption and the number have to be the same subtraction ──
-  group('Health · Trends', () {
-    HealthData sleepFixture({Metric need = Metric.empty}) => HealthData(
-          today: const {
-            'sleep': {
-              'duration_min': {
-                'value': 420,
-                'confidence': .8,
-                'tier': 'ESTIMATE',
-              },
-            },
-          },
-          charts: {
-            'sleep': [
-              for (var i = 29; i >= 1; i--) (t: _noon(i), v: 400.0),
-              (t: _noon(0), v: 420.0),
-            ],
-          },
-          need: need,
-        );
-
-    Future<void> pump(WidgetTester t, HealthData d) async {
-      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-        theme: buildTheme(Brightness.light),
-        // Trends. Explore was inserted at index 1, so Trends moved to 2.
-        home: Scaffold(body: HealthScreen(data: d, tab: 2)),
-      ));
-      await t.pumpAndSettle();
-    }
-
-    testWidgets('with no sleep need, the delta is vs the stored average',
-        (t) async {
-      await pump(t, sleepFixture());
-      expect(find.text('20m'), findsOneWidget); // 420 − 400
-      expect(find.text('vs your 28-day average'), findsOneWidget);
-    });
-
-    testWidgets('captioned "vs your need", the delta IS vs the need',
-        (t) async {
-      // The bug: the caption changed and the subtraction did not, so the user
-      // read 20m — the distance from their own average — under the words "vs
-      // your 7h 42m need". The real shortfall is 42m.
-      await pump(
-          t,
-          sleepFixture(
-              need: const Metric(
-                  value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate)));
-      expect(find.text('42m'), findsOneWidget);
-      expect(find.text('20m'), findsNothing);
-      expect(find.text('vs your 7h 42m need'), findsOneWidget);
-    });
-
-    testWidgets('the window says how many days it actually holds', (t) async {
-      // "vs your 28-day average" printed from the SECOND stored value.
-      await pump(
-          t,
-          HealthData(charts: {
-            'sleep': [(t: _noon(1), v: 400.0), (t: _noon(0), v: 420.0)],
-          }));
-      expect(find.text('vs your 1-day average'), findsOneWidget);
-    });
-  });
 
   // ── an older night is not today's number ──
   //
@@ -643,29 +532,6 @@ void main() {
   });
 
   // ── the sparkles button is not an advert for a feature you never set up ──
-  group('the AI button on Home', () {
-    Widget frame(bool configured) => MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: ChangeNotifierProvider<CoachConfig>.value(
-          value: _Coach(configured),
-          child: const Scaffold(
-              body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
-        ));
-
-    testWidgets('no model, no button', (t) async {
-      await t.pumpWidget(frame(false));
-      expect(find.byIcon(LucideIcons.sparkles), findsNothing);
-      // The profile/settings button beside it is untouched — this is one
-      // button, not the row. (It's a gear, not an avatar — the profile photo
-      // was retired from this row; see home_screen's "Profile and settings".)
-      expect(find.byIcon(LucideIcons.settings), findsOneWidget);
-    });
-
-    testWidgets('a configured coach gets its button', (t) async {
-      await t.pumpWidget(frame(true));
-      expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
-    });
-  });
 
   // ── the breakdown describes today, so it only shows on today ──
   group('steps breakdown', () {
@@ -707,271 +573,12 @@ void main() {
   // deliberate and invisible. What must never come back is the old word on
   // screen, in either of the two places it appeared: the scaffold's overline
   // and the link row every detail screen ends with.
-  group('daytime HRV by hour', () {
-    /// One `daytime_hrv` block: bins at [hour] on the day [back] days ago.
-    Map<String, dynamic> block(int back, int hour, List<double> vs) {
-      final n = DateTime.now();
-      final base = DateTime(n.year, n.month, n.day - back, hour)
-              .millisecondsSinceEpoch ~/
-          1000;
-      return {
-        'timeline': [
-          for (var i = 0; i < vs.length; i++)
-            {'t': base + i * 300, 'rmssd': vs[i], 'n': 9},
-        ],
-      };
-    }
-
-    test('an hour needs three stretches, and takes their middle value',
-        () async {
-      final d = await CircadianData.load(_FakeRepo(
-        days: [for (var i = 1; i <= 3; i++) _day(i)],
-        daytimeHrv: {
-          // 09:00 gets three bins across three days -> drawn, median 40.
-          _day(1): block(1, 9, [10, 40]),
-          _day(2): block(2, 9, [90]),
-          // 14:00 gets two -> not enough, absent.
-          _day(3): block(3, 14, [50, 55]),
-        },
-      ));
-      expect(d.hourly[9], 40, reason: 'the middle of 10, 40, 90 — not the mean');
-      expect(d.hourly[14], isNull, reason: 'two stretches is not an hour');
-      expect(d.hourlyN[9], 3);
-      expect(d.hourlyDays, 3);
-    });
-
-    test('today is never in it', () async {
-      final d = await CircadianData.load(_FakeRepo(
-        days: [_day(0), _day(1)],
-        daytimeHrv: {
-          _day(0): block(0, 9, [10, 10, 10, 10]),
-          _day(1): block(1, 20, [30, 30, 30]),
-        },
-      ));
-      expect(d.hourly[9], isNull,
-          reason: "today's own bins are a handful of windows, not a median");
-      expect(d.hourly[20], 30);
-      expect(d.hourlyDays, 1);
-    });
-
-    testWidgets('the card refuses to read as a stress meter', (t) async {
-      t.view.physicalSize = const Size(390 * 3, 2600 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: CircadianDetail(
-            data: CircadianData(
-          hourly: [for (var h = 0; h < 24; h++) h.isEven ? 40.0 + h : null],
-          hourlyN: List<int>.filled(24, 5),
-          hourlyDays: 7,
-          jetlag: const Metric(value: 1.5, confidence: .6, tier: MetricTier.estimate),
-          midFreeH: 4.5,
-          midWorkH: 3.0,
-          nFree: 3,
-          nWork: 9,
-        )),
-      ));
-      await t.pumpAndSettle();
-      expect(find.textContaining('Not a stress score'), findsOneWidget);
-      // How deep each drawn hour is, not just a grand total.
-      expect(find.textContaining('middle value of 5–5 five-minute stretches'),
-          findsOneWidget);
-      expect(find.textContaining('12 of 24 hours'), findsOneWidget);
-      // The InsightCard this section was paid for with is gone, and its one
-      // extra fact — the DIRECTION, which is the sign of free minus work — is
-      // on the row it belongs to.
-      expect(find.textContaining('free-day clock runs'), findsNothing);
-      expect(find.text('1h 30m later'), findsOneWidget);
-      expect(find.text('3 / 9'), findsOneWidget);
-    });
-  });
 
   // ── MIND-11: a shape and a window, and an abstention that must stay ────────
   //
   // The item's own note is that the abstention is what gets quietly removed
   // later if it is not pinned first. So it is pinned first.
-  group('alertness forecast', () {
-    Future<void> pumpC(WidgetTester t, CircadianData d,
-        {double scale = 1}) async {
-      t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MediaQuery(
-        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-        child: MaterialApp(
-          theme: buildTheme(Brightness.light),
-          home: CircadianDetail(data: d),
-        ),
-      ));
-      await t.pumpAndSettle();
-    }
-
-    testWidgets('no judged night, no forecast — and no explanation either',
-        (t) async {
-      await pumpC(t, const CircadianData());
-      // Not an empty card, not a placeholder, not "we need more data". The
-      // section is absent, because a model prediction nobody asked for is not
-      // owed an apology.
-      expect(find.text('Today, predicted'), findsNothing);
-      expect(find.textContaining('flattest stretch'), findsNothing);
-    });
-
-    testWidgets('a shape, a named window, and the refusal on the card',
-        (t) async {
-      await pumpC(
-        t,
-        CircadianData(
-          alertness: ana.alertnessForecast(
-            wakeLocalHour: 7.0,
-            sleepDurationHours: 7.5,
-            circadianAcrophaseHours: 16.0,
-          ),
-        ),
-      );
-      expect(find.text('Today, predicted'), findsOneWidget);
-      expect(find.textContaining('flattest stretch lands in'), findsOneWidget);
-      // No score, and the chart says why there is no axis to read one off.
-      expect(find.textContaining('No scale — the shape is the whole output'),
-          findsOneWidget);
-      // The safety refusal is COPY, on the card, in both directions.
-      expect(find.textContaining('not a fitness-to-drive check'), findsOneWidget);
-      expect(find.textContaining('does not say you are impaired'),
-          findsOneWidget);
-      expect(find.textContaining('a prediction, not a reading'), findsOneWidget);
-    });
-
-    testWidgets('the card survives 3.1x text', (t) async {
-      // Any RenderFlex overflow anywhere in the pumped page fails this.
-      await pumpC(
-        t,
-        CircadianData(
-          alertness: ana.alertnessForecast(
-              wakeLocalHour: 7.0, sleepDurationHours: 7.5),
-        ),
-        scale: 3.1,
-      );
-      expect(find.textContaining('flattest stretch lands in'), findsOneWidget);
-    });
-
-    testWidgets('the jargon battery is behind a tap, not on the screen',
-        (t) async {
-      await pumpC(
-          t,
-          const CircadianData(
-              rhythmV: {'IS': .62, 'IV': .81, 'RA': .74},
-              cosinorV: {'acrophase_hours': 15.2}));
-      expect(find.text('Day-to-day stability'), findsNothing);
-      await t.tap(find.text('Show'));
-      await t.pumpAndSettle();
-      expect(find.text('Day-to-day stability'), findsOneWidget);
-    });
-  });
 
   // ── RESP-01: across nights, never on one, and it may not reassure ─────────
-  group('the pair that broke your regularity', () {
-    /// The `regularity` envelope as `crossday_pipeline` emits it, with the two
-    /// dates it resolves each pair's day index into.
-    Map<String, dynamic> reg(List<(String, String, double)> pairs) => {
-          'value': {
-            'sri': 62.0,
-            'days': pairs.length + 1,
-            'cases': 1440 * pairs.length,
-            'pairs': [
-              for (final (a, b, s) in pairs)
-                {'prev_date': a, 'date': b, 'sri': s, 'cases': 1440},
-            ],
-          },
-          'tier': 'high',
-          'confidence': .8,
-        };
-
-    Future<void> pumpR(WidgetTester t, CircadianData d,
-        {double scale = 1}) async {
-      t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MediaQuery(
-        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-        child: MaterialApp(
-          theme: buildTheme(Brightness.light),
-          home: CircadianDetail(data: d),
-        ),
-      ));
-      await t.pumpAndSettle();
-    }
-
-    test('the worst accepted pair leads, and a thin pair never gets here',
-        () async {
-      // The 12→13 pair is the worst of the three the analytics EMITTED. A pair
-      // the validity mask left too thin is dropped upstream (phillipsSri's
-      // `minPairCases`), so a half-unobserved weekend cannot top this list for
-      // having no data — the fixture models that by simply not carrying it.
-      final d = await CircadianData.load(_FakeRepo(insights: {
-        'regularity': reg(const [
-          ('2026-08-10', '2026-08-11', 71.0),
-          ('2026-08-12', '2026-08-13', 18.0),
-          ('2026-08-14', '2026-08-15', 55.0),
-        ]),
-      }));
-      expect(d.sriPairs.length, 3);
-      expect(d.sriPairs.first['date'], '2026-08-13');
-      expect(d.sriPairs.first['sri'], 18.0);
-    });
-
-    testWidgets('two rows, behind a tap, and never a verdict', (t) async {
-      final d = CircadianData(
-        regularity: const Metric(
-            value: 62, confidence: .8, tier: MetricTier.high),
-        sriPairs: const [
-          {'prev_date': '2026-08-12', 'date': '2026-08-13', 'sri': 18.0},
-          {'prev_date': '2026-08-14', 'date': '2026-08-15', 'sri': 55.0},
-        ],
-      );
-      await pumpR(t, d);
-      // Density 2 is unchanged until it is asked for.
-      expect(find.text('Regularity index'), findsOneWidget);
-      expect(find.text('Nights least alike'), findsNothing);
-
-      await t.tap(find.text('Which nights'));
-      await t.pumpAndSettle();
-      expect(find.text('12 Aug → 13 Aug'), findsOneWidget);
-      expect(find.text('18 / 100'), findsOneWidget);
-      // The pair that agreed MOST is not on screen — one row's worth of fact,
-      // not a ranking of the user's weeks.
-      expect(find.textContaining('14 Aug'), findsNothing);
-      // The guard the item is mostly made of.
-      expect(find.textContaining('The pair that matched least'), findsOneWidget);
-      expect(find.textContaining('not a worse night'), findsOneWidget);
-    });
-
-    testWidgets('no pairs, no tap', (t) async {
-      await pumpR(
-        t,
-        const CircadianData(
-            regularity:
-                Metric(value: 62, confidence: .8, tier: MetricTier.high)),
-      );
-      expect(find.text('Regularity index'), findsOneWidget);
-      expect(find.text('Which nights'), findsNothing);
-    });
-
-    testWidgets('the rows survive 3.1x text', (t) async {
-      await pumpR(
-        t,
-        const CircadianData(
-          regularity:
-              Metric(value: 62, confidence: .8, tier: MetricTier.high),
-          sriPairs: [
-            {'prev_date': '2026-08-12', 'date': '2026-08-13', 'sri': 18.0},
-          ],
-        ),
-        scale: 3.1,
-      );
-      await t.tap(find.text('Which nights'));
-      await t.pumpAndSettle();
-      expect(find.text('12 Aug → 13 Aug'), findsOneWidget);
-    });
-  });
 }
 

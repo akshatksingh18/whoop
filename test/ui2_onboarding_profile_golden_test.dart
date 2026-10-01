@@ -29,7 +29,6 @@ import 'package:openstrap_edge/ui2/onboarding/splash.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
 import 'package:openstrap_edge/ui2/profile/alarm.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
-import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -85,11 +84,6 @@ Map<String, Widget> _cases() => {
       'profile_setup_filled': ProfileSetupView(
           initial: const {'sex': 'f', 'age': 34, 'weight_kg': 61.5},
           onSave: (_) async {}),
-      'profile_home': const ProfileHomeView(
-        stats: ProfileStats(
-            name: 'Sahil', sources: 2, storageBytes: 1503238553),
-      ),
-      'profile_home_loading': const ProfileHomeView(),
       'my_devices': MyDevicesView(sources: [_band, _phone]),
       'my_devices_empty': const MyDevicesView(),
       'device_detail': DeviceDetailView(_band, onFind: () {}, onForget: () {}),

@@ -199,7 +199,7 @@ const _notComponents = {
   'BootSplash', 'WelcomeScreen', 'WelcomeView', 'PairingScreen', 'PairingView',
   'ProfileSetupScreen', 'ProfileSetupView',
   // profile routes
-  'ProfileHome', 'ProfileHomeView', 'MoreSettings', 'MoreSettingsView',
+  'MoreSettings', 'MoreSettingsView',
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
   // Reads the installed signing profile, AppState and the keychain on open.
@@ -241,24 +241,21 @@ const _notComponents = {
   // fixture squeezing it, not the card. Covered instead by
   // `start_session_card_test.dart`, which renders it at a real phone width and
   // asserts the copy is not truncated and nothing overflows.
-  'StartCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'MetricDetail', 'ReadinessDetail',
-  'SleepDetail', 'CircadianDetail', 'DayStrainDetail', 'DayStepsDetail',
+  'SleepDetail', 'DayStrainDetail', 'DayStepsDetail',
   'ZonesDetail',
   // Reads the day bundle AND the raw beat store to draw one night's Poincaré
   // cloud — a gallery case would have to mock 27 000 beat intervals.
-  'Beats',
   'JournalCompose',
-  'LogFoodSheet', 'CalmBreathing',
+  'LogFoodSheet',
   // Where the hydration notification lands: a Scaffold route that reads and
   // writes the day's journal metrics. The one control on it — FieldStepper —
   // IS in the gallery.
   // The coach chat and its BYOK setup: Scaffold routes that own an engine, a
   // 120 s network call and the keychain. `CoachFigure` — the part a gallery can
   // actually hold — IS in it.
-  'CoachScreen', 'CoachSetup', 'AiBriefingScreen',
   // The two day-scoped Scaffold routes: each resolves a day, then reads the
   // bundle plus three or four stores to fill it. Their BODIES are what a
   // gallery can hold and both are in it as cases — `timeline_day`,

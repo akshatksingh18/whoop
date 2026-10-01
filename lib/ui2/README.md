@@ -7,7 +7,7 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 ```
 
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
-and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs).
+and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs: Today, Trends, Food, Train).
 
 ---
 
@@ -130,7 +130,7 @@ reach it without a pointer, and `describe` is what those steps say out loud.
 
 ```dart
 Surface({required Widget child, EdgeInsets pad = EdgeInsets.all(S.x4),
-         VoidCallback? onTap, Color? color, int elevation = 1,
+         VoidCallback? onTap, Color? color, int elevation = 1,  // no shadow in dark
          String? semanticLabel})
 
 Section(String title, Widget child, {String? action, VoidCallback? onAction})
@@ -409,34 +409,15 @@ enum ShellDomain { home, health, nutrition, workout }
   // .label · .icon · .accent
 ```
 
-Tabs build lazily and are kept alive after first visit. The personal build
-removed the Wellness tab. **There is no fifth tab.** Anything that feels like one is `SubTabs` inside the domain that owns
-it.
+Tabs build lazily and are kept alive after first visit. The bar is a floating
+pill on the page colour. **There is no fifth tab.**
 
-### The catalogue — Health › Explore
+### One page per tab
 
-Progressive disclosure hid the app from its own owner: 25 written `MetricSpec`s
-existed and `MetricDetail` was constructed with **seven** keys anywhere in the
-tree, so 16 finished drill-downs — title, unit, colour, method, citation, all
-written — had no navigation edge at all.
-
-`_catalogue` in `health_screen.dart` is the routing, and it is the one place a
-metric becomes browsable. A row is `(spec key, metric_series key, one line)`;
-its icon, colour and title come off the spec, never a second copy. **Add a
-`MetricSpec` and add its catalogue row in the same commit** — a spec with no row
-is a screen nobody can open, which is the bug this fixed.
-
-Three rules the tab keeps:
-
-- The number in the row is **how many days of history there are**, read from
-  `LocalDb.metricSeriesCounts`. Not last night's value: a catalogue that showed
-  readings would be a fifth copy of Overview.
-- A metric with zero stored days is listed as not measured yet, **with no
-  cause** — this screen reads a row count, and a count of zero never says why.
-  No `fix:` either; nothing here can make a locked day derive.
-- A capability this app does not produce gets **no row and no spec**. SpO2, ODI
-  and anything apnea-shaped are refused; an index entry that existed to explain
-  an absence is the thing the absent-forever rule forbids.
+Today, Trends, Food and Train are each one scrolling page. Trends lists the core metrics as rows
+(average, small line, newest reading) with a Week / Month / 3 months switch; a row opens
+`MetricDetail` (or `ReadinessDetail` for recovery). There is no metric catalogue: a metric that is
+computed but not listed on Trends has no screen, and `metrics-map.md` lists those.
 
 ---
 

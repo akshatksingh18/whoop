@@ -42,10 +42,9 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
-import '../profile/profile.dart';
 import '../ui2.dart';
-import 'coach.dart';
-import 'day_timeline.dart' show DayTimelineScreen;
+import '../profile/settings.dart' show MoreSettings;
+import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -698,72 +697,31 @@ class RingTrio extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
-    final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final rings = [for (final k in HomeRingKind.values) _ringOf(k, d, l)];
-    final gaps = rings.where((r) => r.why != null).toList();
-    // THERE IS NO "THESE TWO ARE FROM SATURDAY" LINE ANY MORE, and there is
-    // nothing left for one to explain. Recovery and sleep used to be served
-    // from the last scored night whenever today's had not settled, and this
-    // card carried one sentence naming that night. Read on a phone, the
-    // sentence lost: a number inside a ring is today's, and a caption under
-    // three rings does not undo it. The loader refuses the older night now
-    // ([overnightMetric]), so a ring with no night behind it is a gap row with
-    // the reason in it — same place every other absence on this screen goes.
-
-    return Surface(
-      elevation: 2,
-      child: Column(children: [
-        if (bigText(c))
-          // Past ~1.3× a 100 pt column cannot hold the word "Recovery" on one
-          // line and there is nowhere for it to wrap to. The ring keeps its
-          // size and the type gets the width instead.
-          for (var i = 0; i < rings.length; i++) ...[
-            if (i > 0) const SizedBox(height: S.x2),
-            _RingRow(rings[i], onTap: _open(rings[i].kind)),
-          ]
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < rings.length; i++) ...[
-                if (i > 0) const SizedBox(width: S.x3),
-                Expanded(
-                    child: _RingColumn(rings[i], onTap: _open(rings[i].kind))),
-              ],
-            ],
-          ),
-        for (final r in gaps) ...[
-          const SizedBox(height: S.x2),
-          Divider(color: p.line, height: 1),
-          _GapRow(r, onTap: _open(r.kind)),
-        ],
-        if (d.readiness.value != null && d.drivers.isNotEmpty) ...[
-          const SizedBox(height: S.x3),
-          Divider(color: p.line, height: 1),
-          const SizedBox(height: S.x3),
-          Pressable(
-            onTap: _open(HomeRingKind.recovery),
-            // Top-aligned: at an accessibility size the driver list is three
-            // lines and "Why?" was centred against the middle of them.
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(l?.homeWhyLabel ?? 'Why?', style: F.cap.copyWith(color: p.ink3)),
-              const SizedBox(width: S.x2),
-              Expanded(
-                child: Text(
-                  d.drivers
-                      .take(3)
-                      .map((e) => driverLabel(e['label'], l))
-                      .join(' · '),
-                  style: F.cap.copyWith(color: p.ink2),
-                ),
-              ),
-              Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
-            ]),
-          ),
-        ],
-      ]),
-    );
+    final rec = _ringOf(HomeRingKind.recovery, d, l);
+    final strain = _ringOf(HomeRingKind.strain, d, l);
+    final sleep = _ringOf(HomeRingKind.sleep, d, l);
+    final aim = d.strainTarget?['value'];
+    return Column(children: [
+      _RecoveryCard(rec, hrv: d.hrv.value, rhr: d.rhr.value,
+          onTap: _open(HomeRingKind.recovery)),
+      const SizedBox(height: S.x3),
+      IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(
+              child: _MiniCard(sleep, onTap: _open(HomeRingKind.sleep))),
+          const SizedBox(width: S.x3),
+          Expanded(
+              child: _MiniCard(strain,
+                  sub: strain.measured && aim is num
+                      ? ((d.strain.value ?? 0) >= aim
+                          ? 'Target ${aim.toStringAsFixed(1)} met'
+                          : 'Aim for ${aim.toStringAsFixed(1)}')
+                      : null,
+                  onTap: _open(HomeRingKind.strain))),
+        ]),
+      ),
+    ]);
   }
 
   VoidCallback? _open(HomeRingKind k) {
@@ -896,155 +854,136 @@ _RingState _gap(HomeRingKind k, String label, IconData icon, Color color,
               : (l?.homeGapNoReason ?? 'Nothing recorded says why this is missing.')));
 }
 
-/// The dial itself. An empty [frac] draws the track and nothing else — which is
-/// exactly what [Ring] already does with a zero sweep.
-class _Dial extends StatelessWidget {
+/// The hero: recovery as a ring with the score inside it, the verdict beside
+/// it, and the two readings it is mostly made of under the verdict. When
+/// recovery is absent the ring is an empty track and the reason takes the
+/// place of the verdict.
+class _RecoveryCard extends StatelessWidget {
   final _RingState r;
-  final double stroke, icon;
+  final num? hrv, rhr;
+  final VoidCallback? onTap;
 
-  const _Dial(this.r, {required this.stroke, required this.icon});
+  const _RecoveryCard(this.r, {this.hrv, this.rhr, this.onTap});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Stack(alignment: Alignment.center, children: [
-      CustomPaint(
-        size: Size.infinite,
-        // Calibrating draws as discrete dashes filling in night by night;
-        // a finished (or absent-but-not-calibrating) ring draws the
-        // continuous arc, solid only once it is an actual measurement.
-        painter: r.calibrating
-            // One dash per night the baseline needs, not a fixed count —
-            // "6 of 14" draws as 14 divisions with 6 filled.
-            ? DashedRing(r.frac ?? 0, r.arc(p), p.track,
-                stroke: stroke, segments: r.need ?? 24)
-            : Ring(r.frac ?? 0, r.arc(p), p.track,
-                stroke: stroke, t: animate(c, 1), solid: r.measured),
-      ),
-      Icon(r.icon, size: icon, color: r.ink(p)),
-    ]);
-  }
-}
-
-/// The default: three across, the number under the ring rather than inside it.
-/// Inside is where a duration overflows its own circle at the first
-/// accessibility step, and nothing about "7h 45m" gets shorter.
-class _RingColumn extends StatelessWidget {
-  final _RingState r;
-  final VoidCallback? onTap;
-
-  const _RingColumn(this.r, {this.onTap});
-
-  @override
-  Widget build(BuildContext c) => Pressable(
-        onTap: onTap,
-        semanticLabel: r.spoken,
-        child: Column(children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 96),
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: _Dial(r, stroke: 7, icon: 20),
+    return Surface(
+      onTap: onTap,
+      semanticLabel: r.spoken,
+      pad: const EdgeInsets.all(S.x5),
+      child: Row(children: [
+        SizedBox(
+          width: 112,
+          height: 112,
+          child: Stack(alignment: Alignment.center, children: [
+            CustomPaint(
+              size: Size.infinite,
+              painter: r.calibrating
+                  ? DashedRing(r.frac ?? 0, r.arc(p), p.track,
+                      stroke: 11, segments: r.need ?? 24)
+                  : Ring(r.frac ?? 0, r.arc(p), p.track,
+                      stroke: 11, t: animate(c, 1), solid: r.measured),
             ),
-          ),
-          const SizedBox(height: S.x3),
-          _RingText(r, align: TextAlign.center),
-        ]),
-      );
-}
-
-/// The accessibility layout: ring left, type in the width it needs.
-class _RingRow extends StatelessWidget {
-  final _RingState r;
-  final VoidCallback? onTap;
-
-  const _RingRow(this.r, {this.onTap});
-
-  @override
-  Widget build(BuildContext c) => Pressable(
-        onTap: onTap,
-        semanticLabel: r.spoken,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: S.x2),
-          child: Row(children: [
-            SizedBox(
-              width: 56,
-              height: 56,
-              child: _Dial(r, stroke: 5, icon: 15),
-            ),
-            const SizedBox(width: S.x3),
-            Expanded(child: _RingText(r, align: TextAlign.start)),
+            if (r.measured)
+              Padding(
+                padding: const EdgeInsets.all(S.x5),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(r.value, style: F.n34.copyWith(color: p.ink)),
+                ),
+              )
+            else
+              Icon(r.icon, size: 26, color: p.ink3),
           ]),
         ),
-      );
-}
-
-class _RingText extends StatelessWidget {
-  final _RingState r;
-  final TextAlign align;
-
-  const _RingText(this.r, {required this.align});
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final cross = align == TextAlign.center
-        ? CrossAxisAlignment.center
-        : CrossAxisAlignment.start;
-    return Column(crossAxisAlignment: cross, children: [
-      Text(r.label.toUpperCase(),
-          style: F.over.copyWith(color: p.ink3), textAlign: align),
-      const SizedBox(height: S.x1),
-      // Absent reads as words, never as a dash and never as a zero — so it
-      // takes the sentence weight rather than the numeral one.
-      Text(r.value,
-          style: r.measured
-              ? F.n24.copyWith(color: p.ink)
-              : F.body.copyWith(color: p.ink2),
-          textAlign: align),
-      if (r.sub.isNotEmpty) ...[
-        const SizedBox(height: 2),
-        Text(r.sub, style: F.cap.copyWith(color: p.ink3), textAlign: align),
-      ],
-    ]);
+        const SizedBox(width: S.x5),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(r.label, style: F.cap.copyWith(color: p.ink3)),
+            const SizedBox(height: 2),
+            Text(r.measured ? r.sub : r.value,
+                style: F.t2.copyWith(color: r.measured ? r.ink(p) : p.ink2)),
+            if (!r.measured && r.sub.isNotEmpty)
+              Text(r.sub, style: F.cap.copyWith(color: p.ink3)),
+            if (r.why != null)
+              Text(r.why!,
+                  style: F.cap.copyWith(color: p.ink3),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis),
+            if (hrv != null || rhr != null) ...[
+              const SizedBox(height: S.x2),
+              if (hrv != null)
+                Text('HRV ${hrv!.round()} ms',
+                    style: F.cap.copyWith(color: p.ink2)),
+              if (rhr != null)
+                Text('Resting ${rhr!.round()} bpm',
+                    style: F.cap.copyWith(color: p.ink2)),
+            ],
+          ]),
+        ),
+      ]),
+    );
   }
 }
 
-/// WHY a ring is empty, on the row that also opens the screen which can say
-/// more about it. The three parts of a [StatusCard] — what is missing, why,
-/// what to do about it — at the size a home screen can afford to spend on an
-/// absence.
-class _GapRow extends StatelessWidget {
+/// Sleep and strain: one number, a bar for how far along it is, and one short
+/// line under it. An absent metric keeps its card and says why in that line.
+class _MiniCard extends StatelessWidget {
   final _RingState r;
+
+  /// Replaces the ring state's own caption when the screen has a better one.
+  final String? sub;
   final VoidCallback? onTap;
 
-  const _GapRow(this.r, {this.onTap});
+  const _MiniCard(this.r, {this.sub, this.onTap});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Pressable(
+    final caption = r.why ?? sub ?? r.sub;
+    return Surface(
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(r.icon, size: 15, color: p.ink3),
+      semanticLabel: r.spoken,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(r.icon, size: 16, color: r.ink(p)),
           const SizedBox(width: S.x2),
           Expanded(
-            child: Text.rich(
-              TextSpan(children: [
-                TextSpan(
-                    text: '${r.label} · ',
-                    style: F.cap.copyWith(
-                        color: p.ink2, fontWeight: FontWeight.w600)),
-                TextSpan(text: r.why, style: F.cap.copyWith(color: p.ink3)),
-              ]),
-            ),
+            child: Text(r.label,
+                style: F.cap.copyWith(color: p.ink2),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
           ),
-          const SizedBox(width: S.x2),
-          Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
         ]),
-      ),
+        const SizedBox(height: S.x3),
+        Text(r.value,
+            style: r.measured
+                ? F.n24.copyWith(color: p.ink)
+                : F.body.copyWith(color: p.ink2)),
+        const SizedBox(height: S.x3),
+        ClipRRect(
+          borderRadius: R.rPill,
+          child: SizedBox(
+            height: 6,
+            child: Stack(children: [
+              Positioned.fill(child: ColoredBox(color: p.track)),
+              FractionallySizedBox(
+                widthFactor: (r.frac ?? 0).clamp(0.0, 1.0),
+                child: ColoredBox(
+                    color: r.arc(p), child: const SizedBox.expand()),
+              ),
+            ]),
+          ),
+        ),
+        if (caption.isNotEmpty) ...[
+          const SizedBox(height: S.x2),
+          Text(caption,
+              style: F.over.copyWith(color: p.ink3),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis),
+        ],
+      ]),
     );
   }
 }
@@ -1056,7 +995,10 @@ class HomeData {
   final String? dayId;
   final Metric readiness;
   final List<Map<String, dynamic>> drivers;
-  final Metric sleepMin, rhr, steps, calories, caloriesTotal;
+  final Metric sleepMin, rhr, hrv, steps, calories, caloriesTotal;
+
+  /// Today's heart rate, one slot per minute, for the card on this screen.
+  final DayGraph graph;
 
   /// Estimated kcal spent walking today, from steps, height and weight. Shown
   /// beside the steps and NEVER added to the calorie totals. Null when the
@@ -1107,6 +1049,8 @@ class HomeData {
     this.drivers = const [],
     this.sleepMin = Metric.empty,
     this.rhr = Metric.empty,
+    this.hrv = Metric.empty,
+    this.graph = const DayGraph(),
     this.steps = Metric.empty,
     this.calories = Metric.empty,
     this.caloriesTotal = Metric.empty,
@@ -1133,6 +1077,8 @@ class HomeData {
         drivers: drivers,
         sleepMin: sleepMin,
         rhr: rhr,
+        hrv: hrv,
+        graph: graph,
         steps: steps,
         calories: calories,
         caloriesTotal: caloriesTotal,
@@ -1176,9 +1122,27 @@ class HomeData {
     // here may imply a second signal.
     final illness = today['illness'];
 
+    final hrvBlock = today['hrv'];
+    final dayId = (today['status'] as Map?)?['today_day']?.toString();
+    var graph = const DayGraph();
+    if (dayId != null) {
+      try {
+        graph = dayGraph(await repo.getDayTimeline(dayId));
+      } catch (_) {
+        // The card is optional; the rest of the screen is not.
+      }
+    }
+
     return HomeData(
+      graph: graph,
+      hrv: overnightMetric(
+          today,
+          hrvBlock is Map
+              ? {...hrvBlock.cast<String, dynamic>(), 'value': hrvBlock['rmssd']}
+              : null,
+          l),
       name: profile['name']?.toString(),
-      dayId: (today['status'] as Map?)?['today_day']?.toString(),
+      dayId: dayId,
       heldOverNight: heldOver,
       illnessState: illness is Map ? illness['state']?.toString() : null,
       illnessDay: illness is Map ? illness['date']?.toString() : null,
@@ -1390,27 +1354,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     );
   }
 
-  /// Morning / afternoon / evening / night. One split at 18:00 greeted 00:30
-  /// and 15:40 alike with "Good morning" beside a sun.
-  ({String word, IconData icon, Color color}) _greeting(int h, AppLocalizations? l) {
-    if (h < 5) {
-      return (word: l?.homeGreetingStillUp ?? 'Still up', icon: LucideIcons.moon, color: C.indigo);
-    }
-    if (h < 12) {
-      return (word: l?.homeGreetingMorning ?? 'Good morning', icon: LucideIcons.sun, color: C.yellow);
-    }
-    if (h < 18) {
-      return (word: l?.homeGreetingAfternoon ?? 'Good afternoon', icon: LucideIcons.sun, color: C.orange);
-    }
-    return (word: l?.homeGreetingEvening ?? 'Good evening', icon: LucideIcons.moon, color: C.indigo);
-  }
-
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final d = _d;
-    final g = _greeting(widget.hour ?? DateTime.now().hour, l);
 
     if (d == null) {
       return _refreshable(ListView(padding: pad, children: [
@@ -1481,63 +1429,25 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // state on a morning whose own bundle has not derived yet, which is
       // exactly the morning you would most want to be told.
       ...?_bodyWatch(c, d),
-      // ── greeting ──
+      // ── header ──
       Padding(
-        padding: const EdgeInsets.only(top: S.x3, bottom: S.x5),
+        padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x4),
         child: Row(children: [
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Flexible(
-                  child: Text(
-                    d.name == null || d.name!.isEmpty
-                        ? g.word
-                        : '${g.word}, ${d.name}',
-                    style: F.t2.copyWith(color: p.ink),
-                  ),
-                ),
-                const SizedBox(width: S.x2),
-                Icon(g.icon, size: 17, color: p.on(g.color)),
-              ]),
-              const SizedBox(height: 2),
+              Text('Today', style: F.t1.copyWith(color: p.ink)),
               Text(prettyDay(d.dayId, l), style: F.cap.copyWith(color: p.ink3)),
             ]),
           ),
-          const SizedBox(width: S.x3),
-          // The coach reads across all five domains, so it is not a tab and it
-          // is not any one domain's. It sits beside the avatar because that is
-          // where "things about you" already live.
-          //
-          // ONLY WHEN THERE IS A COACH. It used to render unconditionally, so
-          // on an install with no model configured it was a permanent button
-          // onto a setup form nobody had asked for — one of two things
-          // competing for the corner of a screen rebuilt around three rings.
-          // Setting the coach up is a setting, and it lives in Profile now.
-          if (coachReady(c)) ...[
-            Pressable(
-              semanticLabel: l?.homeAskCoach ?? 'Ask the coach',
-              onTap: () => go(c, const CoachScreen()),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle, color: p.wash(kCoachAccent)),
-                child: Icon(LucideIcons.sparkles,
-                    size: 18, color: p.on(kCoachAccent)),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-          ],
           Pressable(
-            semanticLabel: l?.homeProfileSettings ?? 'Profile and settings',
-            onTap: () => go(c, const ProfileHome()),
+            semanticLabel: 'Settings',
+            onTap: () => go(c, const MoreSettings()),
             child: Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle, color: p.fill(C.domHome)),
-              child: Icon(LucideIcons.settings, size: 18, color: p.inkOnFill),
+              decoration: BoxDecoration(shape: BoxShape.circle, color: p.card),
+              child: Icon(LucideIcons.settings, size: 18, color: p.ink2),
             ),
           ),
         ]),
@@ -1595,23 +1505,39 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // ── the rollup was withheld, not absent ──
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
-        // ── at a glance ──
-        Section(l?.homeAtAGlance ?? 'At a glance', _glance(c, d)),
+        // ── heart rate, all day ──
+        if (d.graph.hasCurve) ...[
+          const SizedBox(height: S.x3),
+          _heartCard(c, p, d.graph),
+        ],
 
-        // ── today's plan: only what the app can actually stand behind ──
-        Section(l?.homeTodaysPlan ?? "Today's plan", _plan(c, p, d)),
+        const SizedBox(height: S.x3),
+        _glance(c, d),
 
-        // ── the way into the whole day ──
-        //
-        // A DOOR, NOT A CARD, and that is what keeps it on the right side of
-        // the law at the top of this file. It shows no number, previews no
-        // shape and makes no observation — it names a place and goes there.
-        // Home decides; the day view is where you go to look, and until this
-        // row existed the only ways in were two screens deep.
-        const SizedBox(height: S.x5),
-        detailLinkRow(c, LucideIcons.heartPulse, 'Heart rate, all day',
-            'Minute by minute — touch the chart to read any time',
-            () => go(c, const DayTimelineScreen())),
+        // ── tonight ──
+        if (d.sleepNeedMin.value != null) ...[
+          const SizedBox(height: S.x3),
+          Surface(
+            onTap: () => go(c, const SleepDetail()),
+            child: Row(children: [
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Tonight', style: F.cap.copyWith(color: p.ink3)),
+                      Text(
+                          d.bedtime.value == null
+                              ? 'Sleep ${hm(d.sleepNeedMin.value)}'
+                              : 'Bed by ${clock(d.bedtime.value)}',
+                          style: F.head.copyWith(color: p.ink)),
+                    ]),
+              ),
+              if (d.bedtime.value != null)
+                Text('Need ${hm(d.sleepNeedMin.value)}',
+                    style: F.cap.copyWith(color: p.ink3)),
+            ]),
+          ),
+        ],
       ],
     ]));
   }
@@ -1674,6 +1600,40 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   Widget _refreshable(Widget list) =>
       RefreshIndicator(onRefresh: _load, child: list);
 
+  /// The whole day's heart rate as one line. Tap for the minute-by-minute
+  /// chart you can drag a finger across.
+  Widget _heartCard(BuildContext c, P p, DayGraph g) {
+    final vals = [for (final v in g.hr) ?v];
+    final lo = vals.reduce((a, b) => a < b ? a : b).round();
+    final hi = vals.reduce((a, b) => a > b ? a : b).round();
+    return Surface(
+      onTap: () => go(c, const DayTimelineScreen()),
+      semanticLabel: 'Heart rate today, $lo to $hi bpm',
+      child: Column(children: [
+        Row(children: [
+          Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.red)),
+          const SizedBox(width: S.x2),
+          Expanded(
+              child: Text('Heart rate', style: F.cap.copyWith(color: p.ink2))),
+          Text('$lo – $hi bpm', style: F.cap.copyWith(color: p.ink3)),
+        ]),
+        const SizedBox(height: S.x3),
+        SizedBox(
+          height: 64,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: LineChart(g.hr, p.on(C.red), t: animate(c, 1)),
+          ),
+        ),
+        const SizedBox(height: S.x2),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          for (final t in const ['12 am', 'Noon', '12 am'])
+            Text(t, style: F.over.copyWith(color: p.ink3)),
+        ]),
+      ]),
+    );
+  }
+
   Widget _glance(BuildContext c, HomeData d) {
     final l = AppLocalizations.of(c);
     final cards = <Widget>[];
@@ -1688,38 +1648,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       }
     }
 
-    // Resting heart rate comes off the SAME overnight block readiness does,
-    // and it used to carry a date on its own line for the mornings that block
-    // was held over from an older night. It cannot be an older night any more
-    // — the loader refuses those — so every tile in this row is today's and
-    // none of them needs a date.
-
-    // Sleep is a RING now, duration and all — the card here was the same
-    // number twice on one screen, and the ring is the one that says what the
-    // duration was measured against.
-    add(
-      d.rhr,
-      () => SignalCard(LucideIcons.heart, C.red, l?.homeHeartRate ?? 'Heart rate',
-          '${d.rhr.value!.round()}',
-          unit: 'bpm',
-          sub: l?.homeRestingSub ?? 'Resting',
-          onTap: () => go(c, const MetricDetail('resting_hr'))),
-      // "no sleep was recorded" was stated as fact, unconditionally — and it
-      // was rendered directly beside a Sleep card showing that night's
-      // duration. Sleep duration and nocturnal RHR are gated separately: a
-      // night staged from the accelerometer with no clean resting window
-      // produces exactly that pair.
-      // The else-branch used to name the gate — "no stretch of beats clean
-      // enough" — which is one of several reasons a scored night yields no
-      // resting rate, picked by a human writing copy. Only the branch the
-      // screen can actually see is stated; the other defers to the note, or to
-      // saying it does not know.
-      () => StatusCard.forMetric(l?.homeNoRestingHr ?? 'No resting heart rate', d.rhr,
-          why: d.sleepMin.isEmpty
-              ? (l?.homeNoRestingHrWhy ??
-                  'Resting heart rate is read from sleep, and no sleep was recorded.')
-              : ''),
-    );
     // Steps keeps its tile whether or not a counter reported. Zero steps is a
     // real reading — an unmoved counter — and it renders as 0, not as absence.
     // When nothing counted at all the tile stays and says so in two words,
@@ -1760,13 +1688,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     ));
     add(
       d.calories,
-      () => SignalCard(LucideIcons.flame, C.orange, l?.homeActiveEnergy ?? 'Active energy',
-          thousands(d.calories.value),
+      () => SignalCard(LucideIcons.flame, C.orange, 'Burned',
+          thousands(d.caloriesTotal.value ?? d.calories.value),
           unit: 'kcal',
           sub: d.caloriesTotal.value == null
-              ? (l?.homeCaloriesEstimated ?? 'Estimated')
-              : (l?.homeCaloriesTotal(thousands(d.caloriesTotal.value)) ??
-                  '${thousands(d.caloriesTotal.value)} total'),
+              ? 'Active only'
+              : '${thousands(d.calories.value)} active',
           onTap: () => go(c, const MetricDetail('calories'))),
       // No `why:`. It said "Needs your weight and age" — and the measured run
       // printed that to a profile carrying both, because energy had gone absent
@@ -1799,115 +1726,4 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     ]);
   }
 
-
-  Widget _plan(BuildContext c, P p, HomeData d) {
-    final l = AppLocalizations.of(c);
-    final rows = <Widget>[];
-
-    final stepsLeft = d.steps.value == null
-        ? null
-        : (d.stepGoal - d.steps.value!).round();
-    if (stepsLeft != null && stepsLeft > 0) {
-      rows.add(_row(
-          p,
-          LucideIcons.footprints,
-          C.green,
-          l?.homeStepsLeft(thousands(stepsLeft)) ?? '${thousands(stepsLeft)} steps left',
-          l?.homeMovement ?? 'Movement',
-          l?.homeGoalSteps(thousands(d.stepGoal)) ?? 'Goal ${thousands(d.stepGoal)}',
-          false));
-    } else if (stepsLeft != null) {
-      rows.add(_row(p, LucideIcons.footprints, C.green,
-          l?.homeStepGoalMet ?? 'Step goal met',
-          l?.homeMovement ?? 'Movement', l?.actionDone ?? 'Done', true));
-    }
-
-    final target = d.strainTarget;
-    if (target != null && target['value'] is num) {
-      final aim = target['value'] as num;
-      // The strain ring is on this screen now, so a row still saying "aim for
-      // 11.4" beside a ring reading 14.2 is a plan the day already overtook.
-      // Same shape the step goal above it has always had.
-      final met = (d.strain.value ?? -1) >= aim;
-      rows.add(_row(
-          p,
-          LucideIcons.zap,
-          C.purple,
-          met
-              ? (l?.homeStrainTargetMet ?? 'Strain target met')
-              : (l?.homeAimForStrain(aim.toStringAsFixed(1)) ??
-                  'Aim for ${aim.toStringAsFixed(1)} strain'),
-          l?.homeTraining ?? 'Training',
-          met
-              ? (l?.actionDone ?? 'Done')
-              : '${(target['low'] as num?)?.toStringAsFixed(1) ?? ''}–'
-                  '${(target['high'] as num?)?.toStringAsFixed(1) ?? ''}',
-          met));
-    }
-
-    final need = d.sleepNeedMin.value;
-    if (need != null) {
-      rows.add(_row(
-          p,
-          LucideIcons.bedDouble,
-          C.blue,
-          l?.homeSleepNeedRow(hm(need)) ?? '${hm(need)} of sleep',
-          l?.homeTonight ?? 'Tonight',
-          d.bedtime.value == null
-              ? (l?.homeNeed ?? 'Need')
-              : (l?.homeBedTime(clock(d.bedtime.value)) ?? 'Bed ${clock(d.bedtime.value)}'),
-          false));
-    }
-
-    if (rows.isEmpty) {
-      return StatusCard.forMetric(l?.homeNoPlanTitle ?? 'No plan for today yet', d.sleepNeedMin,
-              // "none are established yet" is the COLD-START reason, and it is
-              // a wrong answer when the baselines exist and are being withheld.
-              why: d.insightsStale != null
-                  ? (l?.homeNoPlanWhyStale ?? 'The cross-day rollup they come from is being rebuilt.')
-                  : (l?.homeNoPlanWhyNone ?? 'None are established yet.')) ??
-          const SizedBox.shrink();
-    }
-
-    return Surface(
-      pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
-      child: Column(children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) Divider(color: p.line, height: 1),
-          rows[i],
-        ],
-      ]),
-    );
-  }
-
-  Widget _row(P p, IconData i, Color col, String title, String kind,
-          String meta, bool done) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration:
-                BoxDecoration(color: p.wash(col), borderRadius: R.rSm),
-            child: Icon(i, size: 16, color: p.on(col)),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(kind, style: F.over.copyWith(color: p.ink3)),
-                  const SizedBox(height: 2),
-                  Text(title, style: F.body.copyWith(color: p.ink)),
-                ]),
-          ),
-          const SizedBox(width: S.x2),
-          Text(meta,
-              textAlign: TextAlign.right,
-              style: F.cap.copyWith(
-                  color: done ? p.on(C.green) : p.ink3,
-                  fontWeight: done ? FontWeight.w600 : FontWeight.w400)),
-        ]),
-      );
 }

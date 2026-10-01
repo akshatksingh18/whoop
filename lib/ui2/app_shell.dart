@@ -1,6 +1,6 @@
 // The four-tab shell.
 //
-// Home · Health · Nutrition · Workout. (The personal build removed Wellness.)
+// Today · Trends · Food · Train. Each is one scrolling page with no sub-tabs.
 // Stable: the contents
 // personalise, the mental map does not. Each domain owns an accent, so colour
 // tells you where you are before the label does.
@@ -19,10 +19,10 @@ import 'theme.dart';
 
 /// The four primary destinations, in bar order.
 enum ShellDomain {
-  home('Home', LucideIcons.house, C.domHome),
-  health('Health', LucideIcons.heartPulse, C.domHealth),
-  nutrition('Nutrition', LucideIcons.utensils, C.domFood),
-  workout('Workout', LucideIcons.dumbbell, C.domMove);
+  home('Today', LucideIcons.house, C.domHome),
+  health('Trends', LucideIcons.chartLine, C.domHealth),
+  nutrition('Food', LucideIcons.utensils, C.domFood),
+  workout('Train', LucideIcons.dumbbell, C.domMove);
 
   const ShellDomain(this.label, this.icon, this.accent);
 
@@ -120,15 +120,15 @@ class _TabBar extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Container(
-      decoration: BoxDecoration(
-        color: p.card,
-        border: Border(top: BorderSide(color: p.line)),
-      ),
+    // A floating pill on the page colour, not a bar with a rule over it.
+    return ColoredBox(
+      color: p.bg,
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: 60,
+        minimum: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x2),
+        child: Container(
+          height: 62,
+          decoration: BoxDecoration(color: p.card, borderRadius: R.rXl),
           child: Row(
             children: [
               for (final d in ShellDomain.values)
@@ -157,7 +157,7 @@ class _Tab extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final ink = on ? p.on(domain.accent) : p.ink3;
+    final ink = on ? p.ink : p.ink3;
     return Semantics(
       selected: on,
       child: Pressable(
@@ -166,16 +166,7 @@ class _Tab extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedContainer(
-              duration: motion(c, Motion.base),
-              padding: EdgeInsets.symmetric(
-                  horizontal: on ? S.x3 : 0, vertical: S.x1),
-              decoration: BoxDecoration(
-                color: on ? p.wash(domain.accent) : const Color(0x00000000),
-                borderRadius: R.rPill,
-              ),
-              child: Icon(domain.icon, size: 20, color: ink),
-            ),
+            Icon(domain.icon, size: 21, color: ink),
             const SizedBox(height: 3),
             Text(
               domain.label,

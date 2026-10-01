@@ -21,6 +21,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../build_profile.dart';
 import '../../data/db.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/prefs.dart';
@@ -78,7 +79,8 @@ Arch archOf(Activity a) {
   if (_laps.contains(a.name)) return Arch.laps;
   if (_sports.contains(a.name)) return Arch.match;
   return switch (a.track) {
-    Track.sets => Arch.strength,
+    // The personal build logs no sets: a lift is a timed session.
+    Track.sets => kPersonalSideload ? Arch.basic : Arch.strength,
     Track.interval => Arch.interval,
     Track.stillness => Arch.flow,
     Track.distance => Arch.route,
@@ -918,7 +920,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               // hit box (grammar.dart's accessibility floor, not optional) —
               // S.tap * 2 alone is 12 pt short of that plus the gap between
               // them, which is exactly the RenderFlex overflow this fixed.
-              trailingWidth: canChangeType ? S.tap * 2 + S.x3 : S.tap,
+              trailingWidth: canChangeType ? S.tap : 0,
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 if (canChangeType) ...[
                   Pressable(
@@ -927,16 +929,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     onTap: () => _changeType(c),
                     child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
                   ),
-                  const SizedBox(width: S.x3),
                 ],
-                Pressable(
-                  semanticLabel: l?.activitySummaryShareThis(
-                          a.name.toLowerCase()) ??
-                      'Share this ${a.name.toLowerCase()}',
-                  onTap: () => Navigator.of(c).push(MaterialPageRoute(
-                      builder: (_) => ShareSheet(r))),
-                  child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
-                ),
               ]),
             ),
           ),

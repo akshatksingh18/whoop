@@ -129,11 +129,11 @@ class P {
 
   static P of(BuildContext c) => P(Theme.of(c).brightness == Brightness.dark);
 
-  Color get bg => dark ? const Color(0xFF0B1017) : C.n50;
-  Color get card => dark ? const Color(0xFF151C26) : C.white;
-  Color get card2 => dark ? const Color(0xFF1D2632) : C.n100;
-  Color get line => dark ? const Color(0xFF232D3B) : C.n200;
-  Color get track => dark ? const Color(0xFF232D3B) : C.n200;
+  Color get bg => dark ? const Color(0xFF0B0D12) : C.n50;
+  Color get card => dark ? const Color(0xFF161922) : C.white;
+  Color get card2 => dark ? const Color(0xFF1F2330) : C.n100;
+  Color get line => dark ? const Color(0xFF262B38) : C.n200;
+  Color get track => dark ? const Color(0xFF262B38) : C.n200;
 
   Color get ink => dark ? const Color(0xFFF1F5F9) : C.n900;
   Color get ink2 => dark ? const Color(0xFF94A3B8) : C.n600;
@@ -178,17 +178,12 @@ class P {
   Color wash(Color accent, {double strength = 1}) =>
       accent.withValues(alpha: (dark ? .18 : .11) * strength.clamp(0.0, 1.0));
 
+  /// Dark cards are flat: the page is darker than the card and that step is
+  /// the separation. Light cards keep a soft shadow, because white on
+  /// near-white has no step to lean on.
   List<BoxShadow> el(int level) {
     if (level <= 0) return const [];
-    if (dark) {
-      return [
-        BoxShadow(
-          color: const Color(0xFF000000).withValues(alpha: .32 + level * .06),
-          blurRadius: 6.0 * level,
-          offset: Offset(0, level.toDouble()),
-        ),
-      ];
-    }
+    if (dark) return const [];
     return [
       BoxShadow(
         color: C.n900.withValues(alpha: .04 + level * .015),
@@ -357,7 +352,7 @@ class S {
 class R {
   static const sm = 8.0;
   static const md = 12.0;
-  static const lg = 16.0;
+  static const lg = 20.0;
   static const xl = 24.0;
   static const xxl = 32.0;
   static const pill = 999.0;

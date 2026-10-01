@@ -17,6 +17,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../build_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../grammar.dart';
 import '../theme.dart';
@@ -229,11 +230,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
   /// only where a route can be recorded — a treadmill was being sold "distance
   /// and pace" that nothing in this app can measure indoors.
   String _trackLabel(Track t, AppLocalizations? l) => switch (t) {
-        Track.sets =>
+        Track.sets when !kPersonalSideload =>
           l?.activitySetupTrackSets ?? 'Sets, reps and load — logged by you',
         Track.distance when widget.a.gps =>
           l?.activitySetupTrackDistanceGps ?? 'Distance, pace and heart rate',
-        Track.distance || Track.duration =>
+        Track.distance || Track.duration || Track.sets =>
           l?.activitySetupTrackTime ?? 'Time and heart rate',
         Track.interval =>
           l?.activitySetupTrackInterval ?? 'Rounds and heart rate',

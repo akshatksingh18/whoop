@@ -3,7 +3,8 @@
 **State:** The matching minimal build profile and public-repository macOS workflow produced accepted
 rollback `0.9.30` build `63`, cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted`
-(`../setup.md` owns the cache location). Current `0.9.32` build `65` is installed after a clean
+(`../setup.md` owns the cache location). `0.9.33` build `66` is now installed over build `65` and awaits
+its device pass. Build `65` was installed after a clean
 same-identity reinstall and verified encrypted restore; Akshat confirmed the recovered app works. The current
 minimal profile intentionally has no HealthKit capability, so it does not import the Apple Health
 aggregate. Device testing verified the direct-pedometer path after enabling **This phone → Steps**;
@@ -14,8 +15,9 @@ and a controlled forced-due Wi-Fi daemon cycle are verified; installed About/pro
 remaining physical behavior remain open. Build 63 excludes GPS. The uninstalled `0.9.31`
 build `64` artifact is superseded and must not be installed. Build `65` enables personal GPS, hides the unsupported Oura
 pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests,
-macOS build, payload validation, manifest, and downloaded checksum pass. The candidate is cached at
-`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.32-build65-f25fcbd6`. Do not
+macOS build, payload validation, manifest, and downloaded checksum pass. Build `66` is the current
+candidate, cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.33-build66-648c1b2e`. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
 ### Remaining build-65 candidate pass
@@ -38,7 +40,8 @@ substitute an arbitrary upstream release IPA and claim it matches this capabilit
    cycle remains open. The real app retained its data and band connection after that daemon cycle.
    The shared health check must also print `IDENTITY` with mode `exact`; this prevents a future build
    from recreating the automatic-rewrite failure while still appearing enrolled.
-5. Leave build 65 in `testing\` until all checks pass. Build 63 remains the accepted rollback.
+5. Keep exactly one candidate in `testing\` (now build 66) until all checks pass. Build 63
+   remains the accepted rollback.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that
@@ -134,7 +137,7 @@ For migration from an existing Android installation, preserve this order:
   Manually** or the normal same-IPA install path.
 - Raise a persistent Windows alert at the three-day threshold, escalate by two days, and require USB
   recovery inside the final day. Test every alert and one failed-network retry.
-- On the phone (from `0.9.33`/`66`, not yet built), **Settings → About → Status** shows the installed
+- On the phone (from `0.9.33`/`66`, built but not yet device-verified), **Settings → About → Status** shows the installed
   profile's expiry. The app also sets local alerts **48 h and 24 h** before it; tapping one opens
   Status. The alerts re-arm from the installed profile every time WHOOP opens, so a refresh moves
   them. They supplement the Windows health check and do not replace it.
@@ -152,7 +155,7 @@ For migration from an existing Android installation, preserve this order:
   for routine signing; uninstalling can delete the database, pairing state, and preferences.
 - Before a new-IPA upgrade, bundle/signing migration, or recovery experiment, create and restore-test
   the app's passphrase-encrypted full database export off the phone.
-- From `0.9.33`/`66` (not yet built), **Your data → Automatic backup** writes encrypted, verified
+- From `0.9.33`/`66` (built but not yet device-verified), **Your data → Automatic backup** writes encrypted, verified
   `.osbk` backups on its own once a backup passphrase is set. They sit in the app's `OpenStrap
   Backups` folder and are deleted with the app, so they do not replace the off-phone copy above.
   To make an off-phone copy, copy the newest one to Windows through Files or iTunes File Sharing.
@@ -162,9 +165,10 @@ For migration from an existing Android installation, preserve this order:
   bundle-ID rewriting off and exact final ID `com.akshat.personal.whoop.5564K8D4SV`; it preserves
   data and pairing. Keep a verified encrypted backup anyway. Backup/delete/clean-install/restore is
   the fallback only if the exact-ID container-preserving path fails.
-- Keep current and previous known-good unsigned IPAs, hashes, source revisions, and capability
-  manifests outside Git so a compatible replacement signer can be used if Sideloadly temporarily
-  breaks after an Apple change.
+- Keep the accepted build (`backup\`) and at most one candidate (`testing\`) outside Git, with
+  hashes, source revisions and capability manifests, so a compatible replacement signer can be used
+  if Sideloadly temporarily breaks after an Apple change. Older builds are not kept; they are
+  reproducible from their workflow runs.
 
 ## Capability and runtime caveats
 

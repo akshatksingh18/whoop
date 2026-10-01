@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
@@ -22,10 +21,8 @@ import 'ui2/onboarding/pairing.dart';
 import 'ui2/onboarding/profile_setup.dart';
 import 'ui2/onboarding/splash.dart';
 import 'ui2/onboarding/welcome.dart';
-import 'ui2/profile/profile.dart';
+import 'ui2/profile/settings.dart' show MoreSettings;
 import 'ui2/profile/status.dart';
-import 'ui2/screens/ai_briefing.dart';
-import 'ui2/screens/calm_breathing.dart';
 import 'ui2/screens/what_changed.dart';
 import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
@@ -398,13 +395,11 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
 /// `/ai/*` used to be in that list too. It now lands on the briefing itself,
 /// which also carries the exact snapshot that was sent to produce it.
 Widget? screenForRoute(String route) => switch (routePath(route)) {
-      kRouteAiMorning =>
-        const AiBriefingScreen(period: BriefingPeriod.morning),
-      kRouteAiEvening =>
-        const AiBriefingScreen(period: BriefingPeriod.evening),
+      // The AI briefings and the breathing session are removed; a tap on an
+      // older build's notification lands on Today.
+      kRouteAiMorning || kRouteAiEvening || kRouteBreathing => null,
       // The journal is removed; an older build's check-in tap lands on Home.
       kRouteJournalCompose => null,
-      kRouteBreathing => const CalmBreathing(),
       // The hydration reminder (removed with water logging in the personal
       // build) — a tap on one armed by an older build lands on the Nutrition
       // tab without pushing a second copy of it.
@@ -418,7 +413,7 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
       kRouteWorkoutSuggestion =>
         WorkoutSuggestionScreen(focusId: routeId(route)),
       // Battery, band and sources all live behind this one.
-      kRouteProfile => const ProfileHome(),
+      kRouteProfile => const MoreSettings(),
       // The weekly recap used to land on the Health tab and push nothing,
       // because there was no recap screen to push. There is now: the sweep's
       // findings, which the app has been computing every night and delivering

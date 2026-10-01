@@ -38,6 +38,7 @@ import '../ui2.dart';
 import 'alarm.dart';
 import 'band_notifications.dart';
 import 'data.dart';
+import 'devices.dart';
 import 'status.dart';
 import 'gallery.dart';
 import 'gestures.dart';
@@ -86,7 +87,7 @@ class _MoreSettingsState extends State<MoreSettings> {
   void initState() {
     super.initState();
     _readVersion();
-    _readIcon();
+    if (!kPersonalSideload) _readIcon();
   }
 
   Future<void> _readIcon() async {
@@ -177,6 +178,7 @@ class _MoreSettingsState extends State<MoreSettings> {
       updateAvailable: app.updateAvailable,
       updateMandatory: app.updateMandatory,
       onEditProfile: () => goto(c, const EditProfile()),
+      onDevices: () => goto(c, const MyDevices()),
       onAlarm: () => goto(c, const AlarmScreen()),
       onNotifications: () => goto(c, const NotificationSettings()),
       onData: () => goto(c, const DataScreen()),
@@ -512,6 +514,7 @@ class MoreSettingsView extends StatelessWidget {
   final VoidCallback? onVersionTap, onToggleDev, onGallery;
 
   final VoidCallback? onEditProfile,
+      onDevices,
       onAlarm,
       onNotifications,
       onData,
@@ -550,6 +553,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onToggleDev,
     this.onGallery,
     this.onEditProfile,
+    this.onDevices,
     this.onAlarm,
     this.onNotifications,
     this.onData,
@@ -583,10 +587,11 @@ class MoreSettingsView extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
-                // No "Edit profile" here. It lives in one place — Quick access
-                // on the Profile screen — because two doors to one form is how
-                // a user ends up unsure which one is the real setting.
                 settingsGroup(c, l?.settingsGroupTheBand ?? 'The band', [
+                  SetRow(LucideIcons.watch, C.blue, 'My band',
+                      sub: 'Battery, sync and pairing', onTap: onDevices),
+                  SetRow(LucideIcons.userPen, C.purple, 'Profile',
+                      sub: 'Sex, age, height, weight', onTap: onEditProfile),
                   SetRow(LucideIcons.alarmClock, C.orange,
                       l?.settingsAlarmRowTitle ?? 'Alarm',
                       sub: l?.settingsAlarmRowSub ??
@@ -656,6 +661,7 @@ class MoreSettingsView extends StatelessWidget {
                       onTap: onToggleHealthSync,
                     ),
                 ]),
+                if (!kPersonalSideload)
                 settingsGroup(c, l?.settingsGroupAutomation ?? 'Automation', [
                   // The picker died with the old ui tree and the engine kept
                   // running against a mapping nothing could set — the whole
@@ -1018,6 +1024,7 @@ class NotificationSettingsView extends StatelessWidget {
                     // sedentary surfaces: the OS-scheduled two-hour-still
                     // one-shot, and the foreground desk-posture check (which
                     // also buzzes the band when it fires).
+                    if (!kPersonalSideload)
                     SetRow(LucideIcons.footprints, C.orange,
                         l?.settingsMovementNudgeRowTitle ?? 'Movement nudge',
                         sub: l?.settingsMovementNudgeRowSub ??
@@ -1044,6 +1051,7 @@ class NotificationSettingsView extends StatelessWidget {
                             windDownEnabled: !prefs.windDownEnabled))),
                     // The step-goal achievement's off switch. On by default:
                     // once a day at most, and only on a real crossing.
+                    if (!kPersonalSideload)
                     SetRow(LucideIcons.trophy, C.orange,
                         l?.settingsStepGoalAlertsRowTitle ??
                             'Step goal alerts',

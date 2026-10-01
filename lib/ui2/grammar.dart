@@ -194,7 +194,7 @@ class Scrubber extends StatelessWidget {
   }
 }
 
-/// The base card surface. Elevation, not outline.
+/// The base card surface. See [P.el] for what elevation draws in each theme.
 class Surface extends StatelessWidget {
   final Widget child;
   final EdgeInsets pad;

@@ -91,6 +91,28 @@ Future<void> createNutritionTables(Database db) async {
       created_at  INTEGER NOT NULL
     )
   ''');
+  // A sub-heading inside a meal ("Oatmeal", "Omelette"), Akshat's idea.
+  // Added in place, guarded, no schema version: an additive column with a
+  // constant default is a no-op on an install that already has it, and this
+  // runs on every open (`_createUserTables` from `_repairOpenSchema`).
+  final cols = {
+    for (final r in await db.rawQuery('PRAGMA table_info(food_entry)'))
+      r['name'],
+  };
+  if (!cols.contains('grp')) {
+    try {
+      await db.execute("ALTER TABLE food_entry ADD COLUMN grp TEXT NOT NULL DEFAULT ''");
+    } catch (_) {/* another opener added it first */}
+  }
+  // Body weight, one reading per day (the latest wins). For the weight trend
+  // and the maintenance measured from weight change.
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS body_weight (
+      date   TEXT PRIMARY KEY,
+      kg     REAL NOT NULL,
+      at_ts  INTEGER NOT NULL
+    )
+  ''');
 }
 
 // ══════════════════ MODEL ══════════════════
@@ -161,9 +183,13 @@ class FoodEntry {
     this.source = FoodSource.manual,
     this.confirmed = false,
     this.note = '',
+    this.group = '',
   });
 
   final String id;
+
+  /// The sub-heading inside its meal ('' for none), e.g. "Omelette".
+  final String group;
 
   /// Local day label, 'YYYY-MM-DD'.
   final String date;
@@ -214,8 +240,55 @@ class FoodEntry {
           unit: unit,
           source: source,
           note: note,
+          group: group,
         )
       : this;
+
+  /// The same food, somewhere else: another day, meal or group. A fresh id;
+  /// the time keeps its clock time on the new day.
+  FoodEntry copyTo(String newDate, String newMeal,
+      {required String newId, String? newGroup}) {
+    int? ts = atTs;
+    if (ts != null) {
+      final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+      final d = DateTime.tryParse(newDate);
+      if (d != null) {
+        ts = DateTime(d.year, d.month, d.day, t.hour, t.minute)
+                .millisecondsSinceEpoch ~/
+            1000;
+      }
+    }
+    return FoodEntry(
+      id: newId,
+      date: newDate,
+      meal: newMeal,
+      label: label,
+      atTs: ts,
+      foodKey: foodKey,
+      quantity: quantity,
+      unit: unit,
+      kcal: kcal,
+      proteinG: proteinG,
+      carbsG: carbsG,
+      fatG: fatG,
+      fibreG: fibreG,
+      sugarG: sugarG,
+      satFatG: satFatG,
+      sodiumMg: sodiumMg,
+      ironMg: ironMg,
+      calciumMg: calciumMg,
+      // A copy is a repeat of what was logged; moving an entry between groups
+      // (same id) is still the original entry.
+      source: newId == id || source == FoodSource.photo ? source : FoodSource.repeat,
+      confirmed: confirmed,
+      note: note,
+      group: newGroup ?? group,
+    );
+  }
+
+  /// This entry in another group ('' = none).
+  FoodEntry inGroup(String g) =>
+      copyTo(date, meal, newId: id, newGroup: g);
 
   Map<String, Object?> toRow(int nowMs) => {
     'id': id,
@@ -239,6 +312,7 @@ class FoodEntry {
     'source': source.name,
     'confirmed': confirmed ? 1 : 0,
     'note': note,
+    'grp': group,
     'created_at': nowMs,
     'updated_at': nowMs,
   };
@@ -267,6 +341,7 @@ class FoodEntry {
       source: _sourceOf((r['source'] as String?) ?? 'manual'),
       confirmed: ((r['confirmed'] as num?)?.toInt() ?? 0) == 1,
       note: (r['note'] as String?) ?? '',
+      group: (r['grp'] as String?) ?? '',
     );
   }
 }
@@ -569,6 +644,49 @@ class NutritionDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Copy every entry of [fromMeal] on [fromDate] into [toMeal] on [toDate]
+  /// (MyFitnessPal's "copy from" / "copy to"). Returns how many were copied.
+  static Future<int> copyMeal(Database db,
+      {required String fromDate,
+      required String fromMeal,
+      required String toDate,
+      required String toMeal}) async {
+    final src = [
+      for (final e in await entriesForDay(db, fromDate))
+        if (e.meal == fromMeal) e,
+    ];
+    var i = 0;
+    for (final e in src) {
+      await put(db, e.copyTo(toDate, toMeal, newId: '${newId()}_${i++}'));
+    }
+    return src.length;
+  }
+
+  /// Foods most often logged in the same day and meal as [foodKey], most
+  /// frequent first (the "often eaten with" row). Only the user's own foods,
+  /// never [foodKey] itself.
+  static Future<List<Map<String, Object?>>> eatenWith(
+      Database db, String foodKey, {int limit = 5}) async {
+    return db.rawQuery(
+      'SELECT d.*, COUNT(*) AS n, AVG(o.quantity) AS usual_g FROM food_entry a '
+      'JOIN food_entry o ON o.date = a.date AND o.meal = a.meal '
+      'AND o.food_key IS NOT NULL AND o.food_key != a.food_key '
+      'JOIN food_def d ON d.key = o.food_key '
+      'WHERE a.food_key = ? GROUP BY o.food_key ORDER BY n DESC, d.label '
+      'LIMIT ?',
+      [foodKey, limit],
+    );
+  }
+
+  /// How much of [foodKey] was logged last time, for a one-tap re-log.
+  static Future<double?> lastGrams(Database db, String foodKey) async {
+    final r = await db.rawQuery(
+        'SELECT quantity FROM food_entry WHERE food_key = ? AND quantity IS NOT '
+        'NULL ORDER BY created_at DESC LIMIT 1',
+        [foodKey]);
+    return r.isEmpty ? null : (r.first['quantity'] as num?)?.toDouble();
+  }
+
   /// The trailing [days] days ending today, oldest first, already rolled up.
   static Future<NutritionWindow> window(
     Database db, {
@@ -732,8 +850,33 @@ class MyFoods {
   static Future<void> deleteMeal(Database db, String key) =>
       db.delete('meal_template', where: 'key = ?', whereArgs: [key]);
 
-  /// Log every item of [m] into [meal] on [date]. Items whose food was since
-  /// deleted are skipped. Returns how many entries were written.
+  /// A saved meal from the entries of one meal. Only the user's own foods
+  /// (entries with a food key and grams) can go into a saved meal; the rest
+  /// are counted so the screen can say they were left out.
+  static Future<({int saved, int skipped})> saveMeal(Database db,
+      {required String label,
+      required String meal,
+      required List<FoodEntry> entries}) async {
+    final items = [
+      for (final e in entries)
+        if (e.foodKey != null && e.quantity != null) (e.foodKey!, e.quantity!),
+    ];
+    if (items.isNotEmpty) {
+      await putMeal(
+          db,
+          MealTemplate(
+            key: 'meal:${DateTime.now().microsecondsSinceEpoch}',
+            label: label,
+            meal: meal,
+            items: items,
+          ));
+    }
+    return (saved: items.length, skipped: entries.length - items.length);
+  }
+
+  /// Log every item of [m] into [meal] on [date], under a sub-heading named
+  /// after the saved meal. Items whose food was since deleted are skipped.
+  /// Returns how many entries were written.
   static Future<int> logMeal(
       Database db, MealTemplate m, String date, String meal) async {
     var n = 0;
@@ -747,7 +890,8 @@ class MyFoods {
             id: '${NutritionDb.newId()}_$n',
             date: date,
             meal: meal,
-            atTs: now.millisecondsSinceEpoch ~/ 1000),
+            atTs: now.millisecondsSinceEpoch ~/ 1000)
+          .inGroup(m.label),
       );
       n++;
     }
@@ -755,3 +899,100 @@ class MyFoods {
   }
 }
 
+
+// ══════════════════ BODY WEIGHT ══════════════════
+
+class BodyWeight {
+  BodyWeight._();
+
+  /// Record today's (or [date]'s) weight; a second reading the same day
+  /// replaces the first.
+  static Future<void> put(Database db, String date, double kg) => db.insert(
+        'body_weight',
+        {
+          'date': date,
+          'kg': kg,
+          'at_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+  static Future<void> delete(Database db, String date) =>
+      db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
+
+  /// Every reading on or after [sinceDate], oldest first.
+  static Future<List<({String date, double kg})>> since(
+      Database db, String sinceDate) async {
+    final rows = await db.query('body_weight',
+        where: 'date >= ?', whereArgs: [sinceDate], orderBy: 'date ASC');
+    return [
+      for (final r in rows)
+        (date: r['date'] as String, kg: (r['kg'] as num).toDouble()),
+    ];
+  }
+}
+
+/// Kilocalories in a kilogram of body-weight change. The common 7,700
+/// (3,500 kcal per pound) is a fat-tissue figure; early changes include water,
+/// which is why the measured maintenance needs weeks, not days.
+const double kKcalPerKg = 7700;
+
+/// The 7-day trailing mean of [weights] (by date), one value per reading:
+/// the trend line that smooths out water swings.
+List<({String date, double kg})> weightTrend(
+    List<({String date, double kg})> weights) {
+  final out = <({String date, double kg})>[];
+  for (var i = 0; i < weights.length; i++) {
+    final end = DateTime.parse(weights[i].date);
+    final from = DateTime(end.year, end.month, end.day - 6);
+    final win = [
+      for (var j = 0; j <= i; j++)
+        if (!DateTime.parse(weights[j].date).isBefore(from)) weights[j].kg,
+    ];
+    out.add((
+      date: weights[i].date,
+      kg: win.reduce((a, b) => a + b) / win.length,
+    ));
+  }
+  return out;
+}
+
+/// Maintenance MEASURED from the scale: average food eaten minus the energy
+/// the trend weight change accounts for, over a window of at least
+/// [minDays] days with at least [minWeighIns] weigh-ins and [minLoggedDays]
+/// days of food. The weight change is the least-squares slope of all
+/// readings in the window (kg a day), which no single water swing moves much.
+///
+/// [eaten] is kcal per COMPLETE logged day in the same window. Null when
+/// there is not enough of either.
+({double kcal, double kgPerWeek, int days, int weighIns, int loggedDays})?
+    measuredMaintenance(List<({String date, double kg})> weights,
+        List<double> eaten,
+        {int minDays = 14, int minWeighIns = 8, int minLoggedDays = 10}) {
+  if (weights.length < minWeighIns || eaten.length < minLoggedDays) return null;
+  final t0 = DateTime.parse(weights.first.date);
+  final xs = [
+    for (final w in weights)
+      DateTime.parse(w.date).difference(t0).inHours / 24.0,
+  ];
+  final span = xs.last - xs.first;
+  if (span < minDays - 1) return null;
+  final ys = [for (final w in weights) w.kg];
+  final mx = xs.reduce((a, b) => a + b) / xs.length;
+  final my = ys.reduce((a, b) => a + b) / ys.length;
+  var num = 0.0, den = 0.0;
+  for (var i = 0; i < xs.length; i++) {
+    num += (xs[i] - mx) * (ys[i] - my);
+    den += (xs[i] - mx) * (xs[i] - mx);
+  }
+  if (den <= 0) return null;
+  final slope = num / den; // kg per day
+  final avgEaten = eaten.reduce((a, b) => a + b) / eaten.length;
+  return (
+    kcal: avgEaten - slope * kKcalPerKg,
+    kgPerWeek: slope * 7,
+    days: span.round() + 1,
+    weighIns: weights.length,
+    loggedDays: eaten.length,
+  );
+}

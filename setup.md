@@ -211,7 +211,15 @@ Build `0.9.35`/`68` (commit `284fff83e750c8476f6eef20b13cc80b9407f8e2`): Linux t
 `873ba87dd4b56e90ed02b94fd956478e66236c7027ec5fa957c35967e227ae55`, matches its checksum
 file and passes `tool/personal_ios.py validate`. It is the one candidate in
 `../final-ipas/whoop/testing/WHOOP-0.9.35-build68-284fff83`. Akshat installed it over build 67;
-its run screen worked on his first run, and its device pass is open.
+its run screen worked on his first run. It is no longer cached: build 69 replaced it in the
+testing slot.
+
+Build `0.9.36`/`69` (commit `5747dd35be2c`): Linux test run `37147798691` and personal iPhone
+workflow run `37147823754` passed. Artifact `whoop-personal-5747dd35be2c-unsigned.ipa`
+(17.6 MB), SHA-256
+`0acf34d2cafabb58e2673994f9ed81cfaab4bb89f7de3cbc778f36a7b85f8ffa`, matches its checksum
+file and passes `tool/personal_ios.py validate`. It is the one candidate in
+`../final-ipas/whoop/testing/WHOOP-0.9.36-build69-5747dd35` and is not yet installed.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

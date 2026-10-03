@@ -21,7 +21,10 @@
 > `com.akshat.personal.whoop.5564K8D4SV` preserves data and pairing while advancing signing. A
 > controlled forced-due unattended Wi-Fi daemon cycle also passes; the next naturally elapsed cycle
 > and remaining GPS/background checks remain open — see `CLAUDE.md`.
-> Source `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
+> Source `0.9.37`/`70` adds the MyFitnessPal-style Food diary, maintenance history with body
+> weight, phone-first steps, a cleaner Sleep screen, run medals and voice cues, and the 30-day
+> chart touch fix (`CLAUDE.md`, `todo.md`).
+> Candidate `0.9.36`/`69` (on the phone, check open) adds run calories by distance and by heart rate, a Running row in
 > maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger
 > cursors and pull to refresh (`CLAUDE.md`, `todo.md`).
 > Candidate `0.9.35`/`68` is installed over build 67; its device pass is open. It adds maintenance

@@ -1,60 +1,95 @@
-# Next build — `0.9.36`/`69`
+# Next build — `0.9.37`/`70`
 
-**State:** implemented in source with Akshat's decisions applied, and the local tests pass.
-Building, installing and the phone check are the steps left. When the phone check passes, remove
-this file's contents and record anything still open in `CLAUDE.md`. Shipped behaviour is described
-in `CLAUDE.md` and `metrics-map.md`, not here.
+**State:**
+- **Build 70** is implemented in source on Akshat's go-ahead. Everything is in one build, and the
+  local tests pass.
+- **Left:** building it, installing it over build 69, and the phone check below.
+- **Build 69:** its own phone check is folded into this one.
+- **Process:** when the phone check passes, clear this file and record anything still open in
+  `CLAUDE.md`. Shipped behaviour is described in `CLAUDE.md` and `metrics-map.md`, not here.
 
-## Akshat's decisions (applied)
+## Readiness audit (Akshat asked for an end-to-end check)
 
-- **Walk breaks inside a run:** costed as walking (0.1 per metre, not 0.143), so the distance
-  number stays a minimum. Heart rate is used through Method 2, which covers walk breaks minute by
-  minute.
-- **Streak:** a day counts with at least 10 minutes of running or walking.
-- **Removed:**
-  - the Steps screen's list of stretches;
-  - Today's "Tonight · Bed by" card;
-  - the Sleep screen's Tonight section;
-  - the wind-down reminder (read as off and hidden).
-- **Breathing rate:** the Trends row shows only when the last 30 days measured it on at least half
-  the nights slept. The rule is applied automatically, so no manual count was needed.
+No broken link was found. The path is:
 
-## Not done from the plan
+1. Each night stores HRV (`ln_rmssd`), resting heart rate, breathing and skin temperature as
+   `metric_series` rows.
+2. `_BaselineHistoryCache` reads the earlier nights for each, leaving out imported days and days
+   from a different band family, and keeping the last 28 values.
+3. `readinessComposite` (packages/analytics) needs:
+   - at least 14 earlier nights per input (`readinessCompositeMinBaseline`);
+   - at least 2 inputs;
+   - at least half the weight.
+4. Each input is scored as a robust z against its own baseline, and the weights renormalise over
+   the inputs present.
+5. A missing score stores why in the day bundle's `readiness_absent_diag`.
 
-- The reason a night's breathing rate was withheld is not shown under Readiness → What drove it.
-  The row still says "Not measured". The reason is stored in the day bundle
-  (`respiration.rsa.note`) if it is wanted later.
+**Why the history before 30 September is sparse:** that 14-night rule (plus nights with HRV or
+resting HR not measured, and imported days, which never count). Build 70 shows the stored reason
+for any empty day while dragging the history (`readinessGap`), so the exact cause of each gap can be
+read on the phone.
 
-## Phone check for build 69
+## Phone check for build 70
 
-1. **Your 5 km run:**
-   - Calories shows "From distance" and "From heart rate", or one number when they are within
-     50 kcal of each other.
-   - "Running · walking km" shows when the run had walk breaks.
-2. **Food → Today, Maintenance:**
-   - A RUNNING part shows on a day with a run.
-   - Tap the card: each line names its own numbers.
-   - Steps are the day's steps less the run's steps.
-3. **Train:**
-   - Run · Walk · Lift · Other.
-   - The streak card counts days with 10 minutes or more.
-   - Drag across the strain bars. Tap opens that day, with arrows to the other days.
-   - Drag across distance per week.
-   - Best times shows only 1K, 5K, 10K and half marathon.
-4. **A walk started from Walk:** shows the map, distance and calories, with no best efforts or
-   pace zones.
-5. **A run not started in the app** (confirmed from "did you work out?"): within 7 days, with the
-   phone carried, it shows distance, splits and cadence, marked "from your phone's motion sensor".
-6. **Pull down on Today:** the spinner stays until the sync and the numbers finish. Pull down on
-   Trends, Food and Train too. With the band off, a "Band not connected" note shows.
-7. **Charts:** a finger shows a line and the date and value in the header. Check:
-   - Trends → any metric, Month;
-   - Readiness history;
-   - Day strain;
-   - Steps by hour.
-8. **Sleep:**
-   - No Tonight section.
-   - Lanes named Awake / REM / Light / Deep.
-   - Five clock marks.
-   - Dragging shows the time and stage in the header.
-9. **Today:** no bedtime card.
+1. **Charts:**
+   - Trends → Steps or Time asleep at Month and 3 months: a finger now moves the cursor.
+   - No dotted version lines, no "needs 182 days" line, no Worn bars under the chart.
+2. **Sleep:**
+   - Stage names appear only in the colour key; there is no card under the chart.
+   - Dragging shows time · stage · bpm · HRV · temp in the header.
+   - Overnight signals is three rows (heart rate, HRV, skin temperature); breathing appears only
+     when measured.
+   - A Naps section shows on a day with a nap.
+   - "Fix sleep times" is folded.
+   - The Breathing pattern screen is one card with a small chart, and its caveats fold under
+     "What this means".
+3. **Trends:**
+   - There is no Naps section.
+   - Skin temperature opens a chart (this band's nights only), or the row is hidden with fewer
+     than 7 nights.
+4. **Readiness:**
+   - The history is coloured bars.
+   - Dragging an empty day says why it has no score.
+   - Under "What drove it", a line says why breathing was not counted.
+5. **Steps:** the day total follows the phone wherever the phone counted. The band only fills time
+   the phone missed. Analytics version 87 recalculates the last few retained days.
+6. **Run screen:**
+   - Medal pins (1/2/3) sit on the map where each top-3 effort ended.
+   - Steps come from the phone, with a cadence figure.
+   - A Cadence chart is on Graphs.
+7. **Live run or walk:** "Voice each km" toggle. A spoken line comes at each km with that km's
+   pace. Check with music playing (it ducks) and with the screen locked (untested; see below).
+8. **Food → Today:**
+   - ‹ Today › with a calendar, and swipe for other days.
+   - Meal cards with Log and ⋯ (Copy from / Copy to / Save meal).
+   - In the evening, "N g protein left today".
+9. **Meal page:**
+   - Sub-headings with totals.
+   - Swipe left deletes an item.
+   - Tap an item to change its amount or move it to a sub-heading.
+   - "Add food" and "Copy, or save as a meal" buttons.
+10. **Log screen:**
+    - Meal selector, search, and Recent / My meals / My foods.
+    - Sort on My foods.
+    - + logs at once; tap opens the detail.
+    - The detail shows grams, serving chips, meal, time, % of daily goals, and "Often eaten with".
+    - Create a food asks for description and serving grams.
+    - Quick add has a name and a time.
+11. **Food → History:**
+    - A weight card with "Log weight" and the 7-day trend. After 2+ weeks of weigh-ins and food,
+      it shows measured maintenance.
+    - A "This week" deficit card.
+    - A draggable maintenance-vs-eaten chart.
+    - Every day of the month listed; tap one to see it or add food late.
+12. **Today:** a "This week" card (deficit, protein, km, streak, sleep), and the strain card reads
+    "Aim for about N today".
+
+## Known limits
+
+- **Voice cues with the screen locked are untested.** The personal build has no `audio` background
+  mode (its capability contract forbids adding one without a decision), so iOS may hold the voice
+  until the app is in front.
+- **Logging weight changes the profile weight.** Resting energy and every calorie number then use
+  the newest weight.
+- **Measured maintenance needs complete food days.** It waits for 8 weigh-ins, 10 complete food
+  days and 14 days of span inside the last 4 weeks.

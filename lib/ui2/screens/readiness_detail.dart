@@ -47,6 +47,10 @@ class ReadinessData {
   /// as five consecutive days.
   final List<double?> series;
 
+  /// Why breathing rate did not count last night, in plain words, or null
+  /// when it was measured (or the night has no record).
+  final String? breathingNote;
+
   const ReadinessData({
     this.readiness = Metric.empty,
     this.breakdown = const [],
@@ -54,7 +58,24 @@ class ReadinessData {
     this.heldOverNight,
     this.series = const [],
     this.absentDiag,
+    this.breathingNote,
   });
+
+  /// The stored reason a night's breathing rate was withheld
+  /// (`respiration.rsa.note`), in plain words. Null when it was measured.
+  static Future<String?> _breathingNote(String? day) async {
+    if (day == null) return null;
+    final payload = (await LocalDb.dayResult(day))?['payload_json'];
+    if (payload is! String) return null;
+    final b = jsonDecode(payload);
+    if (b is! Map) return null;
+    final scalars = b['scalars'];
+    if (scalars is Map && scalars['resp_rate'] is num) return null;
+    final resp = b['respiration'];
+    final rsa = resp is Map ? resp['rsa'] : null;
+    final note = (rsa is Map ? rsa['note'] : null)?.toString() ?? '';
+    return breathingWhy(note);
+  }
 
   /// The absence diagnostic off a stored day bundle. Read straight from
   /// `day_result` the way `InvestigateData.load` reads `imported` — no
@@ -110,6 +131,8 @@ class ReadinessData {
           ? null
           : await _absentDiag(
               (today['status'] as Map?)?['today_day']?.toString()),
+      breathingNote: await _breathingNote(
+          (today['status'] as Map?)?['today_day']?.toString()),
     );
   }
 }
@@ -122,9 +145,73 @@ class ReadinessDetail extends StatefulWidget {
   State<ReadinessDetail> createState() => _ReadinessDetailState();
 }
 
+/// A withheld breathing rate's stored note, in plain words.
+String breathingWhy(String note) {
+  final n = note.toLowerCase();
+  if (n.contains('artifact')) return 'too much movement or signal noise';
+  if (n.contains('consensus') || n.contains('agree')) {
+    return 'the night\'s breathing windows disagreed';
+  }
+  if (n.contains('too few') || n.contains('beats')) return 'not enough beat data';
+  if (n.contains('beat rate')) return 'heart rate too high to read breathing';
+  return 'not measured';
+}
+
+/// Why a day has no readiness score, in a few words, from that day's stored
+/// `readiness_absent_diag`. [hasDay] is false when the day was never analysed.
+///
+/// The rule behind most of these: a score needs at least 14 earlier nights
+/// with HRV and resting heart rate measured (`readinessCompositeMinBaseline`
+/// in packages/analytics), counting only days this band measured (imported
+/// days are kept out of the baseline on purpose).
+String readinessGap(Map<String, dynamic>? diag, {required bool hasDay}) {
+  if (!hasDay) return 'no data that day';
+  if (diag == null) return 'not scored';
+  bool measured(String k) => diag[k] is Map && (diag[k] as Map)['value'] == true;
+  int nights(String k) => diag[k] is Map
+      ? (((diag[k] as Map)['baseline_n'] as num?)?.toInt() ?? 0)
+      : 0;
+  const need = 14;
+  if (!measured('hrv') && !measured('rhr')) return 'no sleep heart data that night';
+  final short = [
+    if (measured('hrv') && nights('hrv') < need) nights('hrv'),
+    if (measured('rhr') && nights('rhr') < need) nights('rhr'),
+  ];
+  if (short.isNotEmpty) {
+    final have = short.reduce((a, b) => a < b ? a : b);
+    return 'building your baseline: $have of $need nights';
+  }
+  if (!measured('hrv')) return 'HRV not measured that night';
+  if (!measured('rhr')) return 'resting heart rate not measured';
+  return 'held back: a reading was far outside your range';
+}
+
 class _ReadinessDetailState extends State<ReadinessDetail> {
   /// The day under the finger on the history chart, or null.
   int? _pick;
+
+  /// Why each unscored day under the finger had no score, read once per day.
+  final _gaps = <String, String>{};
+
+  Future<void> _loadGap(String day) async {
+    if (_gaps.containsKey(day)) return;
+    _gaps[day] = '…';
+    String why;
+    try {
+      final row = await LocalDb.dayResult(day);
+      final payload = row?['payload_json'];
+      Map<String, dynamic>? diag;
+      if (payload is String && payload.contains('"readiness_absent_diag"')) {
+        final b = jsonDecode(payload);
+        final x = b is Map ? b['readiness_absent_diag'] : null;
+        diag = x is Map ? x.cast<String, dynamic>() : null;
+      }
+      why = readinessGap(diag, hasDay: row != null);
+    } catch (_) {
+      why = 'not scored';
+    }
+    if (mounted) setState(() => _gaps[day] = why);
+  }
 
   ReadinessData? _d;
   bool _showHow = false;
@@ -230,6 +317,11 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
 
         if (d.breakdown.isNotEmpty) ...[
           Section('What drove it', _breakdown(c, p, d)),
+          if (d.breathingNote != null) ...[
+            const SizedBox(height: S.x2),
+            Text('Breathing rate not counted last night: ${d.breathingNote}.',
+                style: F.cap.copyWith(color: p.ink3)),
+          ],
           const SizedBox(height: S.x4),
           Pressable(
             onTap: () => setState(() => _showHow = !_showHow),
@@ -310,20 +402,26 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final n = win.length;
-    String says(int i) {
+    String label(int i) {
       final now = DateTime.now();
       final day = DateTime(now.year, now.month, now.day - (n - 1 - i));
-      final v = win[i];
-      final when = i == n - 1
-          ? 'Today'
-          : prettyDay(
-              '${day.year}-${day.month.toString().padLeft(2, '0')}-'
-              '${day.day.toString().padLeft(2, '0')}',
-              l);
-      return '$when · ${v == null ? 'no score' : v.round()}';
+      return '${day.year}-${day.month.toString().padLeft(2, '0')}-'
+          '${day.day.toString().padLeft(2, '0')}';
     }
 
-    int at(double f) => n < 2 ? 0 : (f * (n - 1)).round().clamp(0, n - 1);
+    String says(int i) {
+      final v = win[i];
+      final when = i == n - 1 ? 'Today' : prettyDay(label(i), l);
+      if (v != null) return '$when · ${v.round()} ${readinessBand(v, l).label}';
+      return '$when · no score, ${_gaps[label(i)] ?? '…'}';
+    }
+
+    // Bars, one per day, in the recovery colours; at large text or with no
+    // per-day colours the plain line was hard to read with gaps.
+    final colors = [
+      for (final v in win) p.on(v == null ? C.n500 : readinessBand(v, l).color),
+    ];
+    int at(double f) => n < 1 ? 0 : (f * n).floor().clamp(0, n - 1);
     return ChartFrame(
       title: l?.readinessDetailTitle ?? 'Readiness',
       unit: l?.readinessDetailUnit ?? '/100',
@@ -340,19 +438,19 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       ],
       series: win,
       child: Scrubber(
-        value: _pick == null || n < 2 ? null : _pick! / (n - 1),
-        step: n < 2 ? 1 : 1 / (n - 1),
+        value: _pick == null || n < 1 ? null : (_pick! + .5) / n,
+        step: n < 1 ? 1 : 1 / n,
         label: 'Readiness history',
         describe: (f) => says(at(f)),
-        onChanged: (f) => setState(() => _pick = at(f)),
+        onChanged: (f) {
+          final i = at(f);
+          setState(() => _pick = i);
+          if (win[i] == null) _loadGap(label(i));
+        },
         child: CustomPaint(
           size: Size.infinite,
-          painter: LineChart(win, p.on(C.green),
-              dots: false,
-              t: animate(c, 1),
-              axis: axis,
-              cursor: _pick,
-              cursorInk: p.ink),
+          painter: Bars(win, p.on(C.green),
+              colors: colors, cursor: _pick, axis: axis, t: animate(c, 1)),
         ),
       ),
     );

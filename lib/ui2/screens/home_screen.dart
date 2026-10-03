@@ -51,6 +51,7 @@ import '../profile/settings.dart' show MoreSettings;
 import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, showMaintenance;
+import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
 
@@ -747,8 +748,8 @@ class RingTrio extends StatelessWidget {
               child: _MiniCard(strain,
                   sub: strain.measured && aim is num
                       ? ((d.strain.value ?? 0) >= aim
-                          ? 'Target ${aim.toStringAsFixed(1)} met'
-                          : 'Aim for ${aim.toStringAsFixed(1)}')
+                          ? 'Today\'s target ${aim.toStringAsFixed(1)} met'
+                          : 'Aim for about ${aim.round()} today')
                       : null,
                   onTap: _open(HomeRingKind.strain))),
         ]),
@@ -1570,6 +1571,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
         const SizedBox(height: S.x3),
         _glance(c, d),
+        if (widget.data == null) ...[
+          const SizedBox(height: S.x3),
+          const WeekCard(),
+        ],
         // No "Tonight · Bed by" card: Akshat sleeps on his own schedule, so a
         // bedtime and a sleep need are noise here. Both are still computed.
       ],

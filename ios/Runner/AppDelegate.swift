@@ -115,6 +115,10 @@ import MapKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MapSnapshotBridge") {
       MapSnapshotBridge.register(messenger: registrar.messenger())
     }
+    // Spoken pace every kilometre during a run. See lib/gps/run_voice.dart.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "SpeechBridge") {
+      SpeechBridge.register(messenger: registrar.messenger())
+    }
     #if !PERSONAL_SIDELOAD
     // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
     // the workouts themselves. See lib/health/health_workout_import.dart.
@@ -421,6 +425,39 @@ enum AppIconBridge {
 /// Renders a static, dark Apple Maps image around a route and reports where each
 /// route point lands on it, so Flutter can draw the line on top. MapKit fetches
 /// the map tiles from Apple; nothing about the run is sent beyond the area shown.
+/// Speaks one short line with the system voice, ducking music rather than
+/// stopping it, and hands the audio back when done. No dependency: this is
+/// AVSpeechSynthesizer, built into iOS.
+final class SpeechBridge: NSObject, AVSpeechSynthesizerDelegate {
+  private static let shared = SpeechBridge()
+  private let synth = AVSpeechSynthesizer()
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    shared.synth.delegate = shared
+    let channel = FlutterMethodChannel(name: "openstrap/speech", binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "say",
+            let text = (call.arguments as? [String: Any])?["text"] as? String,
+            !text.isEmpty else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let session = AVAudioSession.sharedInstance()
+      try? session.setCategory(.playback, mode: .voicePrompt,
+                               options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
+      try? session.setActive(true)
+      let u = AVSpeechUtterance(string: text)
+      u.rate = AVSpeechUtteranceDefaultSpeechRate
+      shared.synth.speak(u)
+      result(true)
+    }
+  }
+
+  func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+  }
+}
+
 enum MapSnapshotBridge {
   private static let channelName = "openstrap/map_snapshot"
 

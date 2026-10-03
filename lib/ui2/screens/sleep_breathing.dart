@@ -37,7 +37,11 @@ class SleepBreathingScreen extends StatefulWidget {
   /// If it ever feels slow, add a repo read of `cvhr_per_hour` and
   /// `analyzed_hours` without the payload rather than shrinking the window.
   static Future<ana.Metric<ana.CvhrDistribution>> load(
-      LocalRepository repo) async {
+          LocalRepository repo) async =>
+      ana.cvhrPersonalDistribution(await nights(repo));
+
+  /// The stored nights the screen reads, newest first.
+  static Future<List<ana.CvhrNight>> nights(LocalRepository repo) async {
     final days = await repo.availableDays();
     final flags = <String, double>{
       for (final p in pointsOf(await repo.getChart('irregular_rhythm_flag')))
@@ -56,7 +60,7 @@ class SleepBreathingScreen extends StatefulWidget {
         irregularRhythm: (flags[day] ?? 0) >= 1,
       ));
     }
-    return ana.cvhrPersonalDistribution(nights);
+    return nights;
   }
 
   @override
@@ -65,7 +69,9 @@ class SleepBreathingScreen extends StatefulWidget {
 
 class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
   ana.Metric<ana.CvhrDistribution>? _m;
+  List<ana.CvhrNight> _nights = const [];
   bool _loading = true;
+  bool _more = false;
 
   @override
   void initState() {
@@ -80,8 +86,14 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
       _loading = false;
       return;
     }
-    SleepBreathingScreen.load(repo).then((m) {
-      if (mounted) setState(() => (_m = m, _loading = false));
+    SleepBreathingScreen.nights(repo).then((ns) {
+      if (mounted) {
+        setState(() => (
+              _nights = ns,
+              _m = ana.cvhrPersonalDistribution(ns),
+              _loading = false,
+            ));
+      }
     }, onError: (_) {
       if (mounted) setState(() => _loading = false);
     });
@@ -105,59 +117,84 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
               'This needs several nights with a few observed hours each.',
           icon: LucideIcons.wind,
         )
-      else
+      else ...[
         Surface(
-          color: p.card2,
-          elevation: 0,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(
-                l?.investigateAcrossNOwnNights(v.nightsUsed) ??
-                    'ACROSS ${v.nightsUsed} OF YOUR OWN NIGHTS',
-                style: F.over.copyWith(color: p.ink3)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              Icon(v.aboveOwnUsual ? LucideIcons.trendingUp : LucideIcons.check,
+                  size: 20,
+                  color: p.on(v.aboveOwnUsual ? C.yellow : C.green)),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Text(
+                    v.aboveOwnUsual ? 'Higher than your usual' : 'Within your usual range',
+                    style: F.head.copyWith(color: p.ink)),
+              ),
+            ]),
+            const SizedBox(height: S.x1),
+            Text('Heart-rate cycling while asleep · ${v.nightsUsed} nights',
+                style: F.cap.copyWith(color: p.ink3)),
+            if (_nights.length >= 2) ...[
+              const SizedBox(height: S.x4),
+              Builder(builder: (c) {
+                final series = [
+                  for (final n in _nights.reversed) n.cvhrPerHour,
+                ];
+                final axis = AxisSpec.of(series, floor: 0, ticks: 2);
+                return ChartFrame(
+                  title: 'Each night',
+                  unit: 'per hour',
+                  height: 90,
+                  yAxis: axis,
+                  series: series,
+                  xLabels: const ['Oldest', 'Last night'],
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(series, p.on(C.sleep),
+                        highlight: series.length - 1, axis: axis),
+                  ),
+                );
+              }),
+            ],
             const SizedBox(height: S.x3),
-            Text(
-              v.aboveOwnUsual
-                  ? (l?.investigateCvhrAboveUsual(v.nightsUsed) ??
-                      'Over your most recent nights, the heart-rate cycling '
-                          'this screen counts has been running higher than '
-                          'across the ${v.nightsUsed} nights behind it.')
-                  : (l?.investigateCvhrInsideUsual(v.nightsUsed) ??
-                      'Over your most recent nights, the heart-rate cycling '
-                          'this screen counts has stayed inside the range of '
-                          'the ${v.nightsUsed} nights behind it.'),
-              style: F.body.copyWith(color: p.ink, height: 1.5),
-            ),
-            const SizedBox(height: S.x3),
-            Text(
-              l?.investigateCvhrExplainer ??
-                  'It is a pattern in your pulse, not a measurement of your '
-                      'breathing, and it is not a test for anything. The same '
-                      'cycling comes from an irregular rhythm, from being at '
-                      'altitude, and from any broken-up night — and '
-                      'beta-blockers, diabetes and nerve conditions flatten '
-                      'it, so genuinely disturbed breathing often leaves '
-                      'nothing here at all.',
-              style: F.cap.copyWith(color: p.ink2, height: 1.6),
-            ),
-            const SizedBox(height: S.x3),
-            Text(
-              l?.investigateCvhrNotNegativeResult ??
-                  'So nothing here is a negative result and nothing here '
-                      'clears anything, and none of it says anything about '
-                      'any one night.',
-              style: F.cap.copyWith(color: p.ink2, height: 1.6),
-            ),
-            const SizedBox(height: S.x3),
-            Text(
-              l?.investigateCvhrSeeClinicianIfSymptoms ??
-                  'If you snore, wake unrefreshed, or someone has seen you '
-                      'stop breathing in your sleep, a clinician can test '
-                      'that properly.',
-              style: F.cap.copyWith(color: p.ink2, height: 1.6),
-            ),
+            Text('A pattern in your pulse, not a breathing test.',
+                style: F.cap.copyWith(color: p.ink2)),
           ]),
         ),
+        const SizedBox(height: S.x4),
+        Pressable(
+          onTap: () => setState(() => _more = !_more),
+          semanticLabel: 'What this means',
+          child: Row(children: [
+            Expanded(
+                child: Text('What this means',
+                    style: F.cap.copyWith(color: p.ink2))),
+            Icon(_more ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                size: 16, color: p.ink3),
+          ]),
+        ),
+        if (_more) ...[
+          const SizedBox(height: S.x2),
+          Surface(
+            elevation: 0,
+            color: p.card2,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final line in const [
+                'It counts how often your heart rate swings up and down while '
+                    'you sleep. Breathing pauses cause that, but so do an '
+                    'irregular rhythm, altitude and a broken-up night.',
+                'It cannot rule anything in or out, and one night means little '
+                    'on its own.',
+                'If you snore, wake unrefreshed, or someone has seen you stop '
+                    'breathing in your sleep, a clinician can test that properly.',
+              ]) ...[
+                Text(line, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+                const SizedBox(height: S.x2),
+              ],
+            ]),
+          ),
+        ],
+      ],
     ]);
   }
 }

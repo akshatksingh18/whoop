@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../build_profile.dart';
+import '../../data/db.dart' show LocalDb;
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -377,8 +379,14 @@ class MetricData {
 
   static Future<MetricData> load(LocalRepository repo, String key) async {
     final spec = specOf(key);
-    if (spec.suppress != null) return const MetricData();
+    if (metricSuppressed(key)) return const MetricData();
     final chart = await repo.getChart(spec.chartKey);
+    // Skin temperature charts only nights this band measured: an imported
+    // night's deviation is another device's units (the reason the upstream
+    // build hides the trend outright).
+    final imported = key == 'skin_temp'
+        ? await LocalDb.importedDates()
+        : const <String>{};
     final days = await repo.availableDays();
     final outcome = _outcomeOf[key];
     final stepGoal = key == 'steps'
@@ -401,7 +409,13 @@ class MetricData {
       ];
     }
     return MetricData(
-      series: pointsOf(chart),
+      series: [
+        for (final p in pointsOf(chart))
+          if (imported.isEmpty ||
+              !imported.contains(
+                  dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000))))
+            p,
+      ],
       wear: pointsOf({'points': chart['wear']}),
       percentile: pct,
       movers: movers,
@@ -489,7 +503,9 @@ class _MetricDetailState extends State<MetricDetail> {
   Widget _ranges(BuildContext c, MetricData d, Color color) {
     final p = P.of(c);
     final n = _offered(d);
-    final note = _lockedNote(c, d);
+    // The personal build lists only the ranges it can draw, without a line
+    // about the ones it cannot.
+    final note = kPersonalSideload ? null : _lockedNote(c, d);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SubTabs(_labelsOf(c).sublist(0, n), _range.clamp(0, n - 1),
           (i) => setState(() => (_range = i, _pick = null)),
@@ -553,7 +569,7 @@ class _MetricDetailState extends State<MetricDetail> {
         const LiveHrCard(),
         const SizedBox(height: S.x5),
       ],
-      if (spec.suppress != null) ...[
+      if (metricSuppressed(widget.metricKey)) ...[
         const SizedBox(height: S.x2),
         StatusCard(
           l?.metricDetailNotShownTitle ?? 'Not shown as a trend',
@@ -750,7 +766,7 @@ class _MetricDetailState extends State<MetricDetail> {
           // A break at slot 0 is dropped: there is nothing before it in this
           // window to be incomparable with.
           final marks = <double>[
-            if (series.length > 1)
+            if (series.length > 1 && !kPersonalSideload)
               for (final t in algoBreaks)
                 if (daysBehind(t) case final b?
                     when b >= 0 && b < series.length && series.length - 1 - b > 0)
@@ -842,7 +858,10 @@ class _MetricDetailState extends State<MetricDetail> {
         // than the 3-day substrate window is knowable only through this derived
         // key, and nothing here reconstructs it. Same card, not a new one; the
         // denominator is part of reading the chart, not a second claim.
-        if (win >= 30 && spec.chartKey != 'wear' && wear.isNotEmpty)
+        if (!kPersonalSideload &&
+            win >= 30 &&
+            spec.chartKey != 'wear' &&
+            wear.isNotEmpty)
           Builder(builder: (c) {
             final hrs = [
               for (final v in denseDays(wear, win)) v == null ? null : v / 60,
@@ -1396,6 +1415,12 @@ class DayNav extends StatelessWidget {
     );
   }
 }
+
+/// Whether [key]'s trend is withheld. The personal build charts skin
+/// temperature (its own band's nights only; see [MetricData.load]) rather than
+/// opening a screen that says it will not.
+bool metricSuppressed(String key) =>
+    specOf(key).suppress != null && !(kPersonalSideload && key == 'skin_temp');
 
 /// [DayNav] and the gap under it, spread into a `detailScaffold` body — or
 /// nothing at all when there is only one day to look at.

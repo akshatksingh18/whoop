@@ -163,6 +163,42 @@ double? bestEffortSeconds(
   return best;
 }
 
+/// Where in the track the fastest [meters] stretch ENDED (a point index), for
+/// the medal on the map. Same search as [bestEffortSeconds]; null when the run
+/// is shorter than [meters].
+int? bestEffortEnd(List<RoutePoint> pts, List<double> cum, double meters) {
+  if (pts.length < 2 || cum.last < meters) return null;
+  double? best;
+  int? at;
+  var i = 0;
+  for (var j = 1; j < pts.length; j++) {
+    final target = cum[j] - meters;
+    if (target < 0) continue;
+    while (i + 1 < j && cum[i + 1] <= target) {
+      i++;
+    }
+    final span = cum[i + 1] - cum[i];
+    final frac = span <= 0 ? 0.0 : ((target - cum[i]) / span).clamp(0.0, 1.0);
+    final startMs = pts[i].tsMs + (pts[i + 1].tsMs - pts[i].tsMs) * frac;
+    final sec = (pts[j].tsMs - startMs) / 1000;
+    if (sec > 0 && (best == null || sec < best)) {
+      best = sec;
+      at = j;
+    }
+  }
+  return at;
+}
+
+/// For each shown distance this run covered, the track index its best effort
+/// ended at.
+Map<String, int> bestEffortEnds(List<RoutePoint> pts) {
+  final cum = cumulativeMeters(pts);
+  return {
+    for (final (label, m) in kBestEffortDistances)
+      label: ?bestEffortEnd(pts, cum, m),
+  };
+}
+
 /// Every effort in [kAllEfforts] this run covered: label → seconds.
 Map<String, double> bestEfforts(List<RoutePoint> pts) {
   final cum = cumulativeMeters(pts);

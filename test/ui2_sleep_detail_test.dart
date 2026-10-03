@@ -295,6 +295,10 @@ void main() {
         solMin: 37,
       ),
     );
+    // The sleep-window card is folded under "Fix sleep times".
+    await t.ensureVisible(find.text('Fix sleep times'));
+    await t.tap(find.text('Fix sleep times'));
+    await t.pumpAndSettle();
     expect(find.textContaining('30–45 minutes'), findsOneWidget);
     // Never a single minute: the stager sees a wrist.
     expect(find.textContaining('37 minutes'), findsNothing);

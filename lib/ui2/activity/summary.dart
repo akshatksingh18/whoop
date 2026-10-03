@@ -25,7 +25,7 @@ import '../../build_profile.dart';
 import '../../gps/route_models.dart' as rm show Split;
 import '../../gps/route_models.dart' show RoutePoint;
 import '../../gps/run_analysis.dart'
-    show paceZoneShares, runVerdict, effortRank, kBestEffortDistances, RunMix;
+    show paceZoneShares, runVerdict, RunMix;
 import '../../gps/run_history.dart';
 import '../../data/db.dart';
 import '../../l10n/app_localizations.dart';
@@ -310,6 +310,14 @@ class ActivityResult {
   /// Average steps a minute from the phone, for a motion-measured session.
   final double? cadence;
 
+  /// Steps the phone counted over the session window. Preferred over the
+  /// band's [steps] on screen (phone first: the wrist reads a run low).
+  final int? phoneSteps;
+
+  /// Steps a minute from the phone, one slot per minute from [start]; empty
+  /// when the phone was not counting.
+  final List<double?> cadenceSeries;
+
   // strength
   final StrengthLog strength;
 
@@ -361,6 +369,8 @@ class ActivityResult {
     this.mix,
     this.motionDistance = false,
     this.cadence,
+    this.phoneSteps,
+    this.cadenceSeries = const [],
     this.strength = StrengthLog.empty,
     this.lapSecs = const [],
     this.poolLengthM,
@@ -398,6 +408,8 @@ class ActivityResult {
     RunMix? mix,
     bool? motionDistance,
     double? cadence,
+    int? phoneSteps,
+    List<double?>? cadenceSeries,
     StrengthLog? strength,
   }) =>
       ActivityResult(
@@ -434,6 +446,8 @@ class ActivityResult {
         mix: mix ?? this.mix,
         motionDistance: motionDistance ?? this.motionDistance,
         cadence: cadence ?? this.cadence,
+        phoneSteps: phoneSteps ?? this.phoneSteps,
+        cadenceSeries: cadenceSeries ?? this.cadenceSeries,
         strength: strength ?? this.strength,
         lapSecs: lapSecs,
         poolLengthM: poolLengthM,
@@ -610,7 +624,8 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   }
   // Beside the other movement facts, above the heart. Offered only where the
   // strap was allowed to count — see [ActivityResult.stepsCounted].
-  add('Steps', r.stepsCounted == null ? null : grouped(r.stepsCounted!));
+  final stepsShown = r.phoneSteps ?? r.stepsCounted;
+  add('Steps', stepsShown == null ? null : grouped(stepsShown));
   // 'Avg HR', not 'Heart rate': the trace above is the heart rate, this is its
   // mean, and the two sat on one screen under one word.
   add('Avg HR', r.avgHr == null ? null : '${r.avgHr} bpm');
@@ -801,19 +816,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   List<double>? get _paceShares {
     final v = run, p5 = _fiveKPace;
     return v == null || p5 == null || !v.isRun ? null : paceZoneShares(v.pace, p5);
-  }
-
-  /// The headline record, e.g. "Fastest 5K ever", for the map badge.
-  String? get _prBadge {
-    final v = run, e = _earlier;
-    if (v == null || e == null) return null;
-    for (final (label, _) in kBestEffortDistances.reversed) {
-      final sec = v.efforts[label];
-      if (sec == null) continue;
-      final past = [for (final x in e) ?x.efforts[label]];
-      if (effortRank(sec, past) == 1) return 'Fastest $label ever';
-    }
-    return null;
   }
 
   String? get _verdict => runVerdict(
@@ -1105,7 +1107,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (v != null && !unsaved) {
       final verdict = _verdict;
       return [
-        RunMapCard(v, cursor: _cursor, badge: _prBadge),
+        RunMapCard(v, cursor: _cursor, medals: runMedals(v, _earlier)),
         const SizedBox(height: S.x4),
         // Scales down rather than overflowing at large text sizes.
         FittedBox(
@@ -1217,7 +1219,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// screens beside it, which have named theirs all along.
   Widget _basisNote(P p) {
     final l = AppLocalizations.of(context);
-    if (_distanceCalories && !r.motionDistance && r.stepsCounted == null) {
+    if (_distanceCalories &&
+        !r.motionDistance &&
+        r.stepsCounted == null &&
+        r.phoneSteps == null) {
       return const SizedBox.shrink();
     }
     return Surface(
@@ -1232,7 +1237,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                       'sensor, because this session had no GPS.'
                 else if (!_distanceCalories)
                   _calorieBasis(),
-                if (r.stepsCounted != null)
+                if (r.phoneSteps != null)
+                  'Steps came from your phone, which counts a run more '
+                      'reliably than the wrist.'
+                else if (r.stepsCounted != null)
                   l?.activitySummaryStepsBasis ??
                       "Steps came from the strap's own motion sensor, which "
                           'only counts them on foot.',
@@ -2217,7 +2225,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (v != null) {
       final shares = _paceShares, p5 = _fiveKPace;
       return [
-        RunMapCard(v, cursor: _cursor),
+        RunMapCard(v, cursor: _cursor, medals: runMedals(v, _earlier)),
         const SizedBox(height: S.x3),
         RunCharts(v, cursor: _cursor, onCursor: (f) => setState(() => _cursor = f)),
         if (shares != null && p5 != null) PaceZonesCard(shares, p5),

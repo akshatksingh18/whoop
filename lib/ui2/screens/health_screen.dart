@@ -18,7 +18,6 @@ import '../ui2.dart';
 import 'findings_log.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
-import 'naps.dart';
 import 'readiness_detail.dart';
 
 /// One trend row: the `getChart` key, what to call it, its unit, its colour,
@@ -102,6 +101,15 @@ class HealthData {
   /// 30 days measured it on at least half of the nights slept.
   bool get breathingShown =>
       breathingMeasuredOften(points('sleep'), points('resp_rate'), DateTime.now());
+
+  /// Skin temperature earns a Trends row once 7 of the last 30 nights have a
+  /// reading; before that its chart would be a handful of dots.
+  bool get skinTempShown {
+    final now = DateTime.now();
+    final since =
+        DateTime(now.year, now.month, now.day - 29).millisecondsSinceEpoch ~/ 1000;
+    return points('skin_temp').where((p) => p.t >= since).length >= 7;
+  }
 
   static Future<HealthData> load(LocalRepository repo) async {
     final today = await repo.getToday();
@@ -209,7 +217,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final win = _windows[_range];
     final rows = [
       for (final r in _rows)
-        if (r.key != 'resp_rate' || d.breathingShown) r,
+        if ((r.key != 'resp_rate' || d.breathingShown) &&
+            (r.key != 'skin_temp' || d.skinTempShown))
+          r,
     ];
 
     return RefreshIndicator(
@@ -246,22 +256,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           ]),
         ),
         ..._observations(c, d),
-        if ((d.napCount ?? 0) > 0)
-          Section(
-            l?.healthNapsTitle ?? 'Naps',
-            Surface(
-              pad: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: MetricRow(
-                LucideIcons.sun,
-                C.indigo,
-                l?.healthDaytimeSleep ?? 'Daytime sleep',
-                hm(d.napMin),
-                sub: '${d.napCount} nap${d.napCount == 1 ? '' : 's'} · '
-                    '${prettyDay(d.napDay)}',
-                onTap: () => go(c, NapsScreen(day: d.napDay)),
-              ),
-            ),
-          ),
+        // Naps moved into Sleep, beside the night they belong to.
       ],
     ]));
   }

@@ -23,6 +23,7 @@ import '../../data/nutrition_store.dart';
 import '../../gps/run_history.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
+import 'food_diary.dart';
 import 'food_picker.dart';
 import 'home_screen.dart'
     show metricOf, pointsOf, prettyDay, pullToRefresh, repoOf, thousands;
@@ -62,7 +63,11 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   /// Steps per day for the month, for each day's maintenance figure.
   Map<String, num> _steps = const {};
   List<RunSummary> _runs = const [];
+  List<({String date, double kg})> _weights = const [];
   bool _loading = true;
+
+  /// The day the Today tab shows; null follows the calendar day.
+  String? _shownDay;
 
   /// Read on every use, never captured once: the shell keeps this tab alive,
   /// so a field initialiser would still be yesterday after midnight.
@@ -81,6 +86,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final t = beginRead(#nutrition);
     final db = await LocalDb.instance;
     final month = await NutritionDb.window(db, days: 31);
+    final now = DateTime.now();
+    final weights = await BodyWeight.since(
+        db, dayLabelOf(DateTime(now.year, now.month, now.day - 60)));
     final foods = await MyFoods.all(db);
     final meals = await MyFoods.meals(db);
     final steps = mounted ? await _monthSteps(context) : const <String, num>{};
@@ -92,6 +100,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       _meals = meals;
       _steps = steps;
       _runs = runs;
+      _weights = weights;
       _loading = false;
     });
     // Counted when the read has LANDED, so a test waiting on it also waits
@@ -128,8 +137,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           const Center(child: CircularProgressIndicator())
         else
           switch (_tab) {
-            0 => NutritionDayView(
-                key: ValueKey(_dayKey), date: _date, onChanged: _load),
+            0 => _today(c),
             1 => _history(c),
             _ => _foodsTab(c),
           },
@@ -141,52 +149,149 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   /// Bumped by a pull so today's view reads its steps and runs again.
   int _dayKey = 0;
 
+  // ── TODAY (any day) ──────────────────────────────────────────────────────
+
+  /// The day view with ‹ Today › above it; swipe for the next or previous day.
+  Widget _today(BuildContext c) {
+    final day = _shownDay ?? _date;
+    void go(String d) => setState(() => _shownDay = d == _date ? null : d);
+    return Swipe(
+      label: 'Day',
+      onPrevious: () => go(shiftDay(day, -1)),
+      onNext: day == _date ? null : () => go(shiftDay(day, 1)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        DayHeader(day, go),
+        const SizedBox(height: S.x3),
+        NutritionDayView(
+            key: ValueKey('$day#$_dayKey'), date: day, onChanged: _load),
+      ]),
+    );
+  }
+
   // ── HISTORY ──────────────────────────────────────────────────────────────
 
+  /// Every day of the last month: maintenance, what was eaten and the
+  /// difference, with a chart and this week's totals, and body weight with
+  /// the maintenance it measures. Any day opens to view or add food.
   Widget _history(BuildContext c) {
     final p = P.of(c);
     final profile = context.watch<AppState>().user ?? const {};
-    final goal = _targetOf(profile, 'kcal_target');
-    final days = [...?_month?.days.reversed.where((d) => d.logged)];
-    if (days.isEmpty) {
-      return const StatusCard(
-          'Nothing logged this month', 'Days you log appear here.',
-          icon: LucideIcons.calendarDays);
+    final pr = Profile.fromMap(profile);
+    final days = [...?_month?.days]; // oldest first
+    if (days.isEmpty) return const SizedBox.shrink();
+    double? maint(NutritionDay d) => DayUpkeep(
+          pr,
+          steps: _steps[d.date],
+          runs: runEnergyOn(_runs, d.date,
+              weightKg: pr.weightKg, daySteps: _steps[d.date]),
+          eaten: d.kcal.value ?? 0,
+        ).parts?.total;
+    final m = [for (final d in days) maint(d)];
+    final eaten = [for (final d in days) d.logged ? d.kcal.value : null];
+
+    // This week, Monday to today, over the days with food logged.
+    final today = DateTime.now();
+    final monday =
+        dayLabelOf(DateTime(today.year, today.month, today.day - (today.weekday - 1)));
+    var deficit = 0.0, eatSum = 0.0, mSum = 0.0;
+    var counted = 0;
+    for (var i = 0; i < days.length; i++) {
+      if (days[i].date.compareTo(monday) < 0) continue;
+      final e = eaten[i], mm = m[i];
+      if (e == null || mm == null) continue;
+      deficit += mm - e;
+      eatSum += e;
+      mSum += mm;
+      counted++;
     }
-    final kcals = [for (final d in days) if (d.kcal.value != null) d.kcal.value!];
-    final avg = kcals.isEmpty ? null : kcals.reduce((a, b) => a + b) / kcals.length;
+
+    final all = [for (final v in [...m, ...eaten]) ?v];
+    final axis = all.isEmpty ? null : AxisSpec.of(all, floor: 0, ticks: 3, format: (v) => thousands(v));
+    String says(int i) {
+      final d = days[i];
+      final mm = m[i], e = eaten[i];
+      return [
+        dayTitle(d.date),
+        if (mm != null) 'maintenance ${thousands(mm)}',
+        e == null ? 'no food logged' : 'ate ${thousands(e)}',
+        if (mm != null && e != null)
+          '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}',
+      ].join(' · ');
+    }
+
+    final pick = _histPick;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (avg != null)
+      _weightCard(c, p, pr, days),
+      const SizedBox(height: S.x3),
+      if (counted > 0)
         Surface(
-          child: Row(children: [
-            Expanded(
-              child: Text('Average over ${kcals.length} logged days',
-                  style: F.body.copyWith(color: p.ink2)),
-            ),
-            Text('${avg.round()} kcal',
-                style: F.n17.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('This week', style: F.over.copyWith(color: p.ink3)),
+            const SizedBox(height: S.x2),
+            InlineMetrics([
+              (deficit >= 0 ? 'DEFICIT' : 'SURPLUS', thousands(deficit.abs()),
+                  deficit >= 0 ? C.green : C.red),
+              ('AVG EATEN', thousands(eatSum / counted), C.domFood),
+              ('AVG MAINT.', thousands(mSum / counted), C.steps),
+            ]),
+            const SizedBox(height: S.x2),
+            Text(
+                'Over $counted day${counted == 1 ? '' : 's'} with food logged · '
+                'about ${(deficit / kKcalPerKg).abs().toStringAsFixed(2)} kg '
+                '${deficit >= 0 ? 'of fat' : 'gained'} at the floor',
+                style: F.cap.copyWith(color: p.ink3)),
           ]),
         ),
+      if (axis != null) ...[
+        const SizedBox(height: S.x3),
+        Surface(
+          child: ChartFrame(
+            title: 'Maintenance and eaten',
+            unit: 'kcal',
+            height: 130,
+            yAxis: axis,
+            series: eaten,
+            readout: pick == null ? null : says(pick),
+            legend: [('Maintenance', p.on(C.steps)), ('Eaten', p.on(C.domFood))],
+            xLabels: const ['30 days ago', 'Today'],
+            child: Scrubber(
+              value: pick == null ? null : (pick + .5) / days.length,
+              step: 1 / days.length,
+              label: 'Maintenance and eaten by day',
+              describe: (v) => says((v * days.length).floor().clamp(0, days.length - 1)),
+              onChanged: (v) => setState(() =>
+                  _histPick = (v * days.length).floor().clamp(0, days.length - 1)),
+              child: Stack(children: [
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: Bars(m, p.on(C.steps).withValues(alpha: .45),
+                        axis: axis, cursor: pick),
+                  ),
+                ),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: LineChart(eaten, p.on(C.domFood),
+                        fill: false, dots: true, axis: axis, dotInk: p.card),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ],
       const SizedBox(height: S.x3),
       Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(children: [
-          for (final d in days)
+          for (var i = days.length - 1; i >= 0; i--)
             _HistoryRow(
-              day: d,
-              goal: goal,
-              maintenance: DayUpkeep(
-                Profile.fromMap(profile),
-                steps: _steps[d.date],
-                runs: runEnergyOn(_runs, d.date,
-                    weightKg: Profile.fromMap(profile).weightKg,
-                    daySteps: _steps[d.date]),
-                eaten: d.kcal.value ?? 0,
-              ).parts?.total,
+              day: days[i],
+              goal: _targetOf(profile, 'kcal_target'),
+              maintenance: m[i],
               onTap: () async {
                 await Navigator.of(c).push(MaterialPageRoute<void>(
-                  builder: (_) => detailScaffold(context, prettyDay(d.date), [
-                    NutritionDayView(date: d.date, onChanged: _load),
+                  builder: (_) => detailScaffold(context, dayTitle(days[i].date), [
+                    NutritionDayView(date: days[i].date, onChanged: _load),
                   ]),
                 ));
                 await _load();
@@ -195,6 +300,87 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         ]),
       ),
     ]);
+  }
+
+  /// The day under the finger on the history chart.
+  int? _histPick;
+
+  /// Body weight: the latest reading, the 7-day trend, a Log button, and
+  /// maintenance measured from weight change and food once there is enough.
+  Widget _weightCard(
+      BuildContext c, P p, Profile pr, List<NutritionDay> days) {
+    final w = _weights;
+    final trend = weightTrend(w);
+    final now = DateTime.now();
+    final since = dayLabelOf(DateTime(now.year, now.month, now.day - 27));
+    final recent = [for (final x in w) if (x.date.compareTo(since) >= 0) x];
+    final eaten = [
+      for (final d in days)
+        if (d.date.compareTo(since) >= 0 && d.countsTowardAverages) d.kcal.value!,
+    ];
+    final measured = measuredMaintenance(recent, eaten);
+    final series = [for (final t in trend) t.kg];
+    final axis = series.length < 2 ? null : AxisSpec.of(series, ticks: 2, format: axisFixed);
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Weight', style: F.over.copyWith(color: p.ink3)),
+              Text(
+                  w.isEmpty
+                      ? (pr.weightKg == null ? '–' : '${pr.weightKg!.toStringAsFixed(1)} kg')
+                      : '${w.last.kg.toStringAsFixed(1)} kg',
+                  style: F.n24.copyWith(color: p.ink)),
+              if (trend.length >= 2)
+                Text('7-day trend ${trend.last.kg.toStringAsFixed(1)} kg',
+                    style: F.cap.copyWith(color: p.ink3)),
+            ]),
+          ),
+          Pressable(
+            semanticLabel: 'Log weight',
+            onTap: () => _logWeight(c),
+            child: Pill('Log weight', C.domFood, icon: LucideIcons.plus),
+          ),
+        ]),
+        if (axis != null) ...[
+          const SizedBox(height: S.x3),
+          SizedBox(
+            height: 48,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(series, p.on(C.domFood), fill: false, axis: axis),
+            ),
+          ),
+        ],
+        const SizedBox(height: S.x3),
+        Text(
+            measured == null
+                ? 'Weigh in most mornings and log food every day. After two '
+                    'weeks this shows the maintenance your weight actually '
+                    'measures.'
+                : 'Measured maintenance about ${thousands(measured.kcal)} kcal · '
+                    '${measured.kgPerWeek <= 0 ? 'losing' : 'gaining'} '
+                    '${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week '
+                    '(${measured.days} days, ${measured.weighIns} weigh-ins)',
+            style: F.cap.copyWith(color: measured == null ? p.ink3 : p.ink2)),
+      ]),
+    );
+  }
+
+  Future<void> _logWeight(BuildContext c) async {
+    final app = c.read<AppState>();
+    final kg = await askText(c, 'Log weight', 'Weight (kg)',
+        (_weights.isEmpty ? Profile.fromMap(app.user).weightKg : _weights.last.kg)
+                ?.toStringAsFixed(1) ??
+            '');
+    final v = kg == null ? null : Typed.of(kg).value;
+    if (v == null || v < 30 || v > 300) return;
+    await BodyWeight.put(await LocalDb.instance, todayLabel(), v);
+    // The profile weight follows the scale, so resting energy and every
+    // calorie figure use the current weight.
+    await app.updateProfile({'weight_kg': v});
+    await _load();
   }
 
   // ── FOODS ────────────────────────────────────────────────────────────────
@@ -366,41 +552,15 @@ class _NutritionDayViewState extends State<NutritionDayView> {
     widget.onChanged?.call();
   }
 
-  Future<void> _add(String meal) async {
-    final ok = await AddFoodSheet.show(context, date: widget.date, meal: meal);
-    if (ok == true) await _changed();
-  }
-
-  Future<void> _entryActions(FoodEntry e) async {
-    final db = await LocalDb.instance;
-    final def = e.foodKey == null ? null : await NutritionDb.foodDef(db, e.foodKey!);
-    if (!mounted) return;
-    // A food logged by weight can have its grams changed; anything else can
-    // only be removed.
-    if (def != null && e.quantity != null) {
-      final grams = await GramsSheet.show(context, def, initial: e.quantity);
-      if (grams == null) return;
-      await NutritionDb.put(
-          db,
-          entryFromFood(def, grams,
-              id: e.id, date: e.date, meal: e.meal, atTs: e.atTs));
-    } else {
-      if (!await confirmRemove(context,
-          title: 'Remove ${e.label}?', body: 'It leaves this day.')) {
-        return;
-      }
-      await NutritionDb.delete(db, e.id);
-    }
-    await _changed();
-  }
-
-  Future<void> _remove(FoodEntry e) async {
-    if (!await confirmRemove(context,
-        title: 'Remove ${e.label}?', body: 'It leaves this day.')) {
-      return;
-    }
-    await NutritionDb.delete(await LocalDb.instance, e.id);
-    await _changed();
+  /// In the evening, how much protein is still to eat against the target.
+  /// Shown here only, never as a notification.
+  String? _proteinLeft(NutritionDay d, Map<String, dynamic> profile) {
+    final target = _targetOf(profile, 'protein_target');
+    if (target == null || widget.date != todayLabel()) return null;
+    if (DateTime.now().hour < 17) return null;
+    final left = target - (d.protein.value ?? 0);
+    if (left < 5) return null;
+    return '${left.round()} g protein left today';
   }
 
   @override
@@ -423,14 +583,19 @@ class _NutritionDayViewState extends State<NutritionDayView> {
           today: widget.date == todayLabel()),
       const SizedBox(height: S.x3),
       MacroCard(day: d, profile: profile),
+      if (_proteinLeft(d, profile) case final line?) ...[
+        const SizedBox(height: S.x2),
+        Text(line,
+            textAlign: TextAlign.center,
+            style: F.cap.copyWith(color: P.of(c).on(C.red))),
+      ],
+      const SizedBox(height: S.x2),
       for (final m in kMeals)
-        MealSection(
-          meal: m,
-          entries: d.mealEntries(m),
-          onAdd: () => _add(m),
-          onEntry: _entryActions,
-          onRemove: _remove,
-        ),
+        MealCard(
+            date: widget.date,
+            meal: m,
+            entries: d.mealEntries(m),
+            onChanged: _changed),
     ]);
   }
 }

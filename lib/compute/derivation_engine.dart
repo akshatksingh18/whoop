@@ -1582,7 +1582,16 @@ import 'substrate.dart';
 // chain (nap.dart); `_attachNaps` tests that flag directly instead of
 // re-deriving it from the index. Real output change (nap minutes / sleep
 // need on days with a midnight-arousal-split nap), so the bump is real.
-const int kAlgoVersion = 86;
+//
+// 86 → 87 (personal build, phone-first steps): in the personal build
+// `resolveDaySteps` (lib/data/live_coverage_policy.dart) gives any phone window
+// that counted steps to the phone outright, removing the band's steps over it
+// before ranking; the band keeps only time the phone did not count and walks
+// the phone clearly missed. The stored `steps` and the step-priced walking
+// energy (`calories_total`) change on days with both sources, so retained days
+// re-derive. No analytics package change; the upstream build resolves as
+// before (`phoneFirst` defaults to `kPersonalSideload`).
+const int kAlgoVersion = 87;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

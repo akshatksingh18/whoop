@@ -114,6 +114,47 @@ class _PressableState extends State<Pressable> {
   }
 }
 
+/// A horizontal swipe between neighbours, e.g. the previous and next day.
+///
+/// The one swipe primitive, beside [Pressable] and [Scrubber]. It claims only
+/// a horizontal drag, so a vertical scroll and a tap inside it work as
+/// before, and it carries the same two moves as screen-reader actions
+/// (scroll left / right), so the swipe has a non-gesture alternative.
+class Swipe extends StatelessWidget {
+  const Swipe({
+    super.key,
+    required this.child,
+    required this.label,
+    this.onPrevious,
+    this.onNext,
+  });
+
+  final Widget child;
+
+  /// What a swipe moves through, e.g. 'Day'.
+  final String label;
+  final VoidCallback? onPrevious, onNext;
+
+  /// Faster than this (logical px/s) counts as a swipe rather than a nudge.
+  static const double _minVelocity = 300;
+
+  @override
+  Widget build(BuildContext c) => Semantics(
+        label: label,
+        onScrollRight: onPrevious,
+        onScrollLeft: onNext,
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (d) {
+            final v = d.primaryVelocity ?? 0;
+            if (v > _minVelocity) onPrevious?.call();
+            if (v < -_minVelocity) onNext?.call();
+          },
+          child: child,
+        ),
+      );
+}
+
 /// ── SCRUBBER ── the only continuous drag in lib/ui2 ───────────────────────
 ///
 /// It lives here for the same reason [Pressable] does: a drag is a gesture, and
@@ -2191,12 +2232,16 @@ class ChartFrame extends StatelessWidget {
                           ),
                         Positioned.fill(child: child),
                         // Above the curve, because a fill would swallow it —
-                        // and it never absorbs a pointer, so the scrub
-                        // underneath still works.
+                        // and wrapped so it never takes a pointer. A bare
+                        // CustomPaint hit-tests true, which sat on top of the
+                        // Scrubber and swallowed every drag on any chart with
+                        // a mark (30-day trends, build 69).
                         if (xMarks.isNotEmpty)
                           Positioned.fill(
-                            child: CustomPaint(
-                              painter: _XMarks(xMarks, p.ink3),
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _XMarks(xMarks, p.ink3),
+                              ),
                             ),
                           ),
                       ],

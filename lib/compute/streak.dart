@@ -1,6 +1,10 @@
 // The run-or-walk streak: how many days in a row had at least ten minutes of
-// running or walking. Lifts and other workouts never count. Pure, so the day
-// rules (today still open, midnight, DST) are testable without a clock.
+// running or walking. Lifts and other workouts never count. [moveStreak] is
+// pure, so the day rules (today still open, midnight, DST) are testable
+// without a clock; [loadMoveStreak] feeds it from the sessions table.
+
+import '../data/db.dart';
+import '../gps/run_history.dart' show isRunType, isWalkType;
 
 /// One run or walk session, as the streak needs it.
 typedef MoveSession = ({DateTime start, int minutes, bool run});
@@ -74,4 +78,34 @@ MoveStreak moveStreak(List<MoveSession> sessions, DateTime now,
         }(),
     ],
   );
+}
+
+/// Every run and walk this phone holds, as a streak. Read straight from the
+/// sessions table, because a streak can reach further back than a month.
+/// Null when the table cannot be read.
+Future<MoveStreak?> loadMoveStreak() async {
+  try {
+    final now = DateTime.now();
+    final rows =
+        await LocalDb.sessionsInRange(0, now.millisecondsSinceEpoch ~/ 1000);
+    final moves = <MoveSession>[];
+    for (final r in rows) {
+      final type = r['type'] as String?;
+      final run = isRunType(type);
+      if (!run && !isWalkType(type)) continue;
+      final ts = (r['start_ts'] as num?)?.toInt();
+      if (ts == null) continue;
+      final te = (r['end_ts'] as num?)?.toInt();
+      final mins = (r['duration_min'] as num?)?.toInt() ??
+          (te == null ? 0 : (te - ts) ~/ 60);
+      moves.add((
+        start: DateTime.fromMillisecondsSinceEpoch(ts * 1000),
+        minutes: mins,
+        run: run,
+      ));
+    }
+    return moveStreak(moves, now);
+  } catch (_) {
+    return null;
+  }
 }

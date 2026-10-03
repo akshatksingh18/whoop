@@ -30,6 +30,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 // screens describe a session, the caller owns it. Prefs is a synchronous
 // key/value façade, not the app.
 import '../../gps/gps_source.dart' show GpsPermissionStatus;
+import '../../gps/run_history.dart' show isRunType, isWalkType;
+import '../../gps/run_voice.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
@@ -1077,6 +1079,13 @@ class LiveMeasured extends StatelessWidget {
             const SizedBox(height: S.x4),
             card,
           ],
+          if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
+            const SizedBox(height: S.x3),
+            _VoiceCue(
+                key: const ValueKey('km-voice'),
+                km: f.distanceKm,
+                elapsed: elapsed),
+          ],
           const SizedBox(height: S.x8),
           // The user's own unit system, not km hardcoded. `unitsOf` is null in
           // a golden, and the metric fallback there is what the store holds.
@@ -1123,6 +1132,47 @@ class LiveMeasured extends StatelessWidget {
           ],
         ]);
       },
+    );
+  }
+}
+
+/// The spoken-kilometre switch on a run or walk, and the thing that speaks:
+/// it watches the live distance and says each whole kilometre with its pace.
+class _VoiceCue extends StatefulWidget {
+  const _VoiceCue({super.key, required this.km, required this.elapsed});
+  final double? km;
+  final int elapsed;
+
+  @override
+  State<_VoiceCue> createState() => _VoiceCueState();
+}
+
+class _VoiceCueState extends State<_VoiceCue> {
+  final _voice = KmVoice();
+  late bool _on = runVoiceOn;
+
+  @override
+  void didUpdateWidget(_VoiceCue old) {
+    super.didUpdateWidget(old);
+    _voice.update(widget.km, widget.elapsed, speak: _on);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Pressable(
+      semanticLabel: _on ? 'Voice each kilometre, on' : 'Voice each kilometre, off',
+      onTap: () => setState(() {
+        _on = !_on;
+        runVoiceOn = _on;
+      }),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(_on ? LucideIcons.volume2 : LucideIcons.volumeX,
+            size: 16, color: _on ? p.ink2 : p.ink3),
+        const SizedBox(width: S.x2),
+        Text(_on ? 'Voice each km' : 'Voice off',
+            style: F.cap.copyWith(color: _on ? p.ink2 : p.ink3)),
+      ]),
     );
   }
 }

@@ -29,6 +29,7 @@ import '../ui2.dart';
 import 'sleep_breathing.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
+import 'naps.dart' show NapsScreen;
 import 'rough_night.dart';
 
 /// Nights of history before a personal normal is claimed at all. Below this the
@@ -145,6 +146,13 @@ class SleepData {
   /// Null when it added nothing measurable or has not learned a need yet.
   final double? strainBonusMin;
 
+  /// The night's skin temperature as a distance from the user's usual
+  /// (`skin_temp` series, a z-score), and the night's HRV (`hrv` series, ms).
+  final double? skinTempZ, hrvNight;
+
+  /// The day's naps (`getDayNaps`), each {start, end, duration_min, source}.
+  final List<Map<String, dynamic>> naps;
+
   const SleepData({
     this.day,
     this.days = const [],
@@ -162,6 +170,9 @@ class SleepData {
     this.longestSleepMin,
     this.solMin,
     this.strainBonusMin,
+    this.skinTempZ,
+    this.hrvNight,
+    this.naps = const [],
   });
 
   bool get hasNight => night['duration_min'] is num;
@@ -262,6 +273,18 @@ class SleepData {
     final wakeups = _on(await repo.getChart('awakenings'), cut);
     final longest = _on(await repo.getChart('longest_sleep_min'), cut);
     final sol = _on(await repo.getChart('sol_min'), cut);
+    final tempZ = _on(await repo.getChart('skin_temp'), cut);
+    final hrvN = _on(await repo.getChart('hrv'), cut);
+    var naps = const <Map<String, dynamic>>[];
+    try {
+      final nd = await repo.getDayNaps(day);
+      naps = [
+        for (final x in (nd['naps'] as List?) ?? const [])
+          if (x is Map) x.cast<String, dynamic>(),
+      ];
+    } catch (_) {
+      naps = const [];
+    }
     final wins = await repo.sleepWindows(days: _window + 1);
     final onsets = <int>[
       for (final w in wins.reversed)
@@ -286,6 +309,9 @@ class SleepData {
       longestSleepMin: longest,
       solMin: sol,
       strainBonusMin: strainBonus,
+      skinTempZ: tempZ,
+      hrvNight: hrvN,
+      naps: naps,
     );
   }
 }
@@ -309,6 +335,9 @@ class _SleepDetailState extends State<SleepDetail> {
   String? _day;
   bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
+
+  /// Whether the folded "Fix sleep times" card is open.
+  bool _showFix = false;
 
   /// Why the last correction did not take. Null when it did.
   String? _overrideFailed;
@@ -470,7 +499,6 @@ class _SleepDetailState extends State<SleepDetail> {
       // ── 2 · THE NIGHT ITSELF ──
       const SizedBox(height: S.x3),
       _night(c, p, d, n),
-      if (_scrub != null) _scrubCard(c, p, d),
 
       // ── 3 · WHAT IT WAS MADE OF ──
       Section(l?.sleepDetailStagesSection ?? 'Stages', _stages(c, p, n)),
@@ -498,9 +526,46 @@ class _SleepDetailState extends State<SleepDetail> {
       // No "Tonight" section: sleep need, debt and a lights-out time are
       // noise to someone who sleeps on their own schedule. Still computed.
 
+      // Naps live here now, with the night, instead of on Trends.
+      if (d.naps.isNotEmpty)
+        Section(
+          'Naps',
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(children: [
+              for (final nap in d.naps)
+                MetricRow(
+                  LucideIcons.sun,
+                  C.sleep,
+                  '${clockOfTs(nap['start'] as num?)} – '
+                      '${clockOfTs(nap['end'] as num?)}',
+                  hm(nap['duration_min'] as num?),
+                  sub: nap['source'] == 'manual' ? 'Added by you' : 'Detected',
+                  onTap: () => go(c, NapsScreen(day: d.day)),
+                ),
+            ]),
+          ),
+          action: 'Edit',
+          onAction: () => go(c, NapsScreen(day: d.day)),
+        ),
+
       // Correcting the sleep window is an occasional fix, not a reading, so it
-      // sits last rather than between the chart and the stages.
-      ...?_windowCard(c, p, d, n),
+      // sits last and folded rather than between the chart and the stages.
+      if (_windowCard(c, p, d, n) case final fix?) ...[
+        const SizedBox(height: S.x5),
+        Pressable(
+          onTap: () => setState(() => _showFix = !_showFix),
+          semanticLabel: 'Fix sleep times',
+          child: Row(children: [
+            Expanded(
+                child: Text('Fix sleep times',
+                    style: F.cap.copyWith(color: p.ink2))),
+            Icon(_showFix ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                size: 16, color: p.ink3),
+          ]),
+        ),
+        if (_showFix) ...fix,
+      ],
 
       // Across nights, never one: kept one tap down so it cannot read as a
       // headline about last night (see sleep_breathing.dart).
@@ -802,7 +867,7 @@ class _SleepDetailState extends State<SleepDetail> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ChartFrame(
           title: l?.sleepDetailThroughTheNight ?? 'Through the night',
-          unit: l?.sleepDetailUnitStage ?? 'stage',
+          unit: '',
           height: 132,
           // Five evenly spaced clock marks: the labels sit at quarters of the
           // plot, so each one is the time at that point of the night.
@@ -812,7 +877,7 @@ class _SleepDetailState extends State<SleepDetail> {
               for (var q = 1; q < 4; q++) clockOfTs(t0 + (t1 - t0) * q ~/ 4),
             clockOfTs(t1),
           ],
-          readout: _scrub == null ? null : _scrubSays(c, stages, n, _scrub!),
+          readout: _scrub == null ? null : _scrubLine(c, d, _scrub!),
           // Driven by the night, not by the enum: a night with no REM in
           // it used to still print REM in its key.
           legend: [
@@ -924,23 +989,6 @@ class _SleepDetailState extends State<SleepDetail> {
                           painter: Hypnogram(st, p, t: animate(c, 1))),
                 ),
             ]),
-            // Each lane named at its left edge, so the chart reads without the
-            // legend. Four lanes over the 132 pt plot.
-            for (final st in SleepStage.values)
-              Positioned(
-                left: 2,
-                top: st.index * 33 + 9,
-                child: IgnorePointer(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                        color: p.card.withValues(alpha: .72),
-                        borderRadius: R.rSm),
-                    child: Text(_stageName(c, st),
-                        style: F.over.copyWith(color: p.ink2)),
-                  ),
-                ),
-              ),
             if (_scrub != null)
               // Aligned by fraction rather than by a measured offset, so the
               // cursor needs no width from the layout.
@@ -974,14 +1022,16 @@ class _SleepDetailState extends State<SleepDetail> {
 
   /// What every signal read at the scrubbed instant. Each line abstains on its
   /// own — a night with no respiration series still shows heart rate.
-  Widget _scrubCard(BuildContext c, P p, SleepData d) {
-    final l = AppLocalizations.of(c);
+  /// The chart header while a finger is on the night: time · stage · heart
+  /// rate · HRV · skin temperature against the night's own average. Each
+  /// part abstains on its own when nothing was recorded near that moment.
+  String _scrubLine(BuildContext c, SleepData d, double v) {
     final n = d.night;
     final t0 = (n['onset_ts'] as num?)?.toInt();
     final t1 = (n['wake_ts'] as num?)?.toInt();
-    if (t0 == null || t1 == null || t1 <= t0) return const SizedBox.shrink();
-    final t = t0 + ((t1 - t0) * _scrub!).round();
-
+    final head = _scrubSays(c, d.stages, n, v).replaceFirst(', ', ' · ');
+    if (t0 == null || t1 == null || t1 <= t0) return head;
+    final t = t0 + ((t1 - t0) * v).round();
     num? at(String key) {
       final list = d.timeline[key];
       if (list is! List) return null;
@@ -999,51 +1049,30 @@ class _SleepDetailState extends State<SleepDetail> {
       return bestGap > 900 ? null : best;
     }
 
-    final stages = d.stages;
-    final stage = stages.isEmpty
-        ? null
-        : stages[(_scrub! * (stages.length - 1)).round()];
-    final items = <(String, String, Color)>[
-      if (at('hr') != null)
-        (l?.sleepDetailHeartRate ?? 'Heart rate', '${at('hr')!.round()} bpm', C.red),
-      if (at('hrv') != null)
-        (l?.sleepDetailHrv ?? 'HRV', '${at('hrv')!.round()} ms', C.green),
-      if (at('resp') != null)
-        (l?.sleepDetailBreathing ?? 'Breathing',
-            '${at('resp')!.toStringAsFixed(1)} br/min', C.teal),
-      if (at('skin_temp') != null)
-        (l?.sleepDetailTemp ?? 'Temp', at('skin_temp')!.toStringAsFixed(2), C.orange),
-    ];
+    double? nightMean(String key) {
+      final list = d.timeline[key];
+      if (list is! List) return null;
+      final vs = [
+        for (final e in list)
+          if (e is Map &&
+              e['t'] is num &&
+              e['v'] is num &&
+              (e['t'] as num) >= t0 &&
+              (e['t'] as num) <= t1)
+            (e['v'] as num).toDouble(),
+      ];
+      return vs.isEmpty ? null : vs.reduce((a, b) => a + b) / vs.length;
+    }
 
-    return Padding(
-      padding: const EdgeInsets.only(top: S.x3),
-      child: Surface(
-        color: p.card2,
-        elevation: 0,
-        child: Column(children: [
-          Row(children: [
-            Text(clockOfTs(t),
-                style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-            const Spacer(),
-            if (stage != null)
-              Pill(_stageName(c, stage), Hypnogram.pigment[stage] ?? C.blue)
-            else if (stages.isNotEmpty)
-              // Not a stage, so not a Pill: this instant has no colour because
-              // the band was not recording it.
-              Text(l?.sleepDetailNotMeasuredCap ?? 'Not measured',
-                  style: F.cap.copyWith(color: p.ink3)),
-          ]),
-          if (items.isEmpty) ...[
-            const SizedBox(height: S.x3),
-            Text(l?.sleepDetailNoSignalAtMoment ?? 'No signal recorded at this moment.',
-                style: F.cap.copyWith(color: p.ink3)),
-          ] else ...[
-            const SizedBox(height: S.x4),
-            InlineMetrics(items),
-          ],
-        ]),
-      ),
-    );
+    final hr = at('hr'), hrv = at('hrv'), temp = at('skin_temp');
+    final mean = nightMean('skin_temp');
+    return [
+      head,
+      if (hr != null) '${hr.round()} bpm',
+      if (hrv != null) 'HRV ${hrv.round()} ms',
+      if (temp != null && mean != null)
+        'temp ${temp - mean >= 0 ? '+' : '−'}${(temp - mean).abs().toStringAsFixed(1)}',
+    ].join(' · ');
   }
 
   String _stageName(BuildContext c, SleepStage s) {
@@ -1407,184 +1436,118 @@ class _SleepDetailState extends State<SleepDetail> {
 
   // ── OVERNIGHT SIGNALS ─────────────────────────────────────────────────────
 
+  /// Overnight signals as one clean row each: the number that matters and a
+  /// small line through the night. Breathing gets a row only on a night it was
+  /// measured; a lane that was mostly empty read as a broken chart.
   Widget _overnight(BuildContext c, P p, SleepData d) {
     final loc = AppLocalizations.of(c);
-    /// One lane as `(timestamp, value)`. The timestamp is the point — the
-    /// signals arrive on different cadences.
-    List<(int, double)> stamped(String key) {
-      final l = d.timeline[key];
-      if (l is! List) return const [];
-      return [
-        for (final e in l)
-          if (e is Map && e['v'] is num && e['t'] is num)
-            ((e['t'] as num).round(), (e['v'] as num).toDouble()),
-      ];
-    }
-
     final n = d.night;
-    final hr = stamped('hr'),
-        hrv = stamped('hrv'),
-        resp = stamped('resp'),
-        temp = stamped('skin_temp');
-    final all = [...hr, ...hrv, ...resp, ...temp];
+    final t0 = (n['onset_ts'] as num?)?.round();
+    final t1 = (n['wake_ts'] as num?)?.round();
 
-    // The night's own nocturnal summary — measured, and until now shown
-    // nowhere on the screen that owns it.
-    final noc = d.night['nocturnal'];
-    final respV = (d.night['resp'] is Map)
-        ? (d.night['resp'] as Map)['value'] as num?
-        : null;
-    // Three, not four: `InlineMetrics` divides the card evenly, and a fourth
-    // column truncates "14.2 br/min" to "14.2 br/…" at 390 pt. The nocturnal
-    // dip was the fourth and is the one number here that is a ratio of two
-    // others rather than a reading of its own.
-    final summary = <(String, String, Color)>[
-      if (noc is Map && noc['sleeping_hr_avg'] != null)
-        (loc?.sleepDetailSleepingHr ?? 'SLEEPING HR',
-            '${noc['sleeping_hr_avg']} bpm', C.red),
-      if (noc is Map && noc['sleeping_hr_min'] != null)
-        (loc?.sleepDetailLowest ?? 'LOWEST', '${noc['sleeping_hr_min']} bpm',
-            C.blue),
-      if (respV != null)
-        (loc?.sleepDetailBreathingCaps ?? 'BREATHING',
-            '${respV.toStringAsFixed(1)} br/min', C.teal),
-    ];
-
-    if (all.isEmpty) {
-      return summary.isEmpty
-          ? _noOvernightLines(c)
-          : Surface(child: InlineMetrics(summary));
-    }
-
-    // ONE grid for all lanes. `NightStack` reads index as instant, so lanes of
-    // different lengths spread across the same width put different times under
-    // one vertical slice — which is the entire premise of a stacked night view.
-    // The window is the night the axis labels name, and the column count is the
-    // densest lane, capped: past ~a column per pixel the extra buckets only add
-    // holes.
-    var t0 = (n['onset_ts'] as num?)?.round() ??
-        all.map((e) => e.$1).reduce((a, b) => a < b ? a : b);
-    var t1 = (n['wake_ts'] as num?)?.round() ??
-        all.map((e) => e.$1).reduce((a, b) => a > b ? a : b);
-    if (t1 <= t0) {
-      t0 = all.map((e) => e.$1).reduce((a, b) => a < b ? a : b);
-      t1 = all.map((e) => e.$1).reduce((a, b) => a > b ? a : b);
-    }
-    // The bucket width is set by the SPARSEST lane, not the densest.
-    //
-    // Heart rate is stored per minute and breathing and skin temperature per
-    // five, so a grid sized to heart rate leaves four empty buckets between
-    // every breathing sample — and an empty bucket is a HOLE, which the painter
-    // correctly draws as a break. The breathing lane was therefore drawn as a
-    // dotted line on every night the app has ever rendered, describing a sensor
-    // dropout that never happened. Sizing the grid to the slowest lane makes
-    // every lane continuous and costs the fast lane nothing a 330 pt chart
-    // could have shown anyway. Lanes with almost nothing in them are excluded
-    // from the vote (they really are sparse) and the floor keeps a stray short
-    // lane from coarsening the whole night.
-    //
-    // The vote counts points INSIDE the window, not stored points. These lanes
-    // are ALL-DAY curves — `hr_curve` at one a minute, `resp_day`/
-    // `skin_temp_day` at one per five — so voting on their total length picked
-    // ~385 columns from the 24 h heart-rate lane and left the 5-min lanes with
-    // a hole in three buckets out of four, on every normal night.
-    int inWindow(List<(int, double)> l) {
-      var n = 0;
-      for (final (t, _) in l) {
-        if (t >= t0 && t <= t1) n++;
+    /// One signal across the night in [cols] buckets (mean per bucket, null
+    /// where nothing was recorded), and its night mean.
+    (List<double?>, double?) lane(String key, {int cols = 40}) {
+      final list = d.timeline[key];
+      if (list is! List || t0 == null || t1 == null || t1 <= t0) {
+        return (const [], null);
       }
-      return n;
-    }
-
-    final lens = [
-      for (final l in [hr, hrv, resp, temp])
-        if (inWindow(l) >= 8) inWindow(l),
-    ];
-    // The floor is the admission threshold, not 60: a lane admitted with 48
-    // in-window samples was still stretched over 60 buckets and drawn broken.
-    final cols = t1 <= t0
-        ? 0
-        : lens.isEmpty
-            ? 2
-            : lens.reduce(math.min).clamp(8, 480);
-
-    /// Bucket mean per column; null where the lane has nothing in that
-    /// bucket. A null is a HOLE — the painter breaks the line rather than
-    /// drawing across a gap the data never covered.
-    List<double?> grid(List<(int, double)> v) {
       final sum = List<double>.filled(cols, 0), cnt = List<int>.filled(cols, 0);
-      for (final (t, x) in v) {
+      var all = 0.0;
+      var k = 0;
+      for (final e in list) {
+        if (e is! Map || e['t'] is! num || e['v'] is! num) continue;
+        final t = (e['t'] as num).round();
         if (t < t0 || t > t1) continue;
-        final i = (((t - t0) / (t1 - t0)) * (cols - 1)).round().clamp(0, cols - 1);
-        sum[i] += x;
+        final v = (e['v'] as num).toDouble();
+        final i = ((t - t0) / (t1 - t0) * (cols - 1)).round().clamp(0, cols - 1);
+        sum[i] += v;
         cnt[i]++;
+        all += v;
+        k++;
       }
-      return [
-        for (var i = 0; i < cols; i++)
-          cnt[i] == 0 ? null : sum[i] / cnt[i],
-      ];
+      return (
+        [for (var i = 0; i < cols; i++) cnt[i] == 0 ? null : sum[i] / cnt[i]],
+        k == 0 ? null : all / k,
+      );
     }
 
-    final series = <List<double?>>[], colors = <Color>[];
-    final legend = <(String, Color)>[];
-    final axes = <AxisSpec?>[];
-    final units = <String>[];
+    final noc = n['nocturnal'];
+    final avgHr = noc is Map ? noc['sleeping_hr_avg'] as num? : null;
+    final minHr = noc is Map ? noc['sleeping_hr_min'] as num? : null;
+    final respV = n['resp'] is Map ? (n['resp'] as Map)['value'] as num? : null;
+    final (hrLine, hrMean) = lane('hr');
+    final (hrvLine, hrvMean) = lane('hrv');
+    final (tempLine, _) = lane('skin_temp');
+    final (respLine, _) = lane('resp');
+    final hrv = d.hrvNight ?? hrvMean;
+    final z = d.skinTempZ;
 
-    // Each lane keeps its own scale — they are different quantities — but the
-    // scale is PINNED to the night's own range and its unit is named. Three
-    // unlabelled lines on three invisible axes was the least readable chart
-    // in the app.
-    void lane(List<(int, double)> raw, String label, String unit, Color col,
-        {String Function(double) format = axisInt}) {
-      if (raw.isEmpty || cols == 0) return;
-      final g = grid(raw);
-      final present = <double>[for (final v in g) ?v];
-      if (present.length < 2) return;
-      series.add(g);
-      colors.add(col);
-      legend.add(('$label ($unit)', col));
-      axes.add(AxisSpec.of(present, ticks: 2, format: format));
-      units.add(unit);
-    }
-
-    // Solved against the card, like every other mark: raw pigment measures
-    // 1.7-2.5:1 on white and a lane's colour is what tells you which signal
-    // you are looking at.
-    lane(hr, loc?.sleepDetailHeartRate ?? 'Heart rate', 'bpm', p.on(C.red));
-    lane(hrv, loc?.sleepDetailHrv ?? 'HRV', 'ms', p.on(C.green));
-    lane(resp, loc?.sleepDetailBreathing ?? 'Breathing', 'br/min', p.on(C.teal));
-    // Skin temperature is ADC-relative — a deviation, never a °C. The unit
-    // says so rather than implying a thermometer.
-    lane(temp, loc?.sleepDetailSkinTemp ?? 'Skin temp', 'rel', p.on(C.orange),
-        format: axisFixed);
-
-    if (series.isEmpty) {
-      return summary.isEmpty
-          ? _noOvernightLines(c)
-          : Surface(child: InlineMetrics(summary));
-    }
+    final rows = <(String, String, String, Color, List<double?>)>[
+      if (avgHr != null || hrMean != null)
+        (
+          loc?.sleepDetailHeartRate ?? 'Heart rate',
+          '${(avgHr ?? hrMean)!.round()} bpm',
+          minHr == null ? 'average' : 'average · lowest ${minHr.round()}',
+          C.heart,
+          hrLine,
+        ),
+      if (hrv != null)
+        ('HRV', '${hrv.round()} ms', 'through the night', C.green, hrvLine),
+      if (z != null || tempLine.any((v) => v != null))
+        (
+          loc?.sleepDetailSkinTemp ?? 'Skin temperature',
+          z == null
+              ? 'measured'
+              : '${z >= 0 ? '+' : '−'}${z.abs().toStringAsFixed(1)}',
+          z == null
+              ? 'relative reading'
+              : z.abs() < 1
+                  ? 'about usual'
+                  : (z > 0 ? 'warmer than usual' : 'cooler than usual'),
+          C.orange,
+          tempLine,
+        ),
+      if (respV != null)
+        (
+          loc?.sleepDetailBreathing ?? 'Breathing',
+          '${respV.toStringAsFixed(1)} br/min',
+          'average',
+          C.teal,
+          respLine,
+        ),
+    ];
+    if (rows.isEmpty) return _noOvernightLines(c);
     return Surface(
       child: Column(children: [
-        if (summary.isNotEmpty) ...[
-          InlineMetrics(summary),
-          const SizedBox(height: S.x5),
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) Divider(color: p.line, height: S.x6),
+          Row(children: [
+            Expanded(
+              flex: 5,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(rows[i].$1, style: F.cap.copyWith(color: p.ink3)),
+                const SizedBox(height: 2),
+                Text(rows[i].$2, style: F.n17.copyWith(color: p.on(rows[i].$4))),
+                Text(rows[i].$3, style: F.over.copyWith(color: p.ink3)),
+              ]),
+            ),
+            const SizedBox(width: S.x3),
+            Expanded(
+              flex: 6,
+              child: SizedBox(
+                height: 40,
+                child: rows[i].$5.where((v) => v != null).length < 2
+                    ? const SizedBox.shrink()
+                    : CustomPaint(
+                        size: Size.infinite,
+                        painter: LineChart(rows[i].$5, p.on(rows[i].$4),
+                            fill: false, t: animate(c, 1)),
+                      ),
+              ),
+            ),
+          ]),
         ],
-        ChartFrame(
-          title: loc?.sleepDetailThroughTheNight ?? 'Through the night',
-          unit: units.join(' · '),
-          height: 44.0 * series.length + 20,
-          xLabels: [
-            clockOfTs(n['onset_ts'] as num?),
-            clockOfTs(n['wake_ts'] as num?),
-          ],
-          legend: legend,
-          // No footnote. The legend already names each lane and its unit, and
-          // the lanes are visibly separate — a paragraph explaining that they
-          // are separate was describing the picture instead of letting it work.
-          child: CustomPaint(
-              size: Size.infinite,
-              painter: NightStack(series, colors, axes: axes)),
-        ),
       ]),
     );
   }

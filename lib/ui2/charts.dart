@@ -513,7 +513,11 @@ class Bars extends CustomPainter {
   // in the row and a real zero gets the 2 pt floor below, which is the whole
   // absence channel.
   Bars(this.d, this.color,
-      {this.highlight = -1, this.t = 1, this.axis, this.cursor});
+      {this.highlight = -1, this.t = 1, this.axis, this.cursor, this.colors});
+
+  /// One colour per bar (e.g. recovery green / amber / red). Null, or shorter
+  /// than [d], uses [color].
+  final List<Color>? colors;
 
   /// The bar under the finger. It takes the highlight while it is set, so the
   /// bar being read is the one drawn solid.
@@ -574,8 +578,12 @@ class Bars extends CustomPainter {
           const Radius.circular(3),
         ),
         Paint()
-          ..color =
-              (hl < 0 || i == hl) ? color : color.withValues(alpha: .35),
+          ..color = () {
+            final cs = colors;
+            final base =
+                cs != null && v.length == d.length && i < cs.length ? cs[i] : color;
+            return (hl < 0 || i == hl) ? base : base.withValues(alpha: .35);
+          }(),
       );
     }
   }

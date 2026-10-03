@@ -1052,40 +1052,13 @@ Future<ActivityResult> _finishSession(
   runsChanged();
   try {
     final route = await app.repo?.getWorkoutRoute(id);
-    if (route != null && route.hasPath) return _withRoute(draft, route);
+    if (route != null && route.hasPath) {
+      return _withPhone(_withRoute(draft, route));
+    }
   } catch (_) {
     // A missing map is a missing map; the session itself is already banked.
   }
   return _withMotion(draft);
-}
-
-/// Every run and walk this phone holds, for the streak. Read straight from
-/// the sessions table, because a streak can reach further back than a month.
-Future<MoveStreak?> _loadStreak() async {
-  try {
-    final now = DateTime.now();
-    final rows =
-        await LocalDb.sessionsInRange(0, now.millisecondsSinceEpoch ~/ 1000);
-    final moves = <MoveSession>[];
-    for (final r in rows) {
-      final type = r['type'] as String?;
-      final run = isRunType(type);
-      if (!run && !isWalkType(type)) continue;
-      final ts = (r['start_ts'] as num?)?.toInt();
-      if (ts == null) continue;
-      final te = (r['end_ts'] as num?)?.toInt();
-      final mins = (r['duration_min'] as num?)?.toInt() ??
-          (te == null ? 0 : (te - ts) ~/ 60);
-      moves.add((
-        start: DateTime.fromMillisecondsSinceEpoch(ts * 1000),
-        minutes: mins,
-        run: run,
-      ));
-    }
-    return moveStreak(moves, now);
-  } catch (_) {
-    return null;
-  }
 }
 
 /// Previous and best per lift, from this user's own log. One indexed query
@@ -1326,7 +1299,7 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   try {
     final route = await repo.getWorkoutRoute(w.id);
     if (route != null && route.hasPath) {
-      out = _withRoute(out, route);
+      out = await _withPhone(_withRoute(out, route));
     } else {
       out = await _withMotion(out);
     }
@@ -1359,10 +1332,38 @@ Future<ActivityResult> _withMotion(ActivityResult r) async {
       mix: motionMix(steps: w.steps, meters: w.meters, chunkSec: w.chunkSec),
       motionDistance: true,
       cadence: w.cadence,
+      phoneSteps: w.totalSteps,
+      cadenceSeries: _perMinute(w),
     );
   } catch (_) {
     return r;
   }
+}
+
+/// A GPS run or walk: the phone's own steps and cadence for its window, when
+/// the phone was counting (phone first; the wrist reads a run low).
+Future<ActivityResult> _withPhone(ActivityResult r) async {
+  final id = r.sessionId;
+  final type = r.activity.typeKey;
+  if (id == null || !(isRunType(type) || isWalkType(type))) return r;
+  try {
+    final w = await motionWindow(id, r.start, r.start.add(r.duration));
+    if (w == null) return r;
+    return r.copyWith(
+        phoneSteps: w.totalSteps, cadence: w.cadence, cadenceSeries: _perMinute(w));
+  } catch (_) {
+    return r;
+  }
+}
+
+/// Steps a minute from the phone's chunks, one slot per minute from the
+/// window start; null where nothing was counted.
+List<double?> _perMinute(MotionWindow w) {
+  final perChunk = w.chunkSec / 60;
+  if (perChunk <= 0) return const [];
+  return [
+    for (final s in w.steps) s <= 0 ? null : s / perChunk,
+  ];
 }
 
 /// `strength_set` rows → the log the summary renders. `load_kg` stays null
@@ -1713,7 +1714,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       weekLoad: weekLoad,
       workoutsTracked: tracked,
       recent: recent,
-      streak: await _loadStreak(),
+      streak: await loadMoveStreak(),
       setHistory: history,
       suggestions: await activeSuggestions(),
       importedLast: await lastImportAt(HealthImport.workouts),

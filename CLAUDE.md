@@ -48,7 +48,41 @@ signing-expiry alerts, encrypted automatic backups, GPS route-recording hardenin
 restore-wake reconnect fix recorded in `bugs.md`. Akshat installed it over build 65; it still
 needs its device pass and current-version refresh enrollment, and none of its new behavior is
 phone-verified.
-Source `0.9.36`/`69` (not yet built) adds, on Akshat's decisions (`todo.md` holds the phone check):
+Source `0.9.37`/`70` (not yet built) folds build 69's open phone check into its own (`todo.md`).
+It adds:
+- **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
+  swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
+  gone.
+- **Sleep:**
+  - The stage names appear once, and the drag readout in the header carries bpm, HRV and temp.
+  - Overnight signals are three clean rows.
+  - Naps moved in from Trends.
+  - The breathing-pattern screen is a single card.
+  - "Fix sleep times" is folded.
+- **Skin temperature:** charted from this band's nights.
+- **Readiness:** the end-to-end audit (`todo.md`) found no bug. The history is coloured bars with a
+  per-day reason, and it shows why breathing was not counted.
+- **Steps, phone first:** `resolveDaySteps(phoneFirst: kPersonalSideload)`; `kAlgoVersion` is now 87.
+- **Runs:** medal pins on the map, phone steps and cadence (plus a chart), and spoken km cues (the
+  native `SpeechBridge`, no new dependency).
+- **Food:** a MyFitnessPal-style diary:
+  - day navigation and swipe;
+  - meal cards with copy from / copy to / save meal;
+  - a meal page with sub-groups (the new `food_entry.grp` column, added in place) and
+    swipe-to-delete;
+  - a log screen with search, tabs and sort;
+  - food detail with % of goals and "often eaten with";
+  - named quick add.
+- **Food history:** maintenance history for every day with a chart and weekly totals, a body weight
+  log (new `body_weight` table) and maintenance measured from weight change.
+- **Today:** a weekly card, and an evening protein-left line on Food.
+
+`schemaVersion` is unchanged (both new storage pieces are additive, on the open path).
+Candidate `0.9.36`/`69` (commit `5747dd35`) is **built, validated and on the phone** (Akshat's
+screenshots show its features; phone check open)
+(Linux tests and the macOS workflow passed; the IPA matches its SHA-256 and passes the validator;
+cached under `final-ipas\whoop\testing\WHOOP-0.9.36-build69-5747dd35`). It adds, on Akshat's
+decisions (`todo.md` holds the phone check):
 - **Run calories:** two numbers. **From distance** (Method 1: 0.005 × kg × (0.143 × metres run +
   0.1 × metres walked + 0.9 × metres climbed), with walk breaks split out by GPS speed).
   **From heart rate** (Method 2: Keytel minus resting, per minute). Shown as one number when within
@@ -72,9 +106,8 @@ Source `0.9.36`/`69` (not yet built) adds, on Akshat's decisions (`todo.md` hold
 preferences).
 Build `0.9.35`/`68` (commit `284fff83`) is **installed** over build 67. Akshat reports the run screen
 working on his first run after installing it. Runs recorded before then show no splits because
-they have no saved GPS route, which is expected. Its full device pass and enrollment are open, and
-it stays the testing candidate until build 69 replaces it. It is cached under
-`final-ipas\whoop\testing\WHOOP-0.9.35-build68-284fff83`. It adds: daily maintenance calories as a floor (BMR + step calories + 10% of logged food, `metrics-map.md`); a dark-only palette (one colour per pillar); a Strava-style run screen (Apple Maps route via a MapKit snapshot, best efforts and PRs against earlier runs, a rule-based verdict, splits, pace / heart-rate / elevation charts on one finger cursor, pace zones); running trends on Train; live heart rate on Today with the scrub stopping at the current time; decluttered Strain and Readiness screens; GPS jitter smoothing and stop-aware moving time; and a refresh of phone steps and today's numbers on every open and every 5 minutes while the app is open. **The map is the app's first regular network use besides barcode lookup:** MapKit fetches tiles for the run's area from Apple, approved by Akshat.
+they have no saved GPS route, which is expected. Build 69 replaced it in the testing slot; it is
+reproducible from its workflow run (`setup.md`). It adds: daily maintenance calories as a floor (BMR + step calories + 10% of logged food, `metrics-map.md`); a dark-only palette (one colour per pillar); a Strava-style run screen (Apple Maps route via a MapKit snapshot, best efforts and PRs against earlier runs, a rule-based verdict, splits, pace / heart-rate / elevation charts on one finger cursor, pace zones); running trends on Train; live heart rate on Today with the scrub stopping at the current time; decluttered Strain and Readiness screens; GPS jitter smoothing and stop-aware moving time; and a refresh of phone steps and today's numbers on every open and every 5 minutes while the app is open. **The map is the app's first regular network use besides barcode lookup:** MapKit fetches tiles for the run's area from Apple, approved by Akshat.
 Build `0.9.34`/`67` (commit `b7414f03`) is **installed and accepted**: Akshat reports it working (band sync, a GPS run, the new layout), and it is promoted to the backup slot. Akshat installed it over build 66 with Sideloadly 0.70.1. WHOOP installs can sit at "Installing 88%" (43 minutes when left alone). The cause is not established. What is observed on build 67: it happens in both automatic and exact bundle-ID mode, with the phone unlocked, and even when the app was swiped away beforehand; opening WHOOP and swiping it away released the stuck install at once, twice. `guides/IOS_SIDELOAD.md` owns the procedure. Sideloadly's record shows 0.9.34 at `com.akshat.personal.whoop.5564K8D4SV` with a completed automatic-refresh registration and no error (currently automatic mode). Linux
 tests and the macOS workflow passed, the downloaded IPA matches its SHA-256 and passes the payload
 validator, and it is cached as the accepted build under
@@ -84,8 +117,8 @@ removes the screens listed under "Simple day-to-day UI" below; `metrics-map.md` 
 and the list of metrics still stored but no longer shown. None of it is phone-verified.
 
 ## Files
-- `todo.md` — the next build (`0.9.36`/`69`): Akshat's applied decisions, what was left out, and
-  the phone check; read before building, installing or verifying it.
+- `todo.md` — build 70 (`0.9.37`): the readiness audit result, the phone check (which also
+  covers build 69's), and known limits; read before building, installing or verifying it.
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
   and the pending layout decisions; read before adding, moving or removing any screen.
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows

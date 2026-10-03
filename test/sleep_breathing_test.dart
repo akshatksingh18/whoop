@@ -40,12 +40,15 @@ void main() {
   testWidgets('the across-nights card carries no index and ends in a clinician',
       (t) async {
     await _pump(t, _m(_dist));
+    // The caveats are folded under one line now; open them.
+    await t.tap(find.text('What this means'));
+    await t.pumpAndSettle();
     final text = t
         .widgetList<Text>(find.byType(Text))
         .map((w) => w.data ?? '')
         .join('\n');
-    expect(text, contains('ACROSS 21 OF YOUR OWN NIGHTS'));
-    expect(text, contains('running higher'));
+    expect(text, contains('21 nights'));
+    expect(text, contains('Higher than your usual'));
     expect(text, contains('a clinician can test'));
     // No per-night rate or mean is printed.
     expect(text, isNot(contains('6.1')));

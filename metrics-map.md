@@ -2,9 +2,9 @@
 
 Everything the app stores and where each item appears, plus the proposed layout. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal build from source `0.9.36`/`69`.
+the personal build from source `0.9.37`/`70`.
 
-**Status:** Current map of stored data and screens for source `0.9.36`/`69`. Everything in
+**Status:** Current map of stored data and screens for source `0.9.37`/`70`. Everything in
 "What is stored" keeps being recorded whether or not a screen shows it; any further removal still
 needs Akshat's per-item yes.
 
@@ -103,6 +103,8 @@ These are still stored but no longer entered in the personal build:
 | `food_def` | your foods, stored per 100 g: typed from a label ("50 g oats = 200 kcal…") or cached from a barcode scan |
 | `meal_template` | saved meals: a name, a usual meal slot, and foods at fixed grams |
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
+| `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
+| `body_weight` | one weight per day (latest wins); logging one also sets profile `weight_kg` |
 
 ## Where each core metric appears now
 
@@ -111,23 +113,33 @@ Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
 | Metric | Today | Trends row | Detail screen |
 |---|---|---|---|
 | Recovery | ring with the score, verdict, HRV and resting HR | yes | Readiness: drivers and 90-day history |
-| Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals |
+| Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals, naps |
 | Strain | card with a bar and today's target | yes | Day strain: any day (arrows), draggable curve, zones, three-line method |
 | Heart rate, all day | live bpm, then the day's line and range | — | Scrubbable minute-by-minute chart (stops at the current time) |
 | HRV, resting HR | inside the recovery card | yes | metric detail |
 | Steps, walking kcal | card | yes | metric detail, steps breakdown |
 | Maintenance (floor) | card: resting · steps · run · food; tap for the detail sheet | step calories row | Food → Today (card and sheet) and History |
-| Breathing rate | — | only when measured on at least half the nights of the last 30 | metric detail; Sleep overnight lanes when measured |
-| Skin temperature, wear time | — | yes | metric detail; Sleep overnight lanes |
+| Breathing rate | — | only when measured on at least half the nights of the last 30 | metric detail; Sleep overnight row when measured; Readiness says why it was not counted |
+| Skin temperature | — | once 7 of the last 30 nights have one | metric detail (this band's nights only, as a difference from usual); Sleep overnight row |
+| Wear time | — | yes | metric detail |
 | Breathing pattern in sleep | — | — | one tap below Sleep |
 | Bedtime and sleep need | — | — | not shown (still computed); the wind-down reminder is off and hidden |
 | Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
-| Naps | — | section on a day with one | Naps |
+| Naps | — | — | Sleep → Naps section on a day with one; Naps screen to edit |
 | Workouts, GPS | — | — | Train: Run / Walk / Lift / Other, run-or-walk streak, draggable 7-day strain (tap opens that day), running trends (draggable weekly distance, predicted 5K/10K, best 1K/5K/10K/half), recent sessions; a run opens the run screen (Apple Maps route, calories by distance and by heart rate, best efforts, verdict, splits, linked pace/HR/elevation charts, pace zones); a walk opens the same screen without the running-only parts |
-| Food, calories left, macros | — | — | Food: Today, History (month), Foods |
+| Food, calories left, macros | — | — | Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, swipe-to-delete. Log screen: search, Recent / My meals / My foods, sort, food detail with % of goals and "often eaten with", named quick add |
+| Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, measured maintenance), this week's deficit, draggable maintenance-vs-eaten chart, every day of the month (opens to add food late) |
 
 Trends has a Week / Month / 3 months switch. Each row shows the average for the range, a small
 line, and the newest reading.
+
+**Readiness:** history is one coloured bar per day; dragging an empty day reads its stored
+reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
+
+**Steps (phone first, personal build):** a phone hour that counted steps belongs to the phone; the
+band keeps only time the phone did not count, or a real walk the phone clearly missed (phone left
+behind). Runs show the phone's steps and cadence. `resolveDaySteps` in
+`lib/data/live_coverage_policy.dart`.
 
 **Charts:** every trend chart takes a finger: a line and a ring mark the point, and the date and
 value show in the chart's header (metric detail at every range, Readiness history, Train's strain
@@ -145,18 +157,19 @@ form (training load), next-morning session cost, and the beat-by-beat night data
 ## Sleep screen: what each section shows
 
 1. **Total sleep:** time asleep, in bed, bedtime → wake, and % asleep while in bed.
-2. **Through the night:** stage chart with each lane named (deep in the sleep violet) and five
-   clock marks. Drag it: the time and stage show in the header, and heart rate, HRV and breathing
-   at that moment show underneath.
+2. **Through the night:** stage chart (deep in the sleep violet) with the stage names only in the
+   colour key and five clock marks. Drag it: time · stage · heart rate · HRV · skin temperature
+   (against the night's average) show in the header.
 3. **Stages:** Deep, REM, Light (minutes and % of sleep, summing to total sleep) and Awake.
 4. **Against your usual:** your last 28 nights for time asleep, deep sleep, % asleep while in bed,
    and when you fell asleep.
 5. **Unusual:** one card only when something stood out, e.g. sleeping heart rate high or a rough
    night naming which measurements moved.
-6. **Overnight signals:**
-   - Headline numbers: sleeping heart rate, lowest heart rate and breathing rate.
-   - Four lanes through the night: heart rate, HRV, breathing rate and skin temperature.
-7. **Occasional rows:** correct the sleep window, and breathing pattern across nights.
+6. **Overnight signals:** one row each with a small line: heart rate (average and lowest), HRV,
+   skin temperature (difference from usual), and breathing only on a night it was measured.
+7. **Naps:** that day's naps, when there were any.
+8. **Occasional rows:** "Fix sleep times" (folded), and breathing pattern across nights (one card:
+   within/above your usual, a small nightly chart, caveats folded).
 
 There is no Tonight section: Akshat sleeps on his own schedule, so the target bedtime, sleep need
 and debt are not shown (the Sleep Coach still computes them).
@@ -216,6 +229,8 @@ Steps** is on; HealthKit stays excluded from the personal build.
 | Home greeting and "Today's plan" | Removed; the strain target moved into the Today cards |
 | Bedtime / sleep need | Removed from Today and Sleep (Tonight section) at Akshat's request; still computed |
 | Steps screen | The per-stretch list is removed; the hourly bars are draggable and the totals line stays |
+| Metric detail (personal build) | No algorithm-version dotted lines, no locked-range line, no Worn bars under the chart |
+| Today | Weekly card: deficit at the floor, protein vs target, km run, streak, average sleep |
 | AI coach, AI briefings, language picker, paced breathing | Removed |
 | Train | One page. Removed the activity library tab, mascot card, fitness/fatigue/form, kg-lifted chart, morning-after and overreach cards, and the share poster button |
 | Lifting sets | Removed. A Lift is a timed session scored from heart rate |

@@ -20,6 +20,8 @@
 
 import 'dart:math' as math;
 
+import '../build_profile.dart';
+
 /// Sample rate of the live accel stream the pedometer runs on.
 const double kLiveSampleRateHz = 100.0;
 
@@ -236,6 +238,78 @@ List<CoverageSpan> _vetoAgainstConfirmedStill(List<CoverageSpan> rows) {
   return out;
 }
 
+/// When the band outweighs the phone over the same phone window by this many
+/// times (and by at least [kPhoneLeftBehindMinSteps]), the phone is taken to
+/// have been left behind for that walk, and the band keeps it.
+const double kPhoneLeftBehindRatio = 3;
+const int kPhoneLeftBehindMinSteps = 300;
+
+/// PHONE FIRST (the personal build, Akshat's decision). He carries the phone
+/// on every walk and run, and held in the hand it still counts every stride,
+/// while the wrist reads a real walk low: on 3 October the band counted 4,835
+/// steps for a 35-minute run the phone counted at 5,200 (cadence × time puts
+/// it near 5,250).
+///
+/// So any phone window that counted steps belongs to the phone outright: the
+/// band's steps over that window are removed BEFORE ranking, never prorated
+/// against it. (Ranking the phone above the band would not do this — overlap
+/// is shared out by time, and a phone hour's steps are not spread evenly over
+/// it, so a run inside a busy hour would be counted twice.) The band keeps:
+///
+/// * time no phone window covers (the phone was not counting);
+/// * phone windows that confirmed zero steps, subject to the still-veto above;
+/// * a phone window where the band saw a real walk (40+ steps a minute) the
+///   phone mostly missed: phone left behind.
+///
+/// Band spans are split into the pieces that survive, each keeping its share
+/// of the span's steps by time. Phone rows are never modified.
+List<CoverageSpan> _phoneFirst(List<CoverageSpan> rows) {
+  final counted = [
+    for (final r in rows)
+      if (!r.fromBand && r.steps > 0 && r.endTs > r.startTs) r,
+  ]..sort((a, b) => a.startTs.compareTo(b.startTs));
+  if (counted.isEmpty) return rows;
+  final out = <CoverageSpan>[];
+  for (final r in rows) {
+    if (!r.fromBand || r.steps <= 0 || r.endTs <= r.startTs) {
+      out.add(r);
+      continue;
+    }
+    final dur = r.endTs - r.startTs;
+    final spm = r.steps * 60 / dur;
+    final clips = <(int, int)>[];
+    for (final ph in counted) {
+      final lo = math.max(r.startTs, ph.startTs);
+      final hi = math.min(r.endTs, ph.endTs);
+      if (hi <= lo) continue;
+      final bandHere = r.steps * (hi - lo) / dur;
+      final leftBehind = spm >= kConfirmedStillMinSpm &&
+          bandHere >= kPhoneLeftBehindRatio * ph.steps &&
+          bandHere - ph.steps >= kPhoneLeftBehindMinSteps;
+      if (!leftBehind) clips.add((lo, hi));
+    }
+    if (clips.isEmpty) {
+      out.add(r);
+      continue;
+    }
+    var cursor = r.startTs;
+    void piece(int a, int b) {
+      if (b <= a) return;
+      final n = (r.steps * (b - a) / dur).round();
+      if (n <= 0) return;
+      out.add(CoverageSpan(
+          startTs: a, endTs: b, steps: n, fromBand: true, deviceId: r.deviceId));
+    }
+
+    for (final (lo, hi) in clips) {
+      piece(cursor, lo);
+      if (hi > cursor) cursor = hi;
+    }
+    piece(cursor, r.endTs);
+  }
+  return out;
+}
+
 /// One `live_coverage` row, as the resolver sees it.
 class CoverageSpan {
   const CoverageSpan({
@@ -327,9 +401,11 @@ class _Ranked {
 /// count and the total is the plain sum, exactly as before.
 // ponytail: O(n²) over one day's rows (tens, typically single digits). If a day
 // ever carries thousands, sort by start and sweep instead.
-ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
+ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows,
+    {bool phoneFirst = kPersonalSideload}) {
   final spans = <_Ranked>[];
-  for (final r in _vetoAgainstConfirmedStill(rows.toList())) {
+  final vetted = _vetoAgainstConfirmedStill(rows.toList());
+  for (final r in phoneFirst ? _phoneFirst(vetted) : vetted) {
     // Legacy zero-width rows are real counts with a lost extent; repair them
     // the same way the writer does rather than dropping a measurement.
     final w = sanitizeCoverageWindow(r.startTs, r.endTs, r.steps);

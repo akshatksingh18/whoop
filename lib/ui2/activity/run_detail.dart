@@ -32,7 +32,11 @@ class RunView {
   /// indexed from the session start).
   final double leadSec;
 
-  RunView._(this.r, this.pace, this.efforts, this.spanSec, this.leadSec);
+  RunView._(this.r, this.pace, this.efforts, this.spanSec, this.leadSec,
+      this.effortEnds);
+
+  /// Track index where each shown best effort ended, for the map medals.
+  final Map<String, int> effortEnds;
 
   factory RunView(ActivityResult r) {
     final t = r.track;
@@ -40,9 +44,9 @@ class RunView {
     final lead = t.isEmpty
         ? 0.0
         : math.max(0.0, (t.first.tsMs - r.start.millisecondsSinceEpoch) / 1000);
-    return RunView._(r, paceCurve(t), isRunType(r.activity.typeKey)
-        ? bestEfforts(t)
-        : const {}, span, lead);
+    final run = isRunType(r.activity.typeKey);
+    return RunView._(r, paceCurve(t), run ? bestEfforts(t) : const {}, span,
+        lead, run ? bestEffortEnds(t) : const {});
   }
 
   bool get isRun => isRunType(r.activity.typeKey);
@@ -95,6 +99,16 @@ class RunView {
 
   List<double?> hrBins(int n) => [for (var k = 0; k < n; k++) hrAt(k / (n - 1))];
 
+  /// The phone's steps a minute at [f], or null.
+  double? cadenceAt(double f) {
+    final c = r.cadenceSeries;
+    final i = ((leadSec + f * spanSec) / 60).floor();
+    return i >= 0 && i < c.length ? c[i] : null;
+  }
+
+  List<double?> cadenceBins(int n) =>
+      [for (var k = 0; k < n; k++) cadenceAt(k / (n - 1))];
+
   List<double?> elevationBins(int n) {
     final t = r.track;
     if (t.any((p) => p.alt == null)) return const [];
@@ -123,12 +137,42 @@ String _effortTime(double sec) => clock(sec.round());
 /// The route on a dark Apple Maps picture, coloured slow (red) to fast
 /// (green), with start and finish pins and a dot at the shared cursor. Falls
 /// back to the plain route shape when there is no map (offline, not iOS).
+/// One medal on the route: where an effort ended, its lifetime rank (1–3)
+/// and its label, e.g. "Fastest 5K".
+typedef RunMedal = ({int index, int rank, String label});
+
+/// The medals for [v] against [earlier] runs: every shown distance whose best
+/// effort here ranks in the top three of all time. Empty while history loads
+/// or with no earlier run of that distance (a first effort is not a record).
+List<RunMedal> runMedals(RunView v, List<RunSummary>? earlier) {
+  if (earlier == null) return const [];
+  final out = <RunMedal>[];
+  for (final (label, _) in kBestEffortDistances) {
+    final sec = v.efforts[label], at = v.effortEnds[label];
+    if (sec == null || at == null) continue;
+    final rank = effortRank(sec, [for (final e in earlier) ?e.efforts[label]]);
+    if (rank == null) continue;
+    out.add((
+      index: at,
+      rank: rank,
+      label: switch (rank) {
+        1 => 'Fastest $label',
+        2 => '2nd best $label',
+        _ => '3rd best $label',
+      },
+    ));
+  }
+  return out;
+}
+
 class RunMapCard extends StatelessWidget {
-  const RunMapCard(this.v, {super.key, this.cursor, this.badge});
+  const RunMapCard(this.v, {super.key, this.cursor, this.medals = const []});
 
   final RunView v;
   final double? cursor;
-  final String? badge;
+
+  /// Medal pins on the route, labelled "Fastest 5K" / "2nd best 1K".
+  final List<RunMedal> medals;
 
   @override
   Widget build(BuildContext c) {
@@ -162,19 +206,25 @@ class RunMapCard extends StatelessWidget {
                 pts = r.route;
                 paceFrac = r.routePace;
               }
-              Offset? dot;
-              if (cursor != null && pts.isNotEmpty) {
-                final i = v.pointAt(cursor!);
+              // A track index → its place on whichever picture is drawn.
+              Offset? place(int i) {
+                if (pts.isEmpty) return null;
                 if (s != null) {
                   var k = 0;
                   while (k + 1 < idx.length && idx[k + 1] <= i) {
                     k++;
                   }
-                  dot = pts[k];
-                } else if (i < pts.length) {
-                  dot = pts[i];
+                  return pts[k];
                 }
+                return i < pts.length ? pts[i] : null;
               }
+
+              final dot = cursor == null ? null : place(v.pointAt(cursor!));
+              // The fallback shape is inset 8% by the painter; match it.
+              final pad = s == null ? 0.08 : 0.0;
+              Offset onCard(Offset o) => Offset(
+                  (pad + o.dx * (1 - 2 * pad)) * w,
+                  (pad + o.dy * (1 - 2 * pad)) * h);
               return Stack(children: [
                 Positioned.fill(
                   child: s == null
@@ -196,12 +246,9 @@ class RunMapCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (badge != null)
-                  Positioned(
-                    top: S.x3,
-                    left: S.x3,
-                    child: Pill(badge!, C.yellow, icon: LucideIcons.award),
-                  ),
+                for (var m = 0; m < medals.length; m++)
+                  if (place(medals[m].index) case final o?)
+                    _medal(c, p, onCard(o), medals[m], w, m),
               ]);
             },
           );
@@ -209,6 +256,46 @@ class RunMapCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A medal pin with its label beside it (to the left near the right edge),
+/// nudged down a line for each earlier medal so stacked labels stay readable.
+Widget _medal(BuildContext c, P p, Offset at, RunMedal m, double w, int nth) {
+  final col = switch (m.rank) {
+    1 => C.yellow,
+    2 => C.n400,
+    _ => C.orange,
+  };
+  final leftSide = at.dx > w * .6;
+  final pin = Container(
+    width: 20,
+    height: 20,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: p.on(col),
+      shape: BoxShape.circle,
+      border: Border.all(color: p.bg, width: 2),
+    ),
+    child: Text('${m.rank}', style: F.over.copyWith(color: p.bg)),
+  );
+  final label = Container(
+    padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: 2),
+    decoration: BoxDecoration(
+        color: p.bg.withValues(alpha: .82), borderRadius: R.rSm),
+    child: Text(m.label, style: F.over.copyWith(color: p.ink)),
+  );
+  final dy = nth * 22.0;
+  return Positioned(
+    left: leftSide ? null : at.dx - 10,
+    right: leftSide ? w - at.dx - 10 : null,
+    top: at.dy - 10 + dy,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: leftSide
+          ? [label, const SizedBox(width: S.x1), pin]
+          : [pin, const SizedBox(width: S.x1), label],
+    ),
+  );
 }
 
 class _TrackPainter extends CustomPainter {
@@ -291,7 +378,9 @@ class RunStatsGrid extends StatelessWidget {
       ('Elapsed', hms(r.duration)),
       if (r.avgHr != null) ('Avg HR', '${r.avgHr} bpm'),
       if (r.maxHr != null) ('Max HR', '${r.maxHr} bpm'),
-      if (r.stepsCounted != null) ('Steps', grouped(r.stepsCounted!)),
+      if ((r.phoneSteps ?? r.stepsCounted) != null)
+        ('Steps', grouped((r.phoneSteps ?? r.stepsCounted)!)),
+      if (r.cadence != null) ('Cadence', '${r.cadence!.round()} spm'),
       if (r.gainM != null) ('Elevation gain', '${r.gainM!.round()} m'),
       if (r.strain != null) ('Strain', r.strain!.toStringAsFixed(1)),
     ];
@@ -609,11 +698,13 @@ class RunCharts extends StatelessWidget {
     final meters = v.pace.isEmpty ? null : v.paceAt(f)?.meters;
     final pc = v.paceAt(f)?.paceSecPerKm;
     final hr = v.hrAt(f);
+    final cad = v.cadenceAt(f);
     final alt = v.r.track[i].alt;
     return [
       if (meters != null) '${(meters / 1000).toStringAsFixed(2)} km',
       pc == null ? 'stopped' : '${pace(pc)} /km',
       if (hr != null) '${hr.round()} bpm',
+      if (cad != null) '${cad.round()} spm',
       if (alt != null) '${alt.round()} m',
     ].join(' · ');
   }
@@ -624,6 +715,7 @@ class RunCharts extends StatelessWidget {
     final paceV = v.paceBins(_bins);
     final hrV = v.hrBins(_bins);
     final elV = v.elevationBins(_bins);
+    final cadV = v.cadenceBins(_bins);
     Widget chart(String title, String unit, List<double?> d, Color col,
         String Function(double) fmt) {
       final vals = [for (final x in d) ?x];
@@ -672,6 +764,9 @@ class RunCharts extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
             chart('Heart rate', 'bpm', hrV, p.on(C.heart), axisInt),
+            // From the phone, a minute at a time. Around 160+ a minute is the
+            // usual running-economy cue.
+            chart('Cadence', 'steps/min', cadV, p.on(C.steps), axisInt),
             chart('Elevation', 'm', elV, p.on(C.teal), axisInt),
           ]),
         ),

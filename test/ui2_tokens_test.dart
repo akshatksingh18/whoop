@@ -198,6 +198,11 @@ const _notComponents = {
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',
   'RunSplitsCard', 'RunCharts', 'PaceZonesCard', 'MaintenanceCard',
   'RunCaloriesCard',
+  // Build 70: the Food diary screens and sheets (each reads the food store
+  // and a date), the weekly card (reads the whole app), and the day swipe,
+  // a gesture wrapper with no look of its own.
+  'DayHeader', 'MealCard', 'MealPage', 'LogFoodScreen', 'FoodDetailSheet',
+  'QuickAddSheet', 'WeekCard', 'Swipe',
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
   // onboarding routes

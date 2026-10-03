@@ -22,6 +22,7 @@
 // says what it is.
 
 import 'dart:convert' show jsonDecode;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -736,6 +737,15 @@ class _DayHeartCardState extends State<DayHeartCard> {
   int _slot(double v) =>
       (v * (widget.g.slots - 1)).round().clamp(0, widget.g.slots - 1);
 
+  /// How far right the finger may go: the current minute on today, the whole
+  /// day otherwise. Minutes that have not happened yet are not "not recorded".
+  double get _limit {
+    final start = widget.g.dayStartSec;
+    if (start == null || widget.g.slots < 2) return 1;
+    final m = (DateTime.now().millisecondsSinceEpoch ~/ 1000 - start) / 60;
+    return m >= widget.g.slots ? 1 : (m / (widget.g.slots - 1)).clamp(0.0, 1.0);
+  }
+
   String _clock(int slot) {
     final start = widget.g.dayStartSec;
     if (start != null) return clockOfTs(start + slot * 60);
@@ -817,7 +827,7 @@ class _DayHeartCardState extends State<DayHeartCard> {
           series: g.hr,
           child: Scrubber(
             value: _scrub,
-            onChanged: (v) => setState(() => _scrub = v),
+            onChanged: (v) => setState(() => _scrub = math.min(v, _limit)),
             label: 'Heart rate through the day',
             describe: _describe,
             step: 1 / 96, // a quarter-hour per accessibility step

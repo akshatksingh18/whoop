@@ -72,11 +72,42 @@ const _distance = DistanceHaversine(roundResult: false);
 double haversineMeters(double lat1, double lng1, double lat2, double lng2) =>
     _distance.distance(LatLng(lat1, lng1), LatLng(lat2, lng2));
 
+/// The track with each interior fix averaged with its two neighbours, when
+/// both are within [maxGapMs]. Phone GPS scatters a few metres either side of
+/// the true line, and summing that zig-zag reads a 5.06 km run as 5.10 km.
+/// Endpoints and fixes beside a recording gap are left exactly as recorded.
+List<RoutePoint> smoothTrack(List<RoutePoint> pts, {int maxGapMs = 10000}) {
+  if (pts.length < 3) return pts;
+  return [
+    pts.first,
+    for (var i = 1; i < pts.length - 1; i++)
+      (pts[i].tsMs - pts[i - 1].tsMs <= maxGapMs &&
+              pts[i + 1].tsMs - pts[i].tsMs <= maxGapMs &&
+              !_jump(pts[i - 1], pts[i]) &&
+              !_jump(pts[i], pts[i + 1]))
+          ? RoutePoint(
+              seq: pts[i].seq,
+              tsMs: pts[i].tsMs,
+              lat: (pts[i - 1].lat + pts[i].lat + pts[i + 1].lat) / 3,
+              lng: (pts[i - 1].lng + pts[i].lng + pts[i + 1].lng) / 3,
+              alt: pts[i].alt,
+              accuracy: pts[i].accuracy,
+              speed: pts[i].speed,
+            )
+          : pts[i],
+    pts.last,
+  ];
+}
+
+bool _jump(RoutePoint a, RoutePoint b) => isImplausibleSegment(
+    haversineMeters(a.lat, a.lng, b.lat, b.lng), b.tsMs - a.tsMs);
+
 /// Total path length in metres over an ordered list of route points.
 /// Implausible segments (a teleport across a recording gap — see
 /// [isImplausibleSegment]) are treated as SEGMENT BREAKS and contribute no
 /// distance, so a signal gap can't inflate the total.
-double totalDistanceMeters(List<RoutePoint> pts) {
+double totalDistanceMeters(List<RoutePoint> raw) {
+  final pts = smoothTrack(raw);
   var sum = 0.0;
   for (var i = 1; i < pts.length; i++) {
     final m = haversineMeters(
@@ -97,6 +128,13 @@ int movingSeconds(List<RoutePoint> pts, {int maxGapSec = 60}) {
   for (var i = 1; i < pts.length; i++) {
     final dt = pts[i].tsMs - pts[i - 1].tsMs;
     if (dt <= 0 || dt > maxGapSec * 1000) continue;
+    // Standing at a crossing still trickles fixes in; under 0.5 m/s for two
+    // seconds or more is stopped, not moving.
+    if (dt >= 2000) {
+      final m = haversineMeters(
+          pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+      if (m / (dt / 1000) < 0.5) continue;
+    }
     ms += dt;
   }
   return (ms / 1000).round();
@@ -172,11 +210,12 @@ List<RouteVertex> buildVertices(
 /// distance, elapsed time, and the average of the HR samples that fall inside
 /// its time window. `hr` must be sorted ascending by tsMs.
 List<Split> computeSplits(
-  List<RoutePoint> pts,
+  List<RoutePoint> raw,
   List<HrSample> hr, {
   required double unitMeters,
 }) {
-  if (pts.length < 2 || unitMeters <= 0) return const [];
+  if (raw.length < 2 || unitMeters <= 0) return const [];
+  final pts = smoothTrack(raw);
 
   final splits = <Split>[];
   var splitStartTsMs = pts.first.tsMs;

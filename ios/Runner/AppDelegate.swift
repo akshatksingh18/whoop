@@ -6,6 +6,7 @@ import AVFoundation
 import BackgroundTasks
 #endif
 import CoreMotion
+import MapKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -109,6 +110,10 @@ import CoreMotion
     // aggregate. See lib/health/phone_pedometer.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
       PedometerBridge.register(messenger: registrar.messenger())
+    }
+    // A dark Apple Maps picture under a recorded route. See lib/gps/map_snapshot.dart.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MapSnapshotBridge") {
+      MapSnapshotBridge.register(messenger: registrar.messenger())
     }
     #if !PERSONAL_SIDELOAD
     // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
@@ -355,6 +360,64 @@ enum AppIconBridge {
         }
       default:
         result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+}
+
+/// Renders a static, dark Apple Maps image around a route and reports where each
+/// route point lands on it, so Flutter can draw the line on top. MapKit fetches
+/// the map tiles from Apple; nothing about the run is sent beyond the area shown.
+enum MapSnapshotBridge {
+  private static let channelName = "openstrap/map_snapshot"
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "snapshot",
+            let args = call.arguments as? [String: Any],
+            let lat = args["lat"] as? [Double],
+            let lng = args["lng"] as? [Double],
+            let width = args["width"] as? Double,
+            let height = args["height"] as? Double,
+            lat.count == lng.count, lat.count >= 2, width > 0, height > 0 else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      var minLat = lat[0], maxLat = lat[0], minLng = lng[0], maxLng = lng[0]
+      for i in 0..<lat.count {
+        minLat = min(minLat, lat[i]); maxLat = max(maxLat, lat[i])
+        minLng = min(minLng, lng[i]); maxLng = max(maxLng, lng[i])
+      }
+      let pad = 1.35
+      let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
+                                          longitude: (minLng + maxLng) / 2)
+      let span = MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * pad, 0.002),
+                                  longitudeDelta: max((maxLng - minLng) * pad, 0.002))
+      let options = MKMapSnapshotter.Options()
+      options.region = MKCoordinateRegion(center: center, span: span)
+      options.size = CGSize(width: width, height: height)
+      options.scale = UIScreen.main.scale
+      options.mapType = .mutedStandard
+      options.pointOfInterestFilter = .excludingAll
+      options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+      MKMapSnapshotter(options: options).start(with: .global(qos: .userInitiated)) { snap, error in
+        guard let snap = snap, let png = snap.image.pngData() else {
+          DispatchQueue.main.async {
+            result(FlutterError(code: "snapshot_failed",
+                                message: error?.localizedDescription, details: nil))
+          }
+          return
+        }
+        var xs = [Double](), ys = [Double]()
+        xs.reserveCapacity(lat.count); ys.reserveCapacity(lat.count)
+        for i in 0..<lat.count {
+          let pt = snap.point(for: CLLocationCoordinate2D(latitude: lat[i], longitude: lng[i]))
+          xs.append(Double(pt.x) / width); ys.append(Double(pt.y) / height)
+        }
+        DispatchQueue.main.async {
+          result(["png": FlutterStandardTypedData(bytes: png), "x": xs, "y": ys])
+        }
       }
     }
   }

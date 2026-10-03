@@ -32,7 +32,10 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../compute/profile.dart' show Profile, walkingEnergy;
+import '../../compute/profile.dart' show Profile, maintenance, stepCalories;
+import '../../data/db.dart' show LocalDb;
+import '../../data/nutrition_store.dart' show NutritionDb;
+import '../../data/day_label.dart' show todayLabel;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
@@ -625,7 +628,7 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
     return (label: l?.homeReadinessSteady ?? 'Steady', color: C.green, tier: 2);
   }
   if (v >= 26) {
-    return (label: l?.homeReadinessTakeItEasy ?? 'Take it easy', color: C.orange, tier: 1);
+    return (label: l?.homeReadinessTakeItEasy ?? 'Take it easy', color: C.yellow, tier: 1);
   }
   return (label: l?.homeReadinessRestToday ?? 'Rest today', color: C.red, tier: 0);
 }
@@ -800,19 +803,19 @@ _RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
       final v = d.strain.value;
       // 0–21 is the scale's own ceiling, not a target invented here.
       return v == null
-          ? _gap(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
+          ? _gap(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.strain,
               d.strain, l?.homeRingNoStrain ?? 'No strain', l, unit: 'days')
-          : _RingState(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
+          : _RingState(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.strain,
               value: v.toStringAsFixed(1), sub: l?.homeStrainOf21 ?? 'of 21', frac: v / 21);
     case HomeRingKind.sleep:
       final v = d.sleepMin.value;
       final need = d.sleepNeedMin.value;
       return v == null
-          ? _gap(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.blue,
+          ? _gap(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.sleep,
               d.sleepMin, l?.homeRingNoSleep ?? 'No sleep', l,
               fallbackWhy: l?.homeSleepGapFallback ??
                   'No night long enough to score was recorded.')
-          : _RingState(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.blue,
+          : _RingState(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.sleep,
               value: hm(v),
               // No computed need means no denominator. The hardcoded 480 in
               // the sleep bundle is not this user's need and must never be
@@ -1005,6 +1008,10 @@ class HomeData {
   /// profile has no height/weight or no steps were counted.
   final double? walkingKcal;
 
+  /// Today's maintenance so far, as a floor: BMR + step calories + 10% of the
+  /// food logged today. Null without age, height and weight.
+  final ({double bmr, double steps, double food, double total})? upkeep;
+
   /// The day's 0–21 strain, read from the same `getToday` bundle the Workout
   /// tab reads. Nothing on this screen computes it.
   final Metric strain;
@@ -1055,6 +1062,7 @@ class HomeData {
     this.calories = Metric.empty,
     this.caloriesTotal = Metric.empty,
     this.walkingKcal,
+    this.upkeep,
     this.strain = Metric.empty,
     this.stepGoal = kDefaultStepGoal,
     this.sleepNeedMin = Metric.empty,
@@ -1083,6 +1091,7 @@ class HomeData {
         calories: calories,
         caloriesTotal: caloriesTotal,
         walkingKcal: walkingKcal,
+        upkeep: upkeep,
         strain: strain,
         stepGoal: stepGoal,
         sleepNeedMin: sleepNeedMin,
@@ -1099,6 +1108,13 @@ class HomeData {
     final today = await repo.getToday();
     final cd = await repo.getInsights();
     final profile = await repo.getProfile();
+    var eaten = 0.0;
+    try {
+      final es = await NutritionDb.entriesForDay(await LocalDb.instance, todayLabel());
+      eaten = es.fold<double>(0, (t, e) => t + (e.kcal ?? 0));
+    } catch (_) {
+      // No food read means no food term; maintenance stays the floor.
+    }
 
     final daily = today['daily'];
     final sleep = today['sleep'];
@@ -1162,9 +1178,10 @@ class HomeData {
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
       caloriesTotal: metricOf(d('calories_total')),
-      walkingKcal: walkingEnergy(
-              metricOf(d('steps')).value, Profile.fromMap(profile))
-          ?.kcal,
+      walkingKcal: stepCalories(
+          metricOf(d('steps')).value, Profile.fromMap(profile).weightKg),
+      upkeep: maintenance(Profile.fromMap(profile),
+          steps: metricOf(d('steps')).value, eatenKcal: eaten),
       stepGoal: (today['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
       // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
       // 480 and must never be shown as "your sleep need".
@@ -1506,10 +1523,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
         // ── heart rate, all day ──
-        if (d.graph.hasCurve) ...[
-          const SizedBox(height: S.x3),
-          _heartCard(c, p, d.graph),
-        ],
+        const SizedBox(height: S.x3),
+        _heartCard(c, p, d.graph),
 
         const SizedBox(height: S.x3),
         _glance(c, d),
@@ -1604,32 +1619,40 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// chart you can drag a finger across.
   Widget _heartCard(BuildContext c, P p, DayGraph g) {
     final vals = [for (final v in g.hr) ?v];
-    final lo = vals.reduce((a, b) => a < b ? a : b).round();
-    final hi = vals.reduce((a, b) => a > b ? a : b).round();
+    final range = vals.isEmpty
+        ? null
+        : '${vals.reduce((a, b) => a < b ? a : b).round()} – '
+            '${vals.reduce((a, b) => a > b ? a : b).round()} bpm today';
     return Surface(
       onTap: () => go(c, const DayTimelineScreen()),
-      semanticLabel: 'Heart rate today, $lo to $hi bpm',
-      child: Column(children: [
+      semanticLabel: 'Heart rate${range == null ? '' : ', $range'}',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.red)),
+          Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.heart)),
           const SizedBox(width: S.x2),
           Expanded(
               child: Text('Heart rate', style: F.cap.copyWith(color: p.ink2))),
-          Text('$lo – $hi bpm', style: F.cap.copyWith(color: p.ink3)),
+          if (range != null)
+            Text(range, style: F.cap.copyWith(color: p.ink3)),
         ]),
-        const SizedBox(height: S.x3),
-        SizedBox(
-          height: 64,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: LineChart(g.hr, p.on(C.red), t: animate(c, 1)),
-          ),
-        ),
         const SizedBox(height: S.x2),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          for (final t in const ['12 am', 'Noon', '12 am'])
-            Text(t, style: F.over.copyWith(color: p.ink3)),
-        ]),
+        // The reading arriving now, repainting on its own.
+        const _LiveNow(),
+        if (vals.length > 1) ...[
+          const SizedBox(height: S.x3),
+          SizedBox(
+            height: 64,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(g.hr, p.on(C.heart), t: animate(c, 1)),
+            ),
+          ),
+          const SizedBox(height: S.x2),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            for (final t in const ['12 am', 'Noon', '12 am'])
+              Text(t, style: F.over.copyWith(color: p.ink3)),
+          ]),
+        ],
       ]),
     );
   }
@@ -1637,16 +1660,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   Widget _glance(BuildContext c, HomeData d) {
     final l = AppLocalizations.of(c);
     final cards = <Widget>[];
-    final absent = <Widget>[];
-
-    void add(Metric m, Widget Function() card, StatusCard? Function() gap) {
-      if (m.isEmpty) {
-        final s = gap();
-        if (s != null) absent.add(s);
-      } else {
-        cards.add(card());
-      }
-    }
 
     // Steps keeps its tile whether or not a counter reported. Zero steps is a
     // real reading — an unmoved counter — and it renders as 0, not as absence.
@@ -1671,7 +1684,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
               ?stepSensorLabel(d.steps, l),
               // Walking energy, on its own — not part of active or total kcal.
-              if (d.walkingKcal != null) '≈${d.walkingKcal!.round()} kcal walking',
+              if (d.walkingKcal != null) '${d.walkingKcal!.round()} kcal from steps',
             ].join(' · '),
       onTap: () => go(c, const MetricDetail('steps')),
       trailing: d.steps.value == null || d.stepGoal <= 0
@@ -1686,20 +1699,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ),
             ),
     ));
-    add(
-      d.calories,
-      () => SignalCard(LucideIcons.flame, C.orange, 'Burned',
-          thousands(d.caloriesTotal.value ?? d.calories.value),
+    // Maintenance so far: resting + steps + 10% of food logged. A floor,
+    // never including workout calories.
+    final up = d.upkeep;
+    if (up != null) {
+      cards.add(SignalCard(LucideIcons.flame, C.steps, 'Maintenance',
+          thousands(up.total),
           unit: 'kcal',
-          sub: d.caloriesTotal.value == null
-              ? 'Active only'
-              : '${thousands(d.calories.value)} active',
-          onTap: () => go(c, const MetricDetail('calories'))),
-      // No `why:`. It said "Needs your weight and age" — and the measured run
-      // printed that to a profile carrying both, because energy had gone absent
-      // for an entirely different reason that the card never asked for.
-      () => StatusCard.forMetric(l?.homeNoEnergyEstimate ?? 'No energy estimate', d.calories),
-    );
+          sub: 'Resting ${thousands(up.bmr)} · steps ${thousands(up.steps)}'
+              '${up.food > 0 ? ' · food ${thousands(up.food)}' : ''}'));
+    }
 
     return Column(children: [
       for (var i = 0; i < cards.length; i += 2) ...[
@@ -1722,8 +1731,38 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             ]),
           ),
       ],
-      for (final s in absent) ...[const SizedBox(height: S.x3), s],
     ]);
   }
 
+}
+
+/// The live heart rate as one line: the number and a LIVE mark, or why there
+/// is none. Selects only `liveHr`, so the 1 Hz stream repaints this line alone.
+class _LiveNow extends StatelessWidget {
+  const _LiveNow();
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    int? hr;
+    try {
+      hr = c.select<AppState, int?>((a) => a.liveHr);
+    } catch (_) {
+      hr = null; // no AppState above us, as in a golden
+    }
+    if (hr == null) {
+      return Text('No live reading right now',
+          style: F.cap.copyWith(color: p.ink3));
+    }
+    return Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text('$hr', style: F.n34.copyWith(color: p.ink)),
+          const SizedBox(width: S.x1),
+          Text('bpm now', style: F.cap.copyWith(color: p.ink3)),
+          const SizedBox(width: S.x2),
+          const Pill('LIVE', C.heart),
+        ]);
+  }
 }

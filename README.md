@@ -2,8 +2,8 @@
 
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
-> deterministic build profile and public manual workflow produced accepted rollback `0.9.30` build
-> `63`. `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
+> deterministic build profile and public manual workflow produced the accepted build `0.9.34` build
+> `67` (installed, working on the phone). `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
@@ -16,11 +16,14 @@
 > reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for
 > wrist step noise. Its macOS build, local artifact validation, clean installation, encrypted
 > restore, launch, data, scheduled enrollment, and exact-final-ID same-app refresh gates pass. The
-> former 0% stall is specific to Sideloadly's automatic bundle-ID rewriting; disabling it and using
+> install stall once blamed on automatic bundle-ID rewriting happens in both modes; opening WHOOP
+> and swiping it away releases a stuck install (cause not established). The exact ID
 > `com.akshat.personal.whoop.5564K8D4SV` preserves data and pairing while advancing signing. A
 > controlled forced-due unattended Wi-Fi daemon cycle also passes; the next naturally elapsed cycle
 > and remaining GPS/background checks remain open — see `CLAUDE.md`.
-> Source `0.9.34`/`67` (local, not yet pushed or built) redesigns the app as four single-page tabs,
+> Source `0.9.35`/`68` adds maintenance calories, a dark-only palette, a Strava-style run screen
+> with Apple Maps, running trends, live heart rate on Today and faster refresh (`CLAUDE.md`).
+> Build `0.9.34`/`67` is installed and accepted. It redesigns the app as four single-page tabs,
 > Today · Trends · Food · Train; see `metrics-map.md`.
 > Candidate `0.9.33`/`66` is now installed over build 65; its device pass is open. It removes Nerd stats, the Wellness tab and
 > water logging, the journal and Health → Labs for a simpler stats-only UI, and folds Vitals into

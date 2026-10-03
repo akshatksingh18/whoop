@@ -6,6 +6,10 @@ Everything a screen needs, and nothing a screen may bypass. Import the barrel:
 import 'package:openstrap_edge/ui2/ui2.dart';
 ```
 
+**Dark only.** The app always uses the dark palette (`app.dart`); light tokens remain for the
+contrast tests. One colour per pillar: `C.strain`, `C.sleep`, `C.heart`, `C.run`, `C.steps`;
+recovery takes green, amber or red from `readinessBand`.
+
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
 and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs: Today, Trends, Food, Train).
 

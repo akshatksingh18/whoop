@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../compute/findings.dart';
+import '../../compute/profile.dart' show Profile, stepCalories;
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -35,13 +36,14 @@ class _Row {
 const _rows = <_Row>[
   _Row('recovery', 'Recovery', '', LucideIcons.batteryCharging, C.green,
       Rising.good),
-  _Row('sleep', 'Sleep', 'min', LucideIcons.moon, C.blue, Rising.good),
+  _Row('sleep', 'Sleep', 'min', LucideIcons.moon, C.sleep, Rising.good),
   _Row('hrv', 'HRV', 'ms', LucideIcons.activity, C.teal, Rising.good),
-  _Row('resting_hr', 'Resting heart rate', 'bpm', LucideIcons.heart, C.red,
+  _Row('resting_hr', 'Resting heart rate', 'bpm', LucideIcons.heart, C.heart,
       Rising.bad),
-  _Row('strain', 'Strain', '', LucideIcons.zap, C.purple),
-  _Row('steps', 'Steps', 'steps', LucideIcons.footprints, C.green),
-  _Row('calories', 'Active calories', 'kcal', LucideIcons.flame, C.orange),
+  _Row('strain', 'Strain', '', LucideIcons.zap, C.strain),
+  _Row('steps', 'Steps', 'steps', LucideIcons.footprints, C.steps),
+  // Derived here from steps and weight (stepCalories), not a stored series.
+  _Row('step_kcal', 'Step calories', 'kcal', LucideIcons.flame, C.green),
   _Row('resp_rate', 'Breathing rate', 'br/min', LucideIcons.wind, C.teal),
   _Row('skin_temp', 'Skin temperature', 'SD', LucideIcons.thermometer,
       C.orange),
@@ -86,8 +88,14 @@ class HealthData {
 
     final charts = <String, List<ChartPoint>>{};
     for (final r in _rows) {
+      if (r.key == 'step_kcal') continue;
       charts[r.key] = pointsOf(await repo.getChart(r.key));
     }
+    final kg = Profile.fromMap(await repo.getProfile()).weightKg;
+    charts['step_kcal'] = [
+      for (final p in charts['steps']!)
+        if (stepCalories(p.v, kg) case final v?) (t: p.t, v: v),
+    ];
 
     String labelAt(int t) =>
         dayLabelOf(DateTime.fromMillisecondsSinceEpoch(t * 1000));
@@ -248,7 +256,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final unit = r.key == 'steps' ? '' : unitBeside(r.unit);
     final open = r.key == 'recovery'
         ? () => go(c, const ReadinessDetail())
-        : () => go(c, MetricDetail(r.key));
+        : () => go(c, MetricDetail(r.key == 'step_kcal' ? 'steps' : r.key));
 
     if (vals.isEmpty) {
       return Pressable(

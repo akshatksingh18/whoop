@@ -35,16 +35,16 @@ import 'package:flutter/material.dart';
 /// [P.fill] (accent as a filled surface under [P.inkOnFill]) first.
 class C {
   // primary
-  static const green = Color(0xFF22C55E);
-  static const greenD = Color(0xFF16A34A);
-  static const blue = Color(0xFF3B82F6);
-  static const purple = Color(0xFF8B5CF6);
+  static const green = Color(0xFF2DD881);
+  static const greenD = Color(0xFF1FB86A);
+  static const blue = Color(0xFF3D8BFF);
+  static const purple = Color(0xFF8B7CFF);
 
   // secondary
-  static const orange = Color(0xFFF97316);
-  static const red = Color(0xFFEF4444);
-  static const teal = Color(0xFF14B8A6);
-  static const yellow = Color(0xFFEAB308);
+  static const orange = Color(0xFFFF7A1A);
+  static const red = Color(0xFFFF4D4F);
+  static const teal = Color(0xFF22D3EE);
+  static const yellow = Color(0xFFFFC53D);
   static const pink = Color(0xFFEC4899);
   static const indigo = Color(0xFF6366F1);
 
@@ -105,6 +105,15 @@ class C {
 
   /// Each domain owns an accent — the mental map is colour-coded, and the map
   /// is the point. These five are the five tabs, in order, forever.
+  /// One colour per pillar, used wherever that pillar appears: the ring,
+  /// its Trends row, its charts. Recovery itself takes green, amber or red
+  /// from its own band (see `readinessBand`).
+  static const strain = blue;
+  static const sleep = purple;
+  static const heart = Color(0xFFFF5A6E);
+  static const run = orange;
+  static const steps = teal;
+
   static const domHome = green;
   static const domHealth = blue;
   static const domFood = orange;
@@ -117,6 +126,7 @@ class C {
     green, greenD, blue, purple, orange, red, teal, yellow, pink, indigo,
     sky, blueSoft,
     domHome, domHealth, domFood, domMove, domMind,
+    strain, sleep, heart, run, steps,
   ];
 }
 
@@ -129,20 +139,20 @@ class P {
 
   static P of(BuildContext c) => P(Theme.of(c).brightness == Brightness.dark);
 
-  Color get bg => dark ? const Color(0xFF0B0D12) : C.n50;
-  Color get card => dark ? const Color(0xFF161922) : C.white;
-  Color get card2 => dark ? const Color(0xFF1F2330) : C.n100;
-  Color get line => dark ? const Color(0xFF262B38) : C.n200;
-  Color get track => dark ? const Color(0xFF262B38) : C.n200;
+  Color get bg => dark ? const Color(0xFF0A0A0C) : C.n50;
+  Color get card => dark ? const Color(0xFF141418) : C.white;
+  Color get card2 => dark ? const Color(0xFF1C1C22) : C.n100;
+  Color get line => dark ? const Color(0xFF26262E) : C.n200;
+  Color get track => dark ? const Color(0xFF26262E) : C.n200;
 
-  Color get ink => dark ? const Color(0xFFF1F5F9) : C.n900;
-  Color get ink2 => dark ? const Color(0xFF94A3B8) : C.n600;
+  Color get ink => dark ? const Color(0xFFFFFFFF) : C.n900;
+  Color get ink2 => dark ? const Color(0xFFA1A1AA) : C.n600;
 
   /// The muted caption ink. Hand-solved to clear 4.5:1 on [card2], the darkest
   /// (light theme) / lightest (dark theme) surface it can sit on — so it is
   /// legible on every surface, not just the one it was eyeballed against.
   /// The values it replaces measured 4.34:1 and 3.21:1 respectively.
-  Color get ink3 => dark ? const Color(0xFF7F8DA0) : const Color(0xFF627188);
+  Color get ink3 => dark ? const Color(0xFF8A8A94) : const Color(0xFF627188);
 
   /// The ink that goes on top of a [fill]. White by construction — [fill]
   /// darkens the accent until white clears AA on it.

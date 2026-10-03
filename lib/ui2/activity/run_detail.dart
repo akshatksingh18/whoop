@@ -1,0 +1,629 @@
+// The run screen: an Apple Maps route, the headline numbers, best efforts
+// against every earlier run, a plain verdict, splits, and pace / heart rate /
+// elevation charts that share one finger cursor (which also moves a dot along
+// the map). Everything is worked out from the recorded track; see
+// lib/gps/run_analysis.dart for the rules.
+
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../../gps/map_snapshot.dart';
+import '../../gps/route_math.dart' show kMetersPerKm;
+import '../../gps/run_analysis.dart';
+import '../../gps/run_history.dart';
+import '../../state/units_controller.dart';
+import '../ui2.dart';
+import 'summary.dart';
+
+/// Everything the run screen draws, worked out once per session.
+class RunView {
+  final ActivityResult r;
+  final List<PacePoint> pace;
+  final Map<String, double> efforts;
+
+  /// Seconds from the first fix to the last.
+  final double spanSec;
+
+  /// Seconds from the session's start to the first fix (the HR curve is
+  /// indexed from the session start).
+  final double leadSec;
+
+  RunView._(this.r, this.pace, this.efforts, this.spanSec, this.leadSec);
+
+  factory RunView(ActivityResult r) {
+    final t = r.track;
+    final span = t.length < 2 ? 0.0 : (t.last.tsMs - t.first.tsMs) / 1000;
+    final lead = t.isEmpty
+        ? 0.0
+        : math.max(0.0, (t.first.tsMs - r.start.millisecondsSinceEpoch) / 1000);
+    return RunView._(r, paceCurve(t), isRunType(r.activity.typeKey)
+        ? bestEfforts(t)
+        : const {}, span, lead);
+  }
+
+  bool get isRun => isRunType(r.activity.typeKey);
+
+  /// Moving pace, seconds per km.
+  double? get movingPace {
+    final km = r.distanceKm, mv = r.movingSec;
+    return km == null || km <= 0 || mv == null || mv <= 0 ? null : mv / km;
+  }
+
+  /// The track point nearest [f] (0…1 of the span).
+  int pointAt(double f) {
+    final t = r.track;
+    final target = t.first.tsMs + f * spanSec * 1000;
+    var lo = 0, hi = t.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (t[mid].tsMs < target) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
+  PacePoint? paceAt(double f) {
+    if (pace.isEmpty) return null;
+    final ts = f * spanSec;
+    var best = pace.first;
+    for (final p in pace) {
+      if ((p.tSec - ts).abs() < (best.tSec - ts).abs()) best = p;
+    }
+    return best;
+  }
+
+  double? hrAt(double f) {
+    final i = ((leadSec + f * spanSec) / 60).floor();
+    return i >= 0 && i < r.hr.length ? r.hr[i] : null;
+  }
+
+  /// [n] evenly spaced bins over the span, for the charts.
+  List<double?> paceBins(int n) => [
+        for (var k = 0; k < n; k++)
+          switch (paceAt(k / (n - 1))?.paceSecPerKm) {
+            final v? => -v, // negative so faster draws higher
+            null => null,
+          },
+      ];
+
+  List<double?> hrBins(int n) => [for (var k = 0; k < n; k++) hrAt(k / (n - 1))];
+
+  List<double?> elevationBins(int n) {
+    final t = r.track;
+    if (t.any((p) => p.alt == null)) return const [];
+    return [
+      for (var k = 0; k < n; k++)
+        () {
+          final i = pointAt(k / (n - 1));
+          var sum = 0.0, cnt = 0;
+          for (var j = math.max(0, i - 7); j <= math.min(t.length - 1, i + 7); j++) {
+            sum += t[j].alt!;
+            cnt++;
+          }
+          return sum / cnt;
+        }(),
+    ];
+  }
+}
+
+String pace(double? secPerKm) =>
+    secPerKm == null ? '' : (UnitsController.formatPace(secPerKm) ?? '');
+
+String _effortTime(double sec) => clock(sec.round());
+
+// ══════════════════ MAP ══════════════════
+
+/// The route on a dark Apple Maps picture, coloured slow (red) to fast
+/// (green), with start and finish pins and a dot at the shared cursor. Falls
+/// back to the plain route shape when there is no map (offline, not iOS).
+class RunMapCard extends StatelessWidget {
+  const RunMapCard(this.v, {super.key, this.cursor, this.badge});
+
+  final RunView v;
+  final double? cursor;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final r = v.r;
+    return ClipRRect(
+      borderRadius: R.rLg,
+      child: SizedBox(
+        height: 230,
+        child: LayoutBuilder(builder: (c, box) {
+          final w = box.maxWidth, h = box.maxHeight;
+          final idx = thinnedIndex(r.track.length);
+          return FutureBuilder<MapSnapshot?>(
+            future: mapSnapshot(
+              r.sessionId ?? '${r.start.millisecondsSinceEpoch}',
+              [for (final pt in r.track) pt.lat],
+              [for (final pt in r.track) pt.lng],
+              w,
+              h,
+            ),
+            builder: (c, snap) {
+              final s = snap.data;
+              final List<Offset> pts;
+              final List<double>? paceFrac;
+              if (s != null) {
+                pts = [for (var k = 0; k < s.x.length; k++) Offset(s.x[k], s.y[k])];
+                paceFrac = r.routePace == null
+                    ? null
+                    : [for (final i in idx) r.routePace![i]];
+              } else {
+                pts = r.route;
+                paceFrac = r.routePace;
+              }
+              Offset? dot;
+              if (cursor != null && pts.isNotEmpty) {
+                final i = v.pointAt(cursor!);
+                if (s != null) {
+                  var k = 0;
+                  while (k + 1 < idx.length && idx[k + 1] <= i) {
+                    k++;
+                  }
+                  dot = pts[k];
+                } else if (i < pts.length) {
+                  dot = pts[i];
+                }
+              }
+              return Stack(children: [
+                Positioned.fill(
+                  child: s == null
+                      ? ColoredBox(color: p.card2)
+                      : Image.memory(s.png, fit: BoxFit.fill, gaplessPlayback: true),
+                ),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _TrackPainter(
+                      pts,
+                      paceFrac,
+                      slow: p.on(C.red),
+                      fast: p.on(C.green),
+                      plain: p.on(C.run),
+                      ink: p.ink,
+                      halo: p.bg,
+                      dot: dot,
+                      inset: s == null,
+                    ),
+                  ),
+                ),
+                if (badge != null)
+                  Positioned(
+                    top: S.x3,
+                    left: S.x3,
+                    child: Pill(badge!, C.yellow, icon: LucideIcons.award),
+                  ),
+              ]);
+            },
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _TrackPainter extends CustomPainter {
+  _TrackPainter(this.pts, this.pace,
+      {required this.slow,
+      required this.fast,
+      required this.plain,
+      required this.ink,
+      required this.halo,
+      this.dot,
+      this.inset = false});
+
+  final List<Offset> pts;
+  final List<double>? pace;
+  final Color slow, fast, plain, ink, halo;
+  final Offset? dot;
+
+  /// The fallback shape has no margins of its own; give it some.
+  final bool inset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (pts.length < 2) return;
+    final pad = inset ? 0.08 : 0.0;
+    Offset at(Offset o) => Offset(
+        (pad + o.dx * (1 - 2 * pad)) * size.width,
+        (pad + o.dy * (1 - 2 * pad)) * size.height);
+    final under = Paint()
+      ..color = halo
+      ..strokeWidth = 7
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    final path = Path()..moveTo(at(pts.first).dx, at(pts.first).dy);
+    for (final o in pts.skip(1)) {
+      path.lineTo(at(o).dx, at(o).dy);
+    }
+    canvas.drawPath(path, under);
+    final line = Paint()
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    for (var i = 1; i < pts.length; i++) {
+      final f = pace == null || i >= pace!.length ? null : pace![i];
+      line.color = f == null ? plain : Color.lerp(slow, fast, f)!;
+      canvas.drawLine(at(pts[i - 1]), at(pts[i]), line);
+    }
+    void pin(Offset o, Color col) {
+      canvas.drawCircle(at(o), 7, Paint()..color = halo);
+      canvas.drawCircle(at(o), 5, Paint()..color = col);
+    }
+
+    pin(pts.first, fast);
+    pin(pts.last, slow);
+    if (dot != null) {
+      canvas.drawCircle(at(dot!), 9, Paint()..color = halo);
+      canvas.drawCircle(at(dot!), 6, Paint()..color = ink);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TrackPainter o) =>
+      o.pts != pts || o.dot != dot || o.pace != pace;
+}
+
+// ══════════════════ HEADLINE NUMBERS ══════════════════
+
+class RunStatsGrid extends StatelessWidget {
+  const RunStatsGrid(this.v, {super.key});
+  final RunView v;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final r = v.r;
+    final cells = <(String, String)>[
+      if (r.distanceKm != null) ('Distance', '${r.distanceKm!.toStringAsFixed(2)} km'),
+      if (v.movingPace != null) ('Avg pace', '${pace(v.movingPace)} /km'),
+      if (r.movingSec != null) ('Moving time', clock(r.movingSec!)),
+      ('Elapsed', hms(r.duration)),
+      if (r.avgHr != null) ('Avg HR', '${r.avgHr} bpm'),
+      if (r.maxHr != null) ('Max HR', '${r.maxHr} bpm'),
+      if (r.stepsCounted != null) ('Steps', grouped(r.stepsCounted!)),
+      if (r.gainM != null) ('Elevation gain', '${r.gainM!.round()} m'),
+      if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
+      if (r.strain != null) ('Strain', r.strain!.toStringAsFixed(1)),
+    ];
+    final cols = bigText(c) ? 2 : 3;
+    return Surface(
+      child: Column(children: [
+        for (var row = 0; row * cols < cells.length; row++) ...[
+          if (row > 0) const SizedBox(height: S.x4),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (var k = row * cols; k < row * cols + cols; k++)
+              Expanded(
+                child: k >= cells.length
+                    ? const SizedBox.shrink()
+                    : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(cells[k].$1, style: F.over.copyWith(color: p.ink3)),
+                        const SizedBox(height: 2),
+                        Text(cells[k].$2,
+                            style: F.n17.copyWith(color: p.ink),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      ]),
+              ),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+// ══════════════════ BEST EFFORTS ══════════════════
+
+/// This run's best efforts ranked against every earlier run.
+class BestEffortsCard extends StatelessWidget {
+  const BestEffortsCard(this.v, this.earlier, {super.key});
+
+  final RunView v;
+
+  /// Earlier runs (before this one), or null while they load.
+  final List<RunSummary>? earlier;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final rows = <Widget>[];
+    for (final (label, _) in kBestEffortDistances) {
+      final sec = v.efforts[label];
+      if (sec == null) continue;
+      final past = [
+        for (final e in earlier ?? const <RunSummary>[])
+          ?e.efforts[label],
+      ];
+      final rank = earlier == null ? null : effortRank(sec, past);
+      final prev = previousBest(past);
+      final (String tag, Color col) = switch (rank) {
+        1 => ('PR', C.yellow),
+        2 => ('2nd best', C.n500),
+        3 => ('3rd best', C.n500),
+        _ => ('', C.n500),
+      };
+      rows.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x2),
+        child: Row(children: [
+          Expanded(
+            flex: 2,
+            child: Text(label, style: F.body.copyWith(color: p.ink))),
+          Expanded(
+            flex: 3,
+            child: Text(
+                '${_effortTime(sec)} · ${pace(sec / (kBestEffortDistances.firstWhere((d) => d.$1 == label).$2 / kMetersPerKm))} /km',
+                style: F.cap.copyWith(color: p.ink2)),
+          ),
+          if (tag.isNotEmpty)
+            Text(
+                rank == 1 && prev != null
+                    ? '$tag · ${_effortTime(prev - sec)} faster'
+                    : tag,
+                style: F.cap.copyWith(
+                    color: rank == 1 ? p.on(col) : p.ink3,
+                    fontWeight: FontWeight.w600)),
+        ]),
+      ));
+    }
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Section('Best efforts', Surface(child: Column(children: rows)));
+  }
+}
+
+// ══════════════════ VERDICT ══════════════════
+
+class RunVerdictCard extends StatelessWidget {
+  const RunVerdictCard(this.text, {super.key});
+  final String text;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(LucideIcons.sparkles, size: 18, color: p.on(C.run)),
+        const SizedBox(width: S.x3),
+        Expanded(child: Text(text, style: F.body.copyWith(color: p.ink))),
+      ]),
+    );
+  }
+}
+
+// ══════════════════ SPLITS ══════════════════
+
+class RunSplitsCard extends StatelessWidget {
+  const RunSplitsCard(this.r, {super.key});
+  final ActivityResult r;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final rows = [
+      for (final s in r.splits)
+        if (s.km > 0) (s.km, s.sec / s.km, s.avgHr),
+    ];
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final fastest = rows.map((x) => x.$2).reduce(math.min);
+    final slowest = rows.map((x) => x.$2).reduce(math.max);
+    return Surface(
+      child: Column(children: [
+        Row(children: [
+          SizedBox(width: 36, child: Text('KM', style: F.over.copyWith(color: p.ink3))),
+          SizedBox(width: 56, child: Text('PACE', style: F.over.copyWith(color: p.ink3))),
+          const Spacer(),
+          Text('HR', style: F.over.copyWith(color: p.ink3)),
+        ]),
+        const SizedBox(height: S.x2),
+        for (var i = 0; i < rows.length; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x2),
+            child: Row(children: [
+              SizedBox(
+                  width: 36,
+                  child: Text(
+                      rows[i].$1 >= 0.99 ? '${i + 1}' : rows[i].$1.toStringAsFixed(1),
+                      style: F.cap.copyWith(color: p.ink2))),
+              SizedBox(
+                  width: 56,
+                  child: Text(pace(rows[i].$2),
+                      style: F.body.copyWith(
+                          color: rows[i].$2 == fastest ? p.on(C.run) : p.ink,
+                          fontWeight: FontWeight.w600))),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: R.rPill,
+                  child: SizedBox(
+                    height: 8,
+                    child: Stack(children: [
+                      Positioned.fill(child: ColoredBox(color: p.track)),
+                      FractionallySizedBox(
+                        // Faster is longer, scaled so the slowest still shows.
+                        widthFactor: slowest == fastest
+                            ? 1.0
+                            : (0.35 + 0.65 * (slowest - rows[i].$2) / (slowest - fastest))
+                                .clamp(0.0, 1.0),
+                        child: ColoredBox(
+                            color: p.on(C.run), child: const SizedBox.expand()),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              SizedBox(
+                  width: 44,
+                  child: Text(rows[i].$3 == null ? '' : '${rows[i].$3}',
+                      textAlign: TextAlign.right,
+                      style: F.cap.copyWith(color: p.ink2))),
+            ]),
+          ),
+      ]),
+    );
+  }
+}
+
+// ══════════════════ LINKED CHARTS ══════════════════
+
+/// Pace, heart rate and elevation over the run, under one finger: drag across
+/// any of them and all three, plus the map dot, follow.
+class RunCharts extends StatelessWidget {
+  const RunCharts(this.v, {super.key, required this.cursor, required this.onCursor});
+
+  final RunView v;
+  final double? cursor;
+  final ValueChanged<double> onCursor;
+
+  static const _bins = 160;
+
+  String _describe(double f) {
+    final i = v.pointAt(f);
+    final meters = v.pace.isEmpty ? null : v.paceAt(f)?.meters;
+    final pc = v.paceAt(f)?.paceSecPerKm;
+    final hr = v.hrAt(f);
+    final alt = v.r.track[i].alt;
+    return [
+      if (meters != null) '${(meters / 1000).toStringAsFixed(2)} km',
+      pc == null ? 'stopped' : '${pace(pc)} /km',
+      if (hr != null) '${hr.round()} bpm',
+      if (alt != null) '${alt.round()} m',
+    ].join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final paceV = v.paceBins(_bins);
+    final hrV = v.hrBins(_bins);
+    final elV = v.elevationBins(_bins);
+    Widget chart(String title, String unit, List<double?> d, Color col,
+        String Function(double) fmt) {
+      final vals = [for (final x in d) ?x];
+      final axis = AxisSpec.of(vals, ticks: 3, format: fmt);
+      if (axis == null || vals.length < 2) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: S.x4),
+        child: ChartFrame(
+          title: title,
+          unit: unit,
+          height: 96,
+          yAxis: axis,
+          series: d,
+          child: Stack(children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: LineChart(d, col, axis: axis, t: animate(c, 1)),
+              ),
+            ),
+            if (cursor != null)
+              Align(
+                alignment: Alignment(cursor! * 2 - 1, 0),
+                child: SizedBox(
+                    width: 1.5,
+                    height: double.infinity,
+                    child: ColoredBox(color: p.ink)),
+              ),
+          ]),
+        ),
+      );
+    }
+
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(cursor == null ? 'Touch and drag to read any moment' : _describe(cursor!),
+            style: cursor == null
+                ? F.cap.copyWith(color: p.ink3)
+                : F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        const SizedBox(height: S.x3),
+        Scrubber(
+          value: cursor,
+          onChanged: onCursor,
+          label: 'Pace, heart rate and elevation through the run',
+          describe: _describe,
+          step: 1 / 100,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
+            chart('Heart rate', 'bpm', hrV, p.on(C.heart), axisInt),
+            chart('Elevation', 'm', elV, p.on(C.teal), axisInt),
+          ]),
+        ),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text('Start', style: F.over.copyWith(color: p.ink3)),
+          Text(clock(v.spanSec.round()), style: F.over.copyWith(color: p.ink3)),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ══════════════════ PACE ZONES ══════════════════
+
+class PaceZonesCard extends StatelessWidget {
+  const PaceZonesCard(this.shares, this.fiveKPace, {super.key});
+
+  final List<double> shares;
+  final double fiveKPace;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final bounds = paceZoneBounds(fiveKPace);
+    String range(int z) {
+      final (fast, slow) = bounds[z];
+      if (fast == null) return '> ${pace(slow)}';
+      if (slow == null) return '< ${pace(fast)}';
+      return '${pace(fast)}–${pace(slow)}';
+    }
+
+    return Section(
+      'Pace zones',
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Based on your predicted 5K pace of ${pace(fiveKPace)} /km',
+              style: F.cap.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x3),
+          for (var z = 5; z >= 0; z--)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x2),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Expanded(
+                    child: Text(kPaceZoneNames[z],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: F.cap.copyWith(color: p.ink2)),
+                  ),
+                  Text(range(z), style: F.over.copyWith(color: p.ink3)),
+                  const SizedBox(width: S.x3),
+                  Text('${(shares[z] * 100).round()}%',
+                      style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+                ]),
+                const SizedBox(height: S.x1),
+                ClipRRect(
+                  borderRadius: R.rPill,
+                  child: SizedBox(
+                    height: 8,
+                    child: Stack(children: [
+                      Positioned.fill(child: ColoredBox(color: p.track)),
+                      FractionallySizedBox(
+                        widthFactor: shares[z].clamp(0.0, 1.0),
+                        child: ColoredBox(
+                            color: p.on(C.run),
+                            child: const SizedBox.expand()),
+                      ),
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+        ]),
+      ),
+    );
+  }
+}

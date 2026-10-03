@@ -22,6 +22,10 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../build_profile.dart';
+import '../../gps/route_models.dart' as rm show Split;
+import '../../gps/route_models.dart' show RoutePoint;
+import '../../gps/run_analysis.dart' show paceZoneShares, runVerdict, effortRank, kBestEffortDistances;
+import '../../gps/run_history.dart';
 import '../../data/db.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/prefs.dart';
@@ -30,11 +34,12 @@ import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
 import '../profile/profile.dart';
-import '../screens/home_screen.dart' show unitsOf;
+import '../screens/home_screen.dart' show repoOf, unitsOf;
 import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
 import 'picker.dart';
+import 'run_detail.dart';
 // The share card and this screen describe the same session, so they draw its
 // stats with the same widget and split its values with the same function.
 // poster.dart imports this file back for [ActivityResult]; that is the seam,
@@ -285,6 +290,13 @@ class ActivityResult {
   final double? gainM, lossM;
   final List<KmSplit> splits;
 
+  /// The recorded fixes themselves, for the run screen's map, best efforts,
+  /// pace curve and shared scrub. Empty without GPS.
+  final List<RoutePoint> track;
+
+  /// Time spent moving (stops removed), from the route. Null without GPS.
+  final int? movingSec;
+
   // strength
   final StrengthLog strength;
 
@@ -331,6 +343,8 @@ class ActivityResult {
     this.gainM,
     this.lossM,
     this.splits = const [],
+    this.track = const [],
+    this.movingSec,
     this.strength = StrengthLog.empty,
     this.lapSecs = const [],
     this.poolLengthM,
@@ -363,6 +377,8 @@ class ActivityResult {
     double? gainM,
     double? lossM,
     List<KmSplit>? splits,
+    List<RoutePoint>? track,
+    int? movingSec,
     StrengthLog? strength,
   }) =>
       ActivityResult(
@@ -394,6 +410,8 @@ class ActivityResult {
         gainM: gainM ?? this.gainM,
         lossM: lossM ?? this.lossM,
         splits: splits ?? this.splits,
+        track: track ?? this.track,
+        movingSec: movingSec ?? this.movingSec,
         strength: strength ?? this.strength,
         lapSecs: lapSecs,
         poolLengthM: poolLengthM,
@@ -699,12 +717,90 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   ActivityResult get r => _rated ?? widget.result;
 
+  // ── the run screen ──
+  RunView? _runCache;
+
+  /// A GPS session with a recorded track gets the run screen.
+  RunView? get run => arch == Arch.route && r.track.length >= 2
+      ? (_runCache ??= RunView(r))
+      : null;
+
+  /// Where the shared finger cursor sits, 0…1 of the run, or null.
+  double? _cursor;
+
+  /// Runs before this one, for PR badges and the 5K pace; null while loading.
+  List<RunSummary>? _earlier;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEarlier());
+  }
+
+  Future<void> _loadEarlier() async {
+    final v = run;
+    final repo = repoOf(context);
+    if (v == null || !v.isRun || repo == null) return;
+    try {
+      final all = await loadRuns(repo);
+      if (!mounted) return;
+      setState(() => _earlier = [
+            for (final x in all)
+              if (x.id != r.sessionId && x.start.isBefore(r.start)) x,
+          ]);
+    } catch (_) {
+      // Without history there are no badges; the run itself still shows.
+    }
+  }
+
+  /// The predicted 5K pace (s/km) from this run and every run before it.
+  double? get _fiveKPace {
+    final v = run;
+    if (v == null) return null;
+    final p5 = predicted5k([
+      ...?_earlier,
+      RunSummary(r.sessionId ?? '', r.start, 0, 0, v.efforts),
+    ]);
+    return p5 == null ? null : p5 / 5;
+  }
+
+  List<double>? get _paceShares {
+    final v = run, p5 = _fiveKPace;
+    return v == null || p5 == null || !v.isRun ? null : paceZoneShares(v.pace, p5);
+  }
+
+  /// The headline record, e.g. "Fastest 5K ever", for the map badge.
+  String? get _prBadge {
+    final v = run, e = _earlier;
+    if (v == null || e == null) return null;
+    for (final (label, _) in kBestEffortDistances.reversed) {
+      final sec = v.efforts[label];
+      if (sec == null) continue;
+      final past = [for (final x in e) ?x.efforts[label]];
+      if (effortRank(sec, past) == 1) return 'Fastest $label ever';
+    }
+    return null;
+  }
+
+  String? get _verdict => runVerdict(
+        zoneShares: _paceShares ?? const [],
+        splits: [
+          for (var i = 0; i < r.splits.length; i++)
+            rm.Split(
+                index: i + 1,
+                meters: r.splits[i].km * 1000,
+                durationSec: r.splits[i].sec),
+        ],
+      );
+
   @override
   void didUpdateWidget(covariant ActivitySummary old) {
     super.didUpdateWidget(old);
     if (!identical(old.result, widget.result)) {
       _rated = null;
       _rpeDismissed = false;
+      _runCache = null;
+      _cursor = null;
     }
   }
   Activity get a => r.activity;
@@ -971,6 +1067,34 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   List<Widget> _overview(BuildContext c, P p) {
     final hero = _hero();
     final l = AppLocalizations.of(c);
+    final v = run;
+    if (v != null && !unsaved) {
+      final verdict = _verdict;
+      return [
+        RunMapCard(v, cursor: _cursor, badge: _prBadge),
+        const SizedBox(height: S.x4),
+        // Scales down rather than overflowing at large text sizes.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic, children: [
+            Text(hero.$1, style: F.n48.copyWith(color: p.ink)),
+            if (hero.$2.isNotEmpty) ...[
+              const SizedBox(width: S.x2),
+              Text(hero.$2, style: F.body.copyWith(color: p.ink3)),
+            ],
+          ]),
+        ),
+        Text(a.name, style: F.cap.copyWith(color: p.ink2)),
+        const SizedBox(height: S.x4),
+        RunStatsGrid(v),
+        if (_askRpe) ...[const SizedBox(height: S.x3), _rpePrompt(p)],
+        if (verdict != null) ...[const SizedBox(height: S.x3), RunVerdictCard(verdict)],
+        BestEffortsCard(v, _earlier),
+        ..._zoneSection(p),
+      ];
+    }
     return [
       if (unsaved) ...[
         StatusCard(
@@ -1731,6 +1855,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   // sets for a lift, rounds for HIIT, laps for a swim.
   List<Widget> _splits(BuildContext c, P p) {
     final l = AppLocalizations.of(c);
+    if (run != null && r.splits.isNotEmpty) return [RunSplitsCard(r)];
     switch (arch) {
       case Arch.route || Arch.journey:
         if (r.splits.isEmpty) {
@@ -2018,6 +2143,17 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   // ─────────────────── GRAPHS ───────────────────
   List<Widget> _graphs(BuildContext c, P p) {
     final l = AppLocalizations.of(c);
+    final v = run;
+    if (v != null) {
+      final shares = _paceShares, p5 = _fiveKPace;
+      return [
+        RunMapCard(v, cursor: _cursor),
+        const SizedBox(height: S.x3),
+        RunCharts(v, cursor: _cursor, onCursor: (f) => setState(() => _cursor = f)),
+        if (shares != null && p5 != null) PaceZonesCard(shares, p5),
+        ..._zoneSection(p),
+      ];
+    }
     final series = <(String, String, Color, List<double?>)>[
       if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr),
       if (r.elevationM.length > 1)

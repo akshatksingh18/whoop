@@ -98,14 +98,52 @@ String workoutSex(String? sex) {
   }
 }
 
-/// Energy spent WALKING for [steps], shown on its own and never added to the
-/// day's calories.
-///
-/// Distance from a height-based stride (0.415 × height for men, 0.413 for
-/// women, their mean otherwise — the standard pedometer stride estimate),
-/// costed at the ACSM net walking rate of about 0.5 kcal per kg per km on level
-/// ground: the energy ABOVE resting, so it does not repeat the resting burn.
-/// An estimate with no error band, like every stride rule. Null without a
+/// Active calories from [steps]: 2.74 × steps × kg ÷ 8,368 (the Weyand et
+/// al. 2010 walking-cost form). Energy ABOVE resting only, so it never repeats
+/// the BMR. Running steps are costed as walking steps, which makes this a
+/// floor, by Akshat's decision. Null without a weight or with no steps.
+double? stepCalories(num? steps, double? weightKg) {
+  if (steps == null || steps <= 0 || weightKg == null || weightKg <= 0) {
+    return null;
+  }
+  return 2.74 * steps * weightKg / 8368;
+}
+
+/// Resting energy for a whole day, Mifflin–St Jeor:
+/// 10 × kg + 6.25 × cm − 5 × age, + 5 for men, − 161 for women, and the
+/// midpoint of the two otherwise. Null without weight, height and age.
+double? bmrMifflin(Profile p) {
+  final w = p.weightKg, h = p.heightCm, a = p.ageYears;
+  if (w == null || h == null || a == null || w <= 0 || h <= 0 || a <= 0) {
+    return null;
+  }
+  final base = 10 * w + 6.25 * h - 5 * a;
+  return base +
+      switch (p.sex) {
+        'm' || 'male' => 5,
+        'f' || 'female' => -161,
+        _ => -78,
+      };
+}
+
+/// A day's maintenance calories, as a floor:
+/// BMR + step calories + 10% of the food logged that day (the thermic effect
+/// of food). With nothing logged the food part is 0. No workout calories are
+/// added. Null without a BMR.
+({double bmr, double steps, double food, double total})? maintenance(
+    Profile p,
+    {num? steps,
+    double eatenKcal = 0}) {
+  final bmr = bmrMifflin(p);
+  if (bmr == null) return null;
+  final st = stepCalories(steps, p.weightKg) ?? 0;
+  final tef = eatenKcal > 0 ? eatenKcal * 0.10 : 0.0;
+  return (bmr: bmr, steps: st, food: tef, total: bmr + st + tef);
+}
+
+/// Distance and active calories for [steps], for the steps breakdown. The
+/// distance is a height-based stride (0.415 × height for men, 0.413 for women,
+/// their mean otherwise); the calories are [stepCalories]. Null without a
 /// height and weight, or with no steps.
 ({double kcal, double km})? walkingEnergy(num? steps, Profile p) {
   final h = p.heightCm, w = p.weightKg;
@@ -118,5 +156,5 @@ String workoutSex(String? sex) {
     _ => 0.414,
   };
   final km = steps * factor * h / 100 / 1000;
-  return (kcal: 0.5 * w * km, km: km);
+  return (kcal: stepCalories(steps, w)!, km: km);
 }

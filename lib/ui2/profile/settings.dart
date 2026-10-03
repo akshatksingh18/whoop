@@ -627,9 +627,6 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.ruler, C.blue,
                       l?.settingsUnitsRowTitle ?? 'Units',
                       value: units, onTap: onCycleUnits),
-                  SetRow(LucideIcons.sun, C.yellow,
-                      l?.settingsAppearanceRowTitle ?? 'Appearance',
-                      value: appearance, onTap: onCycleAppearance),
                   if (appIcon != null)
                     _IconRow(chosen: appIcon!, onPick: onPickIcon),
                 ]),

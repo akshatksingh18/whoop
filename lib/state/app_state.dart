@@ -307,7 +307,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const Duration _backfillInterval = Duration(minutes: 10);
+  // Foreground only (backgrounded, the engine's floored timer owns offloads):
+  // every 5 minutes while the app is open, so the screen keeps up with the band.
+  static const Duration _backfillInterval = Duration(minutes: 5);
 
   // ── local profile (was server-side; now device-local) ───────────────────────
   // CLOUD EXCISED: the user's name/sex/age/height/weight + prefs (track_cycle,
@@ -707,6 +709,29 @@ class AppState extends ChangeNotifier {
   /// foreground service, iOS suspend/resume), so a day-less cache would hold
   /// yesterday's answer through the whole of today.
   String? _phoneStepsDay;
+
+  /// Bring what is on screen up to date with the phone and the band: pull the
+  /// phone's steps, then queue a light derive so today's numbers are worked
+  /// out again. Runs on every return to the foreground and every
+  /// [foregroundRefreshEvery] while the app is open; the band offload itself
+  /// rides `openSession` and the 5-minute backfill timer.
+  Future<void> refreshForeground() async {
+    if (phoneStepsEnabled) await syncPhoneSteps();
+    _deriveScheduler.markStoredData();
+  }
+
+  static const Duration foregroundRefreshEvery = Duration(minutes: 5);
+  Timer? _foregroundRefresh;
+
+  void startForegroundRefresh() {
+    _foregroundRefresh ??= Timer.periodic(
+        foregroundRefreshEvery, (_) => unawaited(refreshForeground()));
+  }
+
+  void stopForegroundRefresh() {
+    _foregroundRefresh?.cancel();
+    _foregroundRefresh = null;
+  }
 
   Future<void> _refreshPhoneStepsToday() async {
     if (!phoneStepsEnabled) return;
@@ -1397,6 +1422,7 @@ class AppState extends ChangeNotifier {
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
+    stopForegroundRefresh();
     _waterBuzzer.dispose();
     _medBuzzer.dispose();
     // Owned notifiers/observers. notificationRelay in particular holds a

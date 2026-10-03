@@ -646,6 +646,9 @@ void main() {
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
+      // The method is folded away until asked for.
+      await tester.tap(find.text("How it's worked out"));
+      await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.text('—'), findsNothing);
@@ -735,7 +738,7 @@ void main() {
       // stored 10.8.
       await show(const DayStrainData(strain: 10.8, wornMin: 1274));
       expect(find.textContaining('produced no strain'), findsNothing);
-      expect(find.textContaining('10.8'), findsOneWidget);
+      expect(find.textContaining('10.8'), findsWidgets);
     });
 
     // The Zones screen offered "Add your age in Profile" on all three real

@@ -193,6 +193,10 @@ void main() {
 /// this list fails the test above, so the choice has to be made rather than
 /// drifted into.
 const _notComponents = {
+  // The run screen and the maintenance card: each needs a recorded track or a
+  // profile; `ui2_run_detail_test` renders the run screen at 1x and 2x.
+  'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',
+  'RunSplitsCard', 'RunCharts', 'PaceZonesCard', 'MaintenanceCard',
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
   // onboarding routes

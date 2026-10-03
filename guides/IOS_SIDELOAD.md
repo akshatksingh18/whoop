@@ -1,8 +1,8 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** The matching minimal build profile and public-repository macOS workflow produced accepted
-rollback `0.9.30` build `63`, cached under
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted`
+**State:** The matching minimal build profile and public-repository macOS workflow produced the accepted
+build `0.9.34` build `67`, cached under
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`
 (`../setup.md` owns the cache location). `0.9.33` build `66` is now installed over build `65` and awaits
 its device pass. Build `65` was installed after a clean
 same-identity reinstall and verified encrypted restore; Akshat confirmed the recovered app works. The current
@@ -15,9 +15,9 @@ and a controlled forced-due Wi-Fi daemon cycle are verified; installed About/pro
 remaining physical behavior remain open. Build 63 excludes GPS. The uninstalled `0.9.31`
 build `64` artifact is superseded and must not be installed. Build `65` enables personal GPS, hides the unsupported Oura
 pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests,
-macOS build, payload validation, manifest, and downloaded checksum pass. Build `66` is the current
-candidate, cached at
-`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.33-build66-648c1b2e`. Do not
+macOS build, payload validation, manifest, and downloaded checksum pass. Build `67` is the accepted
+build, cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`. Do not
 substitute an arbitrary upstream release IPA and claim it matches this capability profile.
 
 ### Remaining build-65 candidate pass
@@ -32,16 +32,20 @@ substitute an arbitrary upstream release IPA and claim it matches this capabilit
    short walk and confirm real steps advance. Record a short outdoor walk/run: grant While Using location, verify the route continues while the
    phone is locked/backgrounded, stop it, relaunch, and inspect the saved route. Also confirm the band
    reconnects and drains normally.
-4. Use the verified refresh identity: turn **Use automatic bundle ID** off, enter exact final ID
-   `com.akshat.personal.whoop.5564K8D4SV`, and leave the separate automatic-refresh control enabled.
-   This exact-ID overwrite reaches 100%, advances signing, and preserves data/pairing; the base-ID
-   automatic transformation stalls at 0%. `ENROLLED` plus an advanced signing timestamp are both
+4. **If a manual install sits at "Installing 88%", open WHOOP on the phone and swipe it away in
+   the app switcher.** That released a stuck build-67 install at once, twice. The cause is not
+   established: the stall happened in automatic and exact bundle-ID mode, with the phone unlocked,
+   and once when the app had been swiped away before starting; left alone, one install took 43
+   minutes and then completed. Reading the phone's own log during a stall is the next diagnostic.
+   Either bundle-ID mode works: both produce `com.akshat.personal.whoop.5564K8D4SV`, both have
+   completed over the existing app with data and pairing intact, and the health check accepts
+   either for WHOOP. Leave the separate automatic-refresh control enabled. `ENROLLED` plus an advanced signing timestamp are both
    required. A controlled forced-due unattended Wi-Fi daemon cycle passes; the next naturally elapsed
    cycle remains open. The real app retained its data and band connection after that daemon cycle.
-   The shared health check must also print `IDENTITY` with mode `exact`; this prevents a future build
-   from recreating the automatic-rewrite failure while still appearing enrolled.
-5. Keep exactly one candidate in `testing\` (now build 66) until all checks pass. Build 63
-   remains the accepted rollback.
+   The shared health check must also print an `IDENTITY` line. An unattended refresh has been
+   observed only from an exact-mode registration so far.
+5. Keep at most one candidate in `testing\` until all checks pass. Build 67 is the accepted
+   build in `backup\`.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that

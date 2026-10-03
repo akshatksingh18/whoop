@@ -12,6 +12,8 @@ import '../../build_profile.dart';
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
+import '../../gps/run_analysis.dart' show elevationGain, kBestEffortDistances, riegel;
+import '../../gps/run_history.dart';
 import '../../health/health_import_state.dart';
 import '../../health/auto_workout_import.dart';
 import '../../health/health_workout_import.dart';
@@ -143,6 +145,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       const SizedBox(height: S.x3),
       ..._suggestionCards(c, d),
       if (d.strain7.any((v) => v != null)) _strainWeek(c, p, d),
+      if (d.runs.isNotEmpty) _running(c, p, d.runs),
       ..._importCard(c, d),
       Section(
         'Recent',
@@ -183,6 +186,76 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     ];
   }
 
+  /// Running, across every recorded run: weekly distance for eight weeks,
+  /// predicted 5K and 10K times, and the best time at each distance. Updates
+  /// with each new run.
+  Widget _running(BuildContext c, P p, List<RunSummary> runs) {
+    final now = DateTime.now();
+    final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
+    final weeks = List<double?>.filled(8, null);
+    for (final r in runs) {
+      final w = (monday.difference(DateTime(r.start.year, r.start.month, r.start.day)).inDays / 7)
+          .ceil();
+      final slot = r.start.isBefore(monday) ? 7 - w : 7;
+      if (slot >= 0 && slot < 8) weeks[slot] = (weeks[slot] ?? 0) + r.meters / 1000;
+    }
+    final p5 = predicted5k(runs);
+    String t(double sec) => clock(sec.round());
+    final prs = <(String, double, DateTime)>[];
+    for (final (label, _) in kBestEffortDistances) {
+      (double, DateTime)? best;
+      for (final r in runs) {
+        final s = r.efforts[label];
+        if (s != null && (best == null || s < best.$1)) best = (s, r.start);
+      }
+      if (best != null) prs.add((label, best.$1, best.$2));
+    }
+    final axis = AxisSpec.of([for (final v in weeks) ?v], floor: 0);
+    return Section(
+      'Running',
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (axis != null)
+            ChartFrame(
+              title: 'Distance per week',
+              unit: 'km',
+              height: 88,
+              yAxis: axis,
+              xLabels: const ['8 weeks ago', 'This week'],
+              series: weeks,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: Bars(weeks, p.on(C.run),
+                    highlight: weeks.last == null ? -1 : 7,
+                    axis: axis,
+                    t: animate(context, 1)),
+              ),
+            ),
+          if (p5 != null) ...[
+            const SizedBox(height: S.x4),
+            InlineMetrics([
+              ('PREDICTED 5K', t(p5), C.run),
+              ('PREDICTED 10K', t(riegel(p5, 5000, 10000)), C.run),
+            ]),
+          ],
+          if (prs.isNotEmpty) ...[
+            const SizedBox(height: S.x4),
+            Text('Best times', style: F.over.copyWith(color: p.ink3)),
+            for (final (label, sec, at) in prs)
+              Padding(
+                padding: const EdgeInsets.only(top: S.x2),
+                child: Row(children: [
+                  Expanded(child: Text(label, style: F.body.copyWith(color: p.ink))),
+                  Text('${t(sec)} · ${at.day}/${at.month}',
+                      style: F.cap.copyWith(color: p.ink2)),
+                ]),
+              ),
+          ],
+        ]),
+      ),
+    );
+  }
+
   /// The day's strain for each of the last seven days. Tap for today's own
   /// strain through the day.
   Widget _strainWeek(BuildContext c, P p, _WorkoutData d) {
@@ -203,7 +276,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         child: CustomPaint(
           size: Size.infinite,
           // Today is the last slot, always — not "the newest value".
-          painter: Bars(d.strain7, p.on(C.purple),
+          painter: Bars(d.strain7, p.on(C.strain),
               highlight: d.strain7.last == null ? -1 : 6,
               axis: axis,
               t: animate(context, 1)),
@@ -232,6 +305,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   'The original in $storeName stays.'),
     );
     if (!ok || !mounted) return;
+    forgetRun(w.id);
     if (w.importedFrom != null && w.id.isNotEmpty) {
       await rememberDeletedUuid(w.id);
       await LocalDb.deleteImportedWorkout(w.id);
@@ -923,8 +997,11 @@ ActivityResult _withRoute(ActivityResult r, WorkoutRoute route) {
     routePace: haveSpeed ? _spread([for (final s in speeds) s!]) : null,
     distanceKm: route.distanceMeters / 1000,
     elevationM: haveAlt ? [for (final a in alt) a!] : const [],
-    gainM: gain,
+    // Smoothed and deadbanded: raw GPS altitude wanders metres standing still.
+    gainM: elevationGain(pts) ?? gain,
     lossM: loss,
+    track: pts,
+    movingSec: route.movingSec,
     splits: [
       for (final s in route.splitsKm)
         KmSplit(s.meters / 1000, s.durationSec, avgHr: s.avgHr?.round()),
@@ -1231,6 +1308,9 @@ class _WorkoutData {
   /// The day slot 6 belongs to.
   final DateTime? weekEnd;
   final List<_PastWorkout> workouts;
+
+  /// Every recorded run, oldest first, for the running trends.
+  final List<RunSummary> runs;
   final Set<int> weekDays; // 0 = Monday
   final int weekCount;
 
@@ -1266,6 +1346,7 @@ class _WorkoutData {
     this.strain7 = const [],
     this.weekEnd,
     this.workouts = const [],
+    this.runs = const [],
     this.weekDays = const {},
     this.weekCount = 0,
     this.weekImported = 0,
@@ -1431,6 +1512,13 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       weightKg: weight,
       strain7: strain7,
       weekEnd: end,
+      runs: await () async {
+        try {
+          return await loadRuns(repo);
+        } catch (_) {
+          return const <RunSummary>[];
+        }
+      }(),
       workouts: past,
       // Imported days light a dot too. This strip says "you trained", not
       // "this band measured you", and a Sunday run left dark because the watch

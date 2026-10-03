@@ -50,6 +50,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
 
       final app = context.read<AppState>();
       if (app.isPaired) app.openSession();
+      app.startForegroundRefresh();
     });
   }
 
@@ -111,24 +112,27 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // a lock screen looking current.
       unawaited(WidgetService.refresh(app.repo));
       if (app.isPaired) app.openSession();
+      // Steps and today's numbers, at once on open and then every 5 minutes.
+      unawaited(app.refreshForeground());
+      app.startForegroundRefresh();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
       // in the background (no-op on Android, where the foreground service holds it).
       app.pauseForBackground();
+      app.stopForegroundRefresh();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = context.watch<ThemeController>();
     final locale = context.watch<LocaleController>();
     return MaterialApp(
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
-      // The palette is the design system's, the CHOICE is still the user's.
-      theme: buildTheme(Brightness.light),
+      // Dark only, by Akshat's decision.
+      theme: buildTheme(Brightness.dark),
       darkTheme: buildTheme(Brightness.dark),
-      themeMode: theme.materialThemeMode,
+      themeMode: ThemeMode.dark,
       locale: locale.locale, // null = follow the OS locale
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,

@@ -17,8 +17,8 @@ remain fetch-only named upstreams.
 **Status:** Active iPhone verification — personal IPA `0.9.33` build `66` is installed over build
 `65` and awaits its device pass. Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
 isolated test install before the old container was removed, then restored into build 65; Akshat
-confirmed the recovered app works. Build `0.9.30`/63 remains the accepted rollback, with sanitized-
-history source equivalent `7132d2ab29a007da9e650ef802e7340a0cf39677`.
+confirmed the recovered app works. Build `0.9.34`/67 is now the accepted build in `final-ipas\whoop\backup\`; build 63 (sanitized-history
+source `7132d2ab29a007da9e650ef802e7340a0cf39677`) is superseded.
 The initial roughly-6,000-versus-200 step mismatch was the disabled **This phone → Steps** setting;
 enabling it verified that the direct `CMPedometer` path imports iPhone steps. The profile still
 deliberately excludes the Apple Health aggregate. Build 65 retains the personal GPS/Oura changes
@@ -48,11 +48,14 @@ signing-expiry alerts, encrypted automatic backups, GPS route-recording hardenin
 restore-wake reconnect fix recorded in `bugs.md`. Akshat installed it over build 65; it still
 needs its device pass and current-version refresh enrollment, and none of its new behavior is
 phone-verified.
-Source `0.9.34`/`67` is committed locally and **not pushed or built**. It redesigns the app as
+Source `0.9.35`/`68` (not yet built) adds: daily maintenance calories as a floor (BMR + step calories + 10% of logged food, `metrics-map.md`); a dark-only palette (one colour per pillar); a Strava-style run screen (Apple Maps route via a MapKit snapshot, best efforts and PRs against earlier runs, a rule-based verdict, splits, pace / heart-rate / elevation charts on one finger cursor, pace zones); running trends on Train; live heart rate on Today with the scrub stopping at the current time; decluttered Strain and Readiness screens; GPS jitter smoothing and stop-aware moving time; and a refresh of phone steps and today's numbers on every open and every 5 minutes while the app is open. **The map is the app's first regular network use besides barcode lookup:** MapKit fetches tiles for the run's area from Apple, approved by Akshat.
+Build `0.9.34`/`67` (commit `b7414f03`) is **installed and accepted**: Akshat reports it working (band sync, a GPS run, the new layout), and it is promoted to the backup slot. Akshat installed it over build 66 with Sideloadly 0.70.1. WHOOP installs can sit at "Installing 88%" (43 minutes when left alone). The cause is not established. What is observed on build 67: it happens in both automatic and exact bundle-ID mode, with the phone unlocked, and even when the app was swiped away beforehand; opening WHOOP and swiping it away released the stuck install at once, twice. `guides/IOS_SIDELOAD.md` owns the procedure. Sideloadly's record shows 0.9.34 at `com.akshat.personal.whoop.5564K8D4SV` with a completed automatic-refresh registration and no error (currently automatic mode). Linux
+tests and the macOS workflow passed, the downloaded IPA matches its SHA-256 and passes the payload
+validator, and it is cached as the accepted build under
+`final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`. It redesigns the app as
 four single-page tabs (Today · Trends · Food · Train) with flat rounded cards and short labels, and
 removes the screens listed under "Simple day-to-day UI" below; `metrics-map.md` owns the layout
-and the list of metrics still stored but no longer shown. Local `flutter analyze` is clean and the
-Windows test run fails only the 13 known Windows-only tests; Linux CI has not run on it.
+and the list of metrics still stored but no longer shown. None of it is phone-verified.
 
 ## Files
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
@@ -118,14 +121,15 @@ independent Flutter app/process, not embedded in the hub; no paid tier, rotation
 migration is required by this decision. Seven-day profiles and the refresh/recovery rules remain.
 Akshat has activated iPhone implementation. The personal flavor exists in source, its first
 macOS-built candidate was installed and exposed the malformed AccessorySetupKit descriptor crash.
-The bridge is now fixed and `0.9.30`/63 remains the accepted rollback cached at
+The bridge is now fixed. The accepted build is `0.9.34`/67, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds only the newest candidate (build 66), and both are reproducible from their workflow
+`testing\` is empty, and builds 63–66 are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
-enrollment and exact-final-ID same-app refresh work. The base-ID automatic-rewrite path stalls at 0%,
-so every Sideloadly refresh/upgrade must use the exact final signed ID instead.
+enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
+bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health
+check now accepts either mode for WHOOP.
 History/data, exact signed identity, pairing preservation, manual recovery, and a controlled
 forced-due Wi-Fi daemon refresh are verified. Daily-use activation still requires the remaining
 About/version, phone-step-retention, GPS/background, naturally elapsed refresh, and physical-device

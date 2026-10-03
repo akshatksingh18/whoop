@@ -2,7 +2,7 @@
 
 Everything the app stores and where each item appears, plus the proposed layout. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal build from source `0.9.34`/`67`.
+the personal build from source `0.9.35`/`68`.
 
 **Status:** Current map of stored data and screens for source `0.9.34`/`67`. Everything in
 "What is stored" keeps being recorded whether or not a screen shows it; any further removal still
@@ -112,16 +112,16 @@ Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
 | Recovery | ring with the score, verdict, HRV and resting HR | yes | Readiness: drivers and 90-day history |
 | Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals, tonight |
 | Strain | card with a bar and today's target | yes | Day strain: curve and zones |
-| Heart rate, all day | line card with the day's range | — | Scrubbable minute-by-minute chart |
+| Heart rate, all day | live bpm, then the day's line and range | — | Scrubbable minute-by-minute chart (stops at the current time) |
 | HRV, resting HR | inside the recovery card | yes | metric detail |
 | Steps, walking kcal | card | yes | metric detail, steps breakdown |
-| Calories burned | card (total, with active under it) | active calories | metric detail |
+| Maintenance (floor) | card: resting · steps · food | step calories row | Food → Today and History |
 | Breathing rate, skin temperature, wear time | — | yes | metric detail; Sleep overnight lanes |
 | Breathing pattern in sleep | — | — | one tap below Sleep |
 | Tonight's bedtime and sleep need | row | — | Sleep → Tonight |
 | Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
 | Naps | — | section on a day with one | Naps |
-| Workouts, GPS | — | — | Train: Run / Lift / Other, 7-day strain, recent sessions |
+| Workouts, GPS | — | — | Train: Run / Lift / Other, 7-day strain, running trends, recent sessions; a run opens the run screen (Apple Maps route, best efforts, verdict, splits, linked pace/HR/elevation charts, pace zones) |
 | Food, calories left, macros | — | — | Food: Today, History (month), Foods |
 
 Trends has a Week / Month / 3 months switch. Each row shows the average for the range, a small
@@ -153,29 +153,27 @@ form (training load), next-morning session cost, and the beat-by-beat night data
 
 ## How calories are estimated
 
-- **Resting (BMR):** calculated from weight, height, age and sex with the Mifflin–St Jeor formula,
-  spread across the whole day.
-- **Active:** calculated from heart rate with the Keytel 2005 formula. It only counts minutes when
-  heart rate is above 40% of heart-rate reserve (resting + 0.4 × (max − resting)). Every other minute
-  counts as resting.
-- **Total** = resting + active (`calories_total`). **Active** = the active part only (`calories`).
-- **Steps do not add energy to these totals, by Akshat's decision.** Easy walking below the
-  heart-rate threshold counts as resting. Lifting reads from heart rate alone, which a wrist sensor
-  tracks loosely.
-- **Walking energy is shown separately:** "≈N kcal walking" on the Home steps tile, and calories
-  plus distance on the Steps breakdown. It never adds to active, total or the nutrition goal.
-  - **Formula** (`walkingEnergy` in `lib/compute/profile.dart`): distance = steps × a height-based
-    stride (0.415 × height for men, 0.413 for women), costed at about 0.5 kcal per kg per km net
-    (ACSM level walking).
-  - It needs height and weight in the profile.
-- **Nutrition:** the calorie goal is whatever Akshat types and never grows with exercise. The Goals
-  sheet shows the 14-day average of total burn as a reference only.
-- **Apple Health:** decided against adding it. Without an Apple Watch, Apple's active energy comes
-  only from the iPhone's own motion: the same steps the app already reads, which the walking
-  estimate covers. HealthKit would also add a capability that free signing may refuse at install.
-  The personal build keeps HealthKit excluded.
-  - **Steps:** already come directly from the iPhone's motion sensor (the same source Apple Health
-    uses), when **This phone → Steps** is on.
+**Daily maintenance** (Akshat's formula, a floor, never a ceiling):
+maintenance = BMR + step calories + 10% of the food logged that day.
+
+- **BMR:** Mifflin–St Jeor for the whole day: 10 × kg + 6.25 × cm − 5 × age, + 5 for men, − 161
+  for women (the midpoint otherwise). `bmrMifflin` in `lib/compute/profile.dart`.
+- **Step calories:** 2.74 × steps × kg ÷ 8,368 (Weyand et al. 2010 form), energy above resting
+  only. Running steps are costed as walking steps, which keeps it a floor. `stepCalories`.
+- **Food (thermic effect):** 10% of the kcal logged that day; 0 until something is logged.
+- **No workout calories are added.**
+- Checked against the agreed case: 23 y, 80.5 kg, 186.69 cm, 15,000 steps, 2,500 kcal eaten →
+  BMR 1,862 + steps 395 + food 250 = 2,507 (`test/walking_energy_test.dart`).
+- **Where it shows:** the Maintenance card on Today (so far today), the Maintenance card on Food →
+  Today, and "Maintenance N · M under/over" on every Food → History day. Trends has a Step
+  calories row.
+- **The calorie goal never changes:** Akshat types it once (Food → target button); maintenance is
+  shown beside it, not used to move it.
+- **Heart-rate calories still exist but are not on the main screens:** the analytics still store
+  `calories` (active, Keytel 2005 above 40% of heart-rate reserve) and `calories_total`; a
+  workout's own screen still shows its calories.
+- **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →
+  Steps** is on; HealthKit stays excluded from the personal build.
 
 ## Layout decisions (source `0.9.34`/`67`)
 

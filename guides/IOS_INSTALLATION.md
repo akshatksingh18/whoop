@@ -1,8 +1,8 @@
 # WHOOP iOS build and installation profiles
 
 **State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
-personal-sideload build profile and manual public-GitHub workflow. Accepted rollback `0.9.30` build
-`63` was built and payload/hash verified after the AccessorySetupKit bridge fix. `0.9.33` build `66` is now installed over build `65` and awaits its
+personal-sideload build profile and manual public-GitHub workflow. The accepted build is `0.9.34` build
+`67` (installed and working); build 63 was the first accepted build after the AccessorySetupKit bridge fix. `0.9.33` build `66` is now installed over build `65` and awaits its
 device pass. `0.9.32`
 build `65` was installed after a clean same-identity reinstall and verified encrypted restore; the
 recovered app opens. The current minimal profile intentionally excludes HealthKit, so it does not import the
@@ -14,9 +14,9 @@ pairing, and the remaining physical behavior remain unverified. Build 63 exclude
 uninstalled `0.9.31` build `64` artifact is superseded. Build `65` enables the route runtime and matching While-In-Use/background capability,
 hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for wrist step noise.
 Its macOS build, payload, manifest, downloaded checksum, clean installation, encrypted restore,
-launch/data, scheduled enrollment, and exact-final-ID same-app refresh gates pass. Sideloadly's
-automatic bundle-ID transformation stalls at 0%; disabling it and entering
-`com.akshat.personal.whoop.5564K8D4SV` reaches 100% and preserves data/pairing. A controlled
+launch/data, scheduled enrollment, and exact-final-ID same-app refresh gates pass. Install stalls
+happen in both bundle-ID modes and their cause is open (see `IOS_SIDELOAD.md`). Entering
+`com.akshat.personal.whoop.5564K8D4SV` with automatic bundle ID off reaches 100% and preserves data/pairing. A controlled
 forced-due unattended Wi-Fi daemon cycle passes; the next naturally elapsed cycle and remaining
 device acceptance gates remain open.
 
@@ -91,11 +91,11 @@ It packages a conventional `Payload/Runner.app`, validates it, and emits a capab
 manifest plus SHA-256. The workflow also writes `SOURCE_REVISION=<commit>` into the ephemeral
 `.env`, which is what the in-app **Status** screen shows as the source; a local build shows "not
 recorded". The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`. The installed, not-yet-device-verified build-66 candidate is the only build in `testing\`:
-`D:\AI Important Files\personal-project\final-ipas\whoop\testing\WHOOP-0.9.33-build66-648c1b2e`.
-Replaced build 65 and superseded build 64 are no longer cached; both are reproducible from their
+ID is `com.akshat.personal.whoop`. The accepted, installed build 67 is cached in `backup\`:
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`.
+Builds 63–66 are no longer cached; all are reproducible from their
 workflow runs in `setup.md`.
-Keep the accepted build-63 rollback cached on Windows outside Git.
+Keep the accepted build cached on Windows outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
 black-and-white circular logo; the upstream `AppIcon` catalog remains unchanged.
 

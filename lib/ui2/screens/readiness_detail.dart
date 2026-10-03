@@ -124,6 +124,15 @@ class ReadinessDetail extends StatefulWidget {
 
 class _ReadinessDetailState extends State<ReadinessDetail> {
   ReadinessData? _d;
+  bool _showHow = false;
+
+  /// One plain line for the band the score falls in.
+  static String _advice(int tier) => switch (tier) {
+        3 => 'Recovered. A good day to push hard.',
+        2 => 'Normal recovery. Train as planned.',
+        1 => 'Below your usual. Keep today easier.',
+        _ => 'Well below your usual. Put rest first.',
+      };
   bool _loading = true;
 
   @override
@@ -204,33 +213,46 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                   ),
                   Column(mainAxisSize: MainAxisSize.min, children: [
                     Text('${v.round()}', style: F.n48.copyWith(color: p.ink)),
-                    Text(band.label, style: F.cap.copyWith(color: p.ink3)),
+                    Text(band.label,
+                        style: F.cap.copyWith(color: p.on(band.color))),
                   ]),
                 ]),
               ),
+              const SizedBox(height: S.x4),
+              Text(_advice(band.tier),
+                  textAlign: TextAlign.center,
+                  style: F.body.copyWith(color: p.ink2)),
             ]),
           ),
 
         if (d.breakdown.isNotEmpty) ...[
-          Section(l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
-              _breakdown(c, p, d)),
+          Section('What drove it', _breakdown(c, p, d)),
           const SizedBox(height: S.x4),
-          Surface(
-            elevation: 0,
-            color: p.card2,
+          Pressable(
+            onTap: () => setState(() => _showHow = !_showHow),
+            semanticLabel: 'How it is worked out',
             child: Row(children: [
               Expanded(
-                child: Text(
-                  l?.readinessDetailInputsFooter(
-                          d.inputsUsed, d.breakdown.length) ??
-                      '${d.inputsUsed}/${d.breakdown.length} inputs. Each one is '
-                          'ranked against your own history — a parallel view of the '
-                          'same inputs, not slices of the number above.',
-                  style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                ),
-              ),
+                  child: Text('How it\'s worked out',
+                      style: F.cap.copyWith(color: p.ink2))),
+              Icon(_showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 16, color: p.ink3),
             ]),
           ),
+          if (_showHow) ...[
+            const SizedBox(height: S.x2),
+            Surface(
+              elevation: 0,
+              color: p.card2,
+              child: Text(
+                '${d.inputsUsed} of ${d.breakdown.length} inputs were available. '
+                'Each is compared with your own recent nights; HRV and resting '
+                'heart rate carry most of the weight, skin temperature the least '
+                '(it is a relative reading, not a calibrated temperature).',
+                style: F.cap.copyWith(color: p.ink3, height: 1.5),
+              ),
+            ),
+          ],
         ] else if (v != null)
           Section(
             l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
@@ -395,44 +417,30 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // printed a confident "0% weight" for a number nobody reported.
     final share = !used || raw == null || wsum <= 0 ? null : raw / wsum;
 
-    final parts = [
-      if (share != null)
-        l?.readinessDetailWeightPercent((share * 100).round()) ??
-            '${(share * 100).round()}% weight',
-      if (!used) l?.readinessDetailNotAvailable ?? 'not available',
-      if (used && contribution == null)
-        l?.readinessDetailContributionNotReported ?? 'contribution not reported',
-      // The temperature input is a raw sensor deviation, not a calibrated
-      // temperature. It gets said, every time.
-      if (key == 'temp')
-        l?.readinessDetailRelativeUncalibrated ?? 'relative, uncalibrated',
-      // An unlabelled glyph is not an explanation. This is the
-      // smallest-worthwhile-change gate, so it says what it means.
-      if (used && !pastMdc)
-        l?.readinessDetailWithinSpread ?? 'within your usual spread',
-    ];
-
+    // Plain words, coloured: better than your usual, about usual, or worse.
+    final (String word, Color col) = !used
+        ? ('Not measured', C.n500)
+        : contribution == null || !pastMdc
+            ? ('About usual', C.n500)
+            : contribution >= 0
+                ? ('Better than usual', C.green)
+                : ('Worse than usual', C.orange);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: S.x3),
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(driverLabel(key), style: F.body.copyWith(color: p.ink)),
-            Text(parts.join(' · '),
-                style: F.over.copyWith(color: p.ink3)),
+            Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
+            if (share != null)
+              Text('${(share * 100).round()}% of the score',
+                  style: F.over.copyWith(color: p.ink3)),
           ]),
         ),
-        // No contribution number means no number — never a bare em-dash. The
-        // sub-line above says which case it is.
-        if (used && contribution != null) ...[
-          const SizedBox(width: S.x3),
-          Text(
-            '${contribution >= 0 ? '+' : '−'}'
-            '${contribution.abs().toStringAsFixed(1)}',
-            style: F.n17.copyWith(
-                color: p.on(contribution >= 0 ? C.green : C.orange)),
-          ),
-        ],
+        const SizedBox(width: S.x3),
+        Text(word,
+            style: F.cap.copyWith(
+                color: col == C.n500 ? p.ink2 : p.on(col),
+                fontWeight: FontWeight.w600)),
       ]),
     );
   }

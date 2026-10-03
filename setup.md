@@ -129,10 +129,10 @@ personal build.
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
 Personal Team. The deterministic personal flavor, contract tests, payload validator, manifest, and
-manual workflow are implemented. Accepted `0.9.30` build `63` passed automated validation and is
-cached at `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.30-build63-accepted`
-(not in Downloads — see `D:\AI Important Files\personal-project\final-ipas\README.md`); it remains
-the accepted rollback. The `0.9.31` build `64` artifact passed the
+manual workflow are implemented. The accepted build is `0.9.34` build `67`, cached at
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`
+(not in Downloads — see `D:\AI Important Files\personal-project\final-ipas\README.md`). Build 63
+was the first accepted build and is superseded. The `0.9.31` build `64` artifact passed the
 automated macOS build, payload, manifest, and downloaded-checksum gates but is superseded without
 installation. Current `0.9.32` build `65` retains its personal GPS/Oura changes and adds the
 confirmed-phone-stillness step guard. Its automated macOS build, payload, manifest, and downloaded
@@ -171,12 +171,12 @@ conventional IPA payload, and uploads the IPA, capability/source manifest, and S
 artifact for 14 days. It injects no companion/backend URL, Firebase configuration, or signing
 material.
 
-The accepted rollback is version `0.9.30` build `63`, originally produced by the now-retired
+The former accepted build is version `0.9.30` build `63` (superseded by build 67), originally produced by the now-retired
 personal-sideload workflow run recorded in its local manifest; its
 sanitized-history source equivalent is `7132d2ab29a007da9e650ef802e7340a0cf39677`. Its SHA-256 is
 `ff8eb3565ddc97c85163d92b7e1bbafee4ab1e385083b6b99a21f168ef07a5e1`, and the downloaded IPA,
-manifest, and checksum are cached at
-`../final-ipas/whoop/backup/WHOOP-0.9.30-build63-accepted` — the stable release cache outside
+manifest, and checksum were cached in `../final-ipas/whoop/backup/` until build 67 replaced them
+— the stable release cache outside
 Downloads, excluded from the OneDrive backup archive the same way every `personal-project/`
 subfolder is; `../final-ipas/README.md` owns the backup/testing model. The macOS workflow, local
 validator, and downloaded checksum all pass. Superseded `0.9.31` build `64` was produced by workflow
@@ -195,10 +195,21 @@ are cached at `../final-ipas/whoop/testing/WHOOP-0.9.33-build66-648c1b2e`; the d
 payload validation pass. It is not installed yet and supersedes build 65 as the next install.
 The accepted-build ledger prevents reuse of `0.9.30+63`.
 
+Build `0.9.34`/`67` (commit `b7414f03e30bdde0974b0f664b9ec9608663abb5`): Linux test run
+`36942710724` and personal iPhone workflow run `36943287892` passed. Artifact
+`whoop-personal-b7414f03e30b-unsigned.ipa`, SHA-256
+`bdb90ee8bf0bdfb363ff1d2c92bb7a8432807b4112c4fd45af5c102eccbdbcae`, matches its checksum file and passes
+`tool/personal_ios.py validate`. It is the one candidate in
+`../final-ipas/whoop/backup/WHOOP-0.9.34-build67-accepted`, promoted after Akshat reported it working. Build 66 was never promoted and is
+no longer cached. Akshat installed it over build 66 with Sideloadly 0.70.1. WHOOP installs can sit at "Installing 88%" (43 minutes when left alone). The cause is not established. What is observed on build 67: it happens in both automatic and exact bundle-ID mode, with the phone unlocked, and even when the app was swiped away beforehand; opening WHOOP and swiping it away released the stuck install at once, twice. `guides/IOS_SIDELOAD.md` owns the procedure. Sideloadly's record
+shows 0.9.34 at `com.akshat.personal.whoop.5564K8D4SV` in exact mode with a completed
+automatic-refresh registration and no error. Its device pass is open.
+
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall
-was isolated to Sideloadly v0.60's **Use automatic bundle ID** transformation. For WHOOP refresh or
-upgrade, turn that option off and enter the exact installed final ID
+was first attributed to Sideloadly v0.60's **Use automatic bundle ID** transformation; build 67
+stalled in both modes, so the mode is not the cause (see `guides/IOS_SIDELOAD.md`). Both modes give
+the same final ID and both have completed. The older exact-ID procedure was: turn that option off and enter the exact installed final ID
 `com.akshat.personal.whoop.5564K8D4SV`; keep the separate automatic-refresh control enabled. That
 production overwrite reached 100%, advanced the signing time, and preserved data and pairing. Do not
 substitute the base ID `com.akshat.personal.whoop` in this path. A controlled forced-due test then

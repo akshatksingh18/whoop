@@ -28,7 +28,6 @@ import '../../models/metric.dart' show whyFromNote;
 import '../screens/home_screen.dart' show repoOf, monthName;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
-import 'catalogue.dart' show zonesWhy;
 import 'zones.dart' show ZonesDetail;
 
 /// Below this the day is not comparable to a full one and the screen says so.
@@ -216,14 +215,74 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
         ] else ...[
+          ..._hero(p, d),
           ..._trace(p, l, d),
           ..._zones(p, l, d),
-          Section(l?.dayStrainInputsSection ?? 'What this is made of',
-              _inputs(p, l, d)),
+          const SizedBox(height: S.x4),
+          _how(p, l, d),
         ],
       ],
       sub: sub,
     );
+  }
+
+  bool _showHow = false;
+
+  /// WHOOP-style effort words for the 0–21 scale.
+  static String _band(double s) => s >= 18
+      ? 'All out'
+      : s >= 14
+          ? 'High'
+          : s >= 10
+              ? 'Moderate'
+              : 'Light';
+
+  // ── the number first: big, coloured, with a bar out of 21 ─────────────────
+  List<Widget> _hero(P p, DayStrainData d) {
+    final s = d.strain;
+    if (s == null) return const [];
+    return [
+      Surface(
+        pad: const EdgeInsets.all(S.x5),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic, children: [
+              Text(s.toStringAsFixed(1),
+                  style: F.n48.copyWith(color: p.on(C.strain))),
+              const SizedBox(width: S.x2),
+              Text(_band(s), style: F.head.copyWith(color: p.ink)),
+            ]),
+          ),
+          const SizedBox(height: S.x3),
+          ClipRRect(
+            borderRadius: R.rPill,
+            child: SizedBox(
+              height: 8,
+              child: Stack(children: [
+                Positioned.fill(child: ColoredBox(color: p.track)),
+                FractionallySizedBox(
+                  widthFactor: (s / 21).clamp(0.0, 1.0),
+                  child: ColoredBox(
+                      color: p.on(C.strain), child: const SizedBox.expand()),
+                ),
+              ]),
+            ),
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+              [
+                'of 21',
+                if (d.peakHr != null) 'peak ${d.peakHr} bpm',
+                if (d.wornMin != null) 'worn ${d.wornMin! ~/ 60}h ${d.wornMin! % 60}m',
+              ].join(' · '),
+              style: F.cap.copyWith(color: p.ink3)),
+        ]),
+      ),
+      const SizedBox(height: S.x3),
+    ];
   }
 
   // ── the curve, and only then the number ────────────────────────────────────
@@ -273,35 +332,19 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       Surface(
         child: Column(children: [
           ChartFrame(
-            title: l?.dayStrainChartTitle ?? 'STRAIN THROUGH THE DAY',
+            title: 'Through the day',
             unit: '0–21',
             height: 170,
             yAxis: axis,
             xLabels: const ['00:00', '12:00', '24:00'],
             series: d.curve,
-            footnote: l?.dayStrainChartFootnote(drawn) ??
-                'Effort banked above your usual waking pace — it can ease '
-                    'later in the day if intensity drops back toward that '
-                    'pace, even though the STEEP parts already happened. '
-                    'Built from $drawn recorded waking minutes.',
+            footnote: 'From $drawn recorded minutes.',
             child: CustomPaint(
               size: Size.infinite,
-              painter: LineChart(d.curve, p.on(C.purple),
+              painter: LineChart(d.curve, p.on(C.strain),
                   axis: axis, t: animate(context, 1)),
             ),
           ),
-          if (d.strain != null || d.peakHr != null || d.wornMin != null) ...[
-            const SizedBox(height: S.x4),
-            InlineMetrics([
-              if (d.strain != null)
-                (l?.dayStrainTitle ?? 'Day strain', d.strain!.toStringAsFixed(1),
-                    C.purple),
-              if (d.peakHr != null)
-                (l?.dayStrainPeakHr ?? 'Peak HR', '${d.peakHr} bpm', C.red),
-              if (d.wornMin != null)
-                (l?.dayStrainWorn ?? 'Worn', '${d.wornMin} min', C.teal),
-            ]),
-          ],
         ]),
       ),
       if (d.coveragePct != null && d.coveragePct! < _lowCoveragePct)
@@ -330,26 +373,39 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       Section(
         l?.dayStrainTimeInZonesSection ?? 'Time in zones',
         Surface(
-          child: ChartFrame(
-            title: l?.dayStrainZonesChartTitle ?? 'TIME IN ZONES',
-            unit: 'minutes',
-            height: 10,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${z[i]}m', ZoneBar.cols(p)[i]),
+          child: Column(children: [
+            for (var i = 4; i >= 0; i--) ...[
+              if (i < 4) const SizedBox(height: S.x3),
+              Row(children: [
+                SizedBox(
+                    width: 28,
+                    child: Text('Z${i + 1}',
+                        style: F.cap.copyWith(color: p.ink2))),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: R.rPill,
+                    child: SizedBox(
+                      height: 10,
+                      child: Stack(children: [
+                        Positioned.fill(child: ColoredBox(color: p.track)),
+                        FractionallySizedBox(
+                          widthFactor: (z[i] / total).clamp(0.0, 1.0),
+                          child: ColoredBox(
+                              color: ZoneBar.cols(p)[i],
+                              child: const SizedBox.expand()),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                    width: 56,
+                    child: Text('${z[i]} min',
+                        textAlign: TextAlign.right,
+                        style: F.cap.copyWith(color: p.ink))),
+              ]),
             ],
-            // TS-03/TS-04 — the edges, and where THIS day's came from. Stated
-            // per day, not as a standing hedge: the same screen tomorrow can be
-            // banded on a measured ceiling, and a footnote that still said
-            // "estimated from your age" would then be false. The 28-day
-            // distribution is NOT here — it lives one tap away and is gated on
-            // the same anchors (TS-05).
-            footnote: zonesWhy(d.zoneSource, d.zoneMaxHr, l),
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar([for (final v in z) v / total], p),
-            ),
-          ),
+          ]),
         ),
         // Progressive disclosure: this day screen gains a LINK, not a row. The
         // ceiling, the edges in bpm and the 28-day distribution are all one tap
@@ -362,6 +418,24 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   }
 
   // ── the inputs, named ──────────────────────────────────────────────────────
+  /// The method, folded away until asked for.
+  Widget _how(P p, AppLocalizations? l, DayStrainData d) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Pressable(
+        onTap: () => setState(() => _showHow = !_showHow),
+        semanticLabel: 'How it is worked out',
+        child: Row(children: [
+          Expanded(
+              child: Text('How it\'s worked out',
+                  style: F.cap.copyWith(color: p.ink2))),
+          Icon(_showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+              size: 16, color: p.ink3),
+        ]),
+      ),
+      if (_showHow) ...[const SizedBox(height: S.x2), _inputs(p, l, d)],
+    ]);
+  }
+
   Widget _inputs(P p, AppLocalizations? l, DayStrainData d) {
     final max = d.maxHrUsed;
     return Surface(

@@ -6,6 +6,8 @@
 //   · Protein, carbs, fat and fibre against your own targets.
 //   · Breakfast, lunch, dinner and snacks, each with its own Add — from saved
 //     meals, from your foods by weight, or quick add / barcode.
+//   · Maintenance: what the day cost as a floor (BMR + steps + 10% of the
+//     food logged), shown beside the food, never changing the goal.
 //   · History: every day of the last month against the goal.
 //   · Foods: the foods and saved meals you log from.
 
@@ -15,11 +17,12 @@ import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
 import '../../data/day_label.dart';
+import '../../compute/profile.dart' show Profile, maintenance;
 import '../../data/nutrition_store.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'food_picker.dart';
-import 'home_screen.dart' show pointsOf, prettyDay;
+import 'home_screen.dart' show metricOf, pointsOf, prettyDay, repoOf, thousands;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
 
@@ -52,6 +55,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   NutritionWindow? _month;
   List<Map<String, Object?>> _foods = const [];
   List<MealTemplate> _meals = const [];
+
+  /// Steps per day for the month, for each day's maintenance figure.
+  Map<String, num> _steps = const {};
   bool _loading = true;
 
   /// Read on every use, never captured once: the shell keeps this tab alive,
@@ -73,11 +79,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final month = await NutritionDb.window(db, days: 31);
     final foods = await MyFoods.all(db);
     final meals = await MyFoods.meals(db);
+    final steps = mounted ? await _monthSteps(context) : const <String, num>{};
     if (!stillNewest(#nutrition, t)) return;
     setState(() {
       _month = month;
       _foods = foods;
       _meals = meals;
+      _steps = steps;
       _loading = false;
     });
     // Counted when the read has LANDED, so a test waiting on it also waits
@@ -150,6 +158,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             _HistoryRow(
               day: d,
               goal: goal,
+              maintenance: maintenance(Profile.fromMap(profile),
+                      steps: _steps[d.date], eatenKcal: d.kcal.value ?? 0)
+                  ?.total,
               onTap: () async {
                 await Navigator.of(c).push(MaterialPageRoute<void>(
                   builder: (_) => detailScaffold(context, prettyDay(d.date), [
@@ -299,6 +310,7 @@ class NutritionDayView extends StatefulWidget {
 
 class _NutritionDayViewState extends State<NutritionDayView> {
   NutritionDay? _day;
+  num? _steps;
 
   @override
   void initState() {
@@ -315,9 +327,12 @@ class _NutritionDayViewState extends State<NutritionDayView> {
   Future<void> _load() async {
     final db = await LocalDb.instance;
     final es = await NutritionDb.entriesForDay(db, widget.date);
+    final steps = mounted ? await stepsOn(context, widget.date) : null;
     if (mounted) {
-      setState(() =>
-          _day = rollupDay(widget.date, es, today: todayLabel()));
+      setState(() {
+        _day = rollupDay(widget.date, es, today: todayLabel());
+        _steps = steps;
+      });
     }
   }
 
@@ -371,6 +386,12 @@ class _NutritionDayViewState extends State<NutritionDayView> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       CalorieCard(
           eaten: d.kcal.value, goal: _targetOf(profile, 'kcal_target')),
+      const SizedBox(height: S.x3),
+      MaintenanceCard(
+          profile: Profile.fromMap(profile),
+          steps: _steps,
+          eaten: d.kcal.value ?? 0,
+          today: widget.date == todayLabel()),
       const SizedBox(height: S.x3),
       MacroCard(day: d, profile: profile),
       for (final m in kMeals)
@@ -519,10 +540,11 @@ class MealSection extends StatelessWidget {
 }
 
 class _HistoryRow extends StatelessWidget {
-  const _HistoryRow({required this.day, required this.goal, this.onTap});
+  const _HistoryRow(
+      {required this.day, required this.goal, this.maintenance, this.onTap});
 
   final NutritionDay day;
-  final double? goal;
+  final double? goal, maintenance;
   final VoidCallback? onTap;
 
   @override
@@ -548,9 +570,15 @@ class _HistoryRow extends StatelessWidget {
                         : p.ink,
                     fontWeight: FontWeight.w600)),
           ]),
-          if (protein != null)
-            Text('Protein ${protein.round()} g',
-                style: F.cap.copyWith(color: p.ink3)),
+          Text(
+              [
+                if (protein != null) 'Protein ${protein.round()} g',
+                if (maintenance != null && kcal != null)
+                  'Maintenance ${thousands(maintenance)} · '
+                      '${thousands((kcal - maintenance!).abs())} '
+                      '${kcal > maintenance! ? 'over' : 'under'}',
+              ].join(' · '),
+              style: F.cap.copyWith(color: p.ink3)),
           if (g != null && g > 0 && kcal != null) ...[
             const SizedBox(height: S.x1),
             ProgressCard('', '', '', (kcal / g).clamp(0.0, 1.0).toDouble(),
@@ -574,16 +602,6 @@ Future<bool> editNutritionGoals(BuildContext c) async {
       t.$1: TextEditingController(
           text: _targetOf(profile, t.$1)?.round().toString() ?? ''),
   };
-  double? burn;
-  var burnDays = 0;
-  try {
-    final pts = pointsOf(await app.repo?.getChart('calories_total'));
-    final recent = pts.length > 14 ? pts.sublist(pts.length - 14) : pts;
-    if (recent.isNotEmpty) {
-      burnDays = recent.length;
-      burn = recent.map((e) => e.v).reduce((a, b) => a + b) / recent.length;
-    }
-  } catch (_) {}
   if (!c.mounted) return false;
   final saved = await showModalBottomSheet<bool>(
     context: c,
@@ -605,15 +623,9 @@ Future<bool> editNutritionGoals(BuildContext c) async {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Daily targets', style: F.head.copyWith(color: P.of(s).ink)),
-            if (burn != null) ...[
-              const SizedBox(height: S.x2),
-              Text(
-                'For reference: the band estimated your total daily burn at '
-                'about ${burn.round()} kcal (average of $burnDays days). Your '
-                'calorie goal stays exactly what you type.',
-                style: F.cap.copyWith(color: P.of(s).ink3),
-              ),
-            ],
+            const SizedBox(height: S.x2),
+            Text('Set once. Your calorie goal stays exactly what you type.',
+                style: F.cap.copyWith(color: P.of(s).ink3)),
             const SizedBox(height: S.x4),
             for (final t in kNutritionTargets) ...[
               OsTextField(
@@ -646,4 +658,96 @@ Future<bool> editNutritionGoals(BuildContext c) async {
   }
   await app.updateProfile({for (final e in typed.entries) e.key: e.value.value});
   return true;
+}
+
+// ══════════════════ MAINTENANCE ══════════════════
+
+/// Steps for [date]: today's live count, or the stored day's.
+Future<num?> stepsOn(BuildContext c, String date) async {
+  final repo = repoOf(c);
+  if (repo == null) return null;
+  try {
+    if (date == todayLabel()) {
+      final daily = (await repo.getToday())['daily'];
+      return metricOf(daily is Map ? daily['steps'] : null).value;
+    }
+    for (final p in pointsOf(await repo.getChart('steps'))) {
+      if (dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)) == date) {
+        return p.v;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// Steps per day over the stored history, plus today's live count.
+Future<Map<String, num>> _monthSteps(BuildContext c) async {
+  final repo = repoOf(c);
+  if (repo == null) return const {};
+  final out = <String, num>{};
+  try {
+    for (final p in pointsOf(await repo.getChart('steps'))) {
+      out[dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000))] = p.v;
+    }
+    final daily = (await repo.getToday())['daily'];
+    final today = metricOf(daily is Map ? daily['steps'] : null).value;
+    if (today != null) out[todayLabel()] = today;
+  } catch (_) {}
+  return out;
+}
+
+/// What the day cost, as a floor: resting energy, plus the steps walked,
+/// plus 10% of the food logged (digesting it). Shown beside the food and
+/// never changing the calorie goal.
+class MaintenanceCard extends StatelessWidget {
+  const MaintenanceCard(
+      {super.key,
+      required this.profile,
+      required this.steps,
+      required this.eaten,
+      this.today = false});
+
+  final Profile profile;
+  final num? steps;
+  final double eaten;
+  final bool today;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final m = maintenance(profile, steps: steps, eatenKcal: eaten);
+    if (m == null) {
+      return const StatusCard('Maintenance needs your profile',
+          'Add your age, height and weight in Settings → Profile.',
+          icon: LucideIcons.flame);
+    }
+    final diff = eaten - m.total;
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(today ? 'Maintenance so far' : 'Maintenance',
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        const SizedBox(height: S.x2),
+        Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
+          Text(thousands(m.total), style: F.n34.copyWith(color: p.on(C.steps))),
+          Padding(
+            padding: const EdgeInsets.only(bottom: S.x1),
+            child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+          ),
+        ]),
+        const SizedBox(height: S.x3),
+        InlineMetrics([
+          ('RESTING', thousands(m.bmr), C.steps),
+          ('STEPS', thousands(m.steps), C.green),
+          ('FOOD', thousands(m.food), C.domFood),
+        ]),
+        if (eaten > 0) ...[
+          const SizedBox(height: S.x3),
+          Text(
+              'Eaten ${thousands(eaten)} · ${thousands(diff.abs())} '
+              '${diff > 0 ? 'over' : 'under'} maintenance',
+              style: F.cap.copyWith(color: p.ink2)),
+        ],
+      ]),
+    );
+  }
 }

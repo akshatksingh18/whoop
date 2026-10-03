@@ -21,8 +21,12 @@
 > `com.akshat.personal.whoop.5564K8D4SV` preserves data and pairing while advancing signing. A
 > controlled forced-due unattended Wi-Fi daemon cycle also passes; the next naturally elapsed cycle
 > and remaining GPS/background checks remain open — see `CLAUDE.md`.
-> Source `0.9.35`/`68` adds maintenance calories, a dark-only palette, a Strava-style run screen
-> with Apple Maps, running trends, live heart rate on Today and faster refresh (`CLAUDE.md`).
+> Source `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
+> maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger
+> cursors and pull to refresh (`CLAUDE.md`, `todo.md`).
+> Candidate `0.9.35`/`68` is installed over build 67; its device pass is open. It adds maintenance
+> calories, a dark-only palette, a Strava-style run screen with Apple Maps, running trends, live
+> heart rate on Today and faster refresh.
 > Build `0.9.34`/`67` is installed and accepted. It redesigns the app as four single-page tabs,
 > Today · Trends · Food · Train; see `metrics-map.md`.
 > Candidate `0.9.33`/`66` is now installed over build 65; its device pass is open. It removes Nerd stats, the Wellness tab and

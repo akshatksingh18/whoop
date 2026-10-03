@@ -12,7 +12,11 @@ import '../../build_profile.dart';
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
-import '../../gps/run_analysis.dart' show elevationGain, kBestEffortDistances, riegel;
+import '../../compute/streak.dart';
+import '../../data/day_label.dart' show dayLabelOf;
+import '../../gps/motion_window.dart';
+import '../../gps/run_analysis.dart'
+    show elevationGain, kBestEffortDistances, motionMix, riegel, runMix;
 import '../../gps/run_history.dart';
 import '../../health/health_import_state.dart';
 import '../../health/auto_workout_import.dart';
@@ -30,7 +34,8 @@ import '../charts.dart';
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
-import 'home_screen.dart' show calendarDaysBetween, pad;
+import 'home_screen.dart' show calendarDaysBetween, pad, pullToRefresh;
+import 'metric_detail.dart' show dayNavLabel;
 import 'log_workout.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -42,6 +47,10 @@ class WorkoutScreen extends StatefulWidget {
 
 class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   Future<_WorkoutData>? _load;
+
+  /// The day under the finger on the 7-day strain bars, and the week under it
+  /// on distance per week. Null until a finger lands.
+  int? _strainPick, _weekPick;
 
   @override
   void didChangeDependencies() {
@@ -64,10 +73,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       future: _load,
       builder: (c, snap) {
         final d = snap.data ?? const _WorkoutData.empty();
-        return ListView(padding: pad, children: [
-          const ScreenTitle('Train'),
-          ..._page(c, d),
-        ]);
+        return RefreshIndicator(
+          onRefresh: () => pullToRefresh(c, () async {
+            runsChanged();
+            reload();
+            await _load;
+          }),
+          child: ListView(padding: pad, children: [
+            const ScreenTitle('Train'),
+            ..._page(c, d),
+          ]),
+        );
       },
     );
   }
@@ -131,18 +147,26 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return [
       Row(children: [
         Expanded(
-            child: _QuickTile(LucideIcons.footprints, C.green, 'Run',
+            child: _QuickTile(LucideIcons.footprints, C.run, 'Run',
                 () => start(act('Running')))),
-        const SizedBox(width: S.x3),
+        const SizedBox(width: S.x2),
+        Expanded(
+            child: _QuickTile(LucideIcons.personStanding, C.steps, 'Walk',
+                () => start(act('Walking')))),
+        const SizedBox(width: S.x2),
         Expanded(
             child: _QuickTile(LucideIcons.dumbbell, C.purple, 'Lift',
                 () => start(act('Weight training')))),
-        const SizedBox(width: S.x3),
+        const SizedBox(width: S.x2),
         Expanded(
             child: _QuickTile(LucideIcons.ellipsis, C.n500, 'Other',
                 () => _openPicker(c, d))),
       ]),
       const SizedBox(height: S.x3),
+      if (d.streak != null) ...[
+        _streakCard(c, p, d.streak!),
+        const SizedBox(height: S.x3),
+      ],
       ..._suggestionCards(c, d),
       if (d.strain7.any((v) => v != null)) _strainWeek(c, p, d),
       if (d.runs.isNotEmpty) _running(c, p, d.runs),
@@ -211,6 +235,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       if (best != null) prs.add((label, best.$1, best.$2));
     }
     final axis = AxisSpec.of([for (final v in weeks) ?v], floor: 0);
+    String weekSays(int i) {
+      final from = DateTime(monday.year, monday.month, monday.day - 7 * (7 - i));
+      final km = weeks[i];
+      return '${i == 7 ? 'This week' : 'Week of ${from.day}/${from.month}'} · '
+          '${km == null ? 'no runs' : '${km.toStringAsFixed(1)} km'}';
+    }
+
+    final wk = _weekPick;
     return Section(
       'Running',
       Surface(
@@ -223,12 +255,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               yAxis: axis,
               xLabels: const ['8 weeks ago', 'This week'],
               series: weeks,
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: Bars(weeks, p.on(C.run),
-                    highlight: weeks.last == null ? -1 : 7,
-                    axis: axis,
-                    t: animate(context, 1)),
+              readout: wk == null ? null : weekSays(wk),
+              child: Scrubber(
+                value: wk == null ? null : (wk + .5) / 8,
+                step: 1 / 8,
+                label: 'Distance per week',
+                describe: (v) => weekSays((v * 8).floor().clamp(0, 7)),
+                onChanged: (v) =>
+                    setState(() => _weekPick = (v * 8).floor().clamp(0, 7)),
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: Bars(weeks, p.on(C.run),
+                      highlight: weeks.last == null ? -1 : 7,
+                      cursor: wk,
+                      axis: axis,
+                      t: animate(context, 1)),
+                ),
               ),
             ),
           if (p5 != null) ...[
@@ -256,32 +298,106 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     );
   }
 
-  /// The day's strain for each of the last seven days. Tap for today's own
-  /// strain through the day.
+  /// The day's strain for each of the last seven days. Drag across to read
+  /// each day; a tap opens the day under the finger (today until one is
+  /// picked), with arrows to step through the others.
   Widget _strainWeek(BuildContext c, P p, _WorkoutData d) {
     final end = d.weekEnd ?? DateTime.now();
+    DateTime dayAt(int i) => DateTime(end.year, end.month, end.day - (6 - i));
     final axis = AxisSpec.of([for (final v in d.strain7) ?v], floor: 0);
+    String says(int i) {
+      final v = d.strain7[i];
+      return '${dayNavLabel(dayLabelOf(dayAt(i)))} · '
+          '${v == null ? 'no strain' : v.toStringAsFixed(1)}';
+    }
+
+    final pick = _strainPick;
     return Surface(
-      onTap: () => _push(c, const DayStrainDetail()),
+      onTap: () => _push(
+          c, DayStrainDetail(day: pick == null ? null : dayLabelOf(dayAt(pick)))),
+      semanticLabel: 'Strain, last 7 days. Opens the day.',
       child: ChartFrame(
         title: 'Strain, last 7 days',
         unit: '0–21',
         height: 88,
         yAxis: axis,
-        xLabels: [
-          for (var i = 6; i >= 0; i--)
-            _weekdayLetter(c, end.subtract(Motion.tick * 86400 * i)),
-        ],
+        readout: pick == null ? null : says(pick),
+        xLabels: [for (var i = 0; i < 7; i++) _weekdayLetter(c, dayAt(i))],
         series: d.strain7,
-        child: CustomPaint(
-          size: Size.infinite,
-          // Today is the last slot, always — not "the newest value".
-          painter: Bars(d.strain7, p.on(C.strain),
-              highlight: d.strain7.last == null ? -1 : 6,
-              axis: axis,
-              t: animate(context, 1)),
+        child: Scrubber(
+          value: pick == null ? null : (pick + .5) / 7,
+          step: 1 / 7,
+          label: 'Strain, last 7 days',
+          describe: (v) => says((v * 7).floor().clamp(0, 6)),
+          onChanged: (v) =>
+              setState(() => _strainPick = (v * 7).floor().clamp(0, 6)),
+          child: CustomPaint(
+            size: Size.infinite,
+            // Today is the last slot, always — not "the newest value".
+            painter: Bars(d.strain7, p.on(C.strain),
+                highlight: d.strain7.last == null ? -1 : 6,
+                cursor: pick,
+                axis: axis,
+                t: animate(context, 1)),
+          ),
         ),
       ),
+    );
+  }
+
+  /// Days in a row with at least ten minutes of running or walking.
+  Widget _streakCard(BuildContext c, P p, MoveStreak s) {
+    final now = DateTime.now();
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text('${s.current}', style: F.n34.copyWith(color: p.ink)),
+          const SizedBox(width: S.x2),
+          Padding(
+            padding: const EdgeInsets.only(bottom: S.x1),
+            child: Text('day streak', style: F.cap.copyWith(color: p.ink2)),
+          ),
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.only(bottom: S.x1),
+            child: Text('Longest ${s.longest}',
+                style: F.cap.copyWith(color: p.ink3)),
+          ),
+        ]),
+        const SizedBox(height: S.x3),
+        Row(children: [
+          for (var i = 0; i < 7; i++)
+            Expanded(
+              child: Column(children: [
+                Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: switch (s.last7[i]) {
+                      MoveDay.run => p.on(C.run),
+                      MoveDay.walk => p.on(C.steps),
+                      MoveDay.none => p.track,
+                    },
+                  ),
+                ),
+                const SizedBox(height: S.x1),
+                Text(
+                    _weekdayLetter(
+                        c, DateTime(now.year, now.month, now.day - (6 - i))),
+                    style: F.over.copyWith(color: p.ink3)),
+              ]),
+            ),
+        ]),
+        const SizedBox(height: S.x3),
+        Text(
+            s.todayDone
+                ? 'Today counts.'
+                : s.current > 0
+                    ? '10 minutes of running or walking today keeps it going.'
+                    : '10 minutes of running or walking starts one.',
+            style: F.cap.copyWith(color: p.ink3)),
+      ]),
     );
   }
 
@@ -933,13 +1049,43 @@ Future<ActivityResult> _finishSession(
 
   // The GPS tail is flushed by stopWorkout before it returns, so the route
   // read here is the whole route.
+  runsChanged();
   try {
     final route = await app.repo?.getWorkoutRoute(id);
     if (route != null && route.hasPath) return _withRoute(draft, route);
   } catch (_) {
     // A missing map is a missing map; the session itself is already banked.
   }
-  return draft;
+  return _withMotion(draft);
+}
+
+/// Every run and walk this phone holds, for the streak. Read straight from
+/// the sessions table, because a streak can reach further back than a month.
+Future<MoveStreak?> _loadStreak() async {
+  try {
+    final now = DateTime.now();
+    final rows =
+        await LocalDb.sessionsInRange(0, now.millisecondsSinceEpoch ~/ 1000);
+    final moves = <MoveSession>[];
+    for (final r in rows) {
+      final type = r['type'] as String?;
+      final run = isRunType(type);
+      if (!run && !isWalkType(type)) continue;
+      final ts = (r['start_ts'] as num?)?.toInt();
+      if (ts == null) continue;
+      final te = (r['end_ts'] as num?)?.toInt();
+      final mins = (r['duration_min'] as num?)?.toInt() ??
+          (te == null ? 0 : (te - ts) ~/ 60);
+      moves.add((
+        start: DateTime.fromMillisecondsSinceEpoch(ts * 1000),
+        minutes: mins,
+        run: run,
+      ));
+    }
+    return moveStreak(moves, now);
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Previous and best per lift, from this user's own log. One indexed query
@@ -1002,6 +1148,7 @@ ActivityResult _withRoute(ActivityResult r, WorkoutRoute route) {
     lossM: loss,
     track: pts,
     movingSec: route.movingSec,
+    mix: runMix(pts),
     splits: [
       for (final s in route.splitsKm)
         KmSplit(s.meters / 1000, s.durationSec, avgHr: s.avgHr?.round()),
@@ -1178,11 +1325,44 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   }
   try {
     final route = await repo.getWorkoutRoute(w.id);
-    if (route != null && route.hasPath) out = _withRoute(out, route);
+    if (route != null && route.hasPath) {
+      out = _withRoute(out, route);
+    } else {
+      out = await _withMotion(out);
+    }
   } catch (_) {
     /* no route is a normal session */
   }
   return out;
+}
+
+/// A run or walk with no GPS: distance, splits and cadence from the phone's
+/// motion data, when the phone was carried. Anything else comes back as it
+/// went in.
+Future<ActivityResult> _withMotion(ActivityResult r) async {
+  final id = r.sessionId;
+  final type = r.activity.typeKey;
+  if (id == null || !(isRunType(type) || isWalkType(type))) return r;
+  try {
+    final w = await motionWindow(id, r.start, r.start.add(r.duration));
+    final m = w?.totalMeters;
+    if (w == null || m == null || m < 100) return r;
+    final hr = r.hr;
+    return r.copyWith(
+      distanceKm: m / 1000,
+      splits: [
+        for (final s in w.splits(
+            hrAtMinute: (i) => i >= 0 && i < hr.length ? hr[i] : null))
+          KmSplit(s.km, s.sec, avgHr: s.hr),
+      ],
+      movingSec: (w.activeMinutes * 60).round(),
+      mix: motionMix(steps: w.steps, meters: w.meters, chunkSec: w.chunkSec),
+      motionDistance: true,
+      cadence: w.cadence,
+    );
+  } catch (_) {
+    return r;
+  }
 }
 
 /// `strength_set` rows → the log the summary renders. `load_kg` stays null
@@ -1321,6 +1501,9 @@ class _WorkoutData {
   final double? weekLoad;
   final int? workoutsTracked;
 
+  /// The run-or-walk streak, or null when it could not be read.
+  final MoveStreak? streak;
+
   /// The activities this user actually started, most recent first, deduped.
   final List<Activity> recent;
 
@@ -1353,6 +1536,7 @@ class _WorkoutData {
     this.weekLoad,
     this.workoutsTracked,
     this.recent = const [],
+    this.streak,
     this.setHistory = const {},
     this.suggestions = const [],
     this.importedLast,
@@ -1529,6 +1713,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       weekLoad: weekLoad,
       workoutsTracked: tracked,
       recent: recent,
+      streak: await _loadStreak(),
       setHistory: history,
       suggestions: await activeSuggestions(),
       importedLast: await lastImportAt(HealthImport.workouts),

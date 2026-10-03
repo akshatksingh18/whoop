@@ -395,12 +395,19 @@ class LineChart extends CustomPainter {
   /// auto-scales, which is correct for a sparkline and nothing else.
   final AxisSpec? axis;
 
+  /// The slot under the finger: a vertical line there and a ring on the
+  /// value, drawn in [cursorInk]. Null draws no cursor.
+  final int? cursor;
+  final Color? cursorInk;
+
   LineChart(this.d, this.color,
       {bool fill = true,
       this.dots = false,
       this.t = 1,
       this.dotInk,
-      this.axis})
+      this.axis,
+      this.cursor,
+      this.cursorInk})
       : fill = fill && axis != null;
 
   @override
@@ -464,12 +471,27 @@ class LineChart extends CustomPainter {
       // dark card. It knocks out the surface it is drawn on.
       if (dotInk != null) cv.drawCircle(head, 2, Paint()..color = dotInk!);
     }
+    final k = cursor;
+    if (k != null && k >= 0 && k < d.length) {
+      final x = d.length == 1 ? 0.0 : k / (d.length - 1) * s.width;
+      final ink = cursorInk ?? color;
+      cv.drawLine(Offset(x, 0), Offset(x, s.height),
+          Paint()
+            ..color = ink.withValues(alpha: .55)
+            ..strokeWidth = 1.2);
+      final v = d[k];
+      if (v != null && v.isFinite) {
+        final c = Offset(x, y(v));
+        cv.drawCircle(c, 5.5, Paint()..color = ink);
+        cv.drawCircle(c, 3.5, Paint()..color = color);
+      }
+    }
   }
 
   @override
   bool shouldRepaint(covariant LineChart o) =>
       o.d != d || o.t != t || o.color != color || o.axis != axis ||
-      o.fill != fill;
+      o.fill != fill || o.cursor != cursor;
 }
 
 /// Discrete buckets — days of a week, minutes in a zone.
@@ -490,7 +512,12 @@ class Bars extends CustomPainter {
   // No track colour: nothing is drawn behind a bar. A missing bucket is a gap
   // in the row and a real zero gets the 2 pt floor below, which is the whole
   // absence channel.
-  Bars(this.d, this.color, {this.highlight = -1, this.t = 1, this.axis});
+  Bars(this.d, this.color,
+      {this.highlight = -1, this.t = 1, this.axis, this.cursor});
+
+  /// The bar under the finger. It takes the highlight while it is set, so the
+  /// bar being read is the one drawn solid.
+  final int? cursor;
 
   /// [maxColumns] over a series with holes: a column of nothing stays nothing.
   static List<double?> _columns(List<double?> d, int cols) {
@@ -531,7 +558,7 @@ class Bars extends CustomPainter {
     final bw = s.width / v.length;
     // An aggregated axis can no longer address the caller's index, so the
     // highlight is dropped rather than pointed at the wrong bar.
-    final hl = v.length == d.length ? highlight : -1;
+    final hl = v.length == d.length ? (cursor ?? highlight) : -1;
     for (var i = 0; i < v.length; i++) {
       final value = v[i];
       if (value == null || !value.isFinite) continue;
@@ -555,7 +582,11 @@ class Bars extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant Bars o) =>
-      o.d != d || o.t != t || o.highlight != highlight || o.axis != axis;
+      o.d != d ||
+      o.t != t ||
+      o.highlight != highlight ||
+      o.axis != axis ||
+      o.cursor != cursor;
 }
 
 /// The score dial. One value, one arc.
@@ -728,11 +759,13 @@ class Hypnogram extends CustomPainter {
 
   Hypnogram(this.stages, this.p, {this.t = 1});
 
+  /// Deep takes the sleep pillar's violet; light the paler sky; REM teal;
+  /// awake orange, the one warm lane, because it is the interruption.
   static const pigment = <SleepStage, Color>{
     SleepStage.awake: C.orange,
     SleepStage.rem: C.teal,
     SleepStage.light: C.sky,
-    SleepStage.deep: C.blue,
+    SleepStage.deep: C.sleep,
   };
 
   /// The lane colours as drawn. Four lanes at four different heights, so hue is

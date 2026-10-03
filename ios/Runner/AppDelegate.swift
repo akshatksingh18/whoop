@@ -265,6 +265,59 @@ enum PedometerBridge {
           }
         }
 
+      case "motionWindow":
+        // Steps and distance for one session window in fixed chunks (a minute by
+        // default, at most 720 chunks), for a run's distance, cadence and splits
+        // when it was not recorded with GPS, and for the exact steps a run took.
+        // Same contract as stepsInInterval: nil = failed or refused, notCovered =
+        // older than the phone keeps. A chunk with no distance answers -1.
+        let args = call.arguments as? [String: Any] ?? [:]
+        guard let fromMs = args["fromMs"] as? Int, let toMs = args["toMs"] as? Int else {
+          result(nil)
+          return
+        }
+        guard CMPedometer.isStepCountingAvailable(), !denied else {
+          result(nil)
+          return
+        }
+        let from = Date(timeIntervalSince1970: Double(fromMs) / 1000)
+        let to = Date(timeIntervalSince1970: Double(toMs) / 1000)
+        guard to > from else {
+          result(nil)
+          return
+        }
+        guard from >= Date().addingTimeInterval(-cacheWindow) else {
+          result(notCovered)
+          return
+        }
+        var chunk = Double(max(args["chunkSec"] as? Int ?? 60, 60))
+        let span = to.timeIntervalSince(from)
+        if span / chunk > 720 { chunk = (span / 720).rounded(.up) }
+        DispatchQueue.global(qos: .userInitiated).async {
+          var steps = [Int]()
+          var meters = [Double]()
+          var failed = false
+          var t = from
+          while t < to && !failed {
+            let e = min(t.addingTimeInterval(chunk), to)
+            let done = DispatchSemaphore(value: 0)
+            pedometer.queryPedometerData(from: t, to: e) { data, error in
+              if let data = data, error == nil {
+                steps.append(data.numberOfSteps.intValue)
+                meters.append(data.distance?.doubleValue ?? -1)
+              } else {
+                failed = true
+              }
+              done.signal()
+            }
+            done.wait()
+            t = e
+          }
+          DispatchQueue.main.async {
+            result(failed ? nil : ["chunkSec": Int(chunk), "steps": steps, "meters": meters])
+          }
+        }
+
       default:
         result(FlutterMethodNotImplemented)
       }

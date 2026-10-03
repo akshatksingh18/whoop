@@ -50,6 +50,23 @@ const _rows = <_Row>[
   _Row('wear', 'Wear time', 'min', LucideIcons.watch, C.indigo),
 ];
 
+/// True when [resp] has a value on at least half of the nights in [sleep]
+/// over the 30 days ending [now], and on at least one.
+///
+/// Breathing rate comes from beat-to-beat timing overnight and is withheld on
+/// any night its 5-minute windows disagree, so on some wrists it is missing
+/// most nights. A row that mostly says nothing is noise; readiness still uses
+/// the nights it does measure.
+bool breathingMeasuredOften(
+    List<ChartPoint> sleep, List<ChartPoint> resp, DateTime now) {
+  final since = DateTime(now.year, now.month, now.day - 29)
+          .millisecondsSinceEpoch ~/
+      1000;
+  final nights = sleep.where((p) => p.t >= since).length;
+  final measured = resp.where((p) => p.t >= since).length;
+  return measured > 0 && measured * 2 >= nights;
+}
+
 /// The ranges offered, in days.
 const _windows = [7, 30, 90];
 const _windowLabels = ['Week', 'Month', '3 months'];
@@ -80,6 +97,11 @@ class HealthData {
   });
 
   List<ChartPoint> points(String key) => charts[key] ?? const [];
+
+  /// Whether the breathing-rate row earns its place: shown only when the last
+  /// 30 days measured it on at least half of the nights slept.
+  bool get breathingShown =>
+      breathingMeasuredOften(points('sleep'), points('resp_rate'), DateTime.now());
 
   static Future<HealthData> load(LocalRepository repo) async {
     final today = await repo.getToday();
@@ -185,8 +207,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final l = AppLocalizations.of(c);
     final d = _d ?? const HealthData();
     final win = _windows[_range];
+    final rows = [
+      for (final r in _rows)
+        if (r.key != 'resp_rate' || d.breathingShown) r,
+    ];
 
-    return ListView(padding: pad, children: [
+    return RefreshIndicator(
+        onRefresh: () => pullToRefresh(c, _load),
+        child: ListView(padding: pad, children: [
       const ScreenTitle('Trends'),
       SubTabs(_windowLabels, _range, (i) => setState(() => _range = i),
           color: C.blue),
@@ -211,9 +239,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         Surface(
           pad: const EdgeInsets.symmetric(horizontal: S.x4),
           child: Column(children: [
-            for (var i = 0; i < _rows.length; i++) ...[
+            for (var i = 0; i < rows.length; i++) ...[
               if (i > 0) Divider(color: p.line, height: 1),
-              _trendRow(c, p, _rows[i], d.points(_rows[i].key), win),
+              _trendRow(c, p, rows[i], d.points(rows[i].key), win),
             ],
           ]),
         ),
@@ -235,7 +263,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             ),
           ),
       ],
-    ]);
+    ]));
   }
 
   /// A value at the precision its unit carries. Skin temperature is a signed

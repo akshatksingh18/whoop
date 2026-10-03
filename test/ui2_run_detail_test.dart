@@ -4,8 +4,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/gps/route_models.dart';
+import 'package:openstrap_edge/gps/run_analysis.dart' show runMix;
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
+import 'package:openstrap_edge/ui2/activity/run_detail.dart' show RunVerdictCard;
 import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 
@@ -39,6 +42,7 @@ ActivityResult demoRun() {
     distanceKm: 5.06,
     movingSec: 2100,
     track: pts,
+    mix: runMix(pts),
     route: [
       for (final p in pts)
         Offset((p.lng + 95.6) * 400 + 0.2, 0.8 - (p.lat - 29.9) * 400),
@@ -69,11 +73,26 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 1400 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
-      await t.pumpWidget(frame(ActivitySummary(demoRun()), scale));
+      await t.pumpWidget(frame(
+          ActivitySummary(demoRun(),
+              profile: const Profile(
+                  ageYears: 23, weightKg: 80.5, heightCm: 186.69, sex: 'm')),
+          scale));
       await t.pumpAndSettle();
       expect(find.text('Moving time'), findsOneWidget);
+      // Heart rate (~427 kcal) and distance (~290 kcal) are more than 50
+      // apart, so both are shown.
+      expect(find.text('From distance'), findsOneWidget);
+      expect(find.text('From heart rate'), findsOneWidget);
+      // Below the calorie card; at 2x text it starts off screen.
+      final page = find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down);
+      await t.scrollUntilVisible(find.byType(RunVerdictCard), 200,
+          scrollable: page.first);
       expect(find.textContaining('Mostly').evaluate().isNotEmpty ||
           find.textContaining('pacing').evaluate().isNotEmpty, isTrue);
+      await t.scrollUntilVisible(find.text('Moving time'), -400,
+          scrollable: page.first);
       await t.tap(find.text('Splits'));
       await t.pumpAndSettle();
       expect(find.text('KM'), findsOneWidget);

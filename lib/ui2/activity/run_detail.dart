@@ -9,6 +9,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../compute/profile.dart'
+    show Profile, keytelActiveKcal, runFloorKcal;
 import '../../gps/map_snapshot.dart';
 import '../../gps/route_math.dart' show kMetersPerKm;
 import '../../gps/run_analysis.dart';
@@ -291,7 +293,6 @@ class RunStatsGrid extends StatelessWidget {
       if (r.maxHr != null) ('Max HR', '${r.maxHr} bpm'),
       if (r.stepsCounted != null) ('Steps', grouped(r.stepsCounted!)),
       if (r.gainM != null) ('Elevation gain', '${r.gainM!.round()} m'),
-      if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
       if (r.strain != null) ('Strain', r.strain!.toStringAsFixed(1)),
     ];
     final cols = bigText(c) ? 2 : 3;
@@ -315,6 +316,127 @@ class RunStatsGrid extends StatelessWidget {
               ),
           ]),
         ],
+      ]),
+    );
+  }
+}
+
+// ══════════════════ CALORIES ══════════════════
+
+/// The two calorie numbers for a run or walk.
+///
+/// * From distance (Method 1): the least the distance costs at the user's
+///   weight, running metres at 0.143, walk-break metres at 0.1, plus the
+///   climb. This is the one maintenance counts for a run.
+/// * From heart rate (Method 2, Keytel): what the heart rate says was burned
+///   above resting, minute by minute.
+///
+/// Within 50 kcal of each other they are one number; further apart both are
+/// shown, because the gap is itself the reading (an inefficient or hot run
+/// burns above the floor).
+({double? floor, ({double kcal, int measured, int slots})? hr}) runCalories(
+    ActivityResult r, Profile? p) {
+  final mix = r.mix;
+  final floor = mix == null
+      ? null
+      : runFloorKcal(
+          runMeters: mix.runM,
+          walkMeters: mix.walkM,
+          climbMeters: mix.climbM,
+          weightKg: p?.weightKg);
+  final hr = p == null || r.hr.isEmpty
+      ? null
+      : keytelActiveKcal(r.hr, r.duration.inSeconds / 60, p);
+  return (floor: floor, hr: hr);
+}
+
+/// How far apart the two numbers may be and still read as one.
+const double kCalorieAgree = 50;
+
+class RunCaloriesCard extends StatelessWidget {
+  const RunCaloriesCard(this.r, this.profile, {super.key});
+
+  final ActivityResult r;
+  final Profile? profile;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final cal = runCalories(r, profile);
+    final floor = cal.floor, hr = cal.hr;
+    final isRun = isRunType(r.activity.typeKey);
+    final mix = r.mix;
+    if (floor == null && hr == null) {
+      return Surface(
+        child: Row(children: [
+          Icon(LucideIcons.flame, size: 18, color: p.ink3),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Text(
+                'Calories need your age, height and weight in Settings → Profile.',
+                style: F.cap.copyWith(color: p.ink2)),
+          ),
+        ]),
+      );
+    }
+    final kg = profile?.weightKg;
+    final kgText = kg == null
+        ? ''
+        : ' at ${kg == kg.roundToDouble() ? kg.round() : kg.toStringAsFixed(1)} kg';
+    final agree = floor != null &&
+        hr != null &&
+        (hr.kcal - floor).abs() <= kCalorieAgree;
+    final hrMin = hr == null
+        ? ''
+        : '${(r.duration.inSeconds / 60 * hr.measured / hr.slots).round()} of '
+            '${(r.duration.inSeconds / 60).round()} min';
+
+    Widget row(String name, double kcal, String sub) => Padding(
+          padding: const EdgeInsets.only(top: S.x3),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: F.body.copyWith(color: p.ink)),
+                Text(sub, style: F.cap.copyWith(color: p.ink3)),
+              ]),
+            ),
+            const SizedBox(width: S.x3),
+            Text('${grouped(kcal)} kcal', style: F.n17.copyWith(color: p.ink)),
+          ]),
+        );
+
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Calories', style: F.over.copyWith(color: p.ink3)),
+        if (agree) ...[
+          const SizedBox(height: S.x1),
+          Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
+            Text(grouped(floor), style: F.n34.copyWith(color: p.ink)),
+            Padding(
+              padding: const EdgeInsets.only(bottom: S.x1),
+              child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+            ),
+          ]),
+          Text('Distance and heart rate agree within 50 kcal.',
+              style: F.cap.copyWith(color: p.ink3)),
+        ] else ...[
+          if (floor != null)
+            row('From distance', floor, 'The least this distance costs$kgText'),
+          if (hr != null) row('From heart rate', hr.kcal, 'Your heart rate over $hrMin'),
+        ],
+        if (mix != null && mix.walkM >= 50 && mix.runM >= 50) ...[
+          const SizedBox(height: S.x3),
+          Text(
+              'Running ${(mix.runM / 1000).toStringAsFixed(2)} km · walking '
+              '${(mix.walkM / 1000).toStringAsFixed(2)} km',
+              style: F.cap.copyWith(color: p.ink2)),
+        ],
+        const SizedBox(height: S.x2),
+        Text(
+            isRun
+                ? 'Maintenance counts the distance number.'
+                : 'Maintenance counts this walk in your steps.',
+            style: F.over.copyWith(color: p.ink3)),
       ]),
     );
   }

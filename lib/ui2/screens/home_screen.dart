@@ -32,7 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../compute/profile.dart' show Profile, maintenance, stepCalories;
+import '../../compute/profile.dart' show Profile, stepCalories;
+import '../../gps/run_history.dart' show RunSummary, loadRuns, runEnergyOn;
 import '../../data/db.dart' show LocalDb;
 import '../../data/nutrition_store.dart' show NutritionDb;
 import '../../data/day_label.dart' show todayLabel;
@@ -49,6 +50,7 @@ import '../ui2.dart';
 import '../profile/settings.dart' show MoreSettings;
 import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
+import 'nutrition_screen.dart' show DayUpkeep, showMaintenance;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
 
@@ -75,6 +77,33 @@ void go(BuildContext c, Widget w) => Navigator.of(c)
 LocalRepository? repoOf(BuildContext c) {
   try {
     return c.read<AppState>().repo;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The pull-down gesture on every tab: sync the band and the phone, wait for
+/// the derive, then [reload] the screen. A one-line note if the band was not
+/// connected. Without an [AppState] (a golden) it only reloads.
+Future<void> pullToRefresh(BuildContext c, Future<void> Function() reload) async {
+  AppState? app;
+  try {
+    app = c.read<AppState>();
+  } catch (_) {
+    app = null;
+  }
+  final note = await app?.pullRefresh();
+  await reload();
+  if (note != null && c.mounted) {
+    ScaffoldMessenger.maybeOf(c)
+        ?.showSnackBar(SnackBar(content: Text(note)));
+  }
+}
+
+/// The user's profile (age, height, weight, sex), or null in a golden.
+Profile? profileOf(BuildContext c) {
+  try {
+    return Profile.fromMap(c.watch<AppState>().user);
   } catch (_) {
     return null;
   }
@@ -1010,7 +1039,8 @@ class HomeData {
 
   /// Today's maintenance so far, as a floor: BMR + step calories + 10% of the
   /// food logged today. Null without age, height and weight.
-  final ({double bmr, double steps, double food, double total})? upkeep;
+  /// Today's maintenance inputs; null before the profile is read.
+  final DayUpkeep? upkeep;
 
   /// The day's 0–21 strain, read from the same `getToday` bundle the Workout
   /// tab reads. Nothing on this screen computes it.
@@ -1115,6 +1145,12 @@ class HomeData {
     } catch (_) {
       // No food read means no food term; maintenance stays the floor.
     }
+    var runs = const <RunSummary>[];
+    try {
+      runs = await loadRuns(repo);
+    } catch (_) {
+      // No runs read means no Running row; their steps stay walking steps.
+    }
 
     final daily = today['daily'];
     final sleep = today['sleep'];
@@ -1180,8 +1216,14 @@ class HomeData {
       caloriesTotal: metricOf(d('calories_total')),
       walkingKcal: stepCalories(
           metricOf(d('steps')).value, Profile.fromMap(profile).weightKg),
-      upkeep: maintenance(Profile.fromMap(profile),
-          steps: metricOf(d('steps')).value, eatenKcal: eaten),
+      upkeep: DayUpkeep(
+        Profile.fromMap(profile),
+        steps: metricOf(d('steps')).value,
+        runs: runEnergyOn(runs, todayLabel(),
+            weightKg: Profile.fromMap(profile).weightKg,
+            daySteps: metricOf(d('steps')).value),
+        eaten: eaten,
+      ),
       stepGoal: (today['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
       // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
       // 480 and must never be shown as "your sleep need".
@@ -1528,31 +1570,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
         const SizedBox(height: S.x3),
         _glance(c, d),
-
-        // ── tonight ──
-        if (d.sleepNeedMin.value != null) ...[
-          const SizedBox(height: S.x3),
-          Surface(
-            onTap: () => go(c, const SleepDetail()),
-            child: Row(children: [
-              Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Tonight', style: F.cap.copyWith(color: p.ink3)),
-                      Text(
-                          d.bedtime.value == null
-                              ? 'Sleep ${hm(d.sleepNeedMin.value)}'
-                              : 'Bed by ${clock(d.bedtime.value)}',
-                          style: F.head.copyWith(color: p.ink)),
-                    ]),
-              ),
-              if (d.bedtime.value != null)
-                Text('Need ${hm(d.sleepNeedMin.value)}',
-                    style: F.cap.copyWith(color: p.ink3)),
-            ]),
-          ),
-        ],
+        // No "Tonight · Bed by" card: Akshat sleeps on his own schedule, so a
+        // bedtime and a sleep need are noise here. Both are still computed.
       ],
     ]));
   }
@@ -1609,11 +1628,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     ];
   }
 
-  /// Pull to reload. The screen also reloads itself on `insightsRevision`, but
-  /// a derive that fails silently, an import, or anything that lands without
-  /// bumping it still leaves the user a way to ask.
-  Widget _refreshable(Widget list) =>
-      RefreshIndicator(onRefresh: _load, child: list);
+  /// Pull to refresh: syncs the band and the phone, waits for today's numbers
+  /// to be worked out again, then reloads. The spinner turns until all of it
+  /// is done.
+  Widget _refreshable(Widget list) => RefreshIndicator(
+      onRefresh: () => pullToRefresh(context, _load), child: list);
 
   /// The whole day's heart rate as one line. Tap for the minute-by-minute
   /// chart you can drag a finger across.
@@ -1699,14 +1718,17 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ),
             ),
     ));
-    // Maintenance so far: resting + steps + 10% of food logged. A floor,
-    // never including workout calories.
-    final up = d.upkeep;
-    if (up != null) {
+    // Maintenance so far: resting + steps outside runs + runs by distance +
+    // 10% of food logged. A floor: lifts and other workouts are not added.
+    final upkeep = d.upkeep;
+    final up = upkeep?.parts;
+    if (upkeep != null && up != null) {
       cards.add(SignalCard(LucideIcons.flame, C.steps, 'Maintenance',
           thousands(up.total),
           unit: 'kcal',
+          onTap: () => showMaintenance(c, upkeep, today: true),
           sub: 'Resting ${thousands(up.bmr)} · steps ${thousands(up.steps)}'
+              '${up.run > 0 ? ' · run ${thousands(up.run)}' : ''}'
               '${up.food > 0 ? ' · food ${thousands(up.food)}' : ''}'));
     }
 

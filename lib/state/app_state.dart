@@ -720,6 +720,67 @@ class AppState extends ChangeNotifier {
     _deriveScheduler.markStoredData();
   }
 
+  /// Pull down to refresh: everything at once, and only then hand back so
+  /// the spinner keeps turning until the screen has fresh numbers.
+  ///
+  /// 1. Pull the band's backlog if it is connected (or start reconnecting).
+  /// 2. Read the phone's steps.
+  /// 3. Queue today's derive and wait for it to finish.
+  ///
+  /// Capped at [pullRefreshCap]. Returns a short note for the user when
+  /// something could not be done ("Band not connected"), else null.
+  Future<String?> pullRefresh() async {
+    try {
+      return await _pullRefresh().timeout(pullRefreshCap);
+    } on TimeoutException {
+      notifyListeners();
+      return null;
+    } catch (e) {
+      _log('Pull refresh failed: $e');
+      return null;
+    }
+  }
+
+  static const Duration pullRefreshCap = Duration(seconds: 60);
+
+  Future<String?> _pullRefresh() async {
+    String? note;
+    if (engine.isConnected) {
+      try {
+        await foregroundCatchUp();
+      } catch (e) {
+        _log('Pull refresh: band pull failed: $e');
+      }
+    } else {
+      note = 'Band not connected';
+      unawaited(syncNow()); // try to reconnect; the screen does not wait on it
+    }
+    if (phoneStepsEnabled) {
+      try {
+        await syncPhoneSteps();
+      } catch (_) {
+        // Phone steps keep their last value.
+      }
+    }
+    _deriveScheduler.markStoredData();
+    // The queue write is async, so give it a beat before reading its state.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    while (_deriveScheduler.running ||
+        _deriveScheduler.pendingLight ||
+        _deriveScheduler.pendingHeavy) {
+      final snap = _deriveScheduler.snapshot();
+      // Held work (a live workout, an offload still landing) will not drain
+      // on this pull; stop waiting rather than spin to the cap.
+      if (snap['workout_active'] == true && snap['workout_hold_expired'] != true) {
+        break;
+      }
+      if (snap['background'] == true) break;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    notifyListeners();
+    return note;
+  }
+
   static const Duration foregroundRefreshEvery = Duration(minutes: 5);
   Timer? _foregroundRefresh;
 

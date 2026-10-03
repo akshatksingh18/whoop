@@ -18,11 +18,14 @@ import 'package:provider/provider.dart';
 import '../../data/db.dart';
 import '../../data/day_label.dart';
 import '../../compute/profile.dart' show Profile, maintenance;
+import '../../data/local_repository.dart';
 import '../../data/nutrition_store.dart';
+import '../../gps/run_history.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'food_picker.dart';
-import 'home_screen.dart' show metricOf, pointsOf, prettyDay, repoOf, thousands;
+import 'home_screen.dart'
+    show metricOf, pointsOf, prettyDay, pullToRefresh, repoOf, thousands;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
 
@@ -58,6 +61,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 
   /// Steps per day for the month, for each day's maintenance figure.
   Map<String, num> _steps = const {};
+  List<RunSummary> _runs = const [];
   bool _loading = true;
 
   /// Read on every use, never captured once: the shell keeps this tab alive,
@@ -80,12 +84,14 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final foods = await MyFoods.all(db);
     final meals = await MyFoods.meals(db);
     final steps = mounted ? await _monthSteps(context) : const <String, num>{};
+    final runs = mounted ? await _allRuns(repoOf(context)) : const <RunSummary>[];
     if (!stillNewest(#nutrition, t)) return;
     setState(() {
       _month = month;
       _foods = foods;
       _meals = meals;
       _steps = steps;
+      _runs = runs;
       _loading = false;
     });
     // Counted when the read has LANDED, so a test waiting on it also waits
@@ -95,7 +101,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 
   @override
   Widget build(BuildContext c) {
-    return ListView(
+    return RefreshIndicator(
+      onRefresh: () => pullToRefresh(c, () async {
+        runsChanged();
+        _dayKey++;
+        await _load();
+      }),
+      child: ListView(
       padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
       children: [
         ScreenTitle(
@@ -116,13 +128,18 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           const Center(child: CircularProgressIndicator())
         else
           switch (_tab) {
-            0 => NutritionDayView(date: _date, onChanged: _load),
+            0 => NutritionDayView(
+                key: ValueKey(_dayKey), date: _date, onChanged: _load),
             1 => _history(c),
             _ => _foodsTab(c),
           },
       ],
+    ),
     );
   }
+
+  /// Bumped by a pull so today's view reads its steps and runs again.
+  int _dayKey = 0;
 
   // ── HISTORY ──────────────────────────────────────────────────────────────
 
@@ -158,9 +175,14 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             _HistoryRow(
               day: d,
               goal: goal,
-              maintenance: maintenance(Profile.fromMap(profile),
-                      steps: _steps[d.date], eatenKcal: d.kcal.value ?? 0)
-                  ?.total,
+              maintenance: DayUpkeep(
+                Profile.fromMap(profile),
+                steps: _steps[d.date],
+                runs: runEnergyOn(_runs, d.date,
+                    weightKg: Profile.fromMap(profile).weightKg,
+                    daySteps: _steps[d.date]),
+                eaten: d.kcal.value ?? 0,
+              ).parts?.total,
               onTap: () async {
                 await Navigator.of(c).push(MaterialPageRoute<void>(
                   builder: (_) => detailScaffold(context, prettyDay(d.date), [
@@ -311,6 +333,7 @@ class NutritionDayView extends StatefulWidget {
 class _NutritionDayViewState extends State<NutritionDayView> {
   NutritionDay? _day;
   num? _steps;
+  List<RunSummary> _runs = const [];
 
   @override
   void initState() {
@@ -328,10 +351,12 @@ class _NutritionDayViewState extends State<NutritionDayView> {
     final db = await LocalDb.instance;
     final es = await NutritionDb.entriesForDay(db, widget.date);
     final steps = mounted ? await stepsOn(context, widget.date) : null;
+    final runs = mounted ? await _allRuns(repoOf(context)) : const <RunSummary>[];
     if (mounted) {
       setState(() {
         _day = rollupDay(widget.date, es, today: todayLabel());
         _steps = steps;
+        _runs = runs;
       });
     }
   }
@@ -388,9 +413,13 @@ class _NutritionDayViewState extends State<NutritionDayView> {
           eaten: d.kcal.value, goal: _targetOf(profile, 'kcal_target')),
       const SizedBox(height: S.x3),
       MaintenanceCard(
-          profile: Profile.fromMap(profile),
-          steps: _steps,
-          eaten: d.kcal.value ?? 0,
+          DayUpkeep(
+            Profile.fromMap(profile),
+            steps: _steps,
+            runs: runEnergyOn(_runs, widget.date,
+                weightKg: Profile.fromMap(profile).weightKg, daySteps: _steps),
+            eaten: d.kcal.value ?? 0,
+          ),
           today: widget.date == todayLabel()),
       const SizedBox(height: S.x3),
       MacroCard(day: d, profile: profile),
@@ -696,36 +725,73 @@ Future<Map<String, num>> _monthSteps(BuildContext c) async {
   return out;
 }
 
-/// What the day cost, as a floor: resting energy, plus the steps walked,
-/// plus 10% of the food logged (digesting it). Shown beside the food and
-/// never changing the calorie goal.
-class MaintenanceCard extends StatelessWidget {
-  const MaintenanceCard(
-      {super.key,
-      required this.profile,
-      required this.steps,
-      required this.eaten,
-      this.today = false});
+/// Every run this phone holds, for the Running row. Empty when unreadable.
+Future<List<RunSummary>> _allRuns(LocalRepository? repo) async {
+  if (repo == null) return const [];
+  try {
+    return await loadRuns(repo);
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// What one day's maintenance is made of: resting energy, the steps walked
+/// outside runs, the runs themselves (Method 1, by distance), and 10% of the
+/// food logged. A floor: lifts and other workouts are not added.
+class DayUpkeep {
+  const DayUpkeep(this.profile,
+      {required this.steps, this.runs = kNoRunDay, this.eaten = 0});
 
   final Profile profile;
+
+  /// The day's steps, runs included.
   final num? steps;
+  final RunDay runs;
   final double eaten;
+
+  ({double bmr, double steps, double run, double food, double total})?
+      get parts => maintenance(profile,
+          steps: steps,
+          eatenKcal: eaten,
+          runKcal: runs.kcal,
+          runSteps: runs.steps);
+
+  /// The steps costed as walking: the day's, less the runs'.
+  num? get walkedSteps =>
+      steps == null ? null : (steps! - runs.steps).clamp(0, steps!);
+}
+
+/// The day's maintenance as a floor, shown beside the food and never changing
+/// the calorie goal. Tap for what each part is.
+class MaintenanceCard extends StatelessWidget {
+  const MaintenanceCard(this.upkeep, {super.key, this.today = false});
+
+  final DayUpkeep upkeep;
   final bool today;
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final m = maintenance(profile, steps: steps, eatenKcal: eaten);
+    final m = upkeep.parts;
     if (m == null) {
       return const StatusCard('Maintenance needs your profile',
           'Add your age, height and weight in Settings → Profile.',
           icon: LucideIcons.flame);
     }
+    final eaten = upkeep.eaten;
     final diff = eaten - m.total;
     return Surface(
+      onTap: () => showMaintenance(c, upkeep, today: today),
+      semanticLabel: 'Maintenance ${thousands(m.total)} kcal. Shows how it is '
+          'worked out.',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(today ? 'Maintenance so far' : 'Maintenance',
-            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        Row(children: [
+          Expanded(
+            child: Text(today ? 'Maintenance so far' : 'Maintenance',
+                style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+          ),
+          Icon(LucideIcons.info, size: 16, color: p.ink3),
+        ]),
         const SizedBox(height: S.x2),
         Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
           Text(thousands(m.total), style: F.n34.copyWith(color: p.on(C.steps))),
@@ -738,6 +804,7 @@ class MaintenanceCard extends StatelessWidget {
         InlineMetrics([
           ('RESTING', thousands(m.bmr), C.steps),
           ('STEPS', thousands(m.steps), C.green),
+          if (upkeep.runs.count > 0) ('RUNNING', thousands(m.run), C.run),
           ('FOOD', thousands(m.food), C.domFood),
         ]),
         if (eaten > 0) ...[
@@ -750,4 +817,96 @@ class MaintenanceCard extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// What each part of maintenance is and the numbers it came from, one short
+/// line each.
+Future<void> showMaintenance(BuildContext c, DayUpkeep u, {bool today = false}) {
+  final m = u.parts;
+  if (m == null) return Future.value();
+  final pr = u.profile;
+  String kg(double? w) => w == null
+      ? ''
+      : (w == w.roundToDouble() ? '${w.round()} kg' : '${w.toStringAsFixed(1)} kg');
+  final walked = u.walkedSteps;
+  final rows = <(String, double, String)>[
+    (
+      'Resting',
+      m.bmr,
+      'What your body burns at rest over a whole day, from age '
+          '${pr.ageYears}, ${pr.heightCm?.toStringAsFixed(1)} cm and '
+          '${kg(pr.weightKg)}.'
+    ),
+    (
+      'Steps',
+      m.steps,
+      walked == null
+          ? 'No steps counted yet.'
+          : u.runs.steps > 0
+              ? '${thousands(walked)} steps outside your '
+                  '${u.runs.count == 1 ? 'run' : 'runs'}, at ${kg(pr.weightKg)}.'
+              : '${thousands(walked)} steps at ${kg(pr.weightKg)}.'
+    ),
+    if (u.runs.count > 0)
+      (
+        'Running',
+        m.run,
+        '${u.runs.km.toStringAsFixed(2)} km in ${u.runs.count} '
+            '${u.runs.count == 1 ? 'run' : 'runs'}: the least that distance '
+            'costs at ${kg(pr.weightKg)}.'
+      ),
+    (
+      'Food',
+      m.food,
+      u.eaten > 0
+          ? '10% of the ${thousands(u.eaten)} kcal you logged goes to digesting '
+              'it.'
+          : 'Nothing logged yet. 10% of what you log is added.'
+    ),
+  ];
+  return showModalBottomSheet<void>(
+    context: c,
+    sheetAnimationStyle: sheetMotion(c),
+    backgroundColor: P.of(c).card,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) {
+      final p = P.of(s);
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(today ? 'Maintenance so far' : 'Maintenance',
+                    style: F.head.copyWith(color: p.ink)),
+                const SizedBox(height: S.x1),
+                Text('${thousands(m.total)} kcal',
+                    style: F.n24.copyWith(color: p.on(C.steps))),
+                for (final (name, kcal, why) in rows) ...[
+                  const SizedBox(height: S.x4),
+                  Row(children: [
+                    Expanded(
+                        child: Text(name,
+                            style: F.body.copyWith(
+                                color: p.ink, fontWeight: FontWeight.w600))),
+                    Text('${thousands(kcal)} kcal',
+                        style: F.n17.copyWith(color: p.ink)),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(why, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+                ],
+                const SizedBox(height: S.x5),
+                Text(
+                    'This is the least you burned. Lifts and other workouts are '
+                    'not added, so your real burn is this or more.',
+                    style: F.cap.copyWith(color: p.ink3, height: 1.4)),
+              ]),
+        ),
+      );
+    },
+  );
 }

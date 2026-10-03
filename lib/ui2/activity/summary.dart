@@ -24,7 +24,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../build_profile.dart';
 import '../../gps/route_models.dart' as rm show Split;
 import '../../gps/route_models.dart' show RoutePoint;
-import '../../gps/run_analysis.dart' show paceZoneShares, runVerdict, effortRank, kBestEffortDistances;
+import '../../gps/run_analysis.dart'
+    show paceZoneShares, runVerdict, effortRank, kBestEffortDistances, RunMix;
 import '../../gps/run_history.dart';
 import '../../data/db.dart';
 import '../../l10n/app_localizations.dart';
@@ -34,7 +35,8 @@ import '../charts.dart';
 import '../grammar.dart';
 import '../paint_activity.dart';
 import '../profile/profile.dart';
-import '../screens/home_screen.dart' show repoOf, unitsOf;
+import '../screens/home_screen.dart' show profileOf, repoOf, unitsOf;
+import '../../compute/profile.dart' show Profile;
 import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
@@ -297,6 +299,17 @@ class ActivityResult {
   /// Time spent moving (stops removed), from the route. Null without GPS.
   final int? movingSec;
 
+  /// Running metres, walking metres and climb, for the distance calories.
+  /// Null without a distance.
+  final RunMix? mix;
+
+  /// True when [distanceKm] and [splits] came from the phone's motion data
+  /// because the session had no GPS.
+  final bool motionDistance;
+
+  /// Average steps a minute from the phone, for a motion-measured session.
+  final double? cadence;
+
   // strength
   final StrengthLog strength;
 
@@ -345,6 +358,9 @@ class ActivityResult {
     this.splits = const [],
     this.track = const [],
     this.movingSec,
+    this.mix,
+    this.motionDistance = false,
+    this.cadence,
     this.strength = StrengthLog.empty,
     this.lapSecs = const [],
     this.poolLengthM,
@@ -379,6 +395,9 @@ class ActivityResult {
     List<KmSplit>? splits,
     List<RoutePoint>? track,
     int? movingSec,
+    RunMix? mix,
+    bool? motionDistance,
+    double? cadence,
     StrengthLog? strength,
   }) =>
       ActivityResult(
@@ -412,6 +431,9 @@ class ActivityResult {
         splits: splits ?? this.splits,
         track: track ?? this.track,
         movingSec: movingSec ?? this.movingSec,
+        mix: mix ?? this.mix,
+        motionDistance: motionDistance ?? this.motionDistance,
+        cadence: cadence ?? this.cadence,
         strength: strength ?? this.strength,
         lapSecs: lapSecs,
         poolLengthM: poolLengthM,
@@ -528,6 +550,7 @@ IconData statIcon(String name) => switch (name) {
       // A person, not an instrument — the one row on this card the band had
       // no part in.
       'Your rating' => LucideIcons.userRound,
+      'Cadence' => LucideIcons.footprints,
       _ => posterStatIcon(name),
     };
 
@@ -600,7 +623,13 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   // rather than the label because 'HR recovery 24 bpm' is not a claim anybody
   // can check — recovery over WHAT is the whole measurement.
   add('HR recovery', r.hrr60 == null ? null : '${r.hrr60} bpm in 60 s');
-  add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
+  add('Cadence', r.cadence == null ? null : '${r.cadence!.round()} steps/min');
+  // A run or walk with a distance shows its calories on their own card, by
+  // distance and by heart rate, so the band's single figure is not repeated.
+  final ownCard = r.mix != null &&
+      (isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey));
+  add('Calories',
+      r.calories == null || ownCard ? null : '${grouped(r.calories!)} kcal');
   add('Strain', r.strain?.toStringAsFixed(1));
   // TS-09 — last, under the measurements, and named 'Your rating' rather than
   // 'RPE' so the row cannot read as something the band found out. It is not on
@@ -667,6 +696,10 @@ class ActivitySummary extends StatefulWidget {
   /// Body weight, for the calorie note. Null when the profile has none.
   final double? weightKg;
 
+  /// The profile for a run's calories. Null reads it from the app (and a
+  /// golden without one shows the "needs your profile" line).
+  final Profile? profile;
+
   /// Set only when persisting the session threw. Non-null means this summary
   /// is drawn from something that is NOT in the database, and calling it tries
   /// the write again.
@@ -681,6 +714,7 @@ class ActivitySummary extends StatefulWidget {
   const ActivitySummary(this.result,
       {super.key,
       this.weightKg,
+      this.profile,
       this.onRetrySave,
       this.justFinished = false});
 
@@ -1089,8 +1123,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         Text(a.name, style: F.cap.copyWith(color: p.ink2)),
         const SizedBox(height: S.x4),
         RunStatsGrid(v),
+        if (_distanceCalories) ...[
+          const SizedBox(height: S.x3),
+          RunCaloriesCard(r, widget.profile ?? profileOf(c)),
+        ],
         if (_askRpe) ...[const SizedBox(height: S.x3), _rpePrompt(p)],
-        if (verdict != null) ...[const SizedBox(height: S.x3), RunVerdictCard(verdict)],
+        if (verdict != null && v.isRun) ...[
+          const SizedBox(height: S.x3),
+          RunVerdictCard(verdict),
+        ],
         BestEffortsCard(v, _earlier),
         ..._zoneSection(p),
       ];
@@ -1144,6 +1185,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       ..._definingObject(c, p),
       const SizedBox(height: S.x5),
       SessionStats(r),
+      if (_distanceCalories) ...[
+        const SizedBox(height: S.x3),
+        RunCaloriesCard(r, widget.profile ?? profileOf(c)),
+      ],
       // TS-09 — directly under the measurements, because that is what it is
       // being asked against, and directly where the answer lands: once rated,
       // this card is gone and 'Your rating' is the last row of the card above.
@@ -1160,12 +1205,21 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     ];
   }
 
+  /// A run or walk with a distance gets the two-method calorie card in place
+  /// of the band's heart-rate calorie stat.
+  bool get _distanceCalories =>
+      r.mix != null &&
+      (isRunType(a.typeKey) || isWalkType(a.typeKey));
+
   /// What the numbers on this screen were made of. The calorie sentence is
   /// always here; the step one joins it whenever a count is on the card,
   /// because a step row that does not name its sensor is weaker than the day
   /// screens beside it, which have named theirs all along.
   Widget _basisNote(P p) {
     final l = AppLocalizations.of(context);
+    if (_distanceCalories && !r.motionDistance && r.stepsCounted == null) {
+      return const SizedBox.shrink();
+    }
     return Surface(
       elevation: 0,
       color: p.card2,
@@ -1173,7 +1227,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         Expanded(
           child: Text(
               [
-                _calorieBasis(),
+                if (r.motionDistance)
+                  "Distance, pace and splits came from your phone's motion "
+                      'sensor, because this session had no GPS.'
+                else if (!_distanceCalories)
+                  _calorieBasis(),
                 if (r.stepsCounted != null)
                   l?.activitySummaryStepsBasis ??
                       "Steps came from the strap's own motion sensor, which "
@@ -1289,6 +1347,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final l = AppLocalizations.of(c);
     switch (arch) {
       case Arch.route:
+        if (r.route.length < 2 && r.motionDistance) {
+          return [
+            StatusCard(
+              'No map for this session',
+              'It was not recorded with GPS. Distance and splits are from your '
+                  "phone's motion sensor.",
+              icon: LucideIcons.smartphone,
+            ),
+          ];
+        }
         if (r.route.length < 2) {
           return [
             // No `fix`: there is no "how route recording works" screen, and
@@ -1855,7 +1923,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   // sets for a lift, rounds for HIIT, laps for a swim.
   List<Widget> _splits(BuildContext c, P p) {
     final l = AppLocalizations.of(c);
-    if (run != null && r.splits.isNotEmpty) return [RunSplitsCard(r)];
+    if ((run != null || r.motionDistance) && r.splits.isNotEmpty) {
+      return [RunSplitsCard(r)];
+    }
     switch (arch) {
       case Arch.route || Arch.journey:
         if (r.splits.isEmpty) {

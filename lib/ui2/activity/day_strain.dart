@@ -25,8 +25,8 @@ import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show repoOf, monthName;
-import '../screens/metric_detail.dart' show detailScaffold;
+import '../screens/home_screen.dart' show pointsOf, repoOf, monthName;
+import '../screens/metric_detail.dart' show dayNavRow, detailScaffold;
 import '../ui2.dart';
 import 'zones.dart' show ZonesDetail;
 
@@ -66,6 +66,12 @@ class DayStrainData {
 
   final int? peakHr, wornMin, coveragePct;
 
+  /// Resting heart rate from the night before: strain's other anchor.
+  final int? rhr;
+
+  /// Every day with a strain, oldest first, for the day stepper.
+  final List<String> days;
+
   /// WHY the day has no strain, as the bundle said it — never a sentence
   /// written on this screen. Null means nothing came back with the absence, and
   /// the screen then says exactly that.
@@ -83,14 +89,30 @@ class DayStrainData {
     this.wornMin,
     this.coveragePct,
     this.note,
+    this.rhr,
+    this.days = const [],
   });
 
   bool get hasCurve => curve.any((v) => v != null);
 
-  static Future<DayStrainData> load(LocalRepository repo) async {
-    final asked = todayLabel();
+  static Future<DayStrainData> load(LocalRepository repo, {String? want}) async {
+    final asked = want ?? todayLabel();
+    var days = const <String>[];
+    try {
+      days = {
+        for (final p in pointsOf(await repo.getChart('strain')))
+          dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
+        todayLabel(),
+      }.toList()
+        ..sort();
+    } catch (_) {
+      days = const [];
+    }
     final s = await repo.getDayStrain(asked);
-    if (s.isEmpty) return const DayStrainData();
+    if (s.isEmpty) {
+      return DayStrainData(
+          day: DateTime.tryParse(asked), days: days);
+    }
 
     final pts = <(int, double)>[
       for (final e in (s['curve'] as List? ?? const []))
@@ -149,6 +171,8 @@ class DayStrainData {
       // The headline absence's reason, at the top level of the payload — the
       // same string as `absent.strain`.
       note: s['note'] as String?,
+      rhr: (s['rhr'] as num?)?.toInt(),
+      days: days,
     );
   }
 }
@@ -157,7 +181,10 @@ class DayStrainData {
 class DayStrainDetail extends StatefulWidget {
   /// Preloaded, for goldens. Null means read the repo on open.
   final DayStrainData? data;
-  const DayStrainDetail({super.key, this.data});
+
+  /// The day to open (`yyyy-MM-dd`); null is today.
+  final String? day;
+  const DayStrainDetail({super.key, this.data, this.day});
 
   @override
   State<DayStrainDetail> createState() => _DayStrainDetailState();
@@ -166,6 +193,19 @@ class DayStrainDetail extends StatefulWidget {
 class _DayStrainDetailState extends State<DayStrainDetail> {
   DayStrainData? _d;
   bool _loading = true;
+  late String? _day = widget.day;
+
+  /// The minute under the finger on the day's curve, or null.
+  int? _pick;
+
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _pick = null;
+      _loading = true;
+    });
+    _load();
+  }
 
   @override
   void initState() {
@@ -185,7 +225,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       return;
     }
     try {
-      final d = await DayStrainData.load(repo);
+      final d = await DayStrainData.load(repo, want: _day);
       if (mounted) setState(() => (_d = d, _loading = false));
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -211,6 +251,8 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       c,
       l?.dayStrainTitle ?? 'Day strain',
       [
+        ...dayNavRow(_day ?? (day == null ? null : dayLabelOf(day)), d.days,
+            _goDay),
         if (_loading && _d == null) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
@@ -222,7 +264,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
           _how(p, l, d),
         ],
       ],
-      sub: sub,
+      sub: d.days.length < 2 ? sub : '',
     );
   }
 
@@ -328,6 +370,20 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     }
     final axis = AxisSpec.of(d.curve.whereType<double>(), floor: 0)!;
     final drawn = d.curve.where((v) => v != null).length;
+    final n = d.curve.length;
+    // The strain built up to the minute under the finger: the nearest recorded
+    // minute at or before it.
+    String says(int i) {
+      double? v;
+      for (var k = i; k >= 0 && v == null; k--) {
+        v = d.curve[k];
+      }
+      final hh = (i ~/ 60).toString().padLeft(2, '0');
+      final mm = (i % 60).toString().padLeft(2, '0');
+      return '$hh:$mm · ${v == null ? 'none yet' : v.toStringAsFixed(1)}';
+    }
+
+    int at(double f) => (f * (n - 1)).round().clamp(0, n - 1);
     return [
       Surface(
         child: Column(children: [
@@ -338,11 +394,22 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             yAxis: axis,
             xLabels: const ['00:00', '12:00', '24:00'],
             series: d.curve,
+            readout: _pick == null ? null : says(_pick!),
             footnote: 'From $drawn recorded minutes.',
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: LineChart(d.curve, p.on(C.strain),
-                  axis: axis, t: animate(context, 1)),
+            child: Scrubber(
+              value: _pick == null ? null : _pick! / (n - 1),
+              step: 1 / 48,
+              label: 'Strain through the day',
+              describe: (f) => says(at(f)),
+              onChanged: (f) => setState(() => _pick = at(f)),
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: LineChart(d.curve, p.on(C.strain),
+                    axis: axis,
+                    t: animate(context, 1),
+                    cursor: _pick,
+                    cursorInk: p.ink),
+              ),
             ),
           ),
         ]),
@@ -436,35 +503,30 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     ]);
   }
 
+  /// Three plain lines. The method (Banister TRIMP over waking heart rate,
+  /// scaled to 0–21) is the same; this only says it in words.
   Widget _inputs(P p, AppLocalizations? l, DayStrainData d) {
-    final max = d.maxHrUsed;
+    final max = d.maxHrUsed?.round();
+    final rhr = d.rhr;
+    final anchors = [
+      rhr == null ? 'your resting rate' : 'your resting rate ($rhr bpm last night)',
+      max == null ? 'your max' : 'your max ($max bpm, estimated from your age)',
+    ];
+    final lines = [
+      'Strain is how hard your heart worked while you were awake, from 0 to 21.',
+      'It compares your heart rate with ${anchors[0]} and ${anchors[1]}.',
+      'Time at a high heart rate adds the most, and it gets harder to climb '
+          'the higher it already is.',
+    ];
     return Surface(
       elevation: 0,
       color: p.card2,
-      child: Text(
-        [
-          l?.dayStrainInputsBase ??
-              'Banister TRIMP over your waking heart rate, scaled to 0–21.',
-          if (max != null)
-            l?.dayStrainInputsMaxHr(max.round()) ??
-                'It was integrated against an assumed maximum of '
-                    '${max.round()} bpm — estimated from your age and your strap, '
-                    'not measured.',
-          // Said out loud because the zone bar above can now be banded on a
-          // MEASURED ceiling while this number is still the age estimate, and
-          // two different ceilings on one screen with nothing saying so is
-          // exactly the defect TS-03a removed.
-          if (max != null && d.zoneSource != null && d.zoneSource != 'tanaka')
-            l?.dayStrainInputsMeasuredCeilingNote ??
-                'The zone bar above uses the measured ceiling instead; strain has '
-                    'not been moved onto it, because that would rewrite every '
-                    'strain score you have ever seen.',
-          l?.dayStrainInputsRhrAnchor ??
-              'The other anchor is your resting heart rate from the night before, '
-                  'so a night the band missed moves the whole day.',
-        ].join(' '),
-        style: F.cap.copyWith(color: p.ink3, height: 1.5),
-      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (var i = 0; i < lines.length; i++) ...[
+          if (i > 0) const SizedBox(height: S.x2),
+          Text(lines[i], style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+        ],
+      ]),
     );
   }
 }

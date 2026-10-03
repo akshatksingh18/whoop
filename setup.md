@@ -205,6 +205,14 @@ no longer cached. Akshat installed it over build 66 with Sideloadly 0.70.1. WHOO
 shows 0.9.34 at `com.akshat.personal.whoop.5564K8D4SV` in exact mode with a completed
 automatic-refresh registration and no error. Its device pass is open.
 
+Build `0.9.35`/`68` (commit `284fff83e750c8476f6eef20b13cc80b9407f8e2`): Linux test run
+`37138583717` and personal iPhone workflow run `37138914477` passed. Artifact
+`whoop-personal-284fff83e750-unsigned.ipa`, SHA-256
+`873ba87dd4b56e90ed02b94fd956478e66236c7027ec5fa957c35967e227ae55`, matches its checksum
+file and passes `tool/personal_ios.py validate`. It is the one candidate in
+`../final-ipas/whoop/testing/WHOOP-0.9.35-build68-284fff83`. Akshat installed it over build 67;
+its run screen worked on his first run, and its device pass is open.
+
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall
 was first attributed to Sideloadly v0.60's **Use automatic bundle ID** transformation; build 67

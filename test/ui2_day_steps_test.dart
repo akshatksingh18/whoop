@@ -49,7 +49,7 @@ Future<void> _pump(WidgetTester t, DayStepsData d, {double scale = 1}) async {
 }
 
 void main() {
-  testWidgets('a mixed day names both devices, and the walk it watched', (
+  testWidgets('a mixed day names both devices, without a list of stretches', (
     t,
   ) async {
     await _pump(
@@ -65,13 +65,11 @@ void main() {
         bandLabel: 'WHOOP 4',
       ),
     );
-    // The owner's own example: a 13:00–14:00 activity counted by the strap and
-    // a passively-counted stretch from the phone, on one screen, each naming
-    // its device.
-    expect(find.textContaining('1:00 PM – 2:00 PM'), findsOneWidget);
-    expect(find.textContaining('WHOOP 4 · Walking'), findsOneWidget);
-    expect(find.textContaining('9:00 AM – 10:00 AM'), findsOneWidget);
+    // Both devices named in the totals; the long per-stretch list is gone.
+    expect(find.text('WHOOP 4'), findsWidgets);
     expect(find.text('Your phone'), findsWidgets);
+    expect(find.textContaining('1:00 PM – 2:00 PM'), findsNothing);
+    expect(find.text('Through the day'), findsNothing);
     // ONE accuracy line, and it names both failure directions.
     expect(find.textContaining('the two miscount differently'), findsOneWidget);
   });

@@ -123,6 +123,9 @@ class ReadinessDetail extends StatefulWidget {
 }
 
 class _ReadinessDetailState extends State<ReadinessDetail> {
+  /// The day under the finger on the history chart, or null.
+  int? _pick;
+
   ReadinessData? _d;
   bool _showHow = false;
 
@@ -306,11 +309,27 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     const axis = AxisSpec(min: 0, max: 100, ticks: 3, format: axisInt);
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    final n = win.length;
+    String says(int i) {
+      final now = DateTime.now();
+      final day = DateTime(now.year, now.month, now.day - (n - 1 - i));
+      final v = win[i];
+      final when = i == n - 1
+          ? 'Today'
+          : prettyDay(
+              '${day.year}-${day.month.toString().padLeft(2, '0')}-'
+              '${day.day.toString().padLeft(2, '0')}',
+              l);
+      return '$when · ${v == null ? 'no score' : v.round()}';
+    }
+
+    int at(double f) => n < 2 ? 0 : (f * (n - 1)).round().clamp(0, n - 1);
     return ChartFrame(
       title: l?.readinessDetailTitle ?? 'Readiness',
       unit: l?.readinessDetailUnit ?? '/100',
       height: 120,
       yAxis: axis,
+      readout: _pick == null || _pick! >= n ? null : says(_pick!),
       // Slot 0 is `length - 1` days behind today, not `length` — the last slot
       // IS today. MetricDetail draws the same `recovery` series and already
       // counts it this way; the two screens dated one chart differently.
@@ -320,10 +339,21 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         l?.readinessDetailToday ?? 'Today',
       ],
       series: win,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: LineChart(win, p.on(C.green), dots: false, t: animate(c, 1),
-            axis: axis),
+      child: Scrubber(
+        value: _pick == null || n < 2 ? null : _pick! / (n - 1),
+        step: n < 2 ? 1 : 1 / (n - 1),
+        label: 'Readiness history',
+        describe: (f) => says(at(f)),
+        onChanged: (f) => setState(() => _pick = at(f)),
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: LineChart(win, p.on(C.green),
+              dots: false,
+              t: animate(c, 1),
+              axis: axis,
+              cursor: _pick,
+              cursorInk: p.ink),
+        ),
       ),
     );
   }

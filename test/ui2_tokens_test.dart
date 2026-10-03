@@ -197,6 +197,7 @@ const _notComponents = {
   // profile; `ui2_run_detail_test` renders the run screen at 1x and 2x.
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',
   'RunSplitsCard', 'RunCharts', 'PaceZonesCard', 'MaintenanceCard',
+  'RunCaloriesCard',
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
   // onboarding routes

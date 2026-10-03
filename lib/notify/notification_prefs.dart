@@ -196,7 +196,9 @@ class NotificationPrefs {
           .toInt(),
       stepGoalEnabled:
           !kPersonalSideload && (p.getBool(_kStepGoal) ?? true),
-      windDownEnabled: p.getBool(_kWindDown) ?? false,
+      // No bedtime is shown in the personal build, so no bedtime nudge
+      // either: read as OFF so one an older build armed is cancelled.
+      windDownEnabled: !kPersonalSideload && (p.getBool(_kWindDown) ?? false),
     );
   }
 

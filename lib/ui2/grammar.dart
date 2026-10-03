@@ -1952,6 +1952,10 @@ class ChartFrame extends StatelessWidget {
   /// a measured line. It does not take taps.
   final List<double> xMarks;
 
+  /// What the finger is on, e.g. "Tue 29 Sep · 12.4". Shown in the header
+  /// beside the unit while a cursor is placed; null shows the unit alone.
+  final String? readout;
+
   const ChartFrame({
     super.key,
     required this.title,
@@ -1965,6 +1969,7 @@ class ChartFrame extends StatelessWidget {
     this.empty,
     this.series = const [],
     this.xMarks = const [],
+    this.readout,
   });
 
   /// Width and height of [s] as it will actually be laid out — including the
@@ -2031,14 +2036,25 @@ class ChartFrame extends StatelessWidget {
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
     );
-    final measure = Text(unit, style: F.over.copyWith(color: p.ink3));
+    final Widget measure = readout == null
+        ? Text(unit, style: F.over.copyWith(color: p.ink3))
+        : Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                  text: readout,
+                  style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+              TextSpan(text: '  $unit', style: F.over.copyWith(color: p.ink3)),
+            ]),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
     if (!stacked) {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(child: name),
           const SizedBox(width: S.x2),
-          measure,
+          if (readout == null) measure else Flexible(flex: 2, child: measure),
         ],
       );
     }

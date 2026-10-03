@@ -36,10 +36,9 @@ import '../../compute/profile.dart' show Profile, walkingEnergy;
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../activity/catalogue.dart' show activityByName;
 import '../profile/devices.dart' show bandLabelFor;
 import '../ui2.dart';
-import 'home_screen.dart' show clockOfTs, prettyDay, repoOf, thousands;
+import 'home_screen.dart' show prettyDay, repoOf, thousands;
 import 'metric_detail.dart'
     show dayNavLabel, dayNavRow, detailScaffold, pickDay;
 
@@ -257,6 +256,9 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   bool _loading = true;
   String? _day;
 
+  /// The hour under the finger on the chart, or null.
+  int? _hour;
+
   @override
   void initState() {
     super.initState();
@@ -287,6 +289,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   void _goDay(String day) {
     setState(() {
       _day = day;
+      _hour = null;
       _loading = true;
     });
     _load();
@@ -320,13 +323,12 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
               ]),
               const SizedBox(height: S.x1),
               Text(
-                  'Estimated from your steps, height and weight. Shown on its '
-                  'own — not added to your calories.',
+                  'From your steps and weight. Counted in maintenance on Food, '
+                  'less any steps taken during a run.',
                   style: F.over.copyWith(color: p.ink3, height: 1.4)),
             ]),
           ),
         ],
-        Section(l?.dayStepsThroughDay ?? 'Through the day', _rows(c, p, d)),
       ],
     ]);
   }
@@ -367,6 +369,22 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     final (band, phone) = hourlySteps(d.spans);
     final totals = [for (var h = 0; h < 24; h++) band[h] ?? phone[h]];
     final axis = AxisSpec.of(totals.whereType<double>(), floor: 0);
+    String says(int h) {
+      final hh = h.toString().padLeft(2, '0');
+      final next = ((h + 1) % 24).toString().padLeft(2, '0');
+      final b = band[h], ph = phone[h];
+      final n = (b ?? 0) + (ph ?? 0);
+      final who = b != null && ph != null
+          ? ''
+          : b != null
+              ? ' · ${d.bandLabel}'
+              : ph != null
+                  ? ' · ${l?.dayStepsYourPhone ?? 'Your phone'}'
+                  : '';
+      return '$hh:00–$next:00 · ${b == null && ph == null ? 'none' : thousands(n)}$who';
+    }
+
+    final hr = _hour;
     return Surface(
       child: Column(
         children: [
@@ -387,27 +405,38 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
                 : const [],
             footnote: _honesty(c, d),
             empty: axis == null ? const NoData() : null,
-            child: Stack(
-              children: [
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: Bars(
-                    band,
-                    p.on(C.green),
-                    axis: axis,
-                    t: animate(c, 1),
+            readout: hr == null ? null : says(hr),
+            child: Scrubber(
+              value: hr == null ? null : (hr + .5) / 24,
+              step: 1 / 24,
+              label: 'Steps by hour',
+              describe: (v) => says((v * 24).floor().clamp(0, 23)),
+              onChanged: (v) =>
+                  setState(() => _hour = (v * 24).floor().clamp(0, 23)),
+              child: Stack(
+                children: [
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(
+                      band,
+                      p.on(C.green),
+                      axis: axis,
+                      cursor: hr,
+                      t: animate(c, 1),
+                    ),
                   ),
-                ),
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: Bars(
-                    phone,
-                    p.on(C.teal),
-                    axis: axis,
-                    t: animate(c, 1),
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(
+                      phone,
+                      p.on(C.teal),
+                      axis: axis,
+                      cursor: hr,
+                      t: animate(c, 1),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: S.x4),
@@ -457,37 +486,6 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
         : (l?.dayStepsHonestyPhone ??
               'Counted by your phone, so only the steps you had it on you for '
                   'are here.');
-  }
-
-  // ── the stretches themselves ───────────────────────────────────────────────
-  Widget _rows(BuildContext c, P p, DayStepsData d) {
-    final l = AppLocalizations.of(c);
-    return Surface(
-      child: Column(
-        children: [
-          for (final s in mergeAdjacent(d.spans))
-            MetricRow(
-              // The device is the icon and the colour, and it is said in words
-              // on the line below — the same three channels the chart uses.
-              s.fromBand ? LucideIcons.watch : LucideIcons.smartphone,
-              s.fromBand ? C.green : C.teal,
-              '${clockOfTs(s.startTs)} – ${clockOfTs(s.endTs)}',
-              // No `steps` unit on the row. A clock range is already a long
-              // name, and at 3× text the unit pushed the measurement out of
-              // the card — the screen is titled Steps and the chart's own unit
-              // says so, which is the one place it has to be said.
-              thousands(s.steps),
-              sub: [
-                s.fromBand ? d.bandLabel : (l?.dayStepsYourPhone ?? 'Your phone'),
-                // The session's own name, when the stretch sat inside one.
-                // Never invented for a stretch that did not: steps in an hour
-                // are steps, not a walk we watched.
-                ?activityByName(s.activity)?.name,
-              ].join(' · '),
-            ),
-        ],
-      ),
-    );
   }
 }
 

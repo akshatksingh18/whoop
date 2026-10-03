@@ -1035,7 +1035,9 @@ class NotificationSettingsView extends StatelessWidget {
                             movementEnabled: !prefs.movementEnabled))),
                     // The wind-down nudge. Silent until the Sleep Coach has
                     // actually LEARNED a bedtime — the nudge's whole content
-                    // is that time, so there is no honest fallback.
+                    // is that time, so there is no honest fallback. Not in
+                    // the personal build, which shows no bedtime.
+                    if (!kPersonalSideload)
                     SetRow(LucideIcons.moonStar, C.indigo,
                         l?.settingsWindDownRowTitle ?? 'Wind-down',
                         sub: l?.settingsWindDownRowSub ??

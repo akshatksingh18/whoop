@@ -8,6 +8,8 @@
 // (never a fabricated default). The engine therefore passes nullable getters and
 // only computes profile-gated metrics when the input is present.
 
+import 'dart:math' as math;
+
 class Profile {
   final int? ageYears;
   final double? weightKg;
@@ -126,19 +128,99 @@ double? bmrMifflin(Profile p) {
       };
 }
 
+/// Net oxygen cost of running, ml/kg per metre (Akshat's Method 1, the
+/// efficient-runner floor; ACSM's own running coefficient is 0.2).
+const double kRunO2PerMeter = 0.143;
+
+/// Net oxygen cost of walking, ml/kg per metre (ACSM walking equation). Used
+/// for walk breaks inside a run so the floor never prices walking as running.
+const double kWalkO2PerMeter = 0.1;
+
+/// Oxygen cost of climbing, ml/kg per vertical metre (ACSM running grade
+/// term, 0.9 × speed × grade, summed over time = 0.9 × metres climbed).
+const double kClimbO2PerMeter = 0.9;
+
+/// Method 1, the kinematic floor: active kcal for moving [weightKg] over
+/// [runMeters] at running speed, [walkMeters] at walking speed and up
+/// [climbMeters] of ascent.
+///
+/// Akshat's four steps (speed = d/t; O₂ = 0.143·speed + 0.9·speed·incline;
+/// kcal/h = O₂ × kg × 0.3; kcal = kcal/h ÷ 60 × t) collapse to
+/// 0.005 × kg × (0.143 × metres + 0.9 × metres climbed), because speed × time
+/// is distance and speed × incline × time is height gained. 0.005 is
+/// 0.3 ÷ 60: five kcal per litre of oxygen. Null without a weight.
+double? runFloorKcal(
+    {required double runMeters,
+    double walkMeters = 0,
+    double climbMeters = 0,
+    double? weightKg}) {
+  if (weightKg == null || weightKg <= 0) return null;
+  final o2 = kRunO2PerMeter * math.max(0, runMeters) +
+      kWalkO2PerMeter * math.max(0, walkMeters) +
+      kClimbO2PerMeter * math.max(0, climbMeters);
+  return 0.005 * weightKg * o2;
+}
+
+/// Method 2, Keytel et al. (2005) heart-rate calories, ACTIVE only:
+/// gross kcal/min from heart rate minus resting (Mifflin–St Jeor ÷ 1,440),
+/// summed over the session's per-minute heart rate.
+///
+/// [hrPerSlot] is one mean heart rate per slot (null where the band recorded
+/// nothing); each slot stands for [durationMin] ÷ slot count minutes, so a
+/// padded last partial minute is not counted as a whole one. A slot whose
+/// active energy comes out below zero (an easy walk break at a low heart
+/// rate, below what the equation was fitted on) counts as zero rather than
+/// subtracting. Null without age, weight, sex-independent BMR inputs, or a
+/// single measured slot.
+({double kcal, int measured, int slots})? keytelActiveKcal(
+    List<double?> hrPerSlot, double durationMin, Profile p) {
+  final w = p.weightKg, a = p.ageYears;
+  final bmr = bmrMifflin(p);
+  if (w == null || a == null || bmr == null || hrPerSlot.isEmpty) return null;
+  if (durationMin <= 0) return null;
+  final sex = workoutSex(p.sex);
+  double gross(double hr) => switch (sex) {
+        'male' => (-55.0969 + 0.6309 * hr + 0.1988 * w + 0.2017 * a) / 4.184,
+        'female' => (-20.4022 + 0.4472 * hr - 0.1263 * w + 0.074 * a) / 4.184,
+        _ => ((-55.0969 + 0.6309 * hr + 0.1988 * w + 0.2017 * a) +
+                (-20.4022 + 0.4472 * hr - 0.1263 * w + 0.074 * a)) /
+            2 /
+            4.184,
+      };
+  final rest = bmr / 1440;
+  final perSlot = durationMin / hrPerSlot.length;
+  var kcal = 0.0;
+  var measured = 0;
+  for (final hr in hrPerSlot) {
+    if (hr == null || !hr.isFinite || hr <= 0) continue;
+    measured++;
+    kcal += math.max(0, gross(hr) - rest) * perSlot;
+  }
+  if (measured == 0) return null;
+  return (kcal: kcal, measured: measured, slots: hrPerSlot.length);
+}
+
 /// A day's maintenance calories, as a floor:
-/// BMR + step calories + 10% of the food logged that day (the thermic effect
-/// of food). With nothing logged the food part is 0. No workout calories are
-/// added. Null without a BMR.
-({double bmr, double steps, double food, double total})? maintenance(
-    Profile p,
-    {num? steps,
-    double eatenKcal = 0}) {
+/// BMR + step calories + running (Method 1) + 10% of the food logged that day
+/// (the thermic effect of food).
+///
+/// [runSteps] are the steps taken during the day's runs. They are taken off
+/// [steps] before the step formula, because those metres are already in
+/// [runKcal]; walks are never in [runKcal], so their steps stay in [steps].
+/// With nothing logged the food part is 0. Null without a BMR.
+({double bmr, double steps, double run, double food, double total})?
+    maintenance(Profile p,
+        {num? steps,
+        double eatenKcal = 0,
+        double runKcal = 0,
+        num runSteps = 0}) {
   final bmr = bmrMifflin(p);
   if (bmr == null) return null;
-  final st = stepCalories(steps, p.weightKg) ?? 0;
+  final walked = steps == null ? null : math.max(0, steps - runSteps);
+  final st = stepCalories(walked, p.weightKg) ?? 0;
+  final run = math.max(0.0, runKcal);
   final tef = eatenKcal > 0 ? eatenKcal * 0.10 : 0.0;
-  return (bmr: bmr, steps: st, food: tef, total: bmr + st + tef);
+  return (bmr: bmr, steps: st, run: run, food: tef, total: bmr + st + run + tef);
 }
 
 /// Distance and active calories for [steps], for the steps breakdown. The

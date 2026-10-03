@@ -48,7 +48,33 @@ signing-expiry alerts, encrypted automatic backups, GPS route-recording hardenin
 restore-wake reconnect fix recorded in `bugs.md`. Akshat installed it over build 65; it still
 needs its device pass and current-version refresh enrollment, and none of its new behavior is
 phone-verified.
-Source `0.9.35`/`68` (not yet built) adds: daily maintenance calories as a floor (BMR + step calories + 10% of logged food, `metrics-map.md`); a dark-only palette (one colour per pillar); a Strava-style run screen (Apple Maps route via a MapKit snapshot, best efforts and PRs against earlier runs, a rule-based verdict, splits, pace / heart-rate / elevation charts on one finger cursor, pace zones); running trends on Train; live heart rate on Today with the scrub stopping at the current time; decluttered Strain and Readiness screens; GPS jitter smoothing and stop-aware moving time; and a refresh of phone steps and today's numbers on every open and every 5 minutes while the app is open. **The map is the app's first regular network use besides barcode lookup:** MapKit fetches tiles for the run's area from Apple, approved by Akshat.
+Source `0.9.36`/`69` (not yet built) adds, on Akshat's decisions (`todo.md` holds the phone check):
+- **Run calories:** two numbers. **From distance** (Method 1: 0.005 × kg × (0.143 × metres run +
+  0.1 × metres walked + 0.9 × metres climbed), with walk breaks split out by GPS speed).
+  **From heart rate** (Method 2: Keytel minus resting, per minute). Shown as one number when within
+  50 kcal.
+- **Maintenance:** a Running row (Method 1 only). The steps taken during runs come off the Steps
+  row, read from the phone over the exact run window. Tapping the card opens a plain detail sheet.
+- **Runs without GPS:** distance, splits and cadence come from the phone's motion data (7-day
+  window, saved per session; native `motionWindow` on the phone-steps channel).
+- **Train:** Run · Walk · Lift · Other; a run-or-walk streak (10 minutes a day); draggable strain and
+  weekly-distance bars; a strain tap opens that day, with day arrows. Best times are 1K, 5K, 10K and
+  half marathon only (a hidden 3K feeds the 5K prediction).
+- **Charts:** a shared finger cursor with the date and value in the chart header.
+- **Pull to refresh** on every tab: band sync, phone steps, then a wait for today's derive (60 s cap).
+- **Steps screen:** the stretch list is removed.
+- **Sleep:** the Tonight section, Today's bedtime card and the wind-down reminder are removed. The
+  hypnogram is clearer.
+- **Breathing rate:** the Trends row is hidden when it was measured on fewer than half of the last
+  30 nights.
+
+`kAlgoVersion` and `schemaVersion` are unchanged (all of this runs in the screen layer and app
+preferences).
+Build `0.9.35`/`68` (commit `284fff83`) is **installed** over build 67. Akshat reports the run screen
+working on his first run after installing it. Runs recorded before then show no splits because
+they have no saved GPS route, which is expected. Its full device pass and enrollment are open, and
+it stays the testing candidate until build 69 replaces it. It is cached under
+`final-ipas\whoop\testing\WHOOP-0.9.35-build68-284fff83`. It adds: daily maintenance calories as a floor (BMR + step calories + 10% of logged food, `metrics-map.md`); a dark-only palette (one colour per pillar); a Strava-style run screen (Apple Maps route via a MapKit snapshot, best efforts and PRs against earlier runs, a rule-based verdict, splits, pace / heart-rate / elevation charts on one finger cursor, pace zones); running trends on Train; live heart rate on Today with the scrub stopping at the current time; decluttered Strain and Readiness screens; GPS jitter smoothing and stop-aware moving time; and a refresh of phone steps and today's numbers on every open and every 5 minutes while the app is open. **The map is the app's first regular network use besides barcode lookup:** MapKit fetches tiles for the run's area from Apple, approved by Akshat.
 Build `0.9.34`/`67` (commit `b7414f03`) is **installed and accepted**: Akshat reports it working (band sync, a GPS run, the new layout), and it is promoted to the backup slot. Akshat installed it over build 66 with Sideloadly 0.70.1. WHOOP installs can sit at "Installing 88%" (43 minutes when left alone). The cause is not established. What is observed on build 67: it happens in both automatic and exact bundle-ID mode, with the phone unlocked, and even when the app was swiped away beforehand; opening WHOOP and swiping it away released the stuck install at once, twice. `guides/IOS_SIDELOAD.md` owns the procedure. Sideloadly's record shows 0.9.34 at `com.akshat.personal.whoop.5564K8D4SV` with a completed automatic-refresh registration and no error (currently automatic mode). Linux
 tests and the macOS workflow passed, the downloaded IPA matches its SHA-256 and passes the payload
 validator, and it is cached as the accepted build under
@@ -58,6 +84,8 @@ removes the screens listed under "Simple day-to-day UI" below; `metrics-map.md` 
 and the list of metrics still stored but no longer shown. None of it is phone-verified.
 
 ## Files
+- `todo.md` — the next build (`0.9.36`/`69`): Akshat's applied decisions, what was left out, and
+  the phone check; read before building, installing or verifying it.
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
   and the pending layout decisions; read before adding, moving or removing any screen.
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
@@ -239,12 +267,13 @@ The personal artifact must have these properties:
     - **Tabs:** Today · Trends · Food · Train, each one scrolling page (`ShellDomain` keeps the
       `home/health/nutrition/workout` names). Dark cards are flat; the tab bar is a floating pill.
     - **Today** (`home_screen.dart`): recovery ring with HRV and resting HR, sleep and strain
-      cards, an all-day heart-rate line (opens the scrubbable chart), steps, calories burned, and
-      tonight's bedtime. The greeting and "Today's plan" are gone.
+      cards, live heart rate over the all-day heart-rate line (opens the scrubbable chart), steps
+      and maintenance. The greeting, "Today's plan" and (source 69) the bedtime card are gone.
     - **Trends** (`health_screen.dart`): one row per core metric with Week / Month / 3 months,
       then the illness watch / findings and naps. Explore, Beats, Body clock, the Stress row and
       the Consistency cards were removed; their metrics are still computed and stored.
-    - **Train** (`workout_screen.dart`): Run / Lift / Other, 7-day strain bars, recent sessions.
+    - **Train** (`workout_screen.dart`): Run / Walk / Lift / Other (Walk from source 69), the
+      run-or-walk streak, 7-day strain bars, running trends, recent sessions.
       Fitness/fatigue/form, the kg-lifted chart, morning-after and overreach cards, the mascot
       card and the share button were removed. **Lifting sets are not logged**: in the personal
       build `Track.sets` activities run as a timed session (`archOf`), because Akshat logs lifts
@@ -259,7 +288,6 @@ The personal artifact must have these properties:
   - **Kept in minimal form:**
     - **Breathing pattern in sleep:** `sleep_breathing.dart`, one tap below Sleep, showing the
       across-nights card only.
-    - **Training load in the sleep need:** the Sleep "Tonight" sentence names the minutes it adds.
     - **All-day heart rate:** a scrubbable minute-by-minute chart (`DayHeartCard` in
       `day_timeline.dart`), reached from the heart-rate card on Today. It reads the day bundle's permanent per-minute `hr_curve`.
   - **Sleep cleanup:**
@@ -281,15 +309,17 @@ The personal artifact must have these properties:
       - Or by quick add / barcode (the existing sheet).
     - **History:** the last month's days against the goal; each day opens for late edits.
     - **Foods:** manage foods and saved meals.
-    - **Goals:** five targets. The sheet shows the 14-day average of total burn for reference only.
-  - **Calories:** the band's active and total kcal stay heart-rate-only. Steps are not added, by
-    Akshat's decision. A separate walking estimate appears on the Home steps tile and the Steps
-    breakdown (`walkingEnergy`, from steps, height and weight); it is never summed into any total.
-    Apple Health energy was considered and not pursued: with no Apple Watch it would only repeat
-    phone-step motion. HealthKit stays excluded; `metrics-map.md` has the calorie method.
+    - **Goals:** five targets, typed once; the app never changes them.
+  - **Calories:** maintenance is a floor: resting (Mifflin–St Jeor), plus steps outside runs
+    (Akshat's step formula), plus runs by distance (source 69), plus 10% of logged food. It is shown on
+    Today and Food, never moving the goal. A run's own screen shows calories by distance and by heart
+    rate. The band's heart-rate active and total kcal are still stored. Apple Health energy was
+    considered and not pursued: with no Apple Watch it would only repeat phone-step motion.
+    HealthKit stays excluded; `metrics-map.md` owns the calorie method.
   - **Left out as noise:**
     - extra HRV numbers, awake breathing rate, and per-day coverage/algorithm version;
-    - guided breathing (the wind-down reminder still opens it);
+    - guided breathing, and (source 69) the Sleep Tonight section, the bedtime card and the
+      wind-down reminder: sleep need and bedtime are still computed but not shown;
     - medication, habits, cycle, water and labs.
 
   Computation and storage are untouched throughout, and git history holds the removed screens.

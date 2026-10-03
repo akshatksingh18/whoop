@@ -327,7 +327,7 @@ void main() {
         find.textContaining('Longest unbroken stretch 2h 42m'), findsOneWidget);
   });
 
-  testWidgets('tonight is one takeaway, not six numbers', (t) async {
+  testWidgets('no Tonight section: no bedtime, need or debt', (t) async {
     await _pump(
       t,
       SleepData(
@@ -341,8 +341,11 @@ void main() {
             const Metric(value: 1360, confidence: .7, tier: MetricTier.estimate),
       ),
     );
-    expect(find.text('lights out'), findsOneWidget);
-    expect(find.textContaining('Your need is 7h 42m'), findsOneWidget);
-    expect(find.textContaining('22m down'), findsOneWidget);
+    // Akshat sleeps on his own schedule; the coach still computes these, the
+    // screen does not show them.
+    expect(find.text('lights out'), findsNothing);
+    expect(find.textContaining('Your need is'), findsNothing);
+    expect(find.textContaining('down'), findsNothing);
+    expect(find.text('Tonight'), findsNothing);
   });
 }

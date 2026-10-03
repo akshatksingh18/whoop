@@ -1509,6 +1509,9 @@ class LocalRepositoryImpl extends LocalRepository {
         'min': (hrStats?['min'] as num?)?.toInt(),
       },
       'max_hr_used': maxHrUsed,
+      // The other anchor strain is built on: the resting heart rate from the
+      // night before, for the plain "how it's worked out" lines.
+      'rhr': _scalar(b, 'rhr')?.round(),
       // TS-04 — which two numbers THIS day's zone bars were binned on:
       // 'karvonen' (observed ceiling + measured resting HR), 'observed'
       // (measured ceiling, resting-HR history still too short) or 'tanaka'

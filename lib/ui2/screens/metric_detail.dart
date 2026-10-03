@@ -790,6 +790,9 @@ class _MetricDetailState extends State<MetricDetail> {
             // The dots are already beside the big number two rows up; twice on
             // one card reads as two different claims.
             series: series,
+            readout: _pick == null
+                ? null
+                : _slotSays(c, spec, series, _pick!.clamp(0, series.length - 1)),
             // TOUCHING A POINT OPENS THAT DAY.
             //
             // This chart will draw the night somebody's sleep collapsed and
@@ -819,7 +822,9 @@ class _MetricDetailState extends State<MetricDetail> {
                     dots: series.length <= 40,
                     t: animate(c, 1),
                     dotInk: p.card,
-                    axis: axis),
+                    axis: axis,
+                    cursor: _pick,
+                    cursorInk: p.ink),
               ),
             ),
           );

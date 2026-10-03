@@ -495,8 +495,8 @@ class _SleepDetailState extends State<SleepDetail> {
       Section(l?.sleepDetailOvernightSection ?? 'Overnight signals',
           _overnight(c, p, d)),
 
-      // ── 7 · ONE TAKEAWAY ──
-      Section(l?.sleepDetailTonightSection ?? 'Tonight', _tonight(c, p, d)),
+      // No "Tonight" section: sleep need, debt and a lights-out time are
+      // noise to someone who sleeps on their own schedule. Still computed.
 
       // Correcting the sleep window is an occasional fix, not a reading, so it
       // sits last rather than between the chart and the stages.
@@ -804,12 +804,15 @@ class _SleepDetailState extends State<SleepDetail> {
           title: l?.sleepDetailThroughTheNight ?? 'Through the night',
           unit: l?.sleepDetailUnitStage ?? 'stage',
           height: 132,
+          // Five evenly spaced clock marks: the labels sit at quarters of the
+          // plot, so each one is the time at that point of the night.
           xLabels: [
             clockOfTs(t0),
             if (t0 != null && t1 != null && t1 > t0)
-              clockOfTs(t0 + (t1 - t0) ~/ 2),
+              for (var q = 1; q < 4; q++) clockOfTs(t0 + (t1 - t0) * q ~/ 4),
             clockOfTs(t1),
           ],
+          readout: _scrub == null ? null : _scrubSays(c, stages, n, _scrub!),
           // Driven by the night, not by the enum: a night with no REM in
           // it used to still print REM in its key.
           legend: [
@@ -902,22 +905,7 @@ class _SleepDetailState extends State<SleepDetail> {
         value: _scrub,
         onChanged: (v) => setState(() => _scrub = v),
         label: AppLocalizations.of(c)?.sleepDetailHypnogramLabel ?? 'Hypnogram',
-        describe: (v) {
-          final l = AppLocalizations.of(c);
-          final t0 = (n['onset_ts'] as num?)?.toInt();
-          final t1 = (n['wake_ts'] as num?)?.toInt();
-          final st = stages.isEmpty
-              ? null
-              : stages[(v * (stages.length - 1)).round().clamp(0, stages.length - 1)];
-          final at = (t0 == null || t1 == null || t1 <= t0)
-              ? (l?.sleepDetailPercentThroughNight((v * 100).round()) ??
-                  '${(v * 100).round()}% through the night')
-              : clockOfTs(t0 + ((t1 - t0) * v).round());
-          final stageName = st == null
-              ? (l?.sleepDetailNotMeasured ?? 'not measured')
-              : _stageName(c, st);
-          return l?.sleepDetailScrubAt(at, stageName) ?? '$at, $stageName';
-        },
+        describe: (v) => _scrubSays(c, stages, n, v),
         child: SizedBox(
           height: 132,
           child: Stack(children: [
@@ -936,6 +924,23 @@ class _SleepDetailState extends State<SleepDetail> {
                           painter: Hypnogram(st, p, t: animate(c, 1))),
                 ),
             ]),
+            // Each lane named at its left edge, so the chart reads without the
+            // legend. Four lanes over the 132 pt plot.
+            for (final st in SleepStage.values)
+              Positioned(
+                left: 2,
+                top: st.index * 33 + 9,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                        color: p.card.withValues(alpha: .72),
+                        borderRadius: R.rSm),
+                    child: Text(_stageName(c, st),
+                        style: F.over.copyWith(color: p.ink2)),
+                  ),
+                ),
+              ),
             if (_scrub != null)
               // Aligned by fraction rather than by a measured offset, so the
               // cursor needs no width from the layout.
@@ -947,6 +952,25 @@ class _SleepDetailState extends State<SleepDetail> {
           ]),
         ),
       );
+
+  /// What the night read at [v] (0…1 of it): the clock time and the stage.
+  String _scrubSays(BuildContext c, List<SleepStage?> stages,
+      Map<String, dynamic> n, double v) {
+    final l = AppLocalizations.of(c);
+    final t0 = (n['onset_ts'] as num?)?.toInt();
+    final t1 = (n['wake_ts'] as num?)?.toInt();
+    final st = stages.isEmpty
+        ? null
+        : stages[(v * (stages.length - 1)).round().clamp(0, stages.length - 1)];
+    final at = (t0 == null || t1 == null || t1 <= t0)
+        ? (l?.sleepDetailPercentThroughNight((v * 100).round()) ??
+            '${(v * 100).round()}% through the night')
+        : clockOfTs(t0 + ((t1 - t0) * v).round());
+    final stageName = st == null
+        ? (l?.sleepDetailNotMeasured ?? 'not measured')
+        : _stageName(c, st);
+    return l?.sleepDetailScrubAt(at, stageName) ?? '$at, $stageName';
+  }
 
   /// What every signal read at the scrubbed instant. Each line abstains on its
   /// own — a night with no respiration series still shows heart rate.
@@ -1561,62 +1585,6 @@ class _SleepDetailState extends State<SleepDetail> {
               size: Size.infinite,
               painter: NightStack(series, colors, axes: axes)),
         ),
-      ]),
-    );
-  }
-
-  // ── TONIGHT ───────────────────────────────────────────────────────────────
-
-  /// One takeaway. The old block listed need, debt, strain bonus, nap credit,
-  /// target bed and target wake — six numbers, no instruction. A target bedtime
-  /// is the only one of them anybody can act on before midnight.
-  Widget _tonight(BuildContext c, P p, SleepData d) {
-    final l = AppLocalizations.of(c);
-    final need = d.need.value;
-    final bed = d.bedtime.value;
-    final debt = d.debt.value;
-
-    if (need == null && bed == null) {
-      return StatusCard.forMetric(
-              l?.sleepDetailSleepNeedNotEstablished ??
-                  'Sleep need not established',
-              d.need) ??
-          const SizedBox.shrink();
-    }
-
-    final reason = [
-      if (need != null) l?.sleepDetailYourNeedIs(hm(need)) ?? 'Your need is ${hm(need)}',
-      // Training load is the lever a lifter/runner actually pulls, so the
-      // part of the need it added is named rather than folded in silently.
-      if (need != null && (d.strainBonusMin ?? 0) >= 5)
-        'including ${hm(d.strainBonusMin!)} for your training load',
-      if (debt != null && debt >= 1)
-        l?.sleepDetailYouAreDown(hm(debt)) ?? 'you are ${hm(debt)} down',
-    ].join(', ');
-
-    return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(bed != null ? clock(bed) : hm(need),
-                    style: F.n34.copyWith(color: p.ink)),
-              ),
-              const SizedBox(width: S.x2),
-              Flexible(
-                child: Text(
-                    bed != null
-                        ? (l?.sleepDetailLightsOut ?? 'lights out')
-                        : (l?.sleepDetailToAimFor ?? 'to aim for'),
-                    style: F.cap.copyWith(color: p.ink3)),
-              ),
-            ]),
-        if (reason.isNotEmpty) ...[
-          const SizedBox(height: S.x3),
-          Text('$reason.', style: F.body.copyWith(color: p.ink2, height: 1.5)),
-        ],
       ]),
     );
   }

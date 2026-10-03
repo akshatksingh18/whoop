@@ -11,17 +11,118 @@ import 'dart:math' as math;
 import 'route_math.dart';
 import 'route_models.dart';
 
-/// The standard best-effort distances, shortest first: (label, metres).
+/// The best-effort distances shown, shortest first: (label, metres). Metric
+/// only, and only the ones that matter for training: no 400 m, no miles.
 const kBestEffortDistances = <(String, double)>[
-  ('400m', 400),
-  ('1/2 mile', kMetersPerMile / 2),
   ('1K', 1000),
-  ('1 mile', kMetersPerMile),
-  ('2 mile', kMetersPerMile * 2),
   ('5K', 5000),
   ('10K', 10000),
   ('Half marathon', 21097.5),
 ];
+
+/// Every effort computed for a run: the shown ones plus a 3K, which is never
+/// listed but is the shortest effort long enough to predict a 5K from (a 1K
+/// is too short for Riegel's rule to hold).
+const kAllEfforts = <(String, double)>[
+  ('1K', 1000),
+  ('3K', 3000),
+  ('5K', 5000),
+  ('10K', 10000),
+  ('Half marathon', 21097.5),
+];
+
+/// The speed that separates walking from running, m/s (7.2 km/h, 8:20 /km).
+/// People switch gait at about 2.0–2.2 m/s; taking the bottom of that range
+/// means a slow jog can be priced as a walk but never a walk as a run, so the
+/// calorie floor stays a floor.
+const double kRunSpeed = 2.0;
+
+/// Below this a stretch is standing still and its GPS drift is not distance.
+const double kStillSpeed = 0.5;
+
+/// Steps per minute at or above which a minute counts as running when only
+/// the phone's motion data is there (no GPS). Walking tops out near 130 a
+/// minute; running starts near 150.
+const double kRunCadence = 140;
+
+/// What a run's distance was made of: metres at running speed, metres at
+/// walking speed (walk breaks), metres climbed, and the seconds of each.
+typedef RunMix = ({
+  double runM,
+  double walkM,
+  double climbM,
+  double runSec,
+  double walkSec,
+});
+
+const RunMix kNoMix = (runM: 0, walkM: 0, climbM: 0, runSec: 0, walkSec: 0);
+
+/// Splits a GPS track into running and walking metres by the speed over a
+/// [windowSec] window either side of each segment (so one noisy fix cannot
+/// flip a segment), and adds the smoothed elevation gain. Stretches slower
+/// than [kStillSpeed] are standing: no metres, no seconds.
+RunMix runMix(List<RoutePoint> raw, {double windowSec = 15}) {
+  if (raw.length < 2) return kNoMix;
+  final pts = smoothTrack(raw);
+  final cum = cumulativeMeters(raw);
+  var runM = 0.0, walkM = 0.0, runSec = 0.0, walkSec = 0.0;
+  var lo = 0, hi = 0;
+  for (var i = 1; i < pts.length; i++) {
+    final seg = cum[i] - cum[i - 1];
+    final dt = (pts[i].tsMs - pts[i - 1].tsMs) / 1000;
+    if (dt <= 0) continue;
+    final mid = (pts[i].tsMs + pts[i - 1].tsMs) / 2;
+    while (lo < i - 1 && pts[lo + 1].tsMs <= mid - windowSec * 1000) {
+      lo++;
+    }
+    if (hi < i) hi = i;
+    while (hi + 1 < pts.length && pts[hi + 1].tsMs <= mid + windowSec * 1000) {
+      hi++;
+    }
+    final wdt = (pts[hi].tsMs - pts[lo].tsMs) / 1000;
+    final speed = wdt <= 0 ? seg / dt : (cum[hi] - cum[lo]) / wdt;
+    if (speed < kStillSpeed) continue;
+    if (speed >= kRunSpeed) {
+      runM += seg;
+      runSec += dt;
+    } else {
+      walkM += seg;
+      walkSec += dt;
+    }
+  }
+  return (
+    runM: runM,
+    walkM: walkM,
+    climbM: elevationGain(raw) ?? 0,
+    runSec: runSec,
+    walkSec: walkSec,
+  );
+}
+
+/// The same split from the phone's motion data alone, one chunk at a time: a
+/// chunk at or above [kRunCadence] steps a minute is running, any other chunk
+/// with steps is walking. A chunk the phone gave no distance for adds no
+/// metres, because the floor never guesses one. No climb: the phone has no
+/// altitude.
+RunMix motionMix(
+    {required List<int> steps,
+    required List<double?> meters,
+    required int chunkSec}) {
+  var runM = 0.0, walkM = 0.0, runSec = 0.0, walkSec = 0.0;
+  for (var i = 0; i < steps.length && i < meters.length; i++) {
+    final m = meters[i];
+    if (steps[i] <= 0 && (m == null || m <= 0)) continue;
+    final cadence = steps[i] * 60 / chunkSec;
+    if (cadence >= kRunCadence) {
+      runM += m ?? 0;
+      runSec += chunkSec;
+    } else {
+      walkM += m ?? 0;
+      walkSec += chunkSec;
+    }
+  }
+  return (runM: runM, walkM: walkM, climbM: 0, runSec: runSec, walkSec: walkSec);
+}
 
 /// Cumulative distance in metres at each point, with the same teleport filter
 /// the headline distance uses, so efforts and the headline agree.
@@ -62,11 +163,11 @@ double? bestEffortSeconds(
   return best;
 }
 
-/// Every standard best effort this run covered: label → seconds.
+/// Every effort in [kAllEfforts] this run covered: label → seconds.
 Map<String, double> bestEfforts(List<RoutePoint> pts) {
   final cum = cumulativeMeters(pts);
   return {
-    for (final (label, m) in kBestEffortDistances)
+    for (final (label, m) in kAllEfforts)
       label: ?bestEffortSeconds(pts, cum, m),
   };
 }

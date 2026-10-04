@@ -53,7 +53,9 @@ Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) =>
       builder: b,
     );
 
-Widget _sheetBody(BuildContext s, List<Widget> children) => Padding(
+Widget _sheetBody(BuildContext s, List<Widget> children) => SafeArea(
+  top: false,
+  child: Padding(
       padding: EdgeInsets.only(
           left: S.x5,
           right: S.x5,
@@ -64,6 +66,7 @@ Widget _sheetBody(BuildContext s, List<Widget> children) => Padding(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: children,
+      ),
         ),
       ),
     );
@@ -283,7 +286,7 @@ class _GramsSheetState extends State<GramsSheet> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final grams = Typed.of(_g.text).value;
-    final n = grams == null ? null : nutrientsFor(widget.def, grams);
+    final n = grams == null || grams <= 0 ? null : nutrientsFor(widget.def, grams);
     return _sheetBody(c, [
       Text((widget.def['label'] ?? '').toString(),
           style: F.head.copyWith(color: p.ink)),
@@ -296,7 +299,7 @@ class _GramsSheetState extends State<GramsSheet> {
       const SizedBox(height: S.x3),
       Text(
         n == null
-            ? 'Type a weight in grams.'
+            ? 'Enter a positive weight in grams.'
             : macroLine(
                 kcal: n.kcal,
                 protein: n.protein,
@@ -332,6 +335,8 @@ class FoodEditor extends StatefulWidget {
 }
 
 class _FoodEditorState extends State<FoodEditor> {
+  bool _saving = false;
+  String? _error;
   final _label = TextEditingController();
   final _ref = TextEditingController(text: '100');
   final _kcal = TextEditingController();
@@ -374,6 +379,7 @@ class _FoodEditorState extends State<FoodEditor> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     final fields = {
       'Amount': _ref,
       'Calories': _kcal,
@@ -384,15 +390,27 @@ class _FoodEditorState extends State<FoodEditor> {
     };
     final bad = [
       for (final e in fields.entries)
-        if (Typed.of(e.value.text).bad) e.key,
+        if (Typed.of(e.value.text, nonNegative: true).bad) e.key,
     ];
     if (bad.isNotEmpty) {
-      sayUnreadable(context, bad);
+      setState(
+        () => _error = 'Check ${bad.join(', ')}: enter a non-negative number.',
+      );
       return;
     }
     final ref = Typed.of(_ref.text).value;
     final label = _label.text.trim();
-    if (label.isEmpty || ref == null || ref <= 0) return;
+    if (label.isEmpty || ref == null || ref <= 0) {
+      setState(
+        () =>
+            _error = 'Enter a description and a serving size greater than 0 g.',
+      );
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     final def = myFoodDef(
       key: (widget.existing?['key'] as String?) ??
           'my:${DateTime.now().microsecondsSinceEpoch}',
@@ -404,8 +422,17 @@ class _FoodEditorState extends State<FoodEditor> {
       fat: Typed.of(_fat.text).value,
       fibre: Typed.of(_fibre.text).value,
     );
+    if (widget.existing?['source'] == 'barcode') def['source'] = 'barcode';
+    try {
     await NutritionDb.putFoodDef(await LocalDb.instance, def);
     if (mounted) Navigator.of(context).pop(def);
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = 'Could not save. Your values are still here; try again.';
+        });
+    }
   }
 
   @override
@@ -432,7 +459,13 @@ class _FoodEditorState extends State<FoodEditor> {
       field(_fat, 'Fat (g)'),
       field(_fibre, 'Fibre (g)'),
       const SizedBox(height: S.x2),
-      BigButton('Save', color: C.domFood, onTap: _save),
+      if (_error != null)
+        Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
+      BigButton(
+        _saving ? 'Saving…' : 'Save',
+        color: C.domFood,
+        onTap: _saving ? null : _save,
+      ),
     ]);
   }
 }
@@ -453,8 +486,9 @@ class MealEditor extends StatefulWidget {
 }
 
 class _MealEditorState extends State<MealEditor> {
-  late final _label =
-      TextEditingController(text: widget.existing?.label ?? '');
+  bool _saving = false, _failed = false;
+  String? _error;
+  late final _label = TextEditingController(text: widget.existing?.label ?? '');
   late String _meal = widget.existing?.meal ?? 'breakfast';
   late final List<(String, double)> _items = [...?widget.existing?.items];
   Map<String, Map<String, Object?>> _defs = const {};
@@ -472,9 +506,13 @@ class _MealEditorState extends State<MealEditor> {
   }
 
   Future<void> _loadDefs() async {
+    try {
     final all = await MyFoods.all(await LocalDb.instance);
     if (mounted) {
       setState(() => _defs = {for (final d in all) d['key'] as String: d});
+      }
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
     }
   }
 
@@ -500,8 +538,22 @@ class _MealEditorState extends State<MealEditor> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     final label = _label.text.trim();
-    if (label.isEmpty || _items.isEmpty) return;
+    if (label.isEmpty || _items.isEmpty) {
+      setState(() => _error = 'Enter a name and add at least one food.');
+      return;
+    }
+    if (_failed) {
+      setState(() => _error = 'Load your saved foods before saving this meal.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final items = [..._items];
+    try {
     await MyFoods.putMeal(
       await LocalDb.instance,
       MealTemplate(
@@ -509,10 +561,17 @@ class _MealEditorState extends State<MealEditor> {
             'meal:${DateTime.now().microsecondsSinceEpoch}',
         label: label,
         meal: _meal,
-        items: _items,
+          items: items,
       ),
     );
     if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = 'Could not save. Your meal is still here; try again.';
+        });
+    }
   }
 
   @override
@@ -533,6 +592,16 @@ class _MealEditorState extends State<MealEditor> {
           style: F.head.copyWith(color: p.ink)),
       const SizedBox(height: S.x4),
       OsTextField(controller: _label, label: 'Name', hint: 'My breakfast'),
+      if (_failed)
+        StatusCard(
+          'Foods could not load',
+          'Retry before editing this meal.',
+          fix: 'Retry',
+          onFix: () {
+            setState(() => _failed = false);
+            _loadDefs();
+          },
+        ),
       const SizedBox(height: S.x3),
       Wrap(spacing: S.x2, runSpacing: S.x2, children: [
         for (final m in kMeals)
@@ -567,7 +636,13 @@ class _MealEditorState extends State<MealEditor> {
       BigButton('Add a food',
           icon: LucideIcons.plus, color: C.domFood, soft: true, onTap: _addItem),
       const SizedBox(height: S.x3),
-      BigButton('Save', color: C.domFood, onTap: _save),
+      if (_error != null)
+        Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
+      BigButton(
+        _saving ? 'Saving…' : 'Save',
+        color: C.domFood,
+        onTap: _saving ? null : _save,
+      ),
     ]);
   }
 }

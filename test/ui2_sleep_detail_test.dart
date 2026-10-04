@@ -324,6 +324,9 @@ void main() {
         longestSleepMin: 162,
       ),
     );
+    expect(find.textContaining('3+ wake-ups ≥5 min'), findsOneWidget);
+    await t.tap(find.text('Night details'));
+    await t.pumpAndSettle();
     expect(find.textContaining('At least 3 wake-ups of 5 minutes or more'),
         findsOneWidget);
     expect(find.textContaining('invisible to a wrist'), findsOneWidget);

@@ -1,51 +1,34 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** The matching minimal build profile and public-repository macOS workflow produced the accepted
-build `0.9.34` build `67`, cached under
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`
-(`../setup.md` owns the cache location). `0.9.33` build `66` is now installed over build `65` and awaits
-its device pass. Build `65` was installed after a clean
-same-identity reinstall and verified encrypted restore; Akshat confirmed the recovered app works. The current
-minimal profile intentionally has no HealthKit capability, so it does not import the Apple Health
-aggregate. Device testing verified the direct-pedometer path after enabling **This phone → Steps**;
-the earlier roughly-200 count was the band fallback. Keep phone steps enabled for normal
-iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest all-day step
-reconstruction. History/data restore, signed identity, pairing preservation, exact-ID manual refresh,
-and a controlled forced-due Wi-Fi daemon cycle are verified; installed About/profile details and the
-remaining physical behavior remain open. Build 63 excludes GPS. The uninstalled `0.9.31`
-build `64` artifact is superseded and must not be installed. Build `65` enables personal GPS, hides the unsupported Oura
-pairing row, and adds confirmed-phone-stillness filtering for wrist step noise. Its focused tests,
-macOS build, payload validation, manifest, and downloaded checksum pass. Build `67` is the accepted
-build, cached at
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`. Do not
-substitute an arbitrary upstream release IPA and claim it matches this capability profile.
+**State:** Build `0.9.37`/`70` is installed over build 69 and accepted. Source `0.9.38`/`71` is
+locally test-validated; its public CI, IPA and phone acceptance are pending. Akshat confirmed build 70's
+feature phone check and completed automatic-refresh registration for version `0.9.37` at
+`com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
+`testing\` is empty. `../setup.md` owns the artifact, hash and workflow records.
 
-### Remaining build-65 candidate pass
+The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →
+Steps** is enabled. Encrypted history restore, identity/data/pairing preservation and a controlled
+forced-due Wi-Fi daemon refresh were verified on earlier builds. The broader lifecycle,
+background/restoration, naturally elapsed refresh and expiry-recovery gates remain open in
+`../CLAUDE.md`; locked-screen voice cues have no separately reported result.
 
-1. Build 65 was installed cleanly after same-ID overwrite attempts stalled. The encrypted build-63
-   export was restored into an isolated test install before removal, then restored into build 65.
-   Keep that backup and passphrase; do not install cached build 64.
-2. Confirm **About → Version** shows `0.9.32 (65)`; history is present, pairing works; **This
-   phone → Steps** is still enabled and advances plausibly; and no Oura pairing row appears.
-3. Include a phone-stillness check: leave the phone stationary during ordinary wrist/household
-   motion and confirm the app does not invent a large band-step block; then carry the phone on a
-   short walk and confirm real steps advance. Record a short outdoor walk/run: grant While Using location, verify the route continues while the
-   phone is locked/backgrounded, stop it, relaunch, and inspect the saved route. Also confirm the band
-   reconnects and drains normally.
-4. **If a manual install sits at "Installing 88%", open WHOOP on the phone and swipe it away in
-   the app switcher.** That released a stuck build-67 install at once, twice. The cause is not
-   established: the stall happened in automatic and exact bundle-ID mode, with the phone unlocked,
-   and once when the app had been swiped away before starting; left alone, one install took 43
-   minutes and then completed. Reading the phone's own log during a stall is the next diagnostic.
-   Either bundle-ID mode works: both produce `com.akshat.personal.whoop.5564K8D4SV`, both have
-   completed over the existing app with data and pairing intact, and the health check accepts
-   either for WHOOP. Leave the separate automatic-refresh control enabled. `ENROLLED` plus an advanced signing timestamp are both
-   required. A controlled forced-due unattended Wi-Fi daemon cycle passes; the next naturally elapsed
-   cycle remains open. The real app retained its data and band connection after that daemon cycle.
-   The shared health check must also print an `IDENTITY` line. An unattended refresh has been
-   observed only from an exact-mode registration so far.
-5. Keep at most one candidate in `testing\` until all checks pass. Build 67 is the accepted
-   build in `backup\`.
+### Current install and refresh procedure
+
+1. Use the accepted build above for routine recovery/refresh. Keep a current encrypted off-phone
+   export; install upgrades over the existing app with the same Apple Account and signed identity.
+2. WHOOP accepts either bundle-ID mode. In exact mode turn **Use automatic bundle ID** off and
+   enter `com.akshat.personal.whoop.5564K8D4SV`; in automatic mode verify it resolves to that same
+   final ID. Keep the separate automatic-refresh control enabled.
+3. **If a manual install sits at "Installing 88%", open WHOOP on the phone and swipe it away in
+   the app switcher.** This released a stuck build-67 install at once, twice. The cause is unknown:
+   the stall happened in both modes and once after the app had already been swiped away; one
+   untouched install completed after 43 minutes. Phone logs during a stall remain the diagnostic.
+4. Require `ENROLLED` for the exact signed identity/current version, no install error, and an
+   `IDENTITY` line in either permitted mode. An advanced signing timestamp plus real-app launch
+   corroborates refresh; the controlled unattended refresh was observed from exact mode only.
+5. New candidates go in the single `testing\` slot and promote only after their phone pass and
+   completed current-version enrollment. `backup\` holds only the accepted build.
 
 This is Akshat's selected no-paid-membership path: build a standard unsigned Flutter release/AOT IPA
 on a compatible Mac environment when source changes, then sign/install and routinely refresh that

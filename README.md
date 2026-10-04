@@ -2,8 +2,10 @@
 
 > **Personal-fork status:** This checkout preserves the upstream-capable app, but Akshat's active
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
-> deterministic build profile and public manual workflow produced the accepted build `0.9.34` build
-> `67` (installed, working on the phone). `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
+> deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
+> `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` is empty.
+> `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
 > HealthKit and queries the direct phone pedometer only. Device testing verified step import after
@@ -21,18 +23,26 @@
 > `com.akshat.personal.whoop.5564K8D4SV` preserves data and pairing while advancing signing. A
 > controlled forced-due unattended Wi-Fi daemon cycle also passes; the next naturally elapsed cycle
 > and remaining GPS/background checks remain open — see `CLAUDE.md`.
-> Source `0.9.37`/`70` adds the MyFitnessPal-style Food diary, maintenance history with body
+> Accepted `0.9.37`/`70` adds the MyFitnessPal-style Food diary, maintenance history with body
 > weight, phone-first steps, a cleaner Sleep screen, run medals and voice cues, and the 30-day
-> chart touch fix (`CLAUDE.md`, `todo.md`).
-> Candidate `0.9.36`/`69` (on the phone, check open) adds run calories by distance and by heart rate, a Running row in
+> chart touch fix (`CLAUDE.md`, `metrics-map.md`).
+> Source `0.9.38`/`71` implements the approved UI and food cleanup: wrapping chart readouts,
+> monthly history, Today on fresh launch, My foods by default, direct scanning, editable Quick add
+> with optional fibre, honest weekly coverage and automatic card refresh. Save/date races and
+> retryable failures have regressions. Algorithm 88 corrects movement calendar age across DST.
+> Local release checks pass; public CI/build and phone verification are pending. Build 70 remains
+> the accepted recovery build (`todo.md`, `setup.md`).
+> Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
 > maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger
-> cursors and pull to refresh (`CLAUDE.md`, `todo.md`).
-> Candidate `0.9.35`/`68` is installed over build 67; its device pass is open. It adds maintenance
+> cursors and pull to refresh; its phone check passed as part of build 70's (`metrics-map.md`).
+> Superseded `0.9.35`/`68` was installed over build 67; its first run screen was phone-confirmed.
+> It adds maintenance
 > calories, a dark-only palette, a Strava-style run screen with Apple Maps, running trends, live
 > heart rate on Today and faster refresh.
-> Build `0.9.34`/`67` is installed and accepted. It redesigns the app as four single-page tabs,
+> Superseded `0.9.34`/`67` was the previous accepted recovery/refresh build and is no longer cached.
+> It redesigns the app as four single-page tabs,
 > Today · Trends · Food · Train; see `metrics-map.md`.
-> Candidate `0.9.33`/`66` is now installed over build 65; its device pass is open. It removes Nerd stats, the Wellness tab and
+> Superseded `0.9.33`/`66` was installed over build 65 but never promoted. It removes Nerd stats, the Wellness tab and
 > water logging, the journal and Health → Labs for a simpler stats-only UI, and folds Vitals into
 > Overview. It adds a scrubbable all-day heart-rate chart, a cleaner Sleep screen and a rebuilt
 > Nutrition log (saved meals, foods by grams, macros, month history); `metrics-map.md` lists every

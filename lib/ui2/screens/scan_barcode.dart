@@ -17,7 +17,7 @@ import '../ui2.dart';
 
 /// Read one barcode. Resolves the digits, or null if the sheet was closed,
 /// the camera was refused, or there is no camera at all.
-Future<String?> scanBarcode(BuildContext c) => showModalBottomSheet<String>(
+Future<String?> scanBarcode(BuildContext c, {VoidCallback? onManual}) => showModalBottomSheet<String>(
       context: c,
       isScrollControlled: true,
       sheetAnimationStyle: sheetMotion(c),
@@ -25,11 +25,12 @@ Future<String?> scanBarcode(BuildContext c) => showModalBottomSheet<String>(
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
       ),
-      builder: (_) => const _ScanSheet(),
+      builder: (_) => _ScanSheet(onManual: onManual),
     );
 
 class _ScanSheet extends StatefulWidget {
-  const _ScanSheet();
+  const _ScanSheet({this.onManual});
+  final VoidCallback? onManual;
 
   @override
   State<_ScanSheet> createState() => _ScanSheetState();
@@ -74,7 +75,7 @@ class _ScanSheetState extends State<_ScanSheet> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(S.x5, S.x4, S.x5, S.x6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -89,7 +90,8 @@ class _ScanSheetState extends State<_ScanSheet> {
                 Pressable(
                   semanticLabel: l?.scanBarcodeClose ?? 'Close',
                   onTap: () => Navigator.of(c).pop(),
-                  child: Icon(LucideIcons.x, size: 20, color: p.ink3),
+                  child: SizedBox(width: 44, height: 44,
+                    child: Icon(LucideIcons.x, size: 20, color: p.ink3)),
                 ),
               ],
             ),
@@ -101,7 +103,7 @@ class _ScanSheetState extends State<_ScanSheet> {
                 child: MobileScanner(
                   controller: _controller,
                   onDetect: _onDetect,
-                  errorBuilder: (_, e) => _CameraProblem(e),
+                  errorBuilder: (_, e) => _CameraProblem(e, onManual: widget.onManual),
                 ),
               ),
             ),
@@ -122,8 +124,9 @@ class _ScanSheetState extends State<_ScanSheet> {
 /// No camera, or no permission. Both end the same way — type the numbers —
 /// so the card says which one happened and stops there.
 class _CameraProblem extends StatelessWidget {
-  const _CameraProblem(this.error);
+  const _CameraProblem(this.error, {this.onManual});
   final MobileScannerException error;
+  final VoidCallback? onManual;
 
   @override
   Widget build(BuildContext c) {
@@ -144,7 +147,7 @@ class _CameraProblem extends StatelessWidget {
                   'This device would not open its camera for the scanner.'),
           fix: l?.scanBarcodeTypeInstead ?? 'Type the numbers instead',
           icon: LucideIcons.cameraOff,
-          onFix: () => Navigator.of(c).pop(),
+          onFix: () { onManual?.call(); Navigator.of(c).pop(); },
         ),
       ),
     );

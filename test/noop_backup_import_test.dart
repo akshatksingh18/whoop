@@ -373,15 +373,16 @@ void main() {
     // span a day at a time under a 400-iteration guard, so past ~400 days it
     // never reaches the target date: the day is missing and the import still
     // reports success.
-    const first = 1690000000; // 2023-07
-    const later = first + 500 * 86400;
+    // Each one-hour block belongs to one LOCAL day in every host timezone.
+    final first = DateTime(2023, 7, 22, 12).millisecondsSinceEpoch ~/ 1000;
+    final later = DateTime(2023, 7, 22 + 500, 12).millisecondsSinceEpoch ~/ 1000;
     final path = p.join(tmp.path, 'gap.sqlite');
     if (File(path).existsSync()) File(path).deleteSync();
     final src = await databaseFactory.openDatabase(path);
     await src.execute('CREATE TABLE hrSample (deviceId TEXT, ts INTEGER, '
         'bpm INTEGER, PRIMARY KEY (deviceId, ts))');
     final b = src.batch();
-    for (final t0 in const [first, later]) {
+    for (final t0 in [first, later]) {
       for (var i = 0; i < 3600; i++) {
         b.insert('hrSample', {'deviceId': 'd', 'ts': t0 + i, 'bpm': 62});
       }

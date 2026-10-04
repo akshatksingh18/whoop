@@ -1,11 +1,8 @@
 // Nutrition — the log, the dictionary, and the day rollup.
 //
-// The primary logging unit is an EATING OCCASION, not a food. A one-tap "ate"
-// with no macros at all is a complete, valid log: a trial comparing detailed
-// against simplified logging found 49% of days logged versus 97%, with
-// identical six-month weight loss. Macro detail is an opt-in tier and never
-// the onboarding path, so every nutrient column is nullable and the rollup is
-// built to report what it does not know rather than to zero-fill it.
+// The personal diary logs foods into meals. Older numberless eating occasions
+// remain readable, but cannot count toward energy averages. Nutrient columns
+// stay nullable: optional macros are intentionally untracked when left blank.
 //
 // NULL IS NOT ZERO. A barcode that returns protein but no fibre writes
 // `fibre_g = NULL`, and any total that summed a NULL reports itself partial.
@@ -16,6 +13,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'day_label.dart';
@@ -159,6 +157,20 @@ FoodSource _sourceOf(String s) => switch (s) {
 bool isVerified(FoodSource s) => s == FoodSource.verified;
 
 const kMeals = <String>['breakfast', 'lunch', 'dinner', 'snack'];
+
+/// A chosen diary day keeps its own local date. Historical entries default to
+/// the meal's clock time; the amount/edit forms let the user adjust it.
+DateTime foodEntryTime(String date, String meal, {DateTime? now}) {
+  final clock = now ?? DateTime.now();
+  if (date == dayLabelOf(clock)) return clock;
+  final d = DateTime.parse(date);
+  return DateTime(d.year, d.month, d.day, switch (meal) {
+    'breakfast' => 8,
+    'lunch' => 13,
+    'dinner' => 19,
+    _ => 16,
+  });
+}
 
 class FoodEntry {
   const FoodEntry({
@@ -466,8 +478,8 @@ DayLogState dayLogState(
   final spanned = entries.any((e) {
     final ts = e.atTs;
     if (ts == null) return false;
-    return DateTime.fromMillisecondsSinceEpoch(ts * 1000).hour >=
-        kEveningLogHour;
+    final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+    return dayLabelOf(at) == date && at.hour >= kEveningLogHour;
   });
   return spanned ? DayLogState.complete : DayLogState.partial;
 }
@@ -550,21 +562,32 @@ class NutritionWindow {
 class NutritionDb {
   NutritionDb._();
 
+  /// Committed food changes, independent of the live heart-rate notifier.
+  static final revision = ValueNotifier<int>(0);
+  static void changed() => revision.value++;
+
   static String newId() => 'f${DateTime.now().microsecondsSinceEpoch}';
 
   /// Write one entry. [FoodEntry.sanitised] runs HERE rather than in the UI:
   /// a photo estimate must not be able to reach the table with a calorie
   /// total no matter which screen wrote it.
-  static Future<void> put(Database db, FoodEntry e) async {
+  static Future<void> put(
+    DatabaseExecutor db,
+    FoodEntry e, {
+    bool notify = true,
+  }) async {
     await db.insert(
       'food_entry',
       e.sanitised.toRow(DateTime.now().millisecondsSinceEpoch),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    if (notify) changed();
   }
 
-  static Future<void> delete(Database db, String id) =>
-      db.delete('food_entry', where: 'id = ?', whereArgs: [id]);
+  static Future<void> delete(Database db, String id) async {
+    await db.delete('food_entry', where: 'id = ?', whereArgs: [id]);
+    changed();
+  }
 
   static Future<List<FoodEntry>> entriesForDay(Database db, String date) async {
     final rows = await db.query(
@@ -628,9 +651,16 @@ class NutritionDb {
   /// One dictionary entry by key. The key for a scanned product is its
   /// barcode, which makes this table the barcode cache — a second scan of the
   /// same packet is a local read and no network request at all.
-  static Future<Map<String, Object?>?> foodDef(Database db, String key) async {
-    final rows =
-        await db.query('food_def', where: 'key = ?', whereArgs: [key], limit: 1);
+  static Future<Map<String, Object?>?> foodDef(
+    DatabaseExecutor db,
+    String key,
+  ) async {
+    final rows = await db.query(
+      'food_def',
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
     return rows.isEmpty ? null : rows.first;
   }
 
@@ -642,6 +672,56 @@ class NutritionDb {
       ...def,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    changed();
+  }
+
+  /// Only months with retained entries, plus this month even when empty.
+  static Future<List<String>> historyMonths(
+    Database db, {
+    DateTime? now,
+  }) async {
+    final current = dayLabelOf(now ?? DateTime.now()).substring(0, 7);
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT substr(date, 1, 7) AS month FROM food_entry '
+      'WHERE date <= ? ORDER BY month DESC',
+      [dayLabelOf(now ?? DateTime.now())],
+    );
+    return {current, for (final r in rows) r['month'] as String}.toList()
+      ..sort((a, b) => b.compareTo(a));
+  }
+
+  /// A calendar month, bounded by today, without reading all older history.
+  static Future<NutritionWindow> month(
+    Database db,
+    String month, {
+    DateTime? now,
+  }) async {
+    final start = DateTime.parse('$month-01');
+    final next = DateTime(start.year, start.month + 1);
+    final today = dayLabelOf(now ?? DateTime.now());
+    final rows = await db.query(
+      'food_entry',
+      where: 'date >= ? AND date < ?',
+      whereArgs: [dayLabelOf(start), dayLabelOf(next)],
+      orderBy: 'date ASC, at_ts ASC',
+    );
+    final byDay = <String, List<FoodEntry>>{};
+    for (final row in rows) {
+      final e = FoodEntry.fromRow(row);
+      (byDay[e.date] ??= []).add(e);
+    }
+    return NutritionWindow([
+      for (
+        var d = start;
+        d.isBefore(next) && dayLabelOf(d).compareTo(today) <= 0;
+        d = DateTime(d.year, d.month, d.day + 1)
+      )
+        rollupDay(
+          dayLabelOf(d),
+          byDay[dayLabelOf(d)] ?? const [],
+          today: today,
+        ),
+    ]);
   }
 
   /// Copy every entry of [fromMeal] on [fromDate] into [toMeal] on [toDate]
@@ -655,10 +735,17 @@ class NutritionDb {
       for (final e in await entriesForDay(db, fromDate))
         if (e.meal == fromMeal) e,
     ];
+    await db.transaction((tx) async {
     var i = 0;
     for (final e in src) {
-      await put(db, e.copyTo(toDate, toMeal, newId: '${newId()}_${i++}'));
+        await put(
+          tx,
+          e.copyTo(toDate, toMeal, newId: '${newId()}_${i++}'),
+          notify: false,
+        );
     }
+    });
+    if (src.isNotEmpty) changed();
     return src.length;
   }
 
@@ -834,8 +921,10 @@ class MyFoods {
         'ORDER BY e.last IS NULL, e.last DESC, d.label COLLATE NOCASE ASC',
       );
 
-  static Future<void> deleteFood(Database db, String key) =>
-      db.delete('food_def', where: 'key = ?', whereArgs: [key]);
+  static Future<void> deleteFood(Database db, String key) async {
+    await db.delete('food_def', where: 'key = ?', whereArgs: [key]);
+    NutritionDb.changed();
+  }
 
   static Future<List<MealTemplate>> meals(Database db) async {
     final rows = await db.query('meal_template',
@@ -843,12 +932,19 @@ class MyFoods {
     return [for (final r in rows) MealTemplate.fromRow(r)];
   }
 
-  static Future<void> putMeal(Database db, MealTemplate m) => db.insert(
-      'meal_template', m.toRow(DateTime.now().millisecondsSinceEpoch),
-      conflictAlgorithm: ConflictAlgorithm.replace);
+  static Future<void> putMeal(Database db, MealTemplate m) async {
+    await db.insert(
+      'meal_template',
+      m.toRow(DateTime.now().millisecondsSinceEpoch),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    NutritionDb.changed();
+  }
 
-  static Future<void> deleteMeal(Database db, String key) =>
-      db.delete('meal_template', where: 'key = ?', whereArgs: [key]);
+  static Future<void> deleteMeal(Database db, String key) async {
+    await db.delete('meal_template', where: 'key = ?', whereArgs: [key]);
+    NutritionDb.changed();
+  }
 
   /// A saved meal from the entries of one meal. Only the user's own foods
   /// (entries with a food key and grams) can go into a saved meal; the rest
@@ -878,23 +974,34 @@ class MyFoods {
   /// after the saved meal. Items whose food was since deleted are skipped.
   /// Returns how many entries were written.
   static Future<int> logMeal(
-      Database db, MealTemplate m, String date, String meal) async {
+    Database db,
+    MealTemplate m,
+    String date,
+    String meal, {
+    DateTime? now,
+  }) async {
     var n = 0;
-    final now = DateTime.now();
+    final at = foodEntryTime(date, meal, now: now);
+    await db.transaction((tx) async {
     for (final (key, grams) in m.items) {
-      final def = await NutritionDb.foodDef(db, key);
+        final def = await NutritionDb.foodDef(tx, key);
       if (def == null) continue;
       await NutritionDb.put(
-        db,
-        entryFromFood(def, grams,
+          tx,
+          entryFromFood(
+            def,
+            grams,
             id: '${NutritionDb.newId()}_$n',
             date: date,
             meal: meal,
-            atTs: now.millisecondsSinceEpoch ~/ 1000)
-          .inGroup(m.label),
+            atTs: at.millisecondsSinceEpoch ~/ 1000,
+          ).inGroup(m.label),
+          notify: false,
       );
       n++;
     }
+    });
+    if (n > 0) NutritionDb.changed();
     return n;
   }
 }
@@ -907,18 +1014,19 @@ class BodyWeight {
 
   /// Record today's (or [date]'s) weight; a second reading the same day
   /// replaces the first.
-  static Future<void> put(Database db, String date, double kg) => db.insert(
-        'body_weight',
-        {
+  static Future<void> put(Database db, String date, double kg) async {
+    await db.insert('body_weight', {
           'date': date,
           'kg': kg,
           'at_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    NutritionDb.changed();
+  }
 
-  static Future<void> delete(Database db, String date) =>
-      db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
+  static Future<void> delete(Database db, String date) async {
+    await db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
+    NutritionDb.changed();
+  }
 
   /// Every reading on or after [sinceDate], oldest first.
   static Future<List<({String date, double kg})>> since(

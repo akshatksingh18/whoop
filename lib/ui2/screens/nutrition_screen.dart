@@ -6,9 +6,9 @@
 //   · Protein, carbs, fat and fibre against your own targets.
 //   · Breakfast, lunch, dinner and snacks, each with its own Add — from saved
 //     meals, from your foods by weight, or quick add / barcode.
-//   · Maintenance: what the day cost as a floor (BMR + steps + 10% of the
+//   · Maintenance: what the day cost as a floor (BMR + steps + runs + 10% of the
 //     food logged), shown beside the food, never changing the goal.
-//   · History: every day of the last month against the goal.
+//   · History: a trailing chart and calendar-month groups of retained entries.
 //   · Foods: the foods and saved meals you log from.
 
 import 'package:flutter/material.dart';
@@ -57,6 +57,8 @@ class NutritionScreen extends StatefulWidget {
 class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   int _tab = 0;
   NutritionWindow? _month;
+  List<String> _historyMonths = const [];
+  bool _failed = false;
   List<Map<String, Object?>> _foods = const [];
   List<MealTemplate> _meals = const [];
 
@@ -84,8 +86,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 
   Future<void> _load() async {
     final t = beginRead(#nutrition);
+    try {
     final db = await LocalDb.instance;
     final month = await NutritionDb.window(db, days: 31);
+      final months = await NutritionDb.historyMonths(db);
     final now = DateTime.now();
     final weights = await BodyWeight.since(
         db, dayLabelOf(DateTime(now.year, now.month, now.day - 60)));
@@ -96,16 +100,25 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     if (!stillNewest(#nutrition, t)) return;
     setState(() {
       _month = month;
+        _historyMonths = months;
       _foods = foods;
       _meals = meals;
       _steps = steps;
       _runs = runs;
       _weights = weights;
       _loading = false;
+        _failed = false;
     });
     // Counted when the read has LANDED, so a test waiting on it also waits
     // for the database it opened.
     NutritionScreen.debugLoads++;
+    } catch (_) {
+      if (stillNewest(#nutrition, t))
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+    }
   }
 
   @override
@@ -126,14 +139,27 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             onTap: () async {
               if (await editNutritionGoals(c)) await _load();
             },
-            child: Icon(LucideIcons.target, size: 22, color: P.of(c).on(C.domFood)),
+              child: Icon(
+                LucideIcons.target,
+                size: 22,
+                color: P.of(c).on(C.domFood),
           ),
         ),
-        SubTabs(const ['Today', 'History', 'Foods'], _tab,
+          ),
+          SubTabs(
+            const ['Today', 'History', 'Foods'],
+            _tab,
             (i) => setState(() => _tab = i),
             color: C.domFood),
         const SizedBox(height: S.x5),
-        if (_loading)
+          if (_failed)
+            StatusCard(
+              'Food could not load',
+              'Your saved log is intact.',
+              fix: 'Retry',
+              onFix: _load,
+            )
+          else if (_loading)
           const Center(child: CircularProgressIndicator())
         else
           switch (_tab) {
@@ -198,7 +224,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     for (var i = 0; i < days.length; i++) {
       if (days[i].date.compareTo(monday) < 0) continue;
       final e = eaten[i], mm = m[i];
-      if (e == null || mm == null) continue;
+      if (!days[i].countsTowardAverages || e == null || mm == null) continue;
       deficit += mm - e;
       eatSum += e;
       mSum += mm;
@@ -210,13 +236,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     String says(int i) {
       final d = days[i];
       final mm = m[i], e = eaten[i];
-      return [
-        dayTitle(d.date),
-        if (mm != null) 'maintenance ${thousands(mm)}',
-        e == null ? 'no food logged' : 'ate ${thousands(e)}',
-        if (mm != null && e != null)
-          '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}',
-      ].join(' · ');
+      return '${dayTitle(d.date)}${d.state == DayLogState.inProgress ? ' · so far' : ''}\n${[if (mm != null) 'maintenance ${thousands(mm)}', e == null ? 'no food logged' : 'ate ${thousands(e)}', if (mm != null && e != null) '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}'].join(' · ')}';
     }
 
     final pick = _histPick;
@@ -236,11 +256,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             ]),
             const SizedBox(height: S.x2),
             Text(
-                'Over $counted day${counted == 1 ? '' : 's'} with food logged · '
-                'about ${(deficit / kKcalPerKg).abs().toStringAsFixed(2)} kg '
-                '${deficit >= 0 ? 'of fat' : 'gained'} at the floor',
-                style: F.cap.copyWith(color: p.ink3)),
-          ]),
+                  '$counted completed day${counted == 1 ? '' : 's'} · maintenance floor. '
+                  'Today and detectably incomplete logs are excluded.',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
         ),
       if (axis != null) ...[
         const SizedBox(height: S.x3),
@@ -248,6 +269,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           child: ChartFrame(
             title: 'Maintenance and eaten',
             unit: 'kcal',
+              footnote: 'Last 31 days · tap or drag for daily values',
             height: 130,
             yAxis: axis,
             series: eaten,
@@ -270,36 +292,44 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                 ),
                 Positioned.fill(
                   child: CustomPaint(
-                    painter: LineChart(eaten, p.on(C.domFood),
-                        fill: false, dots: true, axis: axis, dotInk: p.card),
+                        painter: LineChart(
+                          eaten,
+                          p.on(C.domFood),
+                          fill: false,
+                          dots: true,
+                          axis: axis,
+                          dotInk: p.card,
                   ),
                 ),
-              ]),
+                    ),
+                  ],
+                ),
             ),
           ),
         ),
       ],
       const SizedBox(height: S.x3),
-      Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
-          for (var i = days.length - 1; i >= 0; i--)
-            _HistoryRow(
-              day: days[i],
-              goal: _targetOf(profile, 'kcal_target'),
-              maintenance: m[i],
-              onTap: () async {
-                await Navigator.of(c).push(MaterialPageRoute<void>(
-                  builder: (_) => detailScaffold(context, dayTitle(days[i].date), [
-                    NutritionDayView(date: days[i].date, onChanged: _load),
-                  ]),
-                ));
-                await _load();
-              },
+        Text(
+          'By month',
+          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
             ),
-        ]),
+        const SizedBox(height: S.x2),
+        for (final month in _historyMonths)
+          _FoodHistoryMonth(
+            key: ValueKey(month),
+            month: month,
+            profile: profile,
+            runs: _runs,
+            onChanged: _load,
       ),
-    ]);
+        const SizedBox(height: S.x2),
+        Text(
+          'Completed = a past day with calories on every entry and an entry after 5 pm. '
+          'Food you forget to log cannot be detected.',
+          style: F.over.copyWith(color: p.ink3),
+        ),
+      ],
+    );
   }
 
   /// The day under the finger on the history chart.
@@ -356,9 +386,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         const SizedBox(height: S.x3),
         Text(
             measured == null
-                ? 'Weigh in most mornings and log food every day. After two '
-                    'weeks this shows the maintenance your weight actually '
-                    'measures.'
+                ? 'Log morning weight and full food days. After two weeks, '
+                      'your weight trend can estimate maintenance.'
                 : 'Measured maintenance about ${thousands(measured.kcal)} kcal · '
                     '${measured.kgPerWeek <= 0 ? 'losing' : 'gaining'} '
                     '${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week '
@@ -373,14 +402,32 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final kg = await askText(c, 'Log weight', 'Weight (kg)',
         (_weights.isEmpty ? Profile.fromMap(app.user).weightKg : _weights.last.kg)
                 ?.toStringAsFixed(1) ??
-            '');
+          '',
+      validate: (s) {
+        final v = Typed.of(s).value;
+        return v == null || v < 30 || v > 300
+            ? 'Enter a weight from 30 to 300 kg.'
+            : null;
+      },
+      keyboard: const TextInputType.numberWithOptions(decimal: true),
+    );
     final v = kg == null ? null : Typed.of(kg).value;
     if (v == null || v < 30 || v > 300) return;
+    try {
     await BodyWeight.put(await LocalDb.instance, todayLabel(), v);
     // The profile weight follows the scale, so resting energy and every
     // calorie figure use the current weight.
     await app.updateProfile({'weight_kg': v});
+      app.bumpInsights();
     await _load();
+    } catch (_) {
+      if (c.mounted)
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          const SnackBar(
+            content: Text('Weight was not saved. Please try again.'),
+          ),
+        );
+    }
   }
 
   // ── FOODS ────────────────────────────────────────────────────────────────
@@ -388,8 +435,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   Widget _foodsTab(BuildContext c) {
     final p = P.of(c);
     Future<void> edit(Future<Object?> Function() f) async {
-      await f();
-      await _load();
+      try {
+        await f();
+        if (mounted) await _load();
+      } catch (_) {
+        if (c.mounted) ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          const SnackBar(content: Text('Could not change your saved food. Please try again.')));
+      }
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -516,10 +568,15 @@ class NutritionDayView extends StatefulWidget {
   State<NutritionDayView> createState() => _NutritionDayViewState();
 }
 
-class _NutritionDayViewState extends State<NutritionDayView> {
+class _NutritionDayViewState extends State<NutritionDayView>
+    with RevisionReload {
   NutritionDay? _day;
   num? _steps;
   List<RunSummary> _runs = const [];
+  bool _failed = false;
+
+  @override
+  void reload() => _load();
 
   @override
   void initState() {
@@ -530,20 +587,32 @@ class _NutritionDayViewState extends State<NutritionDayView> {
   @override
   void didUpdateWidget(NutritionDayView old) {
     super.didUpdateWidget(old);
-    if (old.date != widget.date) _load();
+    if (old.date != widget.date) {
+      _day = null;
+      _load();
+    }
   }
 
   Future<void> _load() async {
+    final t = beginRead(#foodDay);
+    final date = widget.date;
+    try {
     final db = await LocalDb.instance;
-    final es = await NutritionDb.entriesForDay(db, widget.date);
-    final steps = mounted ? await stepsOn(context, widget.date) : null;
-    final runs = mounted ? await _allRuns(repoOf(context)) : const <RunSummary>[];
-    if (mounted) {
+      final es = await NutritionDb.entriesForDay(db, date);
+      final steps = mounted ? await stepsOn(context, date) : null;
+      final runs = mounted
+          ? await _allRuns(repoOf(context))
+          : const <RunSummary>[];
+      if (stillNewest(#foodDay, t)) {
       setState(() {
-        _day = rollupDay(widget.date, es, today: todayLabel());
+          _day = rollupDay(date, es, today: todayLabel());
         _steps = steps;
         _runs = runs;
+          _failed = false;
       });
+      }
+    } catch (_) {
+      if (stillNewest(#foodDay, t)) setState(() => _failed = true);
     }
   }
 
@@ -567,6 +636,13 @@ class _NutritionDayViewState extends State<NutritionDayView> {
   Widget build(BuildContext c) {
     final profile = c.watch<AppState>().user ?? const {};
     final d = _day;
+    if (_failed)
+      return StatusCard(
+        'Day could not load',
+        'Try reading your saved food again.',
+        fix: 'Retry',
+        onFix: _load,
+      );
     if (d == null) return const Center(child: CircularProgressIndicator());
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       CalorieCard(
@@ -663,14 +739,14 @@ class MacroCard extends StatelessWidget {
       ('Carbs', day.carbs.value, _targetOf(profile, 'carbs_target'), C.blue),
       ('Fat', day.fat.value, _targetOf(profile, 'fat_target'), C.yellow),
       ('Fibre', day.fibre.value, _targetOf(profile, 'fibre_target'), C.green),
-    ];
+    ].where((r) => r.$1 == 'Protein' || r.$2 != null || r.$3 != null).toList();
     return Surface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) const SizedBox(height: S.x3),
           ProgressCard(
             rows[i].$1,
-            '${(rows[i].$2 ?? 0).round()} g',
+              rows[i].$2 == null ? '—' : '${rows[i].$2!.round()} g',
             rows[i].$3 == null ? '' : 'of ${rows[i].$3!.round()} g',
             rows[i].$3 == null || rows[i].$3! <= 0
                 ? 0
@@ -678,7 +754,13 @@ class MacroCard extends StatelessWidget {
             rows[i].$4,
           ),
         ],
-      ]),
+          const SizedBox(height: S.x2),
+          Text(
+            'Logged macros only · blank values are not tracked',
+            style: F.over.copyWith(color: P.of(c).ink3),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -733,6 +815,163 @@ class MealSection extends StatelessWidget {
   }
 }
 
+/// Closed months do not read their daily entries until opened.
+class _FoodHistoryMonth extends StatefulWidget {
+  const _FoodHistoryMonth({
+    super.key,
+    required this.month,
+    required this.profile,
+    required this.runs,
+    required this.onChanged,
+  });
+  final String month;
+  final Map<String, dynamic> profile;
+  final List<RunSummary> runs;
+  final VoidCallback onChanged;
+
+  @override
+  State<_FoodHistoryMonth> createState() => _FoodHistoryMonthState();
+}
+
+class _FoodHistoryMonthState extends State<_FoodHistoryMonth>
+    with RevisionReload {
+  late bool _open = widget.month == todayLabel().substring(0, 7);
+  NutritionWindow? _window;
+  Map<String, double?> _maintenance = const {};
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_open) _load();
+  }
+
+  @override
+  void reload() {
+    if (_open) {
+      _load();
+    } else {
+      _window = null;
+    }
+  }
+
+  Future<void> _load() async {
+    final t = beginRead(#month);
+    try {
+      final win = await NutritionDb.month(await LocalDb.instance, widget.month);
+      final pr = Profile.fromMap(widget.profile);
+      final maintenance = <String, double?>{};
+      for (final d in win.days.where((d) => d.logged)) {
+        if (!mounted || !stillNewest(#month, t)) return;
+        final steps = await stepsOn(context, d.date);
+        maintenance[d.date] = DayUpkeep(
+          pr,
+          steps: steps,
+          runs: runEnergyOn(
+            widget.runs,
+            d.date,
+            weightKg: pr.weightKg,
+            daySteps: steps,
+          ),
+          eaten: d.kcal.value ?? 0,
+        ).parts?.total;
+      }
+      if (stillNewest(#month, t))
+        setState(() {
+          _window = win;
+          _maintenance = maintenance;
+          _failed = false;
+        });
+    } catch (_) {
+      if (stillNewest(#month, t)) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final days = _window?.days
+        .where((d) => d.logged)
+        .toList()
+        .reversed
+        .toList();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: S.x3),
+      child: Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: ExpansionTile(
+          key: PageStorageKey('food-${widget.month}'),
+          initiallyExpanded: _open,
+          tilePadding: EdgeInsets.zero,
+          shape: const Border(),
+          collapsedShape: const Border(),
+          iconColor: p.on(C.domFood),
+          collapsedIconColor: p.ink3,
+          title: Text(
+            MaterialLocalizations.of(
+              c,
+            ).formatMonthYear(DateTime.parse('${widget.month}-01')),
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            days == null
+                ? 'Browse daily entries'
+                : '${days.length} day${days.length == 1 ? '' : 's'} logged · ${_window!.counted.length} completed',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          onExpansionChanged: (open) {
+            setState(() => _open = open);
+            if (open && (_window == null || _failed)) _load();
+          },
+          children: [
+            if (_failed)
+              StatusCard(
+                'Month could not load',
+                'Try reading it again.',
+                fix: 'Retry',
+                onFix: _load,
+              )
+            else if (days == null)
+              const Padding(
+                padding: EdgeInsets.all(S.x4),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (days.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: S.x4),
+                child: Text(
+                  'No food logged this month yet.',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              )
+            else
+              for (final d in days)
+                _HistoryRow(
+                  day: d,
+                  goal: _targetOf(widget.profile, 'kcal_target'),
+                  maintenance: _maintenance[d.date],
+                  onTap: () async {
+                    await Navigator.of(c).push(
+                      MaterialPageRoute<void>(
+                        builder: (routeContext) =>
+                            detailScaffold(routeContext, dayTitle(d.date), [
+                              NutritionDayView(
+                                date: d.date,
+                                onChanged: widget.onChanged,
+                              ),
+                            ]),
+                      ),
+                    );
+                    if (mounted) _load();
+                  },
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _HistoryRow extends StatelessWidget {
   const _HistoryRow(
       {required this.day, required this.goal, this.maintenance, this.onTap});
@@ -752,12 +991,16 @@ class _HistoryRow extends StatelessWidget {
       semanticLabel: prettyDay(day.date),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Expanded(
-                child: Text(prettyDay(day.date),
-                    style: F.body.copyWith(color: p.ink))),
-            Text(kcal == null ? '–' : '${kcal.round()} kcal',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Wrap(
+              spacing: S.x3,
+              runSpacing: S.x1,
+              children: [
+                Text(prettyDay(day.date), style: F.body.copyWith(color: p.ink)),
+                Text(
+                  kcal == null ? '–' : '${kcal.round()} kcal',
                 style: F.body.copyWith(
                     color: g != null && kcal != null && kcal > g
                         ? p.on(C.red)
@@ -767,18 +1010,19 @@ class _HistoryRow extends StatelessWidget {
           Text(
               [
                 if (protein != null) 'Protein ${protein.round()} g',
-                if (maintenance != null && kcal != null)
+                if (day.state == DayLogState.inProgress) 'So far',
+                if (day.state == DayLogState.partial) 'Partial log',
+                if (maintenance != null &&
+                    kcal != null &&
+                    day.countsTowardAverages)
                   'Maintenance ${thousands(maintenance)} · '
                       '${thousands((kcal - maintenance!).abs())} '
                       '${kcal > maintenance! ? 'over' : 'under'}',
               ].join(' · '),
-              style: F.cap.copyWith(color: p.ink3)),
-          if (g != null && g > 0 && kcal != null) ...[
-            const SizedBox(height: S.x1),
-            ProgressCard('', '', '', (kcal / g).clamp(0.0, 1.0).toDouble(),
-                C.domFood),
+              style: F.cap.copyWith(color: p.ink3),
+            ),
           ],
-        ]),
+        ),
       ),
     );
   }
@@ -790,12 +1034,6 @@ class _HistoryRow extends StatelessWidget {
 /// starting point for a calorie goal, never added to it.
 Future<bool> editNutritionGoals(BuildContext c) async {
   final app = c.read<AppState>();
-  final profile = app.user ?? const {};
-  final ctrls = {
-    for (final t in kNutritionTargets)
-      t.$1: TextEditingController(
-          text: _targetOf(profile, t.$1)?.round().toString() ?? ''),
-  };
   if (!c.mounted) return false;
   final saved = await showModalBottomSheet<bool>(
     context: c,
@@ -805,7 +1043,60 @@ Future<bool> editNutritionGoals(BuildContext c) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
     ),
-    builder: (s) => Padding(
+    builder: (_) => _NutritionGoalsSheet(app),
+  );
+  return saved == true;
+}
+
+class _NutritionGoalsSheet extends StatefulWidget {
+  const _NutritionGoalsSheet(this.app);
+  final AppState app;
+  @override
+  State<_NutritionGoalsSheet> createState() => _NutritionGoalsSheetState();
+}
+
+class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
+  late final Map<String, TextEditingController> ctrls;
+  bool busy = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    ctrls = {for (final t in kNutritionTargets)
+      t.$1: TextEditingController(text: _targetOf(widget.app.user ?? const {}, t.$1)?.round().toString() ?? '')};
+  }
+
+  @override
+  void dispose() {
+    for (final t in ctrls.values) { t.dispose(); }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (busy) return;
+    final typed = {for (final e in ctrls.entries)
+      e.key: Typed.of(e.value.text, nonNegative: true)};
+    final bad = [for (final t in kNutritionTargets) if (typed[t.$1]!.bad) t.$2];
+    if (bad.isNotEmpty) {
+      setState(() => error = '${bad.join(', ')}: enter a non-negative number, or leave blank.');
+      return;
+    }
+    setState(() { busy = true; error = null; });
+    try {
+      await widget.app.updateProfile({for (final e in typed.entries) e.key: e.value.value});
+      widget.app.bumpInsights();
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) setState(() {
+        busy = false;
+        error = 'Targets could not save. Your values are still here; try again.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext s) => SafeArea(child: Padding(
       padding: EdgeInsets.only(
           left: S.x5,
           right: S.x5,
@@ -830,28 +1121,15 @@ Future<bool> editNutritionGoals(BuildContext c) async {
               ),
               const SizedBox(height: S.x3),
             ],
-            BigButton('Save',
-                color: C.domFood, onTap: () => Navigator.of(s).pop(true)),
+            if (error != null) ...[
+              Text(error!, style: F.cap.copyWith(color: P.of(s).on(C.red))),
+              const SizedBox(height: S.x3),
+            ],
+            BigButton(busy ? 'Saving…' : 'Save', color: C.domFood, onTap: busy ? null : _save),
           ],
         ),
       ),
-    ),
-  );
-  final typed = {for (final e in ctrls.entries) e.key: Typed.of(e.value.text)};
-  for (final t in ctrls.values) {
-    t.dispose();
-  }
-  if (saved != true || !c.mounted) return false;
-  final bad = [
-    for (final t in kNutritionTargets)
-      if (typed[t.$1]!.bad) t.$2,
-  ];
-  if (bad.isNotEmpty) {
-    sayUnreadable(c, bad);
-    return false;
-  }
-  await app.updateProfile({for (final e in typed.entries) e.key: e.value.value});
-  return true;
+    ));
 }
 
 // ══════════════════ MAINTENANCE ══════════════════
@@ -865,11 +1143,8 @@ Future<num?> stepsOn(BuildContext c, String date) async {
       final daily = (await repo.getToday())['daily'];
       return metricOf(daily is Map ? daily['steps'] : null).value;
     }
-    for (final p in pointsOf(await repo.getChart('steps'))) {
-      if (dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)) == date) {
-        return p.v;
-      }
-    }
+    final day = await repo.getDaySteps(date);
+    return (day['day_total'] as num?) ?? (day['total'] as num?);
   } catch (_) {}
   return null;
 }

@@ -1,26 +1,21 @@
 # WHOOP iOS build and installation profiles
 
-**State:** The repository contains the full upstream-capable iOS targets plus an implemented minimal
-personal-sideload build profile and manual public-GitHub workflow. The accepted build is `0.9.34` build
-`67` (installed and working); build 63 was the first accepted build after the AccessorySetupKit bridge fix. `0.9.33` build `66` is now installed over build `65` and awaits its
-device pass. `0.9.32`
-build `65` was installed after a clean same-identity reinstall and verified encrypted restore; the
-recovered app opens. The current minimal profile intentionally excludes HealthKit, so it does not import the
-Apple Health aggregate. Device testing verified the direct iPhone-pedometer import after enabling
-**This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone steps enabled
-for normal iPhone-carried use because WHOOP 4 band-only historical data is too low-rate for honest
-all-day step reconstruction. History restore is verified; exact About/profile details, complete
-pairing, and the remaining physical behavior remain unverified. Build 63 excludes GPS. The
-uninstalled `0.9.31` build `64` artifact is superseded. Build `65` enables the route runtime and matching While-In-Use/background capability,
-hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for wrist step noise.
-Its macOS build, payload, manifest, downloaded checksum, clean installation, encrypted restore,
-launch/data, scheduled enrollment, and exact-final-ID same-app refresh gates pass. Install stalls
-happen in both bundle-ID modes and their cause is open (see `IOS_SIDELOAD.md`). Entering
-`com.akshat.personal.whoop.5564K8D4SV` with automatic bundle ID off reaches 100% and preserves data/pairing. A controlled
-forced-due unattended Wi-Fi daemon cycle passes; the next naturally elapsed cycle and remaining
-device acceptance gates remain open.
+**State:** The repository contains full upstream-capable iOS targets plus an implemented minimal
+personal-sideload profile and public manual macOS workflow. Build `0.9.37`/`70` is installed over
+build 69 and accepted: Akshat confirmed its feature phone check and completed current-version
+automatic-refresh registration at the existing signed identity, with no error. It is cached in
+`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` is empty. `../setup.md` owns
+source/hash/workflow evidence and superseded build records.
+Source `0.9.38`/`71` implements the approved UI/food cleanup; local release checks pass and
+no new IPA is cached yet. The build-71 phone checklist is in `../todo.md`.
 
-The accepted model is standalone WHOOP plus one native hub for Squats, PageVault, and ReelVault:
+The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
+Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID
+manual refresh and a controlled forced-due Wi-Fi daemon refresh. Both WHOOP bundle-ID modes
+complete with the same final ID; `IOS_SIDELOAD.md` owns install-stall handling. Broader lifecycle,
+background/restoration and naturally elapsed signing gates remain in `../CLAUDE.md`.
+
+The accepted model is standalone WHOOP plus the native AkshatOS hub:
 two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
 not an embedded module. Its iPhone-only implementation scope is active, but installed-identity and
 physical-device verification gates remain; no paid membership or capability
@@ -91,9 +86,9 @@ It packages a conventional `Payload/Runner.app`, validates it, and emits a capab
 manifest plus SHA-256. The workflow also writes `SOURCE_REVISION=<commit>` into the ephemeral
 `.env`, which is what the in-app **Status** screen shows as the source; a local build shows "not
 recorded". The iPhone display/bundle name is `WHOOP` and the permanent bundle
-ID is `com.akshat.personal.whoop`. The accepted, installed build 67 is cached in `backup\`:
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.34-build67-accepted`.
-Builds 63–66 are no longer cached; all are reproducible from their
+ID is `com.akshat.personal.whoop`. The accepted, installed build 70 is cached in `backup\`:
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
+Builds 63–69 are no longer cached; all are reproducible from their
 workflow runs in `setup.md`.
 Keep the accepted build cached on Windows outside Git.
 The personal configuration selects `AppIconPersonal`, generated from Akshat's supplied
@@ -165,7 +160,8 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. Current source aligns all targets at `0.9.32+65`. The personal phone-only artifact
+targets ship. Runner and the excluded Widget/Watch metadata are aligned to `0.9.38+71` in source.
+The personal phone-only artifact
 excludes them, but its Runner version/build and source manifest still change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.
 

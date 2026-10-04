@@ -154,7 +154,7 @@ void main() {
     final offenders = <String>[];
     for (final f in Directory('lib').listSync(recursive: true)) {
       if (f is! File || !f.path.endsWith('.dart')) continue;
-      final rel = p.relative(f.path);
+      final rel = p.relative(f.path).replaceAll('\\', '/');
       if (_mayWriteThePredicate.contains(rel)) continue;
       final lines = f.readAsLinesSync();
       for (var i = 0; i < lines.length; i++) {

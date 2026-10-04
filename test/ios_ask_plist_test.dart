@@ -47,6 +47,13 @@ void main() {
     }
   });
 
+  test('ASK generation preserves both LF and Windows CRLF line endings', () {
+    final lf = plist.replaceAll('\r\n', '\n');
+    final expected = applyBlocks(lf, kFramedBands);
+    expect(applyBlocks(lf.replaceAll('\n', '\r\n'), kFramedBands),
+        expected.replaceAll('\n', '\r\n'));
+  });
+
   test('AccessorySetup.swift does not pass a name-only descriptor to iOS', () {
     // AccessorySetupKit requires every Bluetooth descriptor to identify a
     // service or company; a name is only an additional filter. This guards the

@@ -23,6 +23,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
+import '../data/nutrition_store.dart';
 import '../state/locale_controller.dart';
 
 /// Re-read on [AppState.insightsRevision].
@@ -34,6 +35,7 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
   /// `didChangeDependencies` cannot subscribe twice — `addListener` stacks
   /// duplicates.
   ValueNotifier<int>? _rev;
+  bool _foodSubscribed = false;
 
   /// The revision this screen's data was read at.
   int _seen = -1;
@@ -101,6 +103,10 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!revisionReloads) return;
+    if (!_foodSubscribed) {
+      NutritionDb.revision.addListener(_onFood);
+      _foodSubscribed = true;
+    }
     // No AppState above us in a golden or a widget test — such a screen just
     // renders what it has, exactly as it did before this mixin existed.
     final AppState app;
@@ -155,9 +161,14 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
     reload();
   }
 
+  void _onFood() {
+    if (mounted) reload();
+  }
+
   @override
   void dispose() {
     _rev?.removeListener(_onRevision);
+    if (_foodSubscribed) NutritionDb.revision.removeListener(_onFood);
     super.dispose();
   }
 }

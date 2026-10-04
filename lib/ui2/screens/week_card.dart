@@ -22,6 +22,8 @@ class WeekNumbers {
   const WeekNumbers({
     this.deficit,
     this.daysLogged = 0,
+    this.daysExcluded = 0,
+    this.proteinDays = 0,
     this.avgProtein,
     this.proteinTarget,
     this.km = 0,
@@ -32,19 +34,22 @@ class WeekNumbers {
   /// Maintenance − eaten summed over the days with food logged; negative is a
   /// surplus.
   final double? deficit;
-  final int daysLogged;
+  final int daysLogged, daysExcluded, proteinDays;
   final double? avgProtein, proteinTarget;
   final double km;
   final int? streak;
   final double? avgSleepMin;
 
-  static Future<WeekNumbers> load(LocalRepository repo, Profile pr,
-      Map<String, dynamic> user) async {
-    final now = DateTime.now();
+  static Future<WeekNumbers> load(
+    LocalRepository repo,
+    Profile pr,
+    Map<String, dynamic> user, {DateTime? at}
+  ) async {
+    final now = at ?? DateTime.now();
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
     final mondayLabel = dayLabelOf(monday);
     final db = await LocalDb.instance;
-    final win = await NutritionDb.window(db, days: now.weekday);
+    final win = await NutritionDb.window(db, days: now.weekday, now: now);
 
     final steps = <String, num>{};
     try {
@@ -53,7 +58,7 @@ class WeekNumbers {
       }
       final daily = (await repo.getToday())['daily'];
       final t = metricOf(daily is Map ? daily['steps'] : null).value;
-      if (t != null) steps[todayLabel()] = t;
+      if (t != null) steps[todayLabel(now)] = t;
     } catch (_) {}
 
     var runs = const <RunSummary>[];
@@ -66,8 +71,9 @@ class WeekNumbers {
     final proteins = <double>[];
     for (final d in win.days) {
       final eaten = d.kcal.value;
-      if (!d.logged || eaten == null) continue;
-      final m = DayUpkeep(pr,
+      if (!d.countsTowardAverages || eaten == null) continue;
+      final m = DayUpkeep(
+        pr,
               steps: steps[d.date],
               runs: runEnergyOn(runs, d.date,
                   weightKg: pr.weightKg, daySteps: steps[d.date]),
@@ -99,6 +105,8 @@ class WeekNumbers {
     return WeekNumbers(
       deficit: deficit,
       daysLogged: logged,
+      daysExcluded: win.daysExcluded,
+      proteinDays: proteins.length,
       avgProtein: proteins.isEmpty
           ? null
           : proteins.reduce((a, b) => a + b) / proteins.length,
@@ -112,6 +120,8 @@ class WeekNumbers {
 
 class WeekCard extends StatefulWidget {
   const WeekCard({super.key, this.data});
+  @visibleForTesting
+  static int debugLoads = 0;
 
   /// Preloaded for tests; null reads the app.
   final WeekNumbers? data;
@@ -120,8 +130,15 @@ class WeekCard extends StatefulWidget {
   State<WeekCard> createState() => _WeekCardState();
 }
 
-class _WeekCardState extends State<WeekCard> {
+class _WeekCardState extends State<WeekCard> with RevisionReload {
   WeekNumbers? _w;
+  bool _failed = false;
+
+  @override
+  bool get revisionReloads => widget.data == null;
+
+  @override
+  void reload() => _load();
 
   @override
   void initState() {
@@ -131,6 +148,7 @@ class _WeekCardState extends State<WeekCard> {
   }
 
   Future<void> _load() async {
+    final t = beginRead(#week);
     final repo = repoOf(context);
     if (repo == null) return;
     Map<String, dynamic> user;
@@ -141,13 +159,28 @@ class _WeekCardState extends State<WeekCard> {
     }
     try {
       final w = await WeekNumbers.load(repo, Profile.fromMap(user), user);
-      if (mounted) setState(() => _w = w);
-    } catch (_) {}
+      if (stillNewest(#week, t)) {
+        setState(() {
+          _w = w;
+          _failed = false;
+        });
+        WeekCard.debugLoads++;
+      }
+    } catch (_) {
+      if (stillNewest(#week, t)) setState(() => _failed = true);
+    }
   }
 
   @override
   Widget build(BuildContext c) {
     final w = _w;
+    if (_failed)
+      return StatusCard(
+        'Week summary unavailable',
+        'Your saved data is intact. Try reading it again.',
+        fix: 'Retry',
+        onFix: _load,
+      );
     if (w == null) return const SizedBox.shrink();
     final p = P.of(c);
     final d = w.deficit;
@@ -157,11 +190,11 @@ class _WeekCardState extends State<WeekCard> {
             d >= 0 ? C.green : C.red),
       if (w.avgProtein != null)
         (
-          'PROTEIN',
+          'LOGGED PROTEIN',
           w.proteinTarget == null
               ? '${w.avgProtein!.round()} g'
               : '${w.avgProtein!.round()}/${w.proteinTarget!.round()} g',
-          C.red
+          C.red,
         ),
     ];
     final bottom = <(String, String, Color)>[
@@ -181,11 +214,21 @@ class _WeekCardState extends State<WeekCard> {
         if (d != null) ...[
           const SizedBox(height: S.x2),
           Text(
-              '${w.daysLogged} day${w.daysLogged == 1 ? '' : 's'} with food logged; '
-              'the deficit is against the maintenance floor.',
-              style: F.over.copyWith(color: p.ink3)),
+              '${w.daysLogged} completed day${w.daysLogged == 1 ? '' : 's'} · '
+              'maintenance floor${w.daysExcluded > 0 ? ' · ${w.daysExcluded} unfinished excluded' : ''}'
+              '${w.avgProtein != null ? ' · protein on ${w.proteinDays} days' : ''}',
+              style: F.over.copyWith(color: p.ink3),
+            ),
         ],
-      ]),
+          if (d == null && w.daysExcluded > 0) ...[
+            const SizedBox(height: S.x2),
+            Text(
+              'Food summary awaits a completed day. Today and incomplete logs are excluded.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

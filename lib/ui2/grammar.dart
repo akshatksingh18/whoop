@@ -1676,11 +1676,12 @@ class Typed {
 
   bool get blank => value == null && !bad;
 
-  static Typed of(String text) {
+  static Typed of(String text, {bool nonNegative = false}) {
     final s = text.trim();
     if (s.isEmpty) return const Typed._(null, false);
     final v = double.tryParse(s);
-    return v == null ? const Typed._(null, true) : Typed._(v, false);
+    return v == null || !v.isFinite || (nonNegative && v < 0)
+        ? const Typed._(null, true) : Typed._(v, false);
   }
 }
 
@@ -2074,8 +2075,6 @@ class ChartFrame extends StatelessWidget {
     final name = Text(
       title,
       style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
     );
     final Widget measure = readout == null
         ? Text(unit, style: F.over.copyWith(color: p.ink3))
@@ -2083,13 +2082,19 @@ class ChartFrame extends StatelessWidget {
             TextSpan(children: [
               TextSpan(
                   text: readout,
-                  style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-              TextSpan(text: '  $unit', style: F.over.copyWith(color: p.ink3)),
-            ]),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+                  style: F.cap.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextSpan(
+                  text: '  $unit',
+                  style: F.over.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
           );
-    if (!stacked) {
+    if (!stacked && readout == null) {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -2101,7 +2106,11 @@ class ChartFrame extends StatelessWidget {
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [name, measure],
+      children: [
+        name,
+        const SizedBox(height: S.x2),
+        measure,
+      ],
     );
   }
 

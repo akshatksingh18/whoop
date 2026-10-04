@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:openstrap_edge/import/import_container.dart';
 
 List<int> _zipOf(Map<String, String> members) {
@@ -192,7 +193,7 @@ void main() {
       final out = await resolveImportCsvPaths([path], flavor: 'WHOOP');
       expect(out.paths, hasLength(2));
       expect(
-        out.paths.map((p) => p.split('/').last).toSet(),
+        out.paths.map(p.basename).toSet(),
         {'physiological_cycles.csv', 'sleeps.csv'},
       );
       expect(

@@ -674,10 +674,12 @@ Future<List<String>> _extractCsvMembers(
   // import — and the rest of the import pipeline is carefully streamed for the
   // same reason. `InputFileStream` reads the archive off disk as it decodes.
   final input = InputFileStream(path);
+  // Cover validation failures as well as extraction: an empty/malformed ZIP
+  // otherwise left its source handle open (observable on Windows).
+  try {
   try {
     archive = ZipDecoder().decodeStream(input);
   } catch (e) {
-    await input.close();
     throw ImportFormatException(
       'Could not read “$name” as an archive: $e',
     );
@@ -715,7 +717,6 @@ Future<List<String>> _extractCsvMembers(
 
   final out = <String>[];
   final used = <String>{};
-  try {
     for (final f in csvFiles) {
     // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
     // Flattening them onto one destination silently dropped one file and
@@ -740,8 +741,8 @@ Future<List<String>> _extractCsvMembers(
       }
       out.add(destPath);
     }
+  return out;
   } finally {
     await input.close();
   }
-  return out;
 }

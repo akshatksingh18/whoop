@@ -434,14 +434,8 @@ class _Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<_Shell> {
-  /// Restore the last-selected tab so a relaunch lands where the user left off.
-  /// A saved index past the end (the removed Wellness tab) lands on Home.
-  late ShellDomain _domain = () {
-    final i = Prefs.getInt(Prefs.shellTab, 0);
-    return i >= 0 && i < ShellDomain.values.length
-        ? ShellDomain.values[i]
-        : ShellDomain.home;
-  }();
+  /// A fresh launch starts on Today; the live shell retains warm navigation.
+  ShellDomain _domain = ShellDomain.home;
 
   /// AppShell owns its own selection and takes only an `initial`, so a
   /// programmatic jump re-keys it.

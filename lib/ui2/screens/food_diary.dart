@@ -25,7 +25,8 @@ import '../ui2.dart';
 import 'food_picker.dart';
 import 'home_screen.dart' show prettyDay, thousands;
 import 'journal_compose.dart' show OsTextField;
-import 'log_food.dart' show LogFoodSheet;
+import 'log_food.dart' show scanFoodProduct, offCredit;
+import '../../data/off_lookup.dart';
 import 'metric_detail.dart' show detailScaffold;
 
 // ══════════════════ DAYS ══════════════════
@@ -53,7 +54,9 @@ Future<String?> pickDate(BuildContext c, String current) async {
   final picked = await showDatePicker(
     context: c,
     initialDate: DateTime.parse(current),
-    firstDate: DateTime(now.year - 2),
+    firstDate: DateTime.parse(current).isBefore(DateTime(now.year - 2))
+        ? DateTime.parse(current)
+        : DateTime(now.year - 2),
     lastDate: DateTime(now.year, now.month, now.day),
   );
   return picked == null ? null : dayLabelOf(picked);
@@ -171,17 +174,31 @@ class MealCard extends StatelessWidget {
 }
 
 Future<void> openMeal(
-    BuildContext c, String date, String meal, VoidCallback onChanged) async {
-  await Navigator.of(c).push(MaterialPageRoute<void>(
-      builder: (_) => MealPage(date: date, meal: meal)));
-  onChanged();
+  BuildContext c,
+  String date,
+  String meal,
+  VoidCallback onChanged,
+) async {
+  await Navigator.of(c).push(
+    MaterialPageRoute<void>(
+      builder: (_) => MealPage(date: date, meal: meal),
+    ),
+  );
+  if (c.mounted) onChanged();
 }
 
 Future<void> openLog(
-    BuildContext c, String date, String meal, VoidCallback onChanged) async {
-  await Navigator.of(c).push(MaterialPageRoute<void>(
-      builder: (_) => LogFoodScreen(date: date, meal: meal)));
-  onChanged();
+  BuildContext c,
+  String date,
+  String meal,
+  VoidCallback onChanged,
+) async {
+  await Navigator.of(c).push(
+    MaterialPageRoute<void>(
+      builder: (_) => LogFoodScreen(date: date, meal: meal),
+    ),
+  );
+  if (c.mounted) onChanged();
 }
 
 Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) => showModalBottomSheet<T>(
@@ -195,7 +212,9 @@ Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) => showModalBottomSheet<T>
       builder: b,
     );
 
-Widget _body(BuildContext s, List<Widget> children) => Padding(
+Widget _body(BuildContext s, List<Widget> children) => SafeArea(
+  top: false,
+  child: Padding(
       padding: EdgeInsets.only(
           left: S.x5,
           right: S.x5,
@@ -208,10 +227,29 @@ Widget _body(BuildContext s, List<Widget> children) => Padding(
           children: children,
         ),
       ),
+  ),
     );
 
-void _say(BuildContext c, String text) =>
-    ScaffoldMessenger.maybeOf(c)?.showSnackBar(SnackBar(content: Text(text)));
+void _say(BuildContext c, String text) {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.hideCurrentSnackBar();
+  messenger?.showSnackBar(
+    SnackBar(content: Text(text), duration: Motion.notice),
+  );
+}
+
+Widget _sheetTitle(BuildContext c, String title) => Row(
+  children: [
+    Expanded(
+      child: Text(title, style: F.head.copyWith(color: P.of(c).ink)),
+    ),
+    Pressable(
+      semanticLabel: 'Close',
+      onTap: () => Navigator.of(c).maybePop(),
+      child: Icon(LucideIcons.x, size: 20, color: P.of(c).ink3),
+    ),
+  ],
+);
 
 /// Copy from · Copy to · Save meal.
 Future<void> mealMenu(BuildContext c, String date, String meal,
@@ -271,17 +309,45 @@ Future<void> mealMenu(BuildContext c, String date, String meal,
 
 /// One line of text, or null when cancelled.
 Future<String?> askText(
-    BuildContext c, String title, String label, String initial) async {
+  BuildContext c,
+  String title,
+  String label,
+  String initial, {
+  String? Function(String)? validate,
+  TextInputType? keyboard,
+}) async {
   final t = TextEditingController(text: initial);
+  String? error;
+  bool closing = false;
   final ok = await _sheet<bool>(
     c,
-    (s) => _body(s, [
-      Text(title, style: F.head.copyWith(color: P.of(s).ink)),
+    (s) => StatefulBuilder(
+      builder: (s, update) => _body(s, [
+        _sheetTitle(s, title),
       const SizedBox(height: S.x4),
-      OsTextField(controller: t, label: label),
+        OsTextField(controller: t, label: label, keyboard: keyboard),
+        if (error != null)
+          Text(error!, style: F.cap.copyWith(color: P.of(s).on(C.red))),
       const SizedBox(height: S.x4),
-      BigButton('Save', color: C.domFood, onTap: () => Navigator.of(s).pop(true)),
+        BigButton(
+          'Save',
+          color: C.domFood,
+          onTap: () {
+            if (closing) return;
+            final value = t.text.trim();
+            final invalid =
+                validate?.call(value) ??
+                (value.isEmpty ? 'Enter $label.' : null);
+            if (invalid != null) {
+              update(() => error = invalid);
+              return;
+            }
+            closing = true;
+            Navigator.of(s).pop(true);
+          },
+        ),
     ]),
+    ),
   );
   final v = t.text.trim();
   t.dispose();
@@ -312,10 +378,14 @@ class _DayMealSheet extends StatefulWidget {
   State<_DayMealSheet> createState() => _DayMealSheetState();
 }
 
-class _DayMealSheetState extends State<_DayMealSheet> {
+class _DayMealSheetState extends State<_DayMealSheet> with RevisionReload {
   late String _date = widget.date;
   late String _meal = widget.meal;
   List<FoodEntry> _there = const [];
+  bool _reading = true, _failed = false;
+
+  @override
+  void reload() => _read();
 
   @override
   void initState() {
@@ -325,8 +395,26 @@ class _DayMealSheetState extends State<_DayMealSheet> {
 
   Future<void> _read() async {
     if (!widget.showCount) return;
-    final es = await NutritionDb.entriesForDay(await LocalDb.instance, _date);
-    if (mounted) setState(() => _there = es);
+    final t = beginRead(#copyDay);
+    final date = _date;
+    setState(() {
+      _reading = true;
+      _failed = false;
+    });
+    try {
+      final es = await NutritionDb.entriesForDay(await LocalDb.instance, date);
+      if (stillNewest(#copyDay, t))
+        setState(() {
+          _there = es;
+          _reading = false;
+        });
+    } catch (_) {
+      if (stillNewest(#copyDay, t))
+        setState(() {
+          _failed = true;
+          _reading = false;
+        });
+    }
   }
 
   @override
@@ -352,6 +440,16 @@ class _DayMealSheetState extends State<_DayMealSheet> {
       ]),
       if (widget.showCount) ...[
         const SizedBox(height: S.x3),
+        if (_failed)
+          StatusCard(
+            'Food could not load',
+            'Try again before copying.',
+            fix: 'Retry',
+            onFix: _read,
+          )
+        else if (_reading)
+          const Center(child: CircularProgressIndicator())
+        else
         Text(
             inMeal.isEmpty
                 ? 'Nothing in ${mealName(_meal)} that day'
@@ -362,7 +460,7 @@ class _DayMealSheetState extends State<_DayMealSheet> {
       const SizedBox(height: S.x5),
       BigButton(widget.title,
           color: C.domFood,
-          onTap: widget.showCount && inMeal.isEmpty
+        onTap: widget.showCount && (_reading || _failed || inMeal.isEmpty)
               ? null
               : () => Navigator.of(c).pop((date: _date, meal: _meal))),
     ]);
@@ -381,9 +479,13 @@ class MealPage extends StatefulWidget {
   State<MealPage> createState() => _MealPageState();
 }
 
-class _MealPageState extends State<MealPage> {
+class _MealPageState extends State<MealPage> with RevisionReload {
   late String _date = widget.date;
   List<FoodEntry>? _entries;
+  bool _failed = false;
+
+  @override
+  void reload() => _load();
 
   @override
   void initState() {
@@ -392,18 +494,56 @@ class _MealPageState extends State<MealPage> {
   }
 
   Future<void> _load() async {
-    final es = await NutritionDb.entriesForDay(await LocalDb.instance, _date);
-    if (mounted) {
-      setState(() => _entries = [for (final e in es) if (e.meal == widget.meal) e]);
+    final t = beginRead(#mealDay);
+    final date = _date;
+    try {
+      final es = await NutritionDb.entriesForDay(await LocalDb.instance, date);
+      if (stillNewest(#mealDay, t))
+        setState(() {
+          _entries = [
+            for (final e in es)
+              if (e.meal == widget.meal) e,
+          ];
+          _failed = false;
+        });
+    } catch (_) {
+      if (stillNewest(#mealDay, t)) setState(() => _failed = true);
     }
   }
 
   Future<void> _delete(FoodEntry e) async {
+    // Remove the dismissed widget immediately, before the async DB write.
+    setState(() => _entries = _entries?.where((x) => x.id != e.id).toList());
+    try {
     await NutritionDb.delete(await LocalDb.instance, e.id);
-    await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Deleted ${e.label}'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              try {
+                await NutritionDb.put(await LocalDb.instance, e);
+              } catch (_) {
+                if (mounted)
+                  _say(
+                    context,
+                    'Could not restore this entry. Please try again.',
+                  );
+              }
+            },
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) _say(context, 'Food was not deleted. Please try again.');
+    }
+    if (mounted) await _load();
   }
 
   Future<void> _itemActions(FoodEntry e) async {
+    try {
     final db = await LocalDb.instance;
     final def = e.foodKey == null ? null : await NutritionDb.foodDef(db, e.foodKey!);
     if (!mounted) return;
@@ -419,8 +559,17 @@ class _MealPageState extends State<MealPage> {
         if (def != null && e.quantity != null)
           PickRow('Change amount', '${e.quantity!.round()} g now',
               trailing: LucideIcons.scale,
-              onTap: () => Navigator.of(s).pop('grams')),
-        PickRow('Put under a sub-heading',
+            onTap: () => Navigator.of(s).pop('grams'),
+          ),
+        if (def == null || e.quantity == null)
+          PickRow(
+            'Edit entry',
+            'Change calories, macros, meal or time',
+            trailing: LucideIcons.pencil,
+            onTap: () => Navigator.of(s).pop('edit'),
+          ),
+        PickRow(
+          'Put under a sub-heading',
             e.group.isEmpty ? 'e.g. Oatmeal, Omelette' : 'Now under ${e.group}',
             trailing: LucideIcons.layers,
             onTap: () => Navigator.of(s).pop('group')),
@@ -431,6 +580,14 @@ class _MealPageState extends State<MealPage> {
     );
     if (!mounted || choice == null) return;
     switch (choice) {
+      case 'edit':
+        await QuickAddSheet.show(
+          context,
+          date: e.date,
+          meal: e.meal,
+          from: e,
+          editing: true,
+        );
       case 'grams':
         final grams = await GramsSheet.show(context, def!, initial: e.quantity);
         if (grams == null) return;
@@ -447,7 +604,10 @@ class _MealPageState extends State<MealPage> {
       case 'delete':
         await NutritionDb.delete(db, e.id);
     }
-    await _load();
+    if (mounted) await _load();
+    } catch (_) {
+      if (mounted) _say(context, 'Could not change this entry. Please try again.');
+    }
   }
 
   @override
@@ -478,7 +638,14 @@ class _MealPageState extends State<MealPage> {
         _load();
       }),
       const SizedBox(height: S.x4),
-      if (es == null)
+      if (_failed)
+        StatusCard(
+          'Meal could not load',
+          'Try reading your saved food again.',
+          fix: 'Retry',
+          onFix: _load,
+        )
+      else if (es == null)
         const Center(child: CircularProgressIndicator())
       else ...[
         Surface(
@@ -493,9 +660,14 @@ class _MealPageState extends State<MealPage> {
             ]),
             const SizedBox(height: S.x3),
             InlineMetrics([
-              ('PROTEIN', '${(sum((e) => e.proteinG) ?? 0).round()} g', C.red),
-              ('CARBS', '${(sum((e) => e.carbsG) ?? 0).round()} g', C.blue),
-              ('FAT', '${(sum((e) => e.fatG) ?? 0).round()} g', C.yellow),
+                if (sum((e) => e.proteinG) case final v?)
+                  ('PROTEIN', '${v.round()} g', C.red),
+                if (sum((e) => e.carbsG) case final v?)
+                  ('CARBS', '${v.round()} g', C.blue),
+                if (sum((e) => e.fatG) case final v?)
+                  ('FAT', '${v.round()} g', C.yellow),
+                if (sum((e) => e.fibreG) case final v?)
+                  ('FIBRE', '${v.round()} g', C.green),
             ]),
           ]),
         ),
@@ -642,14 +814,18 @@ class LogFoodScreen extends StatefulWidget {
   State<LogFoodScreen> createState() => _LogFoodScreenState();
 }
 
-class _LogFoodScreenState extends State<LogFoodScreen> {
+class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
   late String _meal = widget.meal;
-  int _tab = 0;
+  int _tab = 2;
   _Sort _sort = _Sort.recent;
   final _q = TextEditingController();
   List<FoodEntry> _recent = const [];
   List<MealTemplate> _meals = const [];
   List<Map<String, Object?>> _foods = const [];
+  bool _loading = true, _failed = false, _busy = false;
+
+  @override
+  void reload() => _load();
 
   @override
   void initState() {
@@ -665,20 +841,90 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
   }
 
   Future<void> _load() async {
+    final t = beginRead(#foodPicker);
+    try {
     final db = await LocalDb.instance;
     final r = await NutritionDb.recent(db, limit: 40);
     final m = await MyFoods.meals(db);
     final f = await MyFoods.all(db);
-    if (mounted) setState(() => (_recent = r, _meals = m, _foods = f));
+      if (stillNewest(#foodPicker, t))
+        setState(() {
+          _recent = r;
+          _meals = m;
+          _foods = f;
+          _loading = false;
+          _failed = false;
+        });
+    } catch (_) {
+      if (stillNewest(#foodPicker, t))
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+    }
   }
 
-  int get _now => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  int get _ts =>
+      foodEntryTime(widget.date, _meal).millisecondsSinceEpoch ~/ 1000;
 
-  /// The time for a new entry: now on today, midday on another day.
-  int get _ts {
-    if (widget.date == todayLabel()) return _now;
-    final d = DateTime.parse(widget.date);
-    return DateTime(d.year, d.month, d.day, 12).millisecondsSinceEpoch ~/ 1000;
+  Future<void> _act(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (_) {
+      if (mounted) _say(context, 'Could not finish. Please try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _scan() async {
+    final meal = _meal;
+    var typeInstead = false;
+    final result = await scanFoodProduct(context, onManual: () => typeInstead = true);
+    if (!mounted) return;
+    if (result == null) {
+      if (typeInstead) await QuickAddSheet.show(context, date: widget.date, meal: meal);
+      return;
+    }
+    final product = result.product;
+    if (product != null && !product.isBare) {
+      await FoodDetailSheet.show(
+        context,
+        def: product.toDefRow(),
+        date: widget.date,
+        meal: meal,
+        grams: product.defaultPortionG,
+      );
+    } else {
+      final message = switch (result.outcome) {
+        OffOutcome.notFound => 'This barcode is not in Open Food Facts yet.',
+        OffOutcome.flagged =>
+          'This product is flagged as incorrect; its numbers were not used.',
+        OffOutcome.unreachable =>
+          'The lookup could not connect. Cached products still work offline.',
+        OffOutcome.refused => 'Barcode lookup is off.',
+        OffOutcome.ok => 'The product has no usable nutrition numbers.',
+      };
+      final manual = await _sheet<bool>(
+        context,
+        (s) => _body(s, [
+          _sheetTitle(s, 'Add from the label'),
+          const SizedBox(height: S.x3),
+          Text(message, style: F.body.copyWith(color: P.of(s).ink2)),
+          const SizedBox(height: S.x4),
+          BigButton(
+            'Quick add',
+            color: C.domFood,
+            onTap: () => Navigator.of(s).pop(true),
+          ),
+        ]),
+      );
+      if (manual == true && mounted)
+        await QuickAddSheet.show(context, date: widget.date, meal: meal);
+    }
+    if (mounted) await _load();
   }
 
   Future<void> _quickLogFood(Map<String, Object?> def) async {
@@ -705,7 +951,9 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
 
   Future<void> _logMeal(MealTemplate m) async {
     final n = await MyFoods.logMeal(await LocalDb.instance, m, widget.date, _meal);
-    if (mounted) _say(context, 'Added ${m.label} · $n item${n == 1 ? '' : 's'}');
+    if (mounted) _say(context, n == 0
+        ? 'No foods remain in ${m.label}. Edit the saved meal first.'
+        : 'Added ${m.label} · $n item${n == 1 ? '' : 's'}');
   }
 
   Future<void> _detail(Map<String, Object?> def, {double? grams}) async {
@@ -744,11 +992,15 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
     final recent = [for (final e in _recent) if (hit(e.label)) e];
     final meals = [for (final m in _meals) if (hit(m.label)) m];
 
-    Widget row(String title, String detail, VoidCallback onPlus, VoidCallback onTap) =>
-        Padding(
+    Widget row(
+      String title,
+      String detail,
+      Future<void> Function() onPlus,
+      Future<void> Function() onTap,
+    ) => Padding(
           padding: const EdgeInsets.only(bottom: S.x2),
           child: Surface(
-            onTap: onTap,
+        onTap: _busy ? null : () => _act(onTap),
             semanticLabel: '$title, $detail',
             pad: const EdgeInsets.fromLTRB(S.x4, S.x3, S.x2, S.x3),
             child: Row(children: [
@@ -766,7 +1018,7 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
               ),
               Pressable(
                 semanticLabel: 'Log $title',
-                onTap: onPlus,
+              onTap: _busy ? null : () => _act(onPlus),
                 child: Container(
                   width: 36,
                   height: 36,
@@ -782,7 +1034,7 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
 
     Widget tile(IconData icon, String label, VoidCallback onTap) => Expanded(
           child: Surface(
-            onTap: onTap,
+        onTap: _busy ? null : onTap,
             semanticLabel: label,
             pad: const EdgeInsets.symmetric(vertical: S.x3),
             child: Column(children: [
@@ -883,23 +1135,30 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
             const SizedBox(height: S.x3),
             OsTextField(controller: _q, label: 'Search', hint: 'Oats, eggs…'),
             const SizedBox(height: S.x3),
-            Row(children: [
-              tile(LucideIcons.plus, 'Create a food', () async {
+            Row(
+              children: [
+                tile(
+                  LucideIcons.plus,
+                  'Create a food',
+                  () => _act(() async {
                 final def = await FoodEditor.show(c);
                 await _load();
                 if (def != null && mounted) await _detail(def);
               }),
+                ),
               const SizedBox(width: S.x2),
-              tile(LucideIcons.zap, 'Quick add', () async {
+                tile(
+                  LucideIcons.zap,
+                  'Quick add',
+                  () => _act(() async {
                 await QuickAddSheet.show(c, date: widget.date, meal: _meal);
                 await _load();
               }),
+                ),
               const SizedBox(width: S.x2),
-              tile(LucideIcons.scanBarcode, 'Scan', () async {
-                await LogFoodSheet.show(c, date: widget.date, meal: _meal);
-                await _load();
-              }),
-            ]),
+                tile(LucideIcons.scanBarcode, 'Scan', () => _act(_scan)),
+              ],
+            ),
             const SizedBox(height: S.x4),
             SubTabs(const ['Recent', 'My meals', 'My foods'], _tab,
                 (i) => setState(() => _tab = i),
@@ -924,6 +1183,21 @@ class _LogFoodScreenState extends State<LogFoodScreen> {
               ),
             ],
             const SizedBox(height: S.x3),
+            if (_busy)
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x3),
+                child: Text('Working…', style: F.over.copyWith(color: p.ink3)),
+              ),
+            if (_failed)
+              StatusCard(
+                'Foods could not load',
+                'Try reading your saved foods again.',
+                fix: 'Retry',
+                onFix: _load,
+              )
+            else if (_loading)
+              const Center(child: CircularProgressIndicator())
+            else
             ...list,
           ],
         ),
@@ -995,14 +1269,17 @@ class FoodDetailSheet extends StatefulWidget {
 }
 
 class _FoodDetailSheetState extends State<FoodDetailSheet> {
+  late Map<String, Object?> _def = widget.def;
+  bool _saving = false;
+  String? _error;
   late final TextEditingController _g = TextEditingController(
       text: _trim(widget.grams ??
           (widget.def['serving_g'] as num?)?.toDouble() ??
           100));
   late String _meal = widget.meal;
-  late TimeOfDay _time = widget.date == todayLabel()
-      ? TimeOfDay.now()
-      : const TimeOfDay(hour: 12, minute: 0);
+  late TimeOfDay _time = TimeOfDay.fromDateTime(
+    foodEntryTime(widget.date, widget.meal),
+  );
   List<Map<String, Object?>> _with = const [];
   final _picked = <String>{};
 
@@ -1023,10 +1300,18 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   }
 
   Future<void> _loadWith() async {
-    final key = widget.def['key'] as String?;
+    final key = _def['key'] as String?;
     if (key == null) return;
+    try {
     final w = await NutritionDb.eatenWith(await LocalDb.instance, key);
     if (mounted) setState(() => _with = w);
+    } catch (_) {
+      if (mounted)
+        setState(
+          () => _error =
+              'Companion foods could not load. You can still log this food.',
+        );
+    }
   }
 
   int get _ts {
@@ -1037,28 +1322,65 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   }
 
   Future<void> _log() async {
+    if (_saving) return;
     final grams = Typed.of(_g.text).value;
-    if (grams == null || grams <= 0) return;
+    if (grams == null || grams <= 0) {
+      setState(() => _error = 'Enter an amount greater than 0 g.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final meal = _meal, ts = _ts;
+    final companions = [
+      for (final w in _with)
+        if (_picked.contains(w['key'])) w,
+    ];
+    try {
     final db = await LocalDb.instance;
+      await db.transaction((tx) async {
     await NutritionDb.put(
-        db,
-        entryFromFood(widget.def, grams,
-            id: NutritionDb.newId(), date: widget.date, meal: _meal, atTs: _ts));
+          tx,
+          entryFromFood(
+            _def,
+            grams,
+            id: NutritionDb.newId(),
+            date: widget.date,
+            meal: meal,
+            atTs: ts,
+          ),
+          notify: false,
+        );
     var i = 0;
-    for (final w in _with) {
-      if (!_picked.contains(w['key'])) continue;
-      final g = (w['usual_g'] as num?)?.toDouble() ??
+        for (final w in companions) {
+          final g =
+              (w['usual_g'] as num?)?.toDouble() ??
           (w['serving_g'] as num?)?.toDouble() ??
           100;
       await NutritionDb.put(
-          db,
-          entryFromFood(w, g,
+            tx,
+            entryFromFood(
+              w,
+              g,
               id: '${NutritionDb.newId()}_${i++}',
               date: widget.date,
-              meal: _meal,
-              atTs: _ts));
+              meal: meal,
+              atTs: ts,
+            ),
+            notify: false,
+          );
     }
+      });
+      NutritionDb.changed();
     if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = 'Could not save. Your portion is still here; try again.';
+        });
+    }
   }
 
   @override
@@ -1067,8 +1389,8 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
     final profile = c.watch<AppState>().user ?? const <String, dynamic>{};
     double? goal(String k) => (profile[k] as num?)?.toDouble();
     final grams = Typed.of(_g.text).value;
-    final n = grams == null ? null : nutrientsFor(widget.def, grams);
-    final serving = (widget.def['serving_g'] as num?)?.toDouble();
+    final n = grams == null ? null : nutrientsFor(_def, grams);
+    final serving = (_def['serving_g'] as num?)?.toDouble();
     String pct(double? v, double? g) =>
         v == null || g == null || g <= 0 ? '' : '${(v / g * 100).round()}%';
     final macros = <(String, double?, double?, Color)>[
@@ -1076,9 +1398,10 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
       ('Protein', n?.protein, goal('protein_target'), C.red),
       ('Carbs', n?.carbs, goal('carbs_target'), C.blue),
       ('Fat', n?.fat, goal('fat_target'), C.yellow),
+      ('Fibre', n?.fibre, goal('fibre_target'), C.green),
     ];
     return _body(c, [
-      Text('${widget.def['label']}', style: F.head.copyWith(color: p.ink)),
+      _sheetTitle(c, '${_def['label']}'),
       const SizedBox(height: S.x4),
       OsTextField(
         controller: _g,
@@ -1112,7 +1435,7 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
           semanticLabel: 'Time ${_time.format(c)}',
           onTap: () async {
             final t = await showTimePicker(context: c, initialTime: _time);
-            if (t != null) setState(() => _time = t);
+              if (t != null && mounted) setState(() => _time = t);
           },
           child: Pill(_time.format(c), C.n400, icon: LucideIcons.clock),
         ),
@@ -1125,31 +1448,57 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
           for (final (name, v, g, col) in macros)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: S.x1),
-              child: Row(children: [
-                Expanded(child: Text(name, style: F.body.copyWith(color: p.ink))),
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: S.x2,
+                  runSpacing: S.x1,
+                  children: [
+                    Text(name, style: F.body.copyWith(color: p.ink)),
                 Text(
                     v == null
                         ? '–'
                         : name == 'Calories'
                             ? '${v.round()} kcal'
                             : '${v.toStringAsFixed(1)} g',
-                    style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                SizedBox(
-                  width: 52,
-                  child: Text(pct(v, g),
-                      textAlign: TextAlign.right,
-                      style: F.cap.copyWith(color: p.on(col))),
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
                 ),
-              ]),
+                    ),
+                    if (pct(v, g).isNotEmpty)
+                      Text(pct(v, g), style: F.cap.copyWith(color: p.on(col))),
+                  ],
+                ),
             ),
           if (macros.any((m) => m.$3 != null))
             Align(
               alignment: Alignment.centerRight,
-              child: Text('% of your daily goal',
-                  style: F.over.copyWith(color: p.ink3)),
+                child: Text(
+                  '% of your daily goal',
+                  style: F.over.copyWith(color: p.ink3),
             ),
-        ]),
       ),
+          ],
+        ),
+      ),
+      const SizedBox(height: S.x2),
+      PickRow(
+        'Check label values',
+        'Edit nutrition before logging',
+        trailing: LucideIcons.pencil,
+        onTap: _saving
+            ? null
+            : () async {
+                final def = await FoodEditor.show(c, existing: _def);
+                if (def != null && mounted) setState(() => _def = def);
+              },
+      ),
+      if (_def['source'] == 'barcode') ...[
+        const SizedBox(height: S.x2),
+        offCredit(),
+      ],
+      if (_error != null)
+        Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
       if (_with.isNotEmpty) ...[
         const SizedBox(height: S.x4),
         Text('Often eaten with', style: F.over.copyWith(color: p.ink3)),
@@ -1182,9 +1531,14 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
       ],
       const SizedBox(height: S.x5),
       BigButton(
-          _picked.isEmpty ? 'Log' : 'Log ${_picked.length + 1} foods',
+        _saving
+            ? 'Saving…'
+            : _picked.isEmpty
+            ? 'Log'
+            : 'Log ${_picked.length + 1} foods',
           color: C.domFood,
-          onTap: grams == null || grams <= 0 ? null : _log),
+        onTap: _saving ? null : _log,
+      ),
     ]);
   }
 }
@@ -1194,14 +1548,27 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
 /// Calories and macros without a saved food, WITH a name so the day still
 /// says what it was. [from] pre-fills from an earlier entry.
 class QuickAddSheet extends StatefulWidget {
-  const QuickAddSheet(
-      {super.key, required this.date, required this.meal, this.from});
+  const QuickAddSheet({
+    super.key,
+    required this.date,
+    required this.meal,
+    this.from,
+    this.editing = false,
+  });
   final String date, meal;
   final FoodEntry? from;
+  final bool editing;
 
-  static Future<bool?> show(BuildContext c,
-          {required String date, required String meal, FoodEntry? from}) =>
-      _sheet<bool>(c, (_) => QuickAddSheet(date: date, meal: meal, from: from));
+  static Future<bool?> show(
+    BuildContext c, {
+    required String date,
+    required String meal,
+    FoodEntry? from,
+    bool editing = false,
+  }) => _sheet<bool>(
+    c,
+    (_) => QuickAddSheet(date: date, meal: meal, from: from, editing: editing),
+  );
 
   @override
   State<QuickAddSheet> createState() => _QuickAddSheetState();
@@ -1213,10 +1580,15 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   late final _p = TextEditingController(text: _t(widget.from?.proteinG));
   late final _c = TextEditingController(text: _t(widget.from?.carbsG));
   late final _f = TextEditingController(text: _t(widget.from?.fatG));
+  late final _fibre = TextEditingController(text: _t(widget.from?.fibreG));
+  bool _saving = false;
+  String? _error;
   late String _meal = widget.meal;
-  late TimeOfDay _time = widget.date == todayLabel()
-      ? TimeOfDay.now()
-      : const TimeOfDay(hour: 12, minute: 0);
+  late TimeOfDay _time = TimeOfDay.fromDateTime(
+    widget.editing && widget.from?.atTs != null
+        ? DateTime.fromMillisecondsSinceEpoch(widget.from!.atTs! * 1000)
+        : foodEntryTime(widget.date, widget.meal),
+  );
 
   static String _t(double? v) => v == null
       ? ''
@@ -1224,43 +1596,90 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
 
   @override
   void dispose() {
-    for (final t in [_name, _kcal, _p, _c, _f]) {
+    for (final t in [_name, _kcal, _p, _c, _f, _fibre]) {
       t.dispose();
     }
     super.dispose();
   }
 
   Future<void> _save() async {
-    final fields = {'Calories': _kcal, 'Protein': _p, 'Carbs': _c, 'Fat': _f};
+    if (_saving) return;
+    final fields = {
+      'Calories': _kcal,
+      'Protein': _p,
+      'Carbs': _c,
+      'Fat': _f,
+      'Fibre': _fibre,
+    };
     final bad = [
       for (final e in fields.entries)
-        if (Typed.of(e.value.text).bad) e.key,
+        if (Typed.of(e.value.text, nonNegative: true).bad) e.key,
     ];
     if (bad.isNotEmpty) {
-      sayUnreadable(context, bad);
+      setState(
+        () => _error = 'Check ${bad.join(', ')}: enter a non-negative number.',
+      );
       return;
     }
     final kcal = Typed.of(_kcal.text).value;
-    if (kcal == null) return;
+    if (kcal == null) {
+      setState(() => _error = 'Enter calories. Other macros can stay blank.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     final d = DateTime.parse(widget.date);
+    final original = widget.editing ? widget.from : null;
+    final previousTime = original?.atTs == null ? null :
+        DateTime.fromMillisecondsSinceEpoch(original!.atTs! * 1000);
+    final keepTime = previousTime != null && dayLabelOf(previousTime) == widget.date &&
+        previousTime.hour == _time.hour && previousTime.minute == _time.minute;
+    try {
     await NutritionDb.put(
       await LocalDb.instance,
       FoodEntry(
-        id: NutritionDb.newId(),
+          id: original?.id ?? NutritionDb.newId(),
         date: widget.date,
         meal: _meal,
         label: _name.text.trim().isEmpty ? 'Quick add' : _name.text.trim(),
-        atTs: DateTime(d.year, d.month, d.day, _time.hour, _time.minute)
-                .millisecondsSinceEpoch ~/
+          atTs: keepTime ? original!.atTs :
+              DateTime(
+                d.year,
+                d.month,
+                d.day,
+                _time.hour,
+                _time.minute,
+              ).millisecondsSinceEpoch ~/
             1000,
         kcal: kcal,
         proteinG: Typed.of(_p.text).value,
         carbsG: Typed.of(_c.text).value,
         fatG: Typed.of(_f.text).value,
+          fibreG: Typed.of(_fibre.text).value,
+          foodKey: original?.foodKey,
+          quantity: original?.quantity,
+          unit: original?.unit ?? 'g',
+          sugarG: original?.sugarG,
+          satFatG: original?.satFatG,
+          sodiumMg: original?.sodiumMg,
+          ironMg: original?.ironMg,
+          calciumMg: original?.calciumMg,
+          source: original?.source ?? FoodSource.manual,
+          note: original?.note ?? '',
+          group: original?.group ?? '',
         confirmed: true,
       ),
     );
     if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = 'Could not save. Your values are still here; try again.';
+        });
+    }
   }
 
   @override
@@ -1268,7 +1687,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     final p = P.of(c);
     const num = TextInputType.numberWithOptions(decimal: true);
     return _body(c, [
-      Text('Quick add', style: F.head.copyWith(color: p.ink)),
+      _sheetTitle(c, widget.editing ? 'Edit entry' : 'Quick add'),
       const SizedBox(height: S.x4),
       OsTextField(controller: _name, label: 'Name', hint: 'Protein shake at the gym'),
       const SizedBox(height: S.x3),
@@ -1284,7 +1703,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           semanticLabel: 'Time ${_time.format(c)}',
           onTap: () async {
             final t = await showTimePicker(context: c, initialTime: _time);
-            if (t != null) setState(() => _time = t);
+              if (t != null && mounted) setState(() => _time = t);
           },
           child: Pill(_time.format(c), C.n400, icon: LucideIcons.clock),
         ),
@@ -1292,15 +1711,45 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       const SizedBox(height: S.x3),
       OsTextField(controller: _kcal, label: 'Calories (kcal)', keyboard: num),
       const SizedBox(height: S.x3),
-      Row(children: [
-        Expanded(child: OsTextField(controller: _p, label: 'Protein g', keyboard: num)),
-        const SizedBox(width: S.x2),
-        Expanded(child: OsTextField(controller: _c, label: 'Carbs g', keyboard: num)),
-        const SizedBox(width: S.x2),
-        Expanded(child: OsTextField(controller: _f, label: 'Fat g', keyboard: num)),
-      ]),
+      OsTextField(controller: _p, label: 'Protein (g)', keyboard: num),
+      const SizedBox(height: S.x3),
+      ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        initiallyExpanded: [_c, _f, _fibre].any((t) => t.text.isNotEmpty),
+        title: Text(
+          'Other macros (optional)',
+          style: F.body.copyWith(color: p.ink2),
+        ),
+        children: [
+          OsTextField(controller: _c, label: 'Carbs (g)', keyboard: num),
+          const SizedBox(height: S.x3),
+          OsTextField(controller: _f, label: 'Fat (g)', keyboard: num),
+          const SizedBox(height: S.x3),
+          OsTextField(controller: _fibre, label: 'Fibre (g)', keyboard: num),
+          const SizedBox(height: S.x3),
+        ],
+      ),
+      Text(
+        'Blank macros are not tracked. Enter 0 for a known zero.',
+        style: F.over.copyWith(color: p.ink3),
+      ),
+      if (_error != null) ...[
+        const SizedBox(height: S.x3),
+        Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
+      ],
       const SizedBox(height: S.x5),
-      BigButton('Add', color: C.domFood, onTap: _save),
+      BigButton(
+        _saving
+            ? 'Saving…'
+            : widget.editing
+            ? 'Save changes'
+            : 'Add',
+        icon: LucideIcons.check,
+        color: C.domFood,
+        onTap: _saving ? null : _save,
+      ),
     ]);
   }
 }

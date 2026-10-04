@@ -398,6 +398,8 @@ class Motion {
   /// only file allowed to write a `Duration(…)`, and a screen inventing its own
   /// tick is how thirteen ungated tickers happened last time.
   static const tick = Duration(seconds: 1);
+  // Reading time for transient feedback; this is not an animation duration.
+  static const notice = Duration(seconds: 2);
 
   /// One full breath cycle for the paced-breathing ring — 5 s in, 5 s out is
   /// the pace the breathing session already uses. The PHASE is still owned by

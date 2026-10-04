@@ -332,6 +332,7 @@ class SleepDetail extends StatefulWidget {
 class _SleepDetailState extends State<SleepDetail> {
   SleepData? _d;
   bool _loading = true;
+  bool _failed = false;
   String? _day;
   bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
@@ -394,7 +395,9 @@ class _SleepDetailState extends State<SleepDetail> {
   int _loadGen = 0;
 
   Future<void> _load() async {
+    if (!mounted) return;
     final gen = ++_loadGen;
+    setState(() { _loading = true; _failed = false; });
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted && gen == _loadGen) setState(() => _loading = false);
@@ -415,7 +418,9 @@ class _SleepDetailState extends State<SleepDetail> {
         setState(() => (_d = d, _rough = rough, _loading = false));
       }
     } catch (_) {
-      if (mounted && gen == _loadGen) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) {
+        setState(() { _loading = false; _failed = true; });
+      }
     }
   }
 
@@ -435,6 +440,14 @@ class _SleepDetailState extends State<SleepDetail> {
     final d = _d ?? const SleepData();
     final l = AppLocalizations.of(c);
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
+
+    if (_failed) {
+      return detailScaffold(c, title, [
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
+        StatusCard('Sleep could not load', 'Your saved nights are intact.',
+          fix: 'Retry', onFix: _load),
+      ]);
+    }
 
     if (_loading && _d == null) {
       return detailScaffold(c, title, const [
@@ -903,9 +916,36 @@ class _SleepDetailState extends State<SleepDetail> {
         ),
         if (_shape(c, d) case final shape?) ...[
           const SizedBox(height: S.x2),
-          Text(shape, style: F.over.copyWith(color: p.ink3, height: 1.5)),
+            Text(
+              [
+                if (d.awakenings != null)
+                  '${d.awakenings!.round()}+ wake-ups ≥5 min',
+                if (d.longestSleepMin != null)
+                  'Longest ${hm(d.longestSleepMin)}',
+              ].join(' · '),
+              style: F.over.copyWith(color: p.ink2),
+            ),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              shape: const Border(),
+              collapsedShape: const Border(),
+              title: Text(
+                'Night details',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: S.x2),
+                  child: Text(
+                    shape,
+                    style: F.over.copyWith(color: p.ink3, height: 1.5),
+                  ),
+                ),
         ],
-      ]),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1066,13 +1106,13 @@ class _SleepDetailState extends State<SleepDetail> {
 
     final hr = at('hr'), hrv = at('hrv'), temp = at('skin_temp');
     final mean = nightMean('skin_temp');
-    return [
-      head,
+    final signals = [
       if (hr != null) '${hr.round()} bpm',
       if (hrv != null) 'HRV ${hrv.round()} ms',
       if (temp != null && mean != null)
-        'temp ${temp - mean >= 0 ? '+' : '−'}${(temp - mean).abs().toStringAsFixed(1)}',
+        'Temp Δ ${temp - mean >= 0 ? '+' : '−'}${(temp - mean).abs().toStringAsFixed(1)} °C',
     ].join(' · ');
+    return signals.isEmpty ? head : '$head\n$signals';
   }
 
   String _stageName(BuildContext c, SleepStage s) {
@@ -1143,9 +1183,12 @@ class _SleepDetailState extends State<SleepDetail> {
     final staged = deep != null && rem != null && light != null;
     final awake = n['awake_min'] as num?;
     final rows = <(String, String, Color)>[
-      if (staged) (l?.sleepDetailDeep ?? 'Deep', _stageText(deep, total), C.blue),
-      if (staged) (l?.sleepDetailStageRem ?? 'REM', _stageText(rem, total), C.teal),
-      if (staged) (l?.sleepDetailLight ?? 'Light', _stageText(light, total), C.sky),
+      if (staged)
+        (l?.sleepDetailDeep ?? 'Deep', _stageText(deep, total), C.sleep),
+      if (staged)
+        (l?.sleepDetailStageRem ?? 'REM', _stageText(rem, total), C.teal),
+      if (staged)
+        (l?.sleepDetailLight ?? 'Light', _stageText(light, total), C.sky),
       if (awake != null)
         (l?.sleepDetailStageAwake ?? 'Awake', hm(awake), C.orange),
     ];

@@ -2,9 +2,10 @@
 
 Everything the app stores and where each item appears, plus the proposed layout. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal build from source `0.9.37`/`70`.
+the personal source `0.9.38`/`71`.
 
-**Status:** Current map of stored data and screens for source `0.9.37`/`70`. Everything in
+**Status:** Current map of stored data and screens for locally test-validated source `0.9.38`/`71`;
+public CI/build and the phone pass are pending, with build 70 retained as accepted recovery. Everything in
 "What is stored" keeps being recorded whether or not a screen shows it; any further removal still
 needs Akshat's per-item yes.
 
@@ -127,14 +128,22 @@ Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
 | Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
 | Naps | — | — | Sleep → Naps section on a day with one; Naps screen to edit |
 | Workouts, GPS | — | — | Train: Run / Walk / Lift / Other, run-or-walk streak, draggable 7-day strain (tap opens that day), running trends (draggable weekly distance, predicted 5K/10K, best 1K/5K/10K/half), recent sessions; a run opens the run screen (Apple Maps route, calories by distance and by heart rate, best efforts, verdict, splits, linked pace/HR/elevation charts, pace zones); a walk opens the same screen without the running-only parts |
-| Food, calories left, macros | — | — | Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, swipe-to-delete. Log screen: search, Recent / My meals / My foods, sort, food detail with % of goals and "often eaten with", named quick add |
-| Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, measured maintenance), this week's deficit, draggable maintenance-vs-eaten chart, every day of the month (opens to add food late) |
+| Food, calories left, macros | — | — | Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, Recent / My meals / My foods (default), sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with optional fibre |
+| Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, measured maintenance), completed-day weekly deficit, trailing 31-day maintenance-vs-eaten chart with range caption, lazy calendar-month accordions (current open, older closed), logged-day rows that open for editing |
 
 Trends has a Week / Month / 3 months switch. Each row shows the average for the range, a small
 line, and the newest reading.
 
 **Readiness:** history is one coloured bar per day; dragging an empty day reads its stored
 reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
+
+The end-to-end readiness audit found no bug. Each night writes HRV (`ln_rmssd`), resting HR,
+breathing and skin temperature into `metric_series`. `_BaselineHistoryCache` reads the last 28
+earlier values per input, excluding imported days and other band families. `readinessComposite`
+requires at least 14 earlier nights per input, at least two usable inputs and at least half the
+weight; robust z-scores are combined with weights renormalised over available inputs. Missing
+scores store `readiness_absent_diag`; `readinessGap` exposes the per-day reason. The sparse history
+before 30 September reflects those baseline/missing-input/import rules, not a broken read path.
 
 **Steps (phone first, personal build):** a phone hour that counted steps belongs to the phone; the
 band keeps only time the phone did not count, or a real walk the phone clearly missed (phone left
@@ -143,8 +152,18 @@ behind). Runs show the phone's steps and cadence. `resolveDaySteps` in
 
 **Charts:** every trend chart takes a finger: a line and a ring mark the point, and the date and
 value show in the chart's header (metric detail at every range, Readiness history, Train's strain
-and weekly distance, day strain, hourly steps). Every tab refreshes on a pull: band sync, phone
+and weekly distance, day strain, hourly steps). Titles and selected values have their own
+full-width rows; selected text wraps without ellipsis. Every tab refreshes on a pull: band sync, phone
 steps, then today's derive, with the spinner held until it finishes (60 s cap).
+Today/food cards also reread after committed food writes, derived changes, foreground return,
+and the five-minute foreground refresh (including local day rollover). No pull is needed and
+there is no new iOS background capability. A fresh launch opens Today; warm resume retains position.
+
+**Food coverage:** calories/protein are primary. Optional omitted macros remain null/untracked;
+explicit zero is retained. Weekly energy summaries exclude today, unknown-calorie entries and
+past days without an evening entry on that local date. Missing optional macros do not exclude a
+day. Logged protein is averaged only over qualifying days with protein values. Coverage/exclusions
+are shown; this heuristic cannot detect every forgotten food or prove a complete diary.
 
 ### Computed and stored, but shown on no screen
 
@@ -159,7 +178,8 @@ form (training load), next-morning session cost, and the beat-by-beat night data
 1. **Total sleep:** time asleep, in bed, bedtime → wake, and % asleep while in bed.
 2. **Through the night:** stage chart (deep in the sleep violet) with the stage names only in the
    colour key and five clock marks. Drag it: time · stage · heart rate · HRV · skin temperature
-   (against the night's average) show in the header.
+   (against the night's average, °C) show in two wrapping header rows. Deep uses the same violet in
+   Stages. A compact wake-up/stretch summary stays visible; full caveats are under Night details.
 3. **Stages:** Deep, REM, Light (minutes and % of sleep, summing to total sleep) and Awake.
 4. **Against your usual:** your last 28 nights for time asleep, deep sleep, % asleep while in bed,
    and when you fell asleep.
@@ -201,7 +221,8 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
   (`test/walking_energy_test.dart`, `test/run_calories_test.dart`).
 - **Where it shows:** the Maintenance card on Today, the Maintenance card on Food → Today (tap
   either for a sheet with one plain line per part and its numbers), and "Maintenance N · M
-  under/over" on every Food → History day. Trends has a Step calories row.
+  under/over" on completed Food → History days; unfinished rows say So far or Partial log.
+  Trends has a Step calories row.
 - **The calorie goal never changes:** Akshat types it once (Food → target button); maintenance is
   shown beside it, not used to move it.
 
@@ -219,7 +240,7 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
 **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →
 Steps** is on; HealthKit stays excluded from the personal build.
 
-## Layout decisions (source `0.9.36`/`69`)
+## Layout decisions (source `0.9.38`/`71`)
 
 | Item | Decision |
 |---|---|
@@ -230,7 +251,7 @@ Steps** is on; HealthKit stays excluded from the personal build.
 | Bedtime / sleep need | Removed from Today and Sleep (Tonight section) at Akshat's request; still computed |
 | Steps screen | The per-stretch list is removed; the hourly bars are draggable and the totals line stays |
 | Metric detail (personal build) | No algorithm-version dotted lines, no locked-range line, no Worn bars under the chart |
-| Today | Weekly card: deficit at the floor, protein vs target, km run, streak, average sleep |
+| Today | Weekly card: deficit at the floor, logged protein vs target, km run, streak, average sleep; completed-day coverage and exclusions |
 | AI coach, AI briefings, language picker, paced breathing | Removed |
 | Train | One page. Removed the activity library tab, mascot card, fitness/fatigue/form, kg-lifted chart, morning-after and overreach cards, and the share poster button |
 | Lifting sets | Removed. A Lift is a timed session scored from heart rate |

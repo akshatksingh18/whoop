@@ -9,6 +9,11 @@
       "version": "0.9.34",
       "build": "67",
       "sha256": "bdb90ee8bf0bdfb363ff1d2c92bb7a8432807b4112c4fd45af5c102eccbdbcae"
+    },
+    {
+      "version": "0.9.37",
+      "build": "70",
+      "sha256": "0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17"
     }
   ]
 }

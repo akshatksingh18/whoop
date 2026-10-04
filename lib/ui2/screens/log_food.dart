@@ -38,6 +38,31 @@ import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
 import 'scan_barcode.dart';
 
+/// The shared camera/consent/cache path, independent of the old occasion UI.
+Future<OffResult?> scanFoodProduct(BuildContext c, {VoidCallback? onManual}) async {
+  if (!offLookupAllowed) {
+    final agreed = await _askLookupConsent(c);
+    if (agreed != true || !c.mounted) return null;
+    await setOffLookupAllowed(true);
+    if (!c.mounted) return null;
+  }
+  final code = await scanBarcode(c, onManual: onManual);
+  if (code == null || !c.mounted) return null;
+  return lookupBarcodeFood(code);
+}
+
+Future<OffResult> lookupBarcodeFood(String code) async {
+  final db = await LocalDb.instance;
+  final cached = await NutritionDb.foodDef(db, code);
+  if (cached != null && cached['source'] == 'barcode') {
+    return OffResult(OffOutcome.ok, OffProduct.fromDefRow(cached));
+  }
+  final res = await fetchOffProduct(code);
+  if (res.product case final product?)
+    await NutritionDb.putFoodDef(db, product.toDefRow());
+  return res;
+}
+
 class LogFoodSheet extends StatefulWidget {
   const LogFoodSheet({super.key, this.date, this.meal = 'snack'});
 
@@ -171,7 +196,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
       _looking = true;
       _outcome = null;
     });
-    final res = await _lookup(code);
+    final res = await lookupBarcodeFood(code);
     if (!mounted) return;
     setState(() {
       _looking = false;
@@ -194,20 +219,6 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
 
   /// Cache first. `food_def` is keyed by barcode, so the second scan of the
   /// same packet is a local read and openfoodfacts.org hears nothing.
-  Future<OffResult> _lookup(String code) async {
-    final db = await LocalDb.instance;
-    final cached = await NutritionDb.foodDef(db, code);
-    // Only a row this path wrote. Crediting Open Food Facts for a dictionary
-    // entry that came from somewhere else would be an attribution in the
-    // wrong direction, which is its own kind of licence problem.
-    if (cached != null && cached['source'] == 'barcode') {
-      return OffResult(OffOutcome.ok, OffProduct.fromDefRow(cached));
-    }
-    final res = await fetchOffProduct(code);
-    final p = res.product;
-    if (p != null) await NutritionDb.putFoodDef(db, p.toDefRow());
-    return res;
-  }
 
   /// Fill the form from a product. Every box the gates could not stand behind
   /// is CLEARED rather than left holding the previous scan's number.
@@ -660,6 +671,8 @@ Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
 /// The ODbL credit, wherever Open Food Facts numbers are shown. Both links
 /// are the licence's, not decoration — the notice names the source and the
 /// terms, and a user has to be able to reach both.
+Widget offCredit() => const _OffCredit();
+
 class _OffCredit extends StatelessWidget {
   const _OffCredit();
 

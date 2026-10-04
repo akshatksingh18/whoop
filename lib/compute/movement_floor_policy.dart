@@ -67,7 +67,10 @@ int daysSinceFrozen({required String frozenOn, required String dayId}) {
   final from = DateTime.tryParse(frozenOn);
   final to = DateTime.tryParse(dayId);
   if (from == null || to == null) return 0;
-  final diff = to.difference(from).inDays;
+  // Labels count calendar days. UTC here is only an ordinal of the parsed
+  // fields, so a 23/25-hour local DST day cannot change the age.
+  final diff = DateTime.utc(to.year, to.month, to.day)
+      .difference(DateTime.utc(from.year, from.month, from.day)).inDays;
   return diff > 0 ? diff : 0;
 }
 

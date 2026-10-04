@@ -47,7 +47,8 @@ Do not reopen or patch the Android-specific hypotheses above as part of the iPho
 
 ## iPhone background reconnect: restore wake landing on a parked backoff
 
-**Found by code review. Fixed in source `0.9.33`/`66`; not yet built or device-verified.**
+**Found by code review. Fixed from source `0.9.33`/`66` and included in accepted build 70;
+locked/background restoration still needs its separate device check.**
 
 The failure sequence while backgrounded, after the live link dropped:
 1. `_onEngineState` arms the native restore central (`_armRecovery`) and starts `_reconnect()`.
@@ -124,11 +125,15 @@ historical wrist stream is too low-rate for honest step reconstruction. Keep pho
 normal iPhone-carried use. If steps without the iPhone are later required, first prove that the WHOOP
 protocol exposes a trustworthy on-band counter; do not fabricate one from 1 Hz historical data.
 
-**Current source fix (`0.9.32` build `65`):** zero-step `CMPedometer` windows are now retained as
+**Source fix from `0.9.32` build `65`, retained in accepted build 70:** zero-step `CMPedometer` windows are retained as
 confirmed-still evidence. When a low-density wrist span overlaps such a phone window, the resolver
 voids only that overlap; real gait-density spans survive, and partial overlaps keep their uncovered
-share. The focused database/source-ladder tests pass. This behavior is not in installed build 63 and
-still requires the build-65 IPA/device pass.
+share. The focused database/source-ladder tests pass. The current feature phone check passed;
+the separate phone-stillness scenario remains useful for verifying this specific guard.
+
+Build 70 also changes personal step resolution to phone-first (`kAlgoVersion` 87): phone-counted
+windows use the phone, with band fallback for missed time or qualifying gait. The feature phone
+check passed; `metrics-map.md` owns the current step policy.
 
 The secondary-sensor screen provides a separate observation, not a WHOOP-pairing fallback. After
 skipping onboarding, **Settings → My Device → Add a Sensor → Bluetooth Heart Rate Sensor** reports
@@ -138,6 +143,21 @@ app-level denial has different copy. Confirm Bluetooth is on in the iPhone Setti
 is allowed under Privacy & Security → Bluetooth. Also force-quit/relaunch WHOOP after attempting a
 secondary-sensor scan: that path creates a global `CBCentralManager`, which the current source says
 prevents AccessorySetupKit from presenting the primary-WHOOP picker for the rest of that process.
+
+## UI and food reliability
+
+Source `0.9.38`/`71` fixes clipped chart readouts, inconsistent Deep colouring, restored launch
+tabs, the indirect Scan flow and unbounded food history. It adds Quick add fibre/editing, optional
+macro handling, completed-day weekly coverage and automatic weekly-card rereads. Save guards,
+transactional saved meals, historical timestamps, latest-read guards and visible validation/retry
+states cover the reviewed failure paths. Widget/database regressions reproduce save/date races,
+failed reads/writes, Undo and cold/warm navigation; they are source verification, not reports of
+observed phone failures. Release and phone checks are tracked in `todo.md`.
+
+The old Windows-only failures are repaired: path/newline comparisons and local-date fixtures are
+portable; POSIX timezone-switching tests remain explicitly skipped on Windows. Real source fixes
+close ZIP inputs even when validation fails and count movement-floor age by calendar dates across
+DST. Algorithm 88 permits recomputation. The personal capability profile is unchanged.
 
 ## Other known environment quirks (not app bugs)
 - Vivo/OriginOS aggressively kills background apps — battery optimization must be "No

@@ -716,6 +716,8 @@ class AppState extends ChangeNotifier {
   /// [foregroundRefreshEvery] while the app is open; the band offload itself
   /// rides `openSession` and the 5-minute backfill timer.
   Future<void> refreshForeground() async {
+    // Calendar rollover and local edits must refresh even without a band.
+    bumpInsights();
     if (phoneStepsEnabled) await syncPhoneSteps();
     _deriveScheduler.markStoredData();
   }

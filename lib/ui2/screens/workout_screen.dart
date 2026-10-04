@@ -64,8 +64,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   @override
-  void reload() =>
-      setState(() => _load = _loadWorkoutData(context.read<AppState>()));
+  void reload() {
+    setState(() {
+      _load = _loadWorkoutData(context.read<AppState>());
+    });
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -81,6 +84,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           }),
           child: ListView(padding: pad, children: [
             const ScreenTitle('Train'),
+              if (snap.hasError)
+                StatusCard(
+                  'Training history could not load',
+                  'Your saved sessions are intact.',
+                  fix: 'Retry',
+                  onFix: reload,
+                )
+              else if (!snap.hasData)
+                const Center(child: CircularProgressIndicator())
+              else
             ..._page(c, d),
           ]),
         );
@@ -429,7 +442,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       await LocalDb.deleteSession(w.id);
     }
     if (!mounted) return;
-    setState(() => _load = _loadWorkoutData(context.read<AppState>()));
+    reload();
   }
 
   /// Bring in what another app recorded. On History because that is the list
@@ -1551,7 +1564,7 @@ class _WorkoutData {
 /// take the whole tab down.
 Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     final repo = app.repo;
-    if (repo == null) return const _WorkoutData.empty();
+  if (repo == null) throw StateError('Training repository unavailable');
 
     double? weight;
     try {
@@ -1607,7 +1620,8 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
         }
       }
     } catch (_) {
-      // leave `past` as-is
+    // A failed session read must not become "no sessions recorded".
+    rethrow;
     }
     // Workouts another app recorded, on the SAME window the band's own list
     // uses. The store is read 90 days back (30 on Android) because that is the

@@ -1591,7 +1591,10 @@ import 'substrate.dart';
 // energy (`calories_total`) change on days with both sources, so retained days
 // re-derive. No analytics package change; the upstream build resolves as
 // before (`phoneFirst` defaults to `kPersonalSideload`).
-const int kAlgoVersion = 87;
+// 87 → 88: frozen movement-floor age counts calendar dates rather than elapsed
+// 24-hour periods. DST no longer postpones the age-based re-freeze by one day.
+// Active minutes can change at that threshold; retained days must re-derive.
+const int kAlgoVersion = 88;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

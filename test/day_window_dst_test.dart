@@ -80,6 +80,7 @@ void main() {
   final originalTz = Platform.environment['TZ'];
 
   setUpAll(() async {
+    if (Platform.isWindows) return; // The tests below already skip POSIX tzset.
     _setProcessTz('America/New_York');
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -90,6 +91,7 @@ void main() {
   });
 
   tearDownAll(() async {
+    if (Platform.isWindows) return;
     await LocalDb.close();
     await databaseFactory.deleteDatabase(
       p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),

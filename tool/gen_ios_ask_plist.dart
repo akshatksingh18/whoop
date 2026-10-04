@@ -92,9 +92,10 @@ String _replaceBody(String plist, String key, String tag, String body) {
 
 /// [plist] with both generated blocks rebuilt from [registry].
 String applyBlocks(String plist, List<BandEntry> registry) {
-  var out = _replaceBody(plist, kServicesKey, 'array', _servicesBody(registry));
+  final crlf = plist.contains('\r\n');
+  var out = _replaceBody(plist.replaceAll('\r\n', '\n'), kServicesKey, 'array', _servicesBody(registry));
   out = _replaceBody(out, kLabelsKey, 'dict', _labelsBody(registry));
-  return out;
+  return crlf ? out.replaceAll('\n', '\r\n') : out;
 }
 
 void main(List<String> args) {

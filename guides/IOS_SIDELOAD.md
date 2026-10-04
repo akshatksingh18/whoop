@@ -1,13 +1,15 @@
 # WHOOP personal iPhone sideload and refresh plan
 
 **State:** Build `0.9.37`/`70` is installed over build 69 and accepted. Source `0.9.39`/`72` is
-locally validated with the additional Today-refresh fix. The initial UI/food IPA built successfully
-but predates that fix and must not be installed; a revised candidate and phone acceptance are pending.
+validated locally and by Linux CI/macOS build, with the additional Today-refresh fix. Its downloaded
+checksum and payload validation pass; installation, phone acceptance and current-version enrollment
+remain pending. The initial build-71 IPA predates that fix and must not be installed.
 Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\` is empty. `../setup.md` owns the artifact, hash and workflow records.
+`testing\WHOOP-0.9.39-build72-05c208c7` holds the single candidate. `../setup.md` owns the
+artifact, hash and workflow records.
 
 The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →
 Steps** is enabled. Encrypted history restore, identity/data/pairing preservation and a controlled

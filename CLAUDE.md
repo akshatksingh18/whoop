@@ -17,9 +17,9 @@ remain fetch-only named upstreams.
 **Status:** Active iPhone verification — build `0.9.37`/`70` is installed and accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
 the recovery/refresh build in `final-ipas\whoop\backup\`. Source `0.9.39`/`72` implements the
-approved UI/food reliability cleanup plus the newly reported Today-refresh repair. Its initial
-UI/food IPA built but lacks that repair and is held before release; revised validation/build and
-phone acceptance remain. Broader lifecycle, background and multi-cycle signing gates remain before
+approved UI/food reliability cleanup plus the newly reported Today-refresh repair. The combined IPA passes local validation, Linux CI and the macOS build and is cached in
+`final-ipas\whoop\testing\WHOOP-0.9.39-build72-05c208c7`; installation, phone acceptance and
+current-version enrollment remain. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
 Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
@@ -60,7 +60,8 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 (Linux tests and the macOS workflow passed; the IPA matches its SHA-256 and passes the validator;
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
-`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` is empty.
+`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 72,
+which has not yet been installed or phone-accepted.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -104,8 +105,12 @@ passes (3,274 tests, 368 intentional skips); analysis has 58 infos and no errors
 7 personal-iOS contract tests pass. Initial source `5c00c278` is published; its Linux CI and macOS
 build pass. The additional refresh source reads phone steps before band catch-up, exposes measured
 steps without waiting for derivation, awaits the calculation queue and shows timeout/failure/hold
-messages. The full suite and focused regressions pass; publication/IPA approval for the revised
-source remains. Do not install the earlier artifact. `setup.md` owns the artifact evidence.
+messages. The full suite and focused regressions pass. Akshat approved public publication and
+the replacement IPA; source `05c208c7` is pushed. Linux CI `37173914511` passes (3,279 tests,
+363 intentional skips); macOS workflow `37174063547` passes. The downloaded build-72 IPA
+matches its manifest/checksum and passes the local payload validator; it is the single testing
+candidate. Installation and the `todo.md` phone/enrollment gates remain. Do not install build 71.
+`setup.md` owns the artifact evidence.
 
 `schemaVersion` is unchanged (both build-70 storage pieces are additive, on the open path).
 Superseded `0.9.36`/`69` (commit `5747dd35`) was **built, validated and installed** (Akshat's
@@ -218,7 +223,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` is empty, and superseded builds 63–69 are reproducible from their workflow
+`testing\` holds the validated build-72 candidate, and superseded builds 63–69 are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health

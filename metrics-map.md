@@ -4,8 +4,9 @@ Everything the app stores and where each item appears, plus the proposed layout.
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
 the personal source `0.9.39`/`72`.
 
-**Status:** Current map of stored data and screens for locally test-validated source `0.9.39`/`72`;
-public CI/build and the phone pass are pending, with build 70 retained as accepted recovery. Everything in
+**Status:** Current map of stored data and screens for build `0.9.39`/`72`; local tests, public CI,
+the macOS build and downloaded IPA validation pass. Installation and the phone/enrollment gates
+remain, with build 70 retained as accepted recovery. Everything in
 "What is stored" keeps being recorded whether or not a screen shows it; any further removal still
 needs Akshat's per-item yes.
 

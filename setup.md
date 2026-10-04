@@ -82,7 +82,8 @@ tests and `tool/personal_ios.py check` pass. All 9 Today-refresh regressions pas
 personal build flag, including the native phone-sync write/reload path, absent/zero steps,
 stale calculated totals, detail/chart agreement and capture/workout holds.
 The initial build-71 Linux CI `37170843509` passed: 3,270 tests, 363 intentional skips and analysis
-with no errors/warnings. Revised build-72 public CI remains pending.
+with no errors/warnings. Build-72 Linux CI `37173914511` passes: 3,279 tests, 363 intentional skips,
+analysis with 58 infos and no errors/warnings.
 
 The former 13 Windows failures are repaired in this source: path/newline checks and local-day
 fixtures are portable. ZIP validation closes its input on every failure, and movement-floor age
@@ -236,7 +237,8 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-`testing\` is empty. The checksum, manifest and local payload validator pass at the promoted path;
+it remains the accepted backup while build 72 occupies `testing\`. The checksum, manifest and
+local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
 `CLAUDE.md`; locked-screen voice has no separately reported result.
@@ -249,8 +251,16 @@ fix. It must not be installed and remains reproducible from that workflow.
 Build `0.9.39`/`72` combines all approved UI/food changes with the Today-refresh repair, with
 algorithm 88 and unchanged schema/capabilities. Local full-suite validation passes (3,274 tests,
 368 intentional skips), analysis has no errors/warnings, and all 7 personal-iOS contract tests pass.
-The additional source is not published; its public publication/replacement IPA need approval.
-No candidate is cached in `testing`. Build 70 remains accepted; build 72 must pass its phone check
+Source `05c208c79fe61c35e8df587e7becfd59698cbf02` is published with Akshat's approval.
+Linux CI `37173914511` passes (3,279 tests, 363 intentional skips). Personal macOS workflow
+`37174063547` passes against that exact revision. Artifact
+`whoop-personal-05c208c79fe6-unsigned.ipa` (17,747,901 bytes), SHA-256
+`87e2f7a860f5b13130f68394b65952dec43b3db9d4bd28f77f88597517f7183d`, matches the downloaded
+checksum and manifest. The manifest confirms version `0.9.39`, build `72`, the full source revision
+above and unchanged minimal personal capabilities. `tool/personal_ios.py validate` passes.
+The IPA, manifest and checksum are cached in the single candidate folder
+`../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. It is not yet installed.
+Build 70 remains accepted; build 72 must pass its phone check
 and current-version automatic-refresh enrollment before cache promotion or ledger acceptance.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install

@@ -164,7 +164,8 @@ fallbacks remain available, and phone stillness is distinguished from no read. D
 exercise a blocked band, stale calculated totals, no band records, zero counts and capture/workout
 holds (`test/today_refresh_test.dart`). Native phone-sync completion also publishes a screen
 revision, covering cold launch/reconnect as well as pull/foreground refresh.
-The earlier built `5c00c278` IPA lacks this repair; revised release and phone checks are pending.
+The earlier built `5c00c278` IPA lacks this repair and is superseded. Build-72 local/CI tests,
+macOS build, checksum and payload validation pass; physical-device verification remains pending.
 
 The old Windows-only failures are repaired: path/newline comparisons and local-date fixtures are
 portable; POSIX timezone-switching tests remain explicitly skipped on Windows. Real source fixes

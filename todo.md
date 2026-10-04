@@ -48,11 +48,16 @@ unchanged). The initial UI/food source `5c00c278` passed local release checks, L
 Akshat subsequently reported Today refresh leaving steps stale on installed build 70. The combined
 source passes all 3,274 full-suite tests (368 intentional skips), focused refresh regressions,
 static analysis with no errors/warnings and all 7 personal-iOS contract tests.
-The refresh repair is not published or present in that earlier IPA; the revised version is `0.9.39`/`72`. A revised source commit and replacement personal
-IPA need publication approval for public `akshatksingh18/whoop`; keep one install candidate.
+The revised version is `0.9.39`/`72`. Akshat approved publishing source
+`05c208c79fe61c35e8df587e7becfd59698cbf02` and its build records to public
+`akshatksingh18/whoop`, running CI and building the combined replacement IPA. That source is
+pushed; Linux CI `37173914511` passes (3,279 tests, 363 intentional skips).
+macOS workflow `37174063547` passes. The downloaded IPA matches its manifest/checksum and
+passes local payload validation. It is cached as the single testing candidate; `setup.md` owns
+the source, hash and artifact path. Build 72 has not yet been installed.
+The superseded build-71 artifact lacks the refresh fix; keep one install candidate.
 
 Before promoting build 72:
-- Complete Linux CI, one macOS personal IPA build, downloaded checksum and local payload validation.
 - Install over accepted build 70 using the existing signed identity; confirm data and pairing remain.
 - Force-close from Food/Trends and relaunch: Today opens. Warm resume retains the current screen.
 - Scrub Sleep and Food charts: every selected value/unit is visible, including enlarged text;

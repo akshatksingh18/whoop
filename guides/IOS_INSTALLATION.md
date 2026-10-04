@@ -4,12 +4,14 @@
 personal-sideload profile and public manual macOS workflow. Build `0.9.37`/`70` is installed over
 build 69 and accepted: Akshat confirmed its feature phone check and completed current-version
 automatic-refresh registration at the existing signed identity, with no error. It is cached in
-`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` is empty. `../setup.md` owns
+`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` holds validated build 72. `../setup.md` owns
 source/hash/workflow evidence and superseded build records.
 Source `0.9.39`/`72` implements the approved UI/food cleanup plus the additional Today-refresh
 repair. The initial UI/food IPA built successfully but lacks that repair and is held before release.
-Revised local checks pass; publication/build are pending; no new IPA is cached. The build-72 phone checklist
-is in `../todo.md`.
+Source `05c208c7` is published; local checks, Linux CI, the macOS build, downloaded checksum
+and payload validation pass. The single testing candidate is
+`../../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. Installation and the build-72
+phone/enrollment checklist in `../todo.md` remain pending.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
 Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID

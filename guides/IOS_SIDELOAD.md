@@ -1,7 +1,9 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Build `0.9.37`/`70` is installed over build 69 and accepted. Source `0.9.38`/`71` is
-locally test-validated; its public CI, IPA and phone acceptance are pending. Akshat confirmed build 70's
+**State:** Build `0.9.37`/`70` is installed over build 69 and accepted. Source `0.9.39`/`72` is
+locally validated with the additional Today-refresh fix. The initial UI/food IPA built successfully
+but predates that fix and must not be installed; a revised candidate and phone acceptance are pending.
+Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;

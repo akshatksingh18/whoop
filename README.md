@@ -26,11 +26,14 @@
 > Accepted `0.9.37`/`70` adds the MyFitnessPal-style Food diary, maintenance history with body
 > weight, phone-first steps, a cleaner Sleep screen, run medals and voice cues, and the 30-day
 > chart touch fix (`CLAUDE.md`, `metrics-map.md`).
-> Source `0.9.38`/`71` implements the approved UI and food cleanup: wrapping chart readouts,
+> Source `0.9.39`/`72` implements the approved UI and food cleanup: wrapping chart readouts,
 > monthly history, Today on fresh launch, My foods by default, direct scanning, editable Quick add
 > with optional fibre, honest weekly coverage and automatic card refresh. Save/date races and
 > retryable failures have regressions. Algorithm 88 corrects movement calendar age across DST.
-> Local release checks pass; public CI/build and phone verification are pending. Build 70 remains
+> Source also repairs Today refresh: phone steps first, measured counts shared with detail/chart
+> reads and visible timeout/failure feedback. The initial UI/food CI and IPA build passed, but that
+> artifact predates this repair and is held before release. Revised local release checks pass; public publication/build and phone
+> verification remain. Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
 > maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger

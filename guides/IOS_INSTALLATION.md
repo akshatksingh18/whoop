@@ -6,8 +6,10 @@ build 69 and accepted: Akshat confirmed its feature phone check and completed cu
 automatic-refresh registration at the existing signed identity, with no error. It is cached in
 `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` is empty. `../setup.md` owns
 source/hash/workflow evidence and superseded build records.
-Source `0.9.38`/`71` implements the approved UI/food cleanup; local release checks pass and
-no new IPA is cached yet. The build-71 phone checklist is in `../todo.md`.
+Source `0.9.39`/`72` implements the approved UI/food cleanup plus the additional Today-refresh
+repair. The initial UI/food IPA built successfully but lacks that repair and is held before release.
+Revised local checks pass; publication/build are pending; no new IPA is cached. The build-72 phone checklist
+is in `../todo.md`.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
 Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID
@@ -160,7 +162,7 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. Runner and the excluded Widget/Watch metadata are aligned to `0.9.38+71` in source.
+targets ship. Runner and the excluded Widget/Watch metadata are aligned to `0.9.39+72` in source.
 The personal phone-only artifact
 excludes them, but its Runner version/build and source manifest still change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.

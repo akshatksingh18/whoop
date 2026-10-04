@@ -347,7 +347,8 @@ class AppState extends ChangeNotifier {
     // pull early. This is BEST-EFFORT and establishes no ordering: it is
     // unawaited, so a derive pass can read `live_coverage` while the sync is
     // still in flight and that day then derives without phone steps. It
-    // self-heals on the next light pass.
+    // Calculated activity self-heals on the next light pass; measured counts
+    // publish as soon as syncPhoneSteps commits, independent of that pass.
     //
     // ROUTINE window only (2 days, ~48 platform round trips). Each hourly
     // bucket is one platform call, so the 7-day backfill window is up to 168 of
@@ -719,54 +720,54 @@ class AppState extends ChangeNotifier {
     // Calendar rollover and local edits must refresh even without a band.
     bumpInsights();
     if (phoneStepsEnabled) await syncPhoneSteps();
-    _deriveScheduler.markStoredData();
+    await _deriveScheduler.markStoredData();
   }
 
   /// Pull down to refresh: everything at once, and only then hand back so
   /// the spinner keeps turning until the screen has fresh numbers.
   ///
-  /// 1. Pull the band's backlog if it is connected (or start reconnecting).
-  /// 2. Read the phone's steps.
+  /// 1. Read the phone's steps and reload measured counts immediately.
+  /// 2. Pull the band's backlog if it is connected (or start reconnecting).
   /// 3. Queue today's derive and wait for it to finish.
   ///
   /// Capped at [pullRefreshCap]. Returns a short note for the user when
   /// something could not be done ("Band not connected"), else null.
-  Future<String?> pullRefresh() async {
+  Future<String?> pullRefresh({Duration timeout = pullRefreshCap}) async {
     try {
-      return await _pullRefresh().timeout(pullRefreshCap);
+      return await _pullRefresh().timeout(timeout);
     } on TimeoutException {
-      notifyListeners();
-      return null;
+      bumpInsights();
+      return 'Refresh is still running. Showing the latest saved data.';
     } catch (e) {
       _log('Pull refresh failed: $e');
-      return null;
+      return 'Could not finish refreshing. Please try again.';
     }
   }
 
   static const Duration pullRefreshCap = Duration(seconds: 60);
 
   Future<String?> _pullRefresh() async {
-    String? note;
+    final notes = <String>[];
+    if (phoneStepsEnabled) {
+      if (await syncPhoneSteps(days: 1) == 0) {
+        notes.add('Phone steps could not be read. Check This phone → Steps.');
+      }
+    }
+    // Phone counts are independent of the band and its calculation queue.
+    bumpInsights();
+    await _deriveScheduler.markStoredData();
     if (engine.isConnected) {
       try {
         await foregroundCatchUp();
       } catch (e) {
         _log('Pull refresh: band pull failed: $e');
+        notes.add('Band sync could not finish.');
       }
     } else {
-      note = 'Band not connected';
+      notes.add('Band not connected');
       unawaited(syncNow()); // try to reconnect; the screen does not wait on it
     }
-    if (phoneStepsEnabled) {
-      try {
-        await syncPhoneSteps();
-      } catch (_) {
-        // Phone steps keep their last value.
-      }
-    }
-    _deriveScheduler.markStoredData();
-    // The queue write is async, so give it a beat before reading its state.
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await _deriveScheduler.markStoredData();
     while (_deriveScheduler.running ||
         _deriveScheduler.pendingLight ||
         _deriveScheduler.pendingHeavy) {
@@ -774,13 +775,20 @@ class AppState extends ChangeNotifier {
       // Held work (a live workout, an offload still landing) will not drain
       // on this pull; stop waiting rather than spin to the cap.
       if (snap['workout_active'] == true && snap['workout_hold_expired'] != true) {
+        notes.add('Other totals update after the workout ends.');
         break;
       }
-      if (snap['background'] == true) break;
+      if (snap['background'] == true) {
+        notes.add('Other totals update when the app is open.');
+        break;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
-    notifyListeners();
-    return note;
+    if (_derive.snapshot()['last_error'] != null) {
+      notes.add('Some totals could not be calculated. Please try again.');
+    }
+    bumpInsights();
+    return notes.isEmpty ? null : notes.join(' ');
   }
 
   static const Duration foregroundRefreshEvery = Duration(minutes: 5);
@@ -824,6 +832,7 @@ class AppState extends ChangeNotifier {
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
+      if (r.daysRead > 0) bumpInsights();
       notifyListeners();
       return r.daysRead;
     } catch (e) {
@@ -2693,6 +2702,7 @@ class AppState extends ChangeNotifier {
   /// HR, so screens listen to this instead and re-read only when something
   /// actually landed.
   void bumpInsights() {
+    if (_disposed) return;
     insightsRevision.value = insightsRevision.value + 1;
   }
 

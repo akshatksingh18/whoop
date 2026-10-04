@@ -1421,7 +1421,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final d = _d;
 
     if (d == null) {
-      return _refreshable(ListView(padding: pad, children: [
+      return _refreshable(ListView(physics: const AlwaysScrollableScrollPhysics(), padding: pad, children: [
         const SizedBox(height: S.x8),
         if (_loading)
           const Center(child: CircularProgressIndicator())
@@ -1476,7 +1476,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // to start, that outranks anything else this screen has to say today.
     final rebuilt = dbRebuiltCard(dbRebuildOf(c), l);
 
-    return _refreshable(ListView(padding: pad, children: [
+    return _refreshable(ListView(physics: const AlwaysScrollableScrollPhysics(), padding: pad, children: [
       if (rebuilt != null) ...[const SizedBox(height: S.x3), rebuilt],
 
       // ── the one observation Home is allowed to make ──

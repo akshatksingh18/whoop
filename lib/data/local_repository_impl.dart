@@ -299,9 +299,19 @@ class LocalRepositoryImpl extends LocalRepository {
         ? null
         : await _wakeFeatures(todayDay);
     final b = sleepBundle ?? activityBundle;
+    // Counts already measured by a pedometer need no sleep/HR derivation.
+    // Use the Steps screen's resolver even while capture/compute is held.
+    final currentSteps = await getDaySteps(todayDay);
+    final stepsMetric = {
+      ..._scalarMetric(currentSteps['day_total'],
+          currentSteps['tier'] as String? ?? 'ESTIMATE', unit: 'steps',
+          note: needInputNote('today_activity')),
+      'inputs_used': currentSteps['inputs_used'] ?? const <String>[],
+      'source': currentSteps['day_source'],
+    };
     if (b == null && wakeFeatures == null) {
       return {
-        'daily': const {},
+        'daily': {'steps': stepsMetric},
         'sleep': const {},
         'status': {
           'today_day': todayDay,
@@ -431,16 +441,7 @@ class LocalRepositoryImpl extends LocalRepository {
         unit: 'kcal',
         note: activityNote('calories_total'),
       ),
-      // STEPS — real 100 Hz count (streamed time) + 1 Hz walking estimate for the
-      // rest; the derivation combines them and avoids double-counting.
-      'steps': _scalarMetric(
-        activityBundle == null
-            ? (wakeFeatures?['steps'] as num?)?.round()
-            : _scalar(activityBundle, 'steps')?.round(),
-        'ESTIMATE',
-        unit: 'steps',
-        note: activityNote('steps'),
-      ),
+      'steps': stepsMetric,
     };
 
     final hrv = rmssd == null
@@ -1326,14 +1327,33 @@ class LocalRepositoryImpl extends LocalRepository {
     // THE EXACT DAY, never `_bundleForDate`'s latest-complete fallback: the
     // spans come from this date's coverage rows, and pairing them with another
     // day's published total is the one mismatch this screen must not show.
-    final st = _sub(await _bundle(date), 'steps');
+    final bundle = await _bundle(date);
+    final st = _sub(bundle, 'steps');
+    final wake = bundle == null && _isTodayLabel(date)
+        ? await _wakeFeatures(date) : null;
+    final measured = r.total > 0 || r.hasPhoneCoverage;
+    final source = measured
+        ? (r.mixed ? 'mixed' : r.strap > 0 ? 'strap' : 'phone')
+        : st?['source'];
     return {
       'total': r.total,
       'strap': r.strap,
       'phone': r.phone,
-      'day_total': (st?['value'] as num?)?.toInt(),
-      'day_source': st?['source'] as String?,
-      'note': st?['note'] as String?,
+      'day_total': measured ? r.total :
+          (st?['value'] as num?)?.toInt() ?? _scalar(bundle, 'steps')?.round()
+              ?? (wake?['steps'] as num?)?.round(),
+      'measured': measured,
+      'day_source': source,
+      'tier': measured ? 'HIGH' : st?['tier'],
+      'inputs_used': measured
+          ? [
+              if (r.strap > 0) 'band_pedometer_100hz',
+              if (r.phone > 0 || (r.total == 0 && r.hasPhoneCoverage))
+                'phone_pedometer',
+            ]
+          : st?['inputs_used'],
+      'note': measured ? 'Counted over measured pedometer windows; overlaps counted once.'
+          : st?['note'] as String?,
       'spans': [
         for (final s in r.spans)
           {
@@ -1454,22 +1474,9 @@ class LocalRepositoryImpl extends LocalRepository {
     // EWMA-ACWR training load lives in the cross-day rollup (acute/chronic over a
     // history window); the strain detail's "Training load (ACWR)" row reads it.
     final cd = await _crossDay();
-    // STEPS is a live-accumulating count, not a "show last settled day" metric —
-    // unlike strain/zones/HR/curve above (where falling back to yesterday's
-    // finished bundle via _bundleForDate is the correct "still settling" UX),
-    // showing yesterday's step count as "today's steps" is actively wrong, not
-    // just stale. When today's own row hasn't been derived yet, use today's
-    // interim wake_day_features estimate instead of whatever _bundleForDate
-    // fell back to (same source getToday() uses for the Today screen). This is
-    // the settled BASE only — a caller showing live steps folds AppState.liveSteps
-    // on top, the way Today composes base+live.
-    num? stepsBase;
-    if (_isTodayLabel(date) && await _bundle(date) == null) {
-      final wf = await _wakeFeatures(date);
-      stepsBase = wf?['steps'] as num?;
-    } else {
-      stepsBase = _scalar(b, 'steps');
-    }
+    // Steps belong to this exact date and read fresh measured windows, even
+    // while HR-derived activity is still settling. Never borrow another day.
+    final stepsBase = (await getDaySteps(date))['day_total'] as num?;
     // The five bare-valued figures, resolved once so the reason block below can
     // key off what this payload IS ABOUT TO SAY rather than re-deriving it.
     final strain = _scalar(b, 'strain');
@@ -1856,13 +1863,19 @@ class LocalRepositoryImpl extends LocalRepository {
     // 74 in the ring and 69 as today's point in the chart underneath it. One
     // day, one readiness number.
     final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
+    final today = _todayLocalLabel();
+    final currentSteps = key == 'steps' ? await getDaySteps(today) : null;
+    final measuredSteps = currentSteps?['measured'] == true;
     return {
       'points': [
         for (final r in rows)
+          if (!(measuredSteps && r['date'] == today))
           {
             't': _dateToEpoch(r['date'] as String),
             'v': r['date'] == pin?.day ? pin!.value : r['value'],
           },
+        if (measuredSteps)
+          {'t': _dateToEpoch(today), 'v': currentSteps!['day_total']},
       ],
       // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend
       // can be read against how much of it was actually measured instead of

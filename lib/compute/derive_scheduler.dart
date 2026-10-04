@@ -78,7 +78,7 @@ class DeriveScheduler {
   bool _pendingLight = false;
   bool _pendingHeavy = false;
   Timer? _timer;
-  bool _refreshing = false;
+  Future<void>? _snapshotRead;
 
   Future<void> init() async {
     await LocalDb.recoverComputeJobs();
@@ -101,9 +101,8 @@ class DeriveScheduler {
         'pending_heavy': _pendingHeavy,
       };
 
-  void markStoredData() {
-    unawaited(_enqueue(type: 'derive_light', reason: 'stored_data'));
-  }
+  Future<void> markStoredData() =>
+      _enqueue(type: 'derive_light', reason: 'stored_data');
 
   void requestHeavy() {
     unawaited(_enqueue(type: 'derive_heavy', reason: 'capture_settled'));
@@ -256,8 +255,18 @@ class DeriveScheduler {
   }
 
   Future<void> _refreshSnapshot() async {
-    if (_refreshing) return;
-    _refreshing = true;
+    final previous = _snapshotRead;
+    final read = _readSnapshotAfter(previous);
+    _snapshotRead = read;
+    try {
+      await read;
+    } finally {
+      if (identical(_snapshotRead, read)) _snapshotRead = null;
+    }
+  }
+
+  Future<void> _readSnapshotAfter(Future<void>? previous) async {
+    await previous;
     try {
       final jobs = await LocalDb.computeJobs(state: 'queued', limit: 50);
       _pendingLight = jobs.any(
@@ -269,7 +278,6 @@ class DeriveScheduler {
             job['type']?.toString() == 'derive_heavy',
       );
     } finally {
-      _refreshing = false;
       onChanged();
     }
   }

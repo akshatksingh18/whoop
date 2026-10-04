@@ -16,9 +16,10 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification — build `0.9.37`/`70` is installed and accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
-the recovery/refresh build in `final-ipas\whoop\backup\`. Source `0.9.38`/`71` implements the
-approved UI/food reliability cleanup and passes local release checks; it has no IPA or phone
-acceptance yet. Broader lifecycle, background and multi-cycle signing gates remain before
+the recovery/refresh build in `final-ipas\whoop\backup\`. Source `0.9.39`/`72` implements the
+approved UI/food reliability cleanup plus the newly reported Today-refresh repair. Its initial
+UI/food IPA built but lacks that repair and is held before release; revised validation/build and
+phone acceptance remain. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
 Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
@@ -88,20 +89,23 @@ It adds:
   log (new `body_weight` table) and maintenance measured from weight change.
 - **Today:** a weekly card, and an evening protein-left line on Food.
 
-Source `0.9.38`/`71` adds full-width wrapping chart readouts, matching deep-sleep colours,
+Source `0.9.39`/`72` adds full-width wrapping chart readouts, matching deep-sleep colours,
 expandable night details, Today on fresh launch, My foods by default and direct barcode scanning.
 Food history is grouped by calendar month. Quick add includes optional fibre and editing; omitted
 macros remain untracked and explicit zero remains zero. Weekly energy summaries use completed days
 and explain exclusions. Today/food cards reread after committed food changes, foreground refresh
 and day rollover. Validation, save guards, transactional meal logging, latest-read guards and
 retryable failures protect these flows. The new widget/data regressions also cover cold/warm
-navigation, failed writes and historical meal timestamps. Build 71 fixes the former Windows test
+navigation, failed writes and historical meal timestamps. Build 72 includes the fixes for the former Windows test
 failures, including leaked ZIP file handles and DST calendar-age arithmetic. `kAlgoVersion` is 88
 so retained movement results can recompute; no schema or personal capability change is required.
-The excluded Widget/Watch version metadata is aligned to `0.9.38`/`71`. Local full-suite validation
-passes (3,265 tests, 368 intentional skips); analysis has 56 infos and no errors/warnings, and all
-7 personal-iOS contract tests pass. Publication, Linux CI, the single macOS build and phone gates
-remain; `setup.md` owns the artifact evidence.
+The excluded Widget/Watch version metadata is aligned to `0.9.39`/`72`. Local full-suite validation
+passes (3,274 tests, 368 intentional skips); analysis has 58 infos and no errors/warnings, and all
+7 personal-iOS contract tests pass. Initial source `5c00c278` is published; its Linux CI and macOS
+build pass. The additional refresh source reads phone steps before band catch-up, exposes measured
+steps without waiting for derivation, awaits the calculation queue and shows timeout/failure/hold
+messages. The full suite and focused regressions pass; publication/IPA approval for the revised
+source remains. Do not install the earlier artifact. `setup.md` owns the artifact evidence.
 
 `schemaVersion` is unchanged (both build-70 storage pieces are additive, on the open path).
 Superseded `0.9.36`/`69` (commit `5747dd35`) was **built, validated and installed** (Akshat's
@@ -145,7 +149,7 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — build-71 release/phone checks and remaining lifecycle/refresh checks; read before
+- `todo.md` — build-72 release/phone checks and remaining lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
   and current layout decisions; read before adding, moving or removing any screen.

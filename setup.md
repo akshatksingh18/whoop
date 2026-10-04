@@ -71,14 +71,18 @@ incremental cache cannot relativize plugin sources across drive roots. The check
 documented debug-signing fallback because no private release keystore is configured; it is not a
 production-signed distribution artifact.
 
-Build-71 local validation passes. The 19 new food/UI flow regressions pass, including
+Build-72 local validation passes. The 19 new food/UI flow regressions pass, including
 full selected chart text at 320/375/390/430 pt and 1×/1.5×/2× text, optional macros, editing/Undo,
 direct Scan/manual fallback, monthly history, automatic weekly rereads, save/date races,
 historical saved meals and retryable failures. Representative dark renders were inspected and
-generated screenshots removed. The full suite passes 3,265 tests with 368 intentional skips
+generated screenshots removed. The full suite passes 3,274 tests with 368 intentional skips
 (unavailable captures/goldens and platform-specific tests). Static analysis succeeds with
-`--no-fatal-infos`: 56 info-level findings, no errors or warnings. All 7 personal-iOS contract
-tests and `tool/personal_ios.py check` pass. Linux CI remains pending publication.
+`--no-fatal-infos`: 58 info-level findings, no errors or warnings. All 7 personal-iOS contract
+tests and `tool/personal_ios.py check` pass. All 9 Today-refresh regressions pass with the
+personal build flag, including the native phone-sync write/reload path, absent/zero steps,
+stale calculated totals, detail/chart agreement and capture/workout holds.
+The initial build-71 Linux CI `37170843509` passed: 3,270 tests, 363 intentional skips and analysis
+with no errors/warnings. Revised build-72 public CI remains pending.
 
 The former 13 Windows failures are repaired in this source: path/newline checks and local-day
 fixtures are portable. ZIP validation closes its input on every failure, and movement-floor age
@@ -156,7 +160,7 @@ owned by `../akshatos/`; consult its build guide for implementation and device e
 
 The personal artifact must preserve the root phone app, local database/analytics, local
 notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
-drain invariants. The build-71 source preserves the personal profile: it excludes the Watch companion, widget/Live
+drain invariants. The build-72 source preserves the personal profile: it excludes the Watch companion, widget/Live
 Activity extension, App Groups, HealthKit, and background processing/fetch. GPS was reopened in
 build 65 with While-In-Use authorization and the location background mode; the feature phone
 check passed, while the broader route/background and restoration matrix remains open. Required telemetry,
@@ -237,11 +241,17 @@ all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
 `CLAUDE.md`; locked-screen voice has no separately reported result.
 
-Build `0.9.38`/`71`: implemented locally, with algorithm 88 and unchanged schema/capabilities.
-This is the approved UI/food cleanup described in `metrics-map.md` and `todo.md`. Local release
-checks pass; public publication, Linux CI and the single macOS IPA build are pending.
-There is no candidate IPA yet. Build 70 remains accepted; build 71 must pass its phone check and
-current-version automatic-refresh enrollment before cache promotion or ledger acceptance.
+Superseded build `0.9.38`/`71`: initial UI/food source `5c00c278aa836d12c0dfb54e25e728c67b276d07` was published with Akshat's approval;
+Linux CI `37170843509` and macOS workflow `37171288516` passed. That artifact has not been
+downloaded/installed and is held before release because it predates the newly reported Today-refresh
+fix. It must not be installed and remains reproducible from that workflow.
+
+Build `0.9.39`/`72` combines all approved UI/food changes with the Today-refresh repair, with
+algorithm 88 and unchanged schema/capabilities. Local full-suite validation passes (3,274 tests,
+368 intentional skips), analysis has no errors/warnings, and all 7 personal-iOS contract tests pass.
+The additional source is not published; its public publication/replacement IPA need approval.
+No candidate is cached in `testing`. Build 70 remains accepted; build 72 must pass its phone check
+and current-version automatic-refresh enrollment before cache promotion or ledger acceptance.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

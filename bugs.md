@@ -146,13 +146,25 @@ prevents AccessorySetupKit from presenting the primary-WHOOP picker for the rest
 
 ## UI and food reliability
 
-Source `0.9.38`/`71` fixes clipped chart readouts, inconsistent Deep colouring, restored launch
+Source `0.9.39`/`72` fixes clipped chart readouts, inconsistent Deep colouring, restored launch
 tabs, the indirect Scan flow and unbounded food history. It adds Quick add fibre/editing, optional
 macro handling, completed-day weekly coverage and automatic weekly-card rereads. Save guards,
 transactional saved meals, historical timestamps, latest-read guards and visible validation/retry
 states cover the reviewed failure paths. Widget/database regressions reproduce save/date races,
 failed reads/writes, Undo and cold/warm navigation; they are source verification, not reports of
 observed phone failures. Release and phone checks are tracked in `todo.md`.
+
+Akshat reports Today pull-to-refresh leaving steps/figures unchanged on installed build 70.
+The source trace found band catch-up preceding phone reads, silent refresh timeouts, a guessed
+400 ms wait for asynchronous queue persistence, and Today serving cached step scalars instead of
+the latest measured coverage. Local build-72 source reads phone steps first, reloads measured
+counts independently of derivation, awaits the queued intent and explains unfinished/failed work.
+The shared step read serves Today, Steps, Strain detail and today's step-chart point; counter/import
+fallbacks remain available, and phone stillness is distinguished from no read. Database/state tests
+exercise a blocked band, stale calculated totals, no band records, zero counts and capture/workout
+holds (`test/today_refresh_test.dart`). Native phone-sync completion also publishes a screen
+revision, covering cold launch/reconnect as well as pull/foreground refresh.
+The earlier built `5c00c278` IPA lacks this repair; revised release and phone checks are pending.
 
 The old Windows-only failures are repaired: path/newline comparisons and local-date fixtures are
 portable; POSIX timezone-switching tests remain explicitly skipped on Windows. Real source fixes

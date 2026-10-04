@@ -343,7 +343,11 @@ class ResolvedDaySteps {
     this.strap = 0,
     this.phone = 0,
     this.spans = const [],
+    this.hasPhoneCoverage = false,
   });
+
+  /// Includes explicitly measured stillness; zero differs from no phone read.
+  final bool hasPhoneCoverage;
 
   /// Steps credited to the band's 100 Hz pedometer.
   final int strap;
@@ -404,7 +408,10 @@ class _Ranked {
 ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows,
     {bool phoneFirst = kPersonalSideload}) {
   final spans = <_Ranked>[];
-  final vetted = _vetoAgainstConfirmedStill(rows.toList());
+  final measured = rows.toList();
+  final hasPhoneCoverage = measured.any(
+      (r) => !r.fromBand && r.steps >= 0 && r.endTs > r.startTs);
+  final vetted = _vetoAgainstConfirmedStill(measured);
   for (final r in phoneFirst ? _phoneFirst(vetted) : vetted) {
     // Legacy zero-width rows are real counts with a lost extent; repair them
     // the same way the writer does rather than dropping a measurement.
@@ -471,6 +478,7 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows,
     }
   }
   return ResolvedDaySteps(
+    hasPhoneCoverage: hasPhoneCoverage,
     strap: strap.round(),
     phone: phone.round(),
     spans: [

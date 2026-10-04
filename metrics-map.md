@@ -2,9 +2,9 @@
 
 Everything the app stores and where each item appears, plus the proposed layout. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal source `0.9.38`/`71`.
+the personal source `0.9.39`/`72`.
 
-**Status:** Current map of stored data and screens for locally test-validated source `0.9.38`/`71`;
+**Status:** Current map of stored data and screens for locally test-validated source `0.9.39`/`72`;
 public CI/build and the phone pass are pending, with build 70 retained as accepted recovery. Everything in
 "What is stored" keeps being recorded whether or not a screen shows it; any further removal still
 needs Akshat's per-item yes.
@@ -153,10 +153,14 @@ behind). Runs show the phone's steps and cadence. `resolveDaySteps` in
 **Charts:** every trend chart takes a finger: a line and a ring mark the point, and the date and
 value show in the chart's header (metric detail at every range, Readiness history, Train's strain
 and weekly distance, day strain, hourly steps). Titles and selected values have their own
-full-width rows; selected text wraps without ellipsis. Every tab refreshes on a pull: band sync, phone
-steps, then today's derive, with the spinner held until it finishes (60 s cap).
+full-width rows; selected text wraps without ellipsis. Every tab refreshes on a pull: today's phone
+steps first, then band sync and today's queued calculation. Measured steps publish immediately via
+the shared coverage resolver, even without new band records; Today, Steps, Strain detail and today's
+step-chart point agree. Stored counter/imported/interim counts remain fallbacks when no fresh source
+covered the date. Explicit phone stillness is zero; an unread day stays absent. The calculation
+enqueue is awaited, and read failures, holds and the 60-second refresh cap show a status message.
 Today/food cards also reread after committed food writes, derived changes, foreground return,
-and the five-minute foreground refresh (including local day rollover). No pull is needed and
+and the five-minute foreground refresh (including local day rollover and fresh phone counts). No pull is needed and
 there is no new iOS background capability. A fresh launch opens Today; warm resume retains position.
 
 **Food coverage:** calories/protein are primary. Optional omitted macros remain null/untracked;
@@ -240,7 +244,7 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
 **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →
 Steps** is on; HealthKit stays excluded from the personal build.
 
-## Layout decisions (source `0.9.38`/`71`)
+## Layout decisions (source `0.9.39`/`72`)
 
 | Item | Decision |
 |---|---|

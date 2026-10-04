@@ -13,7 +13,7 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 71: UI and food reliability
+## Build 72: UI, food reliability and Today refresh
 
 Akshat approved implementing this scope together in one new personal iPhone build. Build 70
 remains the accepted recovery build until the new candidate passes the phone and enrollment gates.
@@ -31,6 +31,10 @@ remains the accepted recovery build until the new candidate passes the phone and
   and do not claim calculated kilograms of body fat. Missing meals cannot be inferred perfectly.
 - Today/food summaries update automatically after writes, derived changes, foreground return and
   day rollover; no pull-to-refresh requirement or new iOS background capability.
+- Today refresh reads today's phone steps before band sync and publishes measured counts without
+  waiting for HR/sleep derivation. Today, Steps, Strain detail and today's chart point agree;
+  measured zero is distinct from missing input. Await queue persistence and show timeout/read/held
+  calculation messages. Short Today lists must also accept the refresh gesture.
 - Fix backdated saved-meal timestamps, silent invalid inputs, overlapping saves, stale date reads,
   and loading/error states. Keep edits recoverable and give concise success/error feedback.
 - Refine spacing, action consistency and restrained feedback using the existing dark design.
@@ -38,13 +42,16 @@ remains the accepted recovery build until the new candidate passes the phone and
   automatic refresh, date/save races and failure states. Inspect representative screenshots at
   small/normal widths and enlarged text, then run the release checks and one macOS IPA build.
 
-The scope above is implemented in source `0.9.38`/`71` (algorithm 88; schema and capabilities
-unchanged). Representative dark UI renders, all 3,265 local tests (368 intentional skips), static
-analysis with no errors/warnings and the 7 personal-iOS contract tests pass. Public GitHub
-publication/build dispatch requires the
-root data-egress confirmation naming `akshatksingh18/whoop` once the change is reviewable.
+The scope above is implemented in source `0.9.39`/`72` (algorithm 88; schema and capabilities
+unchanged). The initial UI/food source `5c00c278` passed local release checks, Linux CI `37170843509`
+(3,270 tests, 363 intentional skips) and macOS workflow `37171288516`. Its IPA is held before release:
+Akshat subsequently reported Today refresh leaving steps stale on installed build 70. The combined
+source passes all 3,274 full-suite tests (368 intentional skips), focused refresh regressions,
+static analysis with no errors/warnings and all 7 personal-iOS contract tests.
+The refresh repair is not published or present in that earlier IPA; the revised version is `0.9.39`/`72`. A revised source commit and replacement personal
+IPA need publication approval for public `akshatksingh18/whoop`; keep one install candidate.
 
-Before promoting build 71:
+Before promoting build 72:
 - Complete Linux CI, one macOS personal IPA build, downloaded checksum and local payload validation.
 - Install over accepted build 70 using the existing signed identity; confirm data and pairing remain.
 - Force-close from Food/Trends and relaunch: Today opens. Warm resume retains the current screen.
@@ -54,5 +61,8 @@ Before promoting build 71:
   Quick add. Check manual entry, fibre, blank optional macros, explicit zero, entry editing and Undo.
 - Expand an older history month and backdate a saved meal; verify its day/time and summary coverage.
 - Edit food and return to Today: Weekly updates without a pull; check foreground/day-rollover refresh.
+- Walk with the phone, then refresh Today: its steps, step detail, today's chart and step-based
+  maintenance update together. Repeat with the band disconnected/slow and check status messages;
+  HR-derived figures need new band data and may wait during capture or a live workout.
 - Confirm completed current-version automatic-refresh enrollment with no install error, then promote
   the one testing candidate and update the accepted-build ledger. Keep build 70 until these gates pass.

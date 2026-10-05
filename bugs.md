@@ -182,7 +182,9 @@ queued notices are cleared before a replacement. Undo within the window still re
 phone checks. Native app/extension compilation passed, while device acceptance remains pending.
 The IPA validator permits ZIP's required `PlugIns/` parent for the contract-checked workout
 extension and rejects unexpected sibling plugins/files; the realistic archive regression covers
-the parent-directory packaging failure. A validated replacement artifact is still pending.
+the parent-directory packaging failure. Build-74 source `78461799`, Linux CI `37388395433`,
+macOS build `37388415503` and downloaded checksum/manifest/payload/ZIP checks pass. It is the
+testing candidate, awaiting installation and device acceptance; build 70 remains recovery.
 
 ## Workout, sync and profile consistency
 
@@ -192,7 +194,8 @@ run-step overlap, cross-midnight/pause windows, hidden macro rows, decimal/round
 and stale cached profile calculations. The installed build-72 session-only streak omits step-goal-only days;
 the combined rule and dated target policy are documented there. The approved repairs are
 implemented in `0.9.40`/`73` (algorithm 89), source `a49d7837`, and pass local regression/release
-validation, Linux CI, macOS compilation and downloaded IPA checks. Build 73 is the testing candidate.
+validation, Linux CI, macOS compilation and downloaded IPA checks. Build 73 is installed;
+build 74 supersedes its testing artifact and retains the combined acceptance checklist.
 The personal source includes background audio for spoken workout cues; hardware behavior remains
 subject to the build-73 phone pass. `todo.md` owns the implementation and release gates.
 The added nap repair removes the full-restaging wait from reject/restore and keeps empty-day

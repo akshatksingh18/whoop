@@ -164,7 +164,7 @@ It adds the approved `audio` background mode for actual workout speech; all othe
 exclusions and While-In-Use location authorization remain. Local validation passes; source
 `a49d7837c4d2da368a708a1aeb77983fb19e8c1c` is published with Akshat's approval to the public
 repository. Linux CI `37252915519` and personal macOS build `37252925924` pass. The downloaded
-IPA passes checksum, manifest and payload validation and is the single testing candidate.
+IPA passes checksum, manifest and payload validation; its testing artifact is superseded by build 74.
 Build 73 is installed, confirmed by Akshat; accepted build 70 remains the recovery IPA.
 The complete build-73 phone pass and current-version enrollment are pending.
 `todo.md` owns acceptance gates; artifact evidence appears below.
@@ -254,7 +254,7 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-it remains the accepted backup while build 73 occupies `testing\`. The checksum, manifest and
+it remains the accepted backup while build 74 occupies `testing\`. The checksum, manifest and
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
@@ -299,15 +299,16 @@ checksum and manifest. The manifest confirms version `0.9.40`, build `73` and th
 revision above. `tool/personal_ios.py validate` and ZIP CRC integrity checks pass at the final path.
 The payload retains `bluetooth-central`, `location` and the approved real-workout `audio` mode;
 Watch/widgets/Live Activities, HealthKit, App Groups, background fetch/processing and required
-Firebase initialization remain excluded. The IPA, manifest and checksum occupy the single folder
-`../final-ipas/whoop/testing/WHOOP-0.9.40-build73-a49d7837`.
+Firebase initialization remain excluded. The IPA, manifest and checksum were cached in
+`../final-ipas/whoop/testing/WHOOP-0.9.40-build73-a49d7837`; that folder was removed after build 74
+validated. Build 73 remains reproducible from its workflow record.
 Akshat confirms installation and an initially good appearance, but reports chart/navigation and
 notification issues. `build-74-audit.md` owns findings/research and the implemented build-74
-contract; `todo.md` owns release and phone gates. The installed/cached testing IPA remains build 73. The complete phone pass and completed current-version automatic-refresh registration for
-`0.9.40` at `com.akshat.personal.whoop.5564K8D4SV` are pending. The build-70 recovery IPA and
-accepted-build ledger remain unchanged; promote build 73 only after the `todo.md` gates pass.
+contract; `todo.md` owns release and phone gates. Build 73 remains installed but was not accepted;
+build 74 replaces its testing artifact. The complete phone pass and current-version registration
+are carried forward to build 74. The build-70 recovery IPA and accepted-build ledger remain unchanged.
 
-Build `0.9.41`/`74` is implemented locally, algorithm 90. It retains Budget coefficients and
+Build `0.9.41`/`74` is published and built, algorithm 90. It retains Budget coefficients and
 adds persistent ACSM comparisons on one dated movement ledger. `live_coverage.distance_m` is
 an additive nullable on-open column; older backups remain readable and missing distance is explicit.
 Focused notification routes, retained evidence, opt-in training review, graph repairs, live
@@ -322,15 +323,22 @@ eight personal-iOS contract tests and `personal_ios.py check`. Analysis exits su
 113 informational lints and no errors/warnings. Focused rendered/flow checks pass (49 visual/flow,
 eight live-cadence and 19 navigation checks); inspected screenshots were removed from `test/goldens`.
 `git diff --check` passes. Akshat approved publication, CI and the personal IPA build to the testing
-cache. Source `fac386b72b7c8b1b181510ee0fe3618ac8482d0e` is published to the public
-`akshatksingh18/whoop` repository; Linux CI `37386075292` passes (3,348 tests, 371 intentional
-skips, analysis with 113 infos and no errors/warnings). Personal macOS build `37386879673`
-compiled Runner and the workout extension successfully but stopped at IPA validation: ZIP's
-`Payload/Runner.app/PlugIns/` parent entry was incorrectly rejected. The packaging guard now
-allows exactly that required parent plus the verified extension contents, still rejecting extra
-plugins/files. The realistic-directory regression reproduces the failure and all eight contract
-tests now pass. No validated IPA/checksum/install/signing success is claimed yet; the corrected
-artifact rebuild is pending. Build 70 remains accepted recovery.
+cache. Corrected source `78461799ded23813ba6dd5d67da7bd7d1cfe6f41` is published to the public
+`akshatksingh18/whoop` repository; Linux CI `37388395433` passes (3,348 tests, 371 intentional
+skips, analysis with 113 infos and no errors/warnings). Personal macOS build `37388415503` passes
+against that exact revision, including native Runner/extension compilation and IPA validation.
+The packaging guard permits ZIP's required `PlugIns/` parent only alongside the verified extension,
+still rejecting extra plugins/files; the realistic archive regression covers that release defect.
+Artifact `whoop-personal-78461799ded2-unsigned.ipa` (18,001,026 bytes), SHA-256
+`34d0616199a12fc65d06b8722d258f846dce0c4a84adaae2a92f276fc012c760`, matches the downloaded
+checksum and manifest. The manifest confirms `0.9.41`/`74` and the full source revision above.
+Independent ZIP CRC, executable, version/source and personal payload checks pass at the final path.
+Runner retains `bluetooth-central`, `location`, `audio` and Live Activity support; its one
+version-matched extension is `com.akshat.personal.whoop.activity`. The IPA, manifest and checksum
+are the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`.
+Build 74 is not installed yet. Sideloadly extension signing, overwrite/data retention, background
+behavior, complete phone acceptance and completed current-version automatic-refresh enrollment
+for `0.9.41` remain pending. Build 70 stays accepted recovery until those gates pass.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

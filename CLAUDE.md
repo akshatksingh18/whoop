@@ -24,10 +24,10 @@ Today refresh updating steps is confirmed; maintenance consistency and the stale
 are addressed in build 73, pending its phone verification.
 Source `0.9.40`/`73` (algorithm 89), commit `a49d7837`, is published with Akshat's approval and
 passes local validation, Linux CI `37252915519` and personal macOS build `37252925924`.
-The downloaded IPA matches its checksum/manifest and passes payload validation; it is the single
-testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.40-build73-a49d7837`.
+The downloaded IPA matched its checksum/manifest and passed payload validation; its testing folder
+was removed after build 74 validated. Its source/hash/workflow evidence remains in `setup.md`.
 Akshat confirms build 73 is installed and initially looks good, but reports chart/navigation and
-notification issues. Local source `0.9.41`/`74` (algorithm 90) implements the approved coordinated
+notification issues. Source `0.9.41`/`74` (algorithm 90) implements the approved coordinated
 repair and persistent Budget/ACSM pair, with HR retained only for analysis. It includes accepted
 phone motion-distance windows, focused dated notification routes, an opt-in local training review
 and one workout-only Live Activity extension without App Groups. Live cadence, optional context
@@ -36,11 +36,11 @@ are included. Foreground refresh re-reads session movement; deletion/Undo notice
 research/implemented contract; `todo.md` owns release/phone gates. Local validation passes:
 3,343 full-suite tests (376 intentional skips), 107 personal-profile checks and eight personal-iOS
 contract tests; analysis has 113 informational lints and no errors/warnings. Rendered layout checks pass;
-Source `fac386b7` is published with Akshat's approval; Linux CI `37386075292` passes.
-Personal macOS build `37386879673` compiled the app and extension, then exposed a ZIP directory
-validation defect. The packaging guard now permits the required `PlugIns/` parent while rejecting
-other extensions/files; eight regression checks pass. The corrected IPA rebuild and device verification remain pending.
-The complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
+Source `78461799` is published with Akshat's approval; Linux CI `37388395433` and personal macOS
+build `37388415503` pass. Downloaded source/version, checksum, ZIP integrity and payload checks
+pass, including the single version-matched workout extension. The sole testing candidate is
+`final-ipas\whoop\testing\WHOOP-0.9.41-build74-78461799`. Build 74 is not installed yet;
+its complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
 artifact evidence. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
@@ -82,8 +82,8 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 (Linux tests and the macOS workflow passed; the IPA matches its SHA-256 and passes the validator;
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
-`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 73,
-installed and awaiting the complete phone pass and current-version enrollment.
+`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 74,
+awaiting installation, the complete phone pass and current-version enrollment.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -252,7 +252,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds the validated build-73 candidate, and older candidates are reproducible from their workflow
+`testing\` holds the validated build-74 candidate, and older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health
@@ -450,8 +450,9 @@ The personal artifact must have these properties:
     - **Goals:** five targets, typed once; the app never changes them.
   - **Calories:** maintenance is a conservative budget estimate: resting (Mifflin–St Jeor), plus steps outside runs
     (Akshat's step formula), plus runs by distance (source 69), plus 10% of logged food. It is shown on
-    Today and Food, never moving the goal. A run's own screen shows calories by distance and by heart
-    rate. The band's heart-rate active and total kcal are still stored. Apple Health energy was
+    Today and Food, never moving the goal. Build 74 keeps Budget and ACSM distance comparisons
+    side by side, with net heart-rate energy reachable separately for analysis. The band's
+    heart-rate active and total kcal are still stored. Apple Health energy was
     considered and not pursued: with no Apple Watch it would only repeat phone-step motion.
     HealthKit stays excluded; `metrics-map.md` owns the calorie method.
   - **Left out as noise:**

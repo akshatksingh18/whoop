@@ -4,7 +4,7 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the validated build-73 candidate.
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the validated build-74 candidate.
 > `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
@@ -43,19 +43,20 @@
 > Nap corrections update immediately, with coaching rebuilt in the background and Naps reachable
 > when empty. Trends opens Week, reuses full daily charts, and separates step calories from steps.
 > Source `a49d7837` is published with Akshat's approval; Linux CI, the personal macOS build,
-> downloaded checksum and payload validation pass. Build 73 is the single testing candidate,
-> installed, confirmed by Akshat, and awaiting the complete phone pass and current-version enrollment.
+> downloaded checksum and payload validation pass. Build 73 is installed, confirmed by Akshat,
+> but was not accepted; its testing artifact is superseded by build 74.
 > `build-74-audit.md` records remaining chart/navigation/notification issues, calorie-model research
-> and the implemented build-74 contract. Local source `0.9.41`/`74` (algorithm 90) adds the persistent
+> and the implemented build-74 contract. Source `0.9.41`/`74` (algorithm 90) adds the persistent
 > Budget/ACSM pair, motion-distance coverage, graph/navigation repairs, focused notifications,
 > opt-in training review with matched context and best-effort evidence, live cadence/context
 > tags, qualified HR drift and one workout-only Live Activity extension without App Groups.
 > Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds.
 > Budget coefficients are unchanged. Local release checks pass (3,343 full-suite tests, 107 personal
-> checks and eight iOS contract tests; analysis has no errors/warnings). Source `fac386b7` is
-> published with approval and Linux CI `37386075292` passes. Native compilation passed; a ZIP parent-directory
-> validator defect is corrected with regression coverage and the replacement build is pending;
-> no build-74 IPA has been produced or installed yet. `todo.md` owns release/device gates.
+> checks and eight iOS contract tests; analysis has no errors/warnings). Source `78461799` is
+> published with approval; Linux CI `37388395433` and personal macOS build `37388415503` pass.
+> The downloaded IPA passes checksum/manifest, ZIP and payload checks and is the sole candidate in
+> `final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`. Installation, phone acceptance and
+> current-version refresh enrollment remain pending. `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in

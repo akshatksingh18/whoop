@@ -4,20 +4,24 @@
 personal-sideload profile and public manual macOS workflow. Build `0.9.37`/`70` is installed over
 build 69 and accepted: Akshat confirmed its feature phone check and completed current-version
 automatic-refresh registration at the existing signed identity, with no error. It is cached in
-`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` holds validated build 73. `../setup.md` owns
+`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` holds validated build 74. `../setup.md` owns
 source/hash/workflow evidence and superseded build records.
 Build `0.9.39`/`72` was installed, confirmed by Akshat, but was not phone-accepted; its cached IPA
 is superseded by build 73. `../workout-sync-audit.md` records its reported issues and approved repairs.
 Source `0.9.40`/`73`, commit `a49d7837`, includes background audio for real workout cues and is
 published with Akshat's approval. Local checks, Linux CI, the personal macOS build, downloaded
-checksum/manifest and payload validation pass. The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.40-build73-a49d7837`.
+checksum/manifest and payload validation pass. Its testing folder was removed after build 74
+validated; its workflow/source/hash evidence remains in `../setup.md`.
 Akshat confirms build 73 is installed and initially looks good, with the future-time Strain cursor
 defect recorded for build 74. Identity/data/pairing checks, the complete phone pass and
 current-version enrollment remain unconfirmed; `../todo.md` owns the combined phone checklist
 and build-74 release gates; `../build-74-audit.md` owns the research and implemented contract.
-Local source `0.9.41`/`74` enables one workout-only Live Activity extension without App Groups.
-No build-74 IPA/native or Sideloadly validation exists yet; installed build 73 keeps its old contract.
+Source `0.9.41`/`74`, commit `78461799`, enables one workout-only Live Activity extension without
+App Groups. Linux CI `37388395433`, macOS build `37388415503` and downloaded version/source,
+checksum, ZIP and payload checks pass. The single testing candidate is
+`../../final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`. Build 74 is not installed yet;
+Sideloadly extension signing, overwrite/data continuity, background behavior, complete phone
+acceptance and current-version automatic-refresh enrollment remain pending. Installed build 73 keeps its old contract.
 Installation alone does not authorize cache promotion.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →

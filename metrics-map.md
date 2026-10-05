@@ -2,15 +2,16 @@
 
 Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the local personal source `0.9.41`/`74` (algorithm 90); native/device validation is pending.
+the built personal source `0.9.41`/`74` (algorithm 90); physical-device validation is pending.
 
-**Status:** Build 73 source `a49d7837` is published with Akshat's approval and passes local
+**Status:** Build 74 source `78461799` is published with Akshat's approval and passes local
 regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
-Build 73 is installed, confirmed by Akshat, and remains the single testing candidate pending its
-complete phone pass and enrollment. Build 70 remains the accepted recovery. `build-74-audit.md`
+Build 74 is the single testing candidate, awaiting installation, complete phone acceptance and
+current-version enrollment. Build 73 remains installed but was not accepted; its testing artifact
+is superseded. Build 70 remains the accepted recovery. `build-74-audit.md`
 records chart/navigation/notification findings and implemented calorie comparisons; `todo.md` owns
 the implemented build-74 contract and release gates. Budget coefficients are unchanged; ACSM is
-now a separate distance comparison using the same ledger. No build-74 IPA exists yet.
+now a separate distance comparison using the same ledger. `setup.md` owns the artifact/workflow evidence.
 Stored metrics remain intact; any removal
 still needs Akshat's per-item approval.
 
@@ -288,11 +289,10 @@ dependent views. Foreground/manual refresh also re-reads current session movemen
 phone coverage. Run/walk history recalculates Method 1 rather than retaining old gross estimates.
 Build-73 release checks, CI/macOS and downloaded IPA validation pass. Build-74 local release
 checks pass: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
-personal-iOS contract tests; analysis has no errors/warnings. Source `fac386b7` is published
-with approval and Linux CI `37386075292` passes. Native compilation passed; the packaging guard's
-ZIP parent-directory defect is corrected. A validated replacement artifact and phone checks
-are pending; `setup.md` owns complete evidence.
-Installation is confirmed; the full calculation/refresh phone checks remain before calling these
+personal-iOS contract tests; analysis has no errors/warnings. Source `78461799` is published
+with approval; Linux CI `37388395433` and macOS build `37388415503` pass. Downloaded checksum,
+source/version, ZIP and payload/extension checks pass; `setup.md` owns complete evidence.
+Build 73 installation is confirmed; build 74 installation and calculation/refresh phone checks remain before calling these
 fixes verified on iPhone.
 
 **A run's or walk's own calories** (setup/live/summary/history/share):

@@ -28,10 +28,11 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 Source is `0.9.41`/`74`, algorithm 90, on Akshat's implementation approval.
 `build-74-audit.md` owns the equations, source audit, Gemini-topic assessment and implemented
 contract. Current validation is recorded in `setup.md`. Akshat approved public publication,
-CI and the personal IPA build to the testing cache. Source `fac386b7` is published to
-`akshatksingh18/whoop`; Linux CI `37386075292` passes. Personal macOS build `37386879673`
-compiled the app/extension but exposed a packaging-directory guard defect. The corrected guard
-passes eight contract checks; the validated replacement build is pending. No cached build-74 IPA exists yet.
+CI and the personal IPA build to the testing cache. Corrected source `78461799` is published to
+`akshatksingh18/whoop`; Linux CI `37388395433` passes. The corrected packaging guard passes eight
+contract checks. Personal macOS build `37388415503` passes; downloaded source/version, checksum,
+ZIP and payload validation pass. The sole candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`; build 74 is not installed yet.
 
 Implemented: shared future-time chart limits and units; permanent daily Steps/calorie browsing;
 Step calories Today; selectable dated breathing and workout HR history; pause-clock alignment;
@@ -50,9 +51,10 @@ HR energy remains analysis only. Missing comparison inputs stay unavailable, not
 - Local release checks pass: 3,343 full-suite tests (376 intentional skips), 107 focused personal
   tests, eight packaging-contract tests and analysis without errors/warnings. Small/normal and
   enlarged-text layouts were inspected; generated screenshots were removed. Source commit
-  `fac386b7` is reviewed and published; `setup.md` owns the complete evidence.
-- Finish Linux CI and one personal macOS IPA build; validate exact
-  version/source/checksum, ZIP integrity and the single version-matched workout extension.
+  `78461799` is reviewed and published; `setup.md` owns the complete evidence.
+- Linux CI, personal macOS build and downloaded version/source/checksum, ZIP integrity and the
+  single version-matched workout extension checks pass. Build 74 replaces the build-73 testing
+  folder; `setup.md` owns the exact artifact and workflow evidence.
 - Install over build 73 with the same signed identity; confirm encrypted history, decimals,
   saved foods/meals, band pairing and current-version automatic-refresh enrollment intact.
   The extension's free-team signing/refresh must work before cache promotion.
@@ -131,8 +133,8 @@ The revised version is `0.9.39`/`72`. Akshat approved publishing source
 pushed; Linux CI `37173914511` passes (3,279 tests, 363 intentional skips).
 macOS workflow `37174063547` passes. The downloaded IPA matches its manifest/checksum and
 passes local payload validation. `setup.md` owns its source, hash and artifact evidence.
-Akshat confirms build 72 is installed; it was not phone-accepted. Build 73 supersedes its candidate
-checks and has replaced its testing IPA after validation.
+Akshat confirmed build 72 was installed; it was not phone-accepted. Build 73 superseded its
+testing IPA after validation; build 74 is now the candidate.
 The superseded build-71 artifact lacks the refresh fix; keep one install candidate.
 
 ## Build 73: approved combined repair
@@ -140,10 +142,11 @@ The superseded build-71 artifact lacks the refresh fix; keep one install candida
 Source `0.9.40`/`73` (algorithm 89), commit `a49d7837`, is published with Akshat's approval
 to public `akshatksingh18/whoop` and passes local release validation. Linux CI `37252915519`
 and the single personal macOS build `37252925924` pass against that exact source. The downloaded
-IPA matches its manifest/checksum and passes local payload validation. It replaces build 72 in
-the single testing slot; `setup.md` owns its path/hash evidence. Build 70 remains accepted.
+IPA matches its manifest/checksum and passes local payload validation. It replaced build 72 in
+the single testing slot and is now superseded by validated build 74; `setup.md` owns its preserved
+source/hash/workflow evidence. Build 70 remains accepted.
 Akshat confirms build 73 is installed and initially looks good, with the Strain cursor issue above.
-The complete phone pass and current-version refresh enrollment remain pending.
+Its complete phone pass and current-version enrollment were not confirmed; gates carry into build 74.
 
 - One fresh movement ledger feeds Today, Food, history, Weekly, Trends, Steps detail and an open
   maintenance sheet. Historical step charts prefer retained measured coverage over old derived

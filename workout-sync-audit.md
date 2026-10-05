@@ -6,12 +6,13 @@ the screenshots, reports background voice failure and confirms Today refresh now
 He reports maintenance calories appearing unchanged. The approved repair is implemented locally in
 `0.9.40`/`73` (algorithm 89) and passes local validation. Akshat approved publication and the
 single personal IPA; source `a49d7837` is published and Linux CI/macOS compilation pass.
-The downloaded IPA passes checksum, manifest and payload checks and is the single testing
-candidate. Akshat confirms build 73 is installed and initially looks good, but reports chart,
+The downloaded IPA passes checksum, manifest and payload checks; its testing artifact is superseded
+by build 74. Akshat confirms build 73 is installed and initially looks good, but reports chart,
 navigation and notification issues; `build-74-audit.md` owns that newer source/research audit and
-`todo.md` the build-74 release/device gates. Local source `0.9.41`/`74` implements the coordinated
-repairs, persistent Budget/ACSM pair and narrow workout Live Activity. Native/phone checks remain.
-The complete phone pass and current-version enrollment remain pending. Build 70 remains accepted;
+`todo.md` the build-74 release/device gates. Published/built source `0.9.41`/`74` implements the coordinated
+repairs, persistent Budget/ACSM pair and narrow workout Live Activity. Native and downloaded IPA
+checks pass; build 74 is the sole testing candidate, awaiting installation, its complete phone pass
+and current-version enrollment. Build 70 remains accepted;
 build 72 was installed without acceptance and has been replaced on the phone by build 73.
 The evidence sections below describe build 72; `todo.md` owns current implementation and phone gates.
 

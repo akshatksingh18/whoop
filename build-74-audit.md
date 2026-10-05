@@ -1,15 +1,15 @@
 # Build 74 audit and implementation contract
 
-**Status:** Build `0.9.41`/`74` (algorithm 90) is implemented locally on Akshat's
+**Status:** Build `0.9.41`/`74` (algorithm 90) is published and built on Akshat's
 approval of the combined repairs and useful audit/Gemini additions. Local release validation
 passes: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
 personal-iOS contract tests. Analysis has 113 infos and no errors/warnings; rendered layouts were
-inspected and generated screenshots removed. Source `fac386b7` is published with approval;
-Linux CI `37386075292` passes. Personal macOS build `37386879673` compiled the app/extension;
-its packaging gate exposed a ZIP directory-entry defect. The corrected validator accepts the
-required `PlugIns/` parent only and retains other extension/file exclusions. IPA validation and
-phone acceptance are not complete.
-Installed build 73 remains the cached testing IPA; accepted build 70 remains recovery.
+inspected and generated screenshots removed. Source `78461799` is published with approval;
+Linux CI `37388395433` and personal macOS build `37388415503` pass. Downloaded version/source,
+checksum, ZIP integrity and personal payload/extension checks pass. The corrected validator accepts
+the required `PlugIns/` parent only and retains other extension/file exclusions.
+Build 74 is the sole cached testing IPA and is not installed yet; build 73 remains installed.
+Phone acceptance and current-version enrollment remain pending; accepted build 70 remains recovery.
 `todo.md` owns release and device gates; `setup.md` owns build evidence.
 
 ## Implemented build-74 behavior
@@ -50,7 +50,7 @@ Installed build 73 remains the cached testing IPA; accepted build 70 remains rec
   pauses its timer and freezes a stale timer and opens the exact session. It reconciles end/restart and stale signals.
   The personal payload now allows one version-matched `.activity` widget extension with empty
   entitlements. General/home/breathing widgets, Watch, App Groups and HealthKit stay excluded.
-  Native compilation and Sideloadly signing/refresh are still required, not claimed verified.
+  Native compilation/payload checks pass; Sideloadly signing/refresh and phone behavior remain unverified.
 
 Deletion feedback keeps Undo but explicitly expires after two seconds; pending notices are
 cleared before a new deletion. Flutter 3.41 otherwise defaults action snackbars to persistent.

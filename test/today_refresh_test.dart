@@ -44,10 +44,14 @@ class _RefreshApp extends AppState {
   }
 }
 
-Future<void> _phone(int steps) => LocalDb.replacePhoneCoverageForDay(
-  todayLabel(),
-  [(startTs: 1000, endTs: 4600, steps: steps)],
-);
+Future<void> _phone(int steps) =>
+    LocalDb.replacePhoneCoverageForDay(todayLabel(), [
+      (
+        startTs: localDayStartSec(todayLabel())!,
+        endTs: localDayStartSec(todayLabel())! + 3600,
+        steps: steps,
+      ),
+    ]);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -163,7 +167,8 @@ void main() {
     'a real band walk with the phone left behind names only the band',
     () async {
       await _phone(0);
-      await LocalDb.addLiveCoverage(1000, 1100, 100, todayLabel());
+      final start = localDayStartSec(todayLabel())!;
+      await LocalDb.addLiveCoverage(start, start + 100, 100, todayLabel());
       final steps = await todaySteps();
       expect(steps['value'], 100);
       expect(steps['source'], 'strap');

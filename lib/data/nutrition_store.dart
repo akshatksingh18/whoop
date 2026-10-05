@@ -99,8 +99,20 @@ Future<void> createNutritionTables(Database db) async {
   };
   if (!cols.contains('grp')) {
     try {
-      await db.execute("ALTER TABLE food_entry ADD COLUMN grp TEXT NOT NULL DEFAULT ''");
-    } catch (_) {/* another opener added it first */}
+      await db.execute(
+        "ALTER TABLE food_entry ADD COLUMN grp TEXT NOT NULL DEFAULT ''",
+      );
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
+  final foodCols = {
+    for (final r in await db.rawQuery('PRAGMA table_info(food_def)')) r['name'],
+  };
+  if (!foodCols.contains('unit')) {
+    await db.execute(
+      "ALTER TABLE food_def ADD COLUMN unit TEXT NOT NULL DEFAULT 'g'",
+    );
   }
   // Body weight, one reading per day (the latest wins). For the weight trend
   // and the maintenance measured from weight change.
@@ -258,15 +270,25 @@ class FoodEntry {
 
   /// The same food, somewhere else: another day, meal or group. A fresh id;
   /// the time keeps its clock time on the new day.
-  FoodEntry copyTo(String newDate, String newMeal,
-      {required String newId, String? newGroup}) {
+  FoodEntry copyTo(
+    String newDate,
+    String newMeal, {
+    required String newId,
+    String? newGroup,
+  }) {
     int? ts = atTs;
     if (ts != null) {
       final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
       final d = DateTime.tryParse(newDate);
       if (d != null) {
-        ts = DateTime(d.year, d.month, d.day, t.hour, t.minute)
-                .millisecondsSinceEpoch ~/
+        ts =
+            DateTime(
+              d.year,
+              d.month,
+              d.day,
+              t.hour,
+              t.minute,
+            ).millisecondsSinceEpoch ~/
             1000;
       }
     }
@@ -291,16 +313,49 @@ class FoodEntry {
       calciumMg: calciumMg,
       // A copy is a repeat of what was logged; moving an entry between groups
       // (same id) is still the original entry.
-      source: newId == id || source == FoodSource.photo ? source : FoodSource.repeat,
+      source: newId == id || source == FoodSource.photo
+          ? source
+          : FoodSource.repeat,
       confirmed: confirmed,
       note: note,
       group: newGroup ?? group,
     );
   }
 
+  FoodEntry atQuantity(double amount) {
+    if (!amount.isFinite || amount <= 0 || quantity == null || quantity! <= 0) {
+      throw ArgumentError('Invalid portion');
+    }
+    final factor = amount / quantity!;
+    double? scale(double? v) => v == null ? null : v * factor;
+    return FoodEntry(
+      id: id,
+      date: date,
+      meal: meal,
+      label: label,
+      atTs: atTs,
+      foodKey: foodKey,
+      quantity: amount,
+      unit: unit,
+      kcal: scale(kcal),
+      proteinG: scale(proteinG),
+      carbsG: scale(carbsG),
+      fatG: scale(fatG),
+      fibreG: scale(fibreG),
+      sugarG: scale(sugarG),
+      satFatG: scale(satFatG),
+      sodiumMg: scale(sodiumMg),
+      ironMg: scale(ironMg),
+      calciumMg: scale(calciumMg),
+      source: source,
+      confirmed: confirmed,
+      note: note,
+      group: group,
+    );
+  }
+
   /// This entry in another group ('' = none).
-  FoodEntry inGroup(String g) =>
-      copyTo(date, meal, newId: id, newGroup: g);
+  FoodEntry inGroup(String g) => copyTo(date, meal, newId: id, newGroup: g);
 
   Map<String, Object?> toRow(int nowMs) => {
     'id': id,
@@ -512,8 +567,10 @@ class NutritionWindow {
 
   int get span => days.length;
   int get daysLogged => days.where((d) => d.logged).length;
-  List<NutritionDay> get counted =>
-      [for (final d in days) if (d.countsTowardAverages) d];
+  List<NutritionDay> get counted => [
+    for (final d in days)
+      if (d.countsTowardAverages) d,
+  ];
 
   /// Days that were logged but had to be excluded. Named on screen, because
   /// an average quietly computed over four of seven days is a lie of omission.
@@ -664,10 +721,7 @@ class NutritionDb {
     return rows.isEmpty ? null : rows.first;
   }
 
-  static Future<void> putFoodDef(
-    Database db,
-    Map<String, Object?> def,
-  ) async {
+  static Future<void> putFoodDef(Database db, Map<String, Object?> def) async {
     await db.insert('food_def', {
       ...def,
       'created_at': DateTime.now().millisecondsSinceEpoch,
@@ -726,24 +780,26 @@ class NutritionDb {
 
   /// Copy every entry of [fromMeal] on [fromDate] into [toMeal] on [toDate]
   /// (MyFitnessPal's "copy from" / "copy to"). Returns how many were copied.
-  static Future<int> copyMeal(Database db,
-      {required String fromDate,
-      required String fromMeal,
-      required String toDate,
-      required String toMeal}) async {
+  static Future<int> copyMeal(
+    Database db, {
+    required String fromDate,
+    required String fromMeal,
+    required String toDate,
+    required String toMeal,
+  }) async {
     final src = [
       for (final e in await entriesForDay(db, fromDate))
         if (e.meal == fromMeal) e,
     ];
     await db.transaction((tx) async {
-    var i = 0;
-    for (final e in src) {
+      var i = 0;
+      for (final e in src) {
         await put(
           tx,
           e.copyTo(toDate, toMeal, newId: '${newId()}_${i++}'),
           notify: false,
         );
-    }
+      }
     });
     if (src.isNotEmpty) changed();
     return src.length;
@@ -753,13 +809,16 @@ class NutritionDb {
   /// frequent first (the "often eaten with" row). Only the user's own foods,
   /// never [foodKey] itself.
   static Future<List<Map<String, Object?>>> eatenWith(
-      Database db, String foodKey, {int limit = 5}) async {
+    Database db,
+    String foodKey, {
+    int limit = 5,
+  }) async {
     return db.rawQuery(
       'SELECT d.*, COUNT(*) AS n, AVG(o.quantity) AS usual_g FROM food_entry a '
       'JOIN food_entry o ON o.date = a.date AND o.meal = a.meal '
       'AND o.food_key IS NOT NULL AND o.food_key != a.food_key '
       'JOIN food_def d ON d.key = o.food_key '
-      'WHERE a.food_key = ? GROUP BY o.food_key ORDER BY n DESC, d.label '
+      'WHERE a.food_key = ? AND o.unit = d.unit GROUP BY o.food_key ORDER BY n DESC, d.label '
       'LIMIT ?',
       [foodKey, limit],
     );
@@ -768,9 +827,11 @@ class NutritionDb {
   /// How much of [foodKey] was logged last time, for a one-tap re-log.
   static Future<double?> lastGrams(Database db, String foodKey) async {
     final r = await db.rawQuery(
-        'SELECT quantity FROM food_entry WHERE food_key = ? AND quantity IS NOT '
-        'NULL ORDER BY created_at DESC LIMIT 1',
-        [foodKey]);
+      'SELECT e.quantity FROM food_entry e JOIN food_def d ON d.key = e.food_key '
+      'WHERE e.food_key = ? AND e.quantity IS NOT NULL AND e.unit = d.unit '
+      'ORDER BY e.created_at DESC LIMIT 1',
+      [foodKey],
+    );
     return r.isEmpty ? null : (r.first['quantity'] as num?)?.toDouble();
   }
 
@@ -798,10 +859,14 @@ class NutritionDb {
 /// Nutrients for [grams] of a `food_def` row (stored per 100 g). A field the
 /// food never had stays null — scaling cannot invent one.
 ({double? kcal, double? protein, double? carbs, double? fat, double? fibre})
-    nutrientsFor(Map<String, Object?> def, double grams) {
+nutrientsFor(Map<String, Object?> def, double grams) {
   double? at(String k) {
     final v = (def[k] as num?)?.toDouble();
-    return v == null ? null : v * grams / 100;
+    if (v == null || !v.isFinite || v < 0 || !grams.isFinite || grams < 0) {
+      return null;
+    }
+    final total = v * grams / 100;
+    return total.isFinite ? total : null;
   }
 
   return (
@@ -820,17 +885,29 @@ Map<String, Object?> myFoodDef({
   required String key,
   required String label,
   required double refGrams,
+  String unit = 'g',
   double? kcal,
   double? protein,
   double? carbs,
   double? fat,
   double? fibre,
 }) {
-  double? per100(double? v) => v == null ? null : v * 100 / refGrams;
+  if (!refGrams.isFinite || refGrams <= 0) {
+    throw ArgumentError('Serving amount must be positive.');
+  }
+  double? per100(double? v) {
+    if (v == null) return null;
+    if (!v.isFinite || v < 0) {
+      throw ArgumentError('Nutrition must be a non-negative number.');
+    }
+    return v * 100 / refGrams;
+  }
+
   return {
     'key': key,
     'label': label,
     'serving_g': refGrams,
+    'unit': unit.trim().isEmpty ? 'g' : unit.trim(),
     'kcal_100': per100(kcal),
     'protein_g_100': per100(protein),
     'carbs_g_100': per100(carbs),
@@ -858,6 +935,7 @@ FoodEntry entryFromFood(
     atTs: atTs,
     foodKey: def['key']?.toString(),
     quantity: grams,
+    unit: foodUnit(def),
     kcal: n.kcal,
     proteinG: n.protein,
     carbsG: n.carbs,
@@ -874,37 +952,46 @@ class MealTemplate {
     required this.label,
     required this.meal,
     required this.items,
+    this.units = const {},
   });
 
   final String key, label, meal;
+  final Map<String, String> units;
 
   /// (food_def key, grams), in the order they were added.
   final List<(String, double)> items;
 
   Map<String, Object?> toRow(int nowMs) => {
-        'key': key,
-        'label': label,
-        'meal': meal,
-        'items_json': jsonEncode([
-          for (final (f, g) in items) {'food': f, 'g': g},
-        ]),
-        'created_at': nowMs,
-      };
+    'key': key,
+    'label': label,
+    'meal': meal,
+    'items_json': jsonEncode([
+      for (final (f, g) in items) {'food': f, 'g': g, 'unit': units[f] ?? 'g'},
+    ]),
+    'created_at': nowMs,
+  };
 
   static MealTemplate fromRow(Map<String, Object?> r) {
     final items = <(String, double)>[];
+    final units = <String, String>{};
     try {
       for (final e in (jsonDecode(r['items_json'] as String) as List)) {
         if (e is Map && e['food'] is String && e['g'] is num) {
           items.add((e['food'] as String, (e['g'] as num).toDouble()));
+          units[e['food'] as String] = e['unit'] is String
+              ? e['unit'] as String
+              : 'g';
         }
       }
-    } catch (_) {/* a damaged row logs nothing rather than crashing */}
+    } catch (_) {
+      /* a damaged row logs nothing rather than crashing */
+    }
     return MealTemplate(
       key: r['key'] as String,
       label: (r['label'] ?? '').toString(),
       meal: (r['meal'] ?? 'snack').toString(),
       items: items,
+      units: units,
     );
   }
 }
@@ -915,11 +1002,11 @@ class MyFoods {
   /// Every food the user can pick: typed ones and cached barcode products,
   /// most recently eaten first, then alphabetical.
   static Future<List<Map<String, Object?>>> all(Database db) => db.rawQuery(
-        'SELECT d.* FROM food_def d '
-        'LEFT JOIN (SELECT food_key, MAX(created_at) AS last FROM food_entry '
-        'GROUP BY food_key) e ON e.food_key = d.key '
-        'ORDER BY e.last IS NULL, e.last DESC, d.label COLLATE NOCASE ASC',
-      );
+    'SELECT d.* FROM food_def d '
+    'LEFT JOIN (SELECT food_key, MAX(created_at) AS last FROM food_entry '
+    'GROUP BY food_key) e ON e.food_key = d.key '
+    'ORDER BY e.last IS NULL, e.last DESC, d.label COLLATE NOCASE ASC',
+  );
 
   static Future<void> deleteFood(Database db, String key) async {
     await db.delete('food_def', where: 'key = ?', whereArgs: [key]);
@@ -927,8 +1014,10 @@ class MyFoods {
   }
 
   static Future<List<MealTemplate>> meals(Database db) async {
-    final rows = await db.query('meal_template',
-        orderBy: 'label COLLATE NOCASE ASC');
+    final rows = await db.query(
+      'meal_template',
+      orderBy: 'label COLLATE NOCASE ASC',
+    );
     return [for (final r in rows) MealTemplate.fromRow(r)];
   }
 
@@ -949,23 +1038,30 @@ class MyFoods {
   /// A saved meal from the entries of one meal. Only the user's own foods
   /// (entries with a food key and grams) can go into a saved meal; the rest
   /// are counted so the screen can say they were left out.
-  static Future<({int saved, int skipped})> saveMeal(Database db,
-      {required String label,
-      required String meal,
-      required List<FoodEntry> entries}) async {
+  static Future<({int saved, int skipped})> saveMeal(
+    Database db, {
+    required String label,
+    required String meal,
+    required List<FoodEntry> entries,
+  }) async {
     final items = [
       for (final e in entries)
         if (e.foodKey != null && e.quantity != null) (e.foodKey!, e.quantity!),
     ];
     if (items.isNotEmpty) {
       await putMeal(
-          db,
-          MealTemplate(
-            key: 'meal:${DateTime.now().microsecondsSinceEpoch}',
-            label: label,
-            meal: meal,
-            items: items,
-          ));
+        db,
+        MealTemplate(
+          key: 'meal:${DateTime.now().microsecondsSinceEpoch}',
+          label: label,
+          meal: meal,
+          items: items,
+          units: {
+            for (final e in entries)
+              if (e.foodKey != null) e.foodKey!: e.unit,
+          },
+        ),
+      );
     }
     return (saved: items.length, skipped: entries.length - items.length);
   }
@@ -979,14 +1075,20 @@ class MyFoods {
     String date,
     String meal, {
     DateTime? now,
+    String? group,
   }) async {
     var n = 0;
     final at = foodEntryTime(date, meal, now: now);
     await db.transaction((tx) async {
-    for (final (key, grams) in m.items) {
+      for (final (key, grams) in m.items) {
         final def = await NutritionDb.foodDef(tx, key);
-      if (def == null) continue;
-      await NutritionDb.put(
+        if (def == null) continue;
+        if ((m.units[key] ?? 'g') != foodUnit(def)) {
+          throw StateError(
+            'The serving unit of ${def['label']} changed. Edit this saved meal before logging it.',
+          );
+        }
+        await NutritionDb.put(
           tx,
           entryFromFood(
             def,
@@ -995,17 +1097,16 @@ class MyFoods {
             date: date,
             meal: meal,
             atTs: at.millisecondsSinceEpoch ~/ 1000,
-          ).inGroup(m.label),
+          ).inGroup(group ?? m.label),
           notify: false,
-      );
-      n++;
-    }
+        );
+        n++;
+      }
     });
     if (n > 0) NutritionDb.changed();
     return n;
   }
 }
-
 
 // ══════════════════ BODY WEIGHT ══════════════════
 
@@ -1015,10 +1116,13 @@ class BodyWeight {
   /// Record today's (or [date]'s) weight; a second reading the same day
   /// replaces the first.
   static Future<void> put(Database db, String date, double kg) async {
+    if (!kg.isFinite || kg <= 0 || kg > 500) {
+      throw ArgumentError.value(kg, 'kg', 'Enter a valid weight');
+    }
     await db.insert('body_weight', {
-          'date': date,
-          'kg': kg,
-          'at_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'date': date,
+      'kg': kg,
+      'at_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     NutritionDb.changed();
   }
@@ -1030,14 +1134,78 @@ class BodyWeight {
 
   /// Every reading on or after [sinceDate], oldest first.
   static Future<List<({String date, double kg})>> since(
-      Database db, String sinceDate) async {
-    final rows = await db.query('body_weight',
-        where: 'date >= ?', whereArgs: [sinceDate], orderBy: 'date ASC');
+    Database db,
+    String sinceDate,
+  ) async {
+    final rows = await db.query(
+      'body_weight',
+      where: 'date >= ?',
+      whereArgs: [sinceDate],
+      orderBy: 'date ASC',
+    );
     return [
       for (final r in rows)
         (date: r['date'] as String, kg: (r['kg'] as num).toDouble()),
     ];
   }
+}
+
+/// Dated, completed food coverage between morning weigh-ins [first,last).
+({int complete, int days}) maintenanceFoodCoverage(
+  List<({String date, double kg})> weights,
+  List<NutritionDay> days,
+) {
+  if (weights.length < 2) return (complete: 0, days: 0);
+  final ordered = [...weights]..sort((a, b) => a.date.compareTo(b.date));
+  final from = DateTime.parse(ordered.first.date),
+      to = DateTime.parse(ordered.last.date);
+  final n = DateTime.utc(
+    to.year,
+    to.month,
+    to.day,
+  ).difference(DateTime.utc(from.year, from.month, from.day)).inDays;
+  final complete = days
+      .where(
+        (d) =>
+            d.date.compareTo(ordered.first.date) >= 0 &&
+            d.date.compareTo(ordered.last.date) < 0 &&
+            d.countsTowardAverages,
+      )
+      .map((d) => d.date)
+      .toSet()
+      .length;
+  return (complete: complete, days: n);
+}
+
+/// Food and weight estimate, withheld if ANY aligned food day is incomplete.
+/// The fixed tissue-energy conversion remains an approximation, not a measure.
+({double kcal, double kgPerWeek, int days, int weighIns, int loggedDays})?
+estimatedMaintenance(
+  List<({String date, double kg})> weights,
+  List<NutritionDay> days,
+) {
+  final ordered = [...weights]..sort((a, b) => a.date.compareTo(b.date));
+  final coverage = maintenanceFoodCoverage(ordered, days);
+  if (coverage.days < 14 || coverage.complete != coverage.days) return null;
+  final byDay = {for (final d in days) d.date: d};
+  final kcal = <double>[];
+  for (
+    var d = DateTime.parse(ordered.first.date);
+    dayLabelOf(d).compareTo(ordered.last.date) < 0;
+    d = DateTime(d.year, d.month, d.day + 1)
+  ) {
+    final food = byDay[dayLabelOf(d)];
+    if (food == null || !food.countsTowardAverages || food.kcal.value == null) {
+      return null;
+    }
+    kcal.add(food.kcal.value!);
+  }
+  return measuredMaintenance(
+    ordered,
+    kcal,
+    minDays: 15,
+    minLoggedDays: coverage.days,
+  );
 }
 
 /// Kilocalories in a kilogram of body-weight change. The common 7,700
@@ -1048,7 +1216,8 @@ const double kKcalPerKg = 7700;
 /// The 7-day trailing mean of [weights] (by date), one value per reading:
 /// the trend line that smooths out water swings.
 List<({String date, double kg})> weightTrend(
-    List<({String date, double kg})> weights) {
+  List<({String date, double kg})> weights,
+) {
   final out = <({String date, double kg})>[];
   for (var i = 0; i < weights.length; i++) {
     final end = DateTime.parse(weights[i].date);
@@ -1074,14 +1243,27 @@ List<({String date, double kg})> weightTrend(
 /// [eaten] is kcal per COMPLETE logged day in the same window. Null when
 /// there is not enough of either.
 ({double kcal, double kgPerWeek, int days, int weighIns, int loggedDays})?
-    measuredMaintenance(List<({String date, double kg})> weights,
-        List<double> eaten,
-        {int minDays = 14, int minWeighIns = 8, int minLoggedDays = 10}) {
-  if (weights.length < minWeighIns || eaten.length < minLoggedDays) return null;
+measuredMaintenance(
+  List<({String date, double kg})> weights,
+  List<double> eaten, {
+  int minDays = 14,
+  int minWeighIns = 8,
+  int minLoggedDays = 10,
+}) {
+  if (weights.length < minWeighIns ||
+      eaten.length < minLoggedDays ||
+      weights.any((w) => !w.kg.isFinite || w.kg <= 0) ||
+      eaten.any((k) => !k.isFinite || k < 0)) {
+    return null;
+  }
   final t0 = DateTime.parse(weights.first.date);
   final xs = [
     for (final w in weights)
-      DateTime.parse(w.date).difference(t0).inHours / 24.0,
+      DateTime.utc(
+        DateTime.parse(w.date).year,
+        DateTime.parse(w.date).month,
+        DateTime.parse(w.date).day,
+      ).difference(DateTime.utc(t0.year, t0.month, t0.day)).inDays.toDouble(),
   ];
   final span = xs.last - xs.first;
   if (span < minDays - 1) return null;
@@ -1096,11 +1278,35 @@ List<({String date, double kg})> weightTrend(
   if (den <= 0) return null;
   final slope = num / den; // kg per day
   final avgEaten = eaten.reduce((a, b) => a + b) / eaten.length;
+  final estimate = avgEaten - slope * kKcalPerKg;
+  if (!estimate.isFinite || estimate <= 0) return null;
   return (
-    kcal: avgEaten - slope * kKcalPerKg,
+    kcal: estimate,
     kgPerWeek: slope * 7,
     days: span.round() + 1,
     weighIns: weights.length,
     loggedDays: eaten.length,
   );
+}
+
+String foodUnit(Map<String, Object?> def) =>
+    (def['unit'] as String?)?.trim().isNotEmpty == true
+    ? (def['unit'] as String).trim()
+    : 'g';
+String portionText(num amount, String unit) {
+  final value = amount == amount.roundToDouble()
+      ? amount.round().toString()
+      : amount
+            .toStringAsFixed(3)
+            .replaceFirst(RegExp(r'0+$'), '')
+            .replaceFirst(RegExp(r'\.$'), '');
+  final label =
+      unit.isEmpty ||
+          unit == 'g' ||
+          unit == 'ml' ||
+          amount == 1 ||
+          unit.endsWith('s')
+      ? unit
+      : '${unit}s';
+  return '$value $label'.trim();
 }

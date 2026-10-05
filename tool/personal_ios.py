@@ -202,7 +202,7 @@ def personal_info(source: dict[str, object]) -> dict[str, object]:
     # "location" added alongside the existing bluetooth-central mode: this plus While-In-Use
     # authorization (never Always - see _FORBIDDEN_INFO_KEYS) is what lets a run stay tracked
     # with the screen locked, per gps_source.dart's own comment on the same tradeoff.
-    out["UIBackgroundModes"] = ["bluetooth-central", "location"]
+    out["UIBackgroundModes"] = ["bluetooth-central", "location", "audio"]
     validate_info(out, resolved_bundle_id=None)
     return out
 
@@ -216,8 +216,8 @@ def validate_info(info: dict[str, object], resolved_bundle_id: str | None = BUND
         raise ContractError("personal-build marker is missing")
     if info.get("CFBundleDisplayName") != APP_NAME or info.get("CFBundleName") != APP_NAME:
         raise ContractError(f"personal app name must be {APP_NAME}")
-    if info.get("UIBackgroundModes") != ["bluetooth-central", "location"]:
-        raise ContractError("UIBackgroundModes must contain only bluetooth-central and location")
+    if info.get("UIBackgroundModes") != ["bluetooth-central", "location", "audio"]:
+        raise ContractError("UIBackgroundModes must contain only bluetooth-central, location and audio")
     for key in _FORBIDDEN_INFO_KEYS:
         if key in info:
             raise ContractError(f"forbidden Info.plist key remains: {key}")

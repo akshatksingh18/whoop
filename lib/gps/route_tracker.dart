@@ -72,6 +72,20 @@ class RouteTracker {
   /// Live zone provider (0..5) sampled at each fix, used to colour the live
   /// map. Optional; when null, vertices are drawn in the neutral colour.
   final int Function()? zoneNow;
+  final void Function(RoutePoint)? onPoint;
+  bool paused = false;
+  void setPaused(bool on) {
+    if (paused == on) return;
+    paused = on;
+    _last = null;
+    _breakNext = true;
+    currentSpeedMps.value = null;
+    stalled.value = false;
+    _lastFixAt = clock.now();
+  }
+
+  bool _breakNext = false;
+  final List<RoutePoint> acceptedPoints = [];
 
   /// No accepted fix for this long while running → [stalled] flips true. This
   /// is DISTINCT from [error] (an explicit stream error): geolocator can just
@@ -91,10 +105,18 @@ class RouteTracker {
     this.maxSpeedMps = rmath.kMaxPlausibleSpeedMps,
     this.rejectStreakLimit = 3,
     this.zoneNow,
+    this.onPoint,
     this.stallAfter = const Duration(seconds: 15),
     this.pathEmitEvery = const Duration(seconds: 1),
     int firstSeq = 0,
-  }) : _seq = firstSeq;
+    List<RoutePoint> initialPoints = const [],
+  }) : _seq = firstSeq {
+    acceptedPoints.addAll(initialPoints);
+    distanceMeters.value = rmath.totalDistanceMeters(initialPoints);
+    _vertices.addAll(rmath.buildVertices(initialPoints, const [], 0));
+    path.value = List.unmodifiable(_vertices);
+    _breakNext = initialPoints.isNotEmpty;
+  }
 
   /// Minimum spacing between [path] emissions (the ~1/s throttle — see the fix
   /// handler). Injectable so tests that feed many fixes inside one wall-clock
@@ -128,6 +150,7 @@ class RouteTracker {
   Timer? _watchdog;
   final List<RoutePoint> _buffer = [];
   final List<RouteVertex> _vertices = [];
+
   /// Next `seq` to write. Starts at [firstSeq]: a tracker re-armed for a
   /// session that already has stored points (a resumed workout after the app
   /// was killed, or a retry after a permission fix) must continue AFTER them.
@@ -181,27 +204,31 @@ class RouteTracker {
     // so this is the only way to detect "fixes just stopped arriving" instead
     // of waiting forever with a stale last-known position.
     _watchdog = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_stopped) return;
+      if (_stopped || paused) return;
       final quiet = clock.now().difference(_lastFixAt) >= stallAfter;
       if (quiet != stalled.value) stalled.value = quiet;
     });
   }
 
   void _onSample(GpsSample s) {
-    if (_stopped) return;
+    if (_stopped || paused) return;
     if (s.accuracy != null && s.accuracy! > maxAccuracyM) return;
     if (s.lat.isNaN || s.lng.isNaN) return;
     if (error.value != null) error.value = null; // fixes flowing again
     _lastFixAt = clock.now();
     if (stalled.value) stalled.value = false;
 
-    var gapBefore = false;
+    var gapBefore = _breakNext;
     final prev = _last;
     if (prev != null) {
       final jump = haversineMeters(prev.lat, prev.lng, s.lat, s.lng);
       final dtMs = s.tsMs - prev.tsMs;
-      if (rmath.isImplausibleSegment(jump, dtMs,
-          minJumpM: maxJumpM, maxSpeedMps: maxSpeedMps)) {
+      if (rmath.isImplausibleSegment(
+        jump,
+        dtMs,
+        minJumpM: maxJumpM,
+        maxSpeedMps: maxSpeedMps,
+      )) {
         _rejectStreak++;
         if (_rejectStreak < rejectStreakLimit) return; // reject a wild spike
         // N consecutive fixes disagree with the anchor → the ANCHOR is stale
@@ -218,7 +245,7 @@ class RouteTracker {
         return;
       } else {
         _rejectStreak = 0;
-        distanceMeters.value = distanceMeters.value + jump;
+        if (dtMs > 60000) gapBefore = true;
         if (dtMs > 0 && dtMs <= 60 * 1000) _movingMs += dtMs;
       }
     }
@@ -227,9 +254,15 @@ class RouteTracker {
     // fix-to-fix derivation only when the platform doesn't report one. A
     // fresh segment anchor (gapBefore) has no meaningful "speed since last
     // point" — don't let a big time/distance gap produce a bogus spike.
-    final rawSpeed = s.speed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
-      seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
-    )));
+    if (gapBefore) currentSpeedMps.value = null;
+    final rawSpeed =
+        s.speed ??
+        (gapBefore
+            ? null
+            : rmath.fallbackSpeedMps(
+                prev,
+                RoutePoint(seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng),
+              ));
     if (rawSpeed != null && rawSpeed.isFinite && rawSpeed >= 0) {
       // Clamp before smoothing, not just after: a single wild Doppler/
       // multipath spike (or a fallback speed inflated by two fixes arriving
@@ -241,6 +274,8 @@ class RouteTracker {
       currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, clamped);
     }
 
+    _breakNext = false;
+    if (gapBefore) _seq++;
     final p = RoutePoint(
       seq: _seq++,
       tsMs: s.tsMs,
@@ -253,6 +288,30 @@ class RouteTracker {
     _last = p;
     _accepted++;
     _buffer.add(p);
+    // Appending changes only the former endpoint and its neighbouring edges.
+    // Recompute that bounded tail rather than the full growing track per fix.
+    final oldTail = acceptedPoints
+        .skip(math.max(0, acceptedPoints.length - 3))
+        .toList();
+    final smoothedOld = rmath.smoothTrack(oldTail);
+    double edge(RoutePoint a, RoutePoint b) => rmath.routeBreak(a, b)
+        ? 0
+        : haversineMeters(a.lat, a.lng, b.lat, b.lng);
+    final oldEdge = smoothedOld.length < 2
+        ? 0.0
+        : edge(smoothedOld[smoothedOld.length - 2], smoothedOld.last);
+    acceptedPoints.add(p);
+    final tail = rmath.smoothTrack(
+      acceptedPoints.skip(math.max(0, acceptedPoints.length - 4)).toList(),
+    );
+    var newEdges = 0.0;
+    for (var i = math.max(1, tail.length - 2); i < tail.length; i++) {
+      newEdges += edge(tail[i - 1], tail[i]);
+    }
+    distanceMeters.value = math.max(
+      0,
+      distanceMeters.value - oldEdge + newEdges,
+    );
 
     _vertices.add(RouteVertex(p.latLng, zoneNow?.call(), gapBefore: gapBefore));
     // Emit a fresh list so ValueNotifier listeners rebuild — throttled to ~1/s.
@@ -266,6 +325,7 @@ class RouteTracker {
       path.value = List<RouteVertex>.unmodifiable(_vertices);
     }
     current.value = p.latLng;
+    onPoint?.call(p);
 
     if (_buffer.length >= batchSize) {
       unawaited(_flush());
@@ -278,13 +338,30 @@ class RouteTracker {
   /// buffered fixes would go with it.
   Future<void> flush() => _flush();
 
-  Future<void> _flush() async {
+  Future<void>? _flushWrite;
+
+  Future<void> _flush() {
+    final previous = _flushWrite;
+    final job = previous == null
+        ? _writeBuffer()
+        : previous.then((_) => _writeBuffer());
+    _flushWrite = job;
+    return job.whenComplete(() {
+      if (identical(_flushWrite, job)) _flushWrite = null;
+    });
+  }
+
+  Future<void> _writeBuffer() async {
     if (_buffer.isEmpty) return;
     final batch = List<RoutePoint>.of(_buffer);
     _buffer.clear();
     try {
       await sink(batch);
+      if (error.value == 'Route could not be saved. Try finishing again.') {
+        error.value = null;
+      }
     } catch (_) {
+      error.value = 'Route could not be saved. Try finishing again.';
       // Persistence failed — re-queue so the next flush retries. The live map
       // is unaffected (it draws from _vertices, already updated).
       _buffer.insertAll(0, batch);
@@ -307,10 +384,7 @@ class RouteTracker {
   /// to us) is dropped: the subscription is cancelled before the final emit.
   /// Callers read the notifiers right after this returns.
   Future<void> stop() async {
-    if (_stopped) {
-      dispose();
-      return;
-    }
+    if (_disposed) return;
     _stopped = true;
     _watchdog?.cancel();
     _watchdog = null;
@@ -321,6 +395,9 @@ class RouteTracker {
     path.value = List<RouteVertex>.unmodifiable(_vertices);
     await _flush();
     if (_buffer.isNotEmpty) await _flush(); // one retry for the tail
+    if (_buffer.isNotEmpty) {
+      throw StateError('Route could not be saved. Try finishing again.');
+    }
     dispose();
   }
 

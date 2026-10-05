@@ -32,6 +32,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/journal_fields.dart' show formatMinuteOfDay;
@@ -100,7 +102,13 @@ class _PressableState extends State<Pressable> {
       label: widget.semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
+        onTap: () {
+          if (defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.android) {
+            HapticFeedback.selectionClick();
+          }
+          widget.onTap?.call();
+        },
         onTapDown: (_) => setState(() => _down = true),
         onTapUp: (_) => setState(() => _down = false),
         onTapCancel: () => setState(() => _down = false),
@@ -108,6 +116,84 @@ class _PressableState extends State<Pressable> {
           scale: _down ? .975 : 1,
           duration: motion(c, Motion.fast),
           child: out,
+        ),
+      ),
+    );
+  }
+}
+
+/// A bounded form sheet with a fixed close/drag header, even above the keyboard.
+/// Scrolling dismisses the keyboard; dragging the header cancels the sheet.
+class InputSheet extends StatelessWidget {
+  const InputSheet({super.key, required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final first = children.isEmpty ? const SizedBox.shrink() : children.first;
+    final header = first is Text
+        ? Row(
+            children: [
+              Expanded(child: first),
+              Pressable(
+                semanticLabel: 'Close',
+                onTap: () {
+                  FocusScope.of(c).unfocus();
+                  Navigator.of(c).maybePop();
+                },
+                child: Icon(LucideIcons.x, color: p.ink3, size: 20),
+              ),
+            ],
+          )
+        : first;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragEnd: (d) {
+                if ((d.primaryVelocity ?? 0) > 250) {
+                  FocusScope.of(c).unfocus();
+                  Navigator.of(c).maybePop();
+                }
+              },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, 0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: S.x3),
+                      decoration: BoxDecoration(
+                        color: p.line,
+                        borderRadius: R.rPill,
+                      ),
+                    ),
+                    header,
+                  ],
+                ),
+              ),
+            ),
+            Flexible(
+              fit: FlexFit.loose,
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x5),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children.skip(1).toList(),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -140,19 +226,19 @@ class Swipe extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => Semantics(
-        label: label,
-        onScrollRight: onPrevious,
-        onScrollLeft: onNext,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onHorizontalDragEnd: (d) {
-            final v = d.primaryVelocity ?? 0;
-            if (v > _minVelocity) onPrevious?.call();
-            if (v < -_minVelocity) onNext?.call();
-          },
-          child: child,
-        ),
-      );
+    label: label,
+    onScrollRight: onPrevious,
+    onScrollLeft: onNext,
+    child: GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v > _minVelocity) onPrevious?.call();
+        if (v < -_minVelocity) onNext?.call();
+      },
+      child: child,
+    ),
+  );
 }
 
 /// ── SCRUBBER ── the only continuous drag in lib/ui2 ───────────────────────
@@ -566,7 +652,9 @@ class TrendCard extends StatelessWidget {
     // both be inventions, so neither is drawn and the label says nothing about
     // better or worse.
     final dir = j == null ? p.ink3 : p.on(j ? C.green : C.orange);
-    final judgement = j == null ? '' : (j ? 'an improvement' : 'worse than usual');
+    final judgement = j == null
+        ? ''
+        : (j ? 'an improvement' : 'worse than usual');
     final change = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -994,11 +1082,11 @@ class StatusCard extends StatelessWidget {
       told != null
           ? (gap == null ? told : '$told $gap')
           : gap ??
-              (why.isNotEmpty
-                  ? why
-                  : need != null
-                      ? 'Not enough history yet to know what normal looks like for you.'
-                      : 'Nothing recorded says why this is missing.'),
+                (why.isNotEmpty
+                    ? why
+                    : need != null
+                    ? 'Not enough history yet to know what normal looks like for you.'
+                    : 'Nothing recorded says why this is missing.'),
       fix: need ?? '',
       onFix: onFix,
     );
@@ -1174,12 +1262,15 @@ Trend? trendOf(List<double?> series) {
       l.fold<double>(0, (a, b) => a + b) / l.length;
   final recent = v.sublist(v.length - recentN);
   final base = v.sublist(
-      math.max(0, v.length - recentN - baseMax), v.length - recentN);
+    math.max(0, v.length - recentN - baseMax),
+    v.length - recentN,
+  );
   final mb = mean(base);
   final delta = mean(recent) - mb;
   final sd = math.sqrt(
-      base.map((x) => (x - mb) * (x - mb)).fold<double>(0, (a, b) => a + b) /
-          (base.length - 1));
+    base.map((x) => (x - mb) * (x - mb)).fold<double>(0, (a, b) => a + b) /
+        (base.length - 1),
+  );
   if (delta.abs() <= 0.5 * sd) return Trend.steady;
   return delta > 0 ? Trend.rising : Trend.falling;
 }
@@ -1197,11 +1288,11 @@ Color _trendHue(P p, Trend trend, Rising rising) {
 /// What the arrow says, in words, for the screen reader — including the case
 /// where there is no arrow, so an empty slot is not a silent hole.
 String _trendWord(Trend? t) => switch (t) {
-      Trend.rising => 'trending up',
-      Trend.falling => 'trending down',
-      Trend.steady => 'steady',
-      null => 'no trend yet, not enough days recorded',
-    };
+  Trend.rising => 'trending up',
+  Trend.falling => 'trending down',
+  Trend.steady => 'steady',
+  null => 'no trend yet, not enough days recorded',
+};
 
 /// A metric in a list: name → value → trend.
 class MetricRow extends StatelessWidget {
@@ -1608,8 +1699,14 @@ class Consistency extends StatelessWidget {
   /// and drew one segment per day, so 10 of 14 doses read as 10 of 14 days.
   final String unit;
 
-  const Consistency(this.have, this.of, this.label, this.color,
-      {super.key, this.unit = 'days'});
+  const Consistency(
+    this.have,
+    this.of,
+    this.label,
+    this.color, {
+    super.key,
+    this.unit = 'days',
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -1681,7 +1778,8 @@ class Typed {
     if (s.isEmpty) return const Typed._(null, false);
     final v = double.tryParse(s);
     return v == null || !v.isFinite || (nonNegative && v < 0)
-        ? const Typed._(null, true) : Typed._(v, false);
+        ? const Typed._(null, true)
+        : Typed._(v, false);
   }
 }
 
@@ -1689,11 +1787,15 @@ class Typed {
 /// the point is that the form stops instead of saving a hole.
 void sayUnreadable(BuildContext c, List<String> fields) {
   if (fields.isEmpty) return;
-  ScaffoldMessenger.of(c).showSnackBar(SnackBar(
-    content: Text(fields.length == 1
-        ? '${fields.first} is not a number. Nothing was saved.'
-        : '${fields.join(', ')} are not numbers. Nothing was saved.'),
-  ));
+  ScaffoldMessenger.of(c).showSnackBar(
+    SnackBar(
+      content: Text(
+        fields.length == 1
+            ? '${fields.first} is not a number. Nothing was saved.'
+            : '${fields.join(', ')} are not numbers. Nothing was saved.',
+      ),
+    ),
+  );
 }
 
 /// The one destructive confirm. Names what goes and what stays, and there is
@@ -1726,12 +1828,18 @@ Future<bool> confirmRemove(
             const SizedBox(height: S.x2),
             Text(body, style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5)),
             const SizedBox(height: S.x5),
-            BigButton(remove,
-                icon: LucideIcons.trash2,
-                color: C.red,
-                onTap: () => Navigator.of(s).pop(true)),
+            BigButton(
+              remove,
+              icon: LucideIcons.trash2,
+              color: C.red,
+              onTap: () => Navigator.of(s).pop(true),
+            ),
             const SizedBox(height: S.x3),
-            BigButton(keep, soft: true, onTap: () => Navigator.of(s).pop(false)),
+            BigButton(
+              keep,
+              soft: true,
+              onTap: () => Navigator.of(s).pop(false),
+            ),
           ],
         ),
       ),
@@ -2079,8 +2187,9 @@ class ChartFrame extends StatelessWidget {
     final Widget measure = readout == null
         ? Text(unit, style: F.over.copyWith(color: p.ink3))
         : Text.rich(
-            TextSpan(children: [
-              TextSpan(
+            TextSpan(
+              children: [
+                TextSpan(
                   text: readout,
                   style: F.cap.copyWith(
                     color: p.ink,

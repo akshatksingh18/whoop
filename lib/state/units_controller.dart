@@ -154,13 +154,16 @@ class UnitsController extends ChangeNotifier {
   String get weightLabel => isImperial ? 'Weight (lb)' : 'Weight (kg)';
   String get heightLabel => isImperial ? 'Height (in)' : 'Height (cm)';
 
+  String _fieldNumber(num v) =>
+      v == v.roundToDouble() ? v.round().toString() : v.toString();
+
   /// Pre-fill value for the weight field in the user's units.
   String weightField(num? kg) =>
-      kg == null ? '' : (isImperial ? (kg / _kgPerLb).round().toString() : _trim(kg));
+      kg == null ? '' : (isImperial ? _trim(kg / _kgPerLb) : _fieldNumber(kg));
 
   /// Pre-fill value for the height field in the user's units (total inches).
   String heightField(num? cm) =>
-      cm == null ? '' : (isImperial ? (cm / _cmPerIn).round().toString() : _trim(cm));
+      cm == null ? '' : (isImperial ? _trim(cm / _cmPerIn) : _fieldNumber(cm));
 
   /// Parse a weight field (display units) → kg for storage.
   double? weightToKg(String text) {

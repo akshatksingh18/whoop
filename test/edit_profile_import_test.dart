@@ -12,12 +12,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Widget _frame(Widget child) => MaterialApp(
-      theme: buildTheme(Brightness.light),
-      home: child,
-    );
+Widget _frame(Widget child) =>
+    MaterialApp(theme: buildTheme(Brightness.light), home: child);
 
 const _initial = {
   'name': 'Sahil',
@@ -42,27 +41,71 @@ void main() {
     await t.pumpAndSettle();
   }
 
+  for (final units in UnitSystem.values) {
+    testWidgets('decimal keyboards and unchanged profile precision in $units', (
+      t,
+    ) async {
+      Map<String, dynamic>? saved;
+      final initial = {..._initial, 'height_cm': 186.69, 'weight_kg': 80.51};
+      await pump(
+        t,
+        EditProfileView(
+          initial: initial,
+          units: UnitsController.seed(units),
+          onSave: (m) async {
+            saved = m;
+          },
+        ),
+      );
+      final fields = t.widgetList<TextField>(find.byType(TextField)).toList();
+      expect(
+        fields[2].keyboardType,
+        const TextInputType.numberWithOptions(decimal: true),
+      );
+      expect(
+        fields[3].keyboardType,
+        const TextInputType.numberWithOptions(decimal: true),
+      );
+      await t.tap(find.text('Save'));
+      await t.pumpAndSettle();
+      expect(saved!['height_cm'], 186.69);
+      expect(saved!['weight_kg'], 80.51);
+      if (units == UnitSystem.metric) {
+        await t.enterText(
+          find.byWidgetPredicate(
+            (w) =>
+                w is TextField && identical(w.controller, fields[3].controller),
+          ),
+          '80.5',
+        );
+        await t.tap(find.text('Save'));
+        await t.pumpAndSettle();
+        expect(saved!['weight_kg'], 80.5);
+      }
+    });
+  }
+
   testWidgets('no importer, no button', (t) async {
-    await t.pumpWidget(_frame(EditProfileView(
-      initial: _initial,
-      onSave: (_) async {},
-    )));
+    await t.pumpWidget(
+      _frame(EditProfileView(initial: _initial, onSave: (_) async {})),
+    );
     expect(find.textContaining('from Apple Health'), findsNothing);
     expect(find.textContaining('from Health Connect'), findsNothing);
   });
 
   testWidgets('the first read says Import, and fills the fields', (t) async {
     await pump(
-        t,
-        EditProfileView(
-          initial: _initial,
-          onSave: (_) async {},
-          onImport: () async => (
-            'Updated weight from the store.',
-            false,
-            {..._initial, 'weight_kg': 70.1, 'age': 35},
-          ),
-        ));
+      t,
+      EditProfileView(
+        initial: _initial,
+        onSave: (_) async {},
+        onImport: () async => (
+          'Updated weight from the store.',
+          false,
+          {..._initial, 'weight_kg': 70.1, 'age': 35},
+        ),
+      ),
+    );
 
     expect(find.textContaining('Import from '), findsOneWidget);
     expect(find.widgetWithText(TextField, '72.4'), findsOneWidget);
@@ -81,12 +124,13 @@ void main() {
 
   testWidgets('a refusal keeps the first verb and changes nothing', (t) async {
     await pump(
-        t,
-        EditProfileView(
-          initial: _initial,
-          onSave: (_) async {},
-          onImport: () async => ('The store granted nothing.', true, null),
-        ));
+      t,
+      EditProfileView(
+        initial: _initial,
+        onSave: (_) async {},
+        onImport: () async => ('The store granted nothing.', true, null),
+      ),
+    );
     await t.tap(find.textContaining('Import from '));
     await t.pumpAndSettle();
 

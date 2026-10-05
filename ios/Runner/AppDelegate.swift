@@ -431,9 +431,32 @@ enum AppIconBridge {
 final class SpeechBridge: NSObject, AVSpeechSynthesizerDelegate {
   private static let shared = SpeechBridge()
   private let synth = AVSpeechSynthesizer()
+  private var interrupted = false
+
+  override init() {
+    super.init()
+    synth.delegate = self
+    NotificationCenter.default.addObserver(self, selector: #selector(audioInterrupted(_:)),
+      name: AVAudioSession.interruptionNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(routeChanged(_:)),
+      name: AVAudioSession.routeChangeNotification, object: nil)
+  }
+
+  @objc private func audioInterrupted(_ notification: Notification) {
+    guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+          let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+    interrupted = type == .began
+    if interrupted { synth.stopSpeaking(at: .immediate) }
+  }
+
+  @objc private func routeChanged(_ notification: Notification) {
+    guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+          raw == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+    // Do not suddenly play a private cue on the speaker after headphones disconnect.
+    synth.stopSpeaking(at: .immediate)
+  }
 
   static func register(messenger: FlutterBinaryMessenger) {
-    shared.synth.delegate = shared
     let channel = FlutterMethodChannel(name: "openstrap/speech", binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       guard call.method == "say",
@@ -442,19 +465,35 @@ final class SpeechBridge: NSObject, AVSpeechSynthesizerDelegate {
         result(FlutterMethodNotImplemented)
         return
       }
-      let session = AVAudioSession.sharedInstance()
-      try? session.setCategory(.playback, mode: .voicePrompt,
-                               options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
-      try? session.setActive(true)
-      let u = AVSpeechUtterance(string: text)
-      u.rate = AVSpeechUtteranceDefaultSpeechRate
-      shared.synth.speak(u)
-      result(true)
+      guard !shared.interrupted else {
+        result(FlutterError(code: "audio_interrupted", message: "Audio is in use by a call.", details: nil))
+        return
+      }
+      do {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .voicePrompt,
+          options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
+        try session.setActive(true)
+        let u = AVSpeechUtterance(string: text)
+        u.rate = AVSpeechUtteranceDefaultSpeechRate
+        shared.synth.speak(u)
+        result(true)
+      } catch {
+        result(FlutterError(code: "audio_unavailable", message: error.localizedDescription, details: nil))
+      }
     }
   }
 
+  private func releaseAudio(_ s: AVSpeechSynthesizer) {
+    if !s.isSpeaking {
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+  }
   func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    releaseAudio(s)
+  }
+  func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+    releaseAudio(s)
   }
 }
 

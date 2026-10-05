@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
+import '../gps/workout_clock.dart';
 
 /// Reads steps in `[from, to)`. Null means the READ FAILED — see [syncDay].
 typedef StepIntervalReader = Future<int?> Function(DateTime from, DateTime to);
@@ -187,6 +188,60 @@ class PhonePedometer {
       final windows = <({int startTs, int endTs, int steps})>[];
       var total = 0;
       var anyRead = false;
+      final db = await LocalDb.instance;
+      final dayEnd = DateTime(
+        dayStartLocal.year,
+        dayStartLocal.month,
+        dayStartLocal.day + 1,
+      );
+      final gait = await db.rawQuery(
+        'SELECT start_ts,end_ts FROM live_coverage WHERE source != ? AND start_ts < ? AND end_ts > ?',
+        [
+          LocalDb.kStepSourcePhone,
+          dayEnd.millisecondsSinceEpoch ~/ 1000,
+          dayStartLocal.millisecondsSinceEpoch ~/ 1000,
+        ],
+      );
+      final existing = await db.query(
+        'live_coverage',
+        columns: ['start_ts', 'end_ts', 'steps'],
+        where: 'day = ? AND source = ?',
+        whereArgs: [dayId, LocalDb.kStepSourcePhone],
+      );
+      final cached = {
+        for (final r in existing)
+          '${r['start_ts']}-${r['end_ts']}': (r['steps'] as num).toInt(),
+      };
+      final sessionCuts = <int>{};
+      for (final row in await db.query(
+        'sessions',
+        where: 'start_ts < ? AND (end_ts IS NULL OR end_ts > ?)',
+        whereArgs: [
+          dayEnd.millisecondsSinceEpoch ~/ 1000,
+          dayStartLocal.millisecondsSinceEpoch ~/ 1000,
+        ],
+      )) {
+        final start = (row['start_ts'] as num?)?.toInt(),
+            end = (row['end_ts'] as num?)?.toInt();
+        if (start == null) continue;
+        final c = WorkoutClock.read(
+          row['id'] as String,
+          DateTime.fromMillisecondsSinceEpoch(start * 1000),
+          end: end == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(end * 1000),
+        );
+        for (final w in c.windows()) {
+          sessionCuts.add(w.start.millisecondsSinceEpoch);
+          sessionCuts.add(w.end.millisecondsSinceEpoch);
+        }
+      }
+      final live = WorkoutClock.current;
+      if (live != null)
+        for (final w in live.windows()) {
+          sessionCuts.add(w.start.millisecondsSinceEpoch);
+          sessionCuts.add(w.end.millisecondsSinceEpoch);
+        }
 
       // CALENDAR-AWARE hour walk. `Duration` arithmetic on a local DateTime is
       // ABSOLUTE, so `dayStartLocal.add(Duration(hours: h))` over a fixed 24
@@ -236,26 +291,69 @@ class PhonePedometer {
         // iteration's `from` is after `now` and the guard above ends the walk.
         if (!capped.isAfter(from)) continue;
 
-        final n = await _readSteps(from, capped);
-        // Read failure (see the doc above) — abandon the day rather than
-        // persist a partial one over a good previous sync.
-        if (n == null) return null;
-        // UNCOVERED, not failed and not zero: the sensor holds no record of
-        // this hour. It banks nothing and it does not count as read, so a day
-        // that is entirely uncovered still comes back "unknown" below.
-        if (n == intervalNotCovered) continue;
-        anyRead = true;
-        if (n < 0) continue;
-        // A confirmed zero is useful evidence: it lets resolveDaySteps veto a
-        // low-density wrist false-positive over the same hour. Dropping zero
-        // hours here made WHOOP 4 passive arm motion additive to the phone's
-        // real total whenever the phone had correctly observed no steps.
-        windows.add((
-          startTs: from.millisecondsSinceEpoch ~/ 1000,
-          endTs: capped.millisecondsSinceEpoch ~/ 1000,
-          steps: n,
-        ));
-        total += n;
+        final cuts = <int>{
+          from.millisecondsSinceEpoch,
+          capped.millisecondsSinceEpoch,
+        };
+        for (final r in gait) {
+          final lo = (r['start_ts'] as num).toInt() * 1000;
+          final hi = (r['end_ts'] as num).toInt() * 1000;
+          if (hi <= from.millisecondsSinceEpoch ||
+              lo >= capped.millisecondsSinceEpoch) {
+            continue;
+          }
+          final first = lo < from.millisecondsSinceEpoch
+              ? from.millisecondsSinceEpoch
+              : lo;
+          final last = hi > capped.millisecondsSinceEpoch
+              ? capped.millisecondsSinceEpoch
+              : hi;
+          cuts.addAll([first, last]);
+          for (var at = first + 60000; at < last; at += 60000) {
+            cuts.add(at);
+          }
+        }
+        cuts.addAll(
+          sessionCuts.where(
+            (at) =>
+                at > from.millisecondsSinceEpoch &&
+                at < capped.millisecondsSinceEpoch,
+          ),
+        );
+        final ordered = cuts.map((at) => at ~/ 1000 * 1000).toSet().toList()
+          ..sort();
+        for (var i = 1; i < ordered.length; i++) {
+          final exactFrom = DateTime.fromMillisecondsSinceEpoch(ordered[i - 1]);
+          final exactTo = DateTime.fromMillisecondsSinceEpoch(ordered[i]);
+          final cacheKey = '${ordered[i - 1] ~/ 1000}-${ordered[i] ~/ 1000}';
+          final reuse =
+              _stepReader == null &&
+              exactTo.isBefore(
+                DateTime.now().subtract(const Duration(minutes: 2)),
+              );
+          final n = reuse && cached.containsKey(cacheKey)
+              ? cached[cacheKey]
+              : await _readSteps(exactFrom, exactTo);
+          // Read failure (see the doc above) — abandon the day rather than
+          // persist a partial one over a good previous sync.
+          if (n == null) return null;
+          // UNCOVERED, not failed and not zero: the sensor holds no record of
+          // this hour. It banks nothing and it does not count as read, so a day
+          // that is entirely uncovered still comes back "unknown" below.
+          if (n == intervalNotCovered) continue;
+          anyRead = true;
+          if (n < 0) continue;
+          // A confirmed zero is useful evidence: it lets resolveDaySteps veto a
+          // low-density wrist false-positive over the same hour. Dropping zero
+          // hours here made WHOOP 4 passive arm motion additive to the phone's
+          // real total whenever the phone had correctly observed no steps.
+          windows.add((
+            startTs: exactFrom.millisecondsSinceEpoch ~/ 1000,
+            endTs: exactTo.millisecondsSinceEpoch ~/ 1000,
+            steps: n,
+          ));
+          total += n;
+        }
       }
 
       // No hour was ever polled (a day entirely in the future, or a walk that

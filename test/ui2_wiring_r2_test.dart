@@ -15,6 +15,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -36,6 +40,12 @@ String _day(int back) {
 }
 
 class _FakeRepo extends LocalRepository {
+  @override
+  Future<num?> getMeasuredDaySteps(String date) async => 0;
+  @override
+  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async => {
+    'workouts': [],
+  };
   final Map<String, dynamic> today;
 
   _FakeRepo({this.today = const {}});
@@ -53,8 +63,11 @@ class _FakeRepo extends LocalRepository {
   @override
   Future<List<String>> availableDays() async => const [];
   @override
-  Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) async =>
-      const {'points': []};
+  Future<Map<String, dynamic>> getChart(
+    String metric, {
+    int? from,
+    int? to,
+  }) async => const {'points': []};
   @override
   Future<Map<String, dynamic>> getDayWear(String date) async => const {};
   @override
@@ -62,18 +75,33 @@ class _FakeRepo extends LocalRepository {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    LocalDb.dbName = 'ui2_wiring_build73.db';
+  });
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await Prefs.ensureLoaded();
+  });
+  tearDownAll(() async {
+    await LocalDb.close();
+  });
   // ── the artifact behind four screens ──
   group('crossDayStaleReason', () {
     Map<String, dynamic> artifact({int? version, String? builtFor}) => {
-          'algo_version': version ?? kAlgoVersion,
-          'built_for_day': ?builtFor,
-          'readiness_glassbox': const {'drivers': []},
-        };
+      'algo_version': version ?? kAlgoVersion,
+      'built_for_day': ?builtFor,
+      'readiness_glassbox': const {'drivers': []},
+    };
 
     test('an artifact stamped with today and this algo version is served', () {
       expect(
         LocalRepositoryImpl.crossDayStaleReason(
-            artifact(builtFor: _day(0)), _day(0)),
+          artifact(builtFor: _day(0)),
+          _day(0),
+        ),
         isNull,
       );
     });
@@ -81,49 +109,65 @@ void main() {
     test('yesterday is still fine — the families are multi-day by design', () {
       expect(
         LocalRepositoryImpl.crossDayStaleReason(
-            artifact(builtFor: _day(1)), _day(0)),
+          artifact(builtFor: _day(1)),
+          _day(0),
+        ),
         isNull,
       );
     });
 
-    test('past the age ceiling it is withheld, with the day it was built for',
-        () {
-      final r = LocalRepositoryImpl.crossDayStaleReason(
-          artifact(
-              builtFor: _day(LocalRepositoryImpl.crossDayMaxAgeDays + 1)),
-          _day(0));
-      expect(r?['kind'], 'stale');
-      expect(r?['built_for_day'],
-          _day(LocalRepositoryImpl.crossDayMaxAgeDays + 1));
-    });
+    test(
+      'past the age ceiling it is withheld, with the day it was built for',
+      () {
+        final r = LocalRepositoryImpl.crossDayStaleReason(
+          artifact(builtFor: _day(LocalRepositoryImpl.crossDayMaxAgeDays + 1)),
+          _day(0),
+        );
+        expect(r?['kind'], 'stale');
+        expect(
+          r?['built_for_day'],
+          _day(LocalRepositoryImpl.crossDayMaxAgeDays + 1),
+        );
+      },
+    );
 
     test('an OLDER algo version is withheld however fresh the day', () {
       // The sharp case: a bump that changes the bundle SHAPE would otherwise be
       // served from the pre-bump artifact for the rest of the day, and the new
       // family silently sees nothing on the very pass the bump existed for.
       final r = LocalRepositoryImpl.crossDayStaleReason(
-          artifact(version: kAlgoVersion - 1, builtFor: _day(0)), _day(0));
+        artifact(version: kAlgoVersion - 1, builtFor: _day(0)),
+        _day(0),
+      );
       expect(r?['kind'], 'algo_version');
     });
 
     test('an UNSTAMPED artifact cannot be shown to be fresh, so it is not', () {
       expect(
-          LocalRepositoryImpl.crossDayStaleReason(
-              artifact(builtFor: null), _day(0))?['kind'],
-          'unstamped');
+        LocalRepositoryImpl.crossDayStaleReason(
+          artifact(builtFor: null),
+          _day(0),
+        )?['kind'],
+        'unstamped',
+      );
       expect(
-          LocalRepositoryImpl.crossDayStaleReason(
-              {'readiness_glassbox': const {}}, _day(0))?['kind'],
-          'algo_version');
+        LocalRepositoryImpl.crossDayStaleReason({
+          'readiness_glassbox': const {},
+        }, _day(0))?['kind'],
+        'algo_version',
+      );
     });
 
     test('a day in the FUTURE is a clock that moved, not freshness', () {
       final n = DateTime.now();
       final ahead = dayLabelOf(DateTime(n.year, n.month, n.day + 40));
       expect(
-          LocalRepositoryImpl.crossDayStaleReason(
-              artifact(builtFor: ahead), _day(0))?['kind'],
-          'stale');
+        LocalRepositoryImpl.crossDayStaleReason(
+          artifact(builtFor: ahead),
+          _day(0),
+        )?['kind'],
+        'stale',
+      );
     });
   });
 
@@ -142,7 +186,14 @@ void main() {
     });
 
     test('a point with no timestamp is not a dated point', () {
-      expect(pointsOf({'points': [{'v': 51}]}), isEmpty);
+      expect(
+        pointsOf({
+          'points': [
+            {'v': 51},
+          ],
+        }),
+        isEmpty,
+      );
     });
 
     test('a gap is a HOLE, not a shorter line', () {
@@ -182,20 +233,30 @@ void main() {
       // These assertions are exact in every zone; they only had teeth in a
       // DST one, which is where the bug was reproduced.
       expect(
-          calendarDaysBetween(
-              DateTime(2026, 3, 8, 23, 59), DateTime(2026, 3, 10, 0, 1)),
-          2);
+        calendarDaysBetween(
+          DateTime(2026, 3, 8, 23, 59),
+          DateTime(2026, 3, 10, 0, 1),
+        ),
+        2,
+      );
       expect(
-          calendarDaysBetween(DateTime(2026, 3, 9), DateTime(2026, 3, 10)), 1);
+        calendarDaysBetween(DateTime(2026, 3, 9), DateTime(2026, 3, 10)),
+        1,
+      );
       // Autumn back, the 25-hour day.
       expect(
-          calendarDaysBetween(DateTime(2026, 11, 1), DateTime(2026, 11, 2)), 1);
+        calendarDaysBetween(DateTime(2026, 11, 1), DateTime(2026, 11, 2)),
+        1,
+      );
       // Time of day never counts: one minute before midnight and one minute
       // after are a whole day apart, not zero.
       expect(
-          calendarDaysBetween(
-              DateTime(2026, 6, 1, 23, 59), DateTime(2026, 6, 2, 0, 1)),
-          1);
+        calendarDaysBetween(
+          DateTime(2026, 6, 1, 23, 59),
+          DateTime(2026, 6, 2, 0, 1),
+        ),
+        1,
+      );
     });
   });
 
@@ -213,20 +274,20 @@ void main() {
   // in their place.
   group('held-over overnight', () {
     Map<String, dynamic> bundle(String state, {bool prior = true}) => {
-          'status': {
-            'today_day': '2026-05-20',
-            'overnight_state': state,
-            'overnight_day': '2026-05-16',
-            'showing_prior_overnight': prior,
-          },
-          'daily': {
-            'readiness': {'value': 82, 'confidence': .8, 'tier': 'HIGH'},
-            'resting_hr': {'value': 51, 'confidence': .8, 'tier': 'HIGH'},
-          },
-          'sleep': {
-            'duration_min': {'value': 430, 'confidence': .8, 'tier': 'HIGH'},
-          },
-        };
+      'status': {
+        'today_day': '2026-05-20',
+        'overnight_state': state,
+        'overnight_day': '2026-05-16',
+        'showing_prior_overnight': prior,
+      },
+      'daily': {
+        'readiness': {'value': 82, 'confidence': .8, 'tier': 'HIGH'},
+        'resting_hr': {'value': 51, 'confidence': .8, 'tier': 'HIGH'},
+      },
+      'sleep': {
+        'duration_min': {'value': 430, 'confidence': .8, 'tier': 'HIGH'},
+      },
+    };
 
     test('the three overnight figures are refused', () async {
       final d = await HomeData.load(_FakeRepo(today: bundle('missing')));
@@ -240,7 +301,9 @@ void main() {
     // A night still computing and a night that never happened are different
     // absences: one resolves itself, the other wants a sync.
     test('the absence says which of the two it is', () async {
-      final building = await HomeData.load(_FakeRepo(today: bundle('building')));
+      final building = await HomeData.load(
+        _FakeRepo(today: bundle('building')),
+      );
       expect(building.readiness.note, contains('still being worked out'));
 
       final missing = await HomeData.load(_FakeRepo(today: bundle('missing')));
@@ -249,20 +312,24 @@ void main() {
 
     test("today's own night is served as itself", () async {
       final d = await HomeData.load(
-          _FakeRepo(today: bundle('ready', prior: false)));
+        _FakeRepo(today: bundle('ready', prior: false)),
+      );
       expect(d.readiness.value, 82);
       expect(d.rhr.value, 51);
       expect(d.heldOverNight, isNull);
     });
 
     Widget frame(HomeData d) => MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: Scaffold(body: HomeScreen(data: d, hour: 20)));
+      theme: buildTheme(Brightness.light),
+      home: Scaffold(body: HomeScreen(data: d, hour: 20)),
+    );
 
-    testWidgets('a day with nothing of its own says where the data stops',
-        (t) async {
-      await t.pumpWidget(frame(
-          const HomeData(dayId: '2026-05-20', heldOverNight: '2026-05-16')));
+    testWidgets('a day with nothing of its own says where the data stops', (
+      t,
+    ) async {
+      await t.pumpWidget(
+        frame(const HomeData(dayId: '2026-05-20', heldOverNight: '2026-05-16')),
+      );
       expect(find.text('Nothing recorded for today'), findsOneWidget);
       expect(find.textContaining('16 May'), findsOneWidget);
     });
@@ -278,20 +345,29 @@ void main() {
     // session holds derivation (DeriveScheduler.setWorkoutActive), so "sync
     // the band" is a false answer — the sync completes and changes nothing.
     // The card must name the workout instead.
-    testWidgets('a bare day during a live workout blames the workout, not sync',
-        (t) async {
-      await t.pumpWidget(MaterialApp(
-          theme: buildTheme(Brightness.light),
-          home: const Scaffold(
+    testWidgets(
+      'a bare day during a live workout blames the workout, not sync',
+      (t) async {
+        await t.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: const Scaffold(
               body: HomeScreen(
-                  data: HomeData(
-                      dayId: '2026-05-20', heldOverNight: '2026-05-16'),
-                  hour: 20,
-                  workoutLive: true))));
-      expect(find.text('A workout is still running'), findsOneWidget);
-      expect(find.text('Nothing recorded for today'), findsNothing);
-      expect(find.text('Sync the band'), findsNothing);
-    });
+                data: HomeData(
+                  dayId: '2026-05-20',
+                  heldOverNight: '2026-05-16',
+                ),
+                hour: 20,
+                workoutLive: true,
+              ),
+            ),
+          ),
+        );
+        expect(find.text('A workout is still running'), findsOneWidget);
+        expect(find.text('Nothing recorded for today'), findsNothing);
+        expect(find.text('Sync the band'), findsNothing);
+      },
+    );
   });
 
   // ── the one observation Home is allowed to make ──
@@ -301,19 +377,22 @@ void main() {
   // produces could only be found by opening Health and scrolling to it.
   group('illness watch on Home', () {
     Widget frame(HomeData d) => MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: Scaffold(body: HomeScreen(data: d, hour: 9)));
+      theme: buildTheme(Brightness.light),
+      home: Scaffold(body: HomeScreen(data: d, hour: 9)),
+    );
 
     const base = HomeData(dayId: '2026-05-20');
 
-    testWidgets('amber shows — this is the whole point of the change',
-        (t) async {
+    testWidgets('amber shows — this is the whole point of the change', (
+      t,
+    ) async {
       await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-20', 2.4)));
       expect(find.textContaining('outside your normal range'), findsOneWidget);
     });
 
-    testWidgets('red shows, and says it is a run rather than one night',
-        (t) async {
+    testWidgets('red shows, and says it is a run rather than one night', (
+      t,
+    ) async {
       await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', 3.1)));
       expect(find.textContaining('Several nights in a row'), findsOneWidget);
     });
@@ -324,8 +403,9 @@ void main() {
       expect(find.textContaining('Several nights'), findsNothing);
     });
 
-    testWidgets('no state at all is silent too — the CUSUM wants 7 nights',
-        (t) async {
+    testWidgets('no state at all is silent too — the CUSUM wants 7 nights', (
+      t,
+    ) async {
       await t.pumpWidget(frame(base));
       expect(find.textContaining('normal range'), findsNothing);
     });
@@ -336,12 +416,15 @@ void main() {
       // nights back under. Printing "1.3 deviations" without a direction read
       // as "above your baseline, 1.3 below it".
       await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', -1.3)));
-      expect(find.textContaining('1.3 standardised deviations below it'),
-          findsOneWidget);
+      expect(
+        find.textContaining('1.3 standardised deviations below it'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('an older night is named rather than called last night',
-        (t) async {
+    testWidgets('an older night is named rather than called last night', (
+      t,
+    ) async {
       await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-16', 2.2)));
       expect(find.textContaining('16 May'), findsOneWidget);
       expect(find.textContaining('Last night'), findsNothing);
@@ -392,37 +475,50 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 2400 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-          theme: buildTheme(Brightness.light), home: Scaffold(body: w)));
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(body: w),
+        ),
+      );
       await t.pumpAndSettle();
     }
 
     testWidgets('the empty hero on Home is a door, not a dead end', (t) async {
       await pump(
-          t,
-          HomeScreen(
-              hour: 10,
-              data: const HomeData(
-                  dayId: '2026-05-20',
-                  steps: Metric(
-                      value: 4200,
-                      unit: 'steps',
-                      confidence: .9,
-                      tier: MetricTier.high))));
+        t,
+        HomeScreen(
+          hour: 10,
+          data: const HomeData(
+            dayId: '2026-05-20',
+            steps: Metric(
+              value: 4200,
+              unit: 'steps',
+              confidence: .9,
+              tier: MetricTier.high,
+            ),
+          ),
+        ),
+      );
       expect(find.text('Readiness is not scored today'), findsOneWidget);
       expect(find.text('See what was missing'), findsOneWidget);
     });
 
-    testWidgets('the detail names each input and QUOTES the pipeline',
-        (t) async {
+    testWidgets('the detail names each input and QUOTES the pipeline', (
+      t,
+    ) async {
       await pump(
-          t,
-          const ReadinessDetail(
-              data: ReadinessData(absentDiag: {
-            'hrv': {'value': true, 'baseline_n': 6, 'baseline_sd': 0.11},
-            'rhr': {'value': false, 'baseline_n': 6, 'baseline_sd': 1.2},
-            'note': 'need_baseline:have=6,need=14',
-          })));
+        t,
+        const ReadinessDetail(
+          data: ReadinessData(
+            absentDiag: {
+              'hrv': {'value': true, 'baseline_n': 6, 'baseline_sd': 0.11},
+              'rhr': {'value': false, 'baseline_n': 6, 'baseline_sd': 1.2},
+              'note': 'need_baseline:have=6,need=14',
+            },
+          ),
+        ),
+      );
       expect(find.text('What went into it'), findsNothing);
       expect(find.text('What was missing'), findsOneWidget);
       // Presence and history are separate facts, and both are the pipeline's.
@@ -435,11 +531,13 @@ void main() {
 
     testWidgets('a scored day carries no diagnostic at all', (t) async {
       await pump(
-          t,
-          const ReadinessDetail(
-              data: ReadinessData(
-                  readiness: Metric(
-                      value: 74, confidence: .8, tier: MetricTier.high))));
+        t,
+        const ReadinessDetail(
+          data: ReadinessData(
+            readiness: Metric(value: 74, confidence: .8, tier: MetricTier.high),
+          ),
+        ),
+      );
       expect(find.text('What was missing'), findsNothing);
     });
   });
@@ -450,9 +548,12 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 2400 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
+      await t.pumpWidget(
+        MaterialApp(
           theme: buildTheme(Brightness.light),
-          home: Scaffold(body: MetricDetail('resting_hr', data: d))));
+          home: Scaffold(body: MetricDetail('resting_hr', data: d)),
+        ),
+      );
       await t.pumpAndSettle();
     }
 
@@ -460,29 +561,33 @@ void main() {
       // Twelve worn days inside a thirty-day window. The line above is drawn
       // from the same twelve and used to be the only thing on the card.
       await pump(
-          t,
-          MetricData(
-            daysAvailable: 40,
-            series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
-            wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
-          ));
+        t,
+        MetricData(
+          daysAvailable: 40,
+          series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
+          wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
+        ),
+      );
       // The screen opens on Today; the denominator is a long-range thing.
       await t.tap(find.text('30 days'));
       await t.pumpAndSettle();
       expect(find.text('Worn'), findsOneWidget);
-      expect(find.textContaining('12 of these 30 days have a wear record'),
-          findsOneWidget);
+      expect(
+        find.textContaining('12 of these 30 days have a wear record'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a seven-day window does not get one', (t) async {
       // A week you either wore or did not; the denominator changes nothing.
       await pump(
-          t,
-          MetricData(
-            daysAvailable: 40,
-            series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
-            wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
-          ));
+        t,
+        MetricData(
+          daysAvailable: 40,
+          series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
+          wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
+        ),
+      );
       await t.tap(find.text('7 days'));
       await t.pumpAndSettle();
       expect(find.text('Worn'), findsNothing);
@@ -495,9 +600,12 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 2400 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
+      await t.pumpWidget(
+        MaterialApp(
           theme: buildTheme(Brightness.light),
-          home: Scaffold(body: MetricDetail(key, data: d))));
+          home: Scaffold(body: MetricDetail(key, data: d)),
+        ),
+      );
       await t.pumpAndSettle();
     }
 
@@ -506,12 +614,13 @@ void main() {
     // install aged. It was never today.
     testWidgets('opens on today however much history there is', (t) async {
       await pump(
-          t,
-          'resting_hr',
-          MetricData(
-            daysAvailable: 400,
-            series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
-          ));
+        t,
+        'resting_hr',
+        MetricData(
+          daysAvailable: 400,
+          series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
+        ),
+      );
       expect(find.text('Today'), findsWidgets);
       // Today's headline is today's reading, not a window average.
       expect(find.textContaining('Daily average'), findsNothing);
@@ -519,12 +628,13 @@ void main() {
 
     testWidgets('the range switcher still goes wide', (t) async {
       await pump(
-          t,
-          'resting_hr',
-          MetricData(
-            daysAvailable: 400,
-            series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
-          ));
+        t,
+        'resting_hr',
+        MetricData(
+          daysAvailable: 400,
+          series: [for (var i = 200; i >= 0; i--) (t: _noon(i), v: 54.0)],
+        ),
+      );
       await t.tap(find.text('30 days'));
       await t.pumpAndSettle();
       expect(find.textContaining('Daily average'), findsOneWidget);
@@ -539,22 +649,31 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 2400 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
+      await t.pumpWidget(
+        MaterialApp(
           theme: buildTheme(Brightness.light),
           home: Scaffold(
-              body: MetricDetail('steps',
-                  data: MetricData(
-                    daysAvailable: 400,
-                    series: [
-                      for (var i = 60; i >= 0; i--) (t: _noon(i), v: 8000.0),
-                    ],
-                  )))));
+            body: MetricDetail(
+              'steps',
+              data: MetricData(
+                daysAvailable: 400,
+                series: [
+                  for (var i = 60; i >= 0; i--) (t: _noon(i), v: 8000.0),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
       await t.pumpAndSettle();
     }
 
-    testWidgets('it is there on today, and it is called Breakdown', (t) async {
+    testWidgets('the separate Breakdown doorway is removed from Today', (
+      t,
+    ) async {
       await pump(t);
-      expect(find.text('Breakdown'), findsOneWidget);
+      expect(find.text('Breakdown'), findsNothing);
+      // Real-repository inline hourly rendering is covered by build73_details_test.
       // The old name said "today's" while sitting under a month of days.
       expect(find.textContaining("Where today's came from"), findsNothing);
     });
@@ -581,4 +700,3 @@ void main() {
 
   // ── RESP-01: across nights, never on one, and it may not reassure ─────────
 }
-

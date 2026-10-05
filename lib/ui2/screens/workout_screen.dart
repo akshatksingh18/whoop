@@ -15,6 +15,16 @@ import '../../gps/route_models.dart';
 import '../../compute/streak.dart';
 import '../../data/day_label.dart' show dayLabelOf;
 import '../../gps/motion_window.dart';
+import '../../gps/workout_measurements.dart';
+import '../../gps/route_math.dart'
+    show
+        totalDistanceMeters,
+        movingSeconds,
+        computeSplits,
+        kMetersPerKm,
+        kMetersPerMile;
+import '../../compute/profile.dart';
+import '../../data/profile_history.dart';
 import '../../gps/run_analysis.dart'
     show elevationGain, kBestEffortDistances, motionMix, riegel, runMix;
 import '../../gps/run_history.dart';
@@ -82,8 +92,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             reload();
             await _load;
           }),
-          child: ListView(padding: pad, children: [
-            const ScreenTitle('Train'),
+          child: ListView(
+            padding: pad,
+            children: [
+              const ScreenTitle('Train'),
               if (snap.hasError)
                 StatusCard(
                   'Training history could not load',
@@ -94,17 +106,23 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               else if (!snap.hasData)
                 const Center(child: CircularProgressIndicator())
               else
-            ..._page(c, d),
-          ]),
+                ..._page(c, d),
+            ],
+          ),
         );
       },
     );
   }
 
-  void _openPicker(BuildContext c, _WorkoutData d) =>
-      Navigator.of(c).push(MaterialPageRoute(
-          builder: (_) => ActivityPicker(
-              weightKg: d.weightKg, host: _host(d), recent: d.recent)));
+  void _openPicker(BuildContext c, _WorkoutData d) => Navigator.of(c).push(
+    MaterialPageRoute(
+      builder: (_) => ActivityPicker(
+        weightKg: d.weightKg,
+        host: _host(d),
+        recent: d.recent,
+      ),
+    ),
+  );
 
   ActivityHost _host(_WorkoutData d) =>
       activityHost(context.read<AppState>(), history: d.setHistory);
@@ -155,26 +173,48 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final loc = AppLocalizations.of(c);
     Activity act(String name) =>
         allActivities.firstWhere((a) => a.name == name);
-    void start(Activity a) => _push(
-        c, ActivitySetup(a, weightKg: d.weightKg, host: _host(d)));
+    void start(Activity a) =>
+        _push(c, ActivitySetup(a, weightKg: d.weightKg, host: _host(d)));
     return [
-      Row(children: [
-        Expanded(
-            child: _QuickTile(LucideIcons.footprints, C.run, 'Run',
-                () => start(act('Running')))),
-        const SizedBox(width: S.x2),
-        Expanded(
-            child: _QuickTile(LucideIcons.personStanding, C.steps, 'Walk',
-                () => start(act('Walking')))),
-        const SizedBox(width: S.x2),
-        Expanded(
-            child: _QuickTile(LucideIcons.dumbbell, C.purple, 'Lift',
-                () => start(act('Weight training')))),
-        const SizedBox(width: S.x2),
-        Expanded(
-            child: _QuickTile(LucideIcons.ellipsis, C.n500, 'Other',
-                () => _openPicker(c, d))),
-      ]),
+      Row(
+        children: [
+          Expanded(
+            child: _QuickTile(
+              LucideIcons.footprints,
+              C.run,
+              'Run',
+              () => start(act('Running')),
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: _QuickTile(
+              LucideIcons.personStanding,
+              C.steps,
+              'Walk',
+              () => start(act('Walking')),
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: _QuickTile(
+              LucideIcons.dumbbell,
+              C.purple,
+              'Lift',
+              () => start(act('Weight training')),
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: _QuickTile(
+              LucideIcons.ellipsis,
+              C.n500,
+              'Other',
+              () => _openPicker(c, d),
+            ),
+          ),
+        ],
+      ),
       const SizedBox(height: S.x3),
       if (d.streak != null) ...[
         _streakCard(c, p, d.streak!),
@@ -192,9 +232,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 'Start one above.',
                 icon: LucideIcons.dumbbell,
               )
-            : Column(children: [
-                for (final w in d.workouts) ...[
-                  _HistoryRow(w,
+            : Column(
+                children: [
+                  for (final w in d.workouts) ...[
+                    _HistoryRow(
+                      w,
                       weightKg: d.weightKg,
                       onDelete: w.id.isEmpty
                           ? null
@@ -203,20 +245,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                       // only for a session this band measured.
                       onRetime: w.importedFrom == null && w.id.isNotEmpty
                           ? () => _push(
-                                c,
-                                LogWorkout(
-                                  sessionId: w.id,
-                                  start: w.start,
-                                  end: w.start.add(w.duration),
-                                  activity: w.activity,
-                                  title:
-                                      loc?.workoutFixTimes ?? 'Fix the times',
-                                ),
-                              )
-                          : null),
-                  const SizedBox(height: S.x3),
+                              c,
+                              LogWorkout(
+                                sessionId: w.id,
+                                start: w.start,
+                                end: w.start.add(w.duration),
+                                activity: w.activity,
+                                title: loc?.workoutFixTimes ?? 'Fix the times',
+                              ),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: S.x3),
+                  ],
                 ],
-              ]),
+              ),
         action: 'Add a past one',
         onAction: () => _push(c, const LogWorkout()),
       ),
@@ -231,10 +274,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
     final weeks = List<double?>.filled(8, null);
     for (final r in runs) {
-      final w = (monday.difference(DateTime(r.start.year, r.start.month, r.start.day)).inDays / 7)
-          .ceil();
+      final w =
+          (monday
+                      .difference(
+                        DateTime(r.start.year, r.start.month, r.start.day),
+                      )
+                      .inDays /
+                  7)
+              .ceil();
       final slot = r.start.isBefore(monday) ? 7 - w : 7;
-      if (slot >= 0 && slot < 8) weeks[slot] = (weeks[slot] ?? 0) + r.meters / 1000;
+      if (slot >= 0 && slot < 8) {
+        weeks[slot] = (weeks[slot] ?? 0) + r.meters / 1000;
+      }
     }
     final p5 = predicted5k(runs);
     String t(double sec) => clock(sec.round());
@@ -249,7 +300,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     }
     final axis = AxisSpec.of([for (final v in weeks) ?v], floor: 0);
     String weekSays(int i) {
-      final from = DateTime(monday.year, monday.month, monday.day - 7 * (7 - i));
+      final from = DateTime(
+        monday.year,
+        monday.month,
+        monday.day - 7 * (7 - i),
+      );
       final km = weeks[i];
       return '${i == 7 ? 'This week' : 'Week of ${from.day}/${from.month}'} · '
           '${km == null ? 'no runs' : '${km.toStringAsFixed(1)} km'}';
@@ -259,54 +314,69 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return Section(
       'Running',
       Surface(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          if (axis != null)
-            ChartFrame(
-              title: 'Distance per week',
-              unit: 'km',
-              height: 88,
-              yAxis: axis,
-              xLabels: const ['8 weeks ago', 'This week'],
-              series: weeks,
-              readout: wk == null ? null : weekSays(wk),
-              child: Scrubber(
-                value: wk == null ? null : (wk + .5) / 8,
-                step: 1 / 8,
-                label: 'Distance per week',
-                describe: (v) => weekSays((v * 8).floor().clamp(0, 7)),
-                onChanged: (v) =>
-                    setState(() => _weekPick = (v * 8).floor().clamp(0, 7)),
-                child: CustomPaint(
-                  size: Size.infinite,
-                  painter: Bars(weeks, p.on(C.run),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (axis != null)
+              ChartFrame(
+                title: 'Distance per week',
+                unit: 'km',
+                height: 88,
+                yAxis: axis,
+                xLabels: const ['8 weeks ago', 'This week'],
+                series: weeks,
+                readout: wk == null ? null : weekSays(wk),
+                child: Scrubber(
+                  value: wk == null ? null : (wk + .5) / 8,
+                  step: 1 / 8,
+                  label: 'Distance per week',
+                  describe: (v) => weekSays((v * 8).floor().clamp(0, 7)),
+                  onChanged: (v) =>
+                      setState(() => _weekPick = (v * 8).floor().clamp(0, 7)),
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(
+                      weeks,
+                      p.on(C.run),
                       highlight: weeks.last == null ? -1 : 7,
                       cursor: wk,
                       axis: axis,
-                      t: animate(context, 1)),
+                      t: animate(context, 1),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          if (p5 != null) ...[
-            const SizedBox(height: S.x4),
-            InlineMetrics([
-              ('PREDICTED 5K', t(p5), C.run),
-              ('PREDICTED 10K', t(riegel(p5, 5000, 10000)), C.run),
-            ]),
+            if (p5 != null) ...[
+              const SizedBox(height: S.x4),
+              InlineMetrics([
+                ('PREDICTED 5K', t(p5), C.run),
+                ('PREDICTED 10K', t(riegel(p5, 5000, 10000)), C.run),
+              ]),
+            ],
+            if (prs.isNotEmpty) ...[
+              const SizedBox(height: S.x4),
+              Text('Best times', style: F.over.copyWith(color: p.ink3)),
+              for (final (label, sec, at) in prs)
+                Padding(
+                  padding: const EdgeInsets.only(top: S.x2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: F.body.copyWith(color: p.ink),
+                        ),
+                      ),
+                      Text(
+                        '${t(sec)} · ${at.day}/${at.month}',
+                        style: F.cap.copyWith(color: p.ink2),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ],
-          if (prs.isNotEmpty) ...[
-            const SizedBox(height: S.x4),
-            Text('Best times', style: F.over.copyWith(color: p.ink3)),
-            for (final (label, sec, at) in prs)
-              Padding(
-                padding: const EdgeInsets.only(top: S.x2),
-                child: Row(children: [
-                  Expanded(child: Text(label, style: F.body.copyWith(color: p.ink))),
-                  Text('${t(sec)} · ${at.day}/${at.month}',
-                      style: F.cap.copyWith(color: p.ink2)),
-                ]),
-              ),
-          ],
-        ]),
+        ),
       ),
     );
   }
@@ -327,7 +397,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final pick = _strainPick;
     return Surface(
       onTap: () => _push(
-          c, DayStrainDetail(day: pick == null ? null : dayLabelOf(dayAt(pick)))),
+        c,
+        DayStrainDetail(day: pick == null ? null : dayLabelOf(dayAt(pick))),
+      ),
       semanticLabel: 'Strain, last 7 days. Opens the day.',
       child: ChartFrame(
         title: 'Strain, last 7 days',
@@ -347,11 +419,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           child: CustomPaint(
             size: Size.infinite,
             // Today is the last slot, always — not "the newest value".
-            painter: Bars(d.strain7, p.on(C.strain),
-                highlight: d.strain7.last == null ? -1 : 6,
-                cursor: pick,
-                axis: axis,
-                t: animate(context, 1)),
+            painter: Bars(
+              d.strain7,
+              p.on(C.strain),
+              highlight: d.strain7.last == null ? -1 : 6,
+              cursor: pick,
+              axis: axis,
+              t: animate(context, 1),
+            ),
           ),
         ),
       ),
@@ -362,55 +437,72 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   Widget _streakCard(BuildContext c, P p, MoveStreak s) {
     final now = DateTime.now();
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text('${s.current}', style: F.n34.copyWith(color: p.ink)),
-          const SizedBox(width: S.x2),
-          Padding(
-            padding: const EdgeInsets.only(bottom: S.x1),
-            child: Text('day streak', style: F.cap.copyWith(color: p.ink2)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('${s.current}', style: F.n34.copyWith(color: p.ink)),
+              const SizedBox(width: S.x2),
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x1),
+                child: Text('day streak', style: F.cap.copyWith(color: p.ink2)),
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x1),
+                child: Text(
+                  'Longest ${s.longest}',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ),
+            ],
           ),
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.only(bottom: S.x1),
-            child: Text('Longest ${s.longest}',
-                style: F.cap.copyWith(color: p.ink3)),
-          ),
-        ]),
-        const SizedBox(height: S.x3),
-        Row(children: [
-          for (var i = 0; i < 7; i++)
-            Expanded(
-              child: Column(children: [
-                Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: switch (s.last7[i]) {
-                      MoveDay.run => p.on(C.run),
-                      MoveDay.walk => p.on(C.steps),
-                      MoveDay.none => p.track,
-                    },
+          const SizedBox(height: S.x3),
+          Row(
+            children: [
+              for (var i = 0; i < 7; i++)
+                Expanded(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: switch (s.last7[i]) {
+                            MoveDay.run => p.on(C.run),
+                            MoveDay.walk => p.on(C.steps),
+                            MoveDay.goal => p.on(C.green),
+                            MoveDay.none => p.track,
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: S.x1),
+                      Text(
+                        _weekdayLetter(
+                          c,
+                          DateTime(now.year, now.month, now.day - (6 - i)),
+                        ),
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: S.x1),
-                Text(
-                    _weekdayLetter(
-                        c, DateTime(now.year, now.month, now.day - (6 - i))),
-                    style: F.over.copyWith(color: p.ink3)),
-              ]),
-            ),
-        ]),
-        const SizedBox(height: S.x3),
-        Text(
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          Text(
             s.todayDone
                 ? 'Today counts.'
                 : s.current > 0
-                    ? '10 minutes of running or walking today keeps it going.'
-                    : '10 minutes of running or walking starts one.',
-            style: F.cap.copyWith(color: p.ink3)),
-      ]),
+                ? 'Your step goal or 10 minutes of running or walking keeps it going.'
+                : 'Complete your step goal or record 10 minutes of running or walking.',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        ],
+      ),
     );
   }
 
@@ -423,15 +515,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final loc = AppLocalizations.of(c);
     final ok = await confirmRemove(
       c,
-      title: loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
+      title:
+          loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
           'Delete this ${w.activity.name.toLowerCase()}?',
       body: w.importedFrom == null
           ? (loc?.workoutDeleteBodyOwn(storeName) ??
-              'It disappears from OpenStrap. A copy in $storeName, if there is '
-                  'one, stays where it is.')
+                'It disappears from OpenStrap. A copy in $storeName, if there is '
+                    'one, stays where it is.')
           : (loc?.workoutDeleteBodyImported(storeName) ??
-              'It disappears from OpenStrap and will not be re-imported. '
-                  'The original in $storeName stays.'),
+                'It disappears from OpenStrap and will not be re-imported. '
+                    'The original in $storeName stays.'),
     );
     if (!ok || !mounted) return;
     forgetRun(w.id);
@@ -454,57 +547,71 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final loc = AppLocalizations.of(c);
     return [
       Surface(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // ONE ROW in the parent card — no nested box: tick = hourly sweep,
-          // ↻ = fetch NOW (only meaningful while the tick is on). The
-          // refresh tap is the only thing that ever prompts for access.
-          Row(
-            children: [
-              Pressable(
-                semanticLabel: _autoImport
-                    ? (loc?.workoutAutoImportOnLabel ??
-                        'Auto-import on. Tap to turn off.')
-                    : (loc?.workoutAutoImportOffLabel ??
-                        'Auto-import off. Tap to turn on.'),
-                onTap: () => _setAutoImport(!_autoImport),
-                child: Icon(
-                  _autoImport ? LucideIcons.circleCheckBig : LucideIcons.circle,
-                  size: 22,
-                  color: _autoImport ? p.on(C.domMove) : p.ink3,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ONE ROW in the parent card — no nested box: tick = hourly sweep,
+            // ↻ = fetch NOW (only meaningful while the tick is on). The
+            // refresh tap is the only thing that ever prompts for access.
+            Row(
+              children: [
+                Pressable(
+                  semanticLabel: _autoImport
+                      ? (loc?.workoutAutoImportOnLabel ??
+                            'Auto-import on. Tap to turn off.')
+                      : (loc?.workoutAutoImportOffLabel ??
+                            'Auto-import off. Tap to turn on.'),
+                  onTap: () => _setAutoImport(!_autoImport),
+                  child: Icon(
+                    _autoImport
+                        ? LucideIcons.circleCheckBig
+                        : LucideIcons.circle,
+                    size: 22,
+                    color: _autoImport ? p.on(C.domMove) : p.ink3,
+                  ),
                 ),
-              ),
-              const SizedBox(width: S.x3),
-              Expanded(
-                child: Text(
+                const SizedBox(width: S.x3),
+                Expanded(
+                  child: Text(
                     loc?.workoutImportFromStore(storeName) ??
                         'Import from $storeName',
                     style: F.body.copyWith(
-                        color: p.ink, fontWeight: FontWeight.w600)),
-              ),
-              Pressable(
-                semanticLabel: loc?.workoutFetchNowLabel ?? 'Fetch workouts now',
-                onTap: (!_autoImport || _importing)
-                    ? null
-                    : () => unawaited(_importWorkouts()),
-                child: Padding(
-                  padding: const EdgeInsets.all(S.x2),
-                  child: _importing || !_autoImport
-                      ? Icon(LucideIcons.refreshCw, size: 18, color: p.ink3)
-                      : Icon(LucideIcons.refreshCw,
-                          size: 18, color: p.on(C.domMove)),
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Pressable(
+                  semanticLabel:
+                      loc?.workoutFetchNowLabel ?? 'Fetch workouts now',
+                  onTap: (!_autoImport || _importing)
+                      ? null
+                      : () => unawaited(_importWorkouts()),
+                  child: Padding(
+                    padding: const EdgeInsets.all(S.x2),
+                    child: _importing || !_autoImport
+                        ? Icon(LucideIcons.refreshCw, size: 18, color: p.ink3)
+                        : Icon(
+                            LucideIcons.refreshCw,
+                            size: 18,
+                            color: p.on(C.domMove),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+            if (_importNote != null) ...[
+              const SizedBox(height: S.x3),
+              Text(
+                _importNote!,
+                style: F.cap.copyWith(
+                  color: _importFailed ? p.on(C.red) : p.ink2,
+                  height: 1.5,
                 ),
               ),
             ],
-          ),
-          if (_importNote != null) ...[
-            const SizedBox(height: S.x3),
-            Text(
-              _importNote!,
-              style: F.cap.copyWith(
-                  color: _importFailed ? p.on(C.red) : p.ink2, height: 1.5),
-            ),
           ],
-        ]),
+        ),
       ),
     ];
   }
@@ -561,7 +668,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         if (!mounted) return;
         final loc = AppLocalizations.of(context);
         setState(() {
-          _importNote = loc?.workoutImportDenied(storeName) ??
+          _importNote =
+              loc?.workoutImportDenied(storeName) ??
               '$storeName did not grant workouts. Nothing was read.';
           _importFailed = true;
         });
@@ -572,7 +680,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         if (!mounted) return;
         final loc = AppLocalizations.of(context);
         setState(() {
-          _importNote = loc?.workoutImportEmpty(storeName) ??
+          _importNote =
+              loc?.workoutImportEmpty(storeName) ??
               'Nothing came back. $storeName holds no workouts '
                   'inside the window it will share.';
           _importFailed = false;
@@ -589,15 +698,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           // Said with the result rather than near it: this is the moment the
           // user is looking for their map.
           ? (loc?.workoutImportNoRoutes(storeName) ??
-              ' $storeName will not share routes, so none have coordinates.')
+                ' $storeName will not share routes, so none have coordinates.')
           : res.withRoutes == 0
-              ? (loc?.workoutImportNoneWithRoute ??
-                  ' None of them had a route recorded.')
-              : (loc?.workoutImportSomeWithRoute(res.withRoutes) ??
-                  ' ${res.withRoutes} came with a route.');
+          ? (loc?.workoutImportNoneWithRoute ??
+                ' None of them had a route recorded.')
+          : (loc?.workoutImportSomeWithRoute(res.withRoutes) ??
+                ' ${res.withRoutes} came with a route.');
       if (!mounted) return;
       setState(() {
-        _importNote = (loc?.workoutImportBroughtIn(res.workouts) ??
+        _importNote =
+            (loc?.workoutImportBroughtIn(res.workouts) ??
                 '${res.workouts} workout'
                     '${res.workouts == 1 ? '' : 's'} brought in.') +
             route;
@@ -619,7 +729,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       }
     }
   }
-
 }
 
 class _QuickTile extends StatelessWidget {
@@ -636,14 +745,18 @@ class _QuickTile extends StatelessWidget {
       pad: const EdgeInsets.symmetric(vertical: S.x5, horizontal: S.x2),
       onTap: onTap,
       semanticLabel: 'Start $label',
-      child: Column(children: [
-        Icon(icon, size: 26, color: p.on(color)),
-        const SizedBox(height: S.x2),
-        Text(label,
+      child: Column(
+        children: [
+          Icon(icon, size: 26, color: p.on(color)),
+          const SizedBox(height: S.x2),
+          Text(
+            label,
             style: F.cap.copyWith(color: p.ink),
             maxLines: 1,
-            overflow: TextOverflow.ellipsis),
-      ]),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -662,14 +775,14 @@ class _HistoryRow extends StatelessWidget {
   /// Remove this session locally. Null hides the control (no id to delete).
   final VoidCallback? onDelete;
 
-  const _HistoryRow(this.w,
-      {this.weightKg, this.onRetime, this.onDelete});
+  const _HistoryRow(this.w, {this.weightKg, this.onRetime, this.onDelete});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
     final r = await _detailOf(c.read<AppState>(), w);
-    await nav.push(MaterialPageRoute(
-        builder: (_) => ActivitySummary(r, weightKg: weightKg)));
+    await nav.push(
+      MaterialPageRoute(builder: (_) => ActivitySummary(r, weightKg: weightKg)),
+    );
   }
 
   @override
@@ -686,119 +799,150 @@ class _HistoryRow extends StatelessWidget {
       // one of ours is the fabrication this whole table exists to avoid, so
       // the row stays a row until that screen can name its source.
       onTap: w.importedFrom == null ? () => _open(c) : null,
-      child: Column(children: [
-        Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration:
-                BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
-            child: Icon(a.icon, size: 19, color: p.on(a.color)),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Flexible(
-                      // The store's own word for it when it is not ours: the
-                      // catalogue knows the ~40 types this app can start, and
-                      // "Workout" over a surf loses the one thing we were told.
-                      child: Text(w.importedTitle ?? a.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: F.body.copyWith(
-                              color: p.ink, fontWeight: FontWeight.w600)),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: p.wash(a.color),
+                  borderRadius: R.rMd,
+                ),
+                child: Icon(a.icon, size: 19, color: p.on(a.color)),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          // The store's own word for it when it is not ours: the
+                          // catalogue knows the ~40 types this app can start, and
+                          // "Workout" over a surf loses the one thing we were told.
+                          child: Text(
+                            w.importedTitle ?? a.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: F.body.copyWith(
+                              color: p.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        // The flag the setup screen promised, visible on the one
+                        // list this session shows up in.
+                        if (w.private) ...[
+                          const SizedBox(width: S.x2),
+                          Icon(LucideIcons.lock, size: 13, color: p.ink3),
+                        ],
+                      ],
                     ),
-                    // The flag the setup screen promised, visible on the one
-                    // list this session shows up in.
-                    if (w.private) ...[
-                      const SizedBox(width: S.x2),
-                      Icon(LucideIcons.lock, size: 13, color: p.ink3),
-                    ],
-                  ]),
-                  // "Apple Watch · Today, 07:12". The source is not decoration
-                  // and it is not the word "imported": a band-measured session
-                  // and an Apple Watch session are different measurements, and
-                  // the name of the thing that took it is the difference.
-                  Text(
+                    // "Apple Watch · Today, 07:12". The source is not decoration
+                    // and it is not the word "imported": a band-measured session
+                    // and an Apple Watch session are different measurements, and
+                    // the name of the thing that took it is the difference.
+                    Text(
                       w.importedFrom == null
                           ? w.when(loc)
                           : '${w.importedFrom} · ${w.when(loc)}',
-                      style: F.over.copyWith(color: p.ink3)),
-                ]),
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                  ],
+                ),
+              ),
+              if (w.strain != null) ...[
+                Text(
+                  w.strain!.toStringAsFixed(1),
+                  style: F.n17.copyWith(color: p.ink),
+                ),
+                const SizedBox(width: S.x1),
+                Padding(
+                  padding: const EdgeInsets.only(top: S.x1),
+                  // "strain", not "load". Training load is CTL/ATL over weeks;
+                  // this is one session's 0–21 strain, and the two were being
+                  // shown under the same word on the same screen.
+                  child: Text(
+                    loc?.workoutStrainLabel ?? 'strain',
+                    style: F.over.copyWith(color: p.ink3),
+                  ),
+                ),
+              ],
+              if (onDelete != null) ...[
+                const SizedBox(width: S.x2),
+                Pressable(
+                  semanticLabel:
+                      loc?.workoutDeleteSessionLabel ?? 'Delete this session',
+                  onTap: onDelete,
+                  child: Padding(
+                    padding: const EdgeInsets.all(S.x1),
+                    child: Icon(LucideIcons.trash2, size: 17, color: p.ink3),
+                  ),
+                ),
+              ],
+            ],
           ),
-          if (w.strain != null) ...[
-            Text(w.strain!.toStringAsFixed(1),
-                style: F.n17.copyWith(color: p.ink)),
-            const SizedBox(width: S.x1),
-            Padding(
-              padding: const EdgeInsets.only(top: S.x1),
-              // "strain", not "load". Training load is CTL/ATL over weeks;
-              // this is one session's 0–21 strain, and the two were being
-              // shown under the same word on the same screen.
-              child: Text(loc?.workoutStrainLabel ?? 'strain',
-                  style: F.over.copyWith(color: p.ink3)),
-            ),
-          ],
-          if (onDelete != null) ...[
-            const SizedBox(width: S.x2),
-            Pressable(
-              semanticLabel: loc?.workoutDeleteSessionLabel ?? 'Delete this session',
-              onTap: onDelete,
-              child: Padding(
-                padding: const EdgeInsets.all(S.x1),
-                child:
-                    Icon(LucideIcons.trash2, size: 17, color: p.ink3),
+          if (w.zoneMinutes.length == 5) ...[
+            const SizedBox(height: S.x4),
+            ChartFrame(
+              title: loc?.workoutTimeInZonesTitle ?? 'TIME IN ZONES',
+              unit: loc?.workoutMinutesUnit ?? 'minutes',
+              height: 8,
+              legend: [
+                for (var i = 0; i < 5; i++)
+                  (
+                    'Z${i + 1} · ${w.zoneMinutes[i].round()}m',
+                    ZoneBar.cols(p)[i],
+                  ),
+              ],
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: ZoneBar(w.zoneFractions, p),
               ),
             ),
           ],
-        ]),
-        if (w.zoneMinutes.length == 5) ...[
           const SizedBox(height: S.x4),
-          ChartFrame(
-            title: loc?.workoutTimeInZonesTitle ?? 'TIME IN ZONES',
-            unit: loc?.workoutMinutesUnit ?? 'minutes',
-            height: 8,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${w.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
-            ],
-            child: CustomPaint(
-                size: Size.infinite, painter: ZoneBar(w.zoneFractions, p)),
-          ),
+          for (var i = 0; i < stats.length; i++) ...[
+            if (i > 0) Divider(color: p.line, height: S.x5),
+            PosterStatRow(
+              icon: statIcon(stats[i].$1),
+              label: stats[i].$1,
+              value: stats[i].$2,
+              unit: stats[i].$3,
+              accent: p.on(a.color),
+            ),
+          ],
+          // The way to correct a window the detector clipped, or one a session
+          // started late. Nested inside the card's own tap: the inner Pressable
+          // wins, so the row still opens the summary everywhere else.
+          if (onRetime != null) ...[
+            Divider(color: p.line, height: S.x5),
+            Pressable(
+              onTap: onRetime,
+              semanticLabel:
+                  loc?.workoutFixTimesOnSessionLabel ??
+                  'Fix the times on this session',
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(LucideIcons.clock, size: 14, color: p.on(C.blue)),
+                  const SizedBox(width: S.x2),
+                  Text(
+                    loc?.workoutFixTimes ?? 'Fix the times',
+                    style: F.cap.copyWith(
+                      color: p.on(C.blue),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
-        const SizedBox(height: S.x4),
-        for (var i = 0; i < stats.length; i++) ...[
-          if (i > 0) Divider(color: p.line, height: S.x5),
-          PosterStatRow(
-            icon: statIcon(stats[i].$1),
-            label: stats[i].$1,
-            value: stats[i].$2,
-            unit: stats[i].$3,
-            accent: p.on(a.color),
-          ),
-        ],
-        // The way to correct a window the detector clipped, or one a session
-        // started late. Nested inside the card's own tap: the inner Pressable
-        // wins, so the row still opens the summary everywhere else.
-        if (onRetime != null) ...[
-          Divider(color: p.line, height: S.x5),
-          Pressable(
-            onTap: onRetime,
-            semanticLabel: loc?.workoutFixTimesOnSessionLabel ??
-                'Fix the times on this session',
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(LucideIcons.clock, size: 14, color: p.on(C.blue)),
-              const SizedBox(width: S.x2),
-              Text(loc?.workoutFixTimes ?? 'Fix the times',
-                  style: F.cap.copyWith(
-                      color: p.on(C.blue), fontWeight: FontWeight.w600)),
-            ]),
-          ),
-        ],
-      ]),
+      ),
     );
   }
 
@@ -811,35 +955,45 @@ class _HistoryRow extends StatelessWidget {
   List<(String, String, String?)> _stats(BuildContext c) {
     final loc = AppLocalizations.of(c);
     final timeLabel = loc?.workoutTimeStatLabel ?? 'Time';
-    final caloriesLabel = loc?.workoutCaloriesStatLabel ?? 'Calories';
+    final caloriesLabel =
+        w.importedFrom == null &&
+            (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
+        ? 'Active calories'
+        : loc?.workoutCaloriesStatLabel ?? 'Calories';
     return w.importedFrom != null
-      ? [
-          // An imported row prints only what the recording app actually
-          // recorded, and drops the rest rather than saying "No reading": this
-          // band was not on the wrist, so there is no reading it could have
-          // taken and nothing was lost. The calories are the SOURCE's figure,
-          // shown under the source's name a line above — never added to ours,
-          // because two devices' calorie models summed is a number neither of
-          // them would stand behind.
-          (timeLabel, hms(w.duration), null),
-          if (w.distanceM != null && w.distanceM! > 0)
-            (loc?.workoutDistanceStatLabel ?? 'Distance',
-                (w.distanceM! / 1000).toStringAsFixed(2), 'km'),
-          if (w.calories != null)
-            (caloriesLabel, grouped(w.calories!), 'kcal'),
-        ]
-      : [
-          (timeLabel, hms(w.duration), null),
-          if (w.calories == null)
-            (caloriesLabel, loc?.workoutNotCostedValue ?? 'Not costed', null)
-          else
-            (caloriesLabel, grouped(w.calories!), 'kcal'),
-          if (w.maxHr == null)
-            (loc?.workoutMaxHrStatLabel ?? 'Max HR',
-                loc?.workoutNoReadingValue ?? 'No reading', null)
-          else
-            (loc?.workoutMaxHrStatLabel ?? 'Max HR', '${w.maxHr}', 'bpm'),
-        ];
+        ? [
+            // An imported row prints only what the recording app actually
+            // recorded, and drops the rest rather than saying "No reading": this
+            // band was not on the wrist, so there is no reading it could have
+            // taken and nothing was lost. The calories are the SOURCE's figure,
+            // shown under the source's name a line above — never added to ours,
+            // because two devices' calorie models summed is a number neither of
+            // them would stand behind.
+            (timeLabel, hms(w.duration), null),
+            if (w.distanceM != null && w.distanceM! > 0)
+              (
+                loc?.workoutDistanceStatLabel ?? 'Distance',
+                (w.distanceM! / 1000).toStringAsFixed(2),
+                'km',
+              ),
+            if (w.calories != null)
+              (caloriesLabel, grouped(w.calories!), 'kcal'),
+          ]
+        : [
+            (timeLabel, hms(w.duration), null),
+            if (w.calories == null)
+              (caloriesLabel, loc?.workoutNotCostedValue ?? 'Not costed', null)
+            else
+              (caloriesLabel, grouped(w.calories!), 'kcal'),
+            if (w.maxHr == null)
+              (
+                loc?.workoutMaxHrStatLabel ?? 'Max HR',
+                loc?.workoutNoReadingValue ?? 'No reading',
+                null,
+              )
+            else
+              (loc?.workoutMaxHrStatLabel ?? 'Max HR', '${w.maxHr}', 'bpm'),
+          ];
   }
 }
 
@@ -873,15 +1027,19 @@ List<double?> lastSevenDays(Object? points, DateTime end) {
   for (final e in points) {
     if (e is! Map || e['v'] is! num || e['t'] is! num) continue;
     // `t` is noon local on the day the value belongs to.
-    final at =
-        DateTime.fromMillisecondsSinceEpoch((e['t'] as num).toInt() * 1000);
+    final at = DateTime.fromMillisecondsSinceEpoch(
+      (e['t'] as num).toInt() * 1000,
+    );
     // CALENDAR days, not elapsed hours: the day after a spring-forward is 23 h
     // long, `inDays` floored that to 0, and Sunday landed in Monday's slot
     // where Monday overwrote it. UTC midnights have no DST to floor.
-    final slot = 6 -
-        DateTime.utc(end.year, end.month, end.day)
-            .difference(DateTime.utc(at.year, at.month, at.day))
-            .inDays;
+    final slot =
+        6 -
+        DateTime.utc(
+          end.year,
+          end.month,
+          end.day,
+        ).difference(DateTime.utc(at.year, at.month, at.day)).inDays;
     if (slot < 0 || slot > 6) continue;
     out[slot] = (e['v'] as num).toDouble();
   }
@@ -898,8 +1056,10 @@ List<double?> lastSevenDays(Object? points, DateTime end) {
 /// [history] is the user's own previous/best per lift. Absent is honest — the
 /// live screen says "First time on this lift" — so the resume path passes what
 /// it has rather than blocking on a query.
-ActivityHost activityHost(AppState app,
-    {Map<String, SetHistory> history = const {}}) {
+ActivityHost activityHost(
+  AppState app, {
+  Map<String, SetHistory> history = const {},
+}) {
   // The id of the session this host opened, remembered across calls.
   //
   // `stopWorkout` clears `activeWorkout`, so a RETRY after a failed write —
@@ -936,9 +1096,10 @@ LiveFeed _feedOf(AppState app) {
     hr: app.liveHr,
     maxHr: (w?.maxHrSeen ?? 0) > 0 ? w!.maxHrSeen : null,
     zone: app.liveZone,
-    calories: w?.caloriesOrNull,
+    calories: app.workoutActiveKcal,
+    hrActiveCalories: app.workoutHrActiveKcal,
     strain: w?.strain,
-    steps: app.workoutStepsMeasured,
+    steps: app.workoutStepCount,
     zoneMinutes: w?.zoneMinutes() ?? const [],
     // The SET those minutes were binned with, not a second resolution of the
     // anchors: `zoneSet` is pinned at session start precisely so a mid-session
@@ -994,7 +1155,11 @@ List<double?> _curveOverSession(LiveWorkoutState? w) {
 /// tally, no calorie scoring, no GPS.
 Future<bool> _startSession(AppState app, Activity a) async {
   if (app.activeWorkout != null) return false;
-  app.startWorkout(type: a.typeKey);
+  final profile = await ProfileHistory.on(
+    dayLabelOf(DateTime.now()),
+    Profile.fromMap(app.user),
+  );
+  app.startWorkout(type: a.typeKey, calculationProfile: profile);
   return app.activeWorkout != null;
 }
 
@@ -1007,8 +1172,8 @@ List<Map<String, Object?>> _setRows(List<LoggedSet> sets) {
     for (final s in sets)
       {
         'exercise_key': s.exerciseKey,
-        'set_index':
-            perExercise[s.exerciseKey] = (perExercise[s.exerciseKey] ?? 0) + 1,
+        'set_index': perExercise[s.exerciseKey] =
+            (perExercise[s.exerciseKey] ?? 0) + 1,
         'reps': s.reps,
         'load_kg': s.loadKg,
         'rpe': s.rpe,
@@ -1038,7 +1203,10 @@ Future<void> _bankSets(AppState app, List<LoggedSet> sets) async {
 /// [id] is passed rather than read here so a retry still has one — see
 /// [activityHost].
 Future<ActivityResult> _finishSession(
-    AppState app, ActivityResult draft, String? id) async {
+  AppState app,
+  ActivityResult draft,
+  String? id,
+) async {
   // Idempotent: on a retry the session is already stopped and this is a no-op.
   await app.stopWorkout();
   if (id == null) return draft;
@@ -1066,12 +1234,12 @@ Future<ActivityResult> _finishSession(
   try {
     final route = await app.repo?.getWorkoutRoute(id);
     if (route != null && route.hasPath) {
-      return _withPhone(_withRoute(draft, route));
+      return _withCalculation(await _withPhone(_withRoute(draft, route)), app);
     }
   } catch (_) {
     // A missing map is a missing map; the session itself is already banked.
   }
-  return _withMotion(draft);
+  return _withCalculation(await _withMotion(draft), app);
 }
 
 /// Previous and best per lift, from this user's own log. One indexed query
@@ -1201,7 +1369,9 @@ List<double?> _denseMinutes(Object? hr, [Duration? session]) {
   if (n < 1 || n > 24 * 60) return [for (final p in pts) p.$2];
   final want = session == null ? n : session.inMinutes + 1;
   final out = List<double?>.filled(
-      want > n && want <= 24 * 60 ? want : n, null);
+    want > n && want <= 24 * 60 ? want : n,
+    null,
+  );
   for (final p in pts) {
     final i = (p.$1 - t0) ~/ 60;
     if (i >= 0 && i < n) out[i] = p.$2;
@@ -1223,9 +1393,9 @@ Map<String, dynamic>? _topBand(Object? bands) {
 /// once here so a non-`List` value (or a non-numeric entry) never throws in
 /// either read path.
 List<double> _decodeZoneMinutes(Object? raw) => [
-      for (final z in (raw is List ? raw : const []))
-        if (z is num) z.toDouble(),
-    ];
+  for (final z in (raw is List ? raw : const []))
+    if (z is num) z.toDouble(),
+];
 
 /// One past session, opened from history — built from what the stores hold
 /// rather than from the six columns the list row carries.
@@ -1276,8 +1446,9 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       // best-effort for the WHOLE enrichment — one bad band field must not
       // also blank the hr/avgHr/zoneMinutes reads beside it. `is`-checks
       // degrade to null instead of throwing.
-      zoneSource:
-          rebinned && band?['source'] is String ? band!['source'] as String : null,
+      zoneSource: rebinned && band?['source'] is String
+          ? band!['source'] as String
+          : null,
       zoneMaxHr: rebinned && band?['hi'] is num ? band!['hi'] as num : null,
       // …and the MINUTES from the same read, not from the list row. Opening a
       // session rescores it (`_rescoreSessionFromSubstrate`), so the row loaded
@@ -1319,6 +1490,53 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   } catch (_) {
     /* no route is a normal session */
   }
+  return _withCalculation(out, app);
+}
+
+Future<ActivityResult> _withCalculation(ActivityResult r, AppState app) async {
+  final id = r.sessionId, repo = app.repo;
+  if (id == null || repo == null) return r;
+  final row = await LocalDb.session(id);
+  final end = (row?['end_ts'] as num?)?.toInt();
+  if (end == null) return r;
+  final m = await WorkoutMeasurements.read(
+    repo,
+    id,
+    r.start,
+    DateTime.fromMillisecondsSinceEpoch(end * 1000),
+    Profile.fromMap(app.user),
+    bandSteps: r.steps,
+  );
+  final c = m.clock;
+  var out = r.copyWith(
+    calculationProfile: m.profile,
+    duration: c.activeDuration(),
+    phoneSteps: m.steps,
+    hr: c.results['hr'] is List
+        ? [for (final v in c.results['hr']) (v as num?)?.toDouble()]
+        : null,
+    zoneMinutes: c.results['zones'] is List
+        ? [for (final v in c.results['zones']) (v as num).toDouble()]
+        : null,
+  );
+  if (m.points.length > 1) {
+    final original = await repo.getWorkoutRoute(id);
+    final hr = [
+      for (final sample in original?.hr ?? const <HrSample>[])
+        if (c.includes(DateTime.fromMillisecondsSinceEpoch(sample.tsMs)))
+          sample,
+    ];
+    final route = WorkoutRoute(
+      sessionId: id,
+      points: m.points,
+      hr: hr,
+      distanceMeters: totalDistanceMeters(m.points),
+      movingSec: movingSeconds(m.points),
+      splitsKm: computeSplits(m.points, hr, unitMeters: kMetersPerKm),
+      splitsMi: computeSplits(m.points, hr, unitMeters: kMetersPerMile),
+    );
+    out = _withRoute(out, route);
+  }
   return out;
 }
 
@@ -1330,19 +1548,39 @@ Future<ActivityResult> _withMotion(ActivityResult r) async {
   final type = r.activity.typeKey;
   if (id == null || !(isRunType(type) || isWalkType(type))) return r;
   try {
-    final w = await motionWindow(id, r.start, r.start.add(r.duration));
+    final row = await LocalDb.session(id);
+    final end = (row?['end_ts'] as num?)?.toInt();
+    if (end == null) return r;
+    final w = await sessionMotionWindow(
+      id,
+      r.start,
+      DateTime.fromMillisecondsSinceEpoch(end * 1000),
+    );
     final m = w?.totalMeters;
-    if (w == null || m == null || m < 100) return r;
+    if (w == null) return r;
+    if (m == null || m < 100) {
+      return r.copyWith(
+        phoneSteps: w.totalSteps,
+        cadence: w.cadence,
+        cadenceSeries: _perMinute(w),
+      );
+    }
     final hr = r.hr;
     return r.copyWith(
       distanceKm: m / 1000,
       splits: [
         for (final s in w.splits(
-            hrAtMinute: (i) => i >= 0 && i < hr.length ? hr[i] : null))
+          hrAtMinute: (i) => i >= 0 && i < hr.length ? hr[i] : null,
+        ))
           KmSplit(s.km, s.sec, avgHr: s.hr),
       ],
       movingSec: (w.activeMinutes * 60).round(),
-      mix: motionMix(steps: w.steps, meters: w.meters, chunkSec: w.chunkSec),
+      mix: motionMix(
+        steps: w.steps,
+        meters: w.meters,
+        chunkSec: w.chunkSec,
+        seconds: w.seconds,
+      ),
       motionDistance: true,
       cadence: w.cadence,
       phoneSteps: w.totalSteps,
@@ -1360,10 +1598,20 @@ Future<ActivityResult> _withPhone(ActivityResult r) async {
   final type = r.activity.typeKey;
   if (id == null || !(isRunType(type) || isWalkType(type))) return r;
   try {
-    final w = await motionWindow(id, r.start, r.start.add(r.duration));
+    final row = await LocalDb.session(id);
+    final end = (row?['end_ts'] as num?)?.toInt();
+    if (end == null) return r;
+    final w = await sessionMotionWindow(
+      id,
+      r.start,
+      DateTime.fromMillisecondsSinceEpoch(end * 1000),
+    );
     if (w == null) return r;
     return r.copyWith(
-        phoneSteps: w.totalSteps, cadence: w.cadence, cadenceSeries: _perMinute(w));
+      phoneSteps: w.totalSteps,
+      cadence: w.cadence,
+      cadenceSeries: _perMinute(w),
+    );
   } catch (_) {
     return r;
   }
@@ -1375,24 +1623,28 @@ List<double?> _perMinute(MotionWindow w) {
   final perChunk = w.chunkSec / 60;
   if (perChunk <= 0) return const [];
   return [
-    for (final s in w.steps) s <= 0 ? null : s / perChunk,
+    for (var i = 0; i < w.steps.length; i++)
+      w.steps[i] <= 0 || w.secondsAt(i) <= 0
+          ? null
+          : w.steps[i] * 60 / w.secondsAt(i),
   ];
 }
 
 /// `strength_set` rows → the log the summary renders. `load_kg` stays null
 /// when it was null: a bodyweight set is not a zero-kilo set.
 StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
-      for (final r in rows)
-        LoggedSet(
-          (r['exercise_key'] as String?) ?? '',
-          (r['reps'] as num?)?.toInt() ?? 0,
-          loadKg: (r['load_kg'] as num?)?.toDouble(),
-          rpe: (r['rpe'] as num?)?.toInt(),
-          restSec: (r['rest_sec'] as num?)?.toInt(),
-          at: DateTime.fromMillisecondsSinceEpoch(
-              ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000),
-        ),
-    ]);
+  for (final r in rows)
+    LoggedSet(
+      (r['exercise_key'] as String?) ?? '',
+      (r['reps'] as num?)?.toInt() ?? 0,
+      loadKg: (r['load_kg'] as num?)?.toDouble(),
+      rpe: (r['rpe'] as num?)?.toInt(),
+      restSec: (r['rest_sec'] as num?)?.toInt(),
+      at: DateTime.fromMillisecondsSinceEpoch(
+        ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000,
+      ),
+    ),
+]);
 
 // ── the data this screen reads ─────────────────────────────────────────────
 
@@ -1436,18 +1688,23 @@ class _PastWorkout {
   /// session's distance is read on open with its route.
   final double? distanceM;
 
-  const _PastWorkout(this.id, this.activity, this.start, this.duration,
-      {this.strain,
-      this.calories,
-      this.avgHr,
-      this.maxHr,
-      this.hrr60,
-      this.steps,
-      this.zoneMinutes = const [],
-      this.private = false,
-      this.importedFrom,
-      this.importedTitle,
-      this.distanceM});
+  const _PastWorkout(
+    this.id,
+    this.activity,
+    this.start,
+    this.duration, {
+    this.strain,
+    this.calories,
+    this.avgHr,
+    this.maxHr,
+    this.hrr60,
+    this.steps,
+    this.zoneMinutes = const [],
+    this.private = false,
+    this.importedFrom,
+    this.importedTitle,
+    this.distanceM,
+  });
 
   List<double> get zoneFractions {
     final total = zoneMinutes.fold<double>(0, (a, b) => a + b);
@@ -1466,7 +1723,8 @@ class _PastWorkout {
       loc?.workoutWeekdayAbbrSat ?? 'Sat',
       loc?.workoutWeekdayAbbrSun ?? 'Sun',
     ];
-    final t = '${start.hour.toString().padLeft(2, '0')}:'
+    final t =
+        '${start.hour.toString().padLeft(2, '0')}:'
         '${start.minute.toString().padLeft(2, '0')}';
     if (days == 0) return loc?.workoutWhenToday(t) ?? 'Today, $t';
     if (days == 1) return loc?.workoutWhenYesterday(t) ?? 'Yesterday, $t';
@@ -1475,26 +1733,27 @@ class _PastWorkout {
   }
 
   ActivityResult toResult() => ActivityResult(
-        activity,
-        start: start,
-        duration: duration,
-        private: private,
-        // TS-09 — the id travels so the summary can write a rating against
-        // it; the rating itself is read on open by `_detailOf`, not carried on
-        // this row (the list does not show it).
-        sessionId: id,
-        strain: strain,
-        calories: calories,
-        avgHr: avgHr,
-        maxHr: maxHr,
-        hrr60: hrr60,
-        steps: steps,
-        zoneMinutes: zoneMinutes,
-      );
+    activity,
+    start: start,
+    duration: duration,
+    private: private,
+    // TS-09 — the id travels so the summary can write a rating against
+    // it; the rating itself is read on open by `_detailOf`, not carried on
+    // this row (the list does not show it).
+    sessionId: id,
+    strain: strain,
+    calories: calories,
+    avgHr: avgHr,
+    maxHr: maxHr,
+    hrr60: hrr60,
+    steps: steps,
+    zoneMinutes: zoneMinutes,
+  );
 }
 
 class _WorkoutData {
   final double? weightKg;
+
   /// Daily strain, one slot per calendar day for the seven ending [weekEnd].
   /// Null is a day that derived nothing — drawn as a hole.
   final List<double?> strain7;
@@ -1563,93 +1822,130 @@ class _WorkoutData {
 /// a device that has never synced, and a throw in any one of them must not
 /// take the whole tab down.
 Future<_WorkoutData> _loadWorkoutData(AppState app) async {
-    final repo = app.repo;
+  final repo = app.repo;
   if (repo == null) throw StateError('Training repository unavailable');
 
-    double? weight;
-    try {
-      weight = (await repo.getProfile())['weight_kg'] as double?;
-    } catch (_) {
-      weight = null;
-    }
+  double? weight;
+  try {
+    weight = (await repo.getProfile())['weight_kg'] as double?;
+  } catch (_) {
+    weight = null;
+  }
 
-    // One slot per calendar day for the last seven, ending today. A day that
-    // derived nothing is a hole, not a shifted neighbour: taking the last
-    // seven STORED points stamped `M T W T F S S` on whatever was there, and
-    // `metric_series` only gains a row on a day that derives — so after a sync
-    // gap the letters named days the data did not come from, and the bar drawn
-    // as "today" could be a week old.
-    final now = DateTime.now();
-    final end = DateTime(now.year, now.month, now.day);
-    var strain7 = List<double?>.filled(7, null);
-    try {
-      strain7 = lastSevenDays((await repo.getChart('strain'))['points'], end);
-    } catch (_) {
-      strain7 = List<double?>.filled(7, null);
-    }
+  // One slot per calendar day for the last seven, ending today. A day that
+  // derived nothing is a hole, not a shifted neighbour: taking the last
+  // seven STORED points stamped `M T W T F S S` on whatever was there, and
+  // `metric_series` only gains a row on a day that derives — so after a sync
+  // gap the letters named days the data did not come from, and the bar drawn
+  // as "today" could be a week old.
+  final now = DateTime.now();
+  final end = DateTime(now.year, now.month, now.day);
+  var strain7 = List<double?>.filled(7, null);
+  try {
+    strain7 = lastSevenDays((await repo.getChart('strain'))['points'], end);
+  } catch (_) {
+    strain7 = List<double?>.filled(7, null);
+  }
 
-    final past = <_PastWorkout>[];
-    try {
-      final rows = (await repo.getWorkouts(range: 'month'))['workouts'];
-      if (rows is List) {
-        for (final r in rows) {
-          if (r is! Map) continue;
-          final ts = (r['start_ts'] as num?)?.toInt();
-          if (ts == null) continue;
-          final a = activityByName(r['type'] as String?) ??
-              const Activity('Workout', LucideIcons.activity, C.purple,
-                  Track.duration, 5.0);
-          past.add(_PastWorkout(
-            (r['id'] as String?) ?? '',
+  final past = <_PastWorkout>[];
+  try {
+    final rows = (await repo.getWorkouts(range: 'month'))['workouts'];
+    if (rows is List) {
+      for (final r in rows) {
+        if (r is! Map) continue;
+        final ts = (r['start_ts'] as num?)?.toInt();
+        if (ts == null) continue;
+        final a =
+            activityByName(r['type'] as String?) ??
+            const Activity(
+              'Workout',
+              LucideIcons.activity,
+              C.purple,
+              Track.duration,
+              5.0,
+            );
+        final id = (r['id'] as String?) ?? '';
+        final start = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+        final endTs = (r['end_ts'] as num?)?.toInt();
+        WorkoutMeasurements? measured;
+        if ((isRunType(a.typeKey) || isWalkType(a.typeKey)) &&
+            endTs != null &&
+            endTs > ts &&
+            r['status'] != 'live' &&
+            r['end_ts_fabricated'] != true &&
+            r['end_ts_fabricated'] != 1) {
+          measured = await WorkoutMeasurements.read(
+            repo,
+            id,
+            start,
+            DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+            Profile.fromMap(app.user),
+            bandSteps: (r['steps'] as num?)?.toInt(),
+          );
+        }
+        past.add(
+          _PastWorkout(
+            id,
             a,
             DateTime.fromMillisecondsSinceEpoch(ts * 1000),
             // duration_min is minutes; Motion.tick × 60 × n keeps the one
             // Duration literal in theme.dart.
-            Motion.tick * 60 * ((r['duration_min'] as num?)?.toInt() ?? 0),
+            measured == null
+                ? Motion.tick * 60 * ((r['duration_min'] as num?)?.toInt() ?? 0)
+                : Motion.tick * measured.clock.activeSeconds(),
             strain: (r['strain'] as num?)?.toDouble(),
-            calories: (r['calories'] as num?)?.round(),
+            calories: (isRunType(a.typeKey) || isWalkType(a.typeKey))
+                ? measured?.method1(a.typeKey)?.round()
+                : (r['calories'] as num?)?.round(),
             // The session's mean over its own HR stream, computed by the repo
             // — not the last sample anybody happened to see.
             avgHr: (r['avg_hr'] as num?)?.round(),
             maxHr: (r['max_hr'] as num?)?.toInt(),
             hrr60: (r['hrr60'] as num?)?.round(),
-            steps: (r['steps'] as num?)?.toInt(),
+            steps: measured?.steps ?? (r['steps'] as num?)?.toInt(),
             zoneMinutes: _decodeZoneMinutes(r['zone_min']),
             private: r['private'] == true,
-          ));
-        }
+          ),
+        );
       }
-    } catch (_) {
+    }
+  } catch (_) {
     // A failed session read must not become "no sessions recorded".
     rethrow;
-    }
-    // Workouts another app recorded, on the SAME window the band's own list
-    // uses. The store is read 90 days back (30 on Android) because that is the
-    // most history worth carrying, but showing three months of imports beside
-    // one month of sessions would read as a band that stopped measuring.
-    try {
-      final since = end.subtract(Motion.tick * 86400 * 31);
-      for (final r in await LocalDb.importedWorkouts(limit: 200)) {
-        final ts = (r['start_ts'] as num?)?.toInt();
-        final endTs = (r['end_ts'] as num?)?.toInt();
-        final src = (r['source'] as String?)?.trim();
-        // `source` is NOT NULL in the table for exactly this reason: a workout
-        // shown without the app that recorded it is a workout this app is
-        // implicitly claiming. No source, no row.
-        if (ts == null || endTs == null || endTs <= ts) continue;
-        if (src == null || src.isEmpty) continue;
-        final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-        if (at.isBefore(since)) continue;
-        final title = importedWorkoutTitle(r['kind']);
-        past.add(_PastWorkout(
+  }
+  // Workouts another app recorded, on the SAME window the band's own list
+  // uses. The store is read 90 days back (30 on Android) because that is the
+  // most history worth carrying, but showing three months of imports beside
+  // one month of sessions would read as a band that stopped measuring.
+  try {
+    final since = end.subtract(Motion.tick * 86400 * 31);
+    for (final r in await LocalDb.importedWorkouts(limit: 200)) {
+      final ts = (r['start_ts'] as num?)?.toInt();
+      final endTs = (r['end_ts'] as num?)?.toInt();
+      final src = (r['source'] as String?)?.trim();
+      // `source` is NOT NULL in the table for exactly this reason: a workout
+      // shown without the app that recorded it is a workout this app is
+      // implicitly claiming. No source, no row.
+      if (ts == null || endTs == null || endTs <= ts) continue;
+      if (src == null || src.isEmpty) continue;
+      final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+      if (at.isBefore(since)) continue;
+      final title = importedWorkoutTitle(r['kind']);
+      past.add(
+        _PastWorkout(
           (r['uuid'] as String?) ?? '',
           // The icon and colour only, when the catalogue happens to know the
           // type. The NAME always comes from the store — `activityByName`
           // resolves the ~40 types this app can start, and the fallback would
           // print "Workout" over a surf.
           activityByName(title) ??
-              const Activity('Workout', LucideIcons.activity, C.purple,
-                  Track.duration, 5.0),
+              const Activity(
+                'Workout',
+                LucideIcons.activity,
+                C.purple,
+                Track.duration,
+                5.0,
+              ),
           at,
           Motion.tick * (endTs - ts),
           // No strain, ever. It is not omitted pending a better idea — there
@@ -1660,77 +1956,80 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           importedFrom: src,
           importedTitle: title,
           distanceM: (r['distance_m'] as num?)?.toDouble(),
-        ));
+        ),
+      );
+    }
+  } catch (_) {
+    // Nothing imported is the normal state, and an unreadable table must not
+    // take the band's own history down with it.
+  }
+
+  past.sort((a, b) => b.start.compareTo(a.start));
+
+  final weekStart = end.subtract(Motion.tick * 86400 * (end.weekday - 1));
+  final thisWeek = [
+    for (final w in past)
+      if (w.start.isAfter(weekStart)) w,
+  ];
+
+  int? tracked;
+  try {
+    tracked = ((await repo.getRecords())['workouts_tracked'] as num?)?.toInt();
+  } catch (_) {
+    tracked = null;
+  }
+
+  // Imported sessions fall out here on their own: they carry no strain,
+  // because there is no heart-rate series behind them to score one from.
+  // Nothing filters them — there is nothing to add.
+  final weekLoad = thisWeek
+      .where((w) => w.strain != null)
+      .fold<double?>(null, (a, w) => (a ?? 0) + w.strain!);
+
+  // Real recency, deduped, newest first — six tiles like the constant it
+  // replaces, so the picker's row is the same shape either way.
+  //
+  // Band sessions only. These tiles START a session, and most imported types
+  // land on the generic fallback activity — a row of "Workout" tiles that
+  // begin a five-MET nothing is worse than the six real ones.
+  final recent = <Activity>[];
+  for (final w in past) {
+    if (w.importedFrom != null) continue;
+    if (!recent.any((x) => x.name == w.activity.name)) {
+      recent.add(w.activity);
+    }
+    if (recent.length == 6) break;
+  }
+
+  // The live screen has to have previous/best in hand before the first set;
+  // "First time on this lift" was showing forever because nothing loaded
+  // them.
+  final history = await loadSetHistory();
+
+  return _WorkoutData(
+    weightKg: weight,
+    strain7: strain7,
+    weekEnd: end,
+    runs: await () async {
+      try {
+        return await loadRuns(repo);
+      } catch (_) {
+        return const <RunSummary>[];
       }
-    } catch (_) {
-      // Nothing imported is the normal state, and an unreadable table must not
-      // take the band's own history down with it.
-    }
-
-    past.sort((a, b) => b.start.compareTo(a.start));
-
-    final weekStart = end.subtract(Motion.tick * 86400 * (end.weekday - 1));
-    final thisWeek = [for (final w in past) if (w.start.isAfter(weekStart)) w];
-
-    int? tracked;
-    try {
-      tracked = ((await repo.getRecords())['workouts_tracked'] as num?)
-          ?.toInt();
-    } catch (_) {
-      tracked = null;
-    }
-
-    // Imported sessions fall out here on their own: they carry no strain,
-    // because there is no heart-rate series behind them to score one from.
-    // Nothing filters them — there is nothing to add.
-    final weekLoad = thisWeek
-        .where((w) => w.strain != null)
-        .fold<double?>(null, (a, w) => (a ?? 0) + w.strain!);
-
-    // Real recency, deduped, newest first — six tiles like the constant it
-    // replaces, so the picker's row is the same shape either way.
-    //
-    // Band sessions only. These tiles START a session, and most imported types
-    // land on the generic fallback activity — a row of "Workout" tiles that
-    // begin a five-MET nothing is worse than the six real ones.
-    final recent = <Activity>[];
-    for (final w in past) {
-      if (w.importedFrom != null) continue;
-      if (!recent.any((x) => x.name == w.activity.name)) {
-        recent.add(w.activity);
-      }
-      if (recent.length == 6) break;
-    }
-
-    // The live screen has to have previous/best in hand before the first set;
-    // "First time on this lift" was showing forever because nothing loaded
-    // them.
-    final history = await loadSetHistory();
-
-    return _WorkoutData(
-      weightKg: weight,
-      strain7: strain7,
-      weekEnd: end,
-      runs: await () async {
-        try {
-          return await loadRuns(repo);
-        } catch (_) {
-          return const <RunSummary>[];
-        }
-      }(),
-      workouts: past,
-      // Imported days light a dot too. This strip says "you trained", not
-      // "this band measured you", and a Sunday run left dark because the watch
-      // recorded it instead of the band is wrong in a way the user can see.
-      weekDays: {for (final w in thisWeek) w.start.weekday - 1},
-      weekCount: thisWeek.length,
-      weekImported: thisWeek.where((w) => w.importedFrom != null).length,
-      weekLoad: weekLoad,
-      workoutsTracked: tracked,
-      recent: recent,
-      streak: await loadMoveStreak(),
-      setHistory: history,
-      suggestions: await activeSuggestions(),
-      importedLast: await lastImportAt(HealthImport.workouts),
-    );
+    }(),
+    workouts: past,
+    // Imported days light a dot too. This strip says "you trained", not
+    // "this band measured you", and a Sunday run left dark because the watch
+    // recorded it instead of the band is wrong in a way the user can see.
+    weekDays: {for (final w in thisWeek) w.start.weekday - 1},
+    weekCount: thisWeek.length,
+    weekImported: thisWeek.where((w) => w.importedFrom != null).length,
+    weekLoad: weekLoad,
+    workoutsTracked: tracked,
+    recent: recent,
+    streak: await loadMoveStreak(),
+    setHistory: history,
+    suggestions: await activeSuggestions(),
+    importedLast: await lastImportAt(HealthImport.workouts),
+  );
 }

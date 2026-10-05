@@ -34,7 +34,15 @@
 > reads and visible timeout/failure feedback. The initial UI/food CI and IPA build passed, but that
 > artifact predates this repair and is superseded. Source `05c208c7` is published; local release
 > checks, Linux CI, the macOS build, downloaded checksum and payload validation pass. Build 72 is
-> cached as the single testing candidate; installation and phone/enrollment verification remain. Build 70 remains
+> cached as the single testing candidate and Akshat confirms it is installed; phone acceptance and
+> current-version enrollment remain. `workout-sync-audit.md` records reported sync/background voice,
+> calorie consistency, macro visibility and profile issues plus the approved step-goal streak extension;
+> the approved repairs are implemented locally in source `0.9.40`/`73` (algorithm 89) and pass
+> local validation. Build 73 adds background audio for spoken workout cues, shared movement/calorie
+> refresh, step-goal streaks, precise profile/serving units and keyboard-safe food controls.
+> Nap corrections update immediately, with coaching rebuilt in the background and Naps reachable
+> when empty. Trends opens Week, reuses full daily charts, and separates step calories from steps.
+> Public publication and its one macOS IPA remain gated. Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
 > maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger

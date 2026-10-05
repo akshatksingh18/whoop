@@ -39,7 +39,10 @@ import 'journal_compose.dart' show OsTextField;
 import 'scan_barcode.dart';
 
 /// The shared camera/consent/cache path, independent of the old occasion UI.
-Future<OffResult?> scanFoodProduct(BuildContext c, {VoidCallback? onManual}) async {
+Future<OffResult?> scanFoodProduct(
+  BuildContext c, {
+  VoidCallback? onManual,
+}) async {
   if (!offLookupAllowed) {
     final agreed = await _askLookupConsent(c);
     if (agreed != true || !c.mounted) return null;
@@ -58,8 +61,9 @@ Future<OffResult> lookupBarcodeFood(String code) async {
     return OffResult(OffOutcome.ok, OffProduct.fromDefRow(cached));
   }
   final res = await fetchOffProduct(code);
-  if (res.product case final product?)
+  if (res.product case final product?) {
     await NutritionDb.putFoodDef(db, product.toDefRow());
+  }
   return res;
 }
 
@@ -77,6 +81,7 @@ class LogFoodSheet extends StatefulWidget {
   }) => showModalBottomSheet<bool>(
     context: c,
     isScrollControlled: true,
+    useSafeArea: true,
     sheetAnimationStyle: sheetMotion(c),
     backgroundColor: P.of(c).card,
     shape: const RoundedRectangleBorder(
@@ -128,15 +133,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   @override
   void dispose() {
     _portion.removeListener(_rescale);
-    for (final t in [
-      _label,
-      _kcal,
-      _protein,
-      _carbs,
-      _fat,
-      _fibre,
-      _portion,
-    ]) {
+    for (final t in [_label, _kcal, _protein, _carbs, _fat, _fibre, _portion]) {
       t.dispose();
     }
     super.dispose();
@@ -254,36 +251,36 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
     final l = AppLocalizations.of(c);
     return switch (o) {
       OffOutcome.ok => StatusCard(
-          l?.logFoodNoNumbersTitle ?? 'No numbers for this one',
-          l?.logFoodNoNumbersBody ??
-              'Open Food Facts has the product but nothing usable on its '
-                  'nutrition — or what it had did not survive a sanity check.',
-          icon: LucideIcons.scanBarcode,
-        ),
+        l?.logFoodNoNumbersTitle ?? 'No numbers for this one',
+        l?.logFoodNoNumbersBody ??
+            'Open Food Facts has the product but nothing usable on its '
+                'nutrition — or what it had did not survive a sanity check.',
+        icon: LucideIcons.scanBarcode,
+      ),
       OffOutcome.notFound => StatusCard(
-          l?.logFoodNotFoundTitle ?? 'Not in Open Food Facts',
-          l?.logFoodNotFoundBody ?? 'Nobody has added this barcode yet.',
-          icon: LucideIcons.scanBarcode,
-        ),
+        l?.logFoodNotFoundTitle ?? 'Not in Open Food Facts',
+        l?.logFoodNotFoundBody ?? 'Nobody has added this barcode yet.',
+        icon: LucideIcons.scanBarcode,
+      ),
       OffOutcome.flagged => StatusCard(
-          l?.logFoodFlaggedTitle ?? 'This record is flagged as wrong',
-          l?.logFoodFlaggedBody ??
-              'Open Food Facts marks this product as containing errors, so none '
-                  'of its numbers were filled in.',
-          icon: LucideIcons.triangleAlert,
-        ),
+        l?.logFoodFlaggedTitle ?? 'This record is flagged as wrong',
+        l?.logFoodFlaggedBody ??
+            'Open Food Facts marks this product as containing errors, so none '
+                'of its numbers were filled in.',
+        icon: LucideIcons.triangleAlert,
+      ),
       OffOutcome.unreachable => StatusCard(
-          l?.logFoodUnreachableTitle ?? 'No answer from Open Food Facts',
-          l?.logFoodUnreachableBody ??
-              'The lookup could not reach openfoodfacts.org.',
-          icon: LucideIcons.cloudOff,
-        ),
+        l?.logFoodUnreachableTitle ?? 'No answer from Open Food Facts',
+        l?.logFoodUnreachableBody ??
+            'The lookup could not reach openfoodfacts.org.',
+        icon: LucideIcons.cloudOff,
+      ),
       OffOutcome.refused => StatusCard(
-          l?.logFoodRefusedTitle ?? 'Barcode lookup is off',
-          l?.logFoodRefusedBody ??
-              'Nothing was sent. You can turn it on in Settings › Privacy.',
-          icon: LucideIcons.scanBarcode,
-        ),
+        l?.logFoodRefusedTitle ?? 'Barcode lookup is off',
+        l?.logFoodRefusedBody ??
+            'Nothing was sent. You can turn it on in Settings › Privacy.',
+        icon: LucideIcons.scanBarcode,
+      ),
     };
   }
 
@@ -292,13 +289,16 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   /// between a spoonful and a fortnight.
   String _portionNote(BuildContext c, OffProduct p) {
     final l = AppLocalizations.of(c);
-    final base = l?.logFoodPortionNoteBase ??
+    final base =
+        l?.logFoodPortionNoteBase ??
         'Open Food Facts lists this per 100 g. Change the portion and '
             'the numbers follow.';
     if (p.servingLabel.isEmpty && p.servingG == null) return base;
-    final serving =
-        p.servingLabel.isNotEmpty ? p.servingLabel : '${_plain(p.servingG)} g';
-    return l?.logFoodPortionNoteServing(serving) ?? '$base The pack’s own serving is $serving.';
+    final serving = p.servingLabel.isNotEmpty
+        ? p.servingLabel
+        : '${_plain(p.servingG)} g';
+    return l?.logFoodPortionNoteServing(serving) ??
+        '$base The pack’s own serving is $serving.';
   }
 
   void _fillFrom(OffProduct p, double grams) {
@@ -330,255 +330,251 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
-      child: SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(S.x5, S.x4, S.x5, S.x6),
+    return InputSheet(
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(l?.logFoodTitle ?? 'Log an eating occasion',
-                      style: F.t2.copyWith(color: p.ink)),
-                ),
-                Pressable(
-                  semanticLabel: l?.logFoodClose ?? 'Close',
-                  onTap: () => Navigator.of(c).pop(),
-                  child: Icon(LucideIcons.x, size: 20, color: p.ink3),
-                ),
-              ],
+            Expanded(
+              child: Text(
+                l?.logFoodTitle ?? 'Log an eating occasion',
+                style: F.t2.copyWith(color: p.ink),
+              ),
             ),
-            const SizedBox(height: S.x4),
-            Row(
-              children: [
-                for (final m in kMeals) ...[
-                  Expanded(
-                    child: Pressable(
-                      onTap: () => setState(() => _meal = m),
-                      semanticLabel: _mealLabel(c, m),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: S.x3),
-                        decoration: BoxDecoration(
-                          color: m == _meal ? p.fill(C.domFood) : p.card2,
-                          borderRadius: R.rSm,
-                        ),
-                        child: Center(
-                          child: Text(
-                            _mealLabel(c, m),
-                            style: F.cap.copyWith(
-                              color: m == _meal ? p.inkOnFill : p.ink2,
-                            ),
-                          ),
+            Pressable(
+              semanticLabel: l?.logFoodClose ?? 'Close',
+              onTap: () => Navigator.of(c).pop(),
+              child: Icon(LucideIcons.x, size: 20, color: p.ink3),
+            ),
+          ],
+        ),
+        const SizedBox(height: S.x4),
+        Row(
+          children: [
+            for (final m in kMeals) ...[
+              Expanded(
+                child: Pressable(
+                  onTap: () => setState(() => _meal = m),
+                  semanticLabel: _mealLabel(c, m),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: S.x3),
+                    decoration: BoxDecoration(
+                      color: m == _meal ? p.fill(C.domFood) : p.card2,
+                      borderRadius: R.rSm,
+                    ),
+                    child: Center(
+                      child: Text(
+                        _mealLabel(c, m),
+                        style: F.cap.copyWith(
+                          color: m == _meal ? p.inkOnFill : p.ink2,
                         ),
                       ),
                     ),
                   ),
-                  if (m != kMeals.last) const SizedBox(width: S.x2),
-                ],
-              ],
-            ),
-            const SizedBox(height: S.x5),
-            BigButton(
-              l?.logFoodIAte(_mealLabel(c, _meal)) ??
-                  'I ate ${_mealLabel(c, _meal).toLowerCase()}',
-              icon: LucideIcons.check,
-              color: C.domFood,
-              onTap: () => _write(_base(label: _mealLabel(c, _meal))),
-            ),
-            if (_recent.isNotEmpty)
-              Section(
-                l?.logFoodAgain ?? 'Again',
-                Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Column(
-                    children: [
-                      for (final r in _recent.take(5))
-                        FoodRow(
-                          entry: r,
-                          trailing: LucideIcons.circlePlus,
-                          onTap: () => _write(
-                            FoodEntry(
-                              id: NutritionDb.newId(),
-                              date: _date,
-                              meal: _meal,
-                              label: r.label,
-                              atTs:
-                                  DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                              foodKey: r.foodKey,
-                              quantity: r.quantity,
-                              unit: r.unit,
-                              kcal: r.kcal,
-                              proteinG: r.proteinG,
-                              carbsG: r.carbsG,
-                              fatG: r.fatG,
-                              fibreG: r.fibreG,
-                              source: FoodSource.repeat,
-                              confirmed: r.confirmed,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
                 ),
               ),
-            const SizedBox(height: S.x5),
-            Pressable(
-              onTap: () => setState(() => _detail = !_detail),
-              child: Row(
-                children: [
-                  Icon(
-                    _detail ? LucideIcons.chevronDown : LucideIcons.chevronRight,
-                    size: 18,
-                    color: p.ink3,
-                  ),
-                  const SizedBox(width: S.x2),
-                  Expanded(
-                    child: Text(
-                      l?.logFoodAddNumbers ?? 'Add the numbers',
-                      style: F.body.copyWith(color: p.ink2),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_detail) ...[
-              const SizedBox(height: S.x3),
-              Surface(
-                pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                child: SetRow(
-                  LucideIcons.scanBarcode,
-                  C.domFood,
-                  l?.logFoodScanBarcode ?? 'Scan a barcode',
-                  sub: offLookupAllowed
-                      ? (l?.logFoodScanSubOn ??
-                          'Asks openfoodfacts.org about the barcode, and fills '
-                              'in what it can stand behind')
-                      : (l?.logFoodScanSubOff ?? 'Looks the pack up online. Asks first'),
-                  chevron: false,
-                  onTap: _looking ? null : _scan,
-                ),
-              ),
-              if (_looking) ...[
-                const SizedBox(height: S.x3),
-                StatusCard(
-                  l?.logFoodLookingUpTitle ?? 'Looking it up',
-                  l?.logFoodLookingUpBody ??
-                      'The boxes fill as soon as the answer is here.',
-                  icon: LucideIcons.scanBarcode,
-                ),
-              ] else if (_lookupProblem(c) != null) ...[
-                const SizedBox(height: S.x3),
-                _lookupProblem(c)!,
-              ],
-              const SizedBox(height: S.x4),
-              OsTextField(
-                controller: _label,
-                label: l?.logFoodWhatLabel ?? 'What',
-                hint: l?.logFoodWhatHint ?? 'Chicken and rice',
-              ),
-              if (_scanned != null) ...[
-                const SizedBox(height: S.x4),
-                _NumberRow(
-                  fields: [(l?.logFoodPortionLabel ?? 'Portion', 'g', _portion)],
-                  hint: '100',
-                ),
-                const SizedBox(height: S.x2),
-                Text(
-                  _portionNote(c, _scanned!),
-                  style: F.cap.copyWith(color: p.ink3, height: 1.45),
-                ),
-              ],
-              const SizedBox(height: S.x4),
-              _NumberRow(
-                fields: [
-                  (l?.logFoodEnergyLabel ?? 'Energy', 'kcal', _kcal),
-                  (l?.logFoodProteinLabel ?? 'Protein', 'g', _protein),
-                ],
-                hint: l?.logFoodUnknownHint ?? 'unknown',
-              ),
-              const SizedBox(height: S.x4),
-              _NumberRow(
-                fields: [
-                  (l?.logFoodCarbsLabel ?? 'Carbs', 'g', _carbs),
-                  (l?.logFoodFatLabel ?? 'Fat', 'g', _fat),
-                ],
-                hint: l?.logFoodUnknownHint ?? 'unknown',
-              ),
-              const SizedBox(height: S.x4),
-              // The week card has always averaged fibre; nothing could enter
-              // it, so the row read "Not recorded" forever.
-              _NumberRow(
-                fields: [(l?.logFoodFibreLabel ?? 'Fibre', 'g', _fibre)],
-                hint: l?.logFoodUnknownHint ?? 'unknown',
-              ),
-              const SizedBox(height: S.x3),
-              Text(
-                l?.logFoodBlankHint ??
-                    'A blank number stays blank. Only "What" is needed.',
-                style: F.cap.copyWith(color: p.ink3, height: 1.45),
-              ),
-              // ODbL asks for attribution "reasonably calculated" to make a
-              // viewer aware. It goes HERE, on the screen where the numbers
-              // are, and not only in the licences page.
-              if (_scanned != null) ...[
-                const SizedBox(height: S.x3),
-                const _OffCredit(),
-              ],
-              const SizedBox(height: S.x4),
-              BigButton(
-                l?.actionSave ?? 'Save',
-                color: C.domFood,
-                soft: true,
-                onTap: () {
-                  final label = _label.text.trim();
-                  // Both used to be a bare return under an enabled-looking
-                  // button: nothing happened, nothing was said, and the typed
-                  // numbers were thrown away by the only control that reacted.
-                  if (label.isEmpty) {
-                    ScaffoldMessenger.of(c).showSnackBar(SnackBar(
-                      content: Text(
-                          l?.logFoodSayWhatFirst ?? 'Say what it was first.'),
-                    ));
-                    return;
-                  }
-                  final bad = _unreadable(c);
-                  if (bad.isNotEmpty) {
-                    sayUnreadable(c, bad);
-                    return;
-                  }
-                  final b = _base(label: label);
-                  final scan = _scanned;
-                  _write(
-                    FoodEntry(
-                      id: b.id,
-                      date: b.date,
-                      meal: b.meal,
-                      label: label,
-                      atTs: b.atTs,
-                      // The barcode, so a repeat of this food is a local
-                      // read — and so the row can say where its numbers came
-                      // from. NOT `verified`: see FoodSource.barcode.
-                      foodKey: scan?.barcode,
-                      quantity: scan == null ? null : _num(_portion),
-                      source: scan == null
-                          ? FoodSource.manual
-                          : FoodSource.barcode,
-                      kcal: _num(_kcal),
-                      proteinG: _num(_protein),
-                      carbsG: _num(_carbs),
-                      fatG: _num(_fat),
-                      fibreG: _num(_fibre),
-                      confirmed: true,
-                    ),
-                  );
-                },
-              ),
+              if (m != kMeals.last) const SizedBox(width: S.x2),
             ],
           ],
         ),
-      ),
+        const SizedBox(height: S.x5),
+        BigButton(
+          l?.logFoodIAte(_mealLabel(c, _meal)) ??
+              'I ate ${_mealLabel(c, _meal).toLowerCase()}',
+          icon: LucideIcons.check,
+          color: C.domFood,
+          onTap: () => _write(_base(label: _mealLabel(c, _meal))),
+        ),
+        if (_recent.isNotEmpty)
+          Section(
+            l?.logFoodAgain ?? 'Again',
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  for (final r in _recent.take(5))
+                    FoodRow(
+                      entry: r,
+                      trailing: LucideIcons.circlePlus,
+                      onTap: () => _write(
+                        FoodEntry(
+                          id: NutritionDb.newId(),
+                          date: _date,
+                          meal: _meal,
+                          label: r.label,
+                          atTs: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                          foodKey: r.foodKey,
+                          quantity: r.quantity,
+                          unit: r.unit,
+                          kcal: r.kcal,
+                          proteinG: r.proteinG,
+                          carbsG: r.carbsG,
+                          fatG: r.fatG,
+                          fibreG: r.fibreG,
+                          source: FoodSource.repeat,
+                          confirmed: r.confirmed,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        const SizedBox(height: S.x5),
+        Pressable(
+          onTap: () => setState(() => _detail = !_detail),
+          child: Row(
+            children: [
+              Icon(
+                _detail ? LucideIcons.chevronDown : LucideIcons.chevronRight,
+                size: 18,
+                color: p.ink3,
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  l?.logFoodAddNumbers ?? 'Add the numbers',
+                  style: F.body.copyWith(color: p.ink2),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_detail) ...[
+          const SizedBox(height: S.x3),
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: SetRow(
+              LucideIcons.scanBarcode,
+              C.domFood,
+              l?.logFoodScanBarcode ?? 'Scan a barcode',
+              sub: offLookupAllowed
+                  ? (l?.logFoodScanSubOn ??
+                        'Asks openfoodfacts.org about the barcode, and fills '
+                            'in what it can stand behind')
+                  : (l?.logFoodScanSubOff ??
+                        'Looks the pack up online. Asks first'),
+              chevron: false,
+              onTap: _looking ? null : _scan,
+            ),
+          ),
+          if (_looking) ...[
+            const SizedBox(height: S.x3),
+            StatusCard(
+              l?.logFoodLookingUpTitle ?? 'Looking it up',
+              l?.logFoodLookingUpBody ??
+                  'The boxes fill as soon as the answer is here.',
+              icon: LucideIcons.scanBarcode,
+            ),
+          ] else if (_lookupProblem(c) != null) ...[
+            const SizedBox(height: S.x3),
+            _lookupProblem(c)!,
+          ],
+          const SizedBox(height: S.x4),
+          OsTextField(
+            controller: _label,
+            label: l?.logFoodWhatLabel ?? 'What',
+            hint: l?.logFoodWhatHint ?? 'Chicken and rice',
+          ),
+          if (_scanned != null) ...[
+            const SizedBox(height: S.x4),
+            _NumberRow(
+              fields: [(l?.logFoodPortionLabel ?? 'Portion', 'g', _portion)],
+              hint: '100',
+            ),
+            const SizedBox(height: S.x2),
+            Text(
+              _portionNote(c, _scanned!),
+              style: F.cap.copyWith(color: p.ink3, height: 1.45),
+            ),
+          ],
+          const SizedBox(height: S.x4),
+          _NumberRow(
+            fields: [
+              (l?.logFoodEnergyLabel ?? 'Energy', 'kcal', _kcal),
+              (l?.logFoodProteinLabel ?? 'Protein', 'g', _protein),
+            ],
+            hint: l?.logFoodUnknownHint ?? 'unknown',
+          ),
+          const SizedBox(height: S.x4),
+          _NumberRow(
+            fields: [
+              (l?.logFoodCarbsLabel ?? 'Carbs', 'g', _carbs),
+              (l?.logFoodFatLabel ?? 'Fat', 'g', _fat),
+            ],
+            hint: l?.logFoodUnknownHint ?? 'unknown',
+          ),
+          const SizedBox(height: S.x4),
+          // The week card has always averaged fibre; nothing could enter
+          // it, so the row read "Not recorded" forever.
+          _NumberRow(
+            fields: [(l?.logFoodFibreLabel ?? 'Fibre', 'g', _fibre)],
+            hint: l?.logFoodUnknownHint ?? 'unknown',
+          ),
+          const SizedBox(height: S.x3),
+          Text(
+            l?.logFoodBlankHint ??
+                'A blank number stays blank. Only "What" is needed.',
+            style: F.cap.copyWith(color: p.ink3, height: 1.45),
+          ),
+          // ODbL asks for attribution "reasonably calculated" to make a
+          // viewer aware. It goes HERE, on the screen where the numbers
+          // are, and not only in the licences page.
+          if (_scanned != null) ...[
+            const SizedBox(height: S.x3),
+            const _OffCredit(),
+          ],
+          const SizedBox(height: S.x4),
+          BigButton(
+            l?.actionSave ?? 'Save',
+            color: C.domFood,
+            soft: true,
+            onTap: () {
+              final label = _label.text.trim();
+              // Both used to be a bare return under an enabled-looking
+              // button: nothing happened, nothing was said, and the typed
+              // numbers were thrown away by the only control that reacted.
+              if (label.isEmpty) {
+                ScaffoldMessenger.of(c).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      l?.logFoodSayWhatFirst ?? 'Say what it was first.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              final bad = _unreadable(c);
+              if (bad.isNotEmpty) {
+                sayUnreadable(c, bad);
+                return;
+              }
+              final b = _base(label: label);
+              final scan = _scanned;
+              _write(
+                FoodEntry(
+                  id: b.id,
+                  date: b.date,
+                  meal: b.meal,
+                  label: label,
+                  atTs: b.atTs,
+                  // The barcode, so a repeat of this food is a local
+                  // read — and so the row can say where its numbers came
+                  // from. NOT `verified`: see FoodSource.barcode.
+                  foodKey: scan?.barcode,
+                  quantity: scan == null ? null : _num(_portion),
+                  source: scan == null ? FoodSource.manual : FoodSource.barcode,
+                  kcal: _num(_kcal),
+                  proteinG: _num(_protein),
+                  carbsG: _num(_carbs),
+                  fatG: _num(_fat),
+                  fibreG: _num(_fibre),
+                  confirmed: true,
+                ),
+              );
+            },
+          ),
+        ],
+      ],
     );
   }
 }
@@ -587,10 +583,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
 /// pack says and "33.0" is what a float says.
 String _plain(double? v) {
   if (v == null) return '';
-  final r = (v * 10).round() / 10;
-  return r == r.roundToDouble()
-      ? r.round().toString()
-      : r.toStringAsFixed(1);
+  return v == v.roundToDouble() ? v.round().toString() : v.toString();
 }
 
 /// Brand in front of the product name, unless the name already carries it —
@@ -609,64 +602,71 @@ String _productLabel(OffProduct p) {
 /// what leaves the phone — the barcode, and nothing else — because this app's
 /// whole claim is that nothing does unless you said so.
 Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
-      context: c,
-      sheetAnimationStyle: sheetMotion(c),
-      backgroundColor: P.of(c).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
-      builder: (s) {
-        final p = P.of(s);
-        final l = AppLocalizations.of(s);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(l?.logFoodConsentTitle ?? 'Look barcodes up online?',
-                    style: F.t2.copyWith(color: p.ink)),
-                const SizedBox(height: S.x4),
-                Text(
-                  l?.logFoodConsentBody1 ??
-                      'A scan sends the barcode to openfoodfacts.org, a free, '
-                          'open food database. They see the barcode and your IP '
-                          'address. Nothing about you, your meals or your health '
-                          'leaves this phone, and a barcode you have scanned before '
-                          'is answered from your own copy without asking them again.',
-                  style: F.body.copyWith(color: p.ink2, height: 1.5),
-                ),
-                const SizedBox(height: S.x3),
-                Text(
-                  l?.logFoodConsentBody2 ??
-                      'Their numbers are typed in by the public and a fair few of '
-                          'them are wrong, so anything that fails a sanity check is '
-                          'left blank rather than filled in. Everything it does fill '
-                          'in is yours to edit before you save.',
-                  style: F.body.copyWith(color: p.ink2, height: 1.5),
-                ),
-                const SizedBox(height: S.x3),
-                Text(
-                  l?.logFoodConsentBody3 ??
-                      'You can turn this back off in Settings › Privacy. Typing '
-                          'the numbers off the pack works either way.',
-                  style: F.cap.copyWith(color: p.ink3, height: 1.45),
-                ),
-                const SizedBox(height: S.x5),
-                BigButton(l?.logFoodAllowLookups ?? 'Allow lookups',
-                    color: C.domFood, onTap: () => Navigator.of(s).pop(true)),
-                const SizedBox(height: S.x3),
-                BigButton(l?.logFoodNotNow ?? 'Not now',
-                    color: C.domFood,
-                    soft: true,
-                    onTap: () => Navigator.of(s).pop(false)),
-              ],
+  context: c,
+  sheetAnimationStyle: sheetMotion(c),
+  backgroundColor: P.of(c).card,
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+  ),
+  builder: (s) {
+    final p = P.of(s);
+    final l = AppLocalizations.of(s);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l?.logFoodConsentTitle ?? 'Look barcodes up online?',
+              style: F.t2.copyWith(color: p.ink),
             ),
-          ),
-        );
-      },
+            const SizedBox(height: S.x4),
+            Text(
+              l?.logFoodConsentBody1 ??
+                  'A scan sends the barcode to openfoodfacts.org, a free, '
+                      'open food database. They see the barcode and your IP '
+                      'address. Nothing about you, your meals or your health '
+                      'leaves this phone, and a barcode you have scanned before '
+                      'is answered from your own copy without asking them again.',
+              style: F.body.copyWith(color: p.ink2, height: 1.5),
+            ),
+            const SizedBox(height: S.x3),
+            Text(
+              l?.logFoodConsentBody2 ??
+                  'Their numbers are typed in by the public and a fair few of '
+                      'them are wrong, so anything that fails a sanity check is '
+                      'left blank rather than filled in. Everything it does fill '
+                      'in is yours to edit before you save.',
+              style: F.body.copyWith(color: p.ink2, height: 1.5),
+            ),
+            const SizedBox(height: S.x3),
+            Text(
+              l?.logFoodConsentBody3 ??
+                  'You can turn this back off in Settings › Privacy. Typing '
+                      'the numbers off the pack works either way.',
+              style: F.cap.copyWith(color: p.ink3, height: 1.45),
+            ),
+            const SizedBox(height: S.x5),
+            BigButton(
+              l?.logFoodAllowLookups ?? 'Allow lookups',
+              color: C.domFood,
+              onTap: () => Navigator.of(s).pop(true),
+            ),
+            const SizedBox(height: S.x3),
+            BigButton(
+              l?.logFoodNotNow ?? 'Not now',
+              color: C.domFood,
+              soft: true,
+              onTap: () => Navigator.of(s).pop(false),
+            ),
+          ],
+        ),
+      ),
     );
+  },
+);
 
 /// The ODbL credit, wherever Open Food Facts numbers are shown. Both links
 /// are the licence's, not decoration — the notice names the source and the
@@ -682,8 +682,10 @@ class _OffCredit extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(kOffAttribution,
-            style: F.cap.copyWith(color: p.ink3, height: 1.45)),
+        Text(
+          kOffAttribution,
+          style: F.cap.copyWith(color: p.ink3, height: 1.45),
+        ),
         const SizedBox(height: S.x1),
         // Wrap, not Row: "Open Database License" beside a URL runs off the
         // right of the sheet at accessibility text sizes, and a link that has
@@ -707,18 +709,19 @@ class _Link extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => Pressable(
-        semanticLabel: AppLocalizations.of(c)?.logFoodOpensInBrowser(label) ??
-            '$label, opens in your browser',
-        onTap: () => launchUrl(Uri.parse(url),
-            mode: LaunchMode.externalApplication),
-        child: Text(
-          label,
-          style: F.cap.copyWith(
-            color: P.of(c).on(C.domFood),
-            decoration: TextDecoration.underline,
-          ),
-        ),
-      );
+    semanticLabel:
+        AppLocalizations.of(c)?.logFoodOpensInBrowser(label) ??
+        '$label, opens in your browser',
+    onTap: () =>
+        launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+    child: Text(
+      label,
+      style: F.cap.copyWith(
+        color: P.of(c).on(C.domFood),
+        decoration: TextDecoration.underline,
+      ),
+    ),
+  );
 }
 
 String _mealLabel(BuildContext c, String m) {
@@ -734,12 +737,7 @@ String _mealLabel(BuildContext c, String m) {
 /// One logged entry. The provenance line is not decoration: a manufacturer
 /// panel and a typed guess are different claims, and the row says which it is.
 class FoodRow extends StatelessWidget {
-  const FoodRow({
-    super.key,
-    required this.entry,
-    this.trailing,
-    this.onTap,
-  });
+  const FoodRow({super.key, required this.entry, this.trailing, this.onTap});
 
   final FoodEntry entry;
   final IconData? trailing;

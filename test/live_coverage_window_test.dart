@@ -31,13 +31,11 @@ import 'package:openstrap_edge/state/app_state.dart';
 /// One 100 Hz frame of walking-shaped |a|(g): a ~2 Hz gait oscillation riding
 /// the 1 g gravity baseline, which is what the AN-2554 counter expects.
 List<double> _walkFrame(int frameIndex, int samples) => [
-      for (var i = 0; i < samples; i++)
-        1.0 +
-            0.45 *
-                math.sin(
-                  2 * math.pi * 2.0 * ((frameIndex * samples + i) / 100.0),
-                ),
-    ];
+  for (var i = 0; i < samples; i++)
+    1.0 +
+        0.45 *
+            math.sin(2 * math.pi * 2.0 * ((frameIndex * samples + i) / 100.0)),
+];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -62,8 +60,7 @@ void main() {
   group('deriveLiveCoverageWindow', () {
     const t0 = 1785000000; // band record timestamp (device epoch sec)
 
-    test('a band recTs that never advances still yields the streamed period',
-        () {
+    test('a band recTs that never advances still yields the streamed period', () {
       // THE BUG: every live frame of the session carried the same recTs, so the
       // old writer stored start == end == t0.
       final w = deriveLiveCoverageWindow(
@@ -230,14 +227,22 @@ void main() {
         where: 'start_ts >= ? AND start_ts < ?',
         whereArgs: [recTs, recTs + 3600],
       );
-      expect(rows, hasLength(1));
+      expect(rows, isNotEmpty);
+      // Cadence changes preserve individual measured spans rather than redistributing old counts.
+      final sortedRows = rows.toList();
+      sortedRows.sort(
+        (a, b) => (a['start_ts'] as num).compareTo(b['start_ts'] as num),
+      );
       // Was `app.liveSteps > 0` before the finalize; the display getter is gone
       // (nothing rendered it) and the banked row is the same fact, from the
       // path that survives.
-      expect((rows.first['steps'] as num).toInt(), greaterThan(0),
-          reason: 'walk must count steps');
-      final start = (rows.first['start_ts'] as num).toInt();
-      final end = (rows.first['end_ts'] as num).toInt();
+      expect(
+        (sortedRows.first['steps'] as num).toInt(),
+        greaterThan(0),
+        reason: 'walk must count steps',
+      );
+      final start = (sortedRows.first['start_ts'] as num).toInt();
+      final end = (sortedRows.last['end_ts'] as num).toInt();
       // Pre-fix this was start == end == recTs — a 0 s window.
       expect(end - start, greaterThan(0));
       // The streamed period was ~240 s (the last frame's ingest is 100 ms shy).
@@ -282,32 +287,38 @@ void main() {
       expect(await LocalDb.liveStepsForDay('2026-08-06'), 1657);
     });
 
-    test('an impossibly short window is widened to what its steps imply',
-        () async {
-      const start = 1786100000;
-      await LocalDb.addLiveCoverage(start, start + 3, 600, '2026-08-07');
-      final windows = await LocalDb.coverageWindowsOverlapping(
-        start,
-        start + 3600,
-      );
-      expect(windows, hasLength(1));
-      expect(windows.first[1] - windows.first[0],
-          minCoverageSecondsForSteps(600));
-    });
+    test(
+      'an impossibly short window is widened to what its steps imply',
+      () async {
+        const start = 1786100000;
+        await LocalDb.addLiveCoverage(start, start + 3, 600, '2026-08-07');
+        final windows = await LocalDb.coverageWindowsOverlapping(
+          start,
+          start + 3600,
+        );
+        expect(windows, hasLength(1));
+        expect(
+          windows.first[1] - windows.first[0],
+          minCoverageSecondsForSteps(600),
+        );
+      },
+    );
 
-    test('an inverted window is rejected, and a zero-step window is not stored',
-        () async {
-      const start = 1786200000;
-      await LocalDb.addLiveCoverage(start, start - 60, 500, '2026-08-08');
-      await LocalDb.addLiveCoverage(start, start + 600, 0, '2026-08-08');
-      final db = await LocalDb.instance;
-      final rows = await db.query(
-        'live_coverage',
-        where: 'day = ?',
-        whereArgs: ['2026-08-08'],
-      );
-      expect(rows, isEmpty);
-    });
+    test(
+      'an inverted window is rejected, and a zero-step window is not stored',
+      () async {
+        const start = 1786200000;
+        await LocalDb.addLiveCoverage(start, start - 60, 500, '2026-08-08');
+        await LocalDb.addLiveCoverage(start, start + 600, 0, '2026-08-08');
+        final db = await LocalDb.instance;
+        final rows = await db.query(
+          'live_coverage',
+          where: 'day = ?',
+          whereArgs: ['2026-08-08'],
+        );
+        expect(rows, isEmpty);
+      },
+    );
 
     test('an honest window is stored exactly as measured', () async {
       const start = 1786300000;
@@ -322,25 +333,27 @@ void main() {
 
   // ── 4. historical degenerate rows stay readable ────────────────────────────
   group('legacy zero-width rows already on disk', () {
-    test('are tolerated by the coverage readers (left alone, not migrated)',
-        () async {
-      // Written the way the old code did, bypassing the guard, to prove the
-      // readers still behave on the rows real users already have.
-      const start = 1786400000;
-      final db = await LocalDb.instance;
-      await db.insert('live_coverage', {
-        'start_ts': start,
-        'end_ts': start, // zero width
-        'steps': 1230,
-        'day': '2026-08-10',
-      });
-      expect(await LocalDb.liveStepsForDay('2026-08-10'), 1230);
-      final windows = await LocalDb.coverageWindowsOverlapping(
-        start,
-        start + 3600,
-      );
-      expect(windows, hasLength(1));
-      expect(windows.first, [start, start]);
-    });
+    test(
+      'are tolerated by the coverage readers (left alone, not migrated)',
+      () async {
+        // Written the way the old code did, bypassing the guard, to prove the
+        // readers still behave on the rows real users already have.
+        const start = 1786400000;
+        final db = await LocalDb.instance;
+        await db.insert('live_coverage', {
+          'start_ts': start,
+          'end_ts': start, // zero width
+          'steps': 1230,
+          'day': '2026-08-10',
+        });
+        expect(await LocalDb.liveStepsForDay('2026-08-10'), 1230);
+        final windows = await LocalDb.coverageWindowsOverlapping(
+          start,
+          start + 3600,
+        );
+        expect(windows, hasLength(1));
+        expect(windows.first, [start, start]);
+      },
+    );
   });
 }

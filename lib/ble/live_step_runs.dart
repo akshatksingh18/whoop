@@ -143,11 +143,11 @@ class LiveStepRun {
 
 /// Folds completed pedometer chunks into contiguous gait runs.
 class GaitRuns {
-  GaitRuns({this.maxRuns = 512});
+  GaitRuns({this.maxRuns = 2048});
 
   /// Ceiling on how many separate runs one connected session may hold — a bound
-  /// on both memory and the session checkpoint that mirrors them. 512
-  /// non-contiguous counting minutes is ~8.5 h of stop-start walking inside a
+  /// on both memory and the session checkpoint that mirrors them. 2048
+  /// non-contiguous counting minutes is ~34 h of stop-start walking inside a
   /// single session.
   final int maxRuns;
 
@@ -176,24 +176,48 @@ class GaitRuns {
     var startTs = endTs - seconds;
     if (startTs < floorTs) startTs = floorTs;
     if (endTs <= startTs) return;
-    if (_runs.isNotEmpty) {
-      final last = _runs.last;
-      // Contiguous with the run in progress (the ordinary case: back-to-back
-      // counting minutes), or we are at the cap — either way extend instead of
-      // appending.
-      //
-      // ponytail: at the cap this merges across a gap it should have kept, so a
-      // pathological session over-claims one span. Raise `maxRuns` only if real
-      // sessions ever get near it.
-      if (startTs <= last.endTs || _runs.length >= maxRuns) {
-        _runs[_runs.length - 1] = LiveStepRun(
-          last.startTs,
-          endTs > last.endTs ? endTs : last.endTs,
-          last.rawSteps + rawSteps,
-        );
-        return;
+    // Preserve count density at sensor and hour/day handoffs. Extending a bout
+    // with a different cadence redistributes earlier steps across phone overlap.
+    var cursor = startTs;
+    while (cursor < endTs) {
+      final local = DateTime.fromMillisecondsSinceEpoch(cursor * 1000);
+      final boundary =
+          DateTime(
+            local.year,
+            local.month,
+            local.day,
+            local.hour + 1,
+          ).millisecondsSinceEpoch ~/
+          1000;
+      final stop = boundary < endTs ? boundary : endTs;
+      final count =
+          (rawSteps * (stop - startTs) / (endTs - startTs)).round() -
+          (rawSteps * (cursor - startTs) / (endTs - startTs)).round();
+      if (count > 0) {
+        final last = _runs.isEmpty ? null : _runs.last;
+        final sameHour =
+            last != null &&
+            DateTime.fromMillisecondsSinceEpoch(last.startTs * 1000).hour ==
+                local.hour &&
+            DateTime.fromMillisecondsSinceEpoch(last.startTs * 1000).day ==
+                local.day;
+        if (last != null &&
+            sameHour &&
+            cursor == last.endTs &&
+            last.rawSteps * (stop - cursor) == count * last.seconds) {
+          _runs[_runs.length - 1] = LiveStepRun(
+            last.startTs,
+            stop,
+            last.rawSteps + count,
+          );
+        } else {
+          // Already published older spans stay in SQLite. At the memory cap,
+          // retain the newest measured spans; never claim steps across a gap.
+          if (_runs.length >= maxRuns) _runs.removeAt(0);
+          _runs.add(LiveStepRun(cursor, stop, count));
+        }
       }
+      cursor = stop;
     }
-    _runs.add(LiveStepRun(startTs, endTs, rawSteps));
   }
 }

@@ -159,6 +159,19 @@ Flutter process, identity, and Bluetooth lifecycle; it is not embedded in the hu
 rotation, WHOOP source move, capability expansion, or activation is implied. The native hub is
 owned by `../akshatos/`; consult its build guide for implementation and device evidence.
 
+Build-73 source is `0.9.40`/`73`, algorithm 89, with excluded Widget/Watch metadata aligned.
+It adds the approved `audio` background mode for actual workout speech; all other personal
+exclusions and While-In-Use location authorization remain. Local validation passes; no
+public source, CI or IPA for build 73 exists yet. The build-72 cached artifact remains installed,
+and accepted build 70 remains the recovery IPA. `todo.md` owns acceptance gates.
+
+Build-73 checks: all 3,318 Flutter tests pass with 368 intentional skips, plus 91 focused tests
+with `PERSONAL_SIDELOAD=true`. Analysis reports 60 infos and no errors/warnings. All 7 Python
+personal-iOS contract tests, `personal_ios.py check`, local dependency/pin guards and `git diff
+--check` pass. Representative layouts were inspected; daily details also pass at 320 points and
+1.5x text. Windows cannot verify native iOS compilation or locked-screen/background behavior.
+The full suite runs serially through temporary `W:`/`X:` paths; generated screenshots are removed.
+
 The personal artifact must preserve the root phone app, local database/analytics, local
 notifications, `bluetooth-central`, CoreBluetooth restoration, and the commit-before-ACK/resumable
 drain invariants. The build-72 source preserves the personal profile: it excludes the Watch companion, widget/Live
@@ -241,7 +254,8 @@ it remains the accepted backup while build 72 occupies `testing\`. The checksum,
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
-`CLAUDE.md`; locked-screen voice has no separately reported result.
+`CLAUDE.md`; build 72 now has a separately reported background-voice failure, audited in
+`workout-sync-audit.md`.
 
 Superseded build `0.9.38`/`71`: initial UI/food source `5c00c278aa836d12c0dfb54e25e728c67b276d07` was published with Akshat's approval;
 Linux CI `37170843509` and macOS workflow `37171288516` passed. That artifact has not been
@@ -259,8 +273,13 @@ Linux CI `37173914511` passes (3,279 tests, 363 intentional skips). Personal mac
 checksum and manifest. The manifest confirms version `0.9.39`, build `72`, the full source revision
 above and unchanged minimal personal capabilities. `tool/personal_ios.py validate` passes.
 The IPA, manifest and checksum are cached in the single candidate folder
-`../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. It is not yet installed.
-Build 70 remains accepted; build 72 must pass its phone check
+`../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. Akshat confirms this build is installed
+on the phone used for his screenshots. Reported background voice and sync/calorie/macro/profile
+issues are audited in `workout-sync-audit.md`; approved fixes are implemented locally in build 73.
+Akshat confirms Today refresh now updates steps, while maintenance-calorie consistency remains
+open. The audit reproduces a stale open breakdown and confirms main-card step recalculation in
+an isolated real-repository probe; this is a partial check, not phone acceptance.
+Build 70 remains accepted; installation does not constitute build 72's phone pass. Build 72 must pass its phone check
 and current-version automatic-refresh enrollment before cache promotion or ledger acceptance.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install

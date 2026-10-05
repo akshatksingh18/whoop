@@ -56,8 +56,10 @@ import 'profile.dart';
 
 /// A deterministic series — a gallery cannot depend on random data, and
 /// neither can a golden.
-final _series =
-    List<double>.generate(24, (i) => 52 + (i * 37 % 23) - (i % 5) * 2.0);
+final _series = List<double>.generate(
+  24,
+  (i) => 52 + (i * 37 % 23) - (i % 5) * 2.0,
+);
 
 /// The four answers [trendOf] can give: a move clear of its own noise in
 /// either direction, a move inside it, and a series too short to compare at
@@ -87,9 +89,17 @@ const _ringsMeasured = HomeData(
   ],
   strain: Metric(value: 14.2, confidence: .6, tier: MetricTier.estimate),
   sleepMin: Metric(
-      value: 465, unit: 'min', confidence: .8, tier: MetricTier.estimate),
+    value: 465,
+    unit: 'min',
+    confidence: .8,
+    tier: MetricTier.estimate,
+  ),
   sleepNeedMin: Metric(
-      value: 462, unit: 'min', confidence: .7, tier: MetricTier.estimate),
+    value: 462,
+    unit: 'min',
+    confidence: .7,
+    tier: MetricTier.estimate,
+  ),
 );
 
 /// Recovery three nights into a fourteen-night baseline, and a real night with
@@ -99,7 +109,11 @@ const _ringsCalibrating = HomeData(
   readiness: Metric(note: 'need_baseline:have=3,need=14'),
   strain: Metric(value: 9.8, confidence: .6, tier: MetricTier.estimate),
   sleepMin: Metric(
-      value: 401, unit: 'min', confidence: .8, tier: MetricTier.estimate),
+    value: 401,
+    unit: 'min',
+    confidence: .8,
+    tier: MetricTier.estimate,
+  ),
 );
 
 /// Nothing measured, three different reasons: one the pipeline named, one it
@@ -119,7 +133,11 @@ const _ringsHeldOver = HomeData(
   readiness: Metric(value: 41, confidence: .6, tier: MetricTier.estimate),
   strain: Metric(value: 3.1, confidence: .6, tier: MetricTier.estimate),
   sleepMin: Metric(
-      value: 322, unit: 'min', confidence: .8, tier: MetricTier.estimate),
+    value: 322,
+    unit: 'min',
+    confidence: .8,
+    tier: MetricTier.estimate,
+  ),
 );
 
 /// Newest first, the shape `availableDays()` returns. Today leads it so the
@@ -141,141 +159,258 @@ const _night = <SleepStage>[
 ];
 
 /// Everything, in the order the gallery lists it.
-Map<String, Widget> galleryCases() => {...goldenCases(), ...extraCases()};
+Map<String, Widget> galleryCases() => {
+  'InputSheet': SizedBox(
+    height: 320,
+    child: InputSheet(
+      children: [
+        Text('Food details', style: F.head),
+        const SizedBox(height: S.x3),
+        const TextField(
+          decoration: InputDecoration(labelText: 'Amount', hintText: '2.5'),
+        ),
+        const SizedBox(height: S.x3),
+        Text('Swipe down or close to cancel.', style: F.cap),
+      ],
+    ),
+  ),
+  ...goldenCases(),
+  ...extraCases(),
+};
 
 /// The cases the goldens photograph. Named separately from [extraCases] only
 /// because a PNG per case per theme per scale is a file somebody has to
 /// review — see the note at the bottom of the golden test.
 Map<String, Widget> goldenCases() => {
-      // The one number the whole app is judged by, and the picture the app
-      // leaves someone else's phone. Both are photographed rather than merely
-      // swept: they are the two components a regression would be noticed in
-      // last and cost the most.
-      'rings': const RingTrio(d: _ringsMeasured),
-      // The two states that decide whether the trio is honest, in one picture:
-      // recovery still filling its baseline (progress, not a bad score), and a
-      // real duration with no computed need to draw it against.
-      'rings_calibrating': const RingTrio(d: _ringsCalibrating),
-      // All three empty. Each one says the absence in words where the number
-      // goes and carries the PIPELINE'S reason on the row that opens the
-      // screen which can say more — including the one absence nothing
-      // explained, which says exactly that.
-      'rings_absent': const RingTrio(d: _ringsAbsent),
-      // The ONE card, both faces: the map as the background, and a photograph
-      // as the background with the route dissolved into its corner.
-      'share_card': _shareCard(photo: false),
-      'share_card_photo': _shareCard(photo: true),
-      // The other destination. Same hero, same stats, a different shape —
-      // shot because a 9:16 card is where the column's arithmetic has the
-      // most room to go wrong, not because it is a different design.
-      'share_card_story': _shareCard(photo: false, format: PosterFormat.story),
-      'signal': const SignalCard(
-          LucideIcons.heartPulse, C.blue, 'Resting heart rate', '52',
-          unit: 'bpm', sub: '4 BELOW YOUR BASELINE'),
-      // A REALISTIC value, not two characters. Every card below used to be
-      // shot with '52' / '38 min' / '+6', and the 2.0x tier passed because of
-      // it: with a duration or a thousands separator in the same slot, six
-      // components overflowed at the very scale the goldens claimed to cover.
-      'progress': const ProgressCard(
-          'Time asleep', '1h 38m', 'of 2h 00m', .63, C.domMove,
-          icon: LucideIcons.footprints),
-      'trend': TrendCard('Time asleep', '7h 42m', 'last night', '+38m',
-          'vs 14-day baseline', _series, C.green,
-          up: true),
-      'insight': const InsightCard(
-        'Your sleep debt cleared overnight',
-        'Seven hours forty, the longest this week, and your heart rate '
-            'settled forty minutes earlier than usual.',
-        action: 'See the night',
+  // The one number the whole app is judged by, and the picture the app
+  // leaves someone else's phone. Both are photographed rather than merely
+  // swept: they are the two components a regression would be noticed in
+  // last and cost the most.
+  'rings': const RingTrio(d: _ringsMeasured),
+  // The two states that decide whether the trio is honest, in one picture:
+  // recovery still filling its baseline (progress, not a bad score), and a
+  // real duration with no computed need to draw it against.
+  'rings_calibrating': const RingTrio(d: _ringsCalibrating),
+  // All three empty. Each one says the absence in words where the number
+  // goes and carries the PIPELINE'S reason on the row that opens the
+  // screen which can say more — including the one absence nothing
+  // explained, which says exactly that.
+  'rings_absent': const RingTrio(d: _ringsAbsent),
+  // The ONE card, both faces: the map as the background, and a photograph
+  // as the background with the route dissolved into its corner.
+  'share_card': _shareCard(photo: false),
+  'share_card_photo': _shareCard(photo: true),
+  // The other destination. Same hero, same stats, a different shape —
+  // shot because a 9:16 card is where the column's arithmetic has the
+  // most room to go wrong, not because it is a different design.
+  'share_card_story': _shareCard(photo: false, format: PosterFormat.story),
+  'signal': const SignalCard(
+    LucideIcons.heartPulse,
+    C.blue,
+    'Resting heart rate',
+    '52',
+    unit: 'bpm',
+    sub: '4 BELOW YOUR BASELINE',
+  ),
+  // A REALISTIC value, not two characters. Every card below used to be
+  // shot with '52' / '38 min' / '+6', and the 2.0x tier passed because of
+  // it: with a duration or a thousands separator in the same slot, six
+  // components overflowed at the very scale the goldens claimed to cover.
+  'progress': const ProgressCard(
+    'Time asleep',
+    '1h 38m',
+    'of 2h 00m',
+    .63,
+    C.domMove,
+    icon: LucideIcons.footprints,
+  ),
+  'trend': TrendCard(
+    'Time asleep',
+    '7h 42m',
+    'last night',
+    '+38m',
+    'vs 14-day baseline',
+    _series,
+    C.green,
+    up: true,
+  ),
+  'insight': const InsightCard(
+    'Your sleep debt cleared overnight',
+    'Seven hours forty, the longest this week, and your heart rate '
+        'settled forty minutes earlier than usual.',
+    action: 'See the night',
+  ),
+  'action': const ActionCard(
+    'Charge the strap',
+    '18% remaining',
+    'Remind me',
+    LucideIcons.batteryLow,
+    C.orange,
+  ),
+  'status': const StatusCard(
+    'No respiratory rate last night',
+    'The strap was off your wrist between 01:10 and 06:40, so there was '
+        'nothing to measure.',
+    fix: 'How wear position affects this',
+  ),
+  'deep_dive': DeepDiveCard(
+    'Heart rate variability',
+    '7h 42m',
+    'ms',
+    'Open the full night',
+    C.purple,
+    preview: SizedBox(
+      height: 48,
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: LineChart(_series, C.purple),
       ),
-      'action': const ActionCard('Charge the strap', '18% remaining',
-          'Remind me', LucideIcons.batteryLow, C.orange),
-      'status': const StatusCard(
-        'No respiratory rate last night',
-        'The strap was off your wrist between 01:10 and 06:40, so there was '
-            'nothing to measure.',
-        fix: 'How wear position affects this',
+    ),
+  ),
+  'metric_row': const Column(
+    children: [
+      // The trailing states, in order: good news up, bad news up, bad news
+      // DOWN (the arrow that no fixture used to reach), a move inside its
+      // own noise, and a series with no basis for a direction (which draws
+      // nothing rather than a flat arrow that would read as a measured "no
+      // change").
+      MetricRow(
+        LucideIcons.activity,
+        C.green,
+        'HRV',
+        '64',
+        unit: 'ms',
+        series: _rising,
+        rising: Rising.good,
       ),
-      'deep_dive': DeepDiveCard('Heart rate variability', '7h 42m', 'ms',
-          'Open the full night', C.purple,
-          preview: SizedBox(
-            height: 48,
-            child: CustomPaint(
-                size: Size.infinite, painter: LineChart(_series, C.purple)),
-          )),
-      'metric_row': const Column(children: [
-        // The trailing states, in order: good news up, bad news up, bad news
-        // DOWN (the arrow that no fixture used to reach), a move inside its
-        // own noise, and a series with no basis for a direction (which draws
-        // nothing rather than a flat arrow that would read as a measured "no
-        // change").
-        MetricRow(LucideIcons.activity, C.green, 'HRV', '64',
-            unit: 'ms', series: _rising, rising: Rising.good),
-        MetricRow(LucideIcons.heart, C.red, 'Resting heart rate', '58',
-            unit: 'bpm', series: _rising, rising: Rising.bad),
-        MetricRow(LucideIcons.moon, C.indigo, 'Sleep efficiency', '84',
-            unit: '%', series: _falling, rising: Rising.good),
-        MetricRow(LucideIcons.thermometer, C.orange, 'Skin temperature', '+0.3',
-            sub: 'RELATIVE TO BASELINE', unit: '°', series: _rising),
-        MetricRow(LucideIcons.brain, C.purple, 'Stress', '31',
-            unit: '/100', series: _flat, rising: Rising.bad),
-        MetricRow(LucideIcons.wind, C.teal, 'Respiratory rate', '14.2',
-            unit: 'br/min', series: _tooShort),
-        // A long name, a thousands-separated value and a word in the trailing
-        // slot — 'ON TRACK' needs 92 pt at 1.0x and was clipped inside a fixed
-        // 52 pt box before any scaling at all.
-        MetricRow(LucideIcons.flame, C.orange, 'Active energy burned', '2,310',
-            unit: 'kcal', status: 'ON TRACK'),
-      ]),
-      'inline_metrics': const InlineMetrics([
-        ('ASLEEP', '7h 40m', C.blue),
-        ('EFFICIENCY', '91%', C.green),
-        ('AWAKE', '22m', C.orange),
-      ]),
-      'recommendation': const Recommendation(
-        'Keep it easy today',
-        'HRV is six milliseconds below your baseline and resting heart rate '
-            'is up three — the same pattern as the day before your last cold.',
-        'See what changed',
+      MetricRow(
+        LucideIcons.heart,
+        C.red,
+        'Resting heart rate',
+        '58',
+        unit: 'bpm',
+        series: _rising,
+        rising: Rising.bad,
       ),
-      'goal_trajectory': const GoalTrajectory(
-          'Weight', '78.4 kg', '75 kg', '0.3 kg per week', .62, C.teal),
-      'observation': const Observation(
-        'Your resting heart rate has risen on six of the last seven nights',
-        'From 51 to 58 bpm, alongside a 0.4° skin-temperature rise.',
-        advice: 'Worth mentioning if it continues past a week.',
+      MetricRow(
+        LucideIcons.moon,
+        C.indigo,
+        'Sleep efficiency',
+        '84',
+        unit: '%',
+        series: _falling,
+        rising: Rising.good,
       ),
-      'consistency': const Consistency(
-          18, 24, 'Nights with a full sleep record', C.domHealth),
-      'pill_row': const Wrap(spacing: S.x2, runSpacing: S.x2, children: [
-        Pill('Estimated', C.yellow, icon: LucideIcons.circleDashed),
-        Pill('Relative', C.purple),
-      ]),
-      'big_button': const Column(children: [
-        BigButton('Start workout', icon: LucideIcons.play, color: C.domMove),
-        SizedBox(height: S.x3),
-        BigButton('Not now', color: C.domMove, soft: true),
-      ]),
-      'sub_tabs': SubTabs(
-          const ['Today', 'Sleep', 'Recovery', 'Strain'], 1, (_) {},
-          color: C.domHealth),
-      'nav_bar': const NavBar('Last night', sub: 'MON 14 AUG'),
-      // The stepper every single-day screen wears. Shot mid-history, where
-      // both arrows are live and the middle opens the calendar — the state a
-      // user spends all their time in once there is more than a week on disk.
-      'day_nav': DayNav(
-          day: _navDays[2], days: _navDays, onDay: (_) {}),
-      // The newest day: forward is dead, and the label reads Today rather than
-      // a date. Both halves of that are the honesty — there is no day after
-      // this one, and saying so beats a live arrow that does nothing.
-      'day_nav_today': DayNav(
-          day: _navDays.first, days: _navDays, onDay: (_) {}),
-      'section': const Section('Recovery', StatusCard('Nothing yet today',
-          'The first sync of the day has not landed.'),
-          action: 'History'),
-      ..._chartCases(),
-      ..._nutritionAndWellnessCases(),
-    };
+      MetricRow(
+        LucideIcons.thermometer,
+        C.orange,
+        'Skin temperature',
+        '+0.3',
+        sub: 'RELATIVE TO BASELINE',
+        unit: '°',
+        series: _rising,
+      ),
+      MetricRow(
+        LucideIcons.brain,
+        C.purple,
+        'Stress',
+        '31',
+        unit: '/100',
+        series: _flat,
+        rising: Rising.bad,
+      ),
+      MetricRow(
+        LucideIcons.wind,
+        C.teal,
+        'Respiratory rate',
+        '14.2',
+        unit: 'br/min',
+        series: _tooShort,
+      ),
+      // A long name, a thousands-separated value and a word in the trailing
+      // slot — 'ON TRACK' needs 92 pt at 1.0x and was clipped inside a fixed
+      // 52 pt box before any scaling at all.
+      MetricRow(
+        LucideIcons.flame,
+        C.orange,
+        'Active energy burned',
+        '2,310',
+        unit: 'kcal',
+        status: 'ON TRACK',
+      ),
+    ],
+  ),
+  'inline_metrics': const InlineMetrics([
+    ('ASLEEP', '7h 40m', C.blue),
+    ('EFFICIENCY', '91%', C.green),
+    ('AWAKE', '22m', C.orange),
+  ]),
+  'recommendation': const Recommendation(
+    'Keep it easy today',
+    'HRV is six milliseconds below your baseline and resting heart rate '
+        'is up three — the same pattern as the day before your last cold.',
+    'See what changed',
+  ),
+  'goal_trajectory': const GoalTrajectory(
+    'Weight',
+    '78.4 kg',
+    '75 kg',
+    '0.3 kg per week',
+    .62,
+    C.teal,
+  ),
+  'observation': const Observation(
+    'Your resting heart rate has risen on six of the last seven nights',
+    'From 51 to 58 bpm, alongside a 0.4° skin-temperature rise.',
+    advice: 'Worth mentioning if it continues past a week.',
+  ),
+  'consistency': const Consistency(
+    18,
+    24,
+    'Nights with a full sleep record',
+    C.domHealth,
+  ),
+  'pill_row': const Wrap(
+    spacing: S.x2,
+    runSpacing: S.x2,
+    children: [
+      Pill('Estimated', C.yellow, icon: LucideIcons.circleDashed),
+      Pill('Relative', C.purple),
+    ],
+  ),
+  'big_button': const Column(
+    children: [
+      BigButton('Start workout', icon: LucideIcons.play, color: C.domMove),
+      SizedBox(height: S.x3),
+      BigButton('Not now', color: C.domMove, soft: true),
+    ],
+  ),
+  'sub_tabs': SubTabs(
+    const ['Today', 'Sleep', 'Recovery', 'Strain'],
+    1,
+    (_) {},
+    color: C.domHealth,
+  ),
+  'nav_bar': const NavBar('Last night', sub: 'MON 14 AUG'),
+  // The stepper every single-day screen wears. Shot mid-history, where
+  // both arrows are live and the middle opens the calendar — the state a
+  // user spends all their time in once there is more than a week on disk.
+  'day_nav': DayNav(day: _navDays[2], days: _navDays, onDay: (_) {}),
+  // The newest day: forward is dead, and the label reads Today rather than
+  // a date. Both halves of that are the honesty — there is no day after
+  // this one, and saying so beats a live arrow that does nothing.
+  'day_nav_today': DayNav(day: _navDays.first, days: _navDays, onDay: (_) {}),
+  'section': const Section(
+    'Recovery',
+    StatusCard(
+      'Nothing yet today',
+      'The first sync of the day has not landed.',
+    ),
+    action: 'History',
+  ),
+  ..._chartCases(),
+  ..._nutritionAndWellnessCases(),
+};
 
 /// Charts, framed. Every one of these is captured with the thing that was
 /// missing before: a unit in the header, numbers on the y axis, labels under
@@ -283,100 +418,132 @@ Map<String, Widget> goldenCases() => {
 /// sentence where the axis would have been.
 Map<String, Widget> _chartCases() {
   // 40…80 bpm, deterministic.
-  final rhr = List<double>.generate(30, (i) => 52 + (i * 13 % 17) - (i % 4) * 1.0);
-  final minutes = List<double>.generate(7, (i) => 380 + (i * 47 % 90).toDouble());
+  final rhr = List<double>.generate(
+    30,
+    (i) => 52 + (i * 13 % 17) - (i % 4) * 1.0,
+  );
+  final minutes = List<double>.generate(
+    7,
+    (i) => 380 + (i * 47 % 90).toDouble(),
+  );
   // A `Builder`, because a painter's palette is now solved against the surface
   // it lands on — the same case has to draw different ink in the two themes,
   // and this map is built once and shot in both.
   return {
-    'chart_line': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Resting heart rate',
-          unit: 'bpm',
-          yAxis: AxisSpec.of(rhr, floor: 40),
-          xLabels: const ['30 Jul', '14 Aug', 'Today'],
-          footnote: 'Your usual range is 52–64 bpm.',
-          series: rhr,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: LineChart(rhr, p.on(C.blue),
-                axis: AxisSpec.of(rhr, floor: 40), dots: true),
+    'chart_line': Builder(
+      builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Resting heart rate',
+            unit: 'bpm',
+            yAxis: AxisSpec.of(rhr, floor: 40),
+            xLabels: const ['30 Jul', '14 Aug', 'Today'],
+            footnote: 'Your usual range is 52–64 bpm.',
+            series: rhr,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(
+                rhr,
+                p.on(C.blue),
+                axis: AxisSpec.of(rhr, floor: 40),
+                dots: true,
+              ),
+            ),
           ),
-        ),
-      );
-    }),
+        );
+      },
+    ),
     // The same chart with a release boundary on it. `getChart` has carried
     // `algo_breaks` all along and no screen read it, so a trend drew straight
     // through the day the numbers either side stopped being comparable.
-    'chart_line_algo_break': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Readiness',
-          unit: 'score',
-          yAxis: AxisSpec.of(rhr, floor: 40),
-          xLabels: const ['30 Jul', '14 Aug', 'Today'],
-          xMarks: const [.55],
-          footnote: 'The dotted line is a change in how these days were '
-              'computed. Readings either side of it came from different '
-              'versions.',
-          series: rhr,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: LineChart(rhr, p.on(C.green),
-                axis: AxisSpec.of(rhr, floor: 40), dots: true),
-          ),
-        ),
-      );
-    }),
-    'chart_bars': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Time asleep',
-          unit: 'per night',
-          height: 110,
-          yAxis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120),
-          xLabels: const ['Mon', 'Thu', 'Sun'],
-          series: minutes,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: Bars(minutes, p.on(C.domHealth),
-                axis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120)),
-          ),
-        ),
-      );
-    }),
-    'chart_hypnogram': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Last night',
-          unit: 'sleep stages',
-          height: 96,
-          xLabels: const ['23:10', '03:00', '06:40'],
-          legend: Hypnogram.legend(p),
-          footnote: 'Deep sleep is inferred from heart-rate flatness.',
-          child: CustomPaint(size: Size.infinite, painter: Hypnogram(_night, p)),
-        ),
-      );
-    }),
-    'chart_zones': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Time in heart-rate zones',
-          unit: 'share of the session',
-          height: 28,
-          legend: ZoneBar.legend(p),
-          child: CustomPaint(
+    'chart_line_algo_break': Builder(
+      builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Readiness',
+            unit: 'score',
+            yAxis: AxisSpec.of(rhr, floor: 40),
+            xLabels: const ['30 Jul', '14 Aug', 'Today'],
+            xMarks: const [.55],
+            footnote:
+                'The dotted line is a change in how these days were '
+                'computed. Readings either side of it came from different '
+                'versions.',
+            series: rhr,
+            child: CustomPaint(
               size: Size.infinite,
-              painter: ZoneBar(const [.18, .34, .28, .15, .05], p)),
-        ),
-      );
-    }),
+              painter: LineChart(
+                rhr,
+                p.on(C.green),
+                axis: AxisSpec.of(rhr, floor: 40),
+                dots: true,
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+    'chart_bars': Builder(
+      builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Time asleep',
+            unit: 'per night',
+            height: 110,
+            yAxis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120),
+            xLabels: const ['Mon', 'Thu', 'Sun'],
+            series: minutes,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: Bars(
+                minutes,
+                p.on(C.domHealth),
+                axis: AxisSpec.of(minutes, floor: 0, format: axisHm, step: 120),
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+    'chart_hypnogram': Builder(
+      builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Last night',
+            unit: 'sleep stages',
+            height: 96,
+            xLabels: const ['23:10', '03:00', '06:40'],
+            legend: Hypnogram.legend(p),
+            footnote: 'Deep sleep is inferred from heart-rate flatness.',
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: Hypnogram(_night, p),
+            ),
+          ),
+        );
+      },
+    ),
+    'chart_zones': Builder(
+      builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Time in heart-rate zones',
+            unit: 'share of the session',
+            height: 28,
+            legend: ZoneBar.legend(p),
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: ZoneBar(const [.18, .34, .28, .15, .05], p),
+            ),
+          ),
+        );
+      },
+    ),
     'chart_empty': const Surface(
       child: ChartFrame(
         title: 'Respiratory rate',
@@ -396,17 +563,22 @@ Map<String, Widget> _chartCases() {
 /// that has not come due yet.
 Map<String, Widget> _nutritionAndWellnessCases() {
   const bare = FoodEntry(
-      id: 'a', date: '2026-08-14', meal: 'dinner', label: 'Dinner');
+    id: 'a',
+    date: '2026-08-14',
+    meal: 'dinner',
+    label: 'Dinner',
+  );
   const known = FoodEntry(
-      id: 'b',
-      date: '2026-08-14',
-      meal: 'breakfast',
-      label: 'Porridge and berries',
-      kcal: 420,
-      proteinG: 14,
-      carbsG: 62,
-      fatG: 9,
-      confirmed: true);
+    id: 'b',
+    date: '2026-08-14',
+    meal: 'breakfast',
+    label: 'Porridge and berries',
+    kcal: 420,
+    proteinG: 14,
+    carbsG: 62,
+    fatG: 9,
+    confirmed: true,
+  );
   return {
     // Calories left against a typed goal; exercise never added back.
     'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
@@ -414,44 +586,91 @@ Map<String, Widget> _nutritionAndWellnessCases() {
     'calorie_card_no_goal': const CalorieCard(eaten: 820, goal: null),
     'macro_card': MacroCard(
       day: rollupDay('2026-08-14', const [known, bare], today: '2026-08-15'),
-      profile: const {'protein_target': 150, 'carbs_target': 220, 'fat_target': 60},
+      profile: const {
+        'protein_target': 150,
+        'carbs_target': 220,
+        'fat_target': 60,
+      },
     ),
-    'meal_section': Column(children: [
-      MealSection(meal: 'breakfast', entries: const [known], onAdd: () {}),
-      MealSection(meal: 'dinner', entries: const [], onAdd: () {}),
-    ]),
+    'meal_section': Column(
+      children: [
+        MealSection(meal: 'breakfast', entries: const [known], onAdd: () {}),
+        MealSection(meal: 'dinner', entries: const [], onAdd: () {}),
+      ],
+    ),
     'pick_row': const Surface(
-        pad: EdgeInsets.symmetric(horizontal: S.x4),
-        child: PickRow('Oats', 'per 100 g: 380 kcal · P 13.0 · C 66.0')),
+      pad: EdgeInsets.symmetric(horizontal: S.x4),
+      child: PickRow('Oats', 'per 100 g: 380 kcal · P 13.0 · C 66.0'),
+    ),
     'food_row': const Surface(
-        pad: EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
+      pad: EdgeInsets.symmetric(horizontal: S.x4),
+      child: Column(
+        children: [
           FoodRow(entry: known, trailing: LucideIcons.circlePlus),
           FoodRow(entry: bare),
-        ])),
+        ],
+      ),
+    ),
     // `.preview`, because the gallery has no band and no Provider. The numbers
     // are a fixture and are shaped like one — a resting wobble, not a workout.
-    'live_hr_card': const LiveHrCard.preview(hr: 68, trace: [
-      64, 65, 65, 66, 67, 66, 65, 66, 68, 69, 70, 69, 68, 67, 66, 66, 67, 68,
-      69, 68, 67, 67, 68, 69, 70, 71, 70, 69, 68, 68,
-    ]),
+    'live_hr_card': const LiveHrCard.preview(
+      hr: 68,
+      trace: [
+        64,
+        65,
+        65,
+        66,
+        67,
+        66,
+        65,
+        66,
+        68,
+        69,
+        70,
+        69,
+        68,
+        67,
+        66,
+        66,
+        67,
+        68,
+        69,
+        68,
+        67,
+        67,
+        68,
+        69,
+        70,
+        71,
+        70,
+        69,
+        68,
+        68,
+      ],
+    ),
     'mood_picker': MoodPicker(value: 4, onChanged: (_) {}),
     'mood_picker_blank': MoodPicker(onChanged: (_) {}),
     'field_stepper': Surface(
-        child: Column(children: [
+      child: Column(
+        children: [
           FieldStepper(
-              spec: kJournalFieldsByKey['water_ml']!,
-              value: 1500,
-              onChanged: (_) {}),
+            spec: kJournalFieldsByKey['water_ml']!,
+            value: 1500,
+            onChanged: (_) {},
+          ),
           FieldStepper(
-              spec: kJournalFieldsByKey['caffeine_mg']!,
-              value: null,
-              onChanged: (_) {}),
-        ])),
+            spec: kJournalFieldsByKey['caffeine_mg']!,
+            value: null,
+            onChanged: (_) {},
+          ),
+        ],
+      ),
+    ),
     'text_field': OsTextField(
-        controller: TextEditingController(text: 'Slept badly, big lunch.'),
-        label: 'Anything else',
-        lines: 3),
+      controller: TextEditingController(text: 'Slept badly, big lunch.'),
+      label: 'Anything else',
+      lines: 3,
+    ),
   };
 }
 
@@ -461,9 +680,14 @@ Map<String, Widget> _nutritionAndWellnessCases() {
 /// style has something to draw: a route, splits, a heart-rate curve WITH a
 /// dropout in it, and elevation.
 final _finished = ActivityResult(
-  const Activity('Trail running', LucideIcons.mountain, C.green,
-      Track.distance, 10.5,
-      gps: true),
+  const Activity(
+    'Trail running',
+    LucideIcons.mountain,
+    C.green,
+    Track.distance,
+    10.5,
+    gps: true,
+  ),
   // Fixed, never `DateTime.now()` — a gallery case that moves is a golden
   // that fails on a Tuesday.
   start: DateTime(2026, 8, 13, 18, 20),
@@ -499,8 +723,10 @@ final _finished = ActivityResult(
 /// and the route dissolves into the corner. Neither case here has a mosaic
 /// (see the note on 'poster'), so what these shoot is the no-basemap face of
 /// both, which is also what a user with no signal gets.
-Widget _shareCard({required bool photo, PosterFormat format = PosterFormat.post}) =>
-    PosterCard(_finished, photo: photo ? _flatPhoto : null, format: format);
+Widget _shareCard({
+  required bool photo,
+  PosterFormat format = PosterFormat.post,
+}) => PosterCard(_finished, photo: photo ? _flatPhoto : null, format: format);
 
 /// A four-pixel slab of colour, standing in for the user's photograph.
 ///
@@ -509,9 +735,12 @@ Widget _shareCard({required bool photo, PosterFormat format = PosterFormat.post}
 /// that needs the network is a gallery that fails on a plane. What the photo
 /// case has to show is the LAYOUT — the scrim over a real background and the
 /// route dissolving into the corner — and a flat slab shows both.
-final _flatPhoto = MemoryImage(base64Decode(
+final _flatPhoto = MemoryImage(
+  base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGNIyGuAIwbiOAAd'
-    'EhTheEnmewAAAABJRU5ErkJggg=='));
+    'EhTheEnmewAAAABJRU5ErkJggg==',
+  ),
+);
 
 /// A session that measured nothing but its own length — the grid prints the
 /// one stat it has rather than a row of blanks, and the hero falls back to
@@ -533,283 +762,328 @@ final _bare = ActivityResult(
 /// caller's job, and here the caller is a fixture.
 final _route = [
   for (var i = 0; i < 90; i++)
-    Offset(.5 + .38 * cos(i / 90 * 2 * pi),
-        .5 + .30 * sin(i / 90 * 2 * pi) * (1 - i / 260)),
+    Offset(
+      .5 + .38 * cos(i / 90 * 2 * pi),
+      .5 + .30 * sin(i / 90 * 2 * pi) * (1 - i / 260),
+    ),
 ];
 
 // A climb and a descent with a rough surface on it, not noise: an elevation
 // profile shaped like white noise is a reference picture nobody can tell a
 // broken painter from.
 final _metres = List<double>.generate(
-    120, (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0);
-final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
-    .clamp(1, 60)
-    .toDouble());
+  120,
+  (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0,
+);
+final _psd = List<double>.generate(
+  64,
+  (i) => (i < 20 ? 40 - i : 26 - i * .3).clamp(1, 60).toDouble(),
+);
 
 Map<String, Widget> extraCases() => {
-      // The edge treatment that tells a horizontal row it continues. Swept
-      // rather than photographed because the state worth seeing is the one a
-      // still cannot hold: it is ABSENT when the content fits, present when it
-      // does not, and gone again at the end of the scroll. Both halves are
-      // asserted in ui2_scroll_hint_test.
-      'scroll_hint': Builder(
-        builder: (c) => SizedBox(
-          height: MediaQuery.textScalerOf(c).scale(S.tap),
-          child: ScrollHint(
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: const [
-                Pill('Mind', C.domMind),
-                SizedBox(width: S.x2),
-                Pill('Recovery', C.domMind),
-                SizedBox(width: S.x2),
-                Pill('Habits', C.domMind),
-                SizedBox(width: S.x2),
-                Pill('Medication', C.domMind),
-                SizedBox(width: S.x2),
-                Pill('Cycle', C.domMind),
-              ],
-            ),
-          ),
+  // The edge treatment that tells a horizontal row it continues. Swept
+  // rather than photographed because the state worth seeing is the one a
+  // still cannot hold: it is ABSENT when the content fits, present when it
+  // does not, and gone again at the end of the scroll. Both halves are
+  // asserted in ui2_scroll_hint_test.
+  'scroll_hint': Builder(
+    builder: (c) => SizedBox(
+      height: MediaQuery.textScalerOf(c).scale(S.tap),
+      child: ScrollHint(
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: const [
+            Pill('Mind', C.domMind),
+            SizedBox(width: S.x2),
+            Pill('Recovery', C.domMind),
+            SizedBox(width: S.x2),
+            Pill('Habits', C.domMind),
+            SizedBox(width: S.x2),
+            Pill('Medication', C.domMind),
+            SizedBox(width: S.x2),
+            Pill('Cycle', C.domMind),
+          ],
         ),
       ),
-      // WHAT CHARGED AND DRAINED YOU, taken apart. Swept rather than
-      // photographed because the interesting cases are the ones a golden
-      // cannot show: a driver that moved but stayed inside its own spread, and
-      // one that could not be used at all. Both have to render as neither
-      // helping nor holding you back — a row under "what helped" reading
-      // `+0.0` is a small lie, and skin temperature is a raw ADC so its
-      // NUMBERS are suppressed as well as its chart.
-      'driver_breakdown': DriverBreakdown(driverFacts(
-        breakdown: const [
-          {
-            'label': 'hrv',
-            'used': true,
-            'weight': 0.40,
-            'weighted_contribution': -6.2,
-            'past_mdc': true,
-          },
-          {
-            'label': 'rhr',
-            'used': true,
-            'weight': 0.30,
-            'weighted_contribution': 3.1,
-            'past_mdc': false,
-          },
-          {
-            'label': 'resp',
-            'used': false,
-            'weight': 0.15,
-            'note': 'need_baseline:have=2,need=7',
-          },
-          {
-            'label': 'temp',
-            'used': true,
-            'weight': 0.15,
-            'weighted_contribution': -1.4,
-            'past_mdc': true,
-          },
-        ],
-        baselines: const {
-          'hrv': {
-            'value': 41.2,
-            'baseline': 58.4,
-            'spread': 6.1,
-            'delta': -17.2,
-            'mdc_multiples': -2.3,
-          },
-          'resting_hr': {
-            'value': 54.0,
-            'baseline': 56.8,
-            'spread': 2.2,
-            'delta': -2.8,
-            'mdc_multiples': -0.7,
-          },
-          // Deliberately present and deliberately not printed — see
-          // DriverFacts.numeric.
-          'skin_temp': {
-            'value': 32411.0,
-            'baseline': 32380.0,
-            'spread': 12.0,
-            'delta': 31.0,
-            'mdc_multiples': 1.9,
-          },
+    ),
+  ),
+  // WHAT CHARGED AND DRAINED YOU, taken apart. Swept rather than
+  // photographed because the interesting cases are the ones a golden
+  // cannot show: a driver that moved but stayed inside its own spread, and
+  // one that could not be used at all. Both have to render as neither
+  // helping nor holding you back — a row under "what helped" reading
+  // `+0.0` is a small lie, and skin temperature is a raw ADC so its
+  // NUMBERS are suppressed as well as its chart.
+  'driver_breakdown': DriverBreakdown(
+    driverFacts(
+      breakdown: const [
+        {
+          'label': 'hrv',
+          'used': true,
+          'weight': 0.40,
+          'weighted_contribution': -6.2,
+          'past_mdc': true,
         },
-      )),
-      // Swept rather than photographed: it is the measured trio plus one
-      // sentence. Two of the three rings are last night's and the third is
-      // today's, and the morning before the first sync is not a rare case.
-      'rings_held_over': const RingTrio(d: _ringsHeldOver),
-      // THE ABSENCE THAT KNOWS WHY. `wearGapWhy` reads the day's off-wrist
-      // stretches — written on every derive, read by nothing until now — and
-      // hands the card the reason as a measurement. Both rankings, because the
-      // rule is the whole feature: a sentence the screen made up is REPLACED
-      // by the one that was measured, and a reason the pipeline gave keeps its
-      // place with the gap added after it.
-      'status_wear_gap': StatusCard.forMetric('No sleep', Metric.empty,
-          why: 'No sleep period long enough to score was recorded.',
-          gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.')!,
-      // The three nap states, which are three different answers and must not
-      // read as one: a day with naps, a judged day that had none (a MEASURED
-      // zero, so it says None rather than a dash), and a day nothing could be
-      // said about at all.
-      'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
-          '1h 12m',
-          sub: '2 naps · Sunday, 16 August'),
-      'nap_row_none': const MetricRow(
-          LucideIcons.sun, C.indigo, 'Daytime sleep', 'None',
-          sub: 'None detected · Sunday, 16 August'),
-      'nap_unjudged': const StatusCard(
-        'No nap reading for Sunday, 16 August',
-        'Naps come off the same 1 Hz recording the rest of the day does, and '
-            'this day does not have enough of it.',
-        icon: LucideIcons.sun,
+        {
+          'label': 'rhr',
+          'used': true,
+          'weight': 0.30,
+          'weighted_contribution': 3.1,
+          'past_mdc': false,
+        },
+        {
+          'label': 'resp',
+          'used': false,
+          'weight': 0.15,
+          'note': 'need_baseline:have=2,need=7',
+        },
+        {
+          'label': 'temp',
+          'used': true,
+          'weight': 0.15,
+          'weighted_contribution': -1.4,
+          'past_mdc': true,
+        },
+      ],
+      baselines: const {
+        'hrv': {
+          'value': 41.2,
+          'baseline': 58.4,
+          'spread': 6.1,
+          'delta': -17.2,
+          'mdc_multiples': -2.3,
+        },
+        'resting_hr': {
+          'value': 54.0,
+          'baseline': 56.8,
+          'spread': 2.2,
+          'delta': -2.8,
+          'mdc_multiples': -0.7,
+        },
+        // Deliberately present and deliberately not printed — see
+        // DriverFacts.numeric.
+        'skin_temp': {
+          'value': 32411.0,
+          'baseline': 32380.0,
+          'spread': 12.0,
+          'delta': 31.0,
+          'mdc_multiples': 1.9,
+        },
+      },
+    ),
+  ),
+  // Swept rather than photographed: it is the measured trio plus one
+  // sentence. Two of the three rings are last night's and the third is
+  // today's, and the morning before the first sync is not a rare case.
+  'rings_held_over': const RingTrio(d: _ringsHeldOver),
+  // THE ABSENCE THAT KNOWS WHY. `wearGapWhy` reads the day's off-wrist
+  // stretches — written on every derive, read by nothing until now — and
+  // hands the card the reason as a measurement. Both rankings, because the
+  // rule is the whole feature: a sentence the screen made up is REPLACED
+  // by the one that was measured, and a reason the pipeline gave keeps its
+  // place with the gap added after it.
+  'status_wear_gap': StatusCard.forMetric(
+    'No sleep',
+    Metric.empty,
+    why: 'No sleep period long enough to score was recorded.',
+    gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.',
+  )!,
+  // The three nap states, which are three different answers and must not
+  // read as one: a day with naps, a judged day that had none (a MEASURED
+  // zero, so it says None rather than a dash), and a day nothing could be
+  // said about at all.
+  'nap_row': const MetricRow(
+    LucideIcons.sun,
+    C.indigo,
+    'Daytime sleep',
+    '1h 12m',
+    sub: '2 naps · Sunday, 16 August',
+  ),
+  'nap_row_none': const MetricRow(
+    LucideIcons.sun,
+    C.indigo,
+    'Daytime sleep',
+    'None',
+    sub: 'None detected · Sunday, 16 August',
+  ),
+  'nap_unjudged': const StatusCard(
+    'No nap reading for Sunday, 16 August',
+    'Naps come off the same 1 Hz recording the rest of the day does, and '
+        'this day does not have enough of it.',
+    icon: LucideIcons.sun,
+  ),
+  // A health watch in the log. Two accents across six detectors, not six:
+  // a colour per detector reads as a severity scale nobody calibrated.
+  'finding_row': const FindingRow(Finding(FindingKind.illness, '2026-08-16')),
+  'finding_row_plain': const FindingRow(
+    Finding(FindingKind.rhrShift, '2026-08-16', risen: true),
+  ),
+  'status_wear_gap_after_pipeline': StatusCard.forMetric(
+    'No respiratory rate',
+    const Metric(note: 'need_input:name=nn_beats,have=12,need=20'),
+    gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.',
+  )!,
+  'surface': Builder(
+    builder: (c) => Surface(
+      child: Text(
+        'The base card. Elevation, not outline — and the only surface a '
+        'component may sit on.',
+        style: F.body.copyWith(color: P.of(c).ink),
       ),
-      // A health watch in the log. Two accents across six detectors, not six:
-      // a colour per detector reads as a severity scale nobody calibrated.
-      'finding_row': const FindingRow(Finding(FindingKind.illness, '2026-08-16')),
-      'finding_row_plain':
-          const FindingRow(Finding(FindingKind.rhrShift, '2026-08-16', risen: true)),
-      'status_wear_gap_after_pipeline': StatusCard.forMetric(
-        'No respiratory rate',
-        const Metric(note: 'need_input:name=nn_beats,have=12,need=20'),
-        gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.',
-      )!,
-      'surface': Builder(
-        builder: (c) => Surface(
-          child: Text(
-            'The base card. Elevation, not outline — and the only surface a '
-            'component may sit on.',
-            style: F.body.copyWith(color: P.of(c).ink),
-          ),
-        ),
+    ),
+  ),
+  'pressable': Builder(
+    builder: (c) => Pressable(
+      onTap: () {},
+      semanticLabel: 'Open the full night',
+      child: Text(
+        'Open the full night',
+        style: F.body.copyWith(color: P.of(c).on(C.green)),
       ),
-      'pressable': Builder(
-        builder: (c) => Pressable(
-          onTap: () {},
-          semanticLabel: 'Open the full night',
-          child: Text('Open the full night',
-              style: F.body.copyWith(color: P.of(c).on(C.green))),
-        ),
-      ),
-      'screen_title': const ScreenTitle('Sleep and recovery',
-          trailing: Pill('Estimated', C.yellow)),
-      // Static on purpose: the gallery shows the control, and its position is
-      // a fixture like every other value here.
-      'scrubber': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Last night',
-            unit: 'sleep stages',
-            height: 96,
-            xLabels: const ['23:10', '03:00', '06:40'],
-            legend: Hypnogram.legend(p),
-            child: Scrubber(
-              value: .42,
-              onChanged: (_) {},
-              label: 'Hypnogram',
-              describe: (_) => '03:12, light sleep',
-              child:
-                  CustomPaint(size: Size.infinite, painter: Hypnogram(_night, p)),
-            ),
-          ),
-        );
-      }),
-      'chart_ring': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Readiness',
-            unit: 'out of 100',
-            height: 120,
-            footnote: 'Against your own 14-day baseline, not a population.',
-            child: CustomPaint(
-                size: Size.infinite,
-                painter: Ring(.72, p.on(C.green), p.track)),
-          ),
-        );
-      }),
-      'chart_macro_ring': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Protein',
-            unit: 'of 140 g',
-            height: 44,
-            child: CustomPaint(
-                size: Size.infinite,
-                painter: MacroRing(.48, p.on(C.orange), p.track)),
-          ),
-        );
-      }),
-      'chart_actogram': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Rest and activity by hour',
-            unit: 'last 28 days',
-            height: 120,
-            xLabels: const ['18 Jul', '1 Aug', 'Today'],
-            // A missing day is a null column, not a quiet one.
+    ),
+  ),
+  'screen_title': const ScreenTitle(
+    'Sleep and recovery',
+    trailing: Pill('Estimated', C.yellow),
+  ),
+  // Static on purpose: the gallery shows the control, and its position is
+  // a fixture like every other value here.
+  'scrubber': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Last night',
+          unit: 'sleep stages',
+          height: 96,
+          xLabels: const ['23:10', '03:00', '06:40'],
+          legend: Hypnogram.legend(p),
+          child: Scrubber(
+            value: .42,
+            onChanged: (_) {},
+            label: 'Hypnogram',
+            describe: (_) => '03:12, light sleep',
             child: CustomPaint(
               size: Size.infinite,
-              painter: Actogram([
-                for (var d = 0; d < 28; d++)
-                  d == 9 || d == 10
-                      ? null
-                      : [for (var h = 0; h < 24; h++) ((h + d) % 24) / 24],
-              ], p.on(C.domMove)),
+              painter: Hypnogram(_night, p),
             ),
           ),
-        );
-      }),
-      'chart_heatmap': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Nights with a full sleep record',
-            unit: 'last 12 weeks',
-            height: 96,
-            xLabels: const ['24 May', '19 Jul', 'This week'],
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: HeatMap([
+        ),
+      );
+    },
+  ),
+  'chart_ring': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Readiness',
+          unit: 'out of 100',
+          height: 120,
+          footnote: 'Against your own 14-day baseline, not a population.',
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: Ring(.72, p.on(C.green), p.track),
+          ),
+        ),
+      );
+    },
+  ),
+  'chart_macro_ring': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Protein',
+          unit: 'of 140 g',
+          height: 44,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: MacroRing(.48, p.on(C.orange), p.track),
+          ),
+        ),
+      );
+    },
+  ),
+  'chart_actogram': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Rest and activity by hour',
+          unit: 'last 28 days',
+          height: 120,
+          xLabels: const ['18 Jul', '1 Aug', 'Today'],
+          // A missing day is a null column, not a quiet one.
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: Actogram([
+              for (var d = 0; d < 28; d++)
+                d == 9 || d == 10
+                    ? null
+                    : [for (var h = 0; h < 24; h++) ((h + d) % 24) / 24],
+            ], p.on(C.domMove)),
+          ),
+        ),
+      );
+    },
+  ),
+  'chart_heatmap': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Nights with a full sleep record',
+          unit: 'last 12 weeks',
+          height: 96,
+          xLabels: const ['24 May', '19 Jul', 'This week'],
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: HeatMap(
+              [
                 for (var w = 0; w < 12; w++)
                   [
                     for (var d = 0; d < 7; d++)
                       (w * 7 + d) % 11 == 0 ? null : ((w + d) % 5) / 4,
                   ],
-              ], p.on(C.domHealth), p.track),
+              ],
+              p.on(C.domHealth),
+              p.track,
             ),
           ),
-        );
-      }),
-      'chart_spectrum': Builder(builder: (c) {
-        final p = P.of(c);
-        final painter = Spectrum(_psd, lf: p.on(C.blue), hf: p.on(C.purple));
-        return Surface(
-          child: ChartFrame(
-            title: 'Heart-rate variability spectrum',
-            unit: 'ms² per Hz',
-            height: 96,
-            legend: painter.legend,
-            footnote: 'Beat timing at 1 Hz is pulse-rate variability, not ECG.',
-            child: CustomPaint(size: Size.infinite, painter: painter),
-          ),
-        );
-      }),
-      'chart_night_stack': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Heart rate, movement and skin temperature',
-            unit: 'over one night',
-            height: 140,
-            xLabels: const ['23:10', '03:00', '06:40'],
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: NightStack([
+        ),
+      );
+    },
+  ),
+  'chart_spectrum': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      final painter = Spectrum(_psd, lf: p.on(C.blue), hf: p.on(C.purple));
+      return Surface(
+        child: ChartFrame(
+          title: 'Heart-rate variability spectrum',
+          unit: 'ms² per Hz',
+          height: 96,
+          legend: painter.legend,
+          footnote: 'Beat timing at 1 Hz is pulse-rate variability, not ECG.',
+          child: CustomPaint(size: Size.infinite, painter: painter),
+        ),
+      );
+    },
+  ),
+  'chart_night_stack': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Heart rate, movement and skin temperature',
+          unit: 'over one night',
+          height: 140,
+          xLabels: const ['23:10', '03:00', '06:40'],
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: NightStack(
+              [
                 [for (var i = 0; i < 96; i++) 52 + (i * 17 % 19) * 1.0],
                 [for (var i = 0; i < 96; i++) (i * 29 % 13) * 1.0],
                 // A lane with a gap in it — the honest shape of a night the
@@ -818,205 +1092,248 @@ Map<String, Widget> extraCases() => {
                   for (var i = 0; i < 96; i++)
                     i > 40 && i < 52 ? null : 33 + (i % 9) * .1,
                 ],
-              ], [p.on(C.red), p.on(C.domMove), p.on(C.orange)]),
+              ],
+              [p.on(C.red), p.on(C.domMove), p.on(C.orange)],
             ),
           ),
-        );
-      }),
-      'activity_route': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Thursday evening, along the canal',
-            unit: '8.4 km',
-            height: 160,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: RouteMap(_route,
-                  pace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
-                  slow: p.on(C.red),
-                  fast: p.on(C.green),
-                  pinStart: p.on(C.green),
-                  pinEnd: p.on(C.red),
-                  pinInk: p.inkOnFill),
+        ),
+      );
+    },
+  ),
+  'activity_route': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Thursday evening, along the canal',
+          unit: '8.4 km',
+          height: 160,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: RouteMap(
+              _route,
+              pace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
+              slow: p.on(C.red),
+              fast: p.on(C.green),
+              pinStart: p.on(C.green),
+              pinEnd: p.on(C.red),
+              pinInk: p.inkOnFill,
             ),
           ),
-        );
-      }),
-      'activity_elevation': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Elevation',
-            unit: 'm',
-            height: 110,
-            yAxis: AxisSpec.of(_metres, floor: 0),
-            xLabels: const ['Start', '4.2 km', '8.4 km'],
-            series: _metres,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: Elevation(_metres, p.on(C.teal),
-                  markerInk: p.inkOnFill, axis: AxisSpec.of(_metres, floor: 0)),
+        ),
+      );
+    },
+  ),
+  'activity_elevation': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Elevation',
+          unit: 'm',
+          height: 110,
+          yAxis: AxisSpec.of(_metres, floor: 0),
+          xLabels: const ['Start', '4.2 km', '8.4 km'],
+          series: _metres,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: Elevation(
+              _metres,
+              p.on(C.teal),
+              markerInk: p.inkOnFill,
+              axis: AxisSpec.of(_metres, floor: 0),
             ),
           ),
-        );
-      }),
-      'activity_lap_bars': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Laps',
-            unit: '50 m, fastest first',
-            height: 120,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: LapBars(const [1, .92, .88, .95, .71, .64],
-                  p.on(C.domHealth), p.track,
-                  done: 3),
+        ),
+      );
+    },
+  ),
+  'activity_lap_bars': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Laps',
+          unit: '50 m, fastest first',
+          height: 120,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: LapBars(
+              const [1, .92, .88, .95, .71, .64],
+              p.on(C.domHealth),
+              p.track,
+              done: 3,
             ),
           ),
-        );
-      }),
-      'activity_breath_ring': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Box breathing',
-            unit: 'four counts in',
-            height: 140,
-            child: CustomPaint(
-                size: Size.infinite,
-                painter: BreathRing(.55, p.on(C.domMind))),
+        ),
+      );
+    },
+  ),
+  'activity_breath_ring': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: ChartFrame(
+          title: 'Box breathing',
+          unit: 'four counts in',
+          height: 140,
+          child: CustomPaint(
+            size: Size.infinite,
+            painter: BreathRing(.55, p.on(C.domMind)),
           ),
-        );
-      }),
-      'activity_interval_ladder': Builder(builder: (c) {
-        final p = P.of(c);
-        final painter = IntervalLadder(const [
+        ),
+      );
+    },
+  ),
+  'activity_interval_ladder': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      final painter = IntervalLadder(
+        const [
           (work: .9, rest: .4),
           (work: .85, rest: .45),
           (work: .8, rest: .5),
           (work: .72, rest: .6),
           (work: .64, rest: .7),
-        ], p.on(C.orange), p.on(C.blue));
-        return Surface(
-          child: ChartFrame(
-            title: 'Work and rest, round by round',
-            unit: 'share of the hardest round',
-            height: 110,
-            legend: painter.legend,
-            child: CustomPaint(size: Size.infinite, painter: painter),
+        ],
+        p.on(C.orange),
+        p.on(C.blue),
+      );
+      return Surface(
+        child: ChartFrame(
+          title: 'Work and rest, round by round',
+          unit: 'share of the hardest round',
+          height: 110,
+          legend: painter.legend,
+          child: CustomPaint(size: Size.infinite, painter: painter),
+        ),
+      );
+    },
+  ),
+  'activity_pace_bar': Builder(
+    builder: (c) => Surface(
+      child: Column(
+        children: [
+          PaceBar(.78, P.of(c).on(C.domMove)),
+          const SizedBox(height: S.x2),
+          PaceBar(.21, P.of(c).on(C.domMove)),
+        ],
+      ),
+    ),
+  ),
+  // The finished-session stat block, in the three shapes it takes: a run
+  // (pace and the common three), a lift (the longest list any archetype
+  // prints, six rows deep), and a session that measured nothing but its
+  // own length — which is what a first workout without a band looks like,
+  // and is one row, not five rows of dashes.
+  'session_stats': SessionStats(_sessions['route']!),
+  'session_stats_strength': SessionStats(_sessions['strength']!),
+  'session_stats_bare': SessionStats(
+    ActivityResult(
+      activityByName('Walking')!,
+      start: DateTime(2026, 8, 16, 8, 0),
+      duration: Motion.tick * 1500,
+    ),
+  ),
+  // The same rows as a past session lists them, where absence is a word
+  // rather than a missing line — see `_HistoryRow._stats`.
+  'session_stats_history': Builder(
+    builder: (c) => Surface(
+      child: Column(
+        children: [
+          PosterStatRow(
+            icon: statIcon('Time'),
+            label: 'Time',
+            value: '1:02:14',
+            accent: P.of(c).on(C.domMove),
           ),
-        );
-      }),
-      'activity_pace_bar': Builder(
-        builder: (c) => Surface(
-          child: Column(children: [
-            PaceBar(.78, P.of(c).on(C.domMove)),
-            const SizedBox(height: S.x2),
-            PaceBar(.21, P.of(c).on(C.domMove)),
-          ]),
+          Divider(color: P.of(c).line, height: S.x5),
+          PosterStatRow(
+            icon: statIcon('Calories'),
+            label: 'Calories',
+            value: 'Not costed',
+            accent: P.of(c).on(C.domMove),
+          ),
+          Divider(color: P.of(c).line, height: S.x5),
+          PosterStatRow(
+            icon: statIcon('Max HR'),
+            label: 'Max HR',
+            value: 'No reading',
+            accent: P.of(c).on(C.domMove),
+          ),
+        ],
+      ),
+    ),
+  ),
+  ..._liveCases(),
+  ..._listCases(),
+  ..._onboardingCases(),
+  ..._stateCases(),
+  ..._shareCases(),
+  // No `mosaic`: a gallery that needs the network is a gallery that fails
+  // on a plane. This is the card's honest no-basemap face, which is also
+  // what a user with no signal gets.
+  'poster': PosterCard(_finished),
+  // A session that measured nothing but its own length: the grid prints
+  // the one stat it has rather than a row of blanks.
+  'poster_bare': PosterCard(_bare),
+  // The poster's stat row on its own, on a normal card — it takes its ink
+  // from the page when none is given, which is the whole reason it is not
+  // a private widget inside poster.dart.
+  'poster_stat_row': Surface(
+    child: Column(
+      children: [
+        const PosterStatRow(
+          icon: LucideIcons.gauge,
+          label: 'Pace',
+          value: '5:12',
+          unit: '/km',
+          accent: C.domMove,
         ),
-      ),
-      // The finished-session stat block, in the three shapes it takes: a run
-      // (pace and the common three), a lift (the longest list any archetype
-      // prints, six rows deep), and a session that measured nothing but its
-      // own length — which is what a first workout without a band looks like,
-      // and is one row, not five rows of dashes.
-      'session_stats': SessionStats(_sessions['route']!),
-      'session_stats_strength': SessionStats(_sessions['strength']!),
-      'session_stats_bare': SessionStats(ActivityResult(
-        activityByName('Walking')!,
-        start: DateTime(2026, 8, 16, 8, 0),
-        duration: Motion.tick * 1500,
-      )),
-      // The same rows as a past session lists them, where absence is a word
-      // rather than a missing line — see `_HistoryRow._stats`.
-      'session_stats_history': Builder(
-        builder: (c) => Surface(
-          child: Column(children: [
-            PosterStatRow(
-                icon: statIcon('Time'),
-                label: 'Time',
-                value: '1:02:14',
-                accent: P.of(c).on(C.domMove)),
-            Divider(color: P.of(c).line, height: S.x5),
-            PosterStatRow(
-                icon: statIcon('Calories'),
-                label: 'Calories',
-                value: 'Not costed',
-                accent: P.of(c).on(C.domMove)),
-            Divider(color: P.of(c).line, height: S.x5),
-            PosterStatRow(
-                icon: statIcon('Max HR'),
-                label: 'Max HR',
-                value: 'No reading',
-                accent: P.of(c).on(C.domMove)),
-          ]),
+        const SizedBox(height: S.x3),
+        const PosterStatRow(
+          icon: LucideIcons.flame,
+          label: 'Calories',
+          value: '2,310',
+          unit: 'kcal',
+          accent: C.orange,
         ),
-      ),
-      ..._liveCases(),
-      ..._listCases(),
-      ..._onboardingCases(),
-      ..._stateCases(),
-      ..._shareCases(),
-      // No `mosaic`: a gallery that needs the network is a gallery that fails
-      // on a plane. This is the card's honest no-basemap face, which is also
-      // what a user with no signal gets.
-      'poster': PosterCard(_finished),
-      // A session that measured nothing but its own length: the grid prints
-      // the one stat it has rather than a row of blanks.
-      'poster_bare': PosterCard(_bare),
-      // The poster's stat row on its own, on a normal card — it takes its ink
-      // from the page when none is given, which is the whole reason it is not
-      // a private widget inside poster.dart.
-      'poster_stat_row': Surface(
-        child: Column(children: [
-          const PosterStatRow(
-              icon: LucideIcons.gauge,
-              label: 'Pace',
-              value: '5:12',
-              unit: '/km',
-              accent: C.domMove),
-          const SizedBox(height: S.x3),
-          const PosterStatRow(
-              icon: LucideIcons.flame,
-              label: 'Calories',
-              value: '2,310',
-              unit: 'kcal',
-              accent: C.orange),
-          const SizedBox(height: S.x3),
-          // No unit, and the longest duration anyone will post.
-          const PosterStatRow(
-              icon: LucideIcons.timer,
-              label: 'Time',
-              value: '10h 24m 18s',
-              accent: C.domHealth),
-        ]),
-      ),
+        const SizedBox(height: S.x3),
+        // No unit, and the longest duration anyone will post.
+        const PosterStatRow(
+          icon: LucideIcons.timer,
+          label: 'Time',
+          value: '10h 24m 18s',
+          accent: C.domHealth,
+        ),
+      ],
+    ),
+  ),
 
-      // The rough-night card in all three states it can be in. Swept rather
-      // than photographed because what can break here is length: four moved
-      // measurements, four knowns and fourteen tag chips is the longest this
-      // card ever gets, and it is the 3.1x sweep that catches it.
-      //
-      // Not photographed for a second reason. A PNG of a card offering
-      // "alcohol" is a file in the repo that a reviewer meets out of context,
-      // and the whole design of this card is that nobody meets that vocabulary
-      // without asking for it.
-      'rough_night_invite': const RoughNightCard(night: _roughFull),
-      'rough_night_asking':
-          const RoughNightCard(night: _roughBare, ask: 'on'),
-      'rough_night_declined':
-          const RoughNightCard(night: _roughTwoSign, ask: 'never'),
-    };
+  // The rough-night card in all three states it can be in. Swept rather
+  // than photographed because what can break here is length: four moved
+  // measurements, four knowns and fourteen tag chips is the longest this
+  // card ever gets, and it is the 3.1x sweep that catches it.
+  //
+  // Not photographed for a second reason. A PNG of a card offering
+  // "alcohol" is a file in the repo that a reviewer meets out of context,
+  // and the whole design of this card is that nobody meets that vocabulary
+  // without asking for it.
+  'rough_night_invite': const RoughNightCard(night: _roughFull),
+  'rough_night_asking': const RoughNightCard(night: _roughBare, ask: 'on'),
+  'rough_night_declined': const RoughNightCard(
+    night: _roughTwoSign,
+    ask: 'never',
+  ),
+};
 
 /// The longest realistic night: every sign fired and every knowable known.
 const _roughFull = RoughNight(
   day: '2026-08-15',
   signs: 4,
   illnessFlagged: true,
-  descriptor: 'a rougher night than usual for you — your body worked harder '
+  descriptor:
+      'a rougher night than usual for you — your body worked harder '
       'overnight',
   moved: [
     'your resting heart rate ran higher',
@@ -1039,7 +1356,8 @@ const _roughFull = RoughNight(
 const _roughBare = RoughNight(
   day: '2026-08-15',
   signs: 2,
-  descriptor: 'a rougher night than usual for you — your body worked harder '
+  descriptor:
+      'a rougher night than usual for you — your body worked harder '
       'overnight',
   moved: ['your resting heart rate ran higher', 'your HRV ran lower'],
   knows: [],
@@ -1050,7 +1368,8 @@ const _roughBare = RoughNight(
 const _roughTwoSign = RoughNight(
   day: '2026-08-15',
   signs: 2,
-  descriptor: 'a rougher night than usual for you — your body worked harder '
+  descriptor:
+      'a rougher night than usual for you — your body worked harder '
       'overnight',
   moved: [
     'your HRV ran lower',
@@ -1067,77 +1386,128 @@ const _roughTwoSign = RoughNight(
 /// has data. A card is not in this design system until both of its faces are
 /// in here.
 Map<String, Widget> _stateCases() => {
-      'signal_absent': const SignalCard(
-          LucideIcons.wind, C.teal, 'Respiratory rate', '—',
-          sub: 'BEAT TIMING WAS TOO NOISY LAST NIGHT'),
-      'progress_over': const ProgressCard(
-          'Protein', '164 g', 'of 140 g', 1.17, C.orange,
-          icon: LucideIcons.beef),
-      // Down AND bad, which is the pairing the colour logic gets wrong: a
-      // falling number is not automatically a win.
-      'trend_down_bad': TrendCard('Heart-rate variability', '48', 'ms', '−13',
-          'vs 14-day baseline', _series, C.orange,
-          good: false),
-      // A gap in the middle of the series — the strap was off the wrist for
-      // three days, and the line must BREAK rather than interpolate across it.
-      'trend_with_gap': TrendCard(
-          'Resting heart rate',
-          '58',
-          'bpm',
-          '+4',
-          'vs 14-day baseline',
-          [for (var i = 0; i < 24; i++) i > 9 && i < 13 ? null : _series[i]],
-          C.red,
-          up: true,
-          good: false),
-      'insight_no_action': const InsightCard(
-        'You went to bed at the same time four nights running',
-        'That is the longest stretch since May, and your resting heart rate '
-            'fell on three of them.',
-      ),
-      'status_title_only': const StatusCard('Location is off',
-          '', fix: 'Allow location'),
-      'deep_dive_no_preview': const DeepDiveCard(
-          'Sleep debt', '2h 14m', 'owed', 'See the fortnight', C.indigo),
-      'goal_trajectory_gaining': const GoalTrajectory(
-          'Weight', '71.2 kg', '76 kg', '0.25 kg per week', .34, C.teal,
-          rateDown: false),
-      'observation_no_advice': const Observation(
-        'Your skin temperature has been above baseline for three nights',
-        '+0.6° against your own 28-night mean.',
-      ),
-      'consistency_none': const Consistency(
-          0, 7, 'Nights with a full sleep record', C.domHealth),
-      'consistency_full': const Consistency(
-          7, 7, 'Nights with a full sleep record', C.domHealth),
-      // Every accent, so a palette change is one picture rather than a hunt.
-      'pill_every_colour': const Wrap(spacing: S.x2, runSpacing: S.x2, children: [
-        Pill('Measured', C.green),
-        Pill('Estimated', C.yellow, icon: LucideIcons.circleDashed),
-        Pill('Relative', C.purple),
-        Pill('Private', C.n500, icon: LucideIcons.lock),
-        Pill('Beta', C.blue),
-        Pill('Needs attention', C.orange),
-        Pill('Not scored', C.red),
-      ]),
-      'big_button_no_icon': const BigButton('Save the night', color: C.domHealth),
-      'sub_tabs_five': SubTabs(
-          const ['Today', '7 days', '30 days', '6 months', 'Year'], 0, (_) {},
-          color: C.domHealth),
-      'nav_bar_no_sub': const NavBar('Component gallery'),
-      // The oldest day on disk — back is dead, forward is live.
-      'day_nav_oldest': DayNav(
-          day: _navDays.last, days: _navDays, onDay: (_) {}),
-      'section_no_action': const Section(
-          'Recovery', StatusCard('Nothing yet today', '')),
-      'inline_metrics_two': const InlineMetrics([
-        ('VOLUME', '1,578 kg', C.purple),
-        ('SETS', '4', C.n500),
-      ]),
-      'metric_row_absent': const MetricRow(
-          LucideIcons.wind, C.teal, 'Respiratory rate', '—',
-          sub: 'NEED 4 MORE NIGHTS'),
-    };
+  'signal_absent': const SignalCard(
+    LucideIcons.wind,
+    C.teal,
+    'Respiratory rate',
+    '—',
+    sub: 'BEAT TIMING WAS TOO NOISY LAST NIGHT',
+  ),
+  'progress_over': const ProgressCard(
+    'Protein',
+    '164 g',
+    'of 140 g',
+    1.17,
+    C.orange,
+    icon: LucideIcons.beef,
+  ),
+  // Down AND bad, which is the pairing the colour logic gets wrong: a
+  // falling number is not automatically a win.
+  'trend_down_bad': TrendCard(
+    'Heart-rate variability',
+    '48',
+    'ms',
+    '−13',
+    'vs 14-day baseline',
+    _series,
+    C.orange,
+    good: false,
+  ),
+  // A gap in the middle of the series — the strap was off the wrist for
+  // three days, and the line must BREAK rather than interpolate across it.
+  'trend_with_gap': TrendCard(
+    'Resting heart rate',
+    '58',
+    'bpm',
+    '+4',
+    'vs 14-day baseline',
+    [for (var i = 0; i < 24; i++) i > 9 && i < 13 ? null : _series[i]],
+    C.red,
+    up: true,
+    good: false,
+  ),
+  'insight_no_action': const InsightCard(
+    'You went to bed at the same time four nights running',
+    'That is the longest stretch since May, and your resting heart rate '
+        'fell on three of them.',
+  ),
+  'status_title_only': const StatusCard(
+    'Location is off',
+    '',
+    fix: 'Allow location',
+  ),
+  'deep_dive_no_preview': const DeepDiveCard(
+    'Sleep debt',
+    '2h 14m',
+    'owed',
+    'See the fortnight',
+    C.indigo,
+  ),
+  'goal_trajectory_gaining': const GoalTrajectory(
+    'Weight',
+    '71.2 kg',
+    '76 kg',
+    '0.25 kg per week',
+    .34,
+    C.teal,
+    rateDown: false,
+  ),
+  'observation_no_advice': const Observation(
+    'Your skin temperature has been above baseline for three nights',
+    '+0.6° against your own 28-night mean.',
+  ),
+  'consistency_none': const Consistency(
+    0,
+    7,
+    'Nights with a full sleep record',
+    C.domHealth,
+  ),
+  'consistency_full': const Consistency(
+    7,
+    7,
+    'Nights with a full sleep record',
+    C.domHealth,
+  ),
+  // Every accent, so a palette change is one picture rather than a hunt.
+  'pill_every_colour': const Wrap(
+    spacing: S.x2,
+    runSpacing: S.x2,
+    children: [
+      Pill('Measured', C.green),
+      Pill('Estimated', C.yellow, icon: LucideIcons.circleDashed),
+      Pill('Relative', C.purple),
+      Pill('Private', C.n500, icon: LucideIcons.lock),
+      Pill('Beta', C.blue),
+      Pill('Needs attention', C.orange),
+      Pill('Not scored', C.red),
+    ],
+  ),
+  'big_button_no_icon': const BigButton('Save the night', color: C.domHealth),
+  'sub_tabs_five': SubTabs(
+    const ['Today', '7 days', '30 days', '6 months', 'Year'],
+    0,
+    (_) {},
+    color: C.domHealth,
+  ),
+  'nav_bar_no_sub': const NavBar('Component gallery'),
+  // The oldest day on disk — back is dead, forward is live.
+  'day_nav_oldest': DayNav(day: _navDays.last, days: _navDays, onDay: (_) {}),
+  'section_no_action': const Section(
+    'Recovery',
+    StatusCard('Nothing yet today', ''),
+  ),
+  'inline_metrics_two': const InlineMetrics([
+    ('VOLUME', '1,578 kg', C.purple),
+    ('SETS', '4', C.n500),
+  ]),
+  'metric_row_absent': const MetricRow(
+    LucideIcons.wind,
+    C.teal,
+    'Respiratory rate',
+    '—',
+    sub: 'NEED 4 MORE NIGHTS',
+  ),
+};
 
 /// The share card in every archetype it can be.
 ///
@@ -1146,8 +1516,8 @@ Map<String, Widget> _stateCases() => {
 /// the grid has to hold all of them: a hike prints six, a lift prints five,
 /// and the old four-row ceiling silently dropped whatever came after.
 Map<String, Widget> _shareCases() => {
-      for (final s in _sessions.entries) 'share_${s.key}': PosterCard(s.value),
-    };
+  for (final s in _sessions.entries) 'share_${s.key}': PosterCard(s.value),
+};
 
 /// The fixture sessions, for a test that has to build one screen per
 /// archetype. Public for the same reason [galleryCases] is: a test asserting
@@ -1156,8 +1526,9 @@ Map<String, Widget> _shareCases() => {
 List<ActivityResult> get gallerySessions => _sessions.values.toList();
 
 /// Every activity the flow tab offers, flattened out of the catalogue groups.
-List<Activity> get flowActivities =>
-    [for (final g in activityLibrary) ...g.items];
+List<Activity> get flowActivities => [
+  for (final g in activityLibrary) ...g.items,
+];
 
 /// One finished session per archetype, so the eight share cards and the eight
 /// summaries have something real to draw. Deterministic throughout.
@@ -1187,11 +1558,19 @@ final _sessions = <String, ActivityResult>{
     calories: 388,
     strength: StrengthLog([
       for (var i = 0; i < 4; i++)
-        LoggedSet('bench_press', 8 - i,
-            loadKg: 70 + i * 5, at: DateTime(2026, 8, 11, 18, 45 + i * 4)),
+        LoggedSet(
+          'bench_press',
+          8 - i,
+          loadKg: 70 + i * 5,
+          at: DateTime(2026, 8, 11, 18, 45 + i * 4),
+        ),
       for (var i = 0; i < 3; i++)
-        LoggedSet('barbell_row', 10,
-            loadKg: 60, at: DateTime(2026, 8, 11, 19, 5 + i * 4)),
+        LoggedSet(
+          'barbell_row',
+          10,
+          loadKg: 60,
+          at: DateTime(2026, 8, 11, 19, 5 + i * 4),
+        ),
     ]),
   ),
   'laps': ActivityResult(
@@ -1256,143 +1635,199 @@ final _sessions = <String, ActivityResult>{
 /// assembled from; the screens themselves are `Scaffold`s and belong on a
 /// device, not in a scroll.
 Map<String, Widget> _liveCases() => {
-      'live_heart': const LiveHeart(LiveFeed(
-          hr: 148,
-          zone: 4,
-          zoneMinutes: [6, 14, 22, 16, 4],
-          bandConnected: true)),
-      // The two absences say different things, and one card used to cover
-      // both — it told a user whose band had dropped to adjust the fit of a
-      // band that was not on their wrist.
-      'live_heart_waiting':
-          const LiveHeart(LiveFeed(bandConnected: true)),
-      'live_heart_dropped': const LiveHeart(LiveFeed()),
-      'live_big_num': Builder(
-        builder: (c) => Surface(
-          child: Column(children: [
-            bigNum(P.of(c), '1:02:14', ''),
-            const SizedBox(height: S.x4),
-            bigNum(P.of(c), '12.42', 'km'),
-          ]),
+  'live_heart': const LiveHeart(
+    LiveFeed(
+      hr: 148,
+      zone: 4,
+      zoneMinutes: [6, 14, 22, 16, 4],
+      bandConnected: true,
+    ),
+  ),
+  // The two absences say different things, and one card used to cover
+  // both — it told a user whose band had dropped to adjust the fit of a
+  // band that was not on their wrist.
+  'live_heart_waiting': const LiveHeart(LiveFeed(bandConnected: true)),
+  'live_heart_dropped': const LiveHeart(LiveFeed()),
+  'live_big_num': Builder(
+    builder: (c) => Surface(
+      child: Column(
+        children: [
+          bigNum(P.of(c), '1:02:14', ''),
+          const SizedBox(height: S.x4),
+          bigNum(P.of(c), '12.42', 'km'),
+        ],
+      ),
+    ),
+  ),
+  'live_stat_row': Builder(
+    builder: (c) => Surface(
+      child: statRow(P.of(c), const [
+        ('148', 'AVG HEART RATE'),
+        ('812', 'CALORIES'),
+        ('14.6', 'STRAIN'),
+      ]),
+    ),
+  ),
+  'live_counter_buttons': Builder(
+    builder: (c) {
+      final p = P.of(c);
+      return Surface(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            counterButton(
+              p,
+              LucideIcons.minus,
+              p.on(C.red),
+              'One less rep',
+              () {},
+            ),
+            const SizedBox(width: S.x5),
+            counterButton(
+              p,
+              LucideIcons.plus,
+              p.on(C.green),
+              'One more rep',
+              () {},
+            ),
+          ],
         ),
-      ),
-      'live_stat_row': Builder(
-        builder: (c) => Surface(
-          child: statRow(P.of(c), const [
-            ('148', 'AVG HEART RATE'),
-            ('812', 'CALORIES'),
-            ('14.6', 'STRAIN'),
-          ]),
-        ),
-      ),
-      'live_counter_buttons': Builder(
-        builder: (c) {
-          final p = P.of(c);
-          return Surface(
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              counterButton(p, LucideIcons.minus, p.on(C.red), 'One less rep',
-                  () {}),
-              const SizedBox(width: S.x5),
-              counterButton(p, LucideIcons.plus, p.on(C.green), 'One more rep',
-                  () {}),
-            ]),
-          );
-        },
-      ),
-    };
+      );
+    },
+  ),
+};
 
 /// Rows. Everything that lives in a list — settings, sources, activities,
 /// workbench tables. Each is captured with the LONGEST value its slot can
 /// hold: `SourceRow` shipped an overflow because every fixture said
 /// "Connected", and nothing said "Syncing · 4 minutes ago".
 Map<String, Widget> _listCases() => {
-      'set_row': Builder(
-        builder: (c) => settingsGroup(c, 'Settings row', [
-          SetRow(LucideIcons.bell, C.purple, 'Manage notifications',
-              sub: 'Bedtime, recovery, and the ones the band raises itself',
-              onTap: () {}),
-          SetRow(LucideIcons.ruler, C.blue, 'Units',
-              value: 'Metric', onTap: () {}),
-          const SetRow(LucideIcons.clock, C.n500, 'Last backup',
-              value: '2026-08-16 04:12', chevron: false),
-          SetRow(LucideIcons.trash2, C.red, 'Delete everything on this device',
-              danger: true, onTap: () {}),
-        ]),
+  'set_row': Builder(
+    builder: (c) => settingsGroup(c, 'Settings row', [
+      SetRow(
+        LucideIcons.bell,
+        C.purple,
+        'Manage notifications',
+        sub: 'Bedtime, recovery, and the ones the band raises itself',
+        onTap: () {},
       ),
-      'source_row': Column(children: [
-        SourceRow(
-          HealthSource(
-            name: 'Abdul’s WHOOP band',
-            kind: 'WHOOP 4 · wrist optical',
-            tier: SourceTier.wristOptical,
-            icon: LucideIcons.watch,
-            connected: true,
-            syncing: true,
-            batteryPct: 18,
-            lastData: DateTime(2026, 8, 16, 4, 12),
-            isBand: true,
-          ),
-          onTap: () {},
+      SetRow(LucideIcons.ruler, C.blue, 'Units', value: 'Metric', onTap: () {}),
+      const SetRow(
+        LucideIcons.clock,
+        C.n500,
+        'Last backup',
+        value: '2026-08-16 04:12',
+        chevron: false,
+      ),
+      SetRow(
+        LucideIcons.trash2,
+        C.red,
+        'Delete everything on this device',
+        danger: true,
+        onTap: () {},
+      ),
+    ]),
+  ),
+  'source_row': Column(
+    children: [
+      SourceRow(
+        HealthSource(
+          name: 'Abdul’s WHOOP band',
+          kind: 'WHOOP 4 · wrist optical',
+          tier: SourceTier.wristOptical,
+          icon: LucideIcons.watch,
+          connected: true,
+          syncing: true,
+          batteryPct: 18,
+          lastData: DateTime(2026, 8, 16, 4, 12),
+          isBand: true,
         ),
-        const SizedBox(height: S.x3),
-        const SourceRow(HealthSource(
+        onTap: () {},
+      ),
+      const SizedBox(height: S.x3),
+      const SourceRow(
+        HealthSource(
           name: 'iPhone',
           kind: 'Motion coprocessor',
           tier: SourceTier.phone,
           icon: LucideIcons.smartphone,
-        )),
-      ]),
-      'tier_row': const Column(children: [
-        TierRow(SourceTier.wristOptical, filled: true),
-        SizedBox(height: S.x3),
-        TierRow(SourceTier.beatToBeat),
-      ]),
-      'activity_row': Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
-          const ActivityRow(
-              Activity('Trail running', LucideIcons.mountain, C.green,
-                  Track.distance, 10.5,
-                  gps: true),
-              weightKg: 78.4),
-          // No weight on file: the row falls back to the MET value rather
-          // than inventing a body to burn calories from.
-          const ActivityRow(Activity('Weight training', LucideIcons.dumbbell,
-              C.purple, Track.sets, 6.0)),
-        ]),
-      ),
-      'legend': const Surface(
-        child: Legend([
-          ('Deep', C.indigo),
-          ('REM', C.purple),
-          ('Light', C.blue),
-          ('Awake', C.orange),
-        ]),
-      ),
-      'no_data': const Surface(
-          child: NoData(message: 'No nights recorded this week')),
-      'moment_row': Builder(
-        builder: (c) => Surface(
-          child: Column(children: [
-            // The longest realistic line, and the muted one: a fact about the
-            // band rather than about the person takes no domain colour.
-            for (final m in dayMoments(timeline: _tlJoin).take(2)) MomentRow(m),
-            MomentRow(Moment(
-                at: _tlAt(20, 2),
-                title: 'Band off your wrist',
-                detail: '8:02 PM – 8:58 PM · 56m',
-                icon: LucideIcons.watch)),
-          ]),
         ),
       ),
-      'sweep_finding_row': Surface(
-        child: Column(
-            children: [for (final f in _wcFindings) SweepFindingRow(f)]),
+    ],
+  ),
+  'tier_row': const Column(
+    children: [
+      TierRow(SourceTier.wristOptical, filled: true),
+      SizedBox(height: S.x3),
+      TierRow(SourceTier.beatToBeat),
+    ],
+  ),
+  'activity_row': Surface(
+    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+    child: Column(
+      children: [
+        const ActivityRow(
+          Activity(
+            'Trail running',
+            LucideIcons.mountain,
+            C.green,
+            Track.distance,
+            10.5,
+            gps: true,
+          ),
+          weightKg: 78.4,
+        ),
+        // No weight on file: the row falls back to the MET value rather
+        // than inventing a body to burn calories from.
+        const ActivityRow(
+          Activity(
+            'Weight training',
+            LucideIcons.dumbbell,
+            C.purple,
+            Track.sets,
+            6.0,
+          ),
+        ),
+      ],
+    ),
+  ),
+  'legend': const Surface(
+    child: Legend([
+      ('Deep', C.indigo),
+      ('REM', C.purple),
+      ('Light', C.blue),
+      ('Awake', C.orange),
+    ]),
+  ),
+  'no_data': const Surface(
+    child: NoData(message: 'No nights recorded this week'),
+  ),
+  'moment_row': Builder(
+    builder: (c) => Surface(
+      child: Column(
+        children: [
+          // The longest realistic line, and the muted one: a fact about the
+          // band rather than about the person takes no domain colour.
+          for (final m in dayMoments(timeline: _tlJoin).take(2)) MomentRow(m),
+          MomentRow(
+            Moment(
+              at: _tlAt(20, 2),
+              title: 'Band off your wrist',
+              detail: '8:02 PM – 8:58 PM · 56m',
+              icon: LucideIcons.watch,
+            ),
+          ),
+        ],
       ),
-      ..._dayTimelineCases(),
-      ..._monthGridCases(),
-      ..._whatChangedCases(),
-    };
+    ),
+  ),
+  'sweep_finding_row': Surface(
+    child: Column(children: [for (final f in _wcFindings) SweepFindingRow(f)]),
+  ),
+  ..._dayTimelineCases(),
+  ..._monthGridCases(),
+  ..._whatChangedCases(),
+};
 
 // ── the day, in order ─────────────────────────────────────────────────────
 //
@@ -1402,135 +1837,151 @@ Map<String, Widget> _listCases() => {
 // pre-sorted fixtures would exercise none of them.
 
 /// Local midnight of a fixed day, so the fixture reads the same every run.
-final int _tlDay =
-    DateTime(2026, 8, 14).millisecondsSinceEpoch ~/ 1000;
+final int _tlDay = DateTime(2026, 8, 14).millisecondsSinceEpoch ~/ 1000;
 int _tlAt(int h, [int m = 0]) => _tlDay + h * 3600 + m * 60;
 
 Map<String, dynamic> get _tlJoin => {
-      'day_start': _tlDay,
-      'sleep': [
-        {'onset_ts': _tlDay - 3600, 'wake_ts': _tlAt(6, 42)},
-      ],
-      'naps': [
-        {'start': _tlAt(14, 10), 'end': _tlAt(14, 48), 'duration_min': 38},
-      ],
-      'sessions': [
-        {
-          'start_ts': _tlAt(18, 5),
-          'end_ts': _tlAt(19, 20),
-          'type': 'football',
-          'duration_min': 75,
-          'avg_hr': 141,
-        },
-      ],
-      'events': [
-        // Delivered twice, which the strap really does — the row must appear
-        // once.
-        {'event_id': 7, 'ts': _tlAt(20, 5)},
-        {'event_id': 7, 'ts': _tlAt(20, 5)},
-        {'event_id': 8, 'ts': _tlAt(20, 55)},
-      ],
-      'highs': {
-        'peak_hr': {'v': 176, 't': _tlAt(18, 51)},
-        'low_hr': {'v': 44, 't': _tlAt(4, 12)},
-      },
-    };
+  'day_start': _tlDay,
+  'sleep': [
+    {'onset_ts': _tlDay - 3600, 'wake_ts': _tlAt(6, 42)},
+  ],
+  'naps': [
+    {'start': _tlAt(14, 10), 'end': _tlAt(14, 48), 'duration_min': 38},
+  ],
+  'sessions': [
+    {
+      'start_ts': _tlAt(18, 5),
+      'end_ts': _tlAt(19, 20),
+      'type': 'football',
+      'duration_min': 75,
+      'avg_hr': 141,
+    },
+  ],
+  'events': [
+    // Delivered twice, which the strap really does — the row must appear
+    // once.
+    {'event_id': 7, 'ts': _tlAt(20, 5)},
+    {'event_id': 7, 'ts': _tlAt(20, 5)},
+    {'event_id': 8, 'ts': _tlAt(20, 55)},
+  ],
+  'highs': {
+    'peak_hr': {'v': 176, 't': _tlAt(18, 51)},
+    'low_hr': {'v': 44, 't': _tlAt(4, 12)},
+  },
+};
 
 TimelineData get _tlFull => TimelineData(
-      day: '2026-08-14',
-      days: const ['2026-08-15', '2026-08-14', '2026-08-13'],
-      moments: dayMoments(
-        timeline: _tlJoin,
-        wear: {
-          'segments': [
-            {'on': false, 'start': _tlAt(20, 2), 'end': _tlAt(20, 58), 'len_min': 56},
-            // Under the floor: a three-minute dropout is not an event in a day.
-            {'on': false, 'start': _tlAt(11, 0), 'end': _tlAt(11, 3), 'len_min': 3},
-          ],
+  day: '2026-08-14',
+  days: const ['2026-08-15', '2026-08-14', '2026-08-13'],
+  moments: dayMoments(
+    timeline: _tlJoin,
+    wear: {
+      'segments': [
+        {
+          'on': false,
+          'start': _tlAt(20, 2),
+          'end': _tlAt(20, 58),
+          'len_min': 56,
         },
-        meals: [
-          FoodEntry(
-            id: 'm1',
-            date: '2026-08-14',
-            meal: 'Breakfast',
-            label: 'Porridge with blueberries and honey',
-            atTs: _tlAt(8, 20),
-            kcal: 412,
-          ),
-          // No time on it: it belongs under the axis, not on it.
-          const FoodEntry(
-              id: 'm2', date: '2026-08-14', meal: 'Snack', label: 'Flapjack'),
-        ],
-        doses: [(label: 'Vitamin D 1000 IU', at: _tlAt(8, 32))],
-        journal: const {
-          'caffeine': JournalMetricValue(3, atMinuteOfDay: 16 * 60 + 40),
-          'alcohol': JournalMetricValue(2),
-        },
-        fields: kJournalFields,
+        // Under the floor: a three-minute dropout is not an event in a day.
+        {'on': false, 'start': _tlAt(11, 0), 'end': _tlAt(11, 3), 'len_min': 3},
+      ],
+    },
+    meals: [
+      FoodEntry(
+        id: 'm1',
+        date: '2026-08-14',
+        meal: 'Breakfast',
+        label: 'Porridge with blueberries and honey',
+        atTs: _tlAt(8, 20),
+        kcal: 412,
       ),
-      notes: dayNotes(
-        meals: [
-          const FoodEntry(
-              id: 'm2', date: '2026-08-14', meal: 'Snack', label: 'Flapjack'),
-        ],
-        journal: const {'alcohol': JournalMetricValue(2)},
-        fields: kJournalFields,
-        journalRows: const [
-          {
-            'date': '2026-08-14',
-            'tags_json': '["late meal","travel"]',
-            'note': 'Long drive back, ate at the services around eleven.',
-          },
-        ],
+      // No time on it: it belongs under the axis, not on it.
+      const FoodEntry(
+        id: 'm2',
+        date: '2026-08-14',
+        meal: 'Snack',
+        label: 'Flapjack',
       ),
-    );
+    ],
+    doses: [(label: 'Vitamin D 1000 IU', at: _tlAt(8, 32))],
+    journal: const {
+      'caffeine': JournalMetricValue(3, atMinuteOfDay: 16 * 60 + 40),
+      'alcohol': JournalMetricValue(2),
+    },
+    fields: kJournalFields,
+  ),
+  notes: dayNotes(
+    meals: [
+      const FoodEntry(
+        id: 'm2',
+        date: '2026-08-14',
+        meal: 'Snack',
+        label: 'Flapjack',
+      ),
+    ],
+    journal: const {'alcohol': JournalMetricValue(2)},
+    fields: kJournalFields,
+    journalRows: const [
+      {
+        'date': '2026-08-14',
+        'tags_json': '["late meal","travel"]',
+        'note': 'Long drive back, ate at the services around eleven.',
+      },
+    ],
+  ),
+);
 
 Map<String, Widget> _dayTimelineCases() => {
-      // The whole-day heart-rate card on its own, unscrubbed (range readout).
-      'day_heart_card': DayHeartCard(DayGraph(
-        // A synthetic day: asleep till 07:00, a workout 18:00–19:00, and a
-        // few unrecorded minutes so the gaps and lanes all draw.
-        hr: [
-          for (var m = 0; m < 1440; m++)
-            m % 97 == 0
-                ? null
-                : m < 420
-                    ? 50 + (m % 30) / 5
-                    : m >= 1080 && m < 1140
-                        ? 140 + (m % 20) / 2
-                        : 72 + (m % 60) / 3,
-        ],
-        rest: const [(0, 420, C.blue)],
-        work: const [(1080, 1140, C.orange)],
-      )),
-      'timeline_day': Builder(
-          builder: (c) =>
-              Column(children: timelineBody(c, _tlFull))),
-      // The common day on a new strap, and the one this page must not dress
-      // up: nothing was recorded, and the reason is usually the wrist.
-      'timeline_empty': Builder(
-          builder: (c) =>
-              Column(children: timelineBody(c, const TimelineData(day: '2026-08-14')))),
-      // Logged, but nothing carrying a time. The axis is empty and the block
-      // underneath is not — which is the distinction the whole file is built on.
-      'timeline_untimed_only': Builder(
-        builder: (c) => Column(
-          children: timelineBody(
-            c,
-            TimelineData(
-              day: '2026-08-14',
-              notes: dayNotes(
-                journal: const {'alcohol': JournalMetricValue(2)},
-                fields: kJournalFields,
-                journalRows: const [
-                  {'date': '2026-08-14', 'tags_json': '["travel"]', 'note': ''},
-                ],
-              ),
-            ),
+  // The whole-day heart-rate card on its own, unscrubbed (range readout).
+  'day_heart_card': DayHeartCard(
+    DayGraph(
+      // A synthetic day: asleep till 07:00, a workout 18:00–19:00, and a
+      // few unrecorded minutes so the gaps and lanes all draw.
+      hr: [
+        for (var m = 0; m < 1440; m++)
+          m % 97 == 0
+              ? null
+              : m < 420
+              ? 50 + (m % 30) / 5
+              : m >= 1080 && m < 1140
+              ? 140 + (m % 20) / 2
+              : 72 + (m % 60) / 3,
+      ],
+      rest: const [(0, 420, C.blue)],
+      work: const [(1080, 1140, C.orange)],
+    ),
+  ),
+  'timeline_day': Builder(
+    builder: (c) => Column(children: timelineBody(c, _tlFull)),
+  ),
+  // The common day on a new strap, and the one this page must not dress
+  // up: nothing was recorded, and the reason is usually the wrist.
+  'timeline_empty': Builder(
+    builder: (c) => Column(
+      children: timelineBody(c, const TimelineData(day: '2026-08-14')),
+    ),
+  ),
+  // Logged, but nothing carrying a time. The axis is empty and the block
+  // underneath is not — which is the distinction the whole file is built on.
+  'timeline_untimed_only': Builder(
+    builder: (c) => Column(
+      children: timelineBody(
+        c,
+        TimelineData(
+          day: '2026-08-14',
+          notes: dayNotes(
+            journal: const {'alcohol': JournalMetricValue(2)},
+            fields: kJournalFields,
+            journalRows: const [
+              {'date': '2026-08-14', 'tags_json': '["travel"]', 'note': ''},
+            ],
           ),
         ),
       ),
-    };
+    ),
+  ),
+};
 
 // ── the month, as three strips ────────────────────────────────────────────
 
@@ -1539,97 +1990,120 @@ final DateTime _now = DateTime.now();
 /// A month of a metric: enough history to shade against, and four days
 /// missing, so both cell states are in every picture.
 List<ChartPoint> _gridPoints(double base, double spread, {int days = 60}) => [
-      for (var i = days - 1; i >= 0; i--)
-        if (i % 9 != 3)
-          (
-            // `DateTime(y, m, d - i)` rather than a `Duration`: durations in
-            // lib/ui2 are motion, and the token test enforces it.
-            t: DateTime(_now.year, _now.month, _now.day - i)
-                    .millisecondsSinceEpoch ~/
-                1000,
-            v: base + (i * 37 % 23) / 23 * spread,
-          ),
-    ];
+  for (var i = days - 1; i >= 0; i--)
+    if (i % 9 != 3)
+      (
+        // `DateTime(y, m, d - i)` rather than a `Duration`: durations in
+        // lib/ui2 are motion, and the token test enforces it.
+        t:
+            DateTime(
+              _now.year,
+              _now.month,
+              _now.day - i,
+            ).millisecondsSinceEpoch ~/
+            1000,
+        v: base + (i * 37 % 23) / 23 * spread,
+      ),
+];
 
 Map<String, Widget> _monthGridCases() => {
-      'month_grid': MonthGrid([
-        gridRow('sleep', _gridPoints(360, 140)),
-        gridRow('readiness', _gridPoints(38, 55)),
-        gridRow('strain', _gridPoints(4, 12)),
-      ]),
-      // A fortnight in. One metric has a range to place a day inside and two
-      // do not, and the two that do not say so in words rather than in a
-      // paler version of the same claim.
-      'month_grid_calibrating': MonthGrid([
-        gridRow('sleep', _gridPoints(360, 140, days: 20)),
-        gridRow('readiness', _gridPoints(38, 55, days: 6)),
-        gridRow('strain', _gridPoints(4, 12, days: 2)),
-      ]),
-    };
+  'month_grid': MonthGrid([
+    gridRow('sleep', _gridPoints(360, 140)),
+    gridRow('readiness', _gridPoints(38, 55)),
+    gridRow('strain', _gridPoints(4, 12)),
+  ]),
+  // A fortnight in. One metric has a range to place a day inside and two
+  // do not, and the two that do not say so in words rather than in a
+  // paler version of the same claim.
+  'month_grid_calibrating': MonthGrid([
+    gridRow('sleep', _gridPoints(360, 140, days: 20)),
+    gridRow('readiness', _gridPoints(38, 55, days: 6)),
+    gridRow('strain', _gridPoints(4, 12, days: 2)),
+  ]),
+};
 
 // ── what changed ──────────────────────────────────────────────────────────
 
 const _wcFindings = [
   SweepFinding(
-      key: 'rhr',
-      text: 'resting heart rate 68 bpm — the highest in 45 days '
-          '(usually 53–55 bpm)',
-      z: 3.4,
-      high: true),
+    key: 'rhr',
+    text:
+        'resting heart rate 68 bpm — the highest in 45 days '
+        '(usually 53–55 bpm)',
+    z: 3.4,
+    high: true,
+  ),
   SweepFinding(
-      key: 'rmssd',
-      text: 'HVR 32 ms — below your usual range (usually 41–58 ms)',
-      z: -2.7,
-      high: false),
+    key: 'rmssd',
+    text: 'HVR 32 ms — below your usual range (usually 41–58 ms)',
+    z: -2.7,
+    high: false,
+  ),
 ];
 
 Map<String, Widget> _whatChangedCases() => {
-      'what_changed': Builder(
-        builder: (c) => Column(
-          children: whatChangedBody(
-            c,
-            WhatChangedData(
-              day: '2026-08-14',
-              findings: _wcFindings,
-              longestHistory: 45,
-              hadToday: true,
-              grid: [gridRow('readiness', _gridPoints(38, 55))],
-            ),
-          ),
+  'what_changed': Builder(
+    builder: (c) => Column(
+      children: whatChangedBody(
+        c,
+        WhatChangedData(
+          day: '2026-08-14',
+          findings: _wcFindings,
+          longestHistory: 45,
+          hadToday: true,
+          grid: [gridRow('readiness', _gridPoints(38, 55))],
         ),
       ),
-      // The normal night, and the one the screen is most likely to get wrong
-      // by padding it out with numbers to look like more.
-      'what_changed_quiet': Builder(
-        builder: (c) => Column(
-          children: whatChangedBody(
-            c,
-            const WhatChangedData(
-                day: '2026-08-14', longestHistory: 45, hadToday: true),
-          ),
+    ),
+  ),
+  // The normal night, and the one the screen is most likely to get wrong
+  // by padding it out with numbers to look like more.
+  'what_changed_quiet': Builder(
+    builder: (c) => Column(
+      children: whatChangedBody(
+        c,
+        const WhatChangedData(
+          day: '2026-08-14',
+          longestHistory: 45,
+          hadToday: true,
         ),
       ),
-      'what_changed_calibrating': Builder(
-        builder: (c) => Column(
-          children: whatChangedBody(
-            c,
-            const WhatChangedData(
-                day: '2026-08-14', longestHistory: 6, hadToday: true),
-          ),
+    ),
+  ),
+  'what_changed_calibrating': Builder(
+    builder: (c) => Column(
+      children: whatChangedBody(
+        c,
+        const WhatChangedData(
+          day: '2026-08-14',
+          longestHistory: 6,
+          hadToday: true,
         ),
       ),
-    };
+    ),
+  ),
+};
 
 /// Onboarding and import — the two flows a user sees exactly once, which is
 /// why they are the two nobody re-checks after a change.
 Map<String, Widget> _onboardingCases() => {
-      'import_report': const ImportReport(ImportOutcome(
-          source: 'WHOOP export', days: 412, lateRows: 38, strandedDays: 2)),
-      'import_report_failed': const ImportReport(ImportOutcome(
-          source: 'physiological_cycles.csv',
-          error: 'The first row named columns this importer does not know, so '
-              'nothing in the file could be placed.')),
-    };
+  'import_report': const ImportReport(
+    ImportOutcome(
+      source: 'WHOOP export',
+      days: 412,
+      lateRows: 38,
+      strandedDays: 2,
+    ),
+  ),
+  'import_report_failed': const ImportReport(
+    ImportOutcome(
+      source: 'physiological_cycles.csv',
+      error:
+          'The first row named columns this importer does not know, so '
+          'nothing in the file could be placed.',
+    ),
+  ),
+};
 
 /// A REAL run, on a real park loop, so the poster can be seen doing the one
 /// thing the offline case cannot show: sitting on actual streets.
@@ -1776,11 +2250,15 @@ class _PosterPreviewState extends State<_PosterPreview> {
 
   Future<void> _pick() async {
     try {
-      final picked = await FilePicker.platform
-          .pickFiles(type: FileType.image, allowMultiple: false);
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
       final path = picked?.files.single.path;
       if (path != null && mounted) setState(() => _photo = File(path));
-    } catch (_) {/* cancelled, or no picker — neither is an error */}
+    } catch (_) {
+      /* cancelled, or no picker — neither is an error */
+    }
   }
 
   /// Share the card that is on screen, rather than re-drawing a second,
@@ -1799,16 +2277,17 @@ class _PosterPreviewState extends State<_PosterPreview> {
       final image = await boundary.toImage(pixelRatio: 3);
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
       if (png == null) return;
-      await Share.shareXFiles(
-        [
-          XFile.fromData(png.buffer.asUint8List(),
-              mimeType: 'image/png', name: 'poster.png'),
-        ],
-        sharePositionOrigin: origin,
-      );
+      await Share.shareXFiles([
+        XFile.fromData(
+          png.buffer.asUint8List(),
+          mimeType: 'image/png',
+          name: 'poster.png',
+        ),
+      ], sharePositionOrigin: origin);
     } catch (e) {
       messenger.showSnackBar(
-          const SnackBar(content: Text('Could not open the share sheet.')));
+        const SnackBar(content: Text('Could not open the share sheet.')),
+      );
       debugPrint('gallery share failed: $e');
     } finally {
       _sharing = false;
@@ -1818,53 +2297,75 @@ class _PosterPreviewState extends State<_PosterPreview> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('poster · live', style: F.over.copyWith(color: p.ink3)),
-      const SizedBox(height: S.x2),
-      Center(
-        child: RepaintBoundary(
-          key: _card,
-          child: PosterCard(
-            _demoRun,
-            photo: _photo == null ? null : FileImage(_photo!),
-            mosaic: _mosaic,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('poster · live', style: F.over.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x2),
+        Center(
+          child: RepaintBoundary(
+            key: _card,
+            child: PosterCard(
+              _demoRun,
+              photo: _photo == null ? null : FileImage(_photo!),
+              mosaic: _mosaic,
+            ),
           ),
         ),
-      ),
-      const SizedBox(height: S.x3),
-      Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(children: [
-          SetRow(LucideIcons.map, C.green,
-              _mosaic == null ? 'Load the map' : 'Reload the map',
-              sub: 'A real lap of Cubbon Park — fetches OpenStreetMap tiles',
-              value: _loading ? 'Loading' : '',
-              onTap: _loading ? null : _load),
-          Divider(color: p.line, height: 1),
-          SetRow(LucideIcons.imagePlus, C.purple,
-              _photo == null ? 'Add a photo' : 'Change photo',
-              sub: 'From this phone. Nothing is uploaded', onTap: _pick),
-          if (_photo != null) ...[
-            Divider(color: p.line, height: 1),
-            SetRow(LucideIcons.trash2, C.red, 'Remove the photo',
-                chevron: false, onTap: () => setState(() => _photo = null)),
-          ],
-          Divider(color: p.line, height: 1),
-          SetRow(LucideIcons.share2, C.blue, 'Share this card',
-              sub: 'The real export — the boundary above, at 3×',
-              chevron: false, onTap: _share),
-        ]),
-      ),
-      if (_tried && !_loading && _mosaic == null) ...[
         const SizedBox(height: S.x3),
-        const StatusCard(
-          'No map came back',
-          'The tiles could not be fetched, so the route is drawn on its own — '
-              'which is exactly what the card does on a phone with no signal.',
-          icon: LucideIcons.mapPinOff,
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              SetRow(
+                LucideIcons.map,
+                C.green,
+                _mosaic == null ? 'Load the map' : 'Reload the map',
+                sub: 'A real lap of Cubbon Park — fetches OpenStreetMap tiles',
+                value: _loading ? 'Loading' : '',
+                onTap: _loading ? null : _load,
+              ),
+              Divider(color: p.line, height: 1),
+              SetRow(
+                LucideIcons.imagePlus,
+                C.purple,
+                _photo == null ? 'Add a photo' : 'Change photo',
+                sub: 'From this phone. Nothing is uploaded',
+                onTap: _pick,
+              ),
+              if (_photo != null) ...[
+                Divider(color: p.line, height: 1),
+                SetRow(
+                  LucideIcons.trash2,
+                  C.red,
+                  'Remove the photo',
+                  chevron: false,
+                  onTap: () => setState(() => _photo = null),
+                ),
+              ],
+              Divider(color: p.line, height: 1),
+              SetRow(
+                LucideIcons.share2,
+                C.blue,
+                'Share this card',
+                sub: 'The real export — the boundary above, at 3×',
+                chevron: false,
+                onTap: _share,
+              ),
+            ],
+          ),
         ),
+        if (_tried && !_loading && _mosaic == null) ...[
+          const SizedBox(height: S.x3),
+          const StatusCard(
+            'No map came back',
+            'The tiles could not be fetched, so the route is drawn on its own — '
+                'which is exactly what the card does on a phone with no signal.',
+            icon: LucideIcons.mapPinOff,
+          ),
+        ],
       ],
-    ]);
+    );
   }
 }
 
@@ -1942,14 +2443,25 @@ ActivityResult _placeholder(Activity a) {
   // Mass moves up the zones with the MET. Meditation sits in Z1; a sprint
   // session spends its minutes at the top.
   final hard = (met / 23).clamp(0.0, 1.0);
-  final w = [1.6 - hard, 1.4 - hard * .5, .9 + hard, .4 + hard * 1.4, .1 + hard];
+  final w = [
+    1.6 - hard,
+    1.4 - hard * .5,
+    .9 + hard,
+    .4 + hard * 1.4,
+    .1 + hard,
+  ];
   final sum = w.reduce((x, y) => x + y);
   final zones = [for (final x in w) (mins * x / sum)];
 
   // Fixed, never `DateTime.now()`. Spread over the preceding fortnight so a
   // list of them does not read as one impossible afternoon.
-  final start = DateTime(2026, 8, 14, 6, 0)
-      .subtract(Motion.tick * ((_n(a.name, 4) * 1209600).round()));
+  final start = DateTime(
+    2026,
+    8,
+    14,
+    6,
+    0,
+  ).subtract(Motion.tick * ((_n(a.name, 4) * 1209600).round()));
 
   // Speed from the MET, which is the only thing the catalogue knows about how
   // fast this activity moves. Good enough for a picture, and wrong enough
@@ -1973,8 +2485,9 @@ ActivityResult _placeholder(Activity a) {
     avgHr: avg,
     maxHr: peak,
     calories: a.kcal(_fixtureWeightKg, mins),
-    strain:
-        double.parse((met * mins / 60 * 1.15).clamp(0, 21).toStringAsFixed(1)),
+    strain: double.parse(
+      (met * mins / 60 * 1.15).clamp(0, 21).toStringAsFixed(1),
+    ),
     hr: hr,
     zoneMinutes: zones,
     // Only a GPS activity gets a line. An indoor row or a treadmill leaves
@@ -1991,8 +2504,11 @@ ActivityResult _placeholder(Activity a) {
     splits: onRoute && a.gps
         ? [
             for (var i = 1; i <= km.floor(); i++)
-              KmSplit(i.toDouble(), paceSec + (i * 7 % 19) - 9,
-                  avgHr: avg + (i * 5 % 11) - 5),
+              KmSplit(
+                i.toDouble(),
+                paceSec + (i * 7 % 19) - 9,
+                avgHr: avg + (i * 5 % 11) - 5,
+              ),
           ]
         : const [],
     elevationM: arch == Arch.journey ? _metres : const [],
@@ -2008,12 +2524,18 @@ ActivityResult _placeholder(Activity a) {
     strength: arch == Arch.strength
         ? StrengthLog([
             for (var i = 0; i < 4; i++)
-              LoggedSet(exerciseLibrary[0].key, 10 - i,
-                  loadKg: 55 + i * 5 + (_n(a.name, 8) * 20).roundToDouble(),
-                  at: start.add(Motion.tick * (240 * i))),
+              LoggedSet(
+                exerciseLibrary[0].key,
+                10 - i,
+                loadKg: 55 + i * 5 + (_n(a.name, 8) * 20).roundToDouble(),
+                at: start.add(Motion.tick * (240 * i)),
+              ),
             for (var i = 0; i < 3; i++)
-              LoggedSet(exerciseLibrary[8].key, 8,
-                  at: start.add(Motion.tick * (1400 + 200 * i))),
+              LoggedSet(
+                exerciseLibrary[8].key,
+                8,
+                at: start.add(Motion.tick * (1400 + 200 * i)),
+              ),
           ])
         : StrengthLog.empty,
     lapSecs: [for (var i = 0; i < laps; i++) 48 + (i * 9 % 17)],
@@ -2022,8 +2544,11 @@ ActivityResult _placeholder(Activity a) {
     rounds: arch == Arch.interval
         ? [
             for (var i = 0; i < 5 + (_n(a.name, 2) * 7).round(); i++)
-              IntervalRound(30 + (i * 7 % 25), 15 + (i * 5 % 20),
-                  avgHr: avg + i * 3),
+              IntervalRound(
+                30 + (i * 7 % 25),
+                15 + (i * 5 % 20),
+                avgHr: avg + i * 3,
+              ),
           ]
         : const [],
     poses: arch == Arch.flow
@@ -2042,8 +2567,13 @@ ActivityResult _placeholder(Activity a) {
 }
 
 const _poses = [
-  'Down dog', 'Warrior II', 'Pigeon', 'Child\'s pose', 'Bridge',
-  'Triangle', 'Savasana',
+  'Down dog',
+  'Warrior II',
+  'Pigeon',
+  'Child\'s pose',
+  'Bridge',
+  'Triangle',
+  'Savasana',
 ];
 
 /// The fixture behind an activity's flow: the hand-written session if it has
@@ -2056,9 +2586,8 @@ const _poses = [
 /// the tile fetch, the attribution, the offline `StatusCard` and the whole
 /// photo slot were unreachable from every one of these screens.
 ActivityResult flowFixture(Activity a) {
-  final base = _sessions.values
-          .where((s) => s.activity.name == a.name)
-          .firstOrNull ??
+  final base =
+      _sessions.values.where((s) => s.activity.name == a.name).firstOrNull ??
       _placeholder(a);
   if (!a.gps || base.geo.isNotEmpty) return base;
   return base.copyWith(
@@ -2084,21 +2613,29 @@ class _Flows extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x10),
       children: [
         for (final g in activityLibrary) ...[
-          Text('${g.name.toUpperCase()} · ${g.items.length}',
-              style: F.over.copyWith(color: p.ink3)),
+          Text(
+            '${g.name.toUpperCase()} · ${g.items.length}',
+            style: F.over.copyWith(color: p.ink3),
+          ),
           const SizedBox(height: S.x2),
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Column(children: [
-              for (final (i, a) in g.items.indexed) ...[
-                SetRow(a.icon, a.color, a.name,
+            child: Column(
+              children: [
+                for (final (i, a) in g.items.indexed) ...[
+                  SetRow(
+                    a.icon,
+                    a.color,
+                    a.name,
                     sub: archLabel(archOf(a)),
-                    onTap: () => Navigator.of(c).push(MaterialPageRoute<void>(
-                        builder: (_) => _FlowScreen(a)))),
-                if (i < g.items.length - 1)
-                  Divider(color: p.line, height: 1),
+                    onTap: () => Navigator.of(c).push(
+                      MaterialPageRoute<void>(builder: (_) => _FlowScreen(a)),
+                    ),
+                  ),
+                  if (i < g.items.length - 1) Divider(color: p.line, height: 1),
+                ],
               ],
-            ]),
+            ),
           ),
           const SizedBox(height: S.x6),
         ],
@@ -2127,68 +2664,99 @@ class _FlowScreen extends StatelessWidget {
     // root the same way the real one does — the Summary row below is the way
     // to see the end of a session without leaving.
     final stages = <(String, IconData, String, Widget)>[
-      ('Pick', LucideIcons.listChecks, 'The catalogue, as the app opens it',
-          const ActivityPicker()),
-      ('Set up', LucideIcons.sliders, 'Goal, target and privacy',
-          ActivitySetup(a)),
-      ('Live', LucideIcons.circleDot, 'Runs for real, with no band behind it',
-          liveFor(a)),
-      ('Summary', LucideIcons.flag, 'What this session becomes',
-          ActivitySummary(r, weightKg: _fixtureWeightKg)),
-      ('Share', LucideIcons.share2, 'Styles, stat chips and the card',
-          ShareSheet(r)),
+      (
+        'Pick',
+        LucideIcons.listChecks,
+        'The catalogue, as the app opens it',
+        const ActivityPicker(),
+      ),
+      (
+        'Set up',
+        LucideIcons.sliders,
+        'Goal, target and privacy',
+        ActivitySetup(a),
+      ),
+      (
+        'Live',
+        LucideIcons.circleDot,
+        'Runs for real, with no band behind it',
+        liveFor(a),
+      ),
+      (
+        'Summary',
+        LucideIcons.flag,
+        'What this session becomes',
+        ActivitySummary(r, weightKg: _fixtureWeightKg),
+      ),
+      (
+        'Share',
+        LucideIcons.share2,
+        'Styles, stat chips and the card',
+        ShareSheet(r),
+      ),
     ];
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(a.name,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(
+                a.name,
                 sub: a.met == null
                     ? archLabel(r.arch).toUpperCase()
                     : '${archLabel(r.arch).toUpperCase()} · '
-                        '${a.met!.toStringAsFixed(1)} MET'),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Column(children: [
-                    for (final (i, s) in stages.indexed) ...[
-                      SetRow(s.$2, a.color, s.$1,
-                          sub: s.$3,
-                          onTap: () => Navigator.of(c).push(
-                              MaterialPageRoute<void>(builder: (_) => s.$4))),
-                      if (i < stages.length - 1)
-                        Divider(color: p.line, height: 1),
-                    ],
-                  ]),
-                ),
-                const SizedBox(height: S.x4),
-                if (synthetic)
-                  const StatusCard(
-                    'These numbers are invented',
-                    'Derived from this activity\'s MET and name so the '
-                        'screens have something to draw — or from a '
-                        'preview-only stand-in, where the activity has no '
-                        'MET. The SHAPE is real: the fields this archetype '
-                        'fills, and the ones it leaves empty.',
-                    icon: LucideIcons.flaskConical,
-                  )
-                else
-                  const StatusCard(
-                    'A hand-written fixture',
-                    'This one carries a real loop, a heart-rate dropout and a '
-                        'named top set — the awkward cases the goldens shoot.',
-                    icon: LucideIcons.pin,
-                  ),
-              ],
+                          '${a.met!.toStringAsFixed(1)} MET',
+              ),
             ),
-          ),
-        ]),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: Column(
+                      children: [
+                        for (final (i, s) in stages.indexed) ...[
+                          SetRow(
+                            s.$2,
+                            a.color,
+                            s.$1,
+                            sub: s.$3,
+                            onTap: () => Navigator.of(c).push(
+                              MaterialPageRoute<void>(builder: (_) => s.$4),
+                            ),
+                          ),
+                          if (i < stages.length - 1)
+                            Divider(color: p.line, height: 1),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: S.x4),
+                  if (synthetic)
+                    const StatusCard(
+                      'These numbers are invented',
+                      'Derived from this activity\'s MET and name so the '
+                          'screens have something to draw — or from a '
+                          'preview-only stand-in, where the activity has no '
+                          'MET. The SHAPE is real: the fields this archetype '
+                          'fills, and the ones it leaves empty.',
+                      icon: LucideIcons.flaskConical,
+                    )
+                  else
+                    const StatusCard(
+                      'A hand-written fixture',
+                      'This one carries a real loop, a heart-rate dropout and a '
+                          'named top set — the awkward cases the goldens shoot.',
+                      icon: LucideIcons.pin,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2236,74 +2804,98 @@ class _GalleryScreenState extends State<GalleryScreen> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            // The title is the label on the Settings row that opens it. A
-            // screen whose name changes with its tab is a screen nobody can
-            // be told to go to.
-            child: NavBar('Component gallery',
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              // The title is the label on the Settings row that opens it. A
+              // screen whose name changes with its tab is a screen nobody can
+              // be told to go to.
+              child: NavBar(
+                'Component gallery',
                 sub: flows
                     ? '${flowActivities.length} ACTIVITY FLOWS'
-                    : '${cases.length} COMPONENTS'),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x3),
-            child: Column(children: [
-              SubTabs(const ['Flows', 'Components'], _mode,
-                  (i) => setState(() => _mode = i),
-                  color: C.domMove),
-              const SizedBox(height: S.x2),
-              SubTabs(const ['1.0×', '1.4×', '2.0×', '3.1×'], _scale,
-                  (i) => setState(() => _scale = i),
-                  color: C.domHealth),
-              const SizedBox(height: S.x2),
-              SubTabs(const ['System', 'Light', 'Dark'], _theme,
-                  (i) => setState(() => _theme = i),
-                  color: C.domHealth),
-            ]),
-          ),
-          // The controls stay at the app's own scale and theme; only what is
-          // under test is overridden, or a 3.1× stepper would push itself off
-          // the screen it exists to control.
-          Expanded(
-            child: Theme(
-              data: buildTheme(brightness),
-              child: Builder(builder: (c) {
-                final gp = P.of(c);
-                return MediaQuery(
-                  data: MediaQuery.of(c)
-                      .copyWith(textScaler: TextScaler.linear(_scales[_scale])),
-                  child: ColoredBox(
-                    color: gp.bg,
-                    child: flows
-                        ? const _Flows()
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(
-                                S.x4, S.x4, S.x4, S.x10),
-                            children: [
-                              // FIRST, not last. It is the only case that
-                              // touches the network or the filesystem, and it
-                              // is also the one worth opening the gallery for
-                              // — burying it under ninety other cases at 3.1x
-                              // text would make it unreachable in practice.
-                              const _PosterPreview(),
-                              const SizedBox(height: S.x6),
-                              for (final e in cases.entries) ...[
-                                Text(e.key,
-                                    style: F.over.copyWith(color: gp.ink3)),
-                                const SizedBox(height: S.x2),
-                                e.value,
-                                const SizedBox(height: S.x6),
-                              ],
-                            ],
-                          ),
-                  ),
-                );
-              }),
+                    : '${cases.length} COMPONENTS',
+              ),
             ),
-          ),
-        ]),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x3),
+              child: Column(
+                children: [
+                  SubTabs(
+                    const ['Flows', 'Components'],
+                    _mode,
+                    (i) => setState(() => _mode = i),
+                    color: C.domMove,
+                  ),
+                  const SizedBox(height: S.x2),
+                  SubTabs(
+                    const ['1.0×', '1.4×', '2.0×', '3.1×'],
+                    _scale,
+                    (i) => setState(() => _scale = i),
+                    color: C.domHealth,
+                  ),
+                  const SizedBox(height: S.x2),
+                  SubTabs(
+                    const ['System', 'Light', 'Dark'],
+                    _theme,
+                    (i) => setState(() => _theme = i),
+                    color: C.domHealth,
+                  ),
+                ],
+              ),
+            ),
+            // The controls stay at the app's own scale and theme; only what is
+            // under test is overridden, or a 3.1× stepper would push itself off
+            // the screen it exists to control.
+            Expanded(
+              child: Theme(
+                data: buildTheme(brightness),
+                child: Builder(
+                  builder: (c) {
+                    final gp = P.of(c);
+                    return MediaQuery(
+                      data: MediaQuery.of(c).copyWith(
+                        textScaler: TextScaler.linear(_scales[_scale]),
+                      ),
+                      child: ColoredBox(
+                        color: gp.bg,
+                        child: flows
+                            ? const _Flows()
+                            : ListView(
+                                padding: const EdgeInsets.fromLTRB(
+                                  S.x4,
+                                  S.x4,
+                                  S.x4,
+                                  S.x10,
+                                ),
+                                children: [
+                                  // FIRST, not last. It is the only case that
+                                  // touches the network or the filesystem, and it
+                                  // is also the one worth opening the gallery for
+                                  // — burying it under ninety other cases at 3.1x
+                                  // text would make it unreachable in practice.
+                                  const _PosterPreview(),
+                                  const SizedBox(height: S.x6),
+                                  for (final e in cases.entries) ...[
+                                    Text(
+                                      e.key,
+                                      style: F.over.copyWith(color: gp.ink3),
+                                    ),
+                                    const SizedBox(height: S.x2),
+                                    e.value,
+                                    const SizedBox(height: S.x6),
+                                  ],
+                                ],
+                              ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -5,6 +5,8 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +29,7 @@ import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/screens/food_diary.dart';
+import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
@@ -46,6 +49,7 @@ const _profile = <String, dynamic>{
 class _Repo extends LocalRepository {
   bool failWorkouts = false;
   bool failToday = false;
+  int measuredSteps = 5000;
   final blockedSteps = <String, Completer<Map<String, dynamic>>>{};
   final stepReads = <String>[];
   @override
@@ -79,7 +83,8 @@ class _Repo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDaySteps(String date) {
     stepReads.add(date);
-    return blockedSteps[date]?.future ?? Future.value({'day_total': 5000});
+    return blockedSteps[date]?.future ??
+        Future.value({'day_total': measuredSteps});
   }
 }
 
@@ -95,16 +100,16 @@ Future<void> _until(WidgetTester t, bool Function() done) async {
 
 Widget _app(AppState app, Widget child, {double scale = 1}) => MultiProvider(
   providers: [ChangeNotifierProvider<AppState>.value(value: app)],
-  child: MaterialApp(
-    theme: buildTheme(Brightness.dark),
-    builder: (c, w) => MediaQuery(
-      data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
-      child: w!,
-    ),
-    home: Scaffold(
-      body: RepaintBoundary(
-        key: const ValueKey('capture'),
-        child: ColoredBox(color: const P(true).bg, child: child),
+  child: RepaintBoundary(
+    key: const ValueKey('capture'),
+    child: MaterialApp(
+      theme: buildTheme(Brightness.dark),
+      builder: (c, w) => MediaQuery(
+        data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
+        child: w!,
+      ),
+      home: Scaffold(
+        body: ColoredBox(color: const P(true).bg, child: child),
       ),
     ),
   ),
@@ -131,6 +136,12 @@ Future<void> _capture(WidgetTester t, String name) async {
 
 Future<void> _unmount(WidgetTester t) async {
   await t.pumpWidget(const SizedBox.shrink());
+  for (var i = 0; i < 100; i++) {
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await t.pump(const Duration(milliseconds: 20));
+  }
   await t.runAsync(
     () => Future<void>.delayed(const Duration(milliseconds: 150)),
   );
@@ -193,8 +204,12 @@ void main() {
   });
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await Prefs.ensureLoaded();
     runsChanged();
     for (final table in [
+      'baselines',
+      'live_coverage',
+      'sessions',
       'food_entry',
       'food_def',
       'meal_template',
@@ -346,6 +361,7 @@ void main() {
       );
       await t.tap(find.text('Open'));
       await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Add'));
       await t.tap(find.text('Add'));
       await t.pump();
       expect(
@@ -353,6 +369,7 @@ void main() {
         findsOneWidget,
       );
       await t.enterText(_field('Calories (kcal)'), '-1');
+      await t.ensureVisible(find.text('Add'));
       await t.tap(find.text('Add'));
       await t.pump();
       expect(find.textContaining('non-negative number'), findsOneWidget);
@@ -388,6 +405,7 @@ void main() {
         'editable shake',
         day,
         second: 17,
+        protein: 30.25,
       ).inGroup('After training');
       await t.runAsync(() => NutritionDb.put(db, original));
       await t.pumpWidget(
@@ -427,6 +445,7 @@ void main() {
       expect(edited.atTs, original.atTs);
       expect(edited.group, original.group);
       expect(edited.kcal, 600);
+      expect(edited.proteinG, 30.25);
       expect(edited.fibreG, 4.5);
       expect(edited.fatG, 0);
       expect(edited.carbsG, isNull);
@@ -450,7 +469,13 @@ void main() {
     await t.tap(find.text('Edit entry'));
     await t.pumpAndSettle();
     expect(find.byType(QuickAddSheet), findsOneWidget);
-    await t.tap(find.bySemanticsLabel('Close'));
+    await t.tap(
+      find
+          .byWidgetPredicate(
+            (w) => w is Pressable && w.semanticLabel == 'Close',
+          )
+          .last,
+    );
     await t.pumpAndSettle();
     await t.drag(find.byType(Dismissible), const Offset(-500, 0));
     await t.pumpAndSettle();
@@ -754,6 +779,7 @@ void main() {
         await t.enterText(_field('Name'), 'Retained shake');
         await t.enterText(_field('Calories (kcal)'), '250');
         await t.enterText(_field('Protein (g)'), '40');
+        await t.ensureVisible(find.text('Add'));
         await t.tap(find.text('Add'));
         await _until(
           t,
@@ -766,6 +792,7 @@ void main() {
       } finally {
         await t.runAsync(() => db.execute('DROP TRIGGER reject_save'));
       }
+      await t.ensureVisible(find.text('Add'));
       await t.tap(find.text('Add'));
       await _until(t, () => find.byType(QuickAddSheet).evaluate().isEmpty);
       expect(
@@ -829,6 +856,9 @@ void main() {
         child: const OpenStrapApp(),
       );
       await t.pumpWidget(root());
+      await t.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
       await t.pump();
       expect(
         t.widget<AppShell>(find.byType(AppShell)).initial,
@@ -841,6 +871,9 @@ void main() {
         ShellDomain.nutrition.index,
       );
       await t.pumpWidget(root());
+      await t.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
       await t.pump();
       expect(
         t.widget<IndexedStack>(find.byType(IndexedStack).first).index,
@@ -848,6 +881,9 @@ void main() {
       );
       await _unmount(t);
       await t.pumpWidget(root());
+      await t.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
       await t.pump();
       expect(
         t.widget<AppShell>(find.byType(AppShell)).initial,
@@ -925,29 +961,44 @@ void main() {
     },
   );
 
-  test(
+  testWidgets(
     'weekly energy excludes today, unknown calories and breakfast-only days; blank fat is fine',
-    () async {
+    (t) async {
       const atDay = '2026-09-30';
-      await NutritionDb.put(
-        db,
-        _entry('Complete', '2026-09-28', kcal: 1800, protein: 120),
+      await t.runAsync(
+        () => NutritionDb.put(
+          db,
+          _entry('Complete', '2026-09-28', kcal: 1800, protein: 120),
+        ),
       );
-      await NutritionDb.put(
-        db,
-        _entry('Forgot evening', '2026-09-29', hour: 8, kcal: 300),
+      await t.runAsync(
+        () => NutritionDb.put(
+          db,
+          _entry('Forgot evening', '2026-09-29', hour: 8, kcal: 300),
+        ),
       );
-      await NutritionDb.put(
-        db,
-        _entry('Unknown dinner', '2026-09-29', kcal: null),
+      await t.runAsync(
+        () => NutritionDb.put(
+          db,
+          _entry('Unknown dinner', '2026-09-29', kcal: null),
+        ),
       );
-      await NutritionDb.put(db, _entry('Today so far', atDay, kcal: 100));
-      final summary = await WeekNumbers.load(
-        _Repo(),
-        const Profile(ageYears: 23, weightKg: 80.5, heightCm: 186.69, sex: 'm'),
-        {},
-        at: DateTime(2026, 9, 30),
+      await t.runAsync(
+        () => NutritionDb.put(db, _entry('Today so far', atDay, kcal: 100)),
       );
+      final summary = (await t.runAsync(
+        () => WeekNumbers.load(
+          _Repo(),
+          const Profile(
+            ageYears: 23,
+            weightKg: 80.5,
+            heightCm: 186.69,
+            sex: 'm',
+          ),
+          {},
+          at: DateTime(2026, 9, 30),
+        ),
+      ))!;
       expect(summary.daysLogged, 1);
       expect(summary.daysExcluded, 2);
       expect(summary.avgProtein, 120);
@@ -962,11 +1013,259 @@ void main() {
                   sex: 'm',
                 ),
                 eatenKcal: 1800,
+                steps: 5000,
               )!.total -
               1800,
           .01,
         ),
       );
+    },
+  );
+
+  testWidgets(
+    'an already-open maintenance breakdown reacts to measured steps and food writes',
+    (t) async {
+      t.view.physicalSize = const Size(390, 1000);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final repo = _Repo()..measuredSteps = 0;
+      final app = AppState.forTesting()
+        ..repo = repo
+        ..user = {..._profile};
+      addTearDown(app.dispose);
+      await t.pumpWidget(
+        _app(
+          app,
+          Builder(
+            builder: (c) => TextButton(
+              onPressed: () => showMaintenance(
+                c,
+                DayUpkeep(
+                  Profile.fromMap(_profile),
+                  steps: 0,
+                  date: todayLabel(),
+                ),
+                today: true,
+              ),
+              child: const Text('Open breakdown'),
+            ),
+          ),
+        ),
+      );
+      await t.tap(find.text('Open breakdown'));
+      await t.pumpAndSettle();
+      await _until(
+        t,
+        () => find.textContaining('0 steps at').evaluate().isNotEmpty,
+      );
+      repo.measuredSteps = 10000;
+      app.bumpInsights();
+      await _until(
+        t,
+        () => find.textContaining('10,000 steps at').evaluate().isNotEmpty,
+      );
+      expect(find.text('264 kcal'), findsOneWidget);
+      await t.runAsync(
+        () =>
+            NutritionDb.put(db, _entry('fresh-food', todayLabel(), kcal: 2000)),
+      );
+      await _until(
+        t,
+        () =>
+            find.textContaining('2,000 kcal you logged').evaluate().isNotEmpty,
+      );
+      expect(find.text('200 kcal'), findsOneWidget);
+      await _capture(t, 'build73-maintenance');
+      expect(t.takeException(), isNull);
+      await _unmount(t);
+    },
+  );
+
+  testWidgets(
+    'picker logs into a new heading with haptics and removes saved items in place',
+    (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final taps = <MethodCall>[];
+      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          taps.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final def = myFoodDef(
+        key: 'sausage',
+        label: 'Chicken sausage',
+        refGrams: 1,
+        unit: 'link',
+        kcal: 110,
+        protein: 13,
+      );
+      await t.runAsync(() async {
+        await NutritionDb.putFoodDef(db, def);
+        await MyFoods.putMeal(
+          db,
+          const MealTemplate(
+            key: 'saved',
+            label: 'Breakfast favourite',
+            meal: 'breakfast',
+            items: [('sausage', 2)],
+            units: {'sausage': 'link'},
+          ),
+        );
+      });
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await t.pumpWidget(
+        _app(app, LogFoodScreen(date: todayLabel(), meal: 'breakfast')),
+      );
+      await _until(t, () => find.text('Chicken sausage').evaluate().isNotEmpty);
+      expect(find.text('Recent'), findsNothing);
+      await _capture(t, 'build73-picker');
+      await t.tap(find.text('Meal heading'));
+      await _until(
+        t,
+        () => find.text('Create a heading').evaluate().isNotEmpty,
+      );
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Create a heading'));
+      await t.tap(find.text('Create a heading'));
+      await t.pumpAndSettle();
+      await t.enterText(_field('Name'), 'Power breakfast');
+      await t.ensureVisible(find.text('Save').last);
+      await t.tap(find.text('Save').last);
+      await _until(
+        t,
+        () =>
+            find.text('Power breakfast').evaluate().isNotEmpty &&
+            find.text('Create a heading').evaluate().isEmpty,
+      );
+      final log = find.byWidgetPredicate(
+        (w) => w is Pressable && w.semanticLabel == 'Log Chicken sausage',
+      );
+      await t.ensureVisible(log);
+      await t.tap(log);
+      await _until(
+        t,
+        () =>
+            find.textContaining('Added Chicken sausage').evaluate().isNotEmpty,
+      );
+      expect(
+        taps.where((c) => c.method == 'HapticFeedback.vibrate'),
+        isNotEmpty,
+      );
+      final es = (await t.runAsync(
+        () => NutritionDb.entriesForDay(db, todayLabel()),
+      ))!;
+      expect(es.single.group, 'Power breakfast');
+      expect(es.single.unit, 'link');
+      expect(es.single.kcal, 110);
+      await t.drag(
+        find.byKey(const ValueKey('saved-sausage')),
+        const Offset(450, 0),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Remove').last);
+      await _until(t, () => find.text('Chicken sausage').evaluate().isEmpty);
+      expect(
+        (await t.runAsync(() => NutritionDb.entriesForDay(db, todayLabel())))!,
+        hasLength(1),
+      );
+      await t.tap(find.text('My meals'));
+      await t.pump();
+      await _until(
+        t,
+        () => find.text('Breakfast favourite').evaluate().isNotEmpty,
+      );
+      await t.tap(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Pressable && w.semanticLabel == 'Remove Breakfast favourite',
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Remove').last);
+      await _until(
+        t,
+        () => find.text('Breakfast favourite').evaluate().isEmpty,
+      );
+      expect(t.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = null;
+      await _unmount(t);
+    },
+  );
+
+  testWidgets(
+    'decimal serving sheet can close or drag away above the keyboard without saving',
+    (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      t.view.padding = FakeViewPadding(top: 59);
+      addTearDown(t.view.reset);
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      final def = myFoodDef(
+        key: 'portion',
+        label: 'Decimal sausage',
+        refGrams: 1,
+        unit: 'link',
+        kcal: 110,
+        protein: 13,
+      );
+      await t.pumpWidget(
+        _app(
+          app,
+          Builder(
+            builder: (c) => TextButton(
+              onPressed: () => GramsSheet.show(c, def, initial: 2.5),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      );
+      await t.tap(find.text('Open'));
+      await t.pumpAndSettle();
+      expect(
+        t.widget<TextField>(_field('Amount (link)')).controller!.text,
+        '2.5',
+      );
+      await t.tap(_field('Amount (link)'));
+      t.view.viewInsets = FakeViewPadding(bottom: 330);
+      await t.pumpAndSettle();
+      final close = find.byWidgetPredicate(
+        (w) => w is Pressable && w.semanticLabel == 'Close',
+      );
+      expect(t.getTopLeft(close).dy, greaterThanOrEqualTo(59));
+      expect(t.getBottomLeft(close).dy, lessThan(514));
+      await _capture(t, 'build73-decimal-keyboard');
+      await t.tap(close);
+      await t.pumpAndSettle();
+      expect(find.byType(GramsSheet), findsNothing);
+      t.view.viewInsets = FakeViewPadding();
+      await t.tap(find.text('Open'));
+      await t.pumpAndSettle();
+      await t.tap(_field('Amount (link)'));
+      t.view.viewInsets = FakeViewPadding(bottom: 330);
+      await t.pumpAndSettle();
+      await t.fling(find.text('Decimal sausage'), const Offset(0, 200), 1000);
+      await t.pumpAndSettle();
+      expect(find.byType(GramsSheet), findsNothing);
+      expect(
+        (await t.runAsync(() => NutritionDb.entriesForDay(db, todayLabel())))!,
+        isEmpty,
+      );
+      expect(t.takeException(), isNull);
+      await _unmount(t);
     },
   );
 

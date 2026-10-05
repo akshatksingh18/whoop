@@ -27,33 +27,58 @@ String kmCue(int km, int splitSec) {
 
 /// Tracks the run's distance and speaks once per whole kilometre crossed.
 class KmVoice {
-  int _spoken = 0;
-  int _lastMarkSec = 0;
-  bool _primed = false;
+  int _spoken;
+  double _lastKm = 0, _lastSec = 0, _markSec = 0;
+  bool _resume;
+  KmVoice({int spoken = 0}) : _spoken = spoken, _resume = spoken > 0;
+  int get spokenKm => _spoken;
+  Map<String, dynamic> snapshot() => {
+    'spoken': _spoken,
+    'km': _lastKm,
+    'seconds': _lastSec,
+    'crossing': _markSec,
+  };
+  static KmVoice restore(Map? saved, {int spoken = 0}) {
+    final out = KmVoice(spoken: spoken);
+    if (saved != null &&
+        saved['km'] is num &&
+        saved['seconds'] is num &&
+        saved['crossing'] is num) {
+      out._spoken = (saved['spoken'] as num?)?.toInt() ?? spoken;
+      out._lastKm = (saved['km'] as num).toDouble();
+      out._lastSec = (saved['seconds'] as num).toDouble();
+      out._markSec = (saved['crossing'] as num).toDouble();
+      out._resume = false;
+    }
+    return out;
+  }
 
-  /// Feed the current [km] and [elapsedSec]; returns the line spoken, if any.
-  ///
-  /// The first reading only sets the starting point: a screen reopened
-  /// mid-run (after a minimise or a relaunch) must not announce a kilometre it
-  /// did not see begin, with a "split" that is really the whole run so far.
   String? update(double? km, int elapsedSec, {bool speak = true}) {
-    if (km == null) return null;
-    if (!_primed) {
-      _primed = true;
-      _spoken = km.floor();
-      // A fresh run's first fix lands a few seconds in; its first kilometre
-      // still started at 0:00.
-      _lastMarkSec = km < 0.2 ? 0 : elapsedSec;
+    if (km == null || !km.isFinite || km < 0 || elapsedSec < 0) return null;
+    if (_resume) {
+      _lastKm = km;
+      _lastSec = elapsedSec.toDouble();
+      _markSec = _lastSec;
+      _resume = false;
       return null;
     }
-    if (km < _spoken + 1) return null;
-    final whole = km.floor();
-    final split = elapsedSec - _lastMarkSec;
-    _spoken = whole;
-    _lastMarkSec = elapsedSec;
-    if (split <= 0) return null;
-    final line = kmCue(whole, split);
-    if (speak && runVoiceOn) say(line);
+    if (km <= _lastKm || elapsedSec < _lastSec) return null;
+    String? line;
+    while (_spoken + 1 <= km) {
+      final boundary = _spoken + 1;
+      final crossing =
+          _lastSec +
+          (boundary - _lastKm) / (km - _lastKm) * (elapsedSec - _lastSec);
+      final split = (crossing - _markSec).round();
+      _spoken = boundary;
+      _markSec = crossing;
+      if (split > 0) {
+        line = kmCue(boundary, split);
+        if (speak && runVoiceOn) say(line);
+      }
+    }
+    _lastKm = km;
+    _lastSec = elapsedSec.toDouble();
     return line;
   }
 }

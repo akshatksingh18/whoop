@@ -20,8 +20,10 @@ class Prefs {
   /// Idempotent and best-effort — failures leave reads on their defaults.
   static Future<void> ensureLoaded() async {
     try {
-      _sp ??= await SharedPreferences.getInstance();
-    } catch (_) {/* reads fall back to defaults */}
+      _sp = await SharedPreferences.getInstance();
+    } catch (_) {
+      /* reads fall back to defaults */
+    }
   }
 
   /// Whether storage is actually available, i.e. whether a `getX` default is

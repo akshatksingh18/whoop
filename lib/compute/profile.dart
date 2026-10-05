@@ -37,12 +37,12 @@ class Profile {
   }
 
   Map<String, dynamic> toMap() => {
-        if (ageYears != null) 'age': ageYears,
-        if (weightKg != null) 'weight_kg': weightKg,
-        if (heightCm != null) 'height_cm': heightCm,
-        if (sex != null) 'sex': sex,
-        if (restingHrManual != null) 'resting_hr': restingHrManual,
-      };
+    if (ageYears != null) 'age': ageYears,
+    if (weightKg != null) 'weight_kg': weightKg,
+    if (heightCm != null) 'height_cm': heightCm,
+    if (sex != null) 'sex': sex,
+    if (restingHrManual != null) 'resting_hr': restingHrManual,
+  };
 
   // NO `hrMaxTanaka` HERE. It was `208 − 0.7·age` inlined on the profile, which
   // made the HR ceiling a property of the ATHLETE alone — and the app then
@@ -102,10 +102,15 @@ String workoutSex(String? sex) {
 
 /// Active calories from [steps]: 2.74 × steps × kg ÷ 8,368 (the Weyand et
 /// al. 2010 walking-cost form). Energy ABOVE resting only, so it never repeats
-/// the BMR. Running steps are costed as walking steps, which makes this a
-/// floor, by Akshat's decision. Null without a weight or with no steps.
+/// the BMR. Daily accounting excludes steps already priced by running Method 1.
+/// This is a conservative estimate, not a guaranteed physiological minimum.
 double? stepCalories(num? steps, double? weightKg) {
-  if (steps == null || steps <= 0 || weightKg == null || weightKg <= 0) {
+  if (steps == null ||
+      !steps.isFinite ||
+      steps < 0 ||
+      weightKg == null ||
+      !weightKg.isFinite ||
+      weightKg <= 0) {
     return null;
   }
   return 2.74 * steps * weightKg / 8368;
@@ -116,7 +121,14 @@ double? stepCalories(num? steps, double? weightKg) {
 /// midpoint of the two otherwise. Null without weight, height and age.
 double? bmrMifflin(Profile p) {
   final w = p.weightKg, h = p.heightCm, a = p.ageYears;
-  if (w == null || h == null || a == null || w <= 0 || h <= 0 || a <= 0) {
+  if (w == null ||
+      h == null ||
+      a == null ||
+      !w.isFinite ||
+      !h.isFinite ||
+      w <= 0 ||
+      h <= 0 ||
+      a <= 0) {
     return null;
   }
   final base = 10 * w + 6.25 * h - 5 * a;
@@ -149,13 +161,22 @@ const double kClimbO2PerMeter = 0.9;
 /// 0.005 × kg × (0.143 × metres + 0.9 × metres climbed), because speed × time
 /// is distance and speed × incline × time is height gained. 0.005 is
 /// 0.3 ÷ 60: five kcal per litre of oxygen. Null without a weight.
-double? runFloorKcal(
-    {required double runMeters,
-    double walkMeters = 0,
-    double climbMeters = 0,
-    double? weightKg}) {
-  if (weightKg == null || weightKg <= 0) return null;
-  final o2 = kRunO2PerMeter * math.max(0, runMeters) +
+double? runFloorKcal({
+  required double runMeters,
+  double walkMeters = 0,
+  double climbMeters = 0,
+  double? weightKg,
+}) {
+  if (weightKg == null ||
+      !weightKg.isFinite ||
+      weightKg <= 0 ||
+      !runMeters.isFinite ||
+      !walkMeters.isFinite ||
+      !climbMeters.isFinite) {
+    return null;
+  }
+  final o2 =
+      kRunO2PerMeter * math.max(0, runMeters) +
       kWalkO2PerMeter * math.max(0, walkMeters) +
       kClimbO2PerMeter * math.max(0, climbMeters);
   return 0.005 * weightKg * o2;
@@ -165,42 +186,48 @@ double? runFloorKcal(
 /// gross kcal/min from heart rate minus resting (Mifflin–St Jeor ÷ 1,440),
 /// summed over the session's per-minute heart rate.
 ///
-/// [hrPerSlot] is one mean heart rate per slot (null where the band recorded
-/// nothing); each slot stands for [durationMin] ÷ slot count minutes, so a
-/// padded last partial minute is not counted as a whole one. A slot whose
+/// [hrPerSlot] has dense minute indices, null where the band recorded nothing.
+/// Only the remaining fraction of the final minute is included. A slot whose
 /// active energy comes out below zero (an easy walk break at a low heart
 /// rate, below what the equation was fitted on) counts as zero rather than
 /// subtracting. Null without age, weight, sex-independent BMR inputs, or a
 /// single measured slot.
 ({double kcal, int measured, int slots})? keytelActiveKcal(
-    List<double?> hrPerSlot, double durationMin, Profile p) {
+  List<double?> hrPerSlot,
+  double durationMin,
+  Profile p,
+) {
   final w = p.weightKg, a = p.ageYears;
   final bmr = bmrMifflin(p);
   if (w == null || a == null || bmr == null || hrPerSlot.isEmpty) return null;
-  if (durationMin <= 0) return null;
+  if (!durationMin.isFinite || durationMin <= 0) return null;
   final sex = workoutSex(p.sex);
   double gross(double hr) => switch (sex) {
-        'male' => (-55.0969 + 0.6309 * hr + 0.1988 * w + 0.2017 * a) / 4.184,
-        'female' => (-20.4022 + 0.4472 * hr - 0.1263 * w + 0.074 * a) / 4.184,
-        _ => ((-55.0969 + 0.6309 * hr + 0.1988 * w + 0.2017 * a) +
-                (-20.4022 + 0.4472 * hr - 0.1263 * w + 0.074 * a)) /
-            2 /
-            4.184,
-      };
+    'male' => (-55.0969 + 0.6309 * hr + 0.1988 * w + 0.2017 * a) / 4.184,
+    'female' => (-20.4022 + 0.4472 * hr - 0.1263 * w + 0.074 * a) / 4.184,
+    _ =>
+      ((-55.0969 + 0.6309 * hr + 0.1988 * w + 0.2017 * a) +
+              (-20.4022 + 0.4472 * hr - 0.1263 * w + 0.074 * a)) /
+          2 /
+          4.184,
+  };
   final rest = bmr / 1440;
-  final perSlot = durationMin / hrPerSlot.length;
+  // Dense minute indices preserve missing minutes and the actual last fraction.
+  final slots = math.min(hrPerSlot.length, durationMin.ceil());
   var kcal = 0.0;
   var measured = 0;
-  for (final hr in hrPerSlot) {
+  for (var i = 0; i < slots; i++) {
+    final hr = hrPerSlot[i];
+    final perSlot = math.min(1.0, durationMin - i);
     if (hr == null || !hr.isFinite || hr <= 0) continue;
     measured++;
     kcal += math.max(0, gross(hr) - rest) * perSlot;
   }
   if (measured == 0) return null;
-  return (kcal: kcal, measured: measured, slots: hrPerSlot.length);
+  return (kcal: kcal, measured: measured, slots: slots);
 }
 
-/// A day's maintenance calories, as a floor:
+/// A day's conservative maintenance budget:
 /// BMR + step calories + running (Method 1) + 10% of the food logged that day
 /// (the thermic effect of food).
 ///
@@ -209,18 +236,32 @@ double? runFloorKcal(
 /// [runKcal]; walks are never in [runKcal], so their steps stay in [steps].
 /// With nothing logged the food part is 0. Null without a BMR.
 ({double bmr, double steps, double run, double food, double total})?
-    maintenance(Profile p,
-        {num? steps,
-        double eatenKcal = 0,
-        double runKcal = 0,
-        num runSteps = 0}) {
+maintenance(
+  Profile p, {
+  num? steps,
+  double eatenKcal = 0,
+  double runKcal = 0,
+  num runSteps = 0,
+}) {
   final bmr = bmrMifflin(p);
-  if (bmr == null) return null;
+  if (bmr == null ||
+      !eatenKcal.isFinite ||
+      !runKcal.isFinite ||
+      !runSteps.isFinite ||
+      (steps != null && !steps.isFinite)) {
+    return null;
+  }
   final walked = steps == null ? null : math.max(0, steps - runSteps);
   final st = stepCalories(walked, p.weightKg) ?? 0;
   final run = math.max(0.0, runKcal);
   final tef = eatenKcal > 0 ? eatenKcal * 0.10 : 0.0;
-  return (bmr: bmr, steps: st, run: run, food: tef, total: bmr + st + run + tef);
+  return (
+    bmr: bmr,
+    steps: st,
+    run: run,
+    food: tef,
+    total: bmr + st + run + tef,
+  );
 }
 
 /// Distance and active calories for [steps], for the steps breakdown. The
@@ -229,7 +270,15 @@ double? runFloorKcal(
 /// height and weight, or with no steps.
 ({double kcal, double km})? walkingEnergy(num? steps, Profile p) {
   final h = p.heightCm, w = p.weightKg;
-  if (steps == null || steps <= 0 || h == null || w == null || h <= 0 || w <= 0) {
+  if (steps == null ||
+      !steps.isFinite ||
+      steps <= 0 ||
+      h == null ||
+      !h.isFinite ||
+      w == null ||
+      !w.isFinite ||
+      h <= 0 ||
+      w <= 0) {
     return null;
   }
   final factor = switch (p.sex) {

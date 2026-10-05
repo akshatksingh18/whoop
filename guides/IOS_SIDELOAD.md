@@ -2,8 +2,9 @@
 
 **State:** Build `0.9.37`/`70` is installed over build 69 and accepted. Source `0.9.39`/`72` is
 validated locally and by Linux CI/macOS build, with the additional Today-refresh fix. Its downloaded
-checksum and payload validation pass; installation, phone acceptance and current-version enrollment
-remain pending. The initial build-71 IPA predates that fix and must not be installed.
+checksum and payload validation pass, and Akshat confirms build 72 is installed. Phone acceptance
+and current-version enrollment remain pending; `../workout-sync-audit.md` records reported issues
+and the approved repairs in local build-73 source. The initial build-71 IPA predates that fix and must not be installed.
 Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
@@ -15,7 +16,9 @@ The minimal profile excludes HealthKit and reads direct iPhone motion data when 
 Steps** is enabled. Encrypted history restore, identity/data/pairing preservation and a controlled
 forced-due Wi-Fi daemon refresh were verified on earlier builds. The broader lifecycle,
 background/restoration, naturally elapsed refresh and expiry-recovery gates remain open in
-`../CLAUDE.md`; locked-screen voice cues have no separately reported result.
+`../CLAUDE.md`; Akshat reports build-72 voice cues delayed until foreground. The session/audio
+repair is implemented in local source `0.9.40`/`73`, including background audio for spoken
+workout cues. Local validation passes; separate publication/IPA approval remains and no new IPA is cached.
 
 ### Current install and refresh procedure
 

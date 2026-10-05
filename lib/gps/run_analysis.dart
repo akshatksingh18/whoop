@@ -70,13 +70,19 @@ RunMix runMix(List<RoutePoint> raw, {double windowSec = 15}) {
   for (var i = 1; i < pts.length; i++) {
     final seg = cum[i] - cum[i - 1];
     final dt = (pts[i].tsMs - pts[i - 1].tsMs) / 1000;
-    if (dt <= 0) continue;
+    if (dt <= 0 || routeBreak(pts[i - 1], pts[i])) {
+      lo = i;
+      hi = i;
+      continue;
+    }
     final mid = (pts[i].tsMs + pts[i - 1].tsMs) / 2;
     while (lo < i - 1 && pts[lo + 1].tsMs <= mid - windowSec * 1000) {
       lo++;
     }
     if (hi < i) hi = i;
-    while (hi + 1 < pts.length && pts[hi + 1].tsMs <= mid + windowSec * 1000) {
+    while (hi + 1 < pts.length &&
+        !routeBreak(pts[hi], pts[hi + 1]) &&
+        pts[hi + 1].tsMs <= mid + windowSec * 1000) {
       hi++;
     }
     final wdt = (pts[hi].tsMs - pts[lo].tsMs) / 1000;
@@ -93,7 +99,7 @@ RunMix runMix(List<RoutePoint> raw, {double windowSec = 15}) {
   return (
     runM: runM,
     walkM: walkM,
-    climbM: elevationGain(raw) ?? 0,
+    climbM: 0, // Vertical accuracy is unavailable; no uncertain climb energy.
     runSec: runSec,
     walkSec: walkSec,
   );
@@ -104,24 +110,37 @@ RunMix runMix(List<RoutePoint> raw, {double windowSec = 15}) {
 /// with steps is walking. A chunk the phone gave no distance for adds no
 /// metres, because the floor never guesses one. No climb: the phone has no
 /// altitude.
-RunMix motionMix(
-    {required List<int> steps,
-    required List<double?> meters,
-    required int chunkSec}) {
+RunMix motionMix({
+  required List<int> steps,
+  required List<double?> meters,
+  required int chunkSec,
+  List<double>? seconds,
+}) {
   var runM = 0.0, walkM = 0.0, runSec = 0.0, walkSec = 0.0;
   for (var i = 0; i < steps.length && i < meters.length; i++) {
-    final m = meters[i];
+    final raw = meters[i];
+    final m = raw != null && raw.isFinite && raw >= 0 ? raw : null;
     if (steps[i] <= 0 && (m == null || m <= 0)) continue;
-    final cadence = steps[i] * 60 / chunkSec;
+    final duration = seconds != null && i < seconds.length
+        ? seconds[i]
+        : chunkSec.toDouble();
+    if (!duration.isFinite || duration <= 0) continue;
+    final cadence = steps[i] * 60 / duration;
     if (cadence >= kRunCadence) {
       runM += m ?? 0;
-      runSec += chunkSec;
+      runSec += duration;
     } else {
       walkM += m ?? 0;
-      walkSec += chunkSec;
+      walkSec += duration;
     }
   }
-  return (runM: runM, walkM: walkM, climbM: 0, runSec: runSec, walkSec: walkSec);
+  return (
+    runM: runM,
+    walkM: walkM,
+    climbM: 0,
+    runSec: runSec,
+    walkSec: walkSec,
+  );
 }
 
 /// Cumulative distance in metres at each point, with the same teleport filter
@@ -131,9 +150,12 @@ List<double> cumulativeMeters(List<RoutePoint> raw) {
   final out = List<double>.filled(pts.length, 0);
   for (var i = 1; i < pts.length; i++) {
     final m = haversineMeters(
-        pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
-    out[i] = out[i - 1] +
-        (isImplausibleSegment(m, pts[i].tsMs - pts[i - 1].tsMs) ? 0 : m);
+      pts[i - 1].lat,
+      pts[i - 1].lng,
+      pts[i].lat,
+      pts[i].lng,
+    );
+    out[i] = out[i - 1] + (routeBreak(pts[i - 1], pts[i]) ? 0 : m);
   }
   return out;
 }
@@ -144,13 +166,20 @@ List<double> cumulativeMeters(List<RoutePoint> raw) {
 /// The start of each stretch is interpolated between fixes, so an effort is
 /// not rounded to whichever fix happened to land near its start.
 double? bestEffortSeconds(
-    List<RoutePoint> pts, List<double> cum, double meters) {
+  List<RoutePoint> pts,
+  List<double> cum,
+  double meters,
+) {
   if (pts.length < 2 || cum.last < meters) return null;
   double? best;
-  var i = 0;
+  var i = 0, component = 0;
   for (var j = 1; j < pts.length; j++) {
+    if (routeBreak(pts[j - 1], pts[j])) {
+      component = j;
+      i = j;
+    }
     final target = cum[j] - meters;
-    if (target < 0) continue;
+    if (target < cum[component]) continue;
     while (i + 1 < j && cum[i + 1] <= target) {
       i++;
     }
@@ -170,10 +199,14 @@ int? bestEffortEnd(List<RoutePoint> pts, List<double> cum, double meters) {
   if (pts.length < 2 || cum.last < meters) return null;
   double? best;
   int? at;
-  var i = 0;
+  var i = 0, component = 0;
   for (var j = 1; j < pts.length; j++) {
+    if (routeBreak(pts[j - 1], pts[j])) {
+      component = j;
+      i = j;
+    }
     final target = cum[j] - meters;
-    if (target < 0) continue;
+    if (target < cum[component]) continue;
     while (i + 1 < j && cum[i + 1] <= target) {
       i++;
     }
@@ -235,8 +268,11 @@ typedef PacePoint = ({double tSec, double? paceSecPerKm, double meters});
 
 /// Pace through the run, smoothed over a [windowSec] window either side so
 /// single-fix GPS noise does not draw spikes, thinned to at most [maxPoints].
-List<PacePoint> paceCurve(List<RoutePoint> pts,
-    {double windowSec = 15, int maxPoints = 300}) {
+List<PacePoint> paceCurve(
+  List<RoutePoint> pts, {
+  double windowSec = 15,
+  int maxPoints = 300,
+}) {
   if (pts.length < 2) return const [];
   final cum = cumulativeMeters(pts);
   final t0 = pts.first.tsMs;
@@ -270,7 +306,12 @@ List<PacePoint> paceCurve(List<RoutePoint> pts,
 /// 5K pace (lower is faster): Z6 below 0.867, Z5 to 0.924, Z4 to 0.985,
 /// Z3 to 1.10, Z2 to 1.276, Z1 above.
 const kPaceZoneNames = [
-  'Recovery', 'Endurance', 'Tempo', 'Threshold', 'VO2 max', 'Anaerobic',
+  'Recovery',
+  'Endurance',
+  'Tempo',
+  'Threshold',
+  'VO2 max',
+  'Anaerobic',
 ];
 const _paceZoneBounds = [1.276, 1.10, 0.985, 0.924, 0.867];
 
@@ -285,12 +326,12 @@ int paceZone(double paceSecPerKm, double fiveKPaceSecPerKm) {
 /// The pace bounds of each zone, slowest first, in seconds per km:
 /// (faster edge, slower edge), null meaning open-ended.
 List<(double?, double?)> paceZoneBounds(double fiveKPace) => [
-      for (var z = 0; z < 6; z++)
-        (
-          z == 5 ? null : fiveKPace * _paceZoneBounds[z],
-          z == 0 ? null : fiveKPace * _paceZoneBounds[z - 1],
-        ),
-    ];
+  for (var z = 0; z < 6; z++)
+    (
+      z == 5 ? null : fiveKPace * _paceZoneBounds[z],
+      z == 0 ? null : fiveKPace * _paceZoneBounds[z - 1],
+    ),
+];
 
 /// Share of moving time in each of the six pace zones, Z1 first.
 List<double> paceZoneShares(List<PacePoint> curve, double fiveKPace) {
@@ -318,10 +359,12 @@ String? runVerdict({
     final top = order.first, second = order[1];
     String pct(int z) => '${(zoneShares[z] * 100).round()}%';
     final name = kPaceZoneNames[top].toLowerCase();
-    parts.add(zoneShares[second] >= 0.15
-        ? 'Mostly $name (${pct(top)}) and '
-            '${kPaceZoneNames[second].toLowerCase()} (${pct(second)})'
-        : 'Mostly $name (${pct(top)})');
+    parts.add(
+      zoneShares[second] >= 0.15
+          ? 'Mostly $name (${pct(top)}) and '
+                '${kPaceZoneNames[second].toLowerCase()} (${pct(second)})'
+          : 'Mostly $name (${pct(top)})',
+    );
   }
   final full = [
     for (final s in splits)
@@ -329,11 +372,13 @@ String? runVerdict({
   ];
   if (full.length >= 3) {
     final spread = full.reduce(math.max) - full.reduce(math.min);
-    parts.add(spread <= 30
-        ? 'very even pacing'
-        : spread <= 60
-            ? 'even pacing'
-            : 'uneven pacing (${spread}s between fastest and slowest km)');
+    parts.add(
+      spread <= 30
+          ? 'very even pacing'
+          : spread <= 60
+          ? 'even pacing'
+          : 'uneven pacing (${spread}s between fastest and slowest km)',
+    );
     final firstHalf = full.sublist(0, full.length ~/ 2);
     final lastHalf = full.sublist(full.length - full.length ~/ 2);
     double avg(List<int> v) => v.reduce((a, b) => a + b) / v.length;
@@ -352,8 +397,11 @@ String? runVerdict({
 /// Elevation gain in metres with the altitude smoothed over [windowSec] and a
 /// [deadbandM] hysteresis, because raw GPS altitude wanders several metres
 /// standing still and summing that wander invents a hill.
-double? elevationGain(List<RoutePoint> pts,
-    {double windowSec = 30, double deadbandM = 3}) {
+double? elevationGain(
+  List<RoutePoint> pts, {
+  double windowSec = 30,
+  double deadbandM = 3,
+}) {
   final alt = [for (final p in pts) p.alt];
   if (pts.length < 2 || alt.any((a) => a == null)) return null;
   final smooth = <double>[];

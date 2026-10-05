@@ -33,14 +33,14 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../compute/profile.dart' show Profile, walkingEnergy;
+import '../../compute/day_upkeep.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../profile/devices.dart' show bandLabelFor;
 import '../ui2.dart';
 import 'home_screen.dart' show prettyDay, repoOf, thousands;
-import 'metric_detail.dart'
-    show dayNavLabel, dayNavRow, detailScaffold, pickDay;
+import 'metric_detail.dart' show dayNavLabel, dayNavRow, detailScaffold;
 
 /// One resolved stretch of the day.
 class DayStepSpan {
@@ -78,8 +78,8 @@ class DayStepsData {
     this.walking,
   });
 
-  /// Estimated walking energy and distance for [dayTotal], from the profile's
-  /// height and weight. Shown on its own; never added to the calorie totals.
+  /// Walking contribution after run-step accounting, using the day's weight.
+  /// The calorie value is the same Steps part already included in maintenance.
   final ({double kcal, double km})? walking;
 
   /// The fallback name for the strap. Nothing is paired, or the link has not
@@ -119,11 +119,19 @@ class DayStepsData {
     String? want,
   }) async {
     final days = await repo.availableDays();
-    final day = pickDay(days, want, todayLabel()) ?? todayLabel();
+    final day = want ?? todayLabel();
     final d = await repo.getDaySteps(day);
-    final profile = Profile.fromMap(await repo.getProfile());
+    final upkeep = await DayUpkeep.read(
+      repo,
+      day,
+      Profile.fromMap(await repo.getProfile()),
+      eaten: 0,
+    );
+    final energy = walkingEnergy(upkeep.walkedSteps, upkeep.profile);
     return DayStepsData(
-      walking: walkingEnergy(d['day_total'] as num? ?? d['total'] as num?, profile),
+      walking: energy == null || upkeep.parts == null
+          ? null
+          : (kcal: upkeep.parts!.steps, km: energy.km),
       day: day,
       days: days,
       spans: [
@@ -214,11 +222,14 @@ List<DayStepSpan> mergeAdjacent(List<DayStepSpan> spans) {
   final out = <DayStepSpan>[];
   for (final s in spans) {
     final last = out.isEmpty ? null : out.last;
-    final crossed = last != null &&
-        spans.any((o) =>
-            o.fromBand != s.fromBand &&
-            o.startTs >= last.startTs &&
-            o.startTs < s.endTs);
+    final crossed =
+        last != null &&
+        spans.any(
+          (o) =>
+              o.fromBand != s.fromBand &&
+              o.startTs >= last.startTs &&
+              o.startTs < s.endTs,
+        );
     if (last != null &&
         last.fromBand == s.fromBand &&
         last.activity == s.activity &&
@@ -244,16 +255,18 @@ class DayStepsDetail extends StatefulWidget {
 
   /// The day to open. Null means today.
   final String? day;
+  final bool embedded;
 
-  const DayStepsDetail({super.key, this.data, this.day});
+  const DayStepsDetail({super.key, this.data, this.day, this.embedded = false});
 
   @override
   State<DayStepsDetail> createState() => _DayStepsDetailState();
 }
 
-class _DayStepsDetailState extends State<DayStepsDetail> {
+class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
   DayStepsData? _d;
   bool _loading = true;
+  bool _failed = false;
   String? _day;
 
   /// The hour under the finger on the chart, or null.
@@ -271,18 +284,30 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  @override
+  bool get revisionReloads => widget.data == null;
+  @override
+  void reload() => _load();
+
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final token = beginRead(#day);
+    setState(() => _loading = true);
     try {
-      final d = await DayStepsData.load(repo,
-          bandLabel: bandLabel(context), want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      final d = await DayStepsData.load(
+        repo,
+        bandLabel: bandLabel(context),
+        want: _day,
+      );
+      if (stillNewest(#day, token))
+        setState(() => (_d = d, _loading = false, _failed = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (stillNewest(#day, token))
+        setState(() => (_loading = false, _failed = true));
     }
   }
 
@@ -302,35 +327,61 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     final d = _d ?? const DayStepsData();
     // Same rule as Sleep: the stepper names the day, so the nav bar only does
     // when there is no stepper.
-    return detailScaffold(c, l?.dayStepsTitle ?? 'Steps',
-        sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '', [
-      ...dayNavRow(_day ?? d.day, d.days, _goDay),
-      if (_loading && _d == null) ...[
-        const SizedBox(height: S.x8),
-        const Center(child: CircularProgressIndicator()),
-      ] else if (d.spans.isEmpty)
-        _absent(c, d)
-      else ...[
-        _chart(c, p, d),
-        if (d.walking case final w?) ...[
-          const SizedBox(height: S.x3),
-          Surface(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
-                Text('≈${w.kcal.round()} kcal', style: F.n24.copyWith(color: p.ink)),
-                Text('from walking · about ${w.km.toStringAsFixed(1)} km',
-                    style: F.cap.copyWith(color: p.ink3)),
-              ]),
-              const SizedBox(height: S.x1),
-              Text(
-                  'From your steps and weight. Counted in maintenance on Food, '
-                  'less any steps taken during a run.',
-                  style: F.over.copyWith(color: p.ink3, height: 1.4)),
-            ]),
-          ),
+    return detailScaffold(
+      c,
+      l?.dayStepsTitle ?? 'Steps',
+      embedded: widget.embedded,
+      sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '',
+      [
+        if (!widget.embedded) ...dayNavRow(_day ?? d.day, d.days, _goDay),
+        if (_loading && _d != null) const Text('Updating steps…'),
+        if (_loading && _d == null) ...[
+          const SizedBox(height: S.x8),
+          const Center(child: CircularProgressIndicator()),
+        ] else if (_failed)
+          StatusCard(
+            'Steps could not load',
+            'Your saved counts are intact.',
+            fix: 'Retry',
+            onFix: _load,
+          )
+        else if (d.spans.isEmpty)
+          _absent(c, d)
+        else ...[
+          _chart(c, p, d),
+          if (d.walking case final w?) ...[
+            const SizedBox(height: S.x3),
+            Surface(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: S.x2,
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    children: [
+                      Text(
+                        '≈${w.kcal.round()} kcal',
+                        style: F.n24.copyWith(color: p.ink),
+                      ),
+                      Text(
+                        'from walking · about ${w.km.toStringAsFixed(1)} km',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: S.x1),
+                  Text(
+                    'Active calories already included in maintenance. '
+                    'Running steps are accounted for separately.',
+                    style: F.over.copyWith(color: p.ink3, height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ],
-    ]);
+    );
   }
 
   // ── nothing to place on a clock ────────────────────────────────────────────
@@ -346,7 +397,8 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     // that could only ever be today; now it can be any day on disk.
     final when = dayNavLabel(d.day) == 'Today'
         ? (l?.dayStepsToday ?? 'today')
-        : (l?.dayStepsOnDay(prettyDay(d.day, l)) ?? 'on ${prettyDay(d.day, l)}');
+        : (l?.dayStepsOnDay(prettyDay(d.day, l)) ??
+              'on ${prettyDay(d.day, l)}');
     return StatusCard(
       chip
           ? (l?.dayStepsNoTimesTitle(when) ?? 'No times behind the count $when')
@@ -377,10 +429,10 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
       final who = b != null && ph != null
           ? ''
           : b != null
-              ? ' · ${d.bandLabel}'
-              : ph != null
-                  ? ' · ${l?.dayStepsYourPhone ?? 'Your phone'}'
-                  : '';
+          ? ' · ${d.bandLabel}'
+          : ph != null
+          ? ' · ${l?.dayStepsYourPhone ?? 'Your phone'}'
+          : '';
       return '$hh:00–$next:00 · ${b == null && ph == null ? 'none' : thousands(n)}$who';
     }
 
@@ -403,7 +455,8 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
                     (l?.dayStepsYourPhone ?? 'Your phone', p.on(C.teal)),
                   ]
                 : const [],
-            footnote: _honesty(c, d),
+            footnote:
+                '${_honesty(c, d)}${d.mixed ? ' Bar colour shows the main source for each hour.' : ''}',
             empty: axis == null ? const NoData() : null,
             readout: hr == null ? null : says(hr),
             child: Scrubber(
@@ -443,9 +496,17 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
           InlineMetrics(
             d.mixed
                 ? [
-                    (l?.dayStepsCounted ?? 'Counted', thousands(d.total), C.green),
+                    (
+                      l?.dayStepsCounted ?? 'Counted',
+                      thousands(d.total),
+                      C.green,
+                    ),
                     (d.bandLabel, thousands(d.strap), C.green),
-                    (l?.dayStepsYourPhone ?? 'Your phone', thousands(d.phone), C.teal),
+                    (
+                      l?.dayStepsYourPhone ?? 'Your phone',
+                      thousands(d.phone),
+                      C.teal,
+                    ),
                   ]
                 : [
                     (

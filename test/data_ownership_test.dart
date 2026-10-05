@@ -9,6 +9,7 @@
 // mode being tested for.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/data/csv_export.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/sync/update_service.dart';
@@ -44,6 +45,7 @@ Future<void> _seedEverything() async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -60,43 +62,47 @@ void main() {
   });
 
   group('wipeAll', () {
-    test('leaves EVERY table empty, including the ones a list would forget',
-        () async {
-      await _seedEverything();
-      final db = await LocalDb.instance;
-      final tables = await LocalDb.tableNames();
-      expect(tables, isNotEmpty);
+    test(
+      'leaves EVERY table empty, including the ones a list would forget',
+      () async {
+        await _seedEverything();
+        final db = await LocalDb.instance;
+        final tables = await LocalDb.tableNames();
+        expect(tables, isNotEmpty);
 
-      // Sanity: the seed actually put something in the tables the old reset
-      // was documented to miss. If these are empty before the wipe the test
-      // proves nothing.
-      for (final t in const [
-        'lab_result',
-        'baselines',
-        'sync_cursor',
-        'breathing_session',
-        'strength_set',
-        'raw_archive',
-      ]) {
-        if (!tables.contains(t)) continue;
-        final n = _count(await db.rawQuery('SELECT COUNT(*) AS n FROM $t'));
-        expect(n, greaterThan(0), reason: '$t was never seeded');
-      }
+        // Sanity: the seed actually put something in the tables the old reset
+        // was documented to miss. If these are empty before the wipe the test
+        // proves nothing.
+        for (final t in const [
+          'lab_result',
+          'baselines',
+          'sync_cursor',
+          'breathing_session',
+          'strength_set',
+          'raw_archive',
+        ]) {
+          if (!tables.contains(t)) continue;
+          final n = _count(await db.rawQuery('SELECT COUNT(*) AS n FROM $t'));
+          expect(n, greaterThan(0), reason: '$t was never seeded');
+        }
 
-      await LocalDb.wipeAll();
+        await LocalDb.wipeAll();
 
-      for (final t in tables) {
-        final n = _count(await db.rawQuery('SELECT COUNT(*) AS n FROM $t'));
-        expect(n, 0, reason: '$t survived "Delete everything"');
-      }
-    });
+        for (final t in tables) {
+          final n = _count(await db.rawQuery('SELECT COUNT(*) AS n FROM $t'));
+          expect(n, 0, reason: '$t survived "Delete everything"');
+        }
+      },
+    );
 
-    test('keeps the schema — no table is dropped and no migration re-runs',
-        () async {
-      final before = await LocalDb.tableNames();
-      await LocalDb.wipeAll();
-      expect(await LocalDb.tableNames(), before);
-    });
+    test(
+      'keeps the schema — no table is dropped and no migration re-runs',
+      () async {
+        final before = await LocalDb.tableNames();
+        await LocalDb.wipeAll();
+        expect(await LocalDb.tableNames(), before);
+      },
+    );
   });
 
   group('isMeasuredDay — the guard every importer must pass', () {
@@ -166,13 +172,15 @@ void main() {
     expect(kCsvExportExclusions, isNotEmpty);
   });
 
-  test('update checks do not fire on a build without the OTA feature',
-      () async {
-    // kSideloadOtaEnabled is a --dart-define, absent under `flutter test`, so
-    // this is the store/self-built case: fetchStatus must make no request at
-    // all. It used to be gated only on a non-empty URL, which meant a GET on
-    // every launch and every foreground in shipped builds.
-    expect(kSideloadOtaEnabled, isFalse);
-    expect(await UpdateService.fetchStatus(), isNull);
-  });
+  test(
+    'update checks do not fire on a build without the OTA feature',
+    () async {
+      // kSideloadOtaEnabled is a --dart-define, absent under `flutter test`, so
+      // this is the store/self-built case: fetchStatus must make no request at
+      // all. It used to be gated only on a non-empty URL, which meant a GET on
+      // every launch and every foreground in shipped builds.
+      expect(kSideloadOtaEnabled, isFalse);
+      expect(await UpdateService.fetchStatus(), isNull);
+    },
+  );
 }

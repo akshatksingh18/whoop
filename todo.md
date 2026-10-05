@@ -1,12 +1,17 @@
 # Remaining WHOOP verification
 
-**State:** Build `0.9.37`/`70` is installed and accepted. Akshat confirmed the phone check
+**State:** Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
 `metrics-map.md` describe shipped behavior, readiness baseline rules and known limits.
 
-- Get a separate result for spoken km cues with the screen locked; the personal profile has no
-  audio background mode. Record the observed behavior before deciding on any capability change.
+- Build `0.9.39`/`72` is installed, confirmed by Akshat, but not accepted. He reports background
+  voice cues delayed until foreground and supplied sync/calorie/macro/profile issues. The current
+  installed build-72 streak does not count step-only goal days. `workout-sync-audit.md` owns findings and proposed
+  repairs; the approved build-73 implementation below passes local validation.
+- Today refresh updating steps is confirmed on build 72. Maintenance consistency remains open:
+  Akshat reports unchanged calories; the main Food card updates in an isolated real-repository
+  probe, but an already-open maintenance breakdown remains stale. The report owns this distinction.
 - Complete the broader physical-device matrix in `CLAUDE.md`, including locked/background route
   recording, range-loss restoration, system termination, overnight collection and the 72-hour soak.
 - Verify naturally elapsed unattended refresh cycles, the alert thresholds, Wi-Fi/USB recovery
@@ -54,11 +59,12 @@ The revised version is `0.9.39`/`72`. Akshat approved publishing source
 pushed; Linux CI `37173914511` passes (3,279 tests, 363 intentional skips).
 macOS workflow `37174063547` passes. The downloaded IPA matches its manifest/checksum and
 passes local payload validation. It is cached as the single testing candidate; `setup.md` owns
-the source, hash and artifact path. Build 72 has not yet been installed.
+the source, hash and artifact path. Akshat confirms build 72 is installed; installation alone does
+not close its phone pass or current-version enrollment gates.
 The superseded build-71 artifact lacks the refresh fix; keep one install candidate.
 
 Before promoting build 72:
-- Install over accepted build 70 using the existing signed identity; confirm data and pairing remain.
+- Installation is confirmed. Confirm signed identity, data and pairing continuity separately.
 - Force-close from Food/Trends and relaunch: Today opens. Warm resume retains the current screen.
 - Scrub Sleep and Food charts: every selected value/unit is visible, including enlarged text;
   Deep matches the legend and Night details expands cleanly.
@@ -69,5 +75,87 @@ Before promoting build 72:
 - Walk with the phone, then refresh Today: its steps, step detail, today's chart and step-based
   maintenance update together. Repeat with the band disconnected/slow and check status messages;
   HR-derived figures need new band data and may wait during capture or a live workout.
+- Today step-number refresh is reported working; verify the corresponding step kcal in Food,
+  an open breakdown and history, including rounding and completed-run deductions.
 - Confirm completed current-version automatic-refresh enrollment with no install error, then promote
   the one testing candidate and update the accepted-build ledger. Keep build 70 until these gates pass.
+
+## Build 73: approved combined repair
+
+Source `0.9.40`/`73` (algorithm 89) is implemented locally and passes release validation.
+Public publication, CI and the single macOS IPA require separate named-destination approval.
+Build 70 remains accepted; installed build 72 remains the cached testing artifact until replacement.
+
+- One fresh movement ledger feeds Today, Food, history, Weekly, Trends, Steps detail and an open
+  maintenance sheet. Historical step charts prefer retained measured coverage over old derived
+  counts; step calories use dated weight and the same run-step accounting as maintenance.
+  Refresh publishes measured steps/Method 1 without waiting for HR derivation; food, profile and
+  workout writes invalidate dependent reads. GPS buffers flush before a manual movement refresh.
+- Streak: 10 active run/walk minutes OR the day's measured step goal. Dated targets apply immediately;
+  the displayed target changes immediately even after earning. An earned threshold survives
+  raising the target, but a measured count correction can revoke unsupported evidence. Overlapping
+  recorded windows count once toward the ten minutes. Old step-only days have no invented targets;
+  workout history remains.
+- Positive overlapping phone measurements win. Finer phone windows supplement with accepted
+  wrist-only gait; growing wrist spans replace prior partial counts, preserve cadence and split at
+  local hour/midnight. Passive connected-band capture does not require Start. Offline WHOOP 4
+  steps beyond Bluetooth range remain unavailable; source accuracy and battery need phone tests.
+- Walking Method 1 = `(2.74 * steps * weight_kg) / 8368`; Running Method 1 retains the accepted
+  distance/walk-break equation. Running steps are removed once from background walking, with
+  overlapping sessions and midnight windows accounted for. Uncertain run-step overlap uses the
+  larger movement estimate rather than adding unreduced step/run energy. Untrusted GPS climb
+  is excluded from calorie additions; elevation still displays as measured route information.
+- Net Keytel Method 2 is a comparison for both walk/run, subtracting BMR/1440 over measured active
+  minutes only. Missing HR minutes stay missing. Active calories exclude resting already in BMR.
+  Daily maintenance = full-day BMR + Method 1 movement + 10% logged food; the food goal is fixed.
+- Pausing freezes session time, distance, HR/zone accumulation, steps and calories. Daily steps
+  and daily walking calories continue. Active windows and recorded profile/weight persist in the
+  lossless database backup. Late HR rescoring must retain the Method 1 primary calorie figure.
+- Session-owned kilometre/pace cues retain milestones and actual kilometre crossing times.
+  Personal background audio is enabled for real spoken cues, with music/call/route interruption
+  handling. No silent keepalive; locked/background execution remains a physical-device gate.
+- Cross-day insights rebuild independently from retained current inputs, with busy/history/failure
+  states. Macro rows/icons all remain visible; omitted fields show zero logged and stay nullable.
+- Profile decimal keyboards, full metric prefills and unchanged metric/imperial saves preserve
+  precision. Food quantity and nutrient edit prefills preserve supplied decimals too. Dated weight
+  anchors keep historical estimates stable; the food/weight inference needs an aligned interval
+  of at least 14 complete intake days and 8 weigh-ins and is explicitly labelled an estimate.
+- Food picker has only My foods (default) / My meals. Custom serving units and decimal amounts
+  scale every supplied nutrient. Choose/create a meal heading before logging, including quick add,
+  saved food/meal and scanning. Delete saved items in the picker by swipe or explicit action,
+  preserving diary entries. Shared tap haptics and keyboard-safe close/drag headers cover forms;
+  text prompts own their controllers until their closing animation ends.
+- Nap corrections save and reproject immediately, including Sleep periods and the timeline;
+  sleep coaching recalculates from retained results in the background, with durable retry status.
+  Naps remains reachable when empty or without a main night. Restore works for legacy rejected
+  windows and preserves the distinction between measured detection and a manual report.
+- Trends opens on Week. Sleep/Strain Today reuse their full daily detail; measured HR, HRV and
+  wear charts appear where available, with held-over dates labelled. Steps includes its hourly
+  source graph inline. Step calories has a separate kcal trend using maintenance's walking term.
+
+Local validation passes: 3,318 Flutter tests (368 intentional skips), 91 focused tests with
+`PERSONAL_SIDELOAD=true`, all 7 personal-iOS contract tests, project/pin checks and representative
+rendered layouts. Analysis has 60 infos and no errors/warnings. The daily details also fit a
+320-point screen at 1.5x text. No build-73 IPA or phone verification is claimed.
+`workout-sync-audit.md` records the build-72 evidence and repair contract.
+
+Build-73 phone acceptance must cover:
+- Same-identity install, retained food/templates/weights/steps, pairing and encrypted restore.
+- Locked and other-app kilometre cues, pause/resume, headphones, music, podcasts and calls.
+- Phone carried/desk/absent, source handoff, local midnight, low wrist motion and range loss;
+  compare connected wrist fallback against hand-counted steps and observe battery use.
+- Step-only streak, exact threshold, raise/lower before and after completion, late steps/restart.
+- Today manual/foreground refresh updates step kcal and maintenance in every open view; profile,
+  meal and completed-workout changes update automatically. Fixed food target stays unchanged.
+- Run/walk live, finish, history/share and daily totals agree under the displayed rounding, with
+  paused movement only in daily steps and no walking-workout double addition.
+- Decimal profile saves, four macro rows, 2.5 custom servings, headings and picker deletion;
+  cancel multi-input sheets with the keyboard open and check small/enlarged text.
+- Rebuild insights without new band data; missing-history/busy/errors remain clear and retryable.
+- Remove the only nap, immediately restore it, leave/reopen/relaunch, add/delete a manual nap,
+  and retry a failed coaching update. Check all period totals agree before and after rebuilding.
+- Trends opens Week; Sleep/Strain Today charts match Today drill-downs; Steps has its hourly
+  graph without another tap; Step calories shows kcal with the same dated weight/run deductions.
+- Completed current-version automatic-refresh enrollment before promoting the testing IPA.
+
+A calibrated HR/movement hybrid or automatic budget adjustment remains outside this build.

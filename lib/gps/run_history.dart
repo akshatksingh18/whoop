@@ -1,11 +1,13 @@
 // Every run, summarised once: distance, how much of it was running and how
 // much walking, the climb, the steps it took, and best efforts. Feeds the PR
 // badges on a run's screen, the running trends on Train and the Running row
-// of maintenance. A finished run never changes, so each summary is cached for
-// the life of the process (and the phone's motion answer is saved on disk;
-// see motion_window.dart).
+// of maintenance. Summaries are invalidated when measurements, sessions or
+// profile inputs change; retained motion answers are backed up with the ledger.
 
 import '../compute/profile.dart' show runFloorKcal;
+import '../data/db.dart';
+import 'workout_clock.dart';
+import 'session_track.dart';
 import '../data/day_label.dart';
 import '../data/local_repository.dart';
 import 'motion_window.dart';
@@ -47,13 +49,25 @@ class RunSummary {
 
   /// True when the distance came from the phone's motion data (no GPS).
   final bool fromMotion;
+  final double? weightKg;
+  final List<ActiveWindow> activeWindows;
+  final Map<String, ({RunMix mix, int? steps, double meters})> byDay;
 
-  const RunSummary(this.id, this.start, this.meters, this.movingSec, this.efforts,
-      {this.end,
-      this.mix = kNoMix,
-      this.phoneSteps,
-      this.bandSteps,
-      this.fromMotion = false});
+  const RunSummary(
+    this.id,
+    this.start,
+    this.meters,
+    this.movingSec,
+    this.efforts, {
+    this.end,
+    this.mix = kNoMix,
+    this.phoneSteps,
+    this.bandSteps,
+    this.fromMotion = false,
+    this.weightKg,
+    this.byDay = const {},
+    this.activeWindows = const [],
+  });
 
   /// The steps to take off the day's count: the phone's for the exact window
   /// first (the same sensor the day total comes from), else the band's.
@@ -61,10 +75,11 @@ class RunSummary {
 
   /// Method 1 calories for this run at [weightKg].
   double? floorKcal(double? weightKg) => runFloorKcal(
-      runMeters: mix.runM,
-      walkMeters: mix.walkM,
-      climbMeters: mix.climbM,
-      weightKg: weightKg);
+    runMeters: mix.runM,
+    walkMeters: mix.walkM,
+    climbMeters: mix.climbM,
+    weightKg: this.weightKg ?? weightKg,
+  );
 }
 
 final _cache = <String, RunSummary?>{};
@@ -73,18 +88,34 @@ final _cache = <String, RunSummary?>{};
 /// ask on the same refresh, and the session list read is not free.
 (DateTime, List<RunSummary>)? _recent;
 Future<List<RunSummary>>? _inFlight;
+int _generation = 0;
+LocalRepository? _cacheRepo;
 
 /// Every run (oldest first), with its distance from GPS or the phone's motion
 /// data when it has one.
 Future<List<RunSummary>> loadRuns(LocalRepository repo) {
+  if (!identical(_cacheRepo, repo)) {
+    runsChanged();
+    _cacheRepo = repo;
+  }
   final r = _recent;
-  if (r != null && DateTime.now().difference(r.$1) < const Duration(seconds: 20)) {
+  if (r != null &&
+      DateTime.now().difference(r.$1) < const Duration(seconds: 20)) {
     return Future.value(r.$2);
   }
-  return _inFlight ??= _loadRuns(repo).then((v) {
+  if (_inFlight != null) return _inFlight!;
+  final generation = _generation;
+  final job = _loadRuns(repo).then<List<RunSummary>>((v) {
+    if (generation != _generation) {
+      return identical(_cacheRepo, repo) ? loadRuns(repo) : v;
+    }
     _recent = (DateTime.now(), v);
     return v;
-  }).whenComplete(() => _inFlight = null);
+  });
+  _inFlight = job;
+  return job.whenComplete(() {
+    if (identical(_inFlight, job)) _inFlight = null;
+  });
 }
 
 Future<List<RunSummary>> _loadRuns(LocalRepository repo) async {
@@ -93,19 +124,24 @@ Future<List<RunSummary>> _loadRuns(LocalRepository repo) async {
   final out = <RunSummary>[];
   for (final r in rows) {
     if (r is! Map || !isRunType(r['type'] as String?)) continue;
-    if (r['status'] == 'live') continue;
+    if (r['status'] == 'live' ||
+        r['end_ts_fabricated'] == true ||
+        r['end_ts_fabricated'] == 1) {
+      continue;
+    }
     final id = r['id'] as String?;
     final ts = (r['start_ts'] as num?)?.toInt();
     final te = (r['end_ts'] as num?)?.toInt();
     if (id == null || id.isEmpty || ts == null) continue;
     final key = '$id@$ts-$te';
     if (!_cache.containsKey(key)) {
-      try {
-        _cache[key] = await _summarise(repo, id, ts, te,
-            bandSteps: (r['steps'] as num?)?.toInt());
-      } catch (_) {
-        continue; // unreadable now; try again next time
-      }
+      _cache[key] = await summariseRun(
+        repo,
+        id,
+        ts,
+        te,
+        bandSteps: (r['steps'] as num?)?.toInt(),
+      );
     }
     final s = _cache[key];
     if (s != null) out.add(s);
@@ -114,45 +150,140 @@ Future<List<RunSummary>> _loadRuns(LocalRepository repo) async {
   return out;
 }
 
-Future<RunSummary?> _summarise(
-    LocalRepository repo, String id, int ts, int? te,
-    {int? bandSteps}) async {
+Future<RunSummary?> summariseRun(
+  LocalRepository repo,
+  String id,
+  int ts,
+  int? te, {
+  int? bandSteps,
+  List<ActiveWindow> excluded = const [],
+}) async {
   final start = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-  final end = te == null ? null : DateTime.fromMillisecondsSinceEpoch(te * 1000);
-  final motion = end == null ? null : await motionWindow(id, start, end);
+  final end = te == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(te * 1000);
+  if (end == null || !end.isAfter(start)) return null;
+  final clock = WorkoutClock.read(id, start, end: end);
+  final dailyClock = WorkoutClock(
+    id,
+    clock.start,
+    end: end,
+    profile: clock.profile,
+    pauses: [...clock.pauses, ...excluded],
+    pausedAt: clock.pausedAt,
+  );
   final route = await repo.getWorkoutRoute(id);
-  if (route != null && route.hasPath) {
-    return RunSummary(
+  final points = activeTrack(route?.points ?? [], clock);
+  final motion = points.length > 1
+      ? null
+      : await sessionMotionWindow(id, start, end);
+  final mix = points.length > 1
+      ? runMix(points)
+      : motion == null
+      ? kNoMix
+      : motionMix(
+          steps: motion.steps,
+          meters: motion.meters,
+          chunkSec: motion.chunkSec,
+          seconds: motion.seconds,
+        );
+  final byDay = <String, ({RunMix mix, int? steps, double meters})>{};
+  var day = DateTime(start.year, start.month, start.day);
+  var totalSteps = 0;
+  var measured = false;
+  while (day.isBefore(end)) {
+    final label = dayLabelOf(day);
+    var steps = 0;
+    var known = false;
+    var complete = true;
+    final windows = dailyClock.onDay(label);
+    for (final w in windows) {
+      final r = await LocalDb.resolvedStepsForWindow(w.start, w.end);
+      if (r.coveredSeconds < w.end.difference(w.start).inSeconds) {
+        complete = false;
+      }
+      if (r.hasPhoneCoverage || r.total > 0) {
+        known = true;
+        steps += r.total;
+      }
+    }
+    // A retained phone motion result preserves exact session steps after native
+    // retention expires. Never subtract more than the daily resolver accepted.
+    var phone = 0;
+    if (motion != null) {
+      for (var i = 0; i < motion.steps.length; i++) {
+        if (dayLabelOf(DateTime.fromMillisecondsSinceEpoch(motion.timeAt(i))) ==
+            label) {
+          phone += motion.steps[i];
+        }
+      }
+      if (!known && excluded.isEmpty && phone > 0) {
+        steps = phone;
+        known = true;
+        complete = true;
+      }
+    }
+    if (!known &&
+        excluded.isEmpty &&
+        bandSteps != null &&
+        bandSteps > 0 &&
+        dayLabelOf(start) == label &&
+        dayLabelOf(end.subtract(const Duration(milliseconds: 1))) == label) {
+      steps = bandSteps;
+      known = true;
+      complete = true;
+    }
+    final dayClock = WorkoutClock(
       id,
-      start,
-      totalDistanceMeters(route.points),
-      movingSeconds(route.points),
-      bestEfforts(route.points),
-      end: end,
-      mix: runMix(route.points),
-      phoneSteps: motion?.totalSteps,
-      bandSteps: bandSteps,
+      day,
+      end: DateTime(day.year, day.month, day.day + 1),
     );
-  }
-  // No GPS: the phone's motion data, when it was carried.
-  final m = motion?.totalMeters;
-  if (motion == null || m == null || m <= 0) {
-    // Still a run for the steps it took, with no distance and no calories.
-    return RunSummary(id, start, 0, 0, const {},
-        end: end, phoneSteps: motion?.totalSteps, bandSteps: bandSteps);
+    final dayPts = activeTrack(activeTrack(points, dailyClock), dayClock);
+    final dayMotion = motion?.within(windows);
+    final mm = <double?>[], st = <int>[], sec = <double>[];
+    if (dayMotion != null) {
+      st.addAll(dayMotion.steps);
+      mm.addAll(dayMotion.meters);
+      sec.addAll([
+        for (var i = 0; i < dayMotion.steps.length; i++) dayMotion.secondsAt(i),
+      ]);
+    }
+    final dayMix = dayPts.length > 1
+        ? runMix(dayPts)
+        : motionMix(
+            steps: st,
+            meters: mm,
+            chunkSec: motion?.chunkSec ?? 60,
+            seconds: sec,
+          );
+    final meters = dayPts.length > 1
+        ? totalDistanceMeters(dayPts)
+        : mm.fold<double>(0, (a, b) => a + (b ?? 0));
+    if (windows.isNotEmpty) {
+      byDay[label] = (
+        mix: dayMix,
+        steps: known && complete ? steps : null,
+        meters: meters,
+      );
+    }
+    totalSteps += steps;
+    measured |= known;
+    day = DateTime(day.year, day.month, day.day + 1);
   }
   return RunSummary(
     id,
     start,
-    m,
-    motion.activeMinutes.round() * 60,
-    const {}, // no PRs from an estimate
+    points.length > 1 ? totalDistanceMeters(points) : motion?.totalMeters ?? 0,
+    points.length > 1 ? movingSeconds(points) : clock.activeSeconds(),
+    points.length > 1 ? bestEfforts(points) : const {},
     end: end,
-    mix: motionMix(
-        steps: motion.steps, meters: motion.meters, chunkSec: motion.chunkSec),
-    phoneSteps: motion.totalSteps,
+    mix: mix,
+    phoneSteps: measured ? totalSteps : null,
     bandSteps: bandSteps,
-    fromMotion: true,
+    fromMotion: points.length < 2 && motion != null,
+    weightKg: clock.profile?.weightKg,
+    byDay: byDay,
+    activeWindows: dailyClock.windows(),
   );
 }
 
@@ -163,7 +294,12 @@ void forgetRun(String id) {
 }
 
 /// Drop the reused answer so the next read sees a session that just changed.
-void runsChanged() => _recent = null;
+void runsChanged() {
+  _generation++;
+  _recent = null;
+  _cache.clear();
+  _inFlight = null;
+}
 
 /// The runs that started on [day] (a local `yyyy-MM-dd` label).
 Iterable<RunSummary> runsOnDay(List<RunSummary> runs, String day) =>
@@ -175,18 +311,34 @@ typedef RunDay = ({double kcal, int steps, int count, double km});
 
 const RunDay kNoRunDay = (kcal: 0, steps: 0, count: 0, km: 0);
 
-RunDay runEnergyOn(List<RunSummary> runs, String day,
-    {double? weightKg, num? daySteps}) {
+RunDay runEnergyOn(
+  List<RunSummary> runs,
+  String day, {
+  double? weightKg,
+  num? daySteps,
+}) {
   var kcal = 0.0, km = 0.0;
   var steps = 0;
   var count = 0;
-  for (final r in runsOnDay(runs, day)) {
-    final k = r.floorKcal(weightKg) ?? 0;
+  for (final r in runs.where(
+    (r) =>
+        r.byDay.isEmpty ? dayLabelOf(r.start) == day : r.byDay.containsKey(day),
+  )) {
+    final slice = r.byDay[day];
+    final mix = slice?.mix ?? r.mix;
+    final k =
+        runFloorKcal(
+          runMeters: mix.runM,
+          walkMeters: mix.walkM,
+          climbMeters: mix.climbM,
+          weightKg: r.weightKg ?? weightKg,
+        ) ??
+        0;
     if (k <= 0) continue; // no distance: its steps stay walking steps
     count++;
     kcal += k;
-    km += r.meters / 1000;
-    steps += r.steps ?? 0;
+    km += (slice?.meters ?? r.meters) / 1000;
+    steps += (slice == null ? r.steps : slice.steps) ?? 0;
   }
   if (daySteps != null && steps > daySteps) steps = daySteps.toInt();
   return (kcal: kcal, steps: steps, count: count, km: km);

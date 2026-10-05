@@ -25,13 +25,65 @@ GpsSample _fix(
 );
 
 void main() {
+  test(
+    'refresh waits for an in-flight route batch and persists its tail',
+    () async {
+      final gate = Completer<void>(), entered = Completer<void>();
+      final saved = <int>[];
+      final ctrl = StreamController<GpsSample>();
+      final tracker = RouteTracker(
+        batchSize: 2,
+        sink: (points) async {
+          if (!entered.isCompleted) {
+            entered.complete();
+            await gate.future;
+          }
+          saved.addAll(points.map((p) => p.seq));
+        },
+      );
+      tracker.start(ctrl.stream);
+      ctrl.add(_fix(0));
+      ctrl.add(_fix(1));
+      await entered.future;
+      ctrl.add(_fix(2));
+      await pumpEventQueue();
+      var finished = false;
+      final refresh = tracker.flush().then((_) => finished = true);
+      await pumpEventQueue();
+      expect(finished, isFalse);
+      gate.complete();
+      await refresh;
+      expect(saved, [0, 1, 2]);
+      await tracker.stop();
+      await ctrl.close();
+    },
+  );
+  test('failed finish retains the route tail for a successful retry', () async {
+    var fail = true;
+    final saved = <int>[];
+    final ctrl = StreamController<GpsSample>();
+    final tracker = RouteTracker(
+      sink: (points) async {
+        if (fail) throw StateError('disk busy');
+        saved.addAll(points.map((p) => p.seq));
+      },
+    );
+    tracker.start(ctrl.stream);
+    ctrl.add(_fix(0));
+    ctrl.add(_fix(1));
+    await pumpEventQueue();
+    await expectLater(tracker.stop(), throwsStateError);
+    expect(tracker.error.value, contains('saved'));
+    fail = false;
+    await tracker.stop();
+    expect(saved, [0, 1]);
+    await ctrl.close();
+  });
+
   test('flushes a batch once batchSize points buffer', () async {
     final batches = <List<RoutePoint>>[];
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(
-      sink: (b) async => batches.add(b),
-      batchSize: 4,
-    );
+    final t = RouteTracker(sink: (b) async => batches.add(b), batchSize: 4);
     t.start(ctrl.stream);
 
     for (var i = 0; i < 4; i++) {
@@ -92,11 +144,7 @@ void main() {
 
   test('rejects an implausible GPS spike', () async {
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(
-      sink: (_) async {},
-      batchSize: 100,
-      maxJumpM: 200,
-    );
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100, maxJumpM: 200);
     t.start(ctrl.stream);
 
     ctrl.add(_fix(0));
@@ -264,33 +312,35 @@ void main() {
     await ctrl.close();
   });
 
-  test('re-queues a batch when the sink throws, retries on next flush',
-      () async {
-    var calls = 0;
-    final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(
-      sink: (b) async {
-        calls++;
-        if (calls == 1) throw Exception('disk busy');
-      },
-      batchSize: 2,
-    );
-    t.start(ctrl.stream);
+  test(
+    're-queues a batch when the sink throws, retries on next flush',
+    () async {
+      var calls = 0;
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(
+        sink: (b) async {
+          calls++;
+          if (calls == 1) throw Exception('disk busy');
+        },
+        batchSize: 2,
+      );
+      t.start(ctrl.stream);
 
-    ctrl.add(_fix(0));
-    ctrl.add(_fix(1)); // flush #1 → throws, re-queued
-    await pumpEventQueue();
-    ctrl.add(_fix(2));
-    ctrl.add(_fix(3)); // flush #2 → succeeds with re-queued tail
-    await pumpEventQueue();
+      ctrl.add(_fix(0));
+      ctrl.add(_fix(1)); // flush #1 → throws, re-queued
+      await pumpEventQueue();
+      ctrl.add(_fix(2));
+      ctrl.add(_fix(3)); // flush #2 → succeeds with re-queued tail
+      await pumpEventQueue();
 
-    // Nothing lost: the tracker still holds all 4 points.
-    expect(t.pointCount, 4);
-    expect(calls, greaterThanOrEqualTo(2));
+      // Nothing lost: the tracker still holds all 4 points.
+      expect(t.pointCount, 4);
+      expect(calls, greaterThanOrEqualTo(2));
 
-    await t.stop();
-    await ctrl.close();
-  });
+      await t.stop();
+      await ctrl.close();
+    },
+  );
 
   test('currentSpeedMps smooths the platform-reported speed', () async {
     final ctrl = StreamController<GpsSample>();
@@ -336,26 +386,23 @@ void main() {
     await ctrl.close();
   });
 
-  test(
-    'currentSpeedMps falls back to a fix-to-fix derivation when the '
-    'platform reports none',
-    () async {
-      final ctrl = StreamController<GpsSample>();
-      final t = RouteTracker(sink: (_) async {}, batchSize: 100);
-      t.start(ctrl.stream);
+  test('currentSpeedMps falls back to a fix-to-fix derivation when the '
+      'platform reports none', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+    t.start(ctrl.stream);
 
-      // No `speed` on either fix — platform doesn't report it.
-      ctrl.add(_fix(0, stepMeters: 20));
-      ctrl.add(_fix(1, stepMeters: 40)); // 20 m in 1 s ≈ 20 m/s
-      await pumpEventQueue();
+    // No `speed` on either fix — platform doesn't report it.
+    ctrl.add(_fix(0, stepMeters: 20));
+    ctrl.add(_fix(1, stepMeters: 40)); // 20 m in 1 s ≈ 20 m/s
+    await pumpEventQueue();
 
-      expect(t.currentSpeedMps.value, isNotNull);
-      expect(t.currentSpeedMps.value!, greaterThan(0));
+    expect(t.currentSpeedMps.value, isNotNull);
+    expect(t.currentSpeedMps.value!, greaterThan(0));
 
-      await t.stop();
-      await ctrl.close();
-    },
-  );
+    await t.stop();
+    await ctrl.close();
+  });
 
   test('stalled flips true after stallAfter with no accepted fix, and '
       'clears the moment a fix resumes', () {
@@ -393,11 +440,7 @@ void main() {
   test('drops GPS-noise-floor jitter: no distance, no new vertex, anchor '
       'unchanged', () async {
     final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(
-      sink: (_) async {},
-      batchSize: 100,
-      minMovementM: 5,
-    );
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100, minMovementM: 5);
     t.start(ctrl.stream);
 
     ctrl.add(_fix(0, stepMeters: 0)); // anchor at lng=0
@@ -466,7 +509,9 @@ void main() {
     for (var i = 1; i <= 20; i++) {
       // Small pseudo-random jitter, all within the floor.
       final jitter = (i.isEven ? 1 : -1) * (1 + (i % 3));
-      ctrl.add(GpsSample(lat: 0, lng: jitter / _mPerDegLngAtEq, tsMs: i * 1000));
+      ctrl.add(
+        GpsSample(lat: 0, lng: jitter / _mPerDegLngAtEq, tsMs: i * 1000),
+      );
     }
     await pumpEventQueue();
 
@@ -482,47 +527,49 @@ void main() {
     await ctrl.close();
   });
 
-  test('default 1s throttle coalesces path emissions; stop() flushes the tail',
-      () {
-    fakeAsync((async) {
-      final ctrl = StreamController<GpsSample>();
-      // Production default pathEmitEvery (1s) — the throttle under test.
-      final t = RouteTracker(sink: (_) async {}, batchSize: 100);
-      t.start(ctrl.stream);
-      // Move the fake wall clock well past the 0 sentinel so the first accepted
-      // fix crosses the throttle rather than depending on the epoch base.
-      async.elapse(const Duration(seconds: 2));
+  test(
+    'default 1s throttle coalesces path emissions; stop() flushes the tail',
+    () {
+      fakeAsync((async) {
+        final ctrl = StreamController<GpsSample>();
+        // Production default pathEmitEvery (1s) — the throttle under test.
+        final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+        t.start(ctrl.stream);
+        // Move the fake wall clock well past the 0 sentinel so the first accepted
+        // fix crosses the throttle rather than depending on the epoch base.
+        async.elapse(const Duration(seconds: 2));
 
-      ctrl.add(_fix(0));
-      async.flushMicrotasks();
-      expect(t.path.value.length, 1); // first accepted fix always emits
+        ctrl.add(_fix(0));
+        async.flushMicrotasks();
+        expect(t.path.value.length, 1); // first accepted fix always emits
 
-      ctrl.add(_fix(1)); // same wall-second → throttled, not emitted
-      async.flushMicrotasks();
-      expect(t.path.value.length, 1);
+        ctrl.add(_fix(1)); // same wall-second → throttled, not emitted
+        async.flushMicrotasks();
+        expect(t.path.value.length, 1);
 
-      async.elapse(const Duration(seconds: 1));
-      ctrl.add(_fix(2)); // throttle window passed → emits all vertices so far
-      async.flushMicrotasks();
-      expect(t.path.value.length, 3);
+        async.elapse(const Duration(seconds: 1));
+        ctrl.add(_fix(2)); // throttle window passed → emits all vertices so far
+        async.flushMicrotasks();
+        expect(t.path.value.length, 3);
 
-      ctrl.add(_fix(3)); // throttled again
-      async.flushMicrotasks();
-      expect(t.path.value.length, 3);
+        ctrl.add(_fix(3)); // throttled again
+        async.flushMicrotasks();
+        expect(t.path.value.length, 3);
 
-      // stop() awaits _sub.cancel() BEFORE its final emit, so a fix whose
-      // stream handler has not run yet is DROPPED — _fix(3) above was added
-      // but never processed when cancel beat it. Documented behaviour of
-      // RouteTracker.stop(): the flush covers the THROTTLE's tail, not the
-      // subscription's. (Expected-4 got 3; that was this test racing the
-      // cancellation, not production losing a vertex that was on the path.)
-      unawaited(t.stop());
-      async.flushMicrotasks();
-      expect(t.path.value.length, 3);
+        // stop() awaits _sub.cancel() BEFORE its final emit, so a fix whose
+        // stream handler has not run yet is DROPPED — _fix(3) above was added
+        // but never processed when cancel beat it. Documented behaviour of
+        // RouteTracker.stop(): the flush covers the THROTTLE's tail, not the
+        // subscription's. (Expected-4 got 3; that was this test racing the
+        // cancellation, not production losing a vertex that was on the path.)
+        unawaited(t.stop());
+        async.flushMicrotasks();
+        expect(t.path.value.length, 3);
 
-      unawaited(ctrl.close());
-    });
-  });
+        unawaited(ctrl.close());
+      });
+    },
+  );
 
   test('stalled never trips for a session shorter than stallAfter', () {
     fakeAsync((async) {
@@ -580,28 +627,30 @@ void main() {
       await ctrl.close();
     });
 
-    test('stop() disposes, so a tracker is fully released after one workout',
-        () async {
-      var cancels = 0;
-      final ctrl = StreamController<GpsSample>(onCancel: () => cancels++);
-      final flushed = <RoutePoint>[];
-      final t = RouteTracker(
-        sink: (b) async => flushed.addAll(b),
-        batchSize: 100, // nothing flushes until stop()
-      );
-      t.start(ctrl.stream);
-      ctrl.add(_fix(0));
-      ctrl.add(_fix(1));
-      await pumpEventQueue();
+    test(
+      'stop() disposes, so a tracker is fully released after one workout',
+      () async {
+        var cancels = 0;
+        final ctrl = StreamController<GpsSample>(onCancel: () => cancels++);
+        final flushed = <RoutePoint>[];
+        final t = RouteTracker(
+          sink: (b) async => flushed.addAll(b),
+          batchSize: 100, // nothing flushes until stop()
+        );
+        t.start(ctrl.stream);
+        ctrl.add(_fix(0));
+        ctrl.add(_fix(1));
+        await pumpEventQueue();
 
-      await t.stop();
+        await t.stop();
 
-      expect(cancels, 1);
-      expect(flushed.length, 2, reason: 'the tail must still be persisted');
-      // The notifiers are gone: writing to a disposed ValueNotifier throws.
-      expect(() => t.path.value = const [], throwsA(isA<Error>()));
-      await ctrl.close();
-    });
+        expect(cancels, 1);
+        expect(flushed.length, 2, reason: 'the tail must still be persisted');
+        // The notifiers are gone: writing to a disposed ValueNotifier throws.
+        expect(() => t.path.value = const [], throwsA(isA<Error>()));
+        await ctrl.close();
+      },
+    );
 
     test('dispose() and stop() are both idempotent, in either order', () async {
       final ctrl = StreamController<GpsSample>();
@@ -622,24 +671,29 @@ void main() {
     });
   });
 
-  test('a re-armed tracker continues after the stored route, never over it',
-      () async {
-    // workout_route is keyed (session_id, seq) and written INSERT OR REPLACE:
-    // a resumed workout that restarted at seq 0 overwrote the first part of
-    // the run it was resuming.
-    final batches = <List<RoutePoint>>[];
-    final ctrl = StreamController<GpsSample>();
-    final t = RouteTracker(
-        sink: (b) async => batches.add(b), batchSize: 2, firstSeq: 57);
-    t.start(ctrl.stream);
-    ctrl.add(_fix(0));
-    ctrl.add(_fix(1));
-    await pumpEventQueue();
-    expect(batches.single.map((p) => p.seq).toList(), [57, 58]);
-    expect(t.pointCount, 2, reason: 'points accepted by this tracker only');
-    await t.stop();
-    await ctrl.close();
-  });
+  test(
+    'a re-armed tracker continues after the stored route, never over it',
+    () async {
+      // workout_route is keyed (session_id, seq) and written INSERT OR REPLACE:
+      // a resumed workout that restarted at seq 0 overwrote the first part of
+      // the run it was resuming.
+      final batches = <List<RoutePoint>>[];
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(
+        sink: (b) async => batches.add(b),
+        batchSize: 2,
+        firstSeq: 57,
+      );
+      t.start(ctrl.stream);
+      ctrl.add(_fix(0));
+      ctrl.add(_fix(1));
+      await pumpEventQueue();
+      expect(batches.single.map((p) => p.seq).toList(), [57, 58]);
+      expect(t.pointCount, 2, reason: 'points accepted by this tracker only');
+      await t.stop();
+      await ctrl.close();
+    },
+  );
 
   test('flush() persists the buffered tail without stopping', () async {
     final batches = <List<RoutePoint>>[];
@@ -661,7 +715,9 @@ void main() {
     fakeAsync((async) {
       final ctrl = StreamController<GpsSample>();
       final t = RouteTracker(
-          sink: (_) async {}, stallAfter: const Duration(seconds: 15));
+        sink: (_) async {},
+        stallAfter: const Duration(seconds: 15),
+      );
       t.start(ctrl.stream);
       expect(t.receivingFixes, isFalse, reason: 'armed is not recording');
       ctrl.add(_fix(0));
@@ -673,5 +729,4 @@ void main() {
       ctrl.close();
     });
   });
-
 }

@@ -10,8 +10,10 @@ Source `0.9.39`/`72` implements the approved UI/food cleanup plus the additional
 repair. The initial UI/food IPA built successfully but lacks that repair and is held before release.
 Source `05c208c7` is published; local checks, Linux CI, the macOS build, downloaded checksum
 and payload validation pass. The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. Installation and the build-72
-phone/enrollment checklist in `../todo.md` remain pending.
+`../../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. Akshat confirms installation.
+The build-72 phone/enrollment checklist remains pending; `../workout-sync-audit.md` records its
+reported issues and approved repairs. Source `0.9.40`/`73` includes background audio for real
+workout cues and passes local validation; its public build/IPA and phone pass remain.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
 Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID
@@ -164,7 +166,7 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. Runner and the excluded Widget/Watch metadata are aligned to `0.9.39+72` in source.
+targets ship. Runner and the excluded Widget/Watch metadata are aligned to `0.9.40+73` in source.
 The personal phone-only artifact
 excludes them, but its Runner version/build and source manifest still change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.

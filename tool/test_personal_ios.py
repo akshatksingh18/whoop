@@ -56,7 +56,7 @@ class PersonalIosContractTest(unittest.TestCase):
         info = personal_info(source)
         self.assertEqual(info["CFBundleDisplayName"], APP_NAME)
         self.assertEqual(info["CFBundleName"], APP_NAME)
-        self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central", "location"])
+        self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central", "location", "audio"])
         self.assertIn("NSMotionUsageDescription", info)
         self.assertNotIn("NSHealthShareUsageDescription", info)
         self.assertNotIn("NSSupportsLiveActivities", info)

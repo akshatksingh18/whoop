@@ -38,19 +38,34 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 final _start = DateTime(2026, 5, 20, 7, 15);
 
-Activity _first(Arch a) =>
-    allActivities.firstWhere((x) => archOf(x) == a);
+Activity _first(Arch a) => allActivities.firstWhere((x) => archOf(x) == a);
 
-List<double> _series(int n, double base, double amp) =>
-    [for (var i = 0; i < n; i++) base + (i * 37 % 23) - (i % 5) * amp];
+List<double> _series(int n, double base, double amp) => [
+  for (var i = 0; i < n; i++) base + (i * 37 % 23) - (i % 5) * amp,
+];
 
 final _sets = <LoggedSet>[
-  LoggedSet('bench_press', 8,
-      loadKg: 80, rpe: 7, at: _start.add(const Duration(minutes: 3))),
-  LoggedSet('bench_press', 7,
-      loadKg: 82.5, rpe: 8, at: _start.add(const Duration(minutes: 6))),
-  LoggedSet('triceps_pushdown', 12,
-      loadKg: 30, rpe: 7, at: _start.add(const Duration(minutes: 12))),
+  LoggedSet(
+    'bench_press',
+    8,
+    loadKg: 80,
+    rpe: 7,
+    at: _start.add(const Duration(minutes: 3)),
+  ),
+  LoggedSet(
+    'bench_press',
+    7,
+    loadKg: 82.5,
+    rpe: 8,
+    at: _start.add(const Duration(minutes: 6)),
+  ),
+  LoggedSet(
+    'triceps_pushdown',
+    12,
+    loadKg: 30,
+    rpe: 7,
+    at: _start.add(const Duration(minutes: 12)),
+  ),
   LoggedSet('pull_up', 9, rpe: 8, at: _start.add(const Duration(minutes: 18))),
 ];
 
@@ -107,25 +122,26 @@ ActivityResult _result(Arch arch) {
 }
 
 Widget _frame(Widget child, Brightness b, double scale) => MediaQuery(
-      data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(b),
-        home: child,
-      ),
-    );
+  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+  child: MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: buildTheme(b),
+    home: child,
+  ),
+);
 
 Future<void> _loadType() async {
-  final files = Directory('assets/fonts/Manrope')
-      .listSync()
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.ttf'));
+  final files = Directory(
+    'assets/fonts/Manrope',
+  ).listSync().whereType<File>().where((f) => f.path.endsWith('.ttf'));
   for (final family in const ['Manrope', '.SF Pro Text']) {
     final loader = FontLoader(family);
     for (final f in files) {
-      loader.addFont(f
-          .readAsBytes()
-          .then((b) => ByteData.sublistView(Uint8List.fromList(b))));
+      loader.addFont(
+        f.readAsBytes().then(
+          (b) => ByteData.sublistView(Uint8List.fromList(b)),
+        ),
+      );
     }
     await loader.load();
   }
@@ -139,16 +155,18 @@ class _StrainRepo extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async => {
-        'curve': curve,
-        'strain': 12.4,
-        'zones': const {},
-        'hr': const {'max': 168},
-        'max_hr_used': 190,
-      };
+    'curve': curve,
+    'strain': 12.4,
+    'zones': const {},
+    'hr': const {'max': 168},
+    'max_hr_used': 190,
+  };
 
   @override
-  Future<Map<String, dynamic>> getDayWear(String date) async =>
-      const {'worn_min': 600, 'coverage_pct': 42};
+  Future<Map<String, dynamic>> getDayWear(String date) async => const {
+    'worn_min': 600,
+    'coverage_pct': 42,
+  };
 }
 
 /// The golden PNGs are NOT in the repo. They are machine-specific — two Flutter
@@ -169,15 +187,17 @@ void main() {
       expect(activityLibrary.length, 8);
       expect(allActivities.length, greaterThanOrEqualTo(65));
       final names = allActivities.map((a) => a.name).toSet();
-      expect(names.length, allActivities.length,
-          reason: 'a duplicate name would collide in activityByName');
+      expect(
+        names.length,
+        allActivities.length,
+        reason: 'a duplicate name would collide in activityByName',
+      );
       for (final g in activityLibrary) {
         expect(g.items, isNotEmpty, reason: '${g.name} is empty');
       }
     });
 
-    test('every activity carries a physiologically plausible MET, or none',
-        () {
+    test('every activity carries a physiologically plausible MET, or none', () {
       for (final a in allActivities) {
         final met = a.met;
         if (met == null) continue;
@@ -213,8 +233,11 @@ void main() {
       // what this row means.
       final general = activityByName('general_workout')!;
       expect(general.met, isNull);
-      expect(general.kcal(80, 45), isNull,
-          reason: 'a weight is not enough to price an unnamed session');
+      expect(
+        general.kcal(80, 45),
+        isNull,
+        reason: 'a weight is not enough to price an unnamed session',
+      );
       expect(general.track, Track.duration);
     });
 
@@ -236,8 +259,11 @@ void main() {
       // 9.8 × 3.5 × 70 / 200 × 30 = 360.15
       expect(run.kcal(70, 30), 360);
       expect(run.kcal(null, 30), isNull);
-      expect(run.kcal(0, 30), isNull,
-          reason: 'a zero weight is a missing weight, not a weightless user');
+      expect(
+        run.kcal(0, 30),
+        isNull,
+        reason: 'a zero weight is a missing weight, not a weightless user',
+      );
     });
   });
 
@@ -251,9 +277,13 @@ void main() {
 
     test('all nine archetypes are reachable from the catalogue', () {
       final seen = allActivities.map(archOf).toSet();
-      expect(seen, hasLength(Arch.values.length),
-          reason: 'unreachable: '
-              '${Arch.values.where((x) => !seen.contains(x)).toList()}');
+      expect(
+        seen,
+        hasLength(Arch.values.length),
+        reason:
+            'unreachable: '
+            '${Arch.values.where((x) => !seen.contains(x)).toList()}',
+      );
     });
 
     test('named exceptions beat the tracking mode', () {
@@ -284,8 +314,11 @@ void main() {
         'elliptical',
         'stair_climber',
       ]) {
-        expect(archOf(activityByName(key)!), Arch.basic,
-            reason: '$key has no power meter and no indoor distance');
+        expect(
+          archOf(activityByName(key)!),
+          Arch.basic,
+          reason: '$key has no power meter and no indoor distance',
+        );
       }
     });
 
@@ -293,11 +326,14 @@ void main() {
       final r = _result(Arch.match);
       expect(r.hardMinutes, closeTo(15, .001)); // 11 + 4
       expect(
-          ActivityResult(_first(Arch.match),
-                  start: _start, duration: const Duration(minutes: 20))
-              .hardMinutes,
-          isNull,
-          reason: 'nobody counted is not zero hard minutes');
+        ActivityResult(
+          _first(Arch.match),
+          start: _start,
+          duration: const Duration(minutes: 20),
+        ).hardMinutes,
+        isNull,
+        reason: 'nobody counted is not zero hard minutes',
+      );
     });
   });
 
@@ -313,8 +349,7 @@ void main() {
       expect(full.hasUnloadedSets, isTrue);
       expect(full.setCount, 4);
       expect(full.repCount, 36);
-      expect(full.exercises,
-          ['bench_press', 'triceps_pushdown', 'pull_up']);
+      expect(full.exercises, ['bench_press', 'triceps_pushdown', 'pull_up']);
     });
 
     test('a bodyweight-only session has no volume, not zero volume', () {
@@ -322,8 +357,11 @@ void main() {
         LoggedSet('pull_up', 8, at: _start),
         LoggedSet('plank', 1, at: _start),
       ]);
-      expect(log.volumeKg, isNull,
-          reason: 'zero would claim a real session did no work');
+      expect(
+        log.volumeKg,
+        isNull,
+        reason: 'zero would claim a real session did no work',
+      );
       expect(log.setCount, 2);
     });
 
@@ -342,7 +380,6 @@ void main() {
       expect(oneRepMax(LoggedSet('pull_up', 6, at: _start)), isNull);
       expect(oneRepMax(null), isNull);
     });
-
   });
 
   // ── the live feed ────────────────────────────────────────────────────────
@@ -352,19 +389,26 @@ void main() {
       // to be reading when the user pressed stop, labelled "Avg HR".
       const f = LiveFeed(hr: 190, hrCurve: [120, 130, 140]);
       expect(f.avgHr, 130);
-      expect(const LiveFeed(hr: 190).avgHr, isNull,
-          reason: 'no curve means no average — not the instant');
+      expect(
+        const LiveFeed(hr: 190).avgHr,
+        isNull,
+        reason: 'no curve means no average — not the instant',
+      );
     });
 
-    test('lap speeds are derived from lap seconds, so they cannot disagree',
-        () {
-      final r = ActivityResult(_first(Arch.laps),
+    test(
+      'lap speeds are derived from lap seconds, so they cannot disagree',
+      () {
+        final r = ActivityResult(
+          _first(Arch.laps),
           start: _start,
           duration: const Duration(minutes: 10),
-          lapSecs: const [40, 80]);
-      expect(r.lapCount, 2);
-      expect(r.lapSpeeds, [1.0, .5]);
-    });
+          lapSecs: const [40, 80],
+        );
+        expect(r.lapCount, 2);
+        expect(r.lapSpeeds, [1.0, .5]);
+      },
+    );
 
     test('an unfinished session survives being killed', () async {
       SharedPreferences.setMockInitialValues(const {});
@@ -393,8 +437,9 @@ void main() {
 
   // ── the supporting stats ─────────────────────────────────────────────────
   group('sessionStats prints what the hero does not', () {
-    List<String> namesOf(ActivityResult r) =>
-        [for (final s in sessionStats(r, null)) s.$1];
+    List<String> namesOf(ActivityResult r) => [
+      for (final s in sessionStats(r, null)) s.$1,
+    ];
 
     test('the hero\'s own number is not printed again underneath it', () {
       // A yoga/HIIT/indoor session's hero IS the clock, at 48 pt, and the
@@ -406,14 +451,22 @@ void main() {
       // A run's hero is its distance, so the clock is the run's alone.
       expect(namesOf(_result(Arch.route)), contains('Time'));
       // …and a run with no distance falls back to the clock, which then goes.
-      final noGps = ActivityResult(_first(Arch.route),
-          start: _start, duration: const Duration(minutes: 30), avgHr: 130);
+      final noGps = ActivityResult(
+        _first(Arch.route),
+        start: _start,
+        duration: const Duration(minutes: 30),
+        avgHr: 130,
+      );
       expect(namesOf(noGps), isNot(contains('Time')));
     });
 
     test('an empty lift prints no sets and no reps', () {
-      final empty = ActivityResult(_first(Arch.strength),
-          start: _start, duration: const Duration(minutes: 20), avgHr: 96);
+      final empty = ActivityResult(
+        _first(Arch.strength),
+        start: _start,
+        duration: const Duration(minutes: 20),
+        avgHr: 96,
+      );
       // 'SETS 0' and 'REPS 0' used to sit directly under 'No sets logged',
       // while the share card for the same session printed neither.
       expect(namesOf(empty), isNot(contains('Sets')));
@@ -421,43 +474,57 @@ void main() {
       expect(namesOf(_result(Arch.strength)), contains('Reps'));
     });
 
-    test('the measured peak is on the screen, not only on the history row',
-        () {
+    test('the measured peak is on the screen, not only on the history row', () {
       expect(namesOf(_result(Arch.basic)), contains('Max HR'));
-      final noPeak = ActivityResult(_first(Arch.basic),
-          start: _start, duration: const Duration(minutes: 20));
-      expect(namesOf(noPeak), isNot(contains('Max HR')),
-          reason: 'absent is dropped, never dashed');
+      final noPeak = ActivityResult(
+        _first(Arch.basic),
+        start: _start,
+        duration: const Duration(minutes: 20),
+      );
+      expect(
+        namesOf(noPeak),
+        isNot(contains('Max HR')),
+        reason: 'absent is dropped, never dashed',
+      );
     });
 
     // TS-09 — the rating is a SELF-REPORT and has to read as one.
     test('a rating is shown as the user\'s own, and never invented', () {
-      final rated = ActivityResult(_first(Arch.strength),
-          start: _start,
-          duration: const Duration(minutes: 40),
-          sessionId: 's1',
-          rpe: 8,
-          strength: StrengthLog(_sets));
-      expect(namesOf(rated), contains('Your rating'),
-          reason: 'named for who said it, not for the instrument');
-      expect(namesOf(rated), isNot(contains('RPE')));
+      final rated = ActivityResult(
+        _first(Arch.strength),
+        start: _start,
+        duration: const Duration(minutes: 40),
+        sessionId: 's1',
+        rpe: 8,
+        strength: StrengthLog(_sets),
+      );
       expect(
-          [for (final s in sessionStats(rated, null)) s.$2], contains('8 of 10'));
+        namesOf(rated),
+        contains('Your rating'),
+        reason: 'named for who said it, not for the instrument',
+      );
+      expect(namesOf(rated), isNot(contains('RPE')));
+      expect([
+        for (final s in sessionStats(rated, null)) s.$2,
+      ], contains('8 of 10'));
 
       // Unrated is DROPPED, not zeroed and not defaulted to the set picker's 7.
       final unrated = rated.copyWith();
       expect(unrated.rpe, 8, reason: 'copyWith must not lose it');
-      final never = ActivityResult(_first(Arch.strength),
-          start: _start,
-          duration: const Duration(minutes: 40),
-          sessionId: 's1',
-          strength: StrengthLog(_sets));
+      final never = ActivityResult(
+        _first(Arch.strength),
+        start: _start,
+        duration: const Duration(minutes: 40),
+        sessionId: 's1',
+        strength: StrengthLog(_sets),
+      );
       expect(namesOf(never), isNot(contains('Your rating')));
 
       // And a feeling is not one of the things the session MEASURED, so it is
       // not offered to the share card.
-      expect([for (final s in shareStats(rated)) s.$1],
-          isNot(contains('Your rating')));
+      expect([
+        for (final s in shareStats(rated)) s.$1,
+      ], isNot(contains('Your rating')));
     });
   });
 
@@ -470,28 +537,33 @@ void main() {
   // rowing machine.
   group('steps are shown only where the strap was allowed to count', () {
     ActivityResult session(String name, {int? steps}) => ActivityResult(
-          activityByName(name)!,
-          start: _start,
-          duration: const Duration(minutes: 52),
-          avgHr: 131,
-          steps: steps,
-        );
+      activityByName(name)!,
+      start: _start,
+      duration: const Duration(minutes: 52),
+      avgHr: 131,
+      steps: steps,
+    );
 
-    List<String> screenNames(ActivityResult r) =>
-        [for (final s in sessionStats(r, null)) s.$1];
-    List<String> cardNames(ActivityResult r) =>
-        [for (final s in shareStats(r)) s.$1];
+    List<String> screenNames(ActivityResult r) => [
+      for (final s in sessionStats(r, null)) s.$1,
+    ];
+    List<String> cardNames(ActivityResult r) => [
+      for (final s in shareStats(r)) s.$1,
+    ];
 
-    test('a walk that counted them prints them, on the screen and the card',
-        () {
-      final walk = session('Walking', steps: 8412);
-      expect(screenNames(walk), contains('Steps'));
-      expect(cardNames(walk), contains('Steps'));
-      // Grouped, and bare on both: the label already says what they are.
-      expect([for (final s in shareStats(walk)) s.$2], contains('8,412'));
-      expect(
-          [for (final s in sessionStats(walk, null)) s.$2], contains('8,412'));
-    });
+    test(
+      'a walk that counted them prints them, on the screen and the card',
+      () {
+        final walk = session('Walking', steps: 8412);
+        expect(screenNames(walk), contains('Steps'));
+        expect(cardNames(walk), contains('Steps'));
+        // Grouped, and bare on both: the label already says what they are.
+        expect([for (final s in shareStats(walk)) s.$2], contains('8,412'));
+        expect([
+          for (final s in sessionStats(walk, null)) s.$2,
+        ], contains('8,412'));
+      },
+    );
 
     test('a walk with nothing measured is dropped, never zeroed', () {
       // Issue #183: the raw stream is routinely absent during a perfectly good
@@ -503,8 +575,11 @@ void main() {
 
     test('a rowing session never shows a count, even carrying one', () {
       final rowing = session('Rowing', steps: 4000);
-      expect(rowing.activity.gait, isFalse,
-          reason: 'stale test, not stale code');
+      expect(
+        rowing.activity.gait,
+        isFalse,
+        reason: 'stale test, not stale code',
+      );
       expect(rowing.stepsCounted, isNull);
       expect(screenNames(rowing), isNot(contains('Steps')));
       expect(cardNames(rowing), isNot(contains('Steps')));
@@ -523,10 +598,9 @@ void main() {
   group('daily load is bucketed by date, not by position', () {
     // Noon local on `d`, which is what `getChart` emits.
     Map<String, Object?> pt(DateTime d, double v) => {
-          't': DateTime(d.year, d.month, d.day, 12).millisecondsSinceEpoch ~/
-              1000,
-          'v': v,
-        };
+      't': DateTime(d.year, d.month, d.day, 12).millisecondsSinceEpoch ~/ 1000,
+      'v': v,
+    };
 
     final end = DateTime(2026, 5, 20); // a Wednesday
 
@@ -564,15 +638,17 @@ void main() {
     final day = DateTime(2026, 5, 20);
     int at(int h, int m) =>
         DateTime(day.year, day.month, day.day, h, m).millisecondsSinceEpoch ~/
-            1000;
+        1000;
 
     test('a gap in wear stays a gap, and the day comes off the curve', () async {
-      final d = await DayStrainData.load(_StrainRepo([
-        {'t': at(7, 0), 'v': 1.0},
-        {'t': at(7, 1), 'v': 1.2},
-        // three hours the band recorded nothing at all
-        {'t': at(10, 1), 'v': 5.0},
-      ]));
+      final d = await DayStrainData.load(
+        _StrainRepo([
+          {'t': at(7, 0), 'v': 1.0},
+          {'t': at(7, 1), 'v': 1.2},
+          // three hours the band recorded nothing at all
+          {'t': at(10, 1), 'v': 5.0},
+        ]),
+      );
       // `getDayStrain` serves the last SETTLED bundle while today is still
       // deriving, so the day is read off the timestamps rather than off the
       // label we asked for — a screen headed "Today" over yesterday's trace is
@@ -584,8 +660,10 @@ void main() {
       expect(d.curve[10 * 60 + 1], 5.0);
       // Dropping the timestamps and keeping the values would close the gap up
       // and draw three hours of climb nobody measured.
-      expect(d.curve.sublist(7 * 60 + 2, 10 * 60 + 1).every((v) => v == null),
-          isTrue);
+      expect(
+        d.curve.sublist(7 * 60 + 2, 10 * 60 + 1).every((v) => v == null),
+        isTrue,
+      );
       expect(d.wornMin, 600);
       expect(d.coveragePct, 42);
     });
@@ -617,8 +695,9 @@ void main() {
       await _loadType();
     });
 
-    testWidgets('day strain leads with the curve, and explains an empty day',
-        (tester) async {
+    testWidgets('day strain leads with the curve, and explains an empty day', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -628,7 +707,8 @@ void main() {
       for (var m = 7 * 60; m < 19 * 60; m++) {
         curve[m] = (m - 7 * 60) / 60 * 1.4;
       }
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           DayStrainDetail(
             data: DayStrainData(
               day: day,
@@ -644,7 +724,9 @@ void main() {
             ),
           ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       // The method is folded away until asked for.
       await tester.tap(find.text("How it's worked out"));
@@ -658,7 +740,8 @@ void main() {
 
       // iOS reaches 3.1x. The inline metrics row and the five-swatch zone key
       // are the two things on this screen that can overflow there.
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           DayStrainDetail(
             data: DayStrainData(
               day: day,
@@ -672,19 +755,27 @@ void main() {
             ),
           ),
           Brightness.dark,
-          3.1));
+          3.1,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           const DayStrainDetail(data: DayStrainData()),
           Brightness.dark,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('—'), findsNothing);
-      expect(find.byType(StatusCard), findsWidgets,
-          reason: 'a day with no trace has to say why, not draw a flat line');
+      expect(
+        find.byType(StatusCard),
+        findsWidgets,
+        reason: 'a day with no trace has to say why, not draw a flat line',
+      );
     });
 
     // THE MEASURED whoop-4 CASE: a day derived at v70 with 89 % wear and a
@@ -701,36 +792,50 @@ void main() {
       Future<void> show(DayStrainData d) async {
         // A fresh key each time — the state reads `widget.data` in initState
         // only, so re-pumping into the same slot would show the previous case.
-        await tester.pumpWidget(_frame(
+        await tester.pumpWidget(
+          _frame(
             DayStrainDetail(key: ValueKey(n++), data: d),
             Brightness.light,
-            1.0));
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         expect(find.text('—'), findsNothing);
       }
 
       await show(const DayStrainData(wornMin: 1274, coveragePct: 89));
-      expect(find.textContaining('scored night'), findsNothing,
-          reason: 'the night WAS scored — a cause nobody gave this screen');
-      expect(find.textContaining('Wear the band through the day'), findsNothing,
-          reason: 'an action that cannot change the outcome is worse than none');
+      expect(
+        find.textContaining('scored night'),
+        findsNothing,
+        reason: 'the night WAS scored — a cause nobody gave this screen',
+      );
+      expect(
+        find.textContaining('Wear the band through the day'),
+        findsNothing,
+        reason: 'an action that cannot change the outcome is worse than none',
+      );
       expect(find.textContaining('Nothing recorded says why'), findsOneWidget);
 
       // The same absence WITH the pipeline's reason attached renders that
       // reason, and still offers nothing to tap — no button can fix it.
-      await show(const DayStrainData(
+      await show(
+        const DayStrainData(
           wornMin: 1274,
           coveragePct: 89,
-          note: 'unknown_device_family:id=none'));
+          note: 'unknown_device_family:id=none',
+        ),
+      );
       expect(find.textContaining('which strap'), findsOneWidget);
       expect(find.textContaining('Nothing recorded says why'), findsNothing);
 
       // A day the band genuinely never saw is the ONE state where "wear the
       // band" is an instruction rather than an insult, so it survives there.
       await show(const DayStrainData());
-      expect(find.textContaining('Wear the band through the day'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Wear the band through the day'),
+        findsOneWidget,
+      );
 
       // MEASURED on whoop-4, 6 of 17 days: `backfillStrainScale` rescales the
       // headline and drops the curve it cannot rescale, so the day has a strain
@@ -743,16 +848,22 @@ void main() {
 
     // The Zones screen offered "Add your age in Profile" on all three real
     // databases. The age was set on all three, so following it did nothing.
-    testWidgets('zones never sends you after data it already has',
-        (tester) async {
+    testWidgets('zones never sends you after data it already has', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 1600 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       var n = 0;
       Future<void> show(ZonesData d) async {
-        await tester.pumpWidget(_frame(
-            ZonesDetail(key: ValueKey(n++), data: d), Brightness.light, 1.0));
+        await tester.pumpWidget(
+          _frame(
+            ZonesDetail(key: ValueKey(n++), data: d),
+            Brightness.light,
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         expect(find.text('—'), findsNothing);
@@ -762,7 +873,10 @@ void main() {
       expect(find.textContaining('Add your age'), findsNothing);
       expect(find.textContaining('Without your age'), findsNothing);
       // Nor the claim that the (absent) zones below came off the age.
-      expect(find.textContaining('zones below come off your age'), findsNothing);
+      expect(
+        find.textContaining('zones below come off your age'),
+        findsNothing,
+      );
 
       await show(const ZonesData(age: 30, note: 'need_input:name=wake_hr'));
       expect(find.textContaining('No waking heart rate'), findsOneWidget);
@@ -774,27 +888,36 @@ void main() {
       // The ceiling card had the same defect: it blamed a missing hard session
       // on all three real databases, where the ceiling had actually refused for
       // an unstamped strap. No hard session fixes that, so no button either.
-      await show(const ZonesData(
+      await show(
+        const ZonesData(
           age: 30,
           source: 'tanaka',
-          ceilingNote: 'unknown_device_family:id=none'));
+          ceilingNote: 'unknown_device_family:id=none',
+        ),
+      );
       expect(find.textContaining('HELD'), findsNothing);
-      expect(find.textContaining('Wear the band for your normal hard sessions'),
-          findsNothing);
+      expect(
+        find.textContaining('Wear the band for your normal hard sessions'),
+        findsNothing,
+      );
       expect(find.textContaining('which strap'), findsWidgets);
     });
 
     for (final arch in Arch.values) {
-      testWidgets('${arch.name} summary renders and never shows a bare dash',
-          (tester) async {
+      testWidgets('${arch.name} summary renders and never shows a bare dash', (
+        tester,
+      ) async {
         tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
         tester.view.devicePixelRatio = 3;
         addTearDown(tester.view.reset);
 
-        await tester.pumpWidget(_frame(
+        await tester.pumpWidget(
+          _frame(
             ActivitySummary(_result(arch), weightKg: 72.4),
             Brightness.light,
-            1.0));
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
@@ -809,11 +932,19 @@ void main() {
 
         // No heart rate, no distance, no sets — the absent case, which is what
         // a strap-less first session actually looks like.
-        await tester.pumpWidget(_frame(
-            ActivitySummary(ActivityResult(_first(arch),
-                start: _start, duration: const Duration(minutes: 20))),
+        await tester.pumpWidget(
+          _frame(
+            ActivitySummary(
+              ActivityResult(
+                _first(arch),
+                start: _start,
+                duration: const Duration(minutes: 20),
+              ),
+            ),
             Brightness.dark,
-            1.0));
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
@@ -823,8 +954,11 @@ void main() {
         // real — so it has nothing to apologise for. Every other archetype
         // must explain what is missing.
         if (arch != Arch.flow) {
-          expect(find.byType(StatusCard), findsWidgets,
-              reason: 'absence must be explained, not blank');
+          expect(
+            find.byType(StatusCard),
+            findsWidgets,
+            reason: 'absence must be explained, not blank',
+          );
         }
       });
     }
@@ -835,32 +969,46 @@ void main() {
     // wrist's vessels, which is exactly what the sensor reads through, so "no
     // pulse" is the expected content of a plunge and not a fault to offer a
     // Check-band button for.
-    testWidgets('a cold plunge with no pulse says why, and offers no fix',
-        (tester) async {
+    testWidgets('a cold plunge with no pulse says why, and offers no fix', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       final plunge = activityByName('Cold plunge')!;
-      await tester.pumpWidget(_frame(
-          ActivitySummary(ActivityResult(plunge,
-              start: _start, duration: const Duration(minutes: 3))),
+      await tester.pumpWidget(
+        _frame(
+          ActivitySummary(
+            ActivityResult(
+              plunge,
+              start: _start,
+              duration: const Duration(minutes: 3),
+            ),
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.text('—'), findsNothing);
-      expect(find.textContaining('vessels the sensor reads through'),
-          findsOneWidget);
-      expect(find.text('Check band connection'), findsNothing,
-          reason: 'there is no connection to check — the blood moved');
+      expect(
+        find.textContaining('vessels the sensor reads through'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Check band connection'),
+        findsNothing,
+        reason: 'there is no connection to check — the blood moved',
+      );
       // Nothing that reads as a target, a dose or a score.
       for (final banned in const [
         'thermal load',
         'adaptation',
         'next time',
-        'longer'
+        'longer',
       ]) {
         expect(find.textContaining(banned), findsNothing, reason: banned);
       }
@@ -868,8 +1016,9 @@ void main() {
       expect(find.textContaining('poses'), findsNothing);
     });
 
-    testWidgets('a sauna that WAS read draws the trace and names the gaps',
-        (tester) async {
+    testWidgets('a sauna that WAS read draws the trace and names the gaps', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -878,24 +1027,35 @@ void main() {
       final hr = <double?>[
         for (var i = 0; i < 12; i++) i >= 4 && i < 8 ? null : 95.0 + i,
       ];
-      await tester.pumpWidget(_frame(
-          ActivitySummary(ActivityResult(activityByName('Sauna')!,
+      await tester.pumpWidget(
+        _frame(
+          ActivitySummary(
+            ActivityResult(
+              activityByName('Sauna')!,
               start: _start,
               duration: const Duration(minutes: 12),
               avgHr: 99,
-              hr: hr)),
+              hr: hr,
+            ),
+          ),
           Brightness.dark,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.textContaining('8 of 12 minutes'), findsOneWidget,
-          reason: 'the coverage is stated, not averaged away');
+      expect(
+        find.textContaining('8 of 12 minutes'),
+        findsOneWidget,
+        reason: 'the coverage is stated, not averaged away',
+      );
     });
 
     // ── TS-09 · session RPE ──────────────────────────────────────────────
-    testWidgets('the rating is asked once, pre-selects nothing, and retires',
-        (tester) async {
+    testWidgets('the rating is asked once, pre-selects nothing, and retires', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -906,15 +1066,19 @@ void main() {
 
       // Not at finish → never asked. Opening an old session is not the moment.
       await tester.pumpWidget(
-          _frame(ActivitySummary(saved, weightKg: 72.4), Brightness.light, 1.0));
+        _frame(ActivitySummary(saved, weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
 
       // Written, and just finished → asked.
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySummary(saved, weightKg: 72.4, justFinished: true),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('HOW HARD DID THAT FEEL?'), findsOneWidget);
       // Ten choices, and NOT ONE of them is lit: the answer is the tap. The
@@ -934,26 +1098,33 @@ void main() {
       // this card that can overflow there, and an overflow fails the build.
       SharedPreferences.setMockInitialValues(const {});
       await Prefs.ensureLoaded();
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySummary(saved, weightKg: 72.4, justFinished: true),
           Brightness.light,
-          3.1));
+          3.1,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
       // Three passes and it stops asking rather than escalating.
       SharedPreferences.setMockInitialValues(const {'workout.rpe_skips': 3});
       await Prefs.ensureLoaded();
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySummary(saved, weightKg: 72.4, justFinished: true),
           Brightness.dark,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
     });
 
-    testWidgets('a session that never reached the database is not asked',
-        (tester) async {
+    testWidgets('a session that never reached the database is not asked', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -961,11 +1132,17 @@ void main() {
       await Prefs.ensureLoaded();
 
       // No `sessionId` — the write threw, so there is nowhere to put a rating.
-      await tester.pumpWidget(_frame(
-          ActivitySummary(_result(Arch.strength),
-              weightKg: 72.4, justFinished: true),
+      await tester.pumpWidget(
+        _frame(
+          ActivitySummary(
+            _result(Arch.strength),
+            weightKg: 72.4,
+            justFinished: true,
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('HOW HARD DID THAT FEEL?'), findsNothing);
     });
@@ -975,10 +1152,13 @@ void main() {
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySummary(_result(Arch.match), weightKg: 72.4),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('HEART RATE'), findsOneWidget);
@@ -1004,36 +1184,50 @@ void main() {
         // the log itself.
         (Arch.basic, 'bpm'),
       ]) {
-        await tester.pumpWidget(_frame(
+        await tester.pumpWidget(
+          _frame(
             ActivitySummary(_result(arch), weightKg: 72.4),
             Brightness.light,
-            1.0));
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
         expect(find.text(unit), findsWidgets, reason: '${arch.name} chart');
         // Five bands of colour with the minutes in the key.
-        expect(find.text('minutes'), findsWidgets, reason: '${arch.name} zones');
+        expect(
+          find.text('minutes'),
+          findsWidgets,
+          reason: '${arch.name} zones',
+        );
         expect(find.textContaining('Z1 · '), findsWidgets);
         // The edges are drawn off a GUESSED ceiling, so the card that draws
         // them says so in words. This was only ever pinned by the goldens,
         // which is why it went four sweeps without anyone being able to say
         // what the 20 red PNGs were red about.
-        expect(find.text(zonesWhyFootnote()), findsOneWidget,
-            reason: '${arch.name} zones must admit the ceiling is estimated');
+        expect(
+          find.text(zonesWhyFootnote()),
+          findsOneWidget,
+          reason: '${arch.name} zones must admit the ceiling is estimated',
+        );
       }
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('MET calories always carry estimated confidence and the band',
-        (tester) async {
+    testWidgets('MET calories always carry estimated confidence and the band', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       for (final w in const [null, 72.4]) {
-        await tester.pumpWidget(_frame(
+        await tester.pumpWidget(
+          _frame(
             ActivitySummary(_result(Arch.basic), weightKg: w),
             Brightness.light,
-            1.0));
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
         // No error bar is quoted, because nothing computes one. The "±15%"
         // this screen used to print had no estimator behind it, and the
@@ -1043,22 +1237,30 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('finishing hands the session to the app, with its sets',
-        (tester) async {
+    testWidgets('finishing hands the session to the app, with its sets', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       ActivityResult? handed;
-      await tester.pumpWidget(_frame(
-          liveFor(activityByName('weight_training')!,
-              weightKg: 72.4,
-              host: ActivityHost(onFinish: (draft) async {
+      await tester.pumpWidget(
+        _frame(
+          liveFor(
+            activityByName('weight_training')!,
+            weightKg: 72.4,
+            host: ActivityHost(
+              onFinish: (draft) async {
                 handed = draft;
                 return draft;
-              })),
+              },
+            ),
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Log set'));
@@ -1066,29 +1268,42 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Finish session'));
       await tester.pumpAndSettle();
 
-      expect(handed, isNotNull, reason: 'the app has to be told, or the '
-          'session exists only on this screen');
+      expect(
+        handed,
+        isNotNull,
+        reason:
+            'the app has to be told, or the '
+            'session exists only on this screen',
+      );
       expect(handed!.strength.setCount, 1);
       expect(handed!.strength.sets.first.loadKg, 40);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a swim counts the same laps live and on the summary',
-        (tester) async {
+    testWidgets('a swim counts the same laps live and on the summary', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       ActivityResult? handed;
-      await tester.pumpWidget(_frame(
-          liveFor(activityByName('swimming')!,
-              weightKg: 72.4,
-              host: ActivityHost(onFinish: (draft) async {
+      await tester.pumpWidget(
+        _frame(
+          liveFor(
+            activityByName('swimming')!,
+            weightKg: 72.4,
+            host: ActivityHost(
+              onFinish: (draft) async {
                 handed = draft;
                 return draft;
-              })),
+              },
+            ),
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('LAP'));
@@ -1117,15 +1332,22 @@ void main() {
       addTearDown(tester.view.reset);
 
       ActivityResult? handed;
-      await tester.pumpWidget(_frame(
-          liveFor(activityByName('yoga')!,
-              weightKg: 72.4,
-              host: ActivityHost(onFinish: (draft) async {
+      await tester.pumpWidget(
+        _frame(
+          liveFor(
+            activityByName('yoga')!,
+            weightKg: 72.4,
+            host: ActivityHost(
+              onFinish: (draft) async {
                 handed = draft;
                 return draft;
-              })),
+              },
+            ),
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       // pump, not pumpAndSettle: the breath ring is a pacer and never stops.
       await tester.pump();
 
@@ -1143,13 +1365,17 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
 
-      expect(handed!.poses.length, 4,
-          reason: 'four poses were done, whatever the pointer sits on');
+      expect(
+        handed!.poses.length,
+        4,
+        reason: 'four poses were done, whatever the pointer sits on',
+      );
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the share card keeps its ratio on a narrow screen',
-        (tester) async {
+    testWidgets('the share card keeps its ratio on a narrow screen', (
+      tester,
+    ) async {
       // A 320 pt viewport (SE, an iPad Slide Over pane, a split-screen pane)
       // left 288 pt inside the sheet's padding, which squeezed the card's
       // WIDTH while its height stayed fixed — so 'Post' exported 864×900, the
@@ -1159,8 +1385,9 @@ void main() {
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(_frame(
-          ShareSheet(_result(Arch.route)), Brightness.dark, 1.0));
+      await tester.pumpWidget(
+        _frame(ShareSheet(_result(Arch.route)), Brightness.dark, 1.0),
+      );
       await tester.pumpAndSettle();
 
       final card = tester.renderObject<RenderBox>(find.byType(PosterCard));
@@ -1169,8 +1396,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a trailing partial split is not priced as a whole kilometre',
-        (tester) async {
+    testWidgets('a trailing partial split is not priced as a whole kilometre', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -1178,34 +1406,41 @@ void main() {
       // 5.4 km at a steady 6:00/km. `route_math` emits the last 0.4 km as its
       // own split, 144 s long — which this table printed as a 2:24 pace and
       // then used as the reference every real kilometre was drawn against.
-      final r = ActivityResult(_first(Arch.route),
-          start: _start,
-          duration: const Duration(minutes: 32, seconds: 24),
-          distanceKm: 5.4,
-          splits: const [
-            KmSplit(1, 360),
-            KmSplit(1, 360),
-            KmSplit(1, 360),
-            KmSplit(1, 360),
-            KmSplit(1, 360),
-            KmSplit(.4, 144),
-          ]);
+      final r = ActivityResult(
+        _first(Arch.route),
+        start: _start,
+        duration: const Duration(minutes: 32, seconds: 24),
+        distanceKm: 5.4,
+        splits: const [
+          KmSplit(1, 360),
+          KmSplit(1, 360),
+          KmSplit(1, 360),
+          KmSplit(1, 360),
+          KmSplit(1, 360),
+          KmSplit(.4, 144),
+        ],
+      );
       await tester.pumpWidget(
-          _frame(ActivitySummary(r, weightKg: 72.4), Brightness.light, 1.0));
+        _frame(ActivitySummary(r, weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Splits'));
       await tester.pumpAndSettle();
 
-      expect(find.text('2:24'), findsNothing,
-          reason: '144 s over 0.4 km is 6:00/km, not 2:24');
+      expect(
+        find.text('2:24'),
+        findsNothing,
+        reason: '144 s over 0.4 km is 6:00/km, not 2:24',
+      );
       expect(find.text('6:00'), findsNWidgets(6));
       // …and the row says what it actually is rather than calling itself km 6.
       expect(find.text('0.4'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a minimised session keeps the sets that were typed into it',
-        (tester) async {
+    testWidgets('a minimised session keeps the sets that were typed into it', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -1216,7 +1451,8 @@ void main() {
       LiveDraft.begin(a, weightKg: 72.4);
 
       await tester.pumpWidget(
-          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+        _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Log set'));
       await tester.pump();
@@ -1229,10 +1465,14 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.pumpWidget(
-          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+        _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('40 kg × 8'), findsWidgets,
-          reason: 'a typed set is the one thing nothing can recompute');
+      expect(
+        find.text('40 kg × 8'),
+        findsWidgets,
+        reason: 'a typed set is the one thing nothing can recompute',
+      );
       expect(find.text('320'), findsOneWidget, reason: 'volume, restored');
       expect(tester.takeException(), isNull);
     });
@@ -1243,7 +1483,8 @@ void main() {
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(
-          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+        _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
 
       // AnimatedCrossFade builds both of its children whatever it is showing,
@@ -1252,28 +1493,36 @@ void main() {
 
       await tester.tap(find.text(activityLibrary.first.name));
       await tester.pumpAndSettle();
-      expect(find.byType(ActivityRow).evaluate().length,
-          activityLibrary.first.items.length,
-          reason: 'the open group, and only the open group');
+      expect(
+        find.byType(ActivityRow).evaluate().length,
+        activityLibrary.first.items.length,
+        reason: 'the open group, and only the open group',
+      );
     });
 
-    testWidgets('a location denial is named on the live screen',
-        (tester) async {
+    testWidgets('a location denial is named on the live screen', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       var fixed = 0;
-      await tester.pumpWidget(_frame(
-          LiveMeasured(activityByName('running')!,
-              feed: () => LiveFeed(
-                    hr: 132,
-                    bandConnected: true,
-                    routeIssue: GpsPermissionStatus.deniedForever,
-                    onFixRoute: () => fixed++,
-                  )),
+      await tester.pumpWidget(
+        _frame(
+          LiveMeasured(
+            activityByName('running')!,
+            feed: () => LiveFeed(
+              hr: 132,
+              bandConnected: true,
+              routeIssue: GpsPermissionStatus.deniedForever,
+              onFixRoute: () => fixed++,
+            ),
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The old screen drew no pill, no map and no sentence.
@@ -1284,26 +1533,35 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('an absent heart rate says which absence it is',
-        (tester) async {
+    testWidgets('an absent heart rate says which absence it is', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       Future<void> pumpWith(bool connected) async {
-        await tester.pumpWidget(_frame(
-            LiveMeasured(activityByName('running')!,
-                feed: () => LiveFeed(bandConnected: connected)),
+        await tester.pumpWidget(
+          _frame(
+            LiveMeasured(
+              activityByName('running')!,
+              feed: () => LiveFeed(bandConnected: connected),
+            ),
             Brightness.light,
-            1.0));
+            1.0,
+          ),
+        );
         await tester.pumpAndSettle();
       }
 
       await pumpWith(false);
       expect(find.textContaining('not connected'), findsOneWidget);
       await pumpWith(true);
-      expect(find.textContaining('finger-width'), findsOneWidget,
-          reason: 'a fit instruction only makes sense for a band that is there');
+      expect(
+        find.textContaining('finger-width'),
+        findsOneWidget,
+        reason: 'a fit instruction only makes sense for a band that is there',
+      );
     });
 
     testWidgets('the strength screen still follows the band it does not tick '
@@ -1314,11 +1572,16 @@ void main() {
       addTearDown(LiveDraft.clear);
 
       var hr = 96;
-      await tester.pumpWidget(_frame(
-          LiveStrength(activityByName('weight_training')!,
-              feed: () => LiveFeed(hr: hr, bandConnected: true)),
+      await tester.pumpWidget(
+        _frame(
+          LiveStrength(
+            activityByName('weight_training')!,
+            feed: () => LiveFeed(hr: hr, bandConnected: true),
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('96'), findsOneWidget);
 
@@ -1329,17 +1592,21 @@ void main() {
       expect(find.text('141'), findsOneWidget);
     });
 
-    testWidgets('the rest countdown ticks without rebuilding the shell',
-        (tester) async {
+    testWidgets('the rest countdown ticks without rebuilding the shell', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       addTearDown(LiveDraft.clear);
 
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           LiveStrength(activityByName('weight_training')!),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Log set'));
       await tester.pump();
@@ -1352,37 +1619,53 @@ void main() {
       final shell = tester.widget<LiveShell>(find.byType(LiveShell));
       await tester.pump(const Duration(seconds: 1));
 
-      expect(find.text('01:29'), findsOneWidget,
-          reason: 'the ring still counts down');
-      expect(identical(tester.widget<LiveShell>(find.byType(LiveShell)), shell),
-          isTrue,
-          reason: 'the shell must not be rebuilt for a number inside the body');
+      expect(
+        find.text('01:29'),
+        findsOneWidget,
+        reason: 'the ring still counts down',
+      );
+      expect(
+        identical(tester.widget<LiveShell>(find.byType(LiveShell)), shell),
+        isTrue,
+        reason: 'the shell must not be rebuilt for a number inside the body',
+      );
     });
 
-    testWidgets('a session that failed to save says so and can retry',
-        (tester) async {
+    testWidgets('a session that failed to save says so and can retry', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       var attempts = 0;
       final r = _result(Arch.route);
-      await tester.pumpWidget(_frame(
-          ActivitySummary(r, weightKg: 72.4, onRetrySave: () async {
-            attempts++;
-            if (attempts == 1) throw StateError('disk');
-            return r;
-          }),
+      await tester.pumpWidget(
+        _frame(
+          ActivitySummary(
+            r,
+            weightKg: 72.4,
+            onRetrySave: () async {
+              attempts++;
+              if (attempts == 1) throw StateError('disk');
+              return r;
+            },
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The summary used to be identical to a successful one.
       expect(find.text('This session is not saved yet'), findsOneWidget);
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
-      expect(find.text('This session is not saved yet'), findsOneWidget,
-          reason: 'a retry that threw has not saved anything either');
+      expect(
+        find.text('This session is not saved yet'),
+        findsOneWidget,
+        reason: 'a retry that threw has not saved anything either',
+      );
 
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
@@ -1390,18 +1673,22 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the picker lists every activity and searches by name',
-        (tester) async {
+    testWidgets('the picker lists every activity and searches by name', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(
-          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+        _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text('Search ${allActivities.length} activities'),
-          findsOneWidget);
+      expect(
+        find.text('Search ${allActivities.length} activities'),
+        findsOneWidget,
+      );
       await tester.enterText(find.byType(TextField), 'kayak');
       await tester.pumpAndSettle();
       expect(find.text('Kayaking'), findsOneWidget);
@@ -1418,22 +1705,27 @@ void main() {
       // session — no LiveDraft field, no live screen, no alert — so the only
       // thing it did was make the calorie line quote '45 min', a duration the
       // user had not chosen and could not see anywhere else on the screen.
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySetup(activityByName('running')!, weightKg: 72.4),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('GOAL'), findsNothing);
       expect(find.text('Distance'), findsNothing);
       expect(find.text('Calories'), findsNothing);
       // The estimate is a RATE, on the picker's own thirty-minute basis.
-      expect(find.textContaining('per 30 min'), findsOneWidget);
+      expect(find.textContaining('Method 1'), findsOneWidget);
+      expect(find.textContaining('per 30 min'), findsNothing);
       expect(find.textContaining('for 45 min'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the unpriced activity offers no number it cannot source',
-        (tester) async {
+    testWidgets('the unpriced activity offers no number it cannot source', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -1444,19 +1736,24 @@ void main() {
       // MET when there is no body weight. This one has neither to end in, and
       // the point is that it ends in nothing rather than in a placeholder.
       await tester.pumpWidget(
-          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+        _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'general');
       await tester.pumpAndSettle();
       expect(find.text(general.name), findsOneWidget);
       expect(find.textContaining('kcal / 30 min'), findsNothing);
-      expect(find.textContaining('MET'), findsNothing,
-          reason: 'a MET this row does not have must not be printed as one');
+      expect(
+        find.textContaining('MET'),
+        findsNothing,
+        reason: 'a MET this row does not have must not be printed as one',
+      );
 
       // THE SETUP SCREEN. A weight IS set here, so "Calories need your
       // weight" would be a lie about which input is missing.
       await tester.pumpWidget(
-          _frame(ActivitySetup(general, weightKg: 72.4), Brightness.light, 1.0));
+        _frame(ActivitySetup(general, weightKg: 72.4), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       expect(find.textContaining('per 30 min'), findsNothing);
       expect(find.textContaining('Calories need your weight'), findsNothing);
@@ -1464,8 +1761,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the unpriced session still explains a measured figure',
-        (tester) async {
+    testWidgets('the unpriced session still explains a measured figure', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -1475,19 +1773,25 @@ void main() {
 
       // WITH calories: the heart-rate estimator ran, so there IS a figure —
       // and the basis line must not attribute any of it to a MET.
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySummary(
-              ActivityResult(general,
-                  start: base.start,
-                  duration: base.duration,
-                  avgHr: 131,
-                  maxHr: 158,
-                  calories: 402,
-                  hr: base.hr,
-                  zoneMinutes: base.zoneMinutes),
-              weightKg: 72.4),
+            ActivityResult(
+              general,
+              start: base.start,
+              duration: base.duration,
+              avgHr: 131,
+              maxHr: 158,
+              calories: 402,
+              hr: base.hr,
+              zoneMinutes: base.zoneMinutes,
+            ),
+            weightKg: 72.4,
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.textContaining('MET,'), findsNothing);
       expect(find.textContaining('MET and your weight'), findsNothing);
@@ -1495,34 +1799,46 @@ void main() {
 
       // WITHOUT calories: the missing-anchors explanation is the one that
       // applies, and it is about heart rate, not about a MET either.
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           ActivitySummary(
-              ActivityResult(general,
-                  start: base.start,
-                  duration: base.duration,
-                  avgHr: 131,
-                  maxHr: 158,
-                  hr: base.hr,
-                  zoneMinutes: base.zoneMinutes),
-              weightKg: 72.4),
+            ActivityResult(
+              general,
+              start: base.start,
+              duration: base.duration,
+              avgHr: 131,
+              maxHr: 158,
+              hr: base.hr,
+              zoneMinutes: base.zoneMinutes,
+            ),
+            weightKg: 72.4,
+          ),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.textContaining('No calorie figure for this session'),
-          findsOneWidget);
+      expect(
+        find.textContaining('No calorie figure for this session'),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the strength logger accumulates volume, sets and reps',
-        (tester) async {
+    testWidgets('the strength logger accumulates volume, sets and reps', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(_frame(
+      await tester.pumpWidget(
+        _frame(
           liveFor(activityByName('weight_training')!, weightKg: 72.4),
           Brightness.light,
-          1.0));
+          1.0,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Default entry is 40 kg × 8 = 320 kg of volume for one set.
@@ -1541,7 +1857,8 @@ void main() {
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(
-          _frame(ShareSheet(_result(Arch.strength)), Brightness.light, 1.0));
+        _frame(ShareSheet(_result(Arch.strength)), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       // One card and one question. The style list and the stat picker are
       // gone: a lift never had a texture to choose, and asking which of your
@@ -1556,7 +1873,8 @@ void main() {
       expect(find.text('DISTANCE'), findsNothing);
 
       await tester.pumpWidget(
-          _frame(ShareSheet(_result(Arch.route)), Brightness.light, 1.0));
+        _frame(ShareSheet(_result(Arch.route)), Brightness.light, 1.0),
+      );
       await tester.pumpAndSettle();
       // A run's hero IS its distance, so the grid does not repeat it — the
       // pace it also measured is what proves the stats are being printed.
@@ -1598,8 +1916,10 @@ void main() {
 
     final cases = <String, Widget>{
       'summary_route': ActivitySummary(_result(Arch.route), weightKg: 72.4),
-      'summary_strength':
-          ActivitySummary(_result(Arch.strength), weightKg: 72.4),
+      'summary_strength': ActivitySummary(
+        _result(Arch.strength),
+        weightKg: 72.4,
+      ),
       'summary_journey': ActivitySummary(_result(Arch.journey), weightKg: 72.4),
       // The two whose defining object changed: a match is now its heart-rate
       // trace (there was a court map), and a swim is now its lap times.
@@ -1623,8 +1943,10 @@ void main() {
             await tester.pumpWidget(_frame(widget, brightness, scale));
             await tester.pumpAndSettle();
 
-            await expectLater(find.byType(MaterialApp),
-                matchesGoldenFile('goldens/activity_${name}_${theme}_$tag.png'));
+            await expectLater(
+              find.byType(MaterialApp),
+              matchesGoldenFile('goldens/activity_${name}_${theme}_$tag.png'),
+            );
           });
         });
       }

@@ -57,20 +57,28 @@ void main() {
         const RoutePoint(seq: 0, tsMs: 0, lat: 0, lng: 0),
         RoutePoint(seq: 1, tsMs: 1000, lat: 0, lng: 100 / _mPerDegLngAtEq),
         RoutePoint(
-            seq: 2, tsMs: 2000, lat: 0, lng: (5000 + 100) / _mPerDegLngAtEq),
+          seq: 2,
+          tsMs: 2000,
+          lat: 0,
+          lng: (5000 + 100) / _mPerDegLngAtEq,
+        ),
         RoutePoint(
-            seq: 3, tsMs: 3000, lat: 0, lng: (5000 + 200) / _mPerDegLngAtEq),
+          seq: 3,
+          tsMs: 3000,
+          lat: 0,
+          lng: (5000 + 200) / _mPerDegLngAtEq,
+        ),
       ];
       expect(totalDistanceMeters(pts), closeTo(200, 5));
     });
 
-    test('far travel over a long gap IS plausible and counted', () {
+    test('travel over an unmeasured long gap adds no guessed distance', () {
       // 1 km apart but 5 minutes between fixes (3.3 m/s — a slow run).
       final pts = [
         const RoutePoint(seq: 0, tsMs: 0, lat: 0, lng: 0),
         RoutePoint(seq: 1, tsMs: 300000, lat: 0, lng: 1000 / _mPerDegLngAtEq),
       ];
-      expect(totalDistanceMeters(pts), closeTo(1000, 5));
+      expect(totalDistanceMeters(pts), 0);
     });
   });
 
@@ -106,7 +114,11 @@ void main() {
         const RoutePoint(seq: 0, tsMs: 0, lat: 0, lng: 0),
         RoutePoint(seq: 1, tsMs: 1000, lat: 0, lng: 20 / _mPerDegLngAtEq),
         RoutePoint(
-            seq: 2, tsMs: 2000, lat: 0, lng: (5000 + 20) / _mPerDegLngAtEq),
+          seq: 2,
+          tsMs: 2000,
+          lat: 0,
+          lng: (5000 + 20) / _mPerDegLngAtEq,
+        ),
       ];
       final v = buildVertices(pts, const [], 190);
       expect(v[0].gapBefore, isFalse);
@@ -182,8 +194,7 @@ void main() {
       // 26 pts × 100 m = 2500 m, 30 s each ⇒ 300 s/km (5:00/km), HR 150.
       final pts = _line(count: 26, stepMeters: 100, stepSec: 30);
       final hr = [
-        for (var i = 0; i < 26; i++)
-          HrSample(tsMs: i * 30000, hr: 150),
+        for (var i = 0; i < 26; i++) HrSample(tsMs: i * 30000, hr: 150),
       ];
       final splits = computeSplits(pts, hr, unitMeters: 1000);
       expect(splits.length, 3); // 1 km, 1 km, 0.5 km
@@ -253,8 +264,11 @@ void main() {
 
         final splits = computeSplits(pts, const [], unitMeters: 1000);
         final splitSum = splits.fold<double>(0, (a, s) => a + s.meters);
-        expect(splitSum, closeTo(total, 1),
-            reason: 'headline distance and the splits list must not disagree');
+        expect(
+          splitSum,
+          closeTo(total, 1),
+          reason: 'headline distance and the splits list must not disagree',
+        );
         // 5 full km + a short trailing partial — NOT ~60 phantom splits.
         expect(splits.length, 6);
         expect(splits.last.meters, closeTo(100, 30));
@@ -264,16 +278,17 @@ void main() {
         // 300 m in 30 s (10 m/s) is fast but real — must not be filtered.
         final pts = _line(count: 11, stepMeters: 300, stepSec: 30); // 3 000 m
         final splits = computeSplits(pts, const [], unitMeters: 1000);
-        expect(splits.fold<double>(0, (a, s) => a + s.meters),
-            closeTo(totalDistanceMeters(pts), 1));
+        expect(
+          splits.fold<double>(0, (a, s) => a + s.meters),
+          closeTo(totalDistanceMeters(pts), 1),
+        );
         expect(splits.length, 3);
       });
     });
   });
 
   group('emaSpeed', () {
-    test('first sample with no prior average is passed through unsmoothed',
-        () {
+    test('first sample with no prior average is passed through unsmoothed', () {
       expect(emaSpeed(null, 3.2), 3.2);
     });
 

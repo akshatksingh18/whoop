@@ -14,7 +14,7 @@ import '../../data/nutrition_store.dart';
 import '../../gps/run_history.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
-import 'home_screen.dart' show hm, metricOf, pointsOf, repoOf, thousands;
+import 'home_screen.dart' show hm, pointsOf, repoOf, thousands;
 import 'nutrition_screen.dart' show DayUpkeep;
 
 /// Everything the card shows; any part can be missing.
@@ -43,28 +43,16 @@ class WeekNumbers {
   static Future<WeekNumbers> load(
     LocalRepository repo,
     Profile pr,
-    Map<String, dynamic> user, {DateTime? at}
-  ) async {
+    Map<String, dynamic> user, {
+    DateTime? at,
+  }) async {
     final now = at ?? DateTime.now();
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
     final mondayLabel = dayLabelOf(monday);
     final db = await LocalDb.instance;
     final win = await NutritionDb.window(db, days: now.weekday, now: now);
 
-    final steps = <String, num>{};
-    try {
-      for (final p in pointsOf(await repo.getChart('steps'))) {
-        steps[dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000))] = p.v;
-      }
-      final daily = (await repo.getToday())['daily'];
-      final t = metricOf(daily is Map ? daily['steps'] : null).value;
-      if (t != null) steps[todayLabel(now)] = t;
-    } catch (_) {}
-
-    var runs = const <RunSummary>[];
-    try {
-      runs = await loadRuns(repo);
-    } catch (_) {}
+    final runs = await loadRuns(repo);
 
     double? deficit;
     var logged = 0;
@@ -72,30 +60,41 @@ class WeekNumbers {
     for (final d in win.days) {
       final eaten = d.kcal.value;
       if (!d.countsTowardAverages || eaten == null) continue;
-      final m = DayUpkeep(
+      final m = (await DayUpkeep.read(
+        repo,
+        d.date,
         pr,
-              steps: steps[d.date],
-              runs: runEnergyOn(runs, d.date,
-                  weightKg: pr.weightKg, daySteps: steps[d.date]),
-              eaten: eaten)
-          .parts
-          ?.total;
+        eaten: eaten,
+        runs: runs,
+      )).parts?.total;
       if (m == null) continue;
       deficit = (deficit ?? 0) + m - eaten;
       logged++;
       if (d.protein.value != null) proteins.add(d.protein.value!);
     }
 
-    final km = runs
-        .where((r) => !r.start.isBefore(monday))
-        .fold<double>(0, (a, r) => a + r.meters / 1000);
+    var km = 0.0;
+    for (
+      var d = monday;
+      !d.isAfter(DateTime(now.year, now.month, now.day));
+      d = DateTime(d.year, d.month, d.day + 1)
+    ) {
+      km += (await DayUpkeep.read(
+        repo,
+        dayLabelOf(d),
+        pr,
+        eaten: 0,
+        runs: runs,
+      )).runs.km;
+    }
 
     double? sleep;
     try {
       final mins = [
         for (final p in pointsOf(await repo.getChart('sleep')))
-          if (dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000))
-                  .compareTo(mondayLabel) >=
+          if (dayLabelOf(
+                DateTime.fromMillisecondsSinceEpoch(p.t * 1000),
+              ).compareTo(mondayLabel) >=
               0)
             p.v,
       ];
@@ -144,7 +143,9 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
   void initState() {
     super.initState();
     _w = widget.data;
-    if (_w == null) WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    if (_w == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    }
   }
 
   Future<void> _load() async {
@@ -174,20 +175,24 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
   @override
   Widget build(BuildContext c) {
     final w = _w;
-    if (_failed)
+    if (_failed) {
       return StatusCard(
         'Week summary unavailable',
         'Your saved data is intact. Try reading it again.',
         fix: 'Retry',
         onFix: _load,
       );
+    }
     if (w == null) return const SizedBox.shrink();
     final p = P.of(c);
     final d = w.deficit;
     final top = <(String, String, Color)>[
       if (d != null)
-        (d >= 0 ? 'DEFICIT' : 'SURPLUS', '${thousands(d.abs())} kcal',
-            d >= 0 ? C.green : C.red),
+        (
+          d >= 0 ? 'DEFICIT' : 'SURPLUS',
+          '${thousands(d.abs())} kcal',
+          d >= 0 ? C.green : C.red,
+        ),
       if (w.avgProtein != null)
         (
           'LOGGED PROTEIN',
@@ -203,23 +208,25 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
       if (w.avgSleepMin != null) ('SLEEP', hm(w.avgSleepMin), C.sleep),
     ];
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('This week', style: F.over.copyWith(color: p.ink3)),
-        const SizedBox(height: S.x2),
-        if (top.isNotEmpty) ...[
-          InlineMetrics(top),
-          const SizedBox(height: S.x3),
-        ],
-        InlineMetrics(bottom),
-        if (d != null) ...[
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('This week', style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x2),
-          Text(
+          if (top.isNotEmpty) ...[
+            InlineMetrics(top),
+            const SizedBox(height: S.x3),
+          ],
+          InlineMetrics(bottom),
+          if (d != null) ...[
+            const SizedBox(height: S.x2),
+            Text(
               '${w.daysLogged} completed day${w.daysLogged == 1 ? '' : 's'} · '
-              'maintenance floor${w.daysExcluded > 0 ? ' · ${w.daysExcluded} unfinished excluded' : ''}'
+              'maintenance estimate${w.daysExcluded > 0 ? ' · ${w.daysExcluded} unfinished excluded' : ''}'
               '${w.avgProtein != null ? ' · protein on ${w.proteinDays} days' : ''}',
               style: F.over.copyWith(color: p.ink3),
             ),
-        ],
+          ],
           if (d == null && w.daysExcluded > 0) ...[
             const SizedBox(height: S.x2),
             Text(

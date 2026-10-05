@@ -119,7 +119,9 @@ void main() {
     test('no ${rule.name} outside the token boundary', () {
       final hits = <String>[];
       for (final f in files) {
-        final rel = f.path.replaceAll('\\', '/').replaceFirst(RegExp(r'^\./'), '');
+        final rel = f.path
+            .replaceAll('\\', '/')
+            .replaceFirst(RegExp(r'^\./'), '');
         if (rule.allow.contains(rel)) continue;
         final lines = codeLines(f.readAsStringSync());
         for (var i = 0; i < lines.length; i++) {
@@ -218,6 +220,10 @@ const _notComponents = {
   // food tables on open. Their rows (PickRow, CalorieCard, MacroCard,
   // MealSection) ARE in the gallery.
   'AddFoodSheet', 'GramsSheet', 'FoodEditor', 'MealEditor', 'NutritionDayView',
+  'MealGroupPicker', // Reads meal/date headings; covered by ui2_food_flow_test.
+  // Owns async day-specific repository reads/revision lifecycle. Its measured
+  // HR/HRV/wear charts and small-phone layout are covered by build73_details_test.
+  'TodaySignalDetail',
   // Reads up to 30 nights of stored bundles on open; its card copy is pinned
   // by sleep_breathing_test.dart.
   'SleepBreathingScreen',

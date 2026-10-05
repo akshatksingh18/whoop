@@ -7,6 +7,29 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// two such sources must never be summed: the phone (pocket, sees trunk motion)
 /// and the band (wrist, documented emitting 22-27 false steps/min during
 /// dishes/driving) both count the same walk. Adding them roughly doubles a day.
+int _at(String day, int offset) =>
+    DateTime.parse(day).millisecondsSinceEpoch ~/ 1000 + offset;
+Future<void> _coverage(
+  int start,
+  int end,
+  int steps,
+  String day, {
+  String source = LocalDb.kStepSourceBand,
+}) => LocalDb.addLiveCoverage(
+  _at(day, start),
+  _at(day, end),
+  steps,
+  day,
+  source: source,
+);
+Future<void> _phone(
+  String day,
+  List<({int startTs, int endTs, int steps})> windows,
+) => LocalDb.replacePhoneCoverageForDay(day, [
+  for (final w in windows)
+    (startTs: _at(day, w.startTs), endTs: _at(day, w.endTs), steps: w.steps),
+]);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -35,16 +58,14 @@ void main() {
   });
 
   test('band-only day sums the band rows', () async {
-    await LocalDb.addLiveCoverage(1000, 1600, 120, day);
-    await LocalDb.addLiveCoverage(2000, 2600, 80, day);
+    await _coverage(1000, 1600, 120, day);
+    await _coverage(2000, 2600, 80, day);
     expect(await LocalDb.liveStepsForDay(day), 200);
   });
 
   test('phone WINS outright when present — the two are never added', () async {
-    await LocalDb.addLiveCoverage(1000, 1600, 120, day); // wrist
-    await LocalDb.replacePhoneCoverageForDay(day, [
-      (startTs: 1000, endTs: 4600, steps: 350),
-    ]);
+    await _coverage(1000, 1600, 120, day); // wrist
+    await _phone(day, [(startTs: 1000, endTs: 4600, steps: 350)]);
     // NOT 470. The phone measured the same walking from a better place.
     expect(await LocalDb.liveStepsForDay(day), 350);
   });
@@ -53,7 +74,7 @@ void main() {
     'phone sync is idempotent — re-syncing a day never accumulates',
     () async {
       for (var i = 0; i < 3; i++) {
-        await LocalDb.replacePhoneCoverageForDay(day, [
+        await _phone(day, [
           (startTs: 1000, endTs: 4600, steps: 350),
           (startTs: 4600, endTs: 8200, steps: 120),
         ]);
@@ -65,13 +86,9 @@ void main() {
   test(
     'a later sync REPLACES an earlier partial one rather than adding',
     () async {
-      await LocalDb.replacePhoneCoverageForDay(day, [
-        (startTs: 1000, endTs: 4600, steps: 100),
-      ]);
+      await _phone(day, [(startTs: 1000, endTs: 4600, steps: 100)]);
       // The day filled in; the same hour now reads higher.
-      await LocalDb.replacePhoneCoverageForDay(day, [
-        (startTs: 1000, endTs: 4600, steps: 900),
-      ]);
+      await _phone(day, [(startTs: 1000, endTs: 4600, steps: 900)]);
       expect(await LocalDb.liveStepsForDay(day), 900);
     },
   );
@@ -79,16 +96,14 @@ void main() {
   test(
     'phone replace is scoped to its day and never touches band rows',
     () async {
-      await LocalDb.addLiveCoverage(1000, 1600, 55, otherDay);
-      await LocalDb.replacePhoneCoverageForDay(otherDay, [
-        (startTs: 1000, endTs: 4600, steps: 700),
-      ]);
-      await LocalDb.replacePhoneCoverageForDay(day, const []);
+      await _coverage(1000, 1600, 55, otherDay);
+      await _phone(otherDay, [(startTs: 1000, endTs: 4600, steps: 700)]);
+      await _phone(day, const []);
 
       // Clearing today's phone rows must not disturb yesterday.
       expect(await LocalDb.liveStepsForDay(otherDay), 700);
       // And with today's phone rows gone, the band fallback returns.
-      await LocalDb.addLiveCoverage(9000, 9600, 42, day);
+      await _coverage(9000, 9600, 42, day);
       expect(await LocalDb.liveStepsForDay(day), 42);
     },
   );
@@ -96,13 +111,13 @@ void main() {
   test(
     'an empty phone sync leaves the day with no steps, not a zero row',
     () async {
-      await LocalDb.replacePhoneCoverageForDay(day, const []);
+      await _phone(day, const []);
       expect(await LocalDb.liveStepsForDay(day), 0);
     },
   );
 
   test('zero phone windows are stored as confirmed-still evidence', () async {
-    await LocalDb.replacePhoneCoverageForDay(day, [
+    await _phone(day, [
       (startTs: 1000, endTs: 4600, steps: 0), // confirmed motionless hour
       (startTs: 5000, endTs: 4000, steps: 50), // inverted
       (startTs: 6000, endTs: 9600, steps: 75), // the only real one
@@ -115,8 +130,8 @@ void main() {
       whereArgs: [day, LocalDb.kStepSourcePhone],
     );
     expect(zeroRows, hasLength(1));
-    expect(zeroRows.single['start_ts'], 1000);
-    expect(zeroRows.single['end_ts'], 4600);
+    expect(zeroRows.single['start_ts'], _at(day, 1000));
+    expect(zeroRows.single['end_ts'], _at(day, 4600));
     final allPhoneRows = await db.query(
       'live_coverage',
       where: 'day = ? AND source = ?',
@@ -130,10 +145,8 @@ void main() {
   });
 
   test('clearing phone coverage falls back to the band, not to zero', () async {
-    await LocalDb.addLiveCoverage(1000, 1600, 64, day); // band
-    await LocalDb.replacePhoneCoverageForDay(day, [
-      (startTs: 1000, endTs: 4600, steps: 900),
-    ]);
+    await _coverage(1000, 1600, 64, day); // band
+    await _phone(day, [(startTs: 1000, endTs: 4600, steps: 900)]);
     expect(await LocalDb.liveStepsForDay(day), 900, reason: 'phone preferred');
 
     // User turns phone steps off: the phone rows must go, or they would keep
@@ -169,8 +182,8 @@ void main() {
         ),
       );
       await db.insert('live_coverage', {
-        'start_ts': 1000,
-        'end_ts': 1600,
+        'start_ts': _at(day, 1000),
+        'end_ts': _at(day, 1600),
         'steps': 137,
         'day': day,
       });
@@ -188,9 +201,7 @@ void main() {
       );
 
       // ...and it must be BAND, so a phone sync can still take precedence.
-      await LocalDb.replacePhoneCoverageForDay(day, [
-        (startTs: 1000, endTs: 4600, steps: 900),
-      ]);
+      await _phone(day, [(startTs: 1000, endTs: 4600, steps: 900)]);
       expect(
         await LocalDb.liveStepsForDay(day),
         900,

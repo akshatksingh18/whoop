@@ -238,12 +238,6 @@ List<CoverageSpan> _vetoAgainstConfirmedStill(List<CoverageSpan> rows) {
   return out;
 }
 
-/// When the band outweighs the phone over the same phone window by this many
-/// times (and by at least [kPhoneLeftBehindMinSteps]), the phone is taken to
-/// have been left behind for that walk, and the band keeps it.
-const double kPhoneLeftBehindRatio = 3;
-const int kPhoneLeftBehindMinSteps = 300;
-
 /// PHONE FIRST (the personal build, Akshat's decision). He carries the phone
 /// on every walk and run, and held in the hand it still counts every stride,
 /// while the wrist reads a real walk low: on 3 October the band counted 4,835
@@ -258,8 +252,7 @@ const int kPhoneLeftBehindMinSteps = 300;
 ///
 /// * time no phone window covers (the phone was not counting);
 /// * phone windows that confirmed zero steps, subject to the still-veto above;
-/// * a phone window where the band saw a real walk (40+ steps a minute) the
-///   phone mostly missed: phone left behind.
+/// A positive phone measurement always wins; a larger wrist count cannot override it.
 ///
 /// Band spans are split into the pieces that survive, each keeping its share
 /// of the span's steps by time. Phone rows are never modified.
@@ -276,17 +269,13 @@ List<CoverageSpan> _phoneFirst(List<CoverageSpan> rows) {
       continue;
     }
     final dur = r.endTs - r.startTs;
-    final spm = r.steps * 60 / dur;
     final clips = <(int, int)>[];
     for (final ph in counted) {
       final lo = math.max(r.startTs, ph.startTs);
       final hi = math.min(r.endTs, ph.endTs);
       if (hi <= lo) continue;
-      final bandHere = r.steps * (hi - lo) / dur;
-      final leftBehind = spm >= kConfirmedStillMinSpm &&
-          bandHere >= kPhoneLeftBehindRatio * ph.steps &&
-          bandHere - ph.steps >= kPhoneLeftBehindMinSteps;
-      if (!leftBehind) clips.add((lo, hi));
+      // Positive phone movement always wins this exact interval.
+      clips.add((lo, hi));
     }
     if (clips.isEmpty) {
       out.add(r);
@@ -295,10 +284,19 @@ List<CoverageSpan> _phoneFirst(List<CoverageSpan> rows) {
     var cursor = r.startTs;
     void piece(int a, int b) {
       if (b <= a) return;
-      final n = (r.steps * (b - a) / dur).round();
+      final n =
+          (r.steps * (b - r.startTs) / dur).round() -
+          (r.steps * (a - r.startTs) / dur).round();
       if (n <= 0) return;
-      out.add(CoverageSpan(
-          startTs: a, endTs: b, steps: n, fromBand: true, deviceId: r.deviceId));
+      out.add(
+        CoverageSpan(
+          startTs: a,
+          endTs: b,
+          steps: n,
+          fromBand: true,
+          deviceId: r.deviceId,
+        ),
+      );
     }
 
     for (final (lo, hi) in clips) {
@@ -344,10 +342,12 @@ class ResolvedDaySteps {
     this.phone = 0,
     this.spans = const [],
     this.hasPhoneCoverage = false,
+    this.coveredSeconds = 0,
   });
 
   /// Includes explicitly measured stillness; zero differs from no phone read.
   final bool hasPhoneCoverage;
+  final int coveredSeconds;
 
   /// Steps credited to the band's 100 Hz pedometer.
   final int strap;
@@ -405,13 +405,31 @@ class _Ranked {
 /// count and the total is the plain sum, exactly as before.
 // ponytail: O(n²) over one day's rows (tens, typically single digits). If a day
 // ever carries thousands, sort by start and sweep instead.
-ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows,
-    {bool phoneFirst = kPersonalSideload}) {
+ResolvedDaySteps resolveDaySteps(
+  Iterable<CoverageSpan> rows, {
+  bool phoneFirst = kPersonalSideload,
+}) {
   final spans = <_Ranked>[];
   final measured = rows.toList();
   final hasPhoneCoverage = measured.any(
-      (r) => !r.fromBand && r.steps >= 0 && r.endTs > r.startTs);
+    (r) => !r.fromBand && r.steps >= 0 && r.endTs > r.startTs,
+  );
   final vetted = _vetoAgainstConfirmedStill(measured);
+  final coverage =
+      vetted
+          .where(
+            (r) =>
+                r.endTs > r.startTs &&
+                (r.steps > 0 || (!r.fromBand && r.steps == 0)),
+          )
+          .toList()
+        ..sort((a, b) => a.startTs.compareTo(b.startTs));
+  var coveredSeconds = 0, coveredUntil = 0;
+  for (final r in coverage) {
+    final start = math.max(coveredUntil, r.startTs);
+    if (r.endTs > start) coveredSeconds += r.endTs - start;
+    coveredUntil = math.max(coveredUntil, r.endTs);
+  }
   for (final r in phoneFirst ? _phoneFirst(vetted) : vetted) {
     // Legacy zero-width rows are real counts with a lost extent; repair them
     // the same way the writer does rather than dropping a measurement.
@@ -479,6 +497,7 @@ ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows,
   }
   return ResolvedDaySteps(
     hasPhoneCoverage: hasPhoneCoverage,
+    coveredSeconds: coveredSeconds,
     strap: strap.round(),
     phone: phone.round(),
     spans: [

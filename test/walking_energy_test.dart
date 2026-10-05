@@ -31,7 +31,7 @@ void main() {
   test('no number without the inputs it needs', () {
     expect(bmrMifflin(const Profile(weightKg: 80, heightCm: 180)), isNull);
     expect(maintenance(const Profile(weightKg: 80)), isNull);
-    expect(stepCalories(0, 80), isNull);
+    expect(stepCalories(0, 80), 0); // Measured stillness is zero active energy.
     expect(stepCalories(1000, null), isNull);
   });
 

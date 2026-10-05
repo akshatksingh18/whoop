@@ -1,14 +1,13 @@
 # WHOOP personal app: metrics map
 
-Everything the app stores and where each item appears, plus the proposed layout. This file is the
+Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal source `0.9.39`/`72`.
+the personal source `0.9.40`/`73` (algorithm 89).
 
-**Status:** Current map of stored data and screens for build `0.9.39`/`72`; local tests, public CI,
-the macOS build and downloaded IPA validation pass. Installation and the phone/enrollment gates
-remain, with build 70 retained as accepted recovery. Everything in
-"What is stored" keeps being recorded whether or not a screen shows it; any further removal still
-needs Akshat's per-item yes.
+**Status:** Build 73 is implemented locally and passes regression/release validation.
+Public publication, macOS IPA compilation and phone acceptance are pending. Build 72 remains the
+installed/testing IPA and build 70 the accepted recovery. Stored metrics remain intact; any removal
+still needs Akshat's per-item approval.
 
 ## What is stored
 
@@ -81,9 +80,9 @@ The full analysis of each day, including curves:
 
 | Store | What it holds |
 |---|---|
-| `sessions` | every workout: type, start/end, strain, active calories, max HR, time in each HR zone, steps, cadence, device |
+| `sessions` | every workout: type, start/end, strain, Method 1 active calories for run/walk, estimated HR/MET calories for other types, max HR, time in each HR zone, steps, cadence, device |
 | `workout_route` / `workout_split` | GPS route points and per-kilometre splits (runs, rides, walks) |
-| app preferences `motion.<session>` | the phone's per-minute steps and distance over a run or walk, saved the first time it is read (the phone keeps only 7 days): run steps for maintenance, and distance/splits/cadence for a session with no GPS |
+| `baselines` calculation anchors (preferences mirrored) | retained `motion.<session>` answers, active workout windows/pauses, captured profiles, voice milestones, dated profile and step-goal history; included in backup/import |
 | `strength_set` / `exercise_def` | lifting sets: exercise, weight, reps |
 | `workout_suggestions` | auto-detected efforts waiting for confirmation |
 
@@ -101,9 +100,9 @@ These are still stored but no longer entered in the personal build:
 
 | Store | What it holds |
 |---|---|
-| `food_entry` | each logged item: date, meal (breakfast/lunch/dinner/snack), grams, kcal, protein, carbs, fat, fibre, food key |
-| `food_def` | your foods, stored per 100 g: typed from a label ("50 g oats = 200 kcal…") or cached from a barcode scan |
-| `meal_template` | saved meals: a name, a usual meal slot, and foods at fixed grams |
+| `food_entry` | each logged item: date, meal (breakfast/lunch/dinner/snack), quantity/unit, kcal, protein, carbs, fat, fibre, food key |
+| `food_def` | your foods, stored per 100 units (grams by default, or links/slices/cups/ml/custom units): typed from a label ("50 g oats = 200 kcal…") or cached from a barcode scan |
+| `meal_template` | saved meals: a name, a usual meal slot, and foods at fixed quantities and units |
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
 | `body_weight` | one weight per day (latest wins); logging one also sets profile `weight_kg` |
@@ -118,22 +117,24 @@ Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
 | Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals, naps |
 | Strain | card with a bar and today's target | yes | Day strain: any day (arrows), draggable curve, zones, three-line method |
 | Heart rate, all day | live bpm, then the day's line and range | — | Scrubbable minute-by-minute chart (stops at the current time) |
-| HRV, resting HR | inside the recovery card | yes | metric detail |
-| Steps, walking kcal | card | yes | metric detail, steps breakdown |
-| Maintenance (floor) | card: resting · steps · run · food; tap for the detail sheet | step calories row | Food → Today (card and sheet) and History |
+| HRV, resting HR | inside the recovery card | yes | metric detail with measured nightly HRV / daily HR charts |
+| Steps, walking kcal | card | separate Steps and Step calories rows | Steps with inline hourly source graph; separate kcal trend |
+| Maintenance estimate | card: resting · steps · run · food; tap for the detail sheet | step calories row | Food → Today (card and sheet) and History |
 | Breathing rate | — | only when measured on at least half the nights of the last 30 | metric detail; Sleep overnight row when measured; Readiness says why it was not counted |
 | Skin temperature | — | once 7 of the last 30 nights have one | metric detail (this band's nights only, as a difference from usual); Sleep overnight row |
-| Wear time | — | yes | metric detail |
+| Wear time | — | yes | metric detail, with recorded hourly wear and unmeasured gaps |
 | Breathing pattern in sleep | — | — | one tap below Sleep |
 | Bedtime and sleep need | — | — | not shown (still computed); the wind-down reminder is off and hidden |
 | Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
 | Naps | — | — | Sleep → Naps section on a day with one; Naps screen to edit |
 | Workouts, GPS | — | — | Train: Run / Walk / Lift / Other, run-or-walk streak, draggable 7-day strain (tap opens that day), running trends (draggable weekly distance, predicted 5K/10K, best 1K/5K/10K/half), recent sessions; a run opens the run screen (Apple Maps route, calories by distance and by heart rate, best efforts, verdict, splits, linked pace/HR/elevation charts, pace zones); a walk opens the same screen without the running-only parts |
-| Food, calories left, macros | — | — | Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, Recent / My meals / My foods (default), sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with optional fibre |
-| Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, measured maintenance), completed-day weekly deficit, trailing 31-day maintenance-vs-eaten chart with range caption, lazy calendar-month accordions (current open, older closed), logged-day rows that open for editing |
+| Food, calories left, macros | — | — | Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, My foods (default) / My meals, sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with optional fibre; decimal servings and heading selection before logging; saved-food/meal deletion directly in the picker |
+| Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, estimated maintenance from food and weight), completed-day weekly deficit, trailing 31-day maintenance-vs-eaten chart with range caption, lazy calendar-month accordions (current open, older closed), logged-day rows that open for editing |
 
-Trends has a Week / Month / 3 months switch. Each row shows the average for the range, a small
-line, and the newest reading.
+Trends opens on Week, with a Week / Month / 3 months switch. Each row shows the average for the
+range, a small line, and the newest reading. Sleep and Strain's Today sections reuse their full
+daily detail charts. Step calories opens its own kcal trend rather than the Steps dashboard;
+it uses the same dated walking contribution as daily maintenance.
 
 **Readiness:** history is one coloured bar per day; dragging an empty day reads its stored
 reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
@@ -146,10 +147,15 @@ weight; robust z-scores are combined with weights renormalised over available in
 scores store `readiness_absent_diag`; `readinessGap` exposes the per-day reason. The sparse history
 before 30 September reflects those baseline/missing-input/import rules, not a broken read path.
 
-**Steps (phone first, personal build):** a phone hour that counted steps belongs to the phone; the
-band keeps only time the phone did not count, or a real walk the phone clearly missed (phone left
-behind). Runs show the phone's steps and cadence. `resolveDaySteps` in
-`lib/data/live_coverage_policy.dart`.
+**Steps (phone first, personal build):** positive phone measurements own overlapping time, even
+when the band counts more. Accepted wrist-only spans supplement uncovered time; dense walking
+cadence is required to override a measured phone-zero span. Hour/source/day boundaries preserve
+measured counts. Fine phone windows around source handoffs and session pauses avoid subtracting
+whole-hour totals from part-hour sessions. Growing live wrist windows replace their earlier partial
+rows rather than accumulating duplicates. Personal builds request the live IMU passively while
+connected, subject to device battery/background acceptance. Source provenance stays visible.
+WHOOP 4 recorded history cannot accurately reconstruct offline steps beyond Bluetooth range.
+`resolveDaySteps` in `lib/data/live_coverage_policy.dart` is the common counter.
 
 **Charts:** every trend chart takes a finger: a line and a ring mark the point, and the date and
 value show in the chart's header (metric detail at every range, Readiness history, Train's strain
@@ -162,13 +168,19 @@ covered the date. Explicit phone stillness is zero; an unread day stays absent. 
 enqueue is awaited, and read failures, holds and the 60-second refresh cap show a status message.
 Today/food cards also reread after committed food writes, derived changes, foreground return,
 and the five-minute foreground refresh (including local day rollover and fresh phone counts). No pull is needed and
-there is no new iOS background capability. A fresh launch opens Today; warm resume retains position.
+workout voice also enables the approved iOS audio background mode. A fresh launch opens Today; warm resume retains position.
 
 **Food coverage:** calories/protein are primary. Optional omitted macros remain null/untracked;
 explicit zero is retained. Weekly energy summaries exclude today, unknown-calorie entries and
 past days without an evening entry on that local date. Missing optional macros do not exclude a
 day. Logged protein is averaged only over qualifying days with protein values. Coverage/exclusions
 are shown; this heuristic cannot detect every forgotten food or prove a complete diary.
+All four macro rows/icons remain visible, with zero logged when nothing supplied that nutrient;
+null is preserved internally. Run/walk streaks accept ten active recorded minutes OR reaching the
+dated measured step goal. Displayed targets change immediately; raising an earned goal
+cannot revoke that day's saved qualification threshold. Overlapping recorded run/walk windows
+count only once toward ten minutes. A measured count correction can revoke unsupported
+completion. No historical step-only days are invented before dated goals were recorded.
 
 ### Computed and stored, but shown on no screen
 
@@ -192,7 +204,9 @@ form (training load), next-morning session cost, and the beat-by-beat night data
    night naming which measurements moved.
 6. **Overnight signals:** one row each with a small line: heart rate (average and lowest), HRV,
    skin temperature (difference from usual), and breathing only on a night it was measured.
-7. **Naps:** that day's naps, when there were any.
+7. **Naps:** always reachable, including an empty or nap-only day; log, reject or restore.
+   Saved corrections update this list, Sleep periods and the timeline immediately. Sleep coaching
+   rebuilds in the background from retained results; it does not restage the whole main night.
 8. **Occasional rows:** "Fix sleep times" (folded), and breathing pattern across nights (one card:
    within/above your usual, a small nightly chart, caveats folded).
 
@@ -201,23 +215,27 @@ and debt are not shown (the Sleep Coach still computes them).
 
 ## How calories are estimated
 
-**Daily maintenance** (Akshat's formula, a floor, never a ceiling):
+**Daily maintenance** (Akshat's chosen conservative budgeting estimate):
 maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10% of the food logged.
 
 - **BMR:** Mifflin–St Jeor for the whole day: 10 × kg + 6.25 × cm − 5 × age, + 5 for men, − 161
   for women (the midpoint otherwise). `bmrMifflin` in `lib/compute/profile.dart`.
 - **Step calories:** 2.74 × steps × kg ÷ 8,368 (Weyand et al. 2010 form), energy above resting
   only, on the day's steps **minus the steps taken during that day's runs**. `stepCalories`.
-- **Running (Method 1, the kinematic floor):** 0.005 × kg × (0.143 × metres run + 0.1 × metres
+- **Running (Method 1, the accepted distance estimate):** 0.005 × kg × (0.143 × metres run + 0.1 × metres
   walked inside the run + 0.9 × metres climbed). This is Akshat's four steps folded together (speed ×
   time = distance, speed × incline × time = climb, 0.3 ÷ 60 = 0.005). `runFloorKcal`.
   - Running vs walking inside a run: by GPS speed over ±15 s, 2.0 m/s and up is running, below it
     walking (ACSM walking cost 0.1, so a walk break never counts as running), below 0.5 m/s
     standing (nothing). Without GPS, from the phone per minute: 140 steps/min and up is running.
     `runMix` / `motionMix` in `lib/gps/run_analysis.dart`.
-  - Climb: smoothed elevation gain with a 3 m deadband; downhill counts as flat.
-  - Run steps: the phone's steps over the exact run window (`motionWindow`), else the band's
-    session steps. A run with no distance adds nothing and its steps stay walking steps.
+  - Unverified GPS elevation adds no calorie bonus; smoothed elevation remains visible. The climb coefficient is retained for trusted climb input; downhill never subtracts movement.
+  - Run steps: the shared phone/wrist resolver over active windows, with retained phone motion
+    or recorded session counts as legacy fallbacks. Paused movement remains daily walking steps.
+    Midnight allocates distance and steps to each local day. Overlapping sessions contribute once
+    to maintenance. Without reliable overlap coverage, use the larger of run Method 1 and full
+    walking energy rather than adding both unreduced. A run without distance adds nothing and its
+    steps remain walking steps.
   - Walks are never in this row; their steps stay in Steps.
 - **Food (thermic effect):** 10% of the kcal logged that day; 0 until something is logged.
 - **Lifts and other workouts are not added.**
@@ -231,21 +249,55 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
 - **The calorie goal never changes:** Akshat types it once (Food → target button); maintenance is
   shown beside it, not used to move it.
 
-**A run's or walk's own calories** (its screen, `RunCaloriesCard`):
-- **From distance:** Method 1 above, for that session.
-- **From heart rate (Method 2, Keytel 2005):** gross kcal/min (men: (−55.0969 + 0.6309 × HR +
-  0.1988 × kg + 0.2017 × age) ÷ 4.184; women: (−20.4022 + 0.4472 × HR − 0.1263 × kg + 0.074 × age)
-  ÷ 4.184) minus resting (BMR ÷ 1,440), per minute of the band's heart rate; a minute below zero
-  counts as zero. `keytelActiveKcal`.
-- Within 50 kcal of each other they show as one number (the distance one); further apart both
-  show. Maintenance counts only the distance number for a run.
-- Other workouts keep the band's heart-rate calories (`calories`, Keytel above 40% of heart-rate
-  reserve), which the analytics still store with `calories_total`.
+These are estimates, not guaranteed individual physiological minima. The card includes the
+whole day's BMR plus movement and food recorded so far; it is not burn elapsed since midnight.
+`DayUpkeep` is shared by Today, Food, history, Weekly, Trends, Steps detail and open maintenance
+sheets. The displayed step-calorie contribution already accounts for running, and historical
+points use dated weight. Step charts prefer retained measured counts on every covered date,
+including days without a derived result, instead of leaving older build totals in place. Measured
+steps and their calories reload immediately after the saved input revision, independently of HR
+calculation. Food/profile/workout changes, foreground return and the foreground timer invalidate
+dependent views. Run/walk history recalculates Method 1 rather than retaining old gross estimates.
+Local release checks pass (3,318 Flutter tests, 91 personal-profile checks, 7 iOS contract tests;
+analysis has no errors/warnings). Public CI, macOS compilation and phone acceptance remain before
+calling these fixes verified on iPhone.
+
+**A run's or walk's own calories** (setup/live/summary/history/share):
+- Walking Method 1: exactly `(2.74 * active_session_steps * weight_kg) / 8368`, labelled From steps.
+- Running Method 1: the accepted distance equation, labelled From distance.
+- Method 2: sex-specific Keytel gross kcal/min (men: (−55.0969 + 0.6309 × HR + 0.1988 × kg +
+  0.2017 × age) ÷ 4.184; women: (−20.4022 + 0.4472 × HR − 0.1263 × kg + 0.074 × age) ÷ 4.184)
+  minus resting `BMR / 1440` for each measured active minute, floored at zero. Missing HR minutes
+  are not filled from the average; a partial final minute uses its actual duration. Method 2 is a
+  comparison, never an extra maintenance term and never switched in merely because HR exceeds 100.
+- Both methods are labelled Active calories: energy above estimated resting burn, which is already
+  included in daily BMR. Within 50 kcal show Method 1 once; otherwise show both clearly.
+- Walking is already included by daily steps and contributes no extra workout addition. Running
+  substitutes its Method 1 for the Weyand energy of its covered active steps.
+- Pausing freezes session duration, route distance, HR, zones and steps. Daily steps keep counting.
+  Kilometre voice is owned by session events, with saved milestones and the actual kilometre pace;
+  iOS audio mode and interruption handling require locked-screen/calls/music device acceptance.
+- A captured workout profile preserves its weight basis; dated profile/scale records anchor days.
+  Older sessions without those records use the available dated fallback; old missing weights
+  cannot be reconstructed. Decimal metric/imperial inputs preserve precision across saves.
+  Metric prefills and food quantity/nutrient editors retain all supplied decimals.
+  Sub-minute movement allocation from older minute-level records remains proportional; the
+  app cannot reconstruct an exact step timestamp that was never recorded.
+- Other workouts retain estimated HR/MET calories and remain excluded from this maintenance budget.
+  Stored daily HR/cadence `calories` and `calories_total` are separate analytics, not Method 1.
 
 **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →
 Steps** is on; HealthKit stays excluded from the personal build.
 
-## Layout decisions (source `0.9.39`/`72`)
+**Food/weight maintenance inference:** labelled Estimated maintenance from food and weight.
+It requires at least eight weigh-ins and fourteen fully covered food days aligned to the interval
+from the first morning weight (inclusive) to the last morning weight (exclusive). Any missing or
+heuristically incomplete day withholds the estimate; visible coverage explains why. Optional
+omitted macros do not disqualify calorie coverage. Least-squares weight slope and 7,700 kcal/kg
+remain approximations. This estimates total expenditure for that interval: do not add BMR,
+movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
+
+## Layout decisions (local source `0.9.40`/`73`)
 
 | Item | Decision |
 |---|---|
@@ -261,5 +313,12 @@ Steps** is on; HealthKit stays excluded from the personal build.
 | Train | One page. Removed the activity library tab, mascot card, fitness/fatigue/form, kg-lifted chart, morning-after and overreach cards, and the share poster button |
 | Lifting sets | Removed. A Lift is a timed session scored from heart rate |
 | Settings | One list (band, profile, alarm, steps, notifications, units, data, privacy, status). Removed Tasker/Shortcuts, double-tap, app icon, add-a-sensor, phone import |
-| Notifications | Movement nudge, step-goal alert and wind-down reminder removed (read as off) |
+| Notifications | Personal movement nudge, wind-down and step-goal alerts stay hidden/off. In the upstream-capable profile the step-goal action uses the measured total and configured target; earning the streak does not require alerts |
 | Band alarm, barcode scanning, Sleep screen, Nutrition | Kept |
+
+Common press actions use light selection haptics. Entry sheets keep a close/drag header above the
+scrolling form, respect the top safe area, and dismiss the keyboard on drag; cancellation never
+requires saving. Food forms use the same wrapper. Failed saves/read actions show retry status.
+Cross-day insight rebuilding is a local action independent of band sync, with busy/history/error
+states and a warning that clears only after a confirmed result. Neither a pending warning nor
+missing retained inputs is presented as a successful rebuild.

@@ -13,6 +13,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -24,28 +25,32 @@ import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/state/app_state.dart' show LiveWorkoutState;
 
 RawRecord _raw(int ts, int counter) => RawRecord(
-      counter: counter,
-      packetType: 47,
-      hex: 'beef$counter',
-      capturedAt: ts * 1000,
-      recTs: ts,
-    );
+  counter: counter,
+  packetType: 47,
+  hex: 'beef$counter',
+  capturedAt: ts * 1000,
+  recTs: ts,
+);
 
 Sample _sample(int ts, int counter, int hr) => Sample(
-      tsEpoch: ts,
-      counter: counter,
-      hr: hr,
-      rrIntervalsMs: const [],
-      ax: 0,
-      ay: 0,
-      az: 0,
-      spo2RedRaw: 0,
-      spo2IrRaw: 0,
-      skinTempRaw: 0,
-    );
+  tsEpoch: ts,
+  counter: counter,
+  hr: hr,
+  rrIntervalsMs: const [],
+  ax: 0,
+  ay: 0,
+  az: 0,
+  spo2RedRaw: 0,
+  spo2IrRaw: 0,
+  skinTempRaw: 0,
+);
 
-Future<void> _insertHr(int fromTs, int toTs, int Function(int ts) hrOf,
-    {required int counterBase}) async {
+Future<void> _insertHr(
+  int fromTs,
+  int toTs,
+  int Function(int ts) hrOf, {
+  required int counterBase,
+}) async {
   final raws = <RawRecord>[];
   final samples = <Sample?>[];
   var c = counterBase;
@@ -58,6 +63,8 @@ Future<void> _insertHr(int fromTs, int toTs, int Function(int ts) hrOf,
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   // ── The shared smoother: pure, no DB ─────────────────────────────────────
   group('smoothedMaxHr', () {
     test('excludes a 1–2 s transient spike (issue #127)', () {
@@ -76,9 +83,7 @@ void main() {
     test('preserves a genuine sustained peak above the baseline', () {
       // Baseline 140 with a real 15 s plateau at 158 — a brief peak that a
       // minute-mean would flatten, so it must NOT be suppressed.
-      final hr = [
-        for (var i = 0; i < 60; i++) (i >= 20 && i < 35) ? 158 : 140,
-      ];
+      final hr = [for (var i = 0; i < 60; i++) (i >= 20 && i < 35) ? 158 : 140];
       expect(smoothedMaxHr(hr, age: 30), 158);
     });
 
@@ -114,18 +119,14 @@ void main() {
   group('smoothedMinHr', () {
     test('excludes a 1–2 s low dropout', () {
       // 40 s at 138 with a lone 2 s dip to 45 — the low-side of issue #127.
-      final hr = [
-        for (var i = 0; i < 40; i++) (i == 20 || i == 21) ? 45 : 138,
-      ];
+      final hr = [for (var i = 0; i < 40; i++) (i == 20 || i == 21) ? 45 : 138];
       expect(smoothedMinHr(hr, age: 30), 138);
     });
 
     test('preserves a genuine sustained low below the baseline', () {
       // Baseline 150 with a real 15 s trough at 132 — a brief genuine low that
       // must NOT be smoothed away.
-      final hr = [
-        for (var i = 0; i < 60; i++) (i >= 20 && i < 35) ? 132 : 150,
-      ];
+      final hr = [for (var i = 0; i < 60; i++) (i >= 20 && i < 35) ? 132 : 150];
       expect(smoothedMinHr(hr, age: 30), 132);
     });
 
@@ -158,7 +159,10 @@ void main() {
 
     test('LiveWorkoutState.accrueHr suppresses a spike in maxHrSeen', () {
       final w = LiveWorkoutState(
-          startTime: DateTime.now(), targetKcal: 300, age: 30);
+        startTime: DateTime.now(),
+        targetKcal: 300,
+        age: 30,
+      );
       for (var i = 0; i < 40; i++) {
         w.accrueHr((i == 18 || i == 19) ? 200 : 142);
       }

@@ -130,8 +130,8 @@ abstract class LocalRepository {
   /// FROM them lives in the day bundle for good. A caller must render that as
   /// "the beats are no longer on this phone", never as "no data".
   Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
-          String date) =>
-      throw UnimplementedError('re-layer: getNightBeats');
+    String date,
+  ) => throw UnimplementedError('re-layer: getNightBeats');
 
   /// [date]'s steps as the RESOLVED spans behind them — when each stretch was
   /// counted, by which sensor, and inside which session if any.
@@ -144,6 +144,12 @@ abstract class LocalRepository {
   /// number the day actually published, which is NOT always this sum: with no
   /// span source at all a gen5 day falls back to the strap's on-chip counter,
   /// a whole-day figure with no times behind it and therefore no spans.
+  /// Fresh measured movement for dependent calculations; no derived-day fallback.
+  Future<num?> getMeasuredDaySteps(String date) async {
+    final day = await getDaySteps(date);
+    return (day['day_total'] ?? day['total']) as num?;
+  }
+
   Future<Map<String, dynamic>> getDaySteps(String date) =>
       throw UnimplementedError('re-layer: getDaySteps');
 

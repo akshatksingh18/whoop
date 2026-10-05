@@ -15,6 +15,8 @@
 
 import 'dart:async';
 import 'dart:convert';
+import '../compute/streak.dart' show StepGoals;
+import 'nap_ledger.dart';
 import 'dart:isolate';
 import 'dart:math' as math;
 
@@ -33,6 +35,11 @@ import 'journal_fields.dart';
 import 'local_repository.dart';
 import 'series_codec.dart';
 import '../gps/route_models.dart';
+import '../gps/workout_clock.dart';
+import '../gps/session_track.dart';
+import '../gps/workout_measurements.dart';
+import '../gps/run_history.dart' show isRunType, isWalkType;
+import 'profile_history.dart';
 import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
@@ -58,7 +65,8 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>?> _bundle(String date) async {
     final row = await LocalDb.dayResult(date);
     if (row == null) return null;
-    return _decode(row['payload_json']);
+    final b = _decode(row['payload_json']);
+    return b == null ? null : {...b, 'date': row['day_id']};
   }
 
   /// The most-recent COMPLETE derived day to show on Today. With the calendar-day
@@ -73,8 +81,9 @@ class LocalRepositoryImpl extends LocalRepository {
     final rows = await LocalDb.recentDayResults(14);
     Map<String, dynamic>? newest, withScalars;
     for (final row in rows) {
-      final b = _decode(row['payload_json']);
-      if (b == null) continue;
+      final decoded = _decode(row['payload_json']);
+      if (decoded == null) continue;
+      final b = {...decoded, 'date': row['day_id']};
       newest ??= b;
       if (b['skipped'] == true) continue;
       final scalars = b['scalars'];
@@ -303,9 +312,12 @@ class LocalRepositoryImpl extends LocalRepository {
     // Use the Steps screen's resolver even while capture/compute is held.
     final currentSteps = await getDaySteps(todayDay);
     final stepsMetric = {
-      ..._scalarMetric(currentSteps['day_total'],
-          currentSteps['tier'] as String? ?? 'ESTIMATE', unit: 'steps',
-          note: needInputNote('today_activity')),
+      ..._scalarMetric(
+        currentSteps['day_total'],
+        currentSteps['tier'] as String? ?? 'ESTIMATE',
+        unit: 'steps',
+        note: needInputNote('today_activity'),
+      ),
       'inputs_used': currentSteps['inputs_used'] ?? const <String>[],
       'source': currentSteps['day_source'],
     };
@@ -403,7 +415,8 @@ class LocalRepositoryImpl extends LocalRepository {
         // why (no scored sleep, or no clean 30-min window inside one), so read
         // its reason instead of shipping `unknown_cause` beside a card that
         // just lost a number it used to show.
-        note: overnightNote ??
+        note:
+            overnightNote ??
             _needNote(sleepBundle, 'clinical.resting_hr') ??
             kUnknownAbsenceNote,
       ),
@@ -585,7 +598,19 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getInsights() async {
     final cd = await _crossDayArtifact();
-    if (cd == null) return const {};
+    if (cd == null) {
+      final row = await LocalDb.baseline('crossday_status');
+      Map? status;
+      try {
+        status = jsonDecode(row?['payload_json'] as String? ?? '{}') as Map;
+      } catch (_) {}
+      return {
+        'stale': {
+          'kind': status?['kind'] ?? 'missing',
+          'days': status?['days'],
+        },
+      };
+    }
     final stale = crossDayStaleReason(cd, _todayLocalLabel());
     // FAIL CLOSED. Returning the reason INSTEAD of the artifact means every
     // `insights['readiness_glassbox']` read comes back absent — the state the
@@ -595,8 +620,12 @@ class LocalRepositoryImpl extends LocalRepository {
     return stale == null ? cd : {'stale': stale};
   }
 
-  Future<int> _stepGoal() async =>
-      (getProfileMap()?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
+  Future<int> _stepGoal() async {
+    final configured =
+        (getProfileMap()?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
+    final ledger = await StepGoals.read(initial: configured);
+    return StepGoals.targetOn(ledger, _todayLocalLabel()) ?? configured;
+  }
 
   num? _wearMin(Map<String, dynamic> b) {
     // Wear = RECORD presence (the band logs 1 Hz to flash ONLY while worn), NOT
@@ -801,6 +830,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (b == null) return const {};
     return {
       'timeline': (_sub(b, 'series')?['hrv_timeline'] as List?) ?? const [],
+      'date': b['date'],
       'rmssd': _scalar(b, 'rmssd'),
       'sdnn': _scalar(b, 'sdnn'),
       'ln_rmssd': _scalar(b, 'ln_rmssd'),
@@ -845,10 +875,13 @@ class LocalRepositoryImpl extends LocalRepository {
   /// has available to it.
   @override
   Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
-      String date) async {
+    String date,
+  ) async {
     const none = (nn: <double>[], rawBeats: 0, cleanFraction: 0.0);
     final row = await LocalDb.dayResult(date);
-    final w = row == null ? null : jsonDecode(row['window_json'] as String? ?? '{}');
+    final w = row == null
+        ? null
+        : jsonDecode(row['window_json'] as String? ?? '{}');
     if (w is! Map) return none;
     final on = w['onset_ms'] as num?, off = w['offset_ms'] as num?;
     if (on == null || off == null || off <= on) return none;
@@ -881,8 +914,28 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getDaySleepV2(String date) => _daySleep(date);
 
   Future<Map<String, dynamic>> _daySleep(String date) async {
-    final b = await _bundleForDate(date);
-    if (b == null) return const {};
+    final b = await _bundleForDate(date) ?? <String, dynamic>{};
+    final napDay = b['date'] as String? ?? date;
+    final correctedNaps = await getDayNaps(napDay);
+    final napList = correctedNaps['naps'];
+    if (b.isEmpty && (napList is! List || napList.isEmpty)) return const {};
+    // Old sleep-period-only bundles retain their measured naps. Current bundles
+    // and manual reports use the same correction ledger as the editable list.
+    final List<Map<String, dynamic>>? naps = napList is List
+        ? napList
+              .whereType<Map>()
+              .map(
+                (n) => <String, dynamic>{
+                  ...n.cast<String, dynamic>(),
+                  'is_main': false,
+                  'onset_ts': n['start'],
+                  'wake_ts': n['end'],
+                },
+              )
+              .toList()
+        : b['naps'] is Map
+        ? const []
+        : null;
     // Each is a Metric envelope — read the inner `.value` where the fields live.
     final acct = _sub(b, 'sleep.accounting.value');
     final win = _sub(b, 'sleep.window.value');
@@ -904,7 +957,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // one from a nap would be exactly the conflation this file avoids
       // elsewhere. The periods ride along so the screen can show what it does
       // know instead of claiming nothing happened.
-      final napPeriods = _periodsWithMainStages(b, const {});
+      final napPeriods = _periodsWithMainStages(b, const {}, naps: naps);
       if (napPeriods.isEmpty) {
         return {'has_sleep': false, 'sleep_source': sleepSource};
       }
@@ -940,12 +993,17 @@ class LocalRepositoryImpl extends LocalRepository {
     // the ONLY one with no dot — reading as "unknown" for the best-evidenced
     // period on the screen. Stays null when accounting had no confidence,
     // which correctly draws nothing.
-    final periods = _periodsWithMainStages(b, {
-      'light_min': min('light_sec'),
-      'deep_min': min('deep_sec'),
-      'rem_min': min('rem_sec'),
-      'nrem_min': min('nrem_sec'),
-    }, mainConfidence: sleepConf);
+    final periods = _periodsWithMainStages(
+      b,
+      {
+        'light_min': min('light_sec'),
+        'deep_min': min('deep_sec'),
+        'rem_min': min('rem_sec'),
+        'nrem_min': min('nrem_sec'),
+      },
+      mainConfidence: sleepConf,
+      naps: naps,
+    );
     final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
@@ -1060,16 +1118,23 @@ class LocalRepositoryImpl extends LocalRepository {
     Map<String, dynamic> b,
     Map<String, int?> stageMin, {
     num? mainConfidence,
+    List<Map<String, dynamic>>? naps,
   }) {
     final raw = (b['sleep_periods'] as Map?)?['periods'];
-    if (raw is! List) return const [];
+    final all = [
+      if (raw is List)
+        ...raw.whereType<Map>().where(
+          (p) => naps == null || p['is_main'] == true,
+        ),
+      if (naps != null) ...naps,
+    ];
     final hypno = _hypnoPoints(b);
     final stages = <String, dynamic>{
       for (final e in stageMin.entries)
         if (e.value != null) e.key: e.value,
     };
     return [
-      for (final p in raw.whereType<Map>())
+      for (final p in all)
         if (_boundedPeriod(_canonicalPeriod(p)) case final bp?)
           if (bp['is_main'] != true)
             bp
@@ -1255,6 +1320,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // Wear = RECORD presence, not valid HR (HR drops out during daytime
       // motion). Fall back to the total record count, never hr_valid.
       'worn_min': wornMin,
+      'date': b['date'],
       // MISSING IS NOT 100% either. This used to read `hrSamples > 0 ? 100 : 0`,
       // so one HR sample claimed the band was worn for the whole day and the
       // row printed "Wear time 20m · 100% of the day". The engine wear block is
@@ -1287,30 +1353,13 @@ class LocalRepositoryImpl extends LocalRepository {
     // THE EXACT DAY, never the latest-complete fallback: this list is editable,
     // and offering "not a nap" against another day's naps would write an edit
     // onto a day the user was not looking at.
-    final b = await _bundle(date);
-    final block = _sub(b, 'naps');
-    if (block == null) return const {};
-    final v = block['value'];
-    return {
-      // ABSENT ≠ NONE. `value: null` is "this day could not be judged" — too
-      // little 1 Hz data, or detection failed — and it carries its own note.
-      // An empty list is the measured "no qualifying naps", which is a real
-      // answer and reads as one.
-      if (v is List)
-        'naps': [
-          for (final n in v)
-            if (n is Map && n['start'] is num && n['end'] is num)
-              {
-                'start': (n['start'] as num).toInt(),
-                'end': (n['end'] as num).toInt(),
-                'duration_min': (n['duration_min'] as num?)?.round(),
-                // 'manual' on a nap the user logged; absent on a detected one.
-                if (n['source'] != null) 'source': n['source'].toString(),
-              },
-        ],
-      'nap_min': (_sub(b, 'scalars')?['nap_min'] as num?)?.round(),
-      'note': block['note']?.toString(),
-    };
+    return NapLedger.read(date, _sub(await _bundle(date), 'naps'));
+  }
+
+  @override
+  Future<num?> getMeasuredDaySteps(String date) async {
+    final r = await LocalDb.resolvedStepsForDay(date);
+    return r.total > 0 || r.hasPhoneCoverage ? r.total : null;
   }
 
   @override
@@ -1330,18 +1379,25 @@ class LocalRepositoryImpl extends LocalRepository {
     final bundle = await _bundle(date);
     final st = _sub(bundle, 'steps');
     final wake = bundle == null && _isTodayLabel(date)
-        ? await _wakeFeatures(date) : null;
+        ? await _wakeFeatures(date)
+        : null;
     final measured = r.total > 0 || r.hasPhoneCoverage;
     final source = measured
-        ? (r.mixed ? 'mixed' : r.strap > 0 ? 'strap' : 'phone')
+        ? (r.mixed
+              ? 'mixed'
+              : r.strap > 0
+              ? 'strap'
+              : 'phone')
         : st?['source'];
     return {
       'total': r.total,
       'strap': r.strap,
       'phone': r.phone,
-      'day_total': measured ? r.total :
-          (st?['value'] as num?)?.toInt() ?? _scalar(bundle, 'steps')?.round()
-              ?? (wake?['steps'] as num?)?.round(),
+      'day_total': measured
+          ? r.total
+          : (st?['value'] as num?)?.toInt() ??
+                _scalar(bundle, 'steps')?.round() ??
+                (wake?['steps'] as num?)?.round(),
       'measured': measured,
       'day_source': source,
       'tier': measured ? 'HIGH' : st?['tier'],
@@ -1352,7 +1408,8 @@ class LocalRepositoryImpl extends LocalRepository {
                 'phone_pedometer',
             ]
           : st?['inputs_used'],
-      'note': measured ? 'Counted over measured pedometer windows; overlaps counted once.'
+      'note': measured
+          ? 'Counted over measured pedometer windows; overlaps counted once.'
           : st?['note'] as String?,
       'spans': [
         for (final s in r.spans)
@@ -1624,7 +1681,7 @@ class LocalRepositoryImpl extends LocalRepository {
     ];
 
     // Daytime naps (principled detectNaps) as their own bands on the timeline.
-    final napsVal = _sub(b, 'naps')?['value'];
+    final napsVal = (await getDayNaps(bundleDate))['naps'];
     final naps = <Map<String, dynamic>>[
       if (napsVal is List)
         for (final nMap in napsVal)
@@ -1864,19 +1921,38 @@ class LocalRepositoryImpl extends LocalRepository {
     // day, one readiness number.
     final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
     final today = _todayLocalLabel();
-    final currentSteps = key == 'steps' ? await getDaySteps(today) : null;
-    final measuredSteps = currentSteps?['measured'] == true;
+    final points = [
+      for (final r in rows)
+        {
+          't': _dateToEpoch(r['date'] as String),
+          'v': r['date'] == pin?.day ? pin!.value : r['value'],
+        },
+    ];
+    if (key == 'steps') {
+      // Measured counts can change without a derive, including old dates.
+      // Retained coverage also supplies days which never had a derived row.
+      final coverage = await (await LocalDb.instance).rawQuery(
+        "SELECT strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS date "
+        'FROM live_coverage WHERE end_ts > start_ts UNION '
+        "SELECT strftime('%Y-%m-%d', end_ts - 1, 'unixepoch', 'localtime') AS date "
+        'FROM live_coverage WHERE end_ts > start_ts',
+      );
+      final dates = {
+        ...rows.map((r) => r['date'] as String),
+        ...coverage.map((r) => r['date'] as String),
+        today,
+      };
+      for (final date in dates.where((d) => d.compareTo(today) <= 0)) {
+        final steps = await getMeasuredDaySteps(date);
+        if (steps == null) continue;
+        final t = _dateToEpoch(date);
+        points.removeWhere((p) => p['t'] == t);
+        points.add({'t': t, 'v': steps});
+      }
+      points.sort((a, b) => (a['t'] as int).compareTo(b['t'] as int));
+    }
     return {
-      'points': [
-        for (final r in rows)
-          if (!(measuredSteps && r['date'] == today))
-          {
-            't': _dateToEpoch(r['date'] as String),
-            'v': r['date'] == pin?.day ? pin!.value : r['value'],
-          },
-        if (measuredSteps)
-          {'t': _dateToEpoch(today), 'v': currentSteps!['day_total']},
-      ],
+      'points': points,
       // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend
       // can be read against how much of it was actually measured instead of
       // being an attendance chart wearing a physiology label. Deliberately
@@ -2002,7 +2078,9 @@ class LocalRepositoryImpl extends LocalRepository {
     final nowSec = now.millisecondsSinceEpoch ~/ 1000;
     final fromTs = _rangeFromSec(range, now);
     final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
-    final workouts = [for (final r in rows) _workoutOf(r)];
+    final workouts = [
+      for (final r in rows) _workoutOf(await _movementScoredRow(r)),
+    ];
 
     // Per-session HR aggregates from the 1 Hz substrate (one indexed join).
     // Sessions have no avg_hr column — without this every workout looked like
@@ -2024,23 +2102,41 @@ class LocalRepositoryImpl extends LocalRepository {
       );
       for (final w in workouts) {
         final s = stats[w['id']];
-        final raw = rawBySession[w['id']];
-        if (s != null && (s['n'] ?? 0) != 0) {
-          w['avg_hr'] = (s['avg_hr'] as num).round();
+        var raw = rawBySession[w['id']];
+        var sessionAge = age;
+        final row = rows.where((r) => r['id'] == w['id']).firstOrNull;
+        if (row != null) {
+          final clock = _clockFor(row);
+          sessionAge = clock.profile?.ageYears ?? age;
+          if (clock.pauses.isNotEmpty || clock.pausedAt != null) {
+            final active = _activeHr(
+              row,
+              await LocalDb.hrSamplesInRange(
+                (row['start_ts'] as num).toInt(),
+                (row['end_ts'] as num?)?.toInt() ?? nowSec,
+              ),
+            );
+            raw = [for (final e in active) (e['hr'] as num).toInt()];
+            w['avg_hr'] = raw.isEmpty
+                ? null
+                : (raw.reduce((a, b) => a + b) / raw.length).round();
+          } else if (s != null && (s['n'] ?? 0) != 0) {
+            w['avg_hr'] = (s['avg_hr'] as num).round();
+          }
         }
         // Peak: smoothed-from-raw (authoritative, matches the detail screen);
         // else stored column, else the ceiling-bounded SQL max.
-        final smax = raw == null ? null : smoothedMaxHr(raw, age: age);
+        final smax = raw == null ? null : smoothedMaxHr(raw, age: sessionAge);
         if (smax != null) {
           w['max_hr'] = smax;
-        } else if (s != null && (s['n'] ?? 0) != 0) {
+        } else if (raw == null && s != null && (s['n'] ?? 0) != 0) {
           w['max_hr'] ??= (s['max_hr'] as num).toInt();
         }
         // Trough: same treatment. Raw pruned → the floor-bounded SQL min.
-        final smin = raw == null ? null : smoothedMinHr(raw, age: age);
+        final smin = raw == null ? null : smoothedMinHr(raw, age: sessionAge);
         if (smin != null) {
           w['min_hr'] = smin;
-        } else if (s != null && (s['n'] ?? 0) != 0) {
+        } else if (raw == null && s != null && (s['n'] ?? 0) != 0) {
           w['min_hr'] = (s['min_hr'] as num).toInt();
         }
       }
@@ -2126,12 +2222,24 @@ class LocalRepositoryImpl extends LocalRepository {
       // Reuse the rows the rescore above already read for this exact window
       // rather than scanning it a second time on every detail open.
       final hrRows =
-          rescored.hrRows ?? await LocalDb.hrSamplesInRange(startTs, endTs);
+          rescored.hrRows ??
+          _activeHr(
+            rescored.row,
+            await LocalDb.hrSamplesInRange(startTs, endTs),
+          );
       if (hrRows.isNotEmpty) {
-        final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
+        final ts = _activeHrTimes(rescored.row, hrRows);
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
-        w.addAll(_sessionTrace(ts, hr, startTs, endTs,
-            rescored.row['device_family'] as String?, await _zoneAnchors()));
+        w.addAll(
+          _sessionTrace(
+            ts,
+            hr,
+            startTs,
+            startTs + _clockFor(rescored.row).activeSeconds(),
+            rescored.row['device_family'] as String?,
+            await _zoneAnchors(),
+          ),
+        );
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
@@ -2253,7 +2361,13 @@ class LocalRepositoryImpl extends LocalRepository {
   /// oxidised there needs respiratory exchange, which no wrist sensor produces
   /// (TS-04a). Never "aerobic threshold" either — a %HRR band is a convention,
   /// not a measurement of anyone's threshold.
-  static const zoneNames = ['Warm-up', 'Easy', 'Aerobic', 'Threshold', 'Max effort'];
+  static const zoneNames = [
+    'Warm-up',
+    'Easy',
+    'Aerobic',
+    'Threshold',
+    'Max effort',
+  ];
 
   /// Time-in-zone bands Z1..Z5 over the session's 1 Hz HR — the shape the zones
   /// card + summary bar parse.
@@ -2418,10 +2532,8 @@ class LocalRepositoryImpl extends LocalRepository {
   /// session, every import and every raw replay carries no family, and a strap
   /// we have not calibrated a ceiling for is not gen4 with a different badge.
   /// No ceiling, no zones; nothing is substituted.
-  int? _profileMaxHr(String? deviceFamily) => estimatedMaxHr(
-        (getProfileMap()?['age'] as num?),
-        deviceFamily,
-      )?.round();
+  int? _profileMaxHr(String? deviceFamily) =>
+      estimatedMaxHr((getProfileMap()?['age'] as num?), deviceFamily)?.round();
 
   /// Which strap measured [startTs, endTs] — the `device_family` the ingest
   /// stamped on the 1 Hz rows themselves, which is the same stamp the day
@@ -2487,12 +2599,16 @@ class LocalRepositoryImpl extends LocalRepository {
     // Mark done + stamp end_ts; final stats (calories/strain/etc) are written by
     // app_state.stopWorkout from the LiveWorkoutState (it has the live tallies).
     final r = await LocalDb.session(workoutId);
-    if (r != null) {
-      await LocalDb.putSession({
-        ...r,
-        'status': 'done',
-        'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      });
+    if (r != null && r['status'] != 'done') {
+      await (await LocalDb.instance).update(
+        'sessions',
+        {
+          'status': 'done',
+          'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        },
+        where: 'id = ? AND status != ?',
+        whereArgs: [workoutId, 'done'],
+      );
       // This is the choke point the AI coach's `end_workout` tool reaches
       // directly (bypassing AppState.stopWorkout, the only other place this
       // used to happen) — without it a coach-ended workout never reached
@@ -2618,7 +2734,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // carries; a hand-entered window has none of its own, so it is read off the
     // substrate it is scored from. Null — an unstamped window (every pre-v41
     // row, every import, every raw replay) — is a refusal, not gen4 by default.
-    final deviceFamily = (existing?['device_family'] as String?) ??
+    final deviceFamily =
+        (existing?['device_family'] as String?) ??
         await _windowDeviceFamily(startTs, endTs);
 
     final stats = computeManualSessionStats(
@@ -2698,6 +2815,81 @@ class LocalRepositoryImpl extends LocalRepository {
   /// did not run the reconcile at all (no substrate, unfinished, row moved):
   /// those serve the FROZEN trace, whose bands were banked beside the same
   /// minutes, so there is nothing for the caller to correct for.
+  WorkoutClock _clockFor(Map<String, dynamic> row) => WorkoutClock.read(
+    row['id'] as String,
+    DateTime.fromMillisecondsSinceEpoch(
+      (row['start_ts'] as num).toInt() * 1000,
+    ),
+    end: row['end_ts'] is num
+        ? DateTime.fromMillisecondsSinceEpoch(
+            (row['end_ts'] as num).toInt() * 1000,
+          )
+        : null,
+  );
+  List<Map<String, dynamic>> _activeHr(
+    Map<String, dynamic> row,
+    List<Map<String, dynamic>> samples,
+  ) {
+    final c = _clockFor(row);
+    return [
+      for (final sample in samples)
+        if (c.includes(
+          DateTime.fromMillisecondsSinceEpoch(
+            (sample['rec_ts'] as num).toInt() * 1000,
+          ),
+        ))
+          sample,
+    ];
+  }
+
+  List<int> _activeHrTimes(
+    Map<String, dynamic> row,
+    List<Map<String, dynamic>> samples,
+  ) {
+    final c = _clockFor(row), start = (row['start_ts'] as num).toInt();
+    return [
+      for (final sample in samples)
+        start +
+            c
+                .secondsAt(
+                  DateTime.fromMillisecondsSinceEpoch(
+                    (sample['rec_ts'] as num).toInt() * 1000,
+                  ),
+                )
+                .floor(),
+    ];
+  }
+
+  Future<Map<String, dynamic>> _movementScoredRow(
+    Map<String, dynamic> row,
+  ) async {
+    final type = row['type'] as String?;
+    if (!isRunType(type) && !isWalkType(type)) return row;
+    final c = _clockFor(row);
+    if (c.end == null || row['end_ts_fabricated'] == 1) return row;
+    final m = await WorkoutMeasurements.read(
+      this,
+      c.id,
+      c.start,
+      c.end!,
+      Profile.fromMap(getProfileMap()),
+      bandSteps: (row['steps'] as num?)?.toInt(),
+    );
+    final kcal = m.method1(type!);
+    final duration = c.activeSeconds() ~/ 60;
+    if ((row['calories'] as num?)?.round() != kcal?.round() ||
+        row['duration_min'] != duration) {
+      final written = await (await LocalDb.instance).update(
+        'sessions',
+        {'calories': kcal, 'duration_min': duration},
+        where: 'id = ? AND start_ts = ? AND end_ts = ?',
+        whereArgs: [c.id, row['start_ts'], row['end_ts']],
+      );
+      if (written == 0) return await LocalDb.session(c.id) ?? row;
+    }
+    return {...row, 'calories': kcal, 'duration_min': duration};
+  }
+
   Future<
     ({
       Map<String, dynamic> row,
@@ -2720,22 +2912,34 @@ class LocalRepositoryImpl extends LocalRepository {
     try {
       // Returned to the caller: `getWorkout` enriches from the SAME 1 Hz window
       // straight after this, and a two-hour session is ~7200 rows to scan twice.
-      final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+      row = await _movementScoredRow(row);
+      final clock = _clockFor(row);
+      final hrRows = _activeHr(
+        row,
+        await LocalDb.hrSamplesInRange(startTs, endTs),
+      );
       if (hrRows.isEmpty) {
         return (row: row, hrRows: hrRows, zoneMinutesRebinned: true);
       }
 
-      final profile = Profile.fromMap(getProfileMap());
+      final profile =
+          clock.profile ??
+          await ProfileHistory.on(
+            dayLabelOf(clock.start),
+            Profile.fromMap(getProfileMap()),
+          );
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
       final stats = computeManualSessionStats(
-        hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
+        hrTs: _activeHrTimes(row, hrRows),
         hrBpm: hrBpm,
         profile: profile,
         hrMax: _profileMaxHr(row['device_family'] as String?)?.toDouble(),
         restingHr:
             await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
         zoneSet: _zoneSetFor(
-            row['device_family'] as String?, await _zoneAnchors()),
+          row['device_family'] as String?,
+          await _zoneAnchors(),
+        ),
       );
       // The peak is smoothed inside `computeManualSessionStats` now — one
       // definition for the manual save, this re-score and the workout list
@@ -2745,7 +2949,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // "Complete" = the band has handed over essentially the whole window.
       // 1 Hz means one sample per second, so sample count vs window seconds is
       // the coverage ratio; 90% absorbs the usual handful of dropped seconds.
-      final windowSec = endTs - startTs;
+      final windowSec = clock.activeSeconds();
       final complete =
           windowSec > 0 && stats.hrSampleCount >= (windowSec * 0.9).floor();
 
@@ -2800,6 +3004,12 @@ class LocalRepositoryImpl extends LocalRepository {
         return (row: current ?? row, hrRows: null, zoneMinutesRebinned: true);
       }
 
+      final movement =
+          isRunType(row['type'] as String?) ||
+          isWalkType(row['type'] as String?);
+      final primaryCalories = movement
+          ? (row['calories'] as num?)?.toDouble()
+          : merged.calories;
       final zoneJson = jsonEncode(
         merged.zoneMinutes.any((v) => v > 0)
             ? merged.zoneMinutes
@@ -2813,10 +3023,10 @@ class LocalRepositoryImpl extends LocalRepository {
       String? traceJson;
       if (needsTrace) {
         final trace = _sessionTrace(
-          [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
+          _activeHrTimes(row, hrRows),
           hrBpm,
           startTs,
-          endTs,
+          startTs + windowSec,
           row['device_family'] as String?,
           await _zoneAnchors(),
         );
@@ -2825,12 +3035,36 @@ class LocalRepositoryImpl extends LocalRepository {
         // a pass that is already writing.
         final curve = await _recoveryCurve(endTs);
         if (curve.isNotEmpty) trace['recovery_curve'] = curve;
+        trace['trace_coverage_pct'] = windowSec <= 0
+            ? null
+            : math.min(100, (hrRows.length / windowSec * 100).round());
         traceJson = _encodeTrace(trace);
+        if (clock.profile != null) {
+          final dense = List<double?>.filled((windowSec / 60).ceil(), null);
+          final sums = <int, (double, int)>{};
+          final times = _activeHrTimes(row, hrRows);
+          for (var i = 0; i < times.length; i++) {
+            final minute = (times[i] - startTs) ~/ 60;
+            if (minute < 0 || minute >= dense.length) continue;
+            final old = sums[minute] ?? (0.0, 0);
+            sums[minute] = (old.$1 + hrBpm[i], old.$2 + 1);
+          }
+          for (final e in sums.entries) {
+            dense[e.key] = e.value.$1 / e.value.$2;
+          }
+          final old = clock.results['hr'];
+          final oldCount = old is List ? old.whereType<num>().length : 0;
+          if (dense.whereType<num>().length >= oldCount) {
+            clock.results['hr'] = dense;
+          }
+          if (rebinned) clock.results['zones'] = merged.zoneMinutes;
+          await clock.persist();
+        }
       }
       await LocalDb.setSessionScores(
         id,
         strain: merged.strain,
-        calories: merged.calories,
+        calories: primaryCalories,
         maxHr: merged.maxHr,
         zoneMinJson: zoneJson,
         avgHr: stats.avgHr,
@@ -2845,7 +3079,7 @@ class LocalRepositoryImpl extends LocalRepository {
       final updated = {
         ...current,
         'strain': merged.strain,
-        'calories': merged.calories,
+        'calories': primaryCalories,
         'max_hr': merged.maxHr,
         'zone_min_json': zoneJson,
         if (stats.avgHr != null) 'avg_hr': stats.avgHr,
@@ -2914,6 +3148,9 @@ class LocalRepositoryImpl extends LocalRepository {
         if (key != null &&
             endTs! <= frontier &&
             _rescoredSessions.contains(key)) {
+          // HR is settled, but newly published steps/distance can still change Method 1.
+          final movement = await _movementScoredRow(r);
+          if ('${movement['calories']}' != '${r['calories']}') changed++;
           continue;
         }
         final after = await _rescoreSessionFromSubstrate(r);
@@ -3028,11 +3265,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// point-to-point sum is mostly integrated noise; the net over a km is the
   /// only elevation figure the fix actually supports. Null — never 0 — when
   /// either end carried no altitude, because 0 reads as "flat".
-  static double? _netElevation(
-    List<RoutePoint> points,
-    int fromMs,
-    int toMs,
-  ) {
+  static double? _netElevation(List<RoutePoint> points, int fromMs, int toMs) {
     double? first, last;
     for (final p in points) {
       if (p.tsMs < fromMs) continue;
@@ -3080,6 +3313,14 @@ class LocalRepositoryImpl extends LocalRepository {
       // orphaned pin and a zero-length "distance".
       if (clipped.length < 2) return null;
       points = clipped;
+    }
+
+    if (session != null &&
+        startTs != null &&
+        endTs != null &&
+        endTs > startTs) {
+      points = activeTrack(points, _clockFor(session));
+      if (points.length < 2) return null;
     }
 
     // 1 Hz HR over the route's own time window (± a small pad), for zone
@@ -3650,7 +3891,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // negative day is a fabricated position, not an absent one.
     final cycleStarts = <DateTime>[
       for (final s in startDates)
-        if (DateTime.tryParse(s) case final d?) DateTime(d.year, d.month, d.day),
+        if (DateTime.tryParse(s) case final d?)
+          DateTime(d.year, d.month, d.day),
     ]..sort();
     final overlay = <Map<String, dynamic>>[];
     final derived = await LocalDb.recentDayResults(120);
@@ -3810,7 +4052,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // a user who has not synced in a week. Unknown stays unknown — it is never
     // filled in with gen4.
     final todayBundle = await _bundleForDate(todayLabel());
-    final family = _familyOfSessions(recent) ??
+    final family =
+        _familyOfSessions(recent) ??
         await LocalDb.latestSessionDeviceFamily() ??
         todayBundle?['device_family'] as String?;
     // WHY there is no measured ceiling — but ONLY the reason that holds across
@@ -3823,7 +4066,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // enough heart rate" — and offered "wear the band for your normal hard
     // sessions". Measured on all three real databases, both are false: every
     // row is unstamped (`unknown_device_family:id=none` on `hr_ceiling`).
-    final ceilingNote = ceiling == null &&
+    final ceilingNote =
+        ceiling == null &&
             ana.calibrationFor(ana.hrCeilingMotionGateG, family) == null
         ? ana.unknownFamilyNote(family)
         : null;
@@ -3865,7 +4109,9 @@ class LocalRepositoryImpl extends LocalRepository {
                         // for the number already on screen is the false reason
                         // the note grammar exists to prevent.
                         needInputNote(
-                          ceiling != null ? 'maximal_effort' : 'observed_ceiling',
+                          ceiling != null
+                              ? 'maximal_effort'
+                              : 'observed_ceiling',
                         )
                   : !measured
                   ? needInputNote(
@@ -4045,11 +4291,11 @@ class _ObservedCeiling {
   });
 
   Map<String, dynamic> toJson() => {
-        'bpm': bpm.round(),
-        'date': date,
-        'session_type': ?sessionType,
-        'held_seconds': ?heldSeconds,
-      };
+    'bpm': bpm.round(),
+    'date': date,
+    'session_type': ?sessionType,
+    'held_seconds': ?heldSeconds,
+  };
 }
 
 /// The /today `coach` block, bridging the cross-day strain target onto the
@@ -4119,9 +4365,7 @@ Map<String, dynamic>? stressSummaryForToday(
 /// equal timestamp is accepted like normal (sourcery flagged the earlier
 /// strict `>` as silently losing real beats on any multi-packet-per-second
 /// burst).
-({List<double> rrMs, List<double> rrTsMs}) _decodeLiveRr(
-  List<String> records,
-) {
+({List<double> rrMs, List<double> rrTsMs}) _decodeLiveRr(List<String> records) {
   final rrMs = <double>[];
   final rrTsMs = <double>[];
   int? lastPacketTs;

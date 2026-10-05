@@ -36,6 +36,7 @@ bool isImplausibleSegment(
   double maxSpeedMps = kMaxPlausibleSpeedMps,
 }) {
   final gapSec = dtMs <= 0 ? 1.0 : dtMs / 1000.0;
+  if (dtMs <= 0) return true;
   final allowed = math.max(minJumpM, gapSec * maxSpeedMps);
   return meters > allowed;
 }
@@ -99,8 +100,15 @@ List<RoutePoint> smoothTrack(List<RoutePoint> pts, {int maxGapMs = 10000}) {
   ];
 }
 
-bool _jump(RoutePoint a, RoutePoint b) => isImplausibleSegment(
-    haversineMeters(a.lat, a.lng, b.lat, b.lng), b.tsMs - a.tsMs);
+bool routeBreak(RoutePoint a, RoutePoint b) =>
+    b.seq > a.seq + 1 ||
+    b.tsMs - a.tsMs > 60000 ||
+    isImplausibleSegment(
+      haversineMeters(a.lat, a.lng, b.lat, b.lng),
+      b.tsMs - a.tsMs,
+    );
+
+bool _jump(RoutePoint a, RoutePoint b) => routeBreak(a, b);
 
 /// Total path length in metres over an ordered list of route points.
 /// Implausible segments (a teleport across a recording gap — see
@@ -111,8 +119,12 @@ double totalDistanceMeters(List<RoutePoint> raw) {
   var sum = 0.0;
   for (var i = 1; i < pts.length; i++) {
     final m = haversineMeters(
-        pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
-    if (isImplausibleSegment(m, pts[i].tsMs - pts[i - 1].tsMs)) continue;
+      pts[i - 1].lat,
+      pts[i - 1].lng,
+      pts[i].lat,
+      pts[i].lng,
+    );
+    if (routeBreak(pts[i - 1], pts[i])) continue;
     sum += m;
   }
   return sum;
@@ -127,12 +139,18 @@ int movingSeconds(List<RoutePoint> pts, {int maxGapSec = 60}) {
   var ms = 0;
   for (var i = 1; i < pts.length; i++) {
     final dt = pts[i].tsMs - pts[i - 1].tsMs;
-    if (dt <= 0 || dt > maxGapSec * 1000) continue;
+    if (dt <= 0 || dt > maxGapSec * 1000 || routeBreak(pts[i - 1], pts[i])) {
+      continue;
+    }
     // Standing at a crossing still trickles fixes in; under 0.5 m/s for two
     // seconds or more is stopped, not moving.
     if (dt >= 2000) {
       final m = haversineMeters(
-          pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+        pts[i - 1].lat,
+        pts[i - 1].lng,
+        pts[i].lat,
+        pts[i].lng,
+      );
       if (m / (dt / 1000) < 0.5) continue;
     }
     ms += dt;
@@ -186,22 +204,16 @@ int? nearestHr(List<HrSample> hr, int tsMs, {int maxGapMs = 15000}) {
 /// segment (recording gap) is flagged `gapBefore` so the map breaks the
 /// polyline instead of drawing a straight line across the gap.
 List<RouteVertex> buildVertices(
-    List<RoutePoint> pts, List<HrSample> hr, int maxHr) {
+  List<RoutePoint> pts,
+  List<HrSample> hr,
+  int maxHr,
+) {
   return [
     for (var i = 0; i < pts.length; i++)
-      RouteVertex(
-        pts[i].latLng,
-        () {
-          final bpm = nearestHr(hr, pts[i].tsMs);
-          return bpm == null ? null : zoneForHr(bpm, maxHr);
-        }(),
-        gapBefore: i > 0 &&
-            isImplausibleSegment(
-              haversineMeters(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat,
-                  pts[i].lng),
-              pts[i].tsMs - pts[i - 1].tsMs,
-            ),
-      ),
+      RouteVertex(pts[i].latLng, () {
+        final bpm = nearestHr(hr, pts[i].tsMs);
+        return bpm == null ? null : zoneForHr(bpm, maxHr);
+      }(), gapBefore: i > 0 && routeBreak(pts[i - 1], pts[i])),
   ];
 }
 
@@ -221,15 +233,18 @@ List<Split> computeSplits(
   var splitStartTsMs = pts.first.tsMs;
   var accum = 0.0; // metres accumulated in the current split
   var splitIndex = 1;
+  var skippedMs = 0;
 
   void emit(int endTsMs, double meters) {
     final avg = _avgHrInWindow(hr, splitStartTsMs, endTsMs);
-    splits.add(Split(
-      index: splitIndex,
-      meters: meters,
-      durationSec: ((endTsMs - splitStartTsMs) / 1000).round(),
-      avgHr: avg,
-    ));
+    splits.add(
+      Split(
+        index: splitIndex,
+        meters: meters,
+        durationSec: ((endTsMs - splitStartTsMs - skippedMs) / 1000).round(),
+        avgHr: avg,
+      ),
+    );
     splitIndex++;
   }
 
@@ -245,7 +260,10 @@ List<Split> computeSplits(
     // while `splitsKm` emitted ~60 mostly-phantom splits on the same screen.
     // Time still elapses across the break, so the split it lands in keeps its
     // real duration — only the bogus distance is dropped.
-    if (isImplausibleSegment(segLen, segEndTs - segStartTs)) segLen = 0.0;
+    if (routeBreak(prev, cur)) {
+      skippedMs += math.max(0, segEndTs - segStartTs);
+      continue;
+    }
 
     // A single segment may cross one or more split boundaries. Walk the
     // boundaries, interpolating the crossing time linearly along the segment.
@@ -254,10 +272,10 @@ List<Split> computeSplits(
       final need = unitMeters - accum; // metres to complete this split
       segConsumed += need;
       final frac = segLen <= 0 ? 1.0 : segConsumed / segLen;
-      final crossTs =
-          (segStartTs + (segEndTs - segStartTs) * frac).round();
+      final crossTs = (segStartTs + (segEndTs - segStartTs) * frac).round();
       emit(crossTs, unitMeters);
       splitStartTsMs = crossTs;
+      skippedMs = 0;
       accum = 0.0;
     }
     accum += segLen - segConsumed;

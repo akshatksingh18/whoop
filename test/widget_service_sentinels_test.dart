@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -22,6 +23,8 @@ import 'package:openstrap_edge/widget/widget_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+  TestWidgetsFlutterBinding.ensureInitialized();
 
   late Map<String, Object?> written;
 
@@ -29,8 +32,9 @@ void main() {
     written = {};
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(const MethodChannel('home_widget'),
-        (call) async {
+    messenger.setMockMethodCallHandler(const MethodChannel('home_widget'), (
+      call,
+    ) async {
       if (call.method == 'saveWidgetData') {
         final args = (call.arguments as Map).cast<String, Object?>();
         written[args['id'] as String] = args['data'];
@@ -38,17 +42,22 @@ void main() {
       return true;
     });
     messenger.setMockMethodCallHandler(
-        const MethodChannel('openstrap/ios_config'),
-        (call) async => call.method == 'appGroupIdentifier' ? 'group.test' : null);
+      const MethodChannel('openstrap/ios_config'),
+      (call) async => call.method == 'appGroupIdentifier' ? 'group.test' : null,
+    );
   });
 
   tearDown(() {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(
-        const MethodChannel('home_widget'), null);
+      const MethodChannel('home_widget'),
+      null,
+    );
     messenger.setMockMethodCallHandler(
-        const MethodChannel('openstrap/ios_config'), null);
+      const MethodChannel('openstrap/ios_config'),
+      null,
+    );
   });
 
   // THROUGH THE REAL PAYLOAD, deliberately. These two used to hand
@@ -63,14 +72,14 @@ void main() {
 
     // 437 min asleep, and a stored crossday need of 462 min for the second test.
     String todayBundle() => jsonEncode({
-          'date': todayLabel(),
-          'scalars': {'readiness': 74.0, 'rhr': 52.0},
-          'sleep': {
-            'accounting': {
-              'value': {'tst_sec': 437 * 60, 'efficiency_pct': 91.0},
-            },
-          },
-        });
+      'date': todayLabel(),
+      'scalars': {'readiness': 74.0, 'rhr': 52.0},
+      'sleep': {
+        'accounting': {
+          'value': {'tst_sec': 437 * 60, 'efficiency_pct': 91.0},
+        },
+      },
+    });
 
     setUpAll(() async {
       sqfliteFfiInit();
@@ -164,10 +173,12 @@ void main() {
       expect(readinessBand(50).label, 'Steady');
     });
 
-    test('an unscored day is tier -1, which every native reader paints grey',
-        () {
-      expect(readinessBand(null).tier, -1);
-    });
+    test(
+      'an unscored day is tier -1, which every native reader paints grey',
+      () {
+        expect(readinessBand(null).tier, -1);
+      },
+    );
 
     test('every scored tier has a label to say out loud', () {
       for (final v in const [0, 40, 60, 80, 100]) {
@@ -175,23 +186,29 @@ void main() {
       }
     });
 
-    test('the tier and its label are published for the native surfaces',
-        () async {
-      await WidgetService.push(TodayData.fromJson({
-        'daily': {'readiness': 50},
-      }));
-      expect(written['readiness'], 50);
-      expect(written['readiness_tier'], 2);
-      expect(written['readiness_band'], 'Steady');
-    });
+    test(
+      'the tier and its label are published for the native surfaces',
+      () async {
+        await WidgetService.push(
+          TodayData.fromJson({
+            'daily': {'readiness': 50},
+          }),
+        );
+        expect(written['readiness'], 50);
+        expect(written['readiness_tier'], 2);
+        expect(written['readiness_band'], 'Steady');
+      },
+    );
 
-    test('an unscored readiness publishes the -1 / "" sentinels, never a band',
-        () async {
-      await WidgetService.push(TodayData.fromJson({'daily': const {}}));
-      expect(written['readiness'], -1);
-      expect(written['readiness_tier'], -1);
-      expect(written['readiness_band'], '');
-    });
+    test(
+      'an unscored readiness publishes the -1 / "" sentinels, never a band',
+      () async {
+        await WidgetService.push(TodayData.fromJson({'daily': const {}}));
+        expect(written['readiness'], -1);
+        expect(written['readiness_tier'], -1);
+        expect(written['readiness_band'], '');
+      },
+    );
 
     test('clear() blanks both — the widget outlives the database', () async {
       await WidgetService.clear();
@@ -207,71 +224,87 @@ void main() {
   // nights and this fills in" and "the band recorded nothing" were the same
   // picture, forever.
   group('the home rings', () {
-    test('a measured ring publishes the number, what it is out of, and a sweep',
-        () async {
-      await WidgetService.push(TodayData.fromJson({
-        'daily': {
-          'readiness': 74,
-          'strain': 12.4,
-        },
-        'sleep': {'duration_min': 437, 'need_min': 465},
-      }));
-      expect(written['ring_recovery_state'], 0);
-      expect(written['ring_recovery_value'], '74');
-      expect(written['ring_recovery_sub'], 'Good to go');
-      expect(written['ring_strain_value'], '12.4');
-      expect(written['ring_strain_sub'], 'of 21');
-      expect(written['ring_sleep_value'], '7h 17m');
-      expect(written['ring_sleep_sub'], 'of 7h 45m');
-      expect(written['ring_sleep_frac'], closeTo(437 / 465, 1e-9));
-      // Nothing is missing, so nothing has a reason.
-      expect(written['ring_recovery_why'], '');
-    });
+    test(
+      'a measured ring publishes the number, what it is out of, and a sweep',
+      () async {
+        await WidgetService.push(
+          TodayData.fromJson({
+            'daily': {'readiness': 74, 'strain': 12.4},
+            'sleep': {'duration_min': 437, 'need_min': 465},
+          }),
+        );
+        expect(written['ring_recovery_state'], 0);
+        expect(written['ring_recovery_value'], '74');
+        expect(written['ring_recovery_sub'], 'Good to go');
+        expect(written['ring_strain_value'], '12.4');
+        expect(written['ring_strain_sub'], 'of 21');
+        expect(written['ring_sleep_value'], '7h 17m');
+        expect(written['ring_sleep_sub'], 'of 7h 45m');
+        expect(written['ring_sleep_frac'], closeTo(437 / 465, 1e-9));
+        // Nothing is missing, so nothing has a reason.
+        expect(written['ring_recovery_why'], '');
+      },
+    );
 
     // The one absence that is PROGRESS rather than a gap, and the only one a
     // ring may honestly draw an arc for.
-    test('a baseline still filling is calibration progress, not a low score',
-        () async {
-      await WidgetService.push(TodayData.fromJson({
-        'daily': {
-          'readiness': {'value': null, 'note': 'need_baseline:have=2,need=5'},
-        },
-      }));
-      expect(written['readiness'], -1);
-      expect(written['ring_recovery_state'], 1);
-      expect(written['ring_recovery_value'], 'Calibrating');
-      expect(written['ring_recovery_sub'], '2 of 5 nights');
-      expect(written['ring_recovery_frac'], closeTo(0.4, 1e-9));
-    });
+    test(
+      'a baseline still filling is calibration progress, not a low score',
+      () async {
+        await WidgetService.push(
+          TodayData.fromJson({
+            'daily': {
+              'readiness': {
+                'value': null,
+                'note': 'need_baseline:have=2,need=5',
+              },
+            },
+          }),
+        );
+        expect(written['readiness'], -1);
+        expect(written['ring_recovery_state'], 1);
+        expect(written['ring_recovery_value'], 'Calibrating');
+        expect(written['ring_recovery_sub'], '2 of 5 nights');
+        expect(written['ring_recovery_frac'], closeTo(0.4, 1e-9));
+      },
+    );
 
-    test('an absence is a word and a reason — never a dash, never an arc',
-        () async {
-      await WidgetService.push(TodayData.fromJson({
-        'daily': {'readiness': null},
-        'sleep': const {},
-      }));
-      expect(written['ring_sleep_state'], 2);
-      expect(written['ring_sleep_value'], 'No sleep');
-      expect(written['ring_sleep_frac'], -1.0);
-      // Every absent ring says something. A blank circle says nothing at all,
-      // which on a home screen is worse than a number.
-      for (final r in const ['recovery', 'strain', 'sleep']) {
-        expect(written['ring_${r}_value'], isNotEmpty, reason: r);
-        expect(written['ring_${r}_value'], isNot(contains('—')), reason: r);
-        expect(written['ring_${r}_why'], isNotEmpty, reason: r);
-      }
-    });
+    test(
+      'an absence is a word and a reason — never a dash, never an arc',
+      () async {
+        await WidgetService.push(
+          TodayData.fromJson({
+            'daily': {'readiness': null},
+            'sleep': const {},
+          }),
+        );
+        expect(written['ring_sleep_state'], 2);
+        expect(written['ring_sleep_value'], 'No sleep');
+        expect(written['ring_sleep_frac'], -1.0);
+        // Every absent ring says something. A blank circle says nothing at all,
+        // which on a home screen is worse than a number.
+        for (final r in const ['recovery', 'strain', 'sleep']) {
+          expect(written['ring_${r}_value'], isNotEmpty, reason: r);
+          expect(written['ring_${r}_value'], isNot(contains('—')), reason: r);
+          expect(written['ring_${r}_why'], isNotEmpty, reason: r);
+        }
+      },
+    );
 
-    test('sleep with no learned need is measured but unscaled, not filled to 8h',
-        () async {
-      await WidgetService.push(TodayData.fromJson({
-        'sleep': {'duration_min': 437},
-      }));
-      expect(written['ring_sleep_state'], 0);
-      expect(written['ring_sleep_value'], '7h 17m');
-      expect(written['ring_sleep_sub'], 'No target yet');
-      expect(written['ring_sleep_frac'], -1.0);
-    });
+    test(
+      'sleep with no learned need is measured but unscaled, not filled to 8h',
+      () async {
+        await WidgetService.push(
+          TodayData.fromJson({
+            'sleep': {'duration_min': 437},
+          }),
+        );
+        expect(written['ring_sleep_state'], 0);
+        expect(written['ring_sleep_value'], '7h 17m');
+        expect(written['ring_sleep_sub'], 'No target yet');
+        expect(written['ring_sleep_frac'], -1.0);
+      },
+    );
   });
 
   // `getToday` holds the last night that scored over until today's settles, so
@@ -281,35 +314,44 @@ void main() {
   // a number is read as today's hardest of all.
   group('a night that is not today\'s', () {
     Map<String, dynamic> heldOver(String state) => {
-          'daily': {'readiness': 74, 'resting_hr': 52, 'strain': 9.1},
-          'sleep': {'duration_min': 437},
-          'hrv': {'rmssd': 62.0, 'baseline': 58.0},
-          'status': {
-            'showing_prior_overnight': true,
-            'overnight_state': state,
-            'overnight_day': todayLabel(),
-          },
-        };
+      'daily': {'readiness': 74, 'resting_hr': 52, 'strain': 9.1},
+      'sleep': {'duration_min': 437},
+      'hrv': {'rmssd': 62.0, 'baseline': 58.0},
+      'status': {
+        'showing_prior_overnight': true,
+        'overnight_state': state,
+        'overnight_day': todayLabel(),
+      },
+    };
 
-    test('its numbers are refused and the reason travels in their place',
-        () async {
-      await WidgetService.push(TodayData.fromJson(heldOver('missing')));
-      expect(written['readiness'], -1);
-      expect(written['readiness_tier'], -1);
-      expect(written['sleep_min'], -1);
-      expect(written['hrv'], -1);
-      expect(written['rhr'], -1);
-      expect(written['ring_recovery_value'], 'Not scored');
-      expect(written['ring_recovery_why'],
-          'Nothing from last night has reached the app yet.');
-      expect(written['overnight_why'],
-          'Nothing from last night has reached the app yet.');
-    });
+    test(
+      'its numbers are refused and the reason travels in their place',
+      () async {
+        await WidgetService.push(TodayData.fromJson(heldOver('missing')));
+        expect(written['readiness'], -1);
+        expect(written['readiness_tier'], -1);
+        expect(written['sleep_min'], -1);
+        expect(written['hrv'], -1);
+        expect(written['rhr'], -1);
+        expect(written['ring_recovery_value'], 'Not scored');
+        expect(
+          written['ring_recovery_why'],
+          'Nothing from last night has reached the app yet.',
+        );
+        expect(
+          written['overnight_why'],
+          'Nothing from last night has reached the app yet.',
+        );
+      },
+    );
 
     test('a night still being worked out is a different sentence — it resolves '
         'on its own and asks nothing of anyone', () async {
       await WidgetService.push(TodayData.fromJson(heldOver('building')));
-      expect(written['ring_sleep_why'], 'Last night is still being worked out.');
+      expect(
+        written['ring_sleep_why'],
+        'Last night is still being worked out.',
+      );
     });
 
     test('the DAY\'s strain is not an overnight figure and survives', () async {
@@ -326,12 +368,12 @@ void main() {
   // looking like this morning's number.
   group('staleness', () {
     TodayData at(String day) => TodayData.fromJson({
-          'daily': {
-            'readiness': {'value': 74},
-          },
-          'sleep': {'duration_min': 437},
-          'status': {'today_day': day, 'overnight_day': day},
-        });
+      'daily': {
+        'readiness': {'value': 74},
+      },
+      'sleep': {'duration_min': 437},
+      'status': {'today_day': day, 'overnight_day': day},
+    });
 
     String label(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}-'
@@ -343,25 +385,35 @@ void main() {
       expect(WidgetService.isStale(at(label(now)), now: now), isFalse);
     });
 
-    test('last night is fresh — it is the normal state of every metric here',
-        () {
-      expect(
+    test(
+      'last night is fresh — it is the normal state of every metric here',
+      () {
+        expect(
           WidgetService.isStale(at(label(DateTime(2026, 8, 14))), now: now),
-          isFalse);
-    });
+          isFalse,
+        );
+      },
+    );
 
     test('anything older is stale', () {
-      expect(WidgetService.isStale(at(label(DateTime(2026, 8, 13))), now: now),
-          isTrue);
-      expect(WidgetService.isStale(at(label(DateTime(2026, 7, 30))), now: now),
-          isTrue);
+      expect(
+        WidgetService.isStale(at(label(DateTime(2026, 8, 13))), now: now),
+        isTrue,
+      );
+      expect(
+        WidgetService.isStale(at(label(DateTime(2026, 7, 30))), now: now),
+        isTrue,
+      );
     });
 
     test('an unknown age is not a claim of staleness', () {
       expect(
-          WidgetService.isStale(TodayData.fromJson({'daily': const {}}),
-              now: now),
-          isFalse);
+        WidgetService.isStale(
+          TodayData.fromJson({'daily': const {}}),
+          now: now,
+        ),
+        isFalse,
+      );
     });
 
     test('a stale snapshot is published with has_data false', () async {

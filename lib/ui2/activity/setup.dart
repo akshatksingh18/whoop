@@ -22,6 +22,7 @@ import '../../l10n/app_localizations.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'catalogue.dart';
+import '../../gps/run_history.dart' show isRunType, isWalkType;
 import 'live.dart';
 
 /// The window the calorie estimate is quoted over — the same one
@@ -73,10 +74,16 @@ class _ActivitySetupState extends State<ActivitySetup> {
     if (start != null) {
       LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
     }
-    await Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => liveFor(widget.a,
-          private: private, weightKg: widget.weightKg, host: widget.host),
-    ));
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => liveFor(
+          widget.a,
+          private: private,
+          weightKg: widget.weightKg,
+          host: widget.host,
+        ),
+      ),
+    );
   }
 
   /// Back into the session that is already running. The refusal used to be a
@@ -86,10 +93,16 @@ class _ActivitySetupState extends State<ActivitySetup> {
     final d = LiveDraft.current;
     final a = d == null ? null : activityByName(d.activityKey);
     if (a == null) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => liveFor(a,
-          private: d!.private, weightKg: d.weightKg, host: widget.host),
-    ));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => liveFor(
+          a,
+          private: d!.private,
+          weightKg: d.weightKg,
+          host: widget.host,
+        ),
+      ),
+    );
   }
 
   @override
@@ -102,126 +115,149 @@ class _ActivitySetupState extends State<ActivitySetup> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(a.name),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                Center(
-                  child: Column(children: [
-                    Container(
-                      width: 84,
-                      height: 84,
-                      decoration: BoxDecoration(
-                          color: p.wash(a.color), shape: BoxShape.circle),
-                      child: Icon(a.icon, size: 38, color: p.on(a.color)),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(a.name),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  Center(
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 84,
+                          height: 84,
+                          decoration: BoxDecoration(
+                            color: p.wash(a.color),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(a.icon, size: 38, color: p.on(a.color)),
+                        ),
+                        const SizedBox(height: S.x4),
+                        Text(a.name, style: F.t2.copyWith(color: p.ink)),
+                        const SizedBox(height: S.x1),
+                        Text(
+                          _trackLabel(a.track, l),
+                          textAlign: TextAlign.center,
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: S.x4),
-                    Text(a.name, style: F.t2.copyWith(color: p.ink)),
-                    const SizedBox(height: S.x1),
-                    Text(_trackLabel(a.track, l),
-                        textAlign: TextAlign.center,
-                        style: F.cap.copyWith(color: p.ink3)),
-                  ]),
-                ),
-                const SizedBox(height: S.x8),
-                Surface(
-                  pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                  child: Column(children: [
-                    if (a.gps) ...[
-                      // No tick. Nothing here has asked for location yet, and
-                      // an unconditional green check claimed a fix that a
-                      // permission dialog had not even been shown for.
-                      _row(
+                  ),
+                  const SizedBox(height: S.x8),
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: Column(
+                      children: [
+                        if (a.gps) ...[
+                          // No tick. Nothing here has asked for location yet, and
+                          // an unconditional green check claimed a fix that a
+                          // permission dialog had not even been shown for.
+                          _row(
+                            p,
+                            LucideIcons.mapPin,
+                            l?.activitySetupRouteLabel ?? 'Route',
+                            l?.activitySetupRouteDetail ??
+                                'Recorded if location is available, and kept '
+                                    'on this phone',
+                            null,
+                          ),
+                          Divider(color: p.line, height: 1),
+                        ],
+                        _row(
                           p,
-                          LucideIcons.mapPin,
-                          l?.activitySetupRouteLabel ?? 'Route',
-                          l?.activitySetupRouteDetail ??
-                              'Recorded if location is available, and kept '
-                                  'on this phone',
-                          null),
-                      Divider(color: p.line, height: 1),
-                    ],
-                    _row(
-                        p,
-                        LucideIcons.heartPulse,
-                        l?.activitySetupHeartRateLabel ?? 'Heart rate',
-                        widget.host.bandConnected
-                            ? (l?.activitySetupBandConnected ??
-                                'Band connected')
-                            : (l?.activitySetupNoBandConnected ??
-                                'No band connected'),
-                        widget.host.bandConnected),
-                    Divider(color: p.line, height: 1),
-                    _toggle(
-                        p,
-                        LucideIcons.lock,
-                        l?.activitySetupPrivateLabel ?? 'Private session',
-                        l?.activitySetupPrivateDetail ??
-                            'Hidden from summaries and exports',
-                        private,
-                        () => setState(() => private = !private),
-                        l),
-                  ]),
-                ),
-                const SizedBox(height: S.x4),
-                Surface(
-                  elevation: 0,
-                  color: p.card2,
-                  child: Row(children: [
-                    Expanded(
-                      child: Text(
-                          a.met == null
-                              ? (l?.activitySetupNoMetEstimate ??
-                                  'No estimate up front: no published MET '
-                                      'applies to a session that names no '
-                                      'activity. Calories come from your '
-                                      'heart rate instead — when your age, '
-                                      'weight and sex are set, and your '
-                                      'resting and maximum rates are '
-                                      'measured rather than assumed.')
-                              : est == null
-                                  ? (l?.activitySetupCaloriesNeedWeight ??
+                          LucideIcons.heartPulse,
+                          l?.activitySetupHeartRateLabel ?? 'Heart rate',
+                          widget.host.bandConnected
+                              ? (l?.activitySetupBandConnected ??
+                                    'Band connected')
+                              : (l?.activitySetupNoBandConnected ??
+                                    'No band connected'),
+                          widget.host.bandConnected,
+                        ),
+                        Divider(color: p.line, height: 1),
+                        _toggle(
+                          p,
+                          LucideIcons.lock,
+                          l?.activitySetupPrivateLabel ?? 'Private session',
+                          l?.activitySetupPrivateDetail ??
+                              'Hidden from summaries and exports',
+                          private,
+                          () => setState(() => private = !private),
+                          l,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: S.x4),
+                  Surface(
+                    elevation: 0,
+                    color: p.card2,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            isWalkType(a.typeKey)
+                                ? 'Active calories use your measured steps and weight (Method 1), already included in daily maintenance. Net heart-rate Method 2 is a comparison.'
+                                : isRunType(a.typeKey)
+                                ? 'Active calories use running distance and walking breaks (Method 1). Net heart-rate Method 2 is a comparison; resting calories are already in BMR.'
+                                : a.met == null
+                                ? (l?.activitySetupNoMetEstimate ??
+                                      'No estimate up front: no published MET '
+                                          'applies to a session that names no '
+                                          'activity. Calories come from your '
+                                          'heart rate instead — when your age, '
+                                          'weight and sex are set, and your '
+                                          'resting and maximum rates are '
+                                          'measured rather than assumed.')
+                                : est == null
+                                ? (l?.activitySetupCaloriesNeedWeight ??
                                       'Calories need your weight.')
-                                  : (l?.activitySetupCalorieEstimate(
-                                          est,
-                                          _estimateMin,
-                                          a.met!.toStringAsFixed(1)) ??
+                                : (l?.activitySetupCalorieEstimate(
+                                        est,
+                                        _estimateMin,
+                                        a.met!.toStringAsFixed(1),
+                                      ) ??
                                       'About $est kcal per $_estimateMin min, '
                                           'from ${a.met!.toStringAsFixed(1)} '
                                           'MET and your weight.'),
-                          style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+                            style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                          ),
+                        ),
+                      ],
                     ),
-                  ]),
-                ),
-                if (_refused) ...[
-                  const SizedBox(height: S.x4),
-                  StatusCard(
-                    l?.activitySetupSessionRunningTitle ??
-                        'A session is already running',
-                    l?.activitySetupSessionRunningBody ??
-                        'Only one can be live at a time.',
-                    fix: LiveDraft.current == null
-                        ? ''
-                        : (l?.activitySetupOpenRunningSession ??
-                            'Open the running session'),
-                    onFix: LiveDraft.current == null ? null : _resume,
-                    icon: LucideIcons.circleAlert,
                   ),
-                ],
-                const SizedBox(height: S.x8),
-                BigButton(l?.activitySetupStart ?? 'Start',
+                  if (_refused) ...[
+                    const SizedBox(height: S.x4),
+                    StatusCard(
+                      l?.activitySetupSessionRunningTitle ??
+                          'A session is already running',
+                      l?.activitySetupSessionRunningBody ??
+                          'Only one can be live at a time.',
+                      fix: LiveDraft.current == null
+                          ? ''
+                          : (l?.activitySetupOpenRunningSession ??
+                                'Open the running session'),
+                      onFix: LiveDraft.current == null ? null : _resume,
+                      icon: LucideIcons.circleAlert,
+                    ),
+                  ],
+                  const SizedBox(height: S.x8),
+                  BigButton(
+                    l?.activitySetupStart ?? 'Start',
                     icon: LucideIcons.play,
                     color: a.color,
-                    onTap: _starting ? null : _start),
-              ],
+                    onTap: _starting ? null : _start,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -230,79 +266,95 @@ class _ActivitySetupState extends State<ActivitySetup> {
   /// only where a route can be recorded — a treadmill was being sold "distance
   /// and pace" that nothing in this app can measure indoors.
   String _trackLabel(Track t, AppLocalizations? l) => switch (t) {
-        Track.sets when !kPersonalSideload =>
-          l?.activitySetupTrackSets ?? 'Sets, reps and load — logged by you',
-        Track.distance when widget.a.gps =>
-          l?.activitySetupTrackDistanceGps ?? 'Distance, pace and heart rate',
-        Track.distance || Track.duration || Track.sets =>
-          l?.activitySetupTrackTime ?? 'Time and heart rate',
-        Track.interval =>
-          l?.activitySetupTrackInterval ?? 'Rounds and heart rate',
-        Track.stillness =>
-          l?.activitySetupTrackStillness ?? 'Time, breathing and heart rate',
-      };
+    Track.sets when !kPersonalSideload =>
+      l?.activitySetupTrackSets ?? 'Sets, reps and load — logged by you',
+    Track.distance when widget.a.gps =>
+      l?.activitySetupTrackDistanceGps ?? 'Distance, pace and heart rate',
+    Track.distance ||
+    Track.duration ||
+    Track.sets => l?.activitySetupTrackTime ?? 'Time and heart rate',
+    Track.interval => l?.activitySetupTrackInterval ?? 'Rounds and heart rate',
+    Track.stillness =>
+      l?.activitySetupTrackStillness ?? 'Time, breathing and heart rate',
+  };
 
   /// [on] null means "not known yet" — no glyph at all, rather than a tick
   /// or a cross, both of which are claims.
   Widget _row(P p, IconData i, String n, String s, bool? on) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(children: [
+    padding: const EdgeInsets.symmetric(vertical: S.x3),
+    child: Row(
+      children: [
+        Icon(i, size: 17, color: p.ink2),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(n, style: F.body.copyWith(color: p.ink)),
+              Text(s, style: F.over.copyWith(color: p.ink3)),
+            ],
+          ),
+        ),
+        if (on != null)
+          Icon(
+            on ? LucideIcons.circleCheck : LucideIcons.circleSlash,
+            size: 20,
+            color: on ? p.on(C.green) : p.line,
+          ),
+      ],
+    ),
+  );
+
+  Widget _toggle(
+    P p,
+    IconData i,
+    String n,
+    String s,
+    bool on,
+    VoidCallback onTap,
+    AppLocalizations? l,
+  ) => Pressable(
+    semanticLabel: '$n, ${on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off')}',
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
+      child: Row(
+        children: [
           Icon(i, size: 17, color: p.ink2),
           const SizedBox(width: S.x3),
           Expanded(
             child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(n, style: F.body.copyWith(color: p.ink)),
-                  Text(s, style: F.over.copyWith(color: p.ink3)),
-                ]),
-          ),
-          if (on != null)
-            Icon(on ? LucideIcons.circleCheck : LucideIcons.circleSlash,
-                size: 20, color: on ? p.on(C.green) : p.line),
-        ]),
-      );
-
-  Widget _toggle(P p, IconData i, String n, String s, bool on,
-          VoidCallback onTap, AppLocalizations? l) =>
-      Pressable(
-        semanticLabel:
-            '$n, ${on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off')}',
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: S.x3),
-          child: Row(children: [
-            Icon(i, size: 17, color: p.ink2),
-            const SizedBox(width: S.x3),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(n, style: F.body.copyWith(color: p.ink)),
-                    Text(s, style: F.over.copyWith(color: p.ink3)),
-                  ]),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(n, style: F.body.copyWith(color: p.ink)),
+                Text(s, style: F.over.copyWith(color: p.ink3)),
+              ],
             ),
-            AnimatedContainer(
+          ),
+          AnimatedContainer(
+            duration: motion(context, Motion.base),
+            width: 44,
+            height: 26,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: on ? p.fill(C.green) : p.track,
+              borderRadius: R.rPill,
+            ),
+            child: AnimatedAlign(
               duration: motion(context, Motion.base),
-              width: 44,
-              height: 26,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                  color: on ? p.fill(C.green) : p.track,
-                  borderRadius: R.rPill),
-              child: AnimatedAlign(
-                duration: motion(context, Motion.base),
-                alignment:
-                    on ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                      color: p.inkOnFill, shape: BoxShape.circle),
+              alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: p.inkOnFill,
+                  shape: BoxShape.circle,
                 ),
               ),
             ),
-          ]),
-        ),
-      );
+          ),
+        ],
+      ),
+    ),
+  );
 }

@@ -165,7 +165,28 @@ exercise a blocked band, stale calculated totals, no band records, zero counts a
 holds (`test/today_refresh_test.dart`). Native phone-sync completion also publishes a screen
 revision, covering cold launch/reconnect as well as pull/foreground refresh.
 The earlier built `5c00c278` IPA lacks this repair and is superseded. Build-72 local/CI tests,
-macOS build, checksum and payload validation pass; physical-device verification remains pending.
+macOS build, checksum and payload validation pass; Akshat confirms installation, while the feature
+phone pass and current-version enrollment remain pending.
+
+## Workout, sync and profile consistency
+
+`workout-sync-audit.md` owns the build-72 reported symptoms, source traces, research and isolated
+reproductions: insight retry/rebuild gaps, background voice, gross versus active calorie models,
+run-step overlap, cross-midnight/pause windows, hidden macro rows, decimal/round-trip profile input
+and stale cached profile calculations. The installed build-72 session-only streak omits step-goal-only days;
+the combined rule and dated target policy are documented there. The approved repairs are
+implemented locally in `0.9.40`/`73` (algorithm 89) and pass local regression/release validation.
+The personal source includes background audio for spoken workout cues; hardware behavior remains
+subject to the build-73 phone pass. `todo.md` owns the implementation and release gates.
+The added nap repair removes the full-restaging wait from reject/restore and keeps empty-day
+entry points; corrected lists, sleep periods and timelines agree before coaching finishes.
+Trends daily charts and step-calorie routing are also repaired locally, pending phone acceptance.
+
+Akshat confirms build-72 Today refresh updates step numbers but reports unchanged maintenance
+calories. The real-repository Food-card probe recalculates step energy immediately after a saved
+count revision; an already-open maintenance sheet keeps its original values. The report maps this
+reproduced stale view, cached history/profile dependencies, silent missing-input substitutions and
+the separate HR/cadence calorie derivation. Overall phone acceptance remains open.
 
 The old Windows-only failures are repaired: path/newline comparisons and local-date fixtures are
 portable; POSIX timezone-switching tests remain explicitly skipped on Windows. Real source fixes

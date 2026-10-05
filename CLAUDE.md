@@ -14,12 +14,16 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification — build `0.9.37`/`70` is installed and accepted after
+**Status:** Active iPhone verification — build `0.9.37`/`70` remains accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
 the recovery/refresh build in `final-ipas\whoop\backup\`. Source `0.9.39`/`72` implements the
 approved UI/food reliability cleanup plus the newly reported Today-refresh repair. The combined IPA passes local validation, Linux CI and the macOS build and is cached in
-`final-ipas\whoop\testing\WHOOP-0.9.39-build72-05c208c7`; installation, phone acceptance and
-current-version enrollment remain. Broader lifecycle, background and multi-cycle signing gates remain before
+`final-ipas\whoop\testing\WHOOP-0.9.39-build72-05c208c7` and Akshat confirms it is installed.
+Phone acceptance and current-version enrollment remain; the reported sync/voice/calorie/macro/profile
+issues are audited in `workout-sync-audit.md`, with the approved step-goal streak extension documented there.
+Today refresh updating steps is confirmed; maintenance consistency and the stale open breakdown
+are addressed in the locally validated build-73 source.
+Source `0.9.40`/`73` (algorithm 89) implements the approved combined repair and passes local validation; separate public publication/IPA approval remain. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
 Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
@@ -61,7 +65,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 72,
-which has not yet been installed or phone-accepted.
+which is installed but not phone-accepted.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -100,7 +104,7 @@ retryable failures protect these flows. The new widget/data regressions also cov
 navigation, failed writes and historical meal timestamps. Build 72 includes the fixes for the former Windows test
 failures, including leaked ZIP file handles and DST calendar-age arithmetic. `kAlgoVersion` is 88
 so retained movement results can recompute; no schema or personal capability change is required.
-The excluded Widget/Watch version metadata is aligned to `0.9.39`/`72`. Local full-suite validation
+Build 72 aligned the excluded Widget/Watch version metadata to `0.9.39`/`72`; local build 73 aligns it to `0.9.40`/`73`. Local full-suite validation
 passes (3,274 tests, 368 intentional skips); analysis has 58 infos and no errors/warnings, and all
 7 personal-iOS contract tests pass. Initial source `5c00c278` is published; its Linux CI and macOS
 build pass. The additional refresh source reads phone steps before band catch-up, exposes measured
@@ -109,7 +113,8 @@ messages. The full suite and focused regressions pass. Akshat approved public pu
 the replacement IPA; source `05c208c7` is pushed. Linux CI `37173914511` passes (3,279 tests,
 363 intentional skips); macOS workflow `37174063547` passes. The downloaded build-72 IPA
 matches its manifest/checksum and passes the local payload validator; it is the single testing
-candidate. Installation and the `todo.md` phone/enrollment gates remain. Do not install build 71.
+candidate. Akshat confirms installation; the `todo.md` phone/enrollment gates and the audit's
+reported issues remain. Do not install build 71.
 `setup.md` owns the artifact evidence.
 
 `schemaVersion` is unchanged (both build-70 storage pieces are additive, on the open path).
@@ -126,7 +131,7 @@ decisions (`metrics-map.md` describes the shipped behavior):
   row, read from the phone over the exact run window. Tapping the card opens a plain detail sheet.
 - **Runs without GPS:** distance, splits and cadence come from the phone's motion data (7-day
   window, saved per session; native `motionWindow` on the phone-steps channel).
-- **Train:** Run · Walk · Lift · Other; a run-or-walk streak (10 minutes a day); draggable strain and
+- **Train:** Run · Walk · Lift · Other; a movement streak (10+ minutes of run/walk); draggable strain and
   weekly-distance bars; a strain tap opens that day, with day arrows. Best times are 1K, 5K, 10K and
   half marathon only (a hidden 3K feeds the 5K prediction).
 - **Charts:** a shared finger cursor with the date and value in the chart header.
@@ -154,8 +159,11 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — build-72 release/phone checks and remaining lifecycle/refresh checks; read before
+- `todo.md` — build-73 implementation/release/phone checks and remaining lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
+- `workout-sync-audit.md` — current build-72 sync, background voice, workout/calorie, macro,
+  profile-precision and step-goal streak findings, research, reproductions and the approved repair contract;
+  read before changing calculation, sync or step policy.
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
   and current layout decisions; read before adding, moving or removing any screen.
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
@@ -235,15 +243,33 @@ evidence below.
 
 ### Current feature limits
 
-- Locked-screen voice cues have no separately reported result. The personal profile has no
-  `audio` background mode; adding one requires a capability decision. Do not infer reliable
-  background speech from the feature phone pass alone.
-- Logging body weight updates profile weight; resting energy and calorie estimates then use the
-  latest weight, including displayed historical maintenance estimates.
-- Measured maintenance requires complete food days: at least 8 weigh-ins, 10 complete food days
-  and a 14-day span within the trailing 4 weeks.
-- Build 70's run-map/medal and phone-motion feature check passed as reported by Akshat; the broader
-  locked/background route and CoreBluetooth restoration matrix remains separate.
+- Local build-73 source uses session-owned voice cues with explicit background audio. Locked-screen,
+  other-app, music/call/headphone behavior needs the phone acceptance pass; build 72's delay is
+  the reported baseline, not evidence that build 73 works on hardware.
+- Run/walk Method 1 and net HR comparison share active sensor windows and recorded profile inputs.
+  The equations remain conservative budgeting estimates, not guaranteed physiological minima.
+  Unknown movement/HR stays absent or labelled partial; no lifting calories enter maintenance.
+- All macro rows remain visible. Nullable omitted values display zero logged; no nutrition is
+  inferred. Decimal profile inputs preserve precision and refresh dated calculation dependencies.
+- Nap edits update lists, Sleep periods and the timeline from one durable ledger before the
+  independent retained-history coaching rebuild finishes. Empty days retain Naps; manual reports
+  and detector proposals remain distinct. Trends opens Week and shares full Sleep/Strain Today
+  detail, while Steps has its hourly graph inline and Step calories has its own kcal trend.
+- Build-73 local validation passes: 3,318 Flutter tests (368 intentional skips), 91 focused
+  personal-profile checks and all 7 personal-iOS contract tests. Analysis has 60 infos and no
+  errors/warnings. Rendered layouts and small-phone/enlarged-text regressions pass; native macOS
+  compilation and phone behavior remain unverified for this source.
+- A day earns a movement streak through 10 active run/walk minutes or its dated measured step goal.
+  Goals before migration are unknown; historical workout evidence is preserved.
+- Connected wrist fallback captures accepted high-rate gait without Start, supplements separately
+  measured phone-absent time and never overrides positive overlapping phone measurements.
+  WHOOP 4 recorded history cannot recover accurate offline steps beyond Bluetooth range. Passive
+  background battery/coverage and accuracy against counted steps remain physical-device gates.
+- Workout profiles/weights are captured; daily history uses dated anchors. Food/weight inferred
+  maintenance requires aligned complete intake, at least 14 interval days and 8 weigh-ins, and
+  remains approximate because weight includes water and the 7,700 kcal/kg conversion is approximate.
+- Build 70's map/medal and phone-motion feature check passed as reported; broader route/restoration,
+  system termination, overnight collection, 72-hour soak and natural signing refresh remain open.
 
 ### Chosen delivery model and non-negotiable constraints
 
@@ -322,6 +348,9 @@ The personal artifact must have these properties:
   permission, battery, background, and stop-semantics evidence this reopening still calls for needs
   a real outdoor run on the phone, not a code review. Do not describe route tracking as accepted
   until that pass happens and is recorded here.
+- Build 73 adds `audio` to the personal background-mode contract for genuine workout speech.
+  It keeps While-In-Use location authorization and adds no HealthKit, App Group, companion,
+  processing/fetch or silent audio keepalive. The payload validator enforces this mode set.
 - **Akshat does not own an Oura ring**, so the upstream adapter, protocol, and derivation seams stay
   for merge value but are unverified here. The personal build hides the Oura pairing row behind
   `kPersonalSideload`; the full upstream-capable build retains it. This is an explicit unsupported-
@@ -352,7 +381,7 @@ The personal artifact must have these properties:
     - **Today** (`home_screen.dart`): recovery ring with HRV and resting HR, sleep and strain
       cards, live heart rate over the all-day heart-rate line (opens the scrubbable chart), steps
       and maintenance. The greeting, "Today's plan" and (source 69) the bedtime card are gone.
-    - **Trends** (`health_screen.dart`): one row per core metric with Week / Month / 3 months,
+    - **Trends** (`health_screen.dart`): one row per core metric with Week / Month / 3 months (Week by default),
       then the illness watch / findings. Naps are on Sleep from source 70. Explore, Beats, Body clock, the Stress row and
       the Consistency cards were removed; their metrics are still computed and stored.
     - **Train** (`workout_screen.dart`): Run / Walk / Lift / Other (Walk from source 69), the
@@ -378,7 +407,8 @@ The personal artifact must have these properties:
       sleep, in place of wide ranges.
     - The title date is readable.
     - The sleep-window correction card sits last.
-  - **Labs** (manual lab entry) was removed. The Naps section shows only on a day with a nap.
+  - **Labs** (manual lab entry) was removed. Naps stays reachable even on an empty day, so the
+    last removal can be restored and a missed nap can be logged.
   - **Nutrition rebuilt** (`nutrition_screen.dart`, `food_picker.dart`), in the MyFitnessPal shape.
     Akshat logs meals here.
     - **Today:**
@@ -387,13 +417,14 @@ The personal artifact must have these properties:
       - Breakfast, lunch, dinner and snacks, each with its own Add.
     - **Adding food:**
       - From saved meals (`meal_template`, one tap writes an entry per food).
-      - From his own foods (`food_def`, typed once from a label and stored per 100 g, then logged by
-        grams with every number scaled; the grams can be edited later).
+      - From his own foods (`food_def`, typed once from a label and stored per 100 chosen units,
+        grams by default, with links/slices/cups/ml/custom units and fractional amounts supported).
+        Logging scales every supplied nutrient; saved diary amounts remain editable.
       - Or by quick add / barcode (the existing sheet).
-    - **History:** the last month's days against the goal; each day opens for late edits.
+    - **History:** calendar-month accordions; each day opens for late edits.
     - **Foods:** manage foods and saved meals.
     - **Goals:** five targets, typed once; the app never changes them.
-  - **Calories:** maintenance is a floor: resting (Mifflin–St Jeor), plus steps outside runs
+  - **Calories:** maintenance is a conservative budget estimate: resting (Mifflin–St Jeor), plus steps outside runs
     (Akshat's step formula), plus runs by distance (source 69), plus 10% of logged food. It is shown on
     Today and Food, never moving the goal. A run's own screen shows calories by distance and by heart
     rate. The band's heart-rate active and total kcal are still stored. Apple Health energy was

@@ -23,6 +23,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -32,15 +33,25 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 /// own load counter: it moves only on a real re-read.
 class _Repo extends LocalRepository {
   int get reads => NutritionScreen.debugLoads;
+  @override
+  Future<num?> getMeasuredDaySteps(String date) async => 0;
+  @override
+  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async => {
+    'workouts': [],
+  };
 }
 
 /// Frames until [done] holds, or give up.
-Future<void> _untilTrue(WidgetTester t, bool Function() done,
-    {int n = 60}) async {
+Future<void> _untilTrue(
+  WidgetTester t,
+  bool Function() done, {
+  int n = 250,
+}) async {
   for (var i = 0; i < n && !done(); i++) {
     await t.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await t.pump();
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await t.pump(const Duration(milliseconds: 50));
   }
 }
 
@@ -49,21 +60,23 @@ Future<void> _untilTrue(WidgetTester t, bool Function() done,
 /// database from closing, and the suite hung in tearDownAll.
 Future<void> _settle(WidgetTester t) async {
   await t.pumpWidget(const SizedBox.shrink());
-  await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+  await t.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 300)),
+  );
 }
 
 Widget _app(AppState app, {LocaleController? locale}) => MaterialApp(
-      theme: buildTheme(Brightness.light),
-      home: MultiProvider(
-        providers: [
-          ChangeNotifierProvider<AppState>.value(value: app),
-          ChangeNotifierProvider<LocaleController>.value(
-            value: locale ?? LocaleController.seed(null),
-          ),
-        ],
-        child: const Scaffold(body: NutritionScreen()),
+  theme: buildTheme(Brightness.light),
+  home: MultiProvider(
+    providers: [
+      ChangeNotifierProvider<AppState>.value(value: app),
+      ChangeNotifierProvider<LocaleController>.value(
+        value: locale ?? LocaleController.seed(null),
       ),
-    );
+    ],
+    child: const Scaffold(body: NutritionScreen()),
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -74,6 +87,7 @@ void main() {
     LocalDb.dbName = 'openstrap_revision_reload_test.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    await LocalDb.instance;
   });
 
   tearDownAll(() async {
@@ -82,7 +96,10 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await Prefs.ensureLoaded();
+  });
 
   testWidgets('a write underneath the live tab reaches it', (t) async {
     t.view.physicalSize = const Size(390 * 3, 2400 * 3);
@@ -107,14 +124,19 @@ void main() {
     app.bumpInsights();
     await _untilTrue(t, () => repo.reads > first);
 
-    expect(repo.reads, greaterThan(first),
-        reason: 'the live screen did not re-read after the signal');
+    expect(
+      repo.reads,
+      greaterThan(first),
+      reason: 'the live screen did not re-read after the signal',
+    );
     // THE POINT: same State, so the number arrived by re-reading and not by
     // the screen being thrown away and built again — which is what leaving the
     // tab and coming back used to do.
-    expect(identical(t.state(find.byType(NutritionScreen)), before), isTrue,
-        reason:
-            'the screen was remounted — that is the workaround, not the fix');
+    expect(
+      identical(t.state(find.byType(NutritionScreen)), before),
+      isTrue,
+      reason: 'the screen was remounted — that is the workaround, not the fix',
+    );
     await _settle(t);
   });
 
@@ -140,8 +162,11 @@ void main() {
       app.notifyListeners();
       await t.pump();
     }
-    expect(repo.reads, first,
-        reason: 'the screen re-read with nothing having landed');
+    expect(
+      repo.reads,
+      first,
+      reason: 'the screen re-read with nothing having landed',
+    );
     await _settle(t);
   });
 
@@ -169,17 +194,18 @@ void main() {
     // switch to Spanish leaves English on screen until something else forces
     // a reload.
     await locale.setCode('es');
-    for (var i = 0; i < 60 && repo.reads <= reads; i++) {
-      await t.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 20)));
-      await t.pump();
-    }
+    await _untilTrue(t, () => repo.reads > reads);
 
-    expect(repo.reads, greaterThan(reads),
-        reason: 'the screen did not notice the language changed');
-    expect(identical(t.state(find.byType(NutritionScreen)), before), isTrue,
-        reason:
-            'the screen was remounted — that is the workaround, not the fix');
+    expect(
+      repo.reads,
+      greaterThan(reads),
+      reason: 'the screen did not notice the language changed',
+    );
+    expect(
+      identical(t.state(find.byType(NutritionScreen)), before),
+      isTrue,
+      reason: 'the screen was remounted — that is the workaround, not the fix',
+    );
     await _settle(t);
   });
 
@@ -201,8 +227,11 @@ void main() {
       // The method body, to its `return` — long enough to hold the whole of
       // any of the three, short enough not to reach the next one.
       final body = src.substring(at, at + 2600);
-      expect(body, contains('bumpInsights()'),
-          reason: '$m writes durable rows and no screen is told');
+      expect(
+        body,
+        contains('bumpInsights()'),
+        reason: '$m writes durable rows and no screen is told',
+      );
     }
   });
 
@@ -214,9 +243,11 @@ void main() {
       'nutrition_screen',
       'workout_screen',
     ]) {
-      expect(File('lib/ui2/screens/$f.dart').readAsStringSync(),
-          contains('with RevisionReload'),
-          reason: '$f loads once and never reads again');
+      expect(
+        File('lib/ui2/screens/$f.dart').readAsStringSync(),
+        contains('with RevisionReload'),
+        reason: '$f loads once and never reads again',
+      );
     }
   });
 }

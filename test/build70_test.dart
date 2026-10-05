@@ -50,13 +50,13 @@ void main() {
       expect(r.strap, 1500);
     });
 
-    test('a walk the phone missed (left behind) stays the band\'s', () {
-      // Phone counted 50 in the hour; the band saw a 30-minute walk of 3,000.
+    test('a small positive phone count still owns overlapping time', () {
+      // Wrist volume cannot override measured positive phone time; only uncovered time supplements it.
       final rows = [
         phone(h9, h9 + 3600, 50),
         band(h9 + 600, h9 + 600 + 1800, 3000),
       ];
-      expect(resolveDaySteps(rows, phoneFirst: true).total, greaterThanOrEqualTo(3000));
+      expect(resolveDaySteps(rows, phoneFirst: true).total, 50);
     });
 
     test('a band span crossing a phone hour keeps only its uncovered part', () {
@@ -75,36 +75,44 @@ void main() {
     test('no data, no sleep, building, missing input, held back', () {
       expect(readinessGap(null, hasDay: false), 'no data that day');
       expect(
-          readinessGap({
-            'hrv': {'value': false, 'baseline_n': 20},
-            'rhr': {'value': false, 'baseline_n': 20},
-          }, hasDay: true),
-          'no sleep heart data that night');
+        readinessGap({
+          'hrv': {'value': false, 'baseline_n': 20},
+          'rhr': {'value': false, 'baseline_n': 20},
+        }, hasDay: true),
+        'no sleep heart data that night',
+      );
       expect(
-          readinessGap({
-            'hrv': {'value': true, 'baseline_n': 9},
-            'rhr': {'value': true, 'baseline_n': 12},
-          }, hasDay: true),
-          'building your baseline: 9 of 14 nights');
+        readinessGap({
+          'hrv': {'value': true, 'baseline_n': 9},
+          'rhr': {'value': true, 'baseline_n': 12},
+        }, hasDay: true),
+        'building your baseline: 9 of 14 nights',
+      );
       expect(
-          readinessGap({
-            'hrv': {'value': false, 'baseline_n': 20},
-            'rhr': {'value': true, 'baseline_n': 20},
-          }, hasDay: true),
-          'HRV not measured that night');
+        readinessGap({
+          'hrv': {'value': false, 'baseline_n': 20},
+          'rhr': {'value': true, 'baseline_n': 20},
+        }, hasDay: true),
+        'HRV not measured that night',
+      );
       expect(
-          readinessGap({
-            'hrv': {'value': true, 'baseline_n': 20},
-            'rhr': {'value': true, 'baseline_n': 20},
-          }, hasDay: true),
-          startsWith('held back'));
+        readinessGap({
+          'hrv': {'value': true, 'baseline_n': 20},
+          'rhr': {'value': true, 'baseline_n': 20},
+        }, hasDay: true),
+        startsWith('held back'),
+      );
     });
 
     test('a withheld breathing rate says why in words', () {
-      expect(breathingWhy('artifact fraction 0.31 > gate 0.25'),
-          'too much movement or signal noise');
-      expect(breathingWhy('sub-window consensus 0.38 < 0.5'),
-          contains('disagreed'));
+      expect(
+        breathingWhy('artifact fraction 0.31 > gate 0.25'),
+        'too much movement or signal noise',
+      );
+      expect(
+        breathingWhy('sub-window consensus 0.38 < 0.5'),
+        contains('disagreed'),
+      );
       expect(breathingWhy(''), 'not measured');
     });
   });
@@ -121,11 +129,11 @@ void main() {
       expect(v.update(0.9, 380, speak: false), isNull);
       expect(v.update(1.0, 401, speak: false), contains('6 minutes 41'));
       expect(v.update(1.4, 560, speak: false), isNull);
-      expect(v.update(2.02, 830, speak: false), contains('7 minutes 9'));
+      expect(v.update(2.02, 830, speak: false), contains('7 minutes.'));
     });
 
-    test('a screen reopened mid-run does not announce a stale kilometre', () {
-      final v = KmVoice();
+    test('a screen reopened mid-run uses the persisted spoken milestone', () {
+      final v = KmVoice(spoken: 2);
       expect(v.update(2.5, 1000, speak: false), isNull);
       expect(v.update(3.0, 1400, speak: false), contains('6 minutes 40'));
     });
@@ -138,7 +146,7 @@ void main() {
         for (var i = 0; i < 21; i++)
           (
             date: '2026-09-${(10 + i).toString().padLeft(2, '0')}',
-            kg: 82.0 - 0.1 * i
+            kg: 82.0 - 0.1 * i,
           ),
       ];
       final m = measuredMaintenance(weights, List.filled(20, 2000.0))!;
@@ -182,18 +190,21 @@ void main() {
       group: 'Oatmeal',
     );
 
-    test('a copy gets a new id, the new day, the same clock time and group', () {
-      final c = e.copyTo('2026-10-05', 'lunch', newId: 'b');
-      expect(c.id, 'b');
-      expect(c.date, '2026-10-05');
-      expect(c.meal, 'lunch');
-      expect(c.group, 'Oatmeal');
-      expect(c.source, FoodSource.repeat);
-      final t0 = DateTime.fromMillisecondsSinceEpoch(e.atTs! * 1000);
-      final t1 = DateTime.fromMillisecondsSinceEpoch(c.atTs! * 1000);
-      expect((t1.hour, t1.minute), (t0.hour, t0.minute));
-      expect(t1.day, 5);
-    });
+    test(
+      'a copy gets a new id, the new day, the same clock time and group',
+      () {
+        final c = e.copyTo('2026-10-05', 'lunch', newId: 'b');
+        expect(c.id, 'b');
+        expect(c.date, '2026-10-05');
+        expect(c.meal, 'lunch');
+        expect(c.group, 'Oatmeal');
+        expect(c.source, FoodSource.repeat);
+        final t0 = DateTime.fromMillisecondsSinceEpoch(e.atTs! * 1000);
+        final t1 = DateTime.fromMillisecondsSinceEpoch(c.atTs! * 1000);
+        expect((t1.hour, t1.minute), (t0.hour, t0.minute));
+        expect(t1.day, 5);
+      },
+    );
 
     test('moving to a group keeps the entry itself', () {
       final m = e.inGroup('Omelette');
@@ -212,7 +223,9 @@ void main() {
     var t = 0;
     void leg(int sec, double v) {
       for (var i = 0; i < sec; i++) {
-        pts.add(RoutePoint(seq: pts.length, tsMs: t * 1000, lat: lat, lng: -95.6));
+        pts.add(
+          RoutePoint(seq: pts.length, tsMs: t * 1000, lat: lat, lng: -95.6),
+        );
         lat += v / mPerDegLat;
         t++;
       }

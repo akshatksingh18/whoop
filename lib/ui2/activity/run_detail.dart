@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../compute/profile.dart'
-    show Profile, keytelActiveKcal, runFloorKcal;
+    show Profile, keytelActiveKcal, runFloorKcal, stepCalories;
 import '../../gps/map_snapshot.dart';
 import '../../gps/route_math.dart' show kMetersPerKm;
 import '../../gps/run_analysis.dart';
@@ -32,8 +32,14 @@ class RunView {
   /// indexed from the session start).
   final double leadSec;
 
-  RunView._(this.r, this.pace, this.efforts, this.spanSec, this.leadSec,
-      this.effortEnds);
+  RunView._(
+    this.r,
+    this.pace,
+    this.efforts,
+    this.spanSec,
+    this.leadSec,
+    this.effortEnds,
+  );
 
   /// Track index where each shown best effort ended, for the map medals.
   final Map<String, int> effortEnds;
@@ -45,8 +51,14 @@ class RunView {
         ? 0.0
         : math.max(0.0, (t.first.tsMs - r.start.millisecondsSinceEpoch) / 1000);
     final run = isRunType(r.activity.typeKey);
-    return RunView._(r, paceCurve(t), run ? bestEfforts(t) : const {}, span,
-        lead, run ? bestEffortEnds(t) : const {});
+    return RunView._(
+      r,
+      paceCurve(t),
+      run ? bestEfforts(t) : const {},
+      span,
+      lead,
+      run ? bestEffortEnds(t) : const {},
+    );
   }
 
   bool get isRun => isRunType(r.activity.typeKey);
@@ -90,14 +102,16 @@ class RunView {
 
   /// [n] evenly spaced bins over the span, for the charts.
   List<double?> paceBins(int n) => [
-        for (var k = 0; k < n; k++)
-          switch (paceAt(k / (n - 1))?.paceSecPerKm) {
-            final v? => -v, // negative so faster draws higher
-            null => null,
-          },
-      ];
+    for (var k = 0; k < n; k++)
+      switch (paceAt(k / (n - 1))?.paceSecPerKm) {
+        final v? => -v, // negative so faster draws higher
+        null => null,
+      },
+  ];
 
-  List<double?> hrBins(int n) => [for (var k = 0; k < n; k++) hrAt(k / (n - 1))];
+  List<double?> hrBins(int n) => [
+    for (var k = 0; k < n; k++) hrAt(k / (n - 1)),
+  ];
 
   /// The phone's steps a minute at [f], or null.
   double? cadenceAt(double f) {
@@ -106,8 +120,9 @@ class RunView {
     return i >= 0 && i < c.length ? c[i] : null;
   }
 
-  List<double?> cadenceBins(int n) =>
-      [for (var k = 0; k < n; k++) cadenceAt(k / (n - 1))];
+  List<double?> cadenceBins(int n) => [
+    for (var k = 0; k < n; k++) cadenceAt(k / (n - 1)),
+  ];
 
   List<double?> elevationBins(int n) {
     final t = r.track;
@@ -117,7 +132,11 @@ class RunView {
         () {
           final i = pointAt(k / (n - 1));
           var sum = 0.0, cnt = 0;
-          for (var j = math.max(0, i - 7); j <= math.min(t.length - 1, i + 7); j++) {
+          for (
+            var j = math.max(0, i - 7);
+            j <= math.min(t.length - 1, i + 7);
+            j++
+          ) {
             sum += t[j].alt!;
             cnt++;
           }
@@ -182,77 +201,88 @@ class RunMapCard extends StatelessWidget {
       borderRadius: R.rLg,
       child: SizedBox(
         height: 230,
-        child: LayoutBuilder(builder: (c, box) {
-          final w = box.maxWidth, h = box.maxHeight;
-          final idx = thinnedIndex(r.track.length);
-          return FutureBuilder<MapSnapshot?>(
-            future: mapSnapshot(
-              r.sessionId ?? '${r.start.millisecondsSinceEpoch}',
-              [for (final pt in r.track) pt.lat],
-              [for (final pt in r.track) pt.lng],
-              w,
-              h,
-            ),
-            builder: (c, snap) {
-              final s = snap.data;
-              final List<Offset> pts;
-              final List<double>? paceFrac;
-              if (s != null) {
-                pts = [for (var k = 0; k < s.x.length; k++) Offset(s.x[k], s.y[k])];
-                paceFrac = r.routePace == null
-                    ? null
-                    : [for (final i in idx) r.routePace![i]];
-              } else {
-                pts = r.route;
-                paceFrac = r.routePace;
-              }
-              // A track index → its place on whichever picture is drawn.
-              Offset? place(int i) {
-                if (pts.isEmpty) return null;
+        child: LayoutBuilder(
+          builder: (c, box) {
+            final w = box.maxWidth, h = box.maxHeight;
+            final idx = thinnedIndex(r.track.length);
+            return FutureBuilder<MapSnapshot?>(
+              future: mapSnapshot(
+                r.sessionId ?? '${r.start.millisecondsSinceEpoch}',
+                [for (final pt in r.track) pt.lat],
+                [for (final pt in r.track) pt.lng],
+                w,
+                h,
+              ),
+              builder: (c, snap) {
+                final s = snap.data;
+                final List<Offset> pts;
+                final List<double>? paceFrac;
                 if (s != null) {
-                  var k = 0;
-                  while (k + 1 < idx.length && idx[k + 1] <= i) {
-                    k++;
-                  }
-                  return pts[k];
+                  pts = [
+                    for (var k = 0; k < s.x.length; k++) Offset(s.x[k], s.y[k]),
+                  ];
+                  paceFrac = r.routePace == null
+                      ? null
+                      : [for (final i in idx) r.routePace![i]];
+                } else {
+                  pts = r.route;
+                  paceFrac = r.routePace;
                 }
-                return i < pts.length ? pts[i] : null;
-              }
+                // A track index → its place on whichever picture is drawn.
+                Offset? place(int i) {
+                  if (pts.isEmpty) return null;
+                  if (s != null) {
+                    var k = 0;
+                    while (k + 1 < idx.length && idx[k + 1] <= i) {
+                      k++;
+                    }
+                    return pts[k];
+                  }
+                  return i < pts.length ? pts[i] : null;
+                }
 
-              final dot = cursor == null ? null : place(v.pointAt(cursor!));
-              // The fallback shape is inset 8% by the painter; match it.
-              final pad = s == null ? 0.08 : 0.0;
-              Offset onCard(Offset o) => Offset(
+                final dot = cursor == null ? null : place(v.pointAt(cursor!));
+                // The fallback shape is inset 8% by the painter; match it.
+                final pad = s == null ? 0.08 : 0.0;
+                Offset onCard(Offset o) => Offset(
                   (pad + o.dx * (1 - 2 * pad)) * w,
-                  (pad + o.dy * (1 - 2 * pad)) * h);
-              return Stack(children: [
-                Positioned.fill(
-                  child: s == null
-                      ? ColoredBox(color: p.card2)
-                      : Image.memory(s.png, fit: BoxFit.fill, gaplessPlayback: true),
-                ),
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _TrackPainter(
-                      pts,
-                      paceFrac,
-                      slow: p.on(C.red),
-                      fast: p.on(C.green),
-                      plain: p.on(C.run),
-                      ink: p.ink,
-                      halo: p.bg,
-                      dot: dot,
-                      inset: s == null,
+                  (pad + o.dy * (1 - 2 * pad)) * h,
+                );
+                return Stack(
+                  children: [
+                    Positioned.fill(
+                      child: s == null
+                          ? ColoredBox(color: p.card2)
+                          : Image.memory(
+                              s.png,
+                              fit: BoxFit.fill,
+                              gaplessPlayback: true,
+                            ),
                     ),
-                  ),
-                ),
-                for (var m = 0; m < medals.length; m++)
-                  if (place(medals[m].index) case final o?)
-                    _medal(c, p, onCard(o), medals[m], w, m),
-              ]);
-            },
-          );
-        }),
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _TrackPainter(
+                          pts,
+                          paceFrac,
+                          slow: p.on(C.red),
+                          fast: p.on(C.green),
+                          plain: p.on(C.run),
+                          ink: p.ink,
+                          halo: p.bg,
+                          dot: dot,
+                          inset: s == null,
+                        ),
+                      ),
+                    ),
+                    for (var m = 0; m < medals.length; m++)
+                      if (place(medals[m].index) case final o?)
+                        _medal(c, p, onCard(o), medals[m], w, m),
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -281,7 +311,9 @@ Widget _medal(BuildContext c, P p, Offset at, RunMedal m, double w, int nth) {
   final label = Container(
     padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: 2),
     decoration: BoxDecoration(
-        color: p.bg.withValues(alpha: .82), borderRadius: R.rSm),
+      color: p.bg.withValues(alpha: .82),
+      borderRadius: R.rSm,
+    ),
     child: Text(m.label, style: F.over.copyWith(color: p.ink)),
   );
   final dy = nth * 22.0;
@@ -299,14 +331,17 @@ Widget _medal(BuildContext c, P p, Offset at, RunMedal m, double w, int nth) {
 }
 
 class _TrackPainter extends CustomPainter {
-  _TrackPainter(this.pts, this.pace,
-      {required this.slow,
-      required this.fast,
-      required this.plain,
-      required this.ink,
-      required this.halo,
-      this.dot,
-      this.inset = false});
+  _TrackPainter(
+    this.pts,
+    this.pace, {
+    required this.slow,
+    required this.fast,
+    required this.plain,
+    required this.ink,
+    required this.halo,
+    this.dot,
+    this.inset = false,
+  });
 
   final List<Offset> pts;
   final List<double>? pace;
@@ -321,8 +356,9 @@ class _TrackPainter extends CustomPainter {
     if (pts.length < 2) return;
     final pad = inset ? 0.08 : 0.0;
     Offset at(Offset o) => Offset(
-        (pad + o.dx * (1 - 2 * pad)) * size.width,
-        (pad + o.dy * (1 - 2 * pad)) * size.height);
+      (pad + o.dx * (1 - 2 * pad)) * size.width,
+      (pad + o.dy * (1 - 2 * pad)) * size.height,
+    );
     final under = Paint()
       ..color = halo
       ..strokeWidth = 7
@@ -372,7 +408,8 @@ class RunStatsGrid extends StatelessWidget {
     final p = P.of(c);
     final r = v.r;
     final cells = <(String, String)>[
-      if (r.distanceKm != null) ('Distance', '${r.distanceKm!.toStringAsFixed(2)} km'),
+      if (r.distanceKm != null)
+        ('Distance', '${r.distanceKm!.toStringAsFixed(2)} km'),
       if (v.movingPace != null) ('Avg pace', '${pace(v.movingPace)} /km'),
       if (r.movingSec != null) ('Moving time', clock(r.movingSec!)),
       ('Elapsed', hms(r.duration)),
@@ -386,26 +423,39 @@ class RunStatsGrid extends StatelessWidget {
     ];
     final cols = bigText(c) ? 2 : 3;
     return Surface(
-      child: Column(children: [
-        for (var row = 0; row * cols < cells.length; row++) ...[
-          if (row > 0) const SizedBox(height: S.x4),
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            for (var k = row * cols; k < row * cols + cols; k++)
-              Expanded(
-                child: k >= cells.length
-                    ? const SizedBox.shrink()
-                    : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(cells[k].$1, style: F.over.copyWith(color: p.ink3)),
-                        const SizedBox(height: 2),
-                        Text(cells[k].$2,
-                            style: F.n17.copyWith(color: p.ink),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
-                      ]),
-              ),
-          ]),
+      child: Column(
+        children: [
+          for (var row = 0; row * cols < cells.length; row++) ...[
+            if (row > 0) const SizedBox(height: S.x4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var k = row * cols; k < row * cols + cols; k++)
+                  Expanded(
+                    child: k >= cells.length
+                        ? const SizedBox.shrink()
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                cells[k].$1,
+                                style: F.over.copyWith(color: p.ink3),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                cells[k].$2,
+                                style: F.n17.copyWith(color: p.ink),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                  ),
+              ],
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -424,15 +474,21 @@ class RunStatsGrid extends StatelessWidget {
 /// shown, because the gap is itself the reading (an inefficient or hot run
 /// burns above the floor).
 ({double? floor, ({double kcal, int measured, int slots})? hr}) runCalories(
-    ActivityResult r, Profile? p) {
+  ActivityResult r,
+  Profile? p,
+) {
+  p = r.calculationProfile ?? p;
   final mix = r.mix;
-  final floor = mix == null
+  final floor = isWalkType(r.activity.typeKey)
+      ? stepCalories(r.stepsCounted, p?.weightKg)
+      : mix == null
       ? null
       : runFloorKcal(
           runMeters: mix.runM,
           walkMeters: mix.walkM,
           climbMeters: mix.climbM,
-          weightKg: p?.weightKg);
+          weightKg: p?.weightKg,
+        );
   final hr = p == null || r.hr.isEmpty
       ? null
       : keytelActiveKcal(r.hr, r.duration.inSeconds / 60, p);
@@ -457,76 +513,109 @@ class RunCaloriesCard extends StatelessWidget {
     final mix = r.mix;
     if (floor == null && hr == null) {
       return Surface(
-        child: Row(children: [
-          Icon(LucideIcons.flame, size: 18, color: p.ink3),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Text(
+        child: Row(
+          children: [
+            Icon(LucideIcons.flame, size: 18, color: p.ink3),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Text(
                 'Calories need your age, height and weight in Settings → Profile.',
-                style: F.cap.copyWith(color: p.ink2)),
-          ),
-        ]),
+                style: F.cap.copyWith(color: p.ink2),
+              ),
+            ),
+          ],
+        ),
       );
     }
-    final kg = profile?.weightKg;
+    final kg = (r.calculationProfile ?? profile)?.weightKg;
     final kgText = kg == null
         ? ''
         : ' at ${kg == kg.roundToDouble() ? kg.round() : kg.toStringAsFixed(1)} kg';
-    final agree = floor != null &&
-        hr != null &&
-        (hr.kcal - floor).abs() <= kCalorieAgree;
+    final agree =
+        floor != null && hr != null && (hr.kcal - floor).abs() <= kCalorieAgree;
     final hrMin = hr == null
         ? ''
         : '${(r.duration.inSeconds / 60 * hr.measured / hr.slots).round()} of '
-            '${(r.duration.inSeconds / 60).round()} min';
+              '${(r.duration.inSeconds / 60).round()} min';
 
     Widget row(String name, double kcal, String sub) => Padding(
-          padding: const EdgeInsets.only(top: S.x3),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      padding: const EdgeInsets.only(top: S.x3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(name, style: F.body.copyWith(color: p.ink)),
                 Text(sub, style: F.cap.copyWith(color: p.ink3)),
-              ]),
+              ],
             ),
-            const SizedBox(width: S.x3),
-            Text('${grouped(kcal)} kcal', style: F.n17.copyWith(color: p.ink)),
-          ]),
-        );
+          ),
+          const SizedBox(width: S.x3),
+          Text('${grouped(kcal)} kcal', style: F.n17.copyWith(color: p.ink)),
+        ],
+      ),
+    );
 
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Calories', style: F.over.copyWith(color: p.ink3)),
-        if (agree) ...[
-          const SizedBox(height: S.x1),
-          Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
-            Text(grouped(floor), style: F.n34.copyWith(color: p.ink)),
-            Padding(
-              padding: const EdgeInsets.only(bottom: S.x1),
-              child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Active calories', style: F.over.copyWith(color: p.ink3)),
+          if (agree) ...[
+            const SizedBox(height: S.x1),
+            Wrap(
+              spacing: S.x2,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              children: [
+                Text(grouped(floor), style: F.n34.copyWith(color: p.ink)),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: S.x1),
+                  child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+                ),
+              ],
             ),
-          ]),
-          Text('Distance and heart rate agree within 50 kcal.',
-              style: F.cap.copyWith(color: p.ink3)),
-        ] else ...[
-          if (floor != null)
-            row('From distance', floor, 'The least this distance costs$kgText'),
-          if (hr != null) row('From heart rate', hr.kcal, 'Your heart rate over $hrMin'),
-        ],
-        if (mix != null && mix.walkM >= 50 && mix.runM >= 50) ...[
-          const SizedBox(height: S.x3),
-          Text(
+            Text(
+              'Method 1 and heart rate agree within 50 kcal.',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ] else ...[
+            if (floor != null)
+              row(
+                isRun ? 'From distance · Method 1' : 'From steps · Method 1',
+                floor,
+                'Conservative estimate$kgText',
+              ),
+            if (hr != null)
+              row(
+                'From heart rate · Method 2',
+                hr.kcal,
+                'Above resting · measured over $hrMin',
+              ),
+          ],
+          if (mix != null && mix.walkM >= 50 && mix.runM >= 50) ...[
+            const SizedBox(height: S.x3),
+            Text(
               'Running ${(mix.runM / 1000).toStringAsFixed(2)} km · walking '
               '${(mix.walkM / 1000).toStringAsFixed(2)} km',
-              style: F.cap.copyWith(color: p.ink2)),
-        ],
-        const SizedBox(height: S.x2),
-        Text(
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          ],
+          const SizedBox(height: S.x2),
+          Text(
+            'Active calories are energy above resting. Resting calories are already included in daily BMR.',
+            style: F.cap.copyWith(color: p.ink3, height: 1.4),
+          ),
+          const SizedBox(height: S.x2),
+          Text(
             isRun
                 ? 'Maintenance counts the distance number.'
-                : 'Maintenance counts this walk in your steps.',
-            style: F.over.copyWith(color: p.ink3)),
-      ]),
+                : 'Maintenance counts this walk once, through daily steps.',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -550,8 +639,7 @@ class BestEffortsCard extends StatelessWidget {
       final sec = v.efforts[label];
       if (sec == null) continue;
       final past = [
-        for (final e in earlier ?? const <RunSummary>[])
-          ?e.efforts[label],
+        for (final e in earlier ?? const <RunSummary>[]) ?e.efforts[label],
       ];
       final rank = earlier == null ? null : effortRank(sec, past);
       final prev = previousBest(past);
@@ -561,28 +649,36 @@ class BestEffortsCard extends StatelessWidget {
         3 => ('3rd best', C.n500),
         _ => ('', C.n500),
       };
-      rows.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(children: [
-          Expanded(
-            flex: 2,
-            child: Text(label, style: F.body.copyWith(color: p.ink))),
-          Expanded(
-            flex: 3,
-            child: Text(
-                '${_effortTime(sec)} · ${pace(sec / (kBestEffortDistances.firstWhere((d) => d.$1 == label).$2 / kMetersPerKm))} /km',
-                style: F.cap.copyWith(color: p.ink2)),
-          ),
-          if (tag.isNotEmpty)
-            Text(
-                rank == 1 && prev != null
-                    ? '$tag · ${_effortTime(prev - sec)} faster'
-                    : tag,
-                style: F.cap.copyWith(
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: S.x2),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: Text(label, style: F.body.copyWith(color: p.ink)),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  '${_effortTime(sec)} · ${pace(sec / (kBestEffortDistances.firstWhere((d) => d.$1 == label).$2 / kMetersPerKm))} /km',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              ),
+              if (tag.isNotEmpty)
+                Text(
+                  rank == 1 && prev != null
+                      ? '$tag · ${_effortTime(prev - sec)} faster'
+                      : tag,
+                  style: F.cap.copyWith(
                     color: rank == 1 ? p.on(col) : p.ink3,
-                    fontWeight: FontWeight.w600)),
-        ]),
-      ));
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
     }
     if (rows.isEmpty) return const SizedBox.shrink();
     return Section('Best efforts', Surface(child: Column(children: rows)));
@@ -599,11 +695,16 @@ class RunVerdictCard extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     return Surface(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(LucideIcons.sparkles, size: 18, color: p.on(C.run)),
-        const SizedBox(width: S.x3),
-        Expanded(child: Text(text, style: F.body.copyWith(color: p.ink))),
-      ]),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(LucideIcons.sparkles, size: 18, color: p.on(C.run)),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Text(text, style: F.body.copyWith(color: p.ink)),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -625,57 +726,87 @@ class RunSplitsCard extends StatelessWidget {
     final fastest = rows.map((x) => x.$2).reduce(math.min);
     final slowest = rows.map((x) => x.$2).reduce(math.max);
     return Surface(
-      child: Column(children: [
-        Row(children: [
-          SizedBox(width: 36, child: Text('KM', style: F.over.copyWith(color: p.ink3))),
-          SizedBox(width: 56, child: Text('PACE', style: F.over.copyWith(color: p.ink3))),
-          const Spacer(),
-          Text('HR', style: F.over.copyWith(color: p.ink3)),
-        ]),
-        const SizedBox(height: S.x2),
-        for (var i = 0; i < rows.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: S.x2),
-            child: Row(children: [
+      child: Column(
+        children: [
+          Row(
+            children: [
               SizedBox(
-                  width: 36,
-                  child: Text(
-                      rows[i].$1 >= 0.99 ? '${i + 1}' : rows[i].$1.toStringAsFixed(1),
-                      style: F.cap.copyWith(color: p.ink2))),
-              SizedBox(
-                  width: 56,
-                  child: Text(pace(rows[i].$2),
-                      style: F.body.copyWith(
-                          color: rows[i].$2 == fastest ? p.on(C.run) : p.ink,
-                          fontWeight: FontWeight.w600))),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: R.rPill,
-                  child: SizedBox(
-                    height: 8,
-                    child: Stack(children: [
-                      Positioned.fill(child: ColoredBox(color: p.track)),
-                      FractionallySizedBox(
-                        // Faster is longer, scaled so the slowest still shows.
-                        widthFactor: slowest == fastest
-                            ? 1.0
-                            : (0.35 + 0.65 * (slowest - rows[i].$2) / (slowest - fastest))
-                                .clamp(0.0, 1.0),
-                        child: ColoredBox(
-                            color: p.on(C.run), child: const SizedBox.expand()),
-                      ),
-                    ]),
-                  ),
-                ),
+                width: 36,
+                child: Text('KM', style: F.over.copyWith(color: p.ink3)),
               ),
               SizedBox(
-                  width: 44,
-                  child: Text(rows[i].$3 == null ? '' : '${rows[i].$3}',
-                      textAlign: TextAlign.right,
-                      style: F.cap.copyWith(color: p.ink2))),
-            ]),
+                width: 56,
+                child: Text('PACE', style: F.over.copyWith(color: p.ink3)),
+              ),
+              const Spacer(),
+              Text('HR', style: F.over.copyWith(color: p.ink3)),
+            ],
           ),
-      ]),
+          const SizedBox(height: S.x2),
+          for (var i = 0; i < rows.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x2),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 36,
+                    child: Text(
+                      rows[i].$1 >= 0.99
+                          ? '${i + 1}'
+                          : rows[i].$1.toStringAsFixed(1),
+                      style: F.cap.copyWith(color: p.ink2),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 56,
+                    child: Text(
+                      pace(rows[i].$2),
+                      style: F.body.copyWith(
+                        color: rows[i].$2 == fastest ? p.on(C.run) : p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: R.rPill,
+                      child: SizedBox(
+                        height: 8,
+                        child: Stack(
+                          children: [
+                            Positioned.fill(child: ColoredBox(color: p.track)),
+                            FractionallySizedBox(
+                              // Faster is longer, scaled so the slowest still shows.
+                              widthFactor: slowest == fastest
+                                  ? 1.0
+                                  : (0.35 +
+                                            0.65 *
+                                                (slowest - rows[i].$2) /
+                                                (slowest - fastest))
+                                        .clamp(0.0, 1.0),
+                              child: ColoredBox(
+                                color: p.on(C.run),
+                                child: const SizedBox.expand(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      rows[i].$3 == null ? '' : '${rows[i].$3}',
+                      textAlign: TextAlign.right,
+                      style: F.cap.copyWith(color: p.ink2),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -685,7 +816,12 @@ class RunSplitsCard extends StatelessWidget {
 /// Pace, heart rate and elevation over the run, under one finger: drag across
 /// any of them and all three, plus the map dot, follow.
 class RunCharts extends StatelessWidget {
-  const RunCharts(this.v, {super.key, required this.cursor, required this.onCursor});
+  const RunCharts(
+    this.v, {
+    super.key,
+    required this.cursor,
+    required this.onCursor,
+  });
 
   final RunView v;
   final double? cursor;
@@ -716,8 +852,13 @@ class RunCharts extends StatelessWidget {
     final hrV = v.hrBins(_bins);
     final elV = v.elevationBins(_bins);
     final cadV = v.cadenceBins(_bins);
-    Widget chart(String title, String unit, List<double?> d, Color col,
-        String Function(double) fmt) {
+    Widget chart(
+      String title,
+      String unit,
+      List<double?> d,
+      Color col,
+      String Function(double) fmt,
+    ) {
       final vals = [for (final x in d) ?x];
       final axis = AxisSpec.of(vals, ticks: 3, format: fmt);
       if (axis == null || vals.length < 2) return const SizedBox.shrink();
@@ -729,52 +870,71 @@ class RunCharts extends StatelessWidget {
           height: 96,
           yAxis: axis,
           series: d,
-          child: Stack(children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: LineChart(d, col, axis: axis, t: animate(c, 1)),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: LineChart(d, col, axis: axis, t: animate(c, 1)),
+                ),
               ),
-            ),
-            if (cursor != null)
-              Align(
-                alignment: Alignment(cursor! * 2 - 1, 0),
-                child: SizedBox(
+              if (cursor != null)
+                Align(
+                  alignment: Alignment(cursor! * 2 - 1, 0),
+                  child: SizedBox(
                     width: 1.5,
                     height: double.infinity,
-                    child: ColoredBox(color: p.ink)),
-              ),
-          ]),
+                    child: ColoredBox(color: p.ink),
+                  ),
+                ),
+            ],
+          ),
         ),
       );
     }
 
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text(cursor == null ? 'Touch and drag to read any moment' : _describe(cursor!),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            cursor == null
+                ? 'Touch and drag to read any moment'
+                : _describe(cursor!),
             style: cursor == null
                 ? F.cap.copyWith(color: p.ink3)
-                : F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-        const SizedBox(height: S.x3),
-        Scrubber(
-          value: cursor,
-          onChanged: onCursor,
-          label: 'Pace, heart rate and elevation through the run',
-          describe: _describe,
-          step: 1 / 100,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
-            chart('Heart rate', 'bpm', hrV, p.on(C.heart), axisInt),
-            // From the phone, a minute at a time. Around 160+ a minute is the
-            // usual running-economy cue.
-            chart('Cadence', 'steps/min', cadV, p.on(C.steps), axisInt),
-            chart('Elevation', 'm', elV, p.on(C.teal), axisInt),
-          ]),
-        ),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text('Start', style: F.over.copyWith(color: p.ink3)),
-          Text(clock(v.spanSec.round()), style: F.over.copyWith(color: p.ink3)),
-        ]),
-      ]),
+                : F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: S.x3),
+          Scrubber(
+            value: cursor,
+            onChanged: onCursor,
+            label: 'Pace, heart rate and elevation through the run',
+            describe: _describe,
+            step: 1 / 100,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
+                chart('Heart rate', 'bpm', hrV, p.on(C.heart), axisInt),
+                // From the phone, a minute at a time. Around 160+ a minute is the
+                // usual running-economy cue.
+                chart('Cadence', 'steps/min', cadV, p.on(C.steps), axisInt),
+                chart('Elevation', 'm', elV, p.on(C.teal), axisInt),
+              ],
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Start', style: F.over.copyWith(color: p.ink3)),
+              Text(
+                clock(v.spanSec.round()),
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -801,45 +961,65 @@ class PaceZonesCard extends StatelessWidget {
     return Section(
       'Pace zones',
       Surface(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Based on your predicted 5K pace of ${pace(fiveKPace)} /km',
-              style: F.cap.copyWith(color: p.ink3)),
-          const SizedBox(height: S.x3),
-          for (var z = 5; z >= 0; z--)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: S.x2),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(kPaceZoneNames[z],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: F.cap.copyWith(color: p.ink2)),
-                  ),
-                  Text(range(z), style: F.over.copyWith(color: p.ink3)),
-                  const SizedBox(width: S.x3),
-                  Text('${(shares[z] * 100).round()}%',
-                      style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                ]),
-                const SizedBox(height: S.x1),
-                ClipRRect(
-                  borderRadius: R.rPill,
-                  child: SizedBox(
-                    height: 8,
-                    child: Stack(children: [
-                      Positioned.fill(child: ColoredBox(color: p.track)),
-                      FractionallySizedBox(
-                        widthFactor: shares[z].clamp(0.0, 1.0),
-                        child: ColoredBox(
-                            color: p.on(C.run),
-                            child: const SizedBox.expand()),
-                      ),
-                    ]),
-                  ),
-                ),
-              ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Based on your predicted 5K pace of ${pace(fiveKPace)} /km',
+              style: F.cap.copyWith(color: p.ink3),
             ),
-        ]),
+            const SizedBox(height: S.x3),
+            for (var z = 5; z >= 0; z--)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: S.x2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            kPaceZoneNames[z],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: F.cap.copyWith(color: p.ink2),
+                          ),
+                        ),
+                        Text(range(z), style: F.over.copyWith(color: p.ink3)),
+                        const SizedBox(width: S.x3),
+                        Text(
+                          '${(shares[z] * 100).round()}%',
+                          style: F.cap.copyWith(
+                            color: p.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: S.x1),
+                    ClipRRect(
+                      borderRadius: R.rPill,
+                      child: SizedBox(
+                        height: 8,
+                        child: Stack(
+                          children: [
+                            Positioned.fill(child: ColoredBox(color: p.track)),
+                            FractionallySizedBox(
+                              widthFactor: shares[z].clamp(0.0, 1.0),
+                              child: ColoredBox(
+                                color: p.on(C.run),
+                                child: const SizedBox.expand(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

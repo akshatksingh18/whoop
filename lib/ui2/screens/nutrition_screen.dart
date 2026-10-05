@@ -17,7 +17,9 @@ import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
 import '../../data/day_label.dart';
-import '../../compute/profile.dart' show Profile, maintenance;
+import '../../compute/profile.dart' show Profile;
+import '../../compute/day_upkeep.dart';
+export '../../compute/day_upkeep.dart' show DayUpkeep;
 import '../../data/local_repository.dart';
 import '../../data/nutrition_store.dart';
 import '../../gps/run_history.dart';
@@ -26,7 +28,7 @@ import '../ui2.dart';
 import 'food_diary.dart';
 import 'food_picker.dart';
 import 'home_screen.dart'
-    show metricOf, pointsOf, prettyDay, pullToRefresh, repoOf, thousands;
+    show metricOf, prettyDay, pullToRefresh, repoOf, thousands;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
 
@@ -63,7 +65,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   List<MealTemplate> _meals = const [];
 
   /// Steps per day for the month, for each day's maintenance figure.
-  Map<String, num> _steps = const {};
+  Map<String, double?> _maintenance = const {};
   List<RunSummary> _runs = const [];
   List<({String date, double kg})> _weights = const [];
   bool _loading = true;
@@ -86,38 +88,56 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 
   Future<void> _load() async {
     final t = beginRead(#nutrition);
+    final repo = repoOf(context);
+    final pr = Profile.fromMap(context.read<AppState>().user);
     try {
-    final db = await LocalDb.instance;
-    final month = await NutritionDb.window(db, days: 31);
+      final db = await LocalDb.instance;
+      final month = await NutritionDb.window(db, days: 31);
       final months = await NutritionDb.historyMonths(db);
-    final now = DateTime.now();
-    final weights = await BodyWeight.since(
-        db, dayLabelOf(DateTime(now.year, now.month, now.day - 60)));
-    final foods = await MyFoods.all(db);
-    final meals = await MyFoods.meals(db);
-    final steps = mounted ? await _monthSteps(context) : const <String, num>{};
-    final runs = mounted ? await _allRuns(repoOf(context)) : const <RunSummary>[];
-    if (!stillNewest(#nutrition, t)) return;
-    setState(() {
-      _month = month;
+      final now = DateTime.now();
+      final weights = await BodyWeight.since(
+        db,
+        dayLabelOf(DateTime(now.year, now.month, now.day - 60)),
+      );
+      final foods = await MyFoods.all(db);
+      final meals = await MyFoods.meals(db);
+      final maintenance = <String, double?>{};
+      final runs = await _allRuns(repo);
+      if (repo != null) {
+        for (final d in month.days) {
+          if (!stillNewest(#nutrition, t)) return;
+          maintenance[d.date] = (await DayUpkeep.read(
+            repo,
+            d.date,
+            pr,
+            eaten: d.kcal.value ?? 0,
+            runs: runs,
+          )).parts?.total;
+        }
+      }
+      if (!stillNewest(#nutrition, t)) return;
+      setState(() {
+        _month = month;
         _historyMonths = months;
-      _foods = foods;
-      _meals = meals;
-      _steps = steps;
-      _runs = runs;
-      _weights = weights;
-      _loading = false;
+        _foods = foods;
+        _meals = meals;
+        _maintenance = maintenance;
+        _runs = runs;
+        _weights = weights;
+        _loading = false;
         _failed = false;
-    });
-    // Counted when the read has LANDED, so a test waiting on it also waits
-    // for the database it opened.
-    NutritionScreen.debugLoads++;
-    } catch (_) {
-      if (stillNewest(#nutrition, t))
+      });
+      // Counted when the read has LANDED, so a test waiting on it also waits
+      // for the database it opened.
+      NutritionScreen.debugLoads++;
+    } catch (error, stack) {
+      debugPrint('[food] load failed: $error\n$stack');
+      if (stillNewest(#nutrition, t)) {
         setState(() {
           _loading = false;
           _failed = true;
         });
+      }
     }
   }
 
@@ -130,28 +150,29 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         await _load();
       }),
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
-      children: [
-        ScreenTitle(
-          'Food',
-          trailing: Pressable(
-            semanticLabel: 'Goals',
-            onTap: () async {
-              if (await editNutritionGoals(c)) await _load();
-            },
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+        children: [
+          ScreenTitle(
+            'Food',
+            trailing: Pressable(
+              semanticLabel: 'Goals',
+              onTap: () async {
+                if (await editNutritionGoals(c)) await _load();
+              },
               child: Icon(
                 LucideIcons.target,
                 size: 22,
                 color: P.of(c).on(C.domFood),
-          ),
-        ),
+              ),
+            ),
           ),
           SubTabs(
             const ['Today', 'History', 'Foods'],
             _tab,
             (i) => setState(() => _tab = i),
-            color: C.domFood),
-        const SizedBox(height: S.x5),
+            color: C.domFood,
+          ),
+          const SizedBox(height: S.x5),
           if (_failed)
             StatusCard(
               'Food could not load',
@@ -160,15 +181,15 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
               onFix: _load,
             )
           else if (_loading)
-          const Center(child: CircularProgressIndicator())
-        else
-          switch (_tab) {
-            0 => _today(c),
-            1 => _history(c),
-            _ => _foodsTab(c),
-          },
-      ],
-    ),
+            const Center(child: CircularProgressIndicator())
+          else
+            switch (_tab) {
+              0 => _today(c),
+              1 => _history(c),
+              _ => _foodsTab(c),
+            },
+        ],
+      ),
     );
   }
 
@@ -185,12 +206,18 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       label: 'Day',
       onPrevious: () => go(shiftDay(day, -1)),
       onNext: day == _date ? null : () => go(shiftDay(day, 1)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        DayHeader(day, go),
-        const SizedBox(height: S.x3),
-        NutritionDayView(
-            key: ValueKey('$day#$_dayKey'), date: day, onChanged: _load),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DayHeader(day, go),
+          const SizedBox(height: S.x3),
+          NutritionDayView(
+            key: ValueKey('$day#$_dayKey'),
+            date: day,
+            onChanged: _load,
+          ),
+        ],
+      ),
     );
   }
 
@@ -205,20 +232,14 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final pr = Profile.fromMap(profile);
     final days = [...?_month?.days]; // oldest first
     if (days.isEmpty) return const SizedBox.shrink();
-    double? maint(NutritionDay d) => DayUpkeep(
-          pr,
-          steps: _steps[d.date],
-          runs: runEnergyOn(_runs, d.date,
-              weightKg: pr.weightKg, daySteps: _steps[d.date]),
-          eaten: d.kcal.value ?? 0,
-        ).parts?.total;
-    final m = [for (final d in days) maint(d)];
+    final m = [for (final d in days) _maintenance[d.date]];
     final eaten = [for (final d in days) d.logged ? d.kcal.value : null];
 
     // This week, Monday to today, over the days with food logged.
     final today = DateTime.now();
-    final monday =
-        dayLabelOf(DateTime(today.year, today.month, today.day - (today.weekday - 1)));
+    final monday = dayLabelOf(
+      DateTime(today.year, today.month, today.day - (today.weekday - 1)),
+    );
     var deficit = 0.0, eatSum = 0.0, mSum = 0.0;
     var counted = 0;
     for (var i = 0; i < days.length; i++) {
@@ -231,8 +252,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       counted++;
     }
 
-    final all = [for (final v in [...m, ...eaten]) ?v];
-    final axis = all.isEmpty ? null : AxisSpec.of(all, floor: 0, ticks: 3, format: (v) => thousands(v));
+    final all = [
+      for (final v in [...m, ...eaten]) ?v,
+    ];
+    final axis = all.isEmpty
+        ? null
+        : AxisSpec.of(all, floor: 0, ticks: 3, format: (v) => thousands(v));
     String says(int i) {
       final d = days[i];
       final mm = m[i], e = eaten[i];
@@ -240,58 +265,78 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     }
 
     final pick = _histPick;
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _weightCard(c, p, pr, days),
-      const SizedBox(height: S.x3),
-      if (counted > 0)
-        Surface(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('This week', style: F.over.copyWith(color: p.ink3)),
-            const SizedBox(height: S.x2),
-            InlineMetrics([
-              (deficit >= 0 ? 'DEFICIT' : 'SURPLUS', thousands(deficit.abs()),
-                  deficit >= 0 ? C.green : C.red),
-              ('AVG EATEN', thousands(eatSum / counted), C.domFood),
-              ('AVG MAINT.', thousands(mSum / counted), C.steps),
-            ]),
-            const SizedBox(height: S.x2),
-            Text(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _weightCard(c, p, pr, days),
+        const SizedBox(height: S.x3),
+        if (counted > 0)
+          Surface(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('This week', style: F.over.copyWith(color: p.ink3)),
+                const SizedBox(height: S.x2),
+                InlineMetrics([
+                  (
+                    deficit >= 0 ? 'DEFICIT' : 'SURPLUS',
+                    thousands(deficit.abs()),
+                    deficit >= 0 ? C.green : C.red,
+                  ),
+                  ('AVG EATEN', thousands(eatSum / counted), C.domFood),
+                  ('AVG MAINT.', thousands(mSum / counted), C.steps),
+                ]),
+                const SizedBox(height: S.x2),
+                Text(
                   '$counted completed day${counted == 1 ? '' : 's'} · maintenance floor. '
                   'Today and detectably incomplete logs are excluded.',
                   style: F.cap.copyWith(color: p.ink3),
                 ),
               ],
             ),
-        ),
-      if (axis != null) ...[
-        const SizedBox(height: S.x3),
-        Surface(
-          child: ChartFrame(
-            title: 'Maintenance and eaten',
-            unit: 'kcal',
+          ),
+        if (axis != null) ...[
+          const SizedBox(height: S.x3),
+          Surface(
+            child: ChartFrame(
+              title: 'Maintenance and eaten',
+              unit: 'kcal',
               footnote: 'Last 31 days · tap or drag for daily values',
-            height: 130,
-            yAxis: axis,
-            series: eaten,
-            readout: pick == null ? null : says(pick),
-            legend: [('Maintenance', p.on(C.steps)), ('Eaten', p.on(C.domFood))],
-            xLabels: const ['30 days ago', 'Today'],
-            child: Scrubber(
-              value: pick == null ? null : (pick + .5) / days.length,
-              step: 1 / days.length,
-              label: 'Maintenance and eaten by day',
-              describe: (v) => says((v * days.length).floor().clamp(0, days.length - 1)),
-              onChanged: (v) => setState(() =>
-                  _histPick = (v * days.length).floor().clamp(0, days.length - 1)),
-              child: Stack(children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: Bars(m, p.on(C.steps).withValues(alpha: .45),
-                        axis: axis, cursor: pick),
+              height: 130,
+              yAxis: axis,
+              series: eaten,
+              readout: pick == null ? null : says(pick),
+              legend: [
+                ('Maintenance', p.on(C.steps)),
+                ('Eaten', p.on(C.domFood)),
+              ],
+              xLabels: const ['30 days ago', 'Today'],
+              child: Scrubber(
+                value: pick == null ? null : (pick + .5) / days.length,
+                step: 1 / days.length,
+                label: 'Maintenance and eaten by day',
+                describe: (v) =>
+                    says((v * days.length).floor().clamp(0, days.length - 1)),
+                onChanged: (v) => setState(
+                  () => _histPick = (v * days.length).floor().clamp(
+                    0,
+                    days.length - 1,
                   ),
                 ),
-                Positioned.fill(
-                  child: CustomPaint(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: Bars(
+                          m,
+                          p.on(C.steps).withValues(alpha: .45),
+                          axis: axis,
+                          cursor: pick,
+                        ),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: CustomPaint(
                         painter: LineChart(
                           eaten,
                           p.on(C.domFood),
@@ -299,20 +344,20 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                           dots: true,
                           axis: axis,
                           dotInk: p.card,
-                  ),
-                ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
+              ),
             ),
           ),
-        ),
-      ],
-      const SizedBox(height: S.x3),
+        ],
+        const SizedBox(height: S.x3),
         Text(
           'By month',
           style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-            ),
+        ),
         const SizedBox(height: S.x2),
         for (final month in _historyMonths)
           _FoodHistoryMonth(
@@ -321,7 +366,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             profile: profile,
             runs: _runs,
             onChanged: _load,
-      ),
+          ),
         const SizedBox(height: S.x2),
         Text(
           'Completed = a past day with calories on every entry and an entry after 5 pm. '
@@ -337,71 +382,95 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 
   /// Body weight: the latest reading, the 7-day trend, a Log button, and
   /// maintenance measured from weight change and food once there is enough.
-  Widget _weightCard(
-      BuildContext c, P p, Profile pr, List<NutritionDay> days) {
+  Widget _weightCard(BuildContext c, P p, Profile pr, List<NutritionDay> days) {
     final w = _weights;
     final trend = weightTrend(w);
     final now = DateTime.now();
     final since = dayLabelOf(DateTime(now.year, now.month, now.day - 27));
-    final recent = [for (final x in w) if (x.date.compareTo(since) >= 0) x];
-    final eaten = [
-      for (final d in days)
-        if (d.date.compareTo(since) >= 0 && d.countsTowardAverages) d.kcal.value!,
+    final recent = [
+      for (final x in w)
+        if (x.date.compareTo(since) >= 0) x,
     ];
-    final measured = measuredMaintenance(recent, eaten);
+    final measured = estimatedMaintenance(recent, days);
+    final coverage = maintenanceFoodCoverage(recent, days);
     final series = [for (final t in trend) t.kg];
-    final axis = series.length < 2 ? null : AxisSpec.of(series, ticks: 2, format: axisFixed);
+    final axis = series.length < 2
+        ? null
+        : AxisSpec.of(series, ticks: 2, format: axisFixed);
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Weight', style: F.over.copyWith(color: p.ink3)),
-              Text(
-                  w.isEmpty
-                      ? (pr.weightKg == null ? '–' : '${pr.weightKg!.toStringAsFixed(1)} kg')
-                      : '${w.last.kg.toStringAsFixed(1)} kg',
-                  style: F.n24.copyWith(color: p.ink)),
-              if (trend.length >= 2)
-                Text('7-day trend ${trend.last.kg.toStringAsFixed(1)} kg',
-                    style: F.cap.copyWith(color: p.ink3)),
-            ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Weight', style: F.over.copyWith(color: p.ink3)),
+                    Text(
+                      w.isEmpty
+                          ? (pr.weightKg == null
+                                ? '–'
+                                : '${pr.weightKg!.toStringAsFixed(1)} kg')
+                          : '${w.last.kg.toStringAsFixed(1)} kg',
+                      style: F.n24.copyWith(color: p.ink),
+                    ),
+                    if (trend.length >= 2)
+                      Text(
+                        '7-day trend ${trend.last.kg.toStringAsFixed(1)} kg',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                  ],
+                ),
+              ),
+              Pressable(
+                semanticLabel: 'Log weight',
+                onTap: () => _logWeight(c),
+                child: Pill('Log weight', C.domFood, icon: LucideIcons.plus),
+              ),
+            ],
           ),
-          Pressable(
-            semanticLabel: 'Log weight',
-            onTap: () => _logWeight(c),
-            child: Pill('Log weight', C.domFood, icon: LucideIcons.plus),
-          ),
-        ]),
-        if (axis != null) ...[
-          const SizedBox(height: S.x3),
-          SizedBox(
-            height: 48,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: LineChart(series, p.on(C.domFood), fill: false, axis: axis),
+          if (axis != null) ...[
+            const SizedBox(height: S.x3),
+            SizedBox(
+              height: 48,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: LineChart(
+                  series,
+                  p.on(C.domFood),
+                  fill: false,
+                  axis: axis,
+                ),
+              ),
             ),
+          ],
+          const SizedBox(height: S.x3),
+          Text(
+            measured == null
+                ? (coverage.days == 0
+                      ? 'Log morning weight and complete food days. At least 14 days and 8 weigh-ins are needed.'
+                      : '${coverage.complete}/${coverage.days} aligned food days complete. At least 14 days and 8 weigh-ins are needed.')
+                : 'Estimated maintenance from food and weight: about ${thousands(measured.kcal)} kcal · '
+                      '${measured.kgPerWeek <= 0 ? 'losing' : 'gaining'} '
+                      '${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week '
+                      '(${measured.days} days, ${measured.weighIns} weigh-ins)',
+            style: F.cap.copyWith(color: measured == null ? p.ink3 : p.ink2),
           ),
         ],
-        const SizedBox(height: S.x3),
-        Text(
-            measured == null
-                ? 'Log morning weight and full food days. After two weeks, '
-                      'your weight trend can estimate maintenance.'
-                : 'Measured maintenance about ${thousands(measured.kcal)} kcal · '
-                    '${measured.kgPerWeek <= 0 ? 'losing' : 'gaining'} '
-                    '${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week '
-                    '(${measured.days} days, ${measured.weighIns} weigh-ins)',
-            style: F.cap.copyWith(color: measured == null ? p.ink3 : p.ink2)),
-      ]),
+      ),
     );
   }
 
   Future<void> _logWeight(BuildContext c) async {
     final app = c.read<AppState>();
-    final kg = await askText(c, 'Log weight', 'Weight (kg)',
-        (_weights.isEmpty ? Profile.fromMap(app.user).weightKg : _weights.last.kg)
-                ?.toStringAsFixed(1) ??
+    final kg = await askText(
+      c,
+      'Log weight',
+      'Weight (kg)',
+      (_weights.isEmpty ? Profile.fromMap(app.user).weightKg : _weights.last.kg)
+              ?.toStringAsFixed(1) ??
           '',
       validate: (s) {
         final v = Typed.of(s).value;
@@ -414,19 +483,20 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final v = kg == null ? null : Typed.of(kg).value;
     if (v == null || v < 30 || v > 300) return;
     try {
-    await BodyWeight.put(await LocalDb.instance, todayLabel(), v);
-    // The profile weight follows the scale, so resting energy and every
-    // calorie figure use the current weight.
-    await app.updateProfile({'weight_kg': v});
+      await BodyWeight.put(await LocalDb.instance, todayLabel(), v);
+      // The profile weight follows the scale, so resting energy and every
+      // calorie figure use the current weight.
+      await app.updateProfile({'weight_kg': v});
       app.bumpInsights();
-    await _load();
+      await _load();
     } catch (_) {
-      if (c.mounted)
+      if (c.mounted) {
         ScaffoldMessenger.maybeOf(c)?.showSnackBar(
           const SnackBar(
             content: Text('Weight was not saved. Please try again.'),
           ),
         );
+      }
     }
   }
 
@@ -439,63 +509,79 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         await f();
         if (mounted) await _load();
       } catch (_) {
-        if (c.mounted) ScaffoldMessenger.maybeOf(c)?.showSnackBar(
-          const SnackBar(content: Text('Could not change your saved food. Please try again.')));
+        if (c.mounted) {
+          ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not change your saved food. Please try again.',
+              ),
+            ),
+          );
+        }
       }
     }
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Section(
-        'Saved meals',
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: _meals.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(vertical: S.x4),
-                  child: Text(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Section(
+          'Saved meals',
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: _meals.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x4),
+                    child: Text(
                       'A saved meal is your usual breakfast or lunch, logged in '
                       'one tap.',
-                      style: F.cap.copyWith(color: p.ink3)),
-                )
-              : Column(children: [
-                  for (final m in _meals)
-                    PickRow(
-                      m.label,
-                      '${mealName(m.meal)} · ${m.items.length} '
-                      'food${m.items.length == 1 ? '' : 's'}',
-                      trailing: LucideIcons.chevronRight,
-                      onTap: () => edit(() => _mealActions(c, m)),
+                      style: F.cap.copyWith(color: p.ink3),
                     ),
-                ]),
+                  )
+                : Column(
+                    children: [
+                      for (final m in _meals)
+                        PickRow(
+                          m.label,
+                          '${mealName(m.meal)} · ${m.items.length} '
+                          'food${m.items.length == 1 ? '' : 's'}',
+                          trailing: LucideIcons.chevronRight,
+                          onTap: () => edit(() => _mealActions(c, m)),
+                        ),
+                    ],
+                  ),
+          ),
+          action: 'New',
+          onAction: () => edit(() => MealEditor.show(c)),
         ),
-        action: 'New',
-        onAction: () => edit(() => MealEditor.show(c)),
-      ),
-      Section(
-        'My foods',
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: _foods.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(vertical: S.x4),
-                  child: Text(
-                      'Add a food once from its label; log it by weight after.',
-                      style: F.cap.copyWith(color: p.ink3)),
-                )
-              : Column(children: [
-                  for (final f in _foods)
-                    PickRow(
-                      (f['label'] ?? '').toString(),
-                      'per 100 g: ${macroLine(kcal: (f['kcal_100'] as num?)?.toDouble(), protein: (f['protein_g_100'] as num?)?.toDouble(), carbs: (f['carbs_g_100'] as num?)?.toDouble(), fat: (f['fat_g_100'] as num?)?.toDouble(), fibre: (f['fibre_g_100'] as num?)?.toDouble())}',
-                      trailing: LucideIcons.chevronRight,
-                      onTap: () => edit(() => _foodActions(c, f)),
+        Section(
+          'My foods',
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: _foods.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x4),
+                    child: Text(
+                      'Add a food once from its label; log any amount after.',
+                      style: F.cap.copyWith(color: p.ink3),
                     ),
-                ]),
+                  )
+                : Column(
+                    children: [
+                      for (final f in _foods)
+                        PickRow(
+                          (f['label'] ?? '').toString(),
+                          foodServingLine(f),
+                          trailing: LucideIcons.chevronRight,
+                          onTap: () => edit(() => _foodActions(c, f)),
+                        ),
+                    ],
+                  ),
+          ),
+          action: 'New',
+          onAction: () => edit(() => FoodEditor.show(c)),
         ),
-        action: 'New',
-        onAction: () => edit(() => FoodEditor.show(c)),
-      ),
-    ]);
+      ],
+    );
   }
 
   Future<void> _mealActions(BuildContext c, MealTemplate m) async {
@@ -504,9 +590,11 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     if (choice == 'edit') {
       await MealEditor.show(c, existing: m);
     } else if (choice == 'delete' &&
-        await confirmRemove(c,
-            title: 'Delete ${m.label}?',
-            body: 'Days you already logged keep their entries.')) {
+        await confirmRemove(
+          c,
+          title: 'Delete ${m.label}?',
+          body: 'Days you already logged keep their entries.',
+        )) {
       await MyFoods.deleteMeal(await LocalDb.instance, m.key);
     }
   }
@@ -518,10 +606,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     if (choice == 'edit') {
       await FoodEditor.show(c, existing: f);
     } else if (choice == 'delete' &&
-        await confirmRemove(c,
-            title: 'Delete $label?',
-            body: 'Days you already logged keep their entries; saved meals '
-                'that use it skip it.')) {
+        await confirmRemove(
+          c,
+          title: 'Delete $label?',
+          body:
+              'Days you already logged keep their entries; saved meals '
+              'that use it skip it.',
+        )) {
       await MyFoods.deleteFood(await LocalDb.instance, f['key'] as String);
     }
   }
@@ -537,19 +628,25 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         builder: (s) => Padding(
           padding: const EdgeInsets.all(S.x5),
           child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(title, style: F.head.copyWith(color: P.of(s).ink)),
-                const SizedBox(height: S.x4),
-                BigButton('Edit',
-                    color: C.domFood, onTap: () => Navigator.of(s).pop('edit')),
-                const SizedBox(height: S.x3),
-                BigButton('Delete',
-                    color: C.red,
-                    soft: true,
-                    onTap: () => Navigator.of(s).pop('delete')),
-              ]),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x4),
+              BigButton(
+                'Edit',
+                color: C.domFood,
+                onTap: () => Navigator.of(s).pop('edit'),
+              ),
+              const SizedBox(height: S.x3),
+              BigButton(
+                'Delete',
+                color: C.red,
+                soft: true,
+                onTap: () => Navigator.of(s).pop('delete'),
+              ),
+            ],
+          ),
         ),
       );
 }
@@ -571,8 +668,7 @@ class NutritionDayView extends StatefulWidget {
 class _NutritionDayViewState extends State<NutritionDayView>
     with RevisionReload {
   NutritionDay? _day;
-  num? _steps;
-  List<RunSummary> _runs = const [];
+  DayUpkeep? _upkeep;
   bool _failed = false;
 
   @override
@@ -596,20 +692,21 @@ class _NutritionDayViewState extends State<NutritionDayView>
   Future<void> _load() async {
     final t = beginRead(#foodDay);
     final date = widget.date;
+    final repo = repoOf(context);
+    final pr = Profile.fromMap(context.read<AppState>().user);
     try {
-    final db = await LocalDb.instance;
+      final db = await LocalDb.instance;
       final es = await NutritionDb.entriesForDay(db, date);
-      final steps = mounted ? await stepsOn(context, date) : null;
-      final runs = mounted
-          ? await _allRuns(repoOf(context))
-          : const <RunSummary>[];
+      final d = rollupDay(date, es, today: todayLabel());
+      final upkeep = repo == null
+          ? null
+          : await DayUpkeep.read(repo, date, pr, eaten: d.kcal.value ?? 0);
       if (stillNewest(#foodDay, t)) {
-      setState(() {
-          _day = rollupDay(date, es, today: todayLabel());
-        _steps = steps;
-        _runs = runs;
+        setState(() {
+          _day = d;
+          _upkeep = upkeep;
           _failed = false;
-      });
+        });
       }
     } catch (_) {
       if (stillNewest(#foodDay, t)) setState(() => _failed = true);
@@ -636,43 +733,45 @@ class _NutritionDayViewState extends State<NutritionDayView>
   Widget build(BuildContext c) {
     final profile = c.watch<AppState>().user ?? const {};
     final d = _day;
-    if (_failed)
+    if (_failed) {
       return StatusCard(
         'Day could not load',
         'Try reading your saved food again.',
         fix: 'Retry',
         onFix: _load,
       );
+    }
     if (d == null) return const Center(child: CircularProgressIndicator());
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      CalorieCard(
-          eaten: d.kcal.value, goal: _targetOf(profile, 'kcal_target')),
-      const SizedBox(height: S.x3),
-      MaintenanceCard(
-          DayUpkeep(
-            Profile.fromMap(profile),
-            steps: _steps,
-            runs: runEnergyOn(_runs, widget.date,
-                weightKg: Profile.fromMap(profile).weightKg, daySteps: _steps),
-            eaten: d.kcal.value ?? 0,
-          ),
-          today: widget.date == todayLabel()),
-      const SizedBox(height: S.x3),
-      MacroCard(day: d, profile: profile),
-      if (_proteinLeft(d, profile) case final line?) ...[
-        const SizedBox(height: S.x2),
-        Text(line,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        CalorieCard(
+          eaten: d.kcal.value,
+          goal: _targetOf(profile, 'kcal_target'),
+        ),
+        const SizedBox(height: S.x3),
+        if (_upkeep != null)
+          MaintenanceCard(_upkeep!, today: widget.date == todayLabel()),
+        const SizedBox(height: S.x3),
+        MacroCard(day: d, profile: profile),
+        if (_proteinLeft(d, profile) case final line?) ...[
+          const SizedBox(height: S.x2),
+          Text(
+            line,
             textAlign: TextAlign.center,
-            style: F.cap.copyWith(color: P.of(c).on(C.red))),
-      ],
-      const SizedBox(height: S.x2),
-      for (final m in kMeals)
-        MealCard(
+            style: F.cap.copyWith(color: P.of(c).on(C.red)),
+          ),
+        ],
+        const SizedBox(height: S.x2),
+        for (final m in kMeals)
+          MealCard(
             date: widget.date,
             meal: m,
             entries: d.mealEntries(m),
-            onChanged: _changed),
-    ]);
+            onChanged: _changed,
+          ),
+      ],
+    );
   }
 }
 
@@ -689,38 +788,55 @@ class CalorieCard extends StatelessWidget {
     final g = goal;
     final left = g == null ? null : g - food;
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Calories', style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-        const SizedBox(height: S.x3),
-        // Wrap, not Row: at the largest text sizes the number and its label
-        // stack instead of pushing off the card.
-        Wrap(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Calories',
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: S.x3),
+          // Wrap, not Row: at the largest text sizes the number and its label
+          // stack instead of pushing off the card.
+          Wrap(
             spacing: S.x2,
             crossAxisAlignment: WrapCrossAlignment.end,
             children: [
-          Text(
-            left == null ? '${food.round()}' : '${left.abs().round()}',
-            style: F.n34.copyWith(
-                color: left != null && left < 0 ? p.on(C.red) : p.ink),
+              Text(
+                left == null ? '${food.round()}' : '${left.abs().round()}',
+                style: F.n34.copyWith(
+                  color: left != null && left < 0 ? p.on(C.red) : p.ink,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x1),
+                child: Text(
+                  left == null
+                      ? 'kcal eaten'
+                      : (left < 0 ? 'kcal over' : 'kcal left'),
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ),
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: S.x1),
-            child: Text(
-              left == null ? 'kcal eaten' : (left < 0 ? 'kcal over' : 'kcal left'),
+          if (g != null && g > 0) ...[
+            const SizedBox(height: S.x3),
+            ProgressCard(
+              'Food',
+              '${food.round()}',
+              'of ${g.round()} kcal goal',
+              (food / g).clamp(0.0, 1.0).toDouble(),
+              C.domFood,
+            ),
+          ] else ...[
+            const SizedBox(height: S.x2),
+            Text(
+              'Set a calorie goal with the target button above.',
               style: F.cap.copyWith(color: p.ink3),
             ),
-          ),
-        ]),
-        if (g != null && g > 0) ...[
-          const SizedBox(height: S.x3),
-          ProgressCard('Food', '${food.round()}', 'of ${g.round()} kcal goal',
-              (food / g).clamp(0.0, 1.0).toDouble(), C.domFood),
-        ] else ...[
-          const SizedBox(height: S.x2),
-          Text('Set a calorie goal with the target button above.',
-              style: F.cap.copyWith(color: p.ink3)),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
@@ -735,25 +851,34 @@ class MacroCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final rows = [
-      ('Protein', day.protein.value, _targetOf(profile, 'protein_target'), C.red),
+      (
+        'Protein',
+        day.protein.value,
+        _targetOf(profile, 'protein_target'),
+        C.red,
+      ),
       ('Carbs', day.carbs.value, _targetOf(profile, 'carbs_target'), C.blue),
       ('Fat', day.fat.value, _targetOf(profile, 'fat_target'), C.yellow),
       ('Fibre', day.fibre.value, _targetOf(profile, 'fibre_target'), C.green),
-    ].where((r) => r.$1 == 'Protein' || r.$2 != null || r.$3 != null).toList();
+    ];
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) const SizedBox(height: S.x3),
-          ProgressCard(
-            rows[i].$1,
-              rows[i].$2 == null ? '—' : '${rows[i].$2!.round()} g',
-            rows[i].$3 == null ? '' : 'of ${rows[i].$3!.round()} g',
-            rows[i].$3 == null || rows[i].$3! <= 0
-                ? 0
-                : ((rows[i].$2 ?? 0) / rows[i].$3!).clamp(0.0, 1.0).toDouble(),
-            rows[i].$4,
-          ),
-        ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) const SizedBox(height: S.x3),
+            ProgressCard(
+              rows[i].$1,
+              '${(rows[i].$2 ?? 0).round()} g',
+              rows[i].$3 == null ? '' : 'of ${rows[i].$3!.round()} g',
+              rows[i].$3 == null || rows[i].$3! <= 0
+                  ? 0
+                  : ((rows[i].$2 ?? 0) / rows[i].$3!)
+                        .clamp(0.0, 1.0)
+                        .toDouble(),
+              rows[i].$4,
+            ),
+          ],
           const SizedBox(height: S.x2),
           Text(
             'Logged macros only · blank values are not tracked',
@@ -786,28 +911,38 @@ class MealSection extends StatelessWidget {
     final p = P.of(c);
     final kcal = entries.fold<double>(0, (a, e) => a + (e.kcal ?? 0));
     return Section(
-      entries.isEmpty ? mealName(meal) : '${mealName(meal)} · ${kcal.round()} kcal',
+      entries.isEmpty
+          ? mealName(meal)
+          : '${mealName(meal)} · ${kcal.round()} kcal',
       Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: entries.isEmpty
             ? Padding(
                 padding: const EdgeInsets.symmetric(vertical: S.x3),
-                child: Text('Nothing yet', style: F.cap.copyWith(color: p.ink3)),
+                child: Text(
+                  'Nothing yet',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
               )
-            : Column(children: [
-                for (final e in entries)
-                  PickRow(
-                    e.quantity == null ? e.label : '${e.label} · ${e.quantity!.round()} g',
-                    macroLine(
+            : Column(
+                children: [
+                  for (final e in entries)
+                    PickRow(
+                      e.quantity == null
+                          ? e.label
+                          : '${e.label} · ${portionText(e.quantity!, e.unit)}',
+                      macroLine(
                         kcal: e.kcal,
                         protein: e.proteinG,
                         carbs: e.carbsG,
                         fat: e.fatG,
-                        fibre: e.fibreG),
-                    trailing: LucideIcons.x,
-                    onTap: onEntry == null ? null : () => onEntry!(e),
-                  ),
-              ]),
+                        fibre: e.fibreG,
+                      ),
+                      trailing: LucideIcons.x,
+                      onTap: onEntry == null ? null : () => onEntry!(e),
+                    ),
+                ],
+              ),
       ),
       action: 'Add',
       onAction: onAdd,
@@ -863,25 +998,23 @@ class _FoodHistoryMonthState extends State<_FoodHistoryMonth>
       final maintenance = <String, double?>{};
       for (final d in win.days.where((d) => d.logged)) {
         if (!mounted || !stillNewest(#month, t)) return;
-        final steps = await stepsOn(context, d.date);
-        maintenance[d.date] = DayUpkeep(
-          pr,
-          steps: steps,
-          runs: runEnergyOn(
-            widget.runs,
+        final repo = repoOf(context);
+        if (repo != null) {
+          maintenance[d.date] = (await DayUpkeep.read(
+            repo,
             d.date,
-            weightKg: pr.weightKg,
-            daySteps: steps,
-          ),
-          eaten: d.kcal.value ?? 0,
-        ).parts?.total;
+            pr,
+            eaten: d.kcal.value ?? 0,
+          )).parts?.total;
+        }
       }
-      if (stillNewest(#month, t))
+      if (stillNewest(#month, t)) {
         setState(() {
           _window = win;
           _maintenance = maintenance;
           _failed = false;
         });
+      }
     } catch (_) {
       if (stillNewest(#month, t)) setState(() => _failed = true);
     }
@@ -973,8 +1106,12 @@ class _FoodHistoryMonthState extends State<_FoodHistoryMonth>
 }
 
 class _HistoryRow extends StatelessWidget {
-  const _HistoryRow(
-      {required this.day, required this.goal, this.maintenance, this.onTap});
+  const _HistoryRow({
+    required this.day,
+    required this.goal,
+    this.maintenance,
+    this.onTap,
+  });
 
   final NutritionDay day;
   final double? goal, maintenance;
@@ -1001,13 +1138,16 @@ class _HistoryRow extends StatelessWidget {
                 Text(prettyDay(day.date), style: F.body.copyWith(color: p.ink)),
                 Text(
                   kcal == null ? '–' : '${kcal.round()} kcal',
-                style: F.body.copyWith(
+                  style: F.body.copyWith(
                     color: g != null && kcal != null && kcal > g
                         ? p.on(C.red)
                         : p.ink,
-                    fontWeight: FontWeight.w600)),
-          ]),
-          Text(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Text(
               [
                 if (protein != null) 'Protein ${protein.round()} g',
                 if (day.state == DayLogState.inProgress) 'So far',
@@ -1038,6 +1178,7 @@ Future<bool> editNutritionGoals(BuildContext c) async {
   final saved = await showModalBottomSheet<bool>(
     context: c,
     isScrollControlled: true,
+    useSafeArea: true,
     sheetAnimationStyle: sheetMotion(c),
     backgroundColor: P.of(c).card,
     shape: const RoundedRectangleBorder(
@@ -1063,73 +1204,95 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
   @override
   void initState() {
     super.initState();
-    ctrls = {for (final t in kNutritionTargets)
-      t.$1: TextEditingController(text: _targetOf(widget.app.user ?? const {}, t.$1)?.round().toString() ?? '')};
+    ctrls = {
+      for (final t in kNutritionTargets)
+        t.$1: TextEditingController(
+          text:
+              _targetOf(
+                widget.app.user ?? const {},
+                t.$1,
+              )?.round().toString() ??
+              '',
+        ),
+    };
   }
 
   @override
   void dispose() {
-    for (final t in ctrls.values) { t.dispose(); }
+    for (final t in ctrls.values) {
+      t.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _save() async {
     if (busy) return;
-    final typed = {for (final e in ctrls.entries)
-      e.key: Typed.of(e.value.text, nonNegative: true)};
-    final bad = [for (final t in kNutritionTargets) if (typed[t.$1]!.bad) t.$2];
+    final typed = {
+      for (final e in ctrls.entries)
+        e.key: Typed.of(e.value.text, nonNegative: true),
+    };
+    final bad = [
+      for (final t in kNutritionTargets)
+        if (typed[t.$1]!.bad) t.$2,
+    ];
     if (bad.isNotEmpty) {
-      setState(() => error = '${bad.join(', ')}: enter a non-negative number, or leave blank.');
+      setState(
+        () => error =
+            '${bad.join(', ')}: enter a non-negative number, or leave blank.',
+      );
       return;
     }
-    setState(() { busy = true; error = null; });
+    setState(() {
+      busy = true;
+      error = null;
+    });
     try {
-      await widget.app.updateProfile({for (final e in typed.entries) e.key: e.value.value});
+      await widget.app.updateProfile({
+        for (final e in typed.entries) e.key: e.value.value,
+      });
       widget.app.bumpInsights();
       if (mounted) Navigator.of(context).pop(true);
     } catch (_) {
-      if (mounted) setState(() {
-        busy = false;
-        error = 'Targets could not save. Your values are still here; try again.';
-      });
+      if (mounted) {
+        setState(() {
+          busy = false;
+          error =
+              'Targets could not save. Your values are still here; try again.';
+        });
+      }
     }
   }
 
   @override
-  Widget build(BuildContext s) => SafeArea(child: Padding(
-      padding: EdgeInsets.only(
-          left: S.x5,
-          right: S.x5,
-          top: S.x5,
-          bottom: MediaQuery.of(s).viewInsets.bottom + S.x5),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Daily targets', style: F.head.copyWith(color: P.of(s).ink)),
-            const SizedBox(height: S.x2),
-            Text('Set once. Your calorie goal stays exactly what you type.',
-                style: F.cap.copyWith(color: P.of(s).ink3)),
-            const SizedBox(height: S.x4),
-            for (final t in kNutritionTargets) ...[
-              OsTextField(
-                controller: ctrls[t.$1]!,
-                label: '${t.$2} (${t.$3})',
-                hint: 'none',
-                keyboard: const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: S.x3),
-            ],
-            if (error != null) ...[
-              Text(error!, style: F.cap.copyWith(color: P.of(s).on(C.red))),
-              const SizedBox(height: S.x3),
-            ],
-            BigButton(busy ? 'Saving…' : 'Save', color: C.domFood, onTap: busy ? null : _save),
-          ],
-        ),
+  Widget build(BuildContext s) => InputSheet(
+    children: [
+      Text('Daily targets', style: F.head.copyWith(color: P.of(s).ink)),
+      const SizedBox(height: S.x2),
+      Text(
+        'Set once. Your calorie goal stays exactly what you type.',
+        style: F.cap.copyWith(color: P.of(s).ink3),
       ),
-    ));
+      const SizedBox(height: S.x4),
+      for (final t in kNutritionTargets) ...[
+        OsTextField(
+          controller: ctrls[t.$1]!,
+          label: '${t.$2} (${t.$3})',
+          hint: 'none',
+          keyboard: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        const SizedBox(height: S.x3),
+      ],
+      if (error != null) ...[
+        Text(error!, style: F.cap.copyWith(color: P.of(s).on(C.red))),
+        const SizedBox(height: S.x3),
+      ],
+      BigButton(
+        busy ? 'Saving…' : 'Save',
+        color: C.domFood,
+        onTap: busy ? null : _save,
+      ),
+    ],
+  );
 }
 
 // ══════════════════ MAINTENANCE ══════════════════
@@ -1149,58 +1312,13 @@ Future<num?> stepsOn(BuildContext c, String date) async {
   return null;
 }
 
-/// Steps per day over the stored history, plus today's live count.
-Future<Map<String, num>> _monthSteps(BuildContext c) async {
-  final repo = repoOf(c);
-  if (repo == null) return const {};
-  final out = <String, num>{};
-  try {
-    for (final p in pointsOf(await repo.getChart('steps'))) {
-      out[dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000))] = p.v;
-    }
-    final daily = (await repo.getToday())['daily'];
-    final today = metricOf(daily is Map ? daily['steps'] : null).value;
-    if (today != null) out[todayLabel()] = today;
-  } catch (_) {}
-  return out;
-}
-
 /// Every run this phone holds, for the Running row. Empty when unreadable.
-Future<List<RunSummary>> _allRuns(LocalRepository? repo) async {
-  if (repo == null) return const [];
-  try {
-    return await loadRuns(repo);
-  } catch (_) {
-    return const [];
-  }
-}
+Future<List<RunSummary>> _allRuns(LocalRepository? repo) async =>
+    repo == null ? const [] : loadRuns(repo);
 
 /// What one day's maintenance is made of: resting energy, the steps walked
 /// outside runs, the runs themselves (Method 1, by distance), and 10% of the
 /// food logged. A floor: lifts and other workouts are not added.
-class DayUpkeep {
-  const DayUpkeep(this.profile,
-      {required this.steps, this.runs = kNoRunDay, this.eaten = 0});
-
-  final Profile profile;
-
-  /// The day's steps, runs included.
-  final num? steps;
-  final RunDay runs;
-  final double eaten;
-
-  ({double bmr, double steps, double run, double food, double total})?
-      get parts => maintenance(profile,
-          steps: steps,
-          eatenKcal: eaten,
-          runKcal: runs.kcal,
-          runSteps: runs.steps);
-
-  /// The steps costed as walking: the day's, less the runs'.
-  num? get walkedSteps =>
-      steps == null ? null : (steps! - runs.steps).clamp(0, steps!);
-}
-
 /// The day's maintenance as a floor, shown beside the food and never changing
 /// the calorie goal. Tap for what each part is.
 class MaintenanceCard extends StatelessWidget {
@@ -1214,60 +1332,160 @@ class MaintenanceCard extends StatelessWidget {
     final p = P.of(c);
     final m = upkeep.parts;
     if (m == null) {
-      return const StatusCard('Maintenance needs your profile',
-          'Add your age, height and weight in Settings → Profile.',
-          icon: LucideIcons.flame);
+      return const StatusCard(
+        'Maintenance needs your profile',
+        'Add your age, height and weight in Settings → Profile.',
+        icon: LucideIcons.flame,
+      );
     }
     final eaten = upkeep.eaten;
     final diff = eaten - m.total;
     return Surface(
       onTap: () => showMaintenance(c, upkeep, today: today),
-      semanticLabel: 'Maintenance ${thousands(m.total)} kcal. Shows how it is '
+      semanticLabel:
+          'Maintenance ${thousands(m.total)} kcal. Shows how it is '
           'worked out.',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(
-            child: Text(today ? 'Maintenance so far' : 'Maintenance',
-                style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Daily maintenance',
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Icon(LucideIcons.info, size: 16, color: p.ink3),
+            ],
           ),
-          Icon(LucideIcons.info, size: 16, color: p.ink3),
-        ]),
-        const SizedBox(height: S.x2),
-        Wrap(spacing: S.x2, crossAxisAlignment: WrapCrossAlignment.end, children: [
-          Text(thousands(m.total), style: F.n34.copyWith(color: p.on(C.steps))),
-          Padding(
-            padding: const EdgeInsets.only(bottom: S.x1),
-            child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
+          Wrap(
+            spacing: S.x2,
+            crossAxisAlignment: WrapCrossAlignment.end,
+            children: [
+              Text(
+                thousands(m.total),
+                style: F.n34.copyWith(color: p.on(C.steps)),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x1),
+                child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+              ),
+            ],
           ),
-        ]),
-        const SizedBox(height: S.x3),
-        InlineMetrics([
-          ('RESTING', thousands(m.bmr), C.steps),
-          ('STEPS', thousands(m.steps), C.green),
-          if (upkeep.runs.count > 0) ('RUNNING', thousands(m.run), C.run),
-          ('FOOD', thousands(m.food), C.domFood),
-        ]),
-        if (eaten > 0) ...[
           const SizedBox(height: S.x3),
-          Text(
+          InlineMetrics([
+            ('RESTING', thousands(m.bmr), C.steps),
+            ('STEPS', thousands(m.steps), C.green),
+            if (upkeep.runs.count > 0) ('RUNNING', thousands(m.run), C.run),
+            ('FOOD', thousands(m.food), C.domFood),
+          ]),
+          if (eaten > 0) ...[
+            const SizedBox(height: S.x3),
+            Text(
               'Eaten ${thousands(eaten)} · ${thousands(diff.abs())} '
               '${diff > 0 ? 'over' : 'under'} maintenance',
-              style: F.cap.copyWith(color: p.ink2)),
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }
 
 /// What each part of maintenance is and the numbers it came from, one short
 /// line each.
-Future<void> showMaintenance(BuildContext c, DayUpkeep u, {bool today = false}) {
+Future<void> showMaintenance(
+  BuildContext c,
+  DayUpkeep u, {
+  bool today = false,
+}) => showModalBottomSheet<void>(
+  context: c,
+  sheetAnimationStyle: sheetMotion(c),
+  backgroundColor: P.of(c).card,
+  isScrollControlled: true,
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+  ),
+  builder: (s) => _MaintenanceDetails(u, today: today),
+);
+
+class _MaintenanceDetails extends StatefulWidget {
+  const _MaintenanceDetails(this.initial, {this.today = false});
+  final DayUpkeep initial;
+  final bool today;
+  @override
+  State<_MaintenanceDetails> createState() => _MaintenanceDetailsState();
+}
+
+class _MaintenanceDetailsState extends State<_MaintenanceDetails>
+    with RevisionReload {
+  late DayUpkeep _upkeep = widget.initial;
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void reload() => _load();
+  Future<void> _load() async {
+    final repo = repoOf(context);
+    final date = widget.today ? todayLabel() : widget.initial.date;
+    if (repo == null || date == null) return;
+    final t = beginRead(#maintenance);
+    try {
+      final u = await DayUpkeep.read(
+        repo,
+        date,
+        Profile.fromMap(context.read<AppState>().user),
+      );
+      if (stillNewest(#maintenance, t)) {
+        setState(() {
+          _upkeep = u;
+          _error = null;
+        });
+      }
+    } catch (_) {
+      if (stillNewest(#maintenance, t)) {
+        setState(
+          () => _error =
+              'Update could not load. Showing the last successful calculation.',
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) =>
+      _maintenanceContents(c, _upkeep, widget.today, error: _error);
+}
+
+Widget _maintenanceContents(
+  BuildContext c,
+  DayUpkeep u,
+  bool today, {
+  String? error,
+}) {
   final m = u.parts;
-  if (m == null) return Future.value();
+  if (m == null) {
+    return const StatusCard(
+      'Maintenance needs your profile',
+      'Add age, height and weight.',
+    );
+  }
   final pr = u.profile;
   String kg(double? w) => w == null
       ? ''
-      : (w == w.roundToDouble() ? '${w.round()} kg' : '${w.toStringAsFixed(1)} kg');
+      : (w == w.roundToDouble()
+            ? '${w.round()} kg'
+            : '${w.toStringAsFixed(1)} kg');
   final walked = u.walkedSteps;
   final rows = <(String, double, String)>[
     (
@@ -1275,7 +1493,7 @@ Future<void> showMaintenance(BuildContext c, DayUpkeep u, {bool today = false}) 
       m.bmr,
       'What your body burns at rest over a whole day, from age '
           '${pr.ageYears}, ${pr.heightCm?.toStringAsFixed(1)} cm and '
-          '${kg(pr.weightKg)}.'
+          '${kg(pr.weightKg)}.',
     ),
     (
       'Steps',
@@ -1283,70 +1501,77 @@ Future<void> showMaintenance(BuildContext c, DayUpkeep u, {bool today = false}) 
       walked == null
           ? 'No steps counted yet.'
           : u.runs.steps > 0
-              ? '${thousands(walked)} steps outside your '
-                  '${u.runs.count == 1 ? 'run' : 'runs'}, at ${kg(pr.weightKg)}.'
-              : '${thousands(walked)} steps at ${kg(pr.weightKg)}.'
+          ? '${thousands(walked)} steps outside your '
+                '${u.runs.count == 1 ? 'run' : 'runs'}, at ${kg(pr.weightKg)}.'
+          : '${thousands(walked)} steps at ${kg(pr.weightKg)}.',
     ),
     if (u.runs.count > 0)
       (
         'Running',
         m.run,
         '${u.runs.km.toStringAsFixed(2)} km in ${u.runs.count} '
-            '${u.runs.count == 1 ? 'run' : 'runs'}: the least that distance '
-            'costs at ${kg(pr.weightKg)}.'
+            '${u.runs.count == 1 ? 'run' : 'runs'}: conservative distance energy '
+            'costs using each workout’s recorded weight.',
       ),
     (
       'Food',
       m.food,
       u.eaten > 0
           ? '10% of the ${thousands(u.eaten)} kcal you logged goes to digesting '
-              'it.'
-          : 'Nothing logged yet. 10% of what you log is added.'
+                'it.'
+          : 'Nothing logged yet. 10% of what you log is added.',
     ),
   ];
-  return showModalBottomSheet<void>(
-    context: c,
-    sheetAnimationStyle: sheetMotion(c),
-    backgroundColor: P.of(c).card,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-    ),
-    builder: (s) {
-      final p = P.of(s);
-      return SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(S.x5),
-          child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+  final p = P.of(c);
+  return SafeArea(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(S.x5),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (error != null)
+            Text(error, style: F.cap.copyWith(color: p.on(C.red))),
+          Text('Daily maintenance', style: F.head.copyWith(color: p.ink)),
+          const SizedBox(height: S.x1),
+          Text(
+            '${thousands(m.total)} kcal',
+            style: F.n24.copyWith(color: p.on(C.steps)),
+          ),
+          for (final (name, kcal, why) in rows) ...[
+            const SizedBox(height: S.x4),
+            Row(
               children: [
-                Text(today ? 'Maintenance so far' : 'Maintenance',
-                    style: F.head.copyWith(color: p.ink)),
-                const SizedBox(height: S.x1),
-                Text('${thousands(m.total)} kcal',
-                    style: F.n24.copyWith(color: p.on(C.steps))),
-                for (final (name, kcal, why) in rows) ...[
-                  const SizedBox(height: S.x4),
-                  Row(children: [
-                    Expanded(
-                        child: Text(name,
-                            style: F.body.copyWith(
-                                color: p.ink, fontWeight: FontWeight.w600))),
-                    Text('${thousands(kcal)} kcal',
-                        style: F.n17.copyWith(color: p.ink)),
-                  ]),
-                  const SizedBox(height: 2),
-                  Text(why, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
-                ],
-                const SizedBox(height: S.x5),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
                 Text(
-                    'This is the least you burned. Lifts and other workouts are '
-                    'not added, so your real burn is this or more.',
-                    style: F.cap.copyWith(color: p.ink3, height: 1.4)),
-              ]),
-        ),
-      );
-    },
+                  '${thousands(kcal)} kcal',
+                  style: F.n17.copyWith(color: p.ink),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(why, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+          ],
+          const SizedBox(height: S.x5),
+          Text(
+            'Conservative estimate: a whole day’s BMR, plus movement and '
+            'food logged so far. Active calories are energy above resting; '
+            'resting calories are already included in BMR. Walking workouts '
+            'are included through steps. HR estimates and other workouts are '
+            'not added. Estimates have individual uncertainty.'
+            '${u.overlapUnknown ? " Run-step overlap is unavailable, so movement uses the larger estimate without adding both." : ""}',
+            style: F.cap.copyWith(color: p.ink3, height: 1.4),
+          ),
+        ],
+      ),
+    ),
   );
 }

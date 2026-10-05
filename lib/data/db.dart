@@ -10,6 +10,7 @@
 // duplicated historical seconds cannot bloat compute.
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -28,6 +29,8 @@ import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
+import 'calculation_store.dart';
+import '../gps/workout_clock.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'med_store.dart';
@@ -2078,6 +2081,34 @@ class LocalDb {
   /// that it saw no motion over that hour. `resolveDaySteps` uses that evidence
   /// to veto a low-density wrist false-positive over the same window. Only a
   /// negative count or an inverted window is dropped.
+  /// Idempotent growing gait run with a stable source/start identity.
+  static Future<void> replaceBandCoverage(
+    int startTs,
+    int endTs,
+    int steps,
+    String day, {
+    String deviceId = kPrimaryDeviceId,
+    String source = kStepSourceBand,
+  }) async {
+    if (steps <= 0 || endTs <= startTs) return;
+    final db = await instance;
+    await db.transaction((tx) async {
+      await tx.delete(
+        'live_coverage',
+        where: 'day = ? AND source = ? AND device_id = ? AND start_ts = ?',
+        whereArgs: [day, source, deviceId, startTs],
+      );
+      await tx.insert('live_coverage', {
+        'start_ts': startTs,
+        'end_ts': endTs,
+        'steps': steps,
+        'day': day,
+        'source': source,
+        'device_id': deviceId,
+      });
+    });
+  }
+
   static Future<void> replacePhoneCoverageForDay(
     String day,
     List<({int startTs, int endTs, int steps})> windows,
@@ -2165,30 +2196,47 @@ class LocalDb {
   /// driving while missing slow walking — O'Connell 2017,
   /// doi:10.1371/journal.pone.0169616).
   static Future<ResolvedDaySteps> resolvedStepsForDay(String day) async {
+    final d = DateTime.parse(day);
+    return resolvedStepsForWindow(d, DateTime(d.year, d.month, d.day + 1));
+  }
+
+  /// Clip the same source policy to an exact active interval, including older
+  /// rows whose stored day did not match their cross-midnight extent.
+  static Future<ResolvedDaySteps> resolvedStepsForWindow(
+    DateTime from,
+    DateTime to,
+  ) async {
+    final lo = from.millisecondsSinceEpoch ~/ 1000,
+        hi = to.millisecondsSinceEpoch ~/ 1000;
+    if (hi <= lo) return ResolvedDaySteps.none;
     final db = await instance;
-    final rows = await db.query(
-      'live_coverage',
-      columns: ['start_ts', 'end_ts', 'steps', 'source', 'device_id'],
-      where: 'day = ?',
-      whereArgs: [day],
+    final rows = await db.rawQuery(
+      'SELECT start_ts,end_ts,steps,source,device_id FROM live_coverage '
+      'WHERE start_ts < ? AND MAX(end_ts,start_ts+1) > ?',
+      [hi, lo],
     );
-    return resolveDaySteps([
-      for (final r in rows)
+    final spans = <CoverageSpan>[];
+    for (final row in rows) {
+      final start = (row['start_ts'] as num).toInt();
+      final end = math.max(start + 1, (row['end_ts'] as num).toInt());
+      final count = (row['steps'] as num).toInt();
+      final left = math.max(lo, start), right = math.min(hi, end);
+      if (right <= left) continue;
+      // Cumulative rounding conserves counts across adjacent day/session cuts.
+      final clipped =
+          (count * (right - start) / (end - start)).round() -
+          (count * (left - start) / (end - start)).round();
+      spans.add(
         CoverageSpan(
-          startTs: (r['start_ts'] as num).toInt(),
-          endTs: (r['end_ts'] as num).toInt(),
-          steps: (r['steps'] as num).toInt(),
-          // Anything not explicitly 'phone' is band — pre-v27 rows default to
-          // it, and relabelling them would suppress a real band count.
-          fromBand: r['source'] != kStepSourcePhone,
-          // WHICH sensor, so two equal-ranked spans from two different straps
-          // compete instead of both being credited in full (see
-          // [_ensureLiveCoverageDeviceId]). Pre-v49 rows take the column
-          // default — the primary band — so a single-device install resolves
-          // exactly as it did before the column existed.
-          deviceId: (r['device_id'] as String?) ?? kPrimaryDeviceId,
+          startTs: left,
+          endTs: right,
+          steps: clipped,
+          fromBand: row['source'] != kStepSourcePhone,
+          deviceId: (row['device_id'] as String?) ?? kPrimaryDeviceId,
         ),
-    ]);
+      );
+    }
+    return resolveDaySteps(spans);
   }
 
   /// [day]'s resolved step TOTAL. See [resolvedStepsForDay] for the split.
@@ -6333,6 +6381,7 @@ class LocalDb {
   /// consistent — a plain copy of a live SQLite file can produce torn pages
   /// (a corrupt export). VACUUM INTO also defragments, so the file is small.
   static Future<String> exportCopy() async {
+    await WorkoutClock.flushWrites();
     final db = await instance;
     final tmp = await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -6756,6 +6805,19 @@ class LocalDb {
       await deleteByIn(txn, 'workout_suggestions', 'date', sorted);
       await deleteByIn(txn, 'sleep_override', 'day_id', sorted);
       await deleteByIn(txn, 'sleep_nap', 'day_id', sorted);
+      for (final date in sorted) {
+        for (final prefix in [
+          'nap_proposals:',
+          'nap_dirty:',
+          'nap_corrected:',
+        ]) {
+          await txn.delete(
+            'baselines',
+            where: 'key = ?',
+            whereArgs: ['$prefix$date'],
+          );
+        }
+      }
     });
     return deleted;
   }
@@ -6781,6 +6843,7 @@ class LocalDb {
   /// the tail of a destructive user action). Views are `type='view'` and are
   /// not matched; the sqlite/Android internal tables are skipped by name.
   static Future<int> wipeAll() async {
+    await WorkoutClock.flushWrites();
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -6793,6 +6856,7 @@ class LocalDb {
         if (t is String) deleted += await txn.delete(t);
       }
     });
+    await CalculationStore.clearCache();
     return deleted;
   }
 
@@ -7022,6 +7086,9 @@ class LocalDb {
       'exercise_def',
       'food_entry',
       'food_def',
+      'meal_template',
+      'body_weight',
+      'live_coverage',
       'med_def',
       'med_dose',
       'cycle_log',
@@ -7359,6 +7426,7 @@ class LocalDb {
     // Last, so it can never be mistaken for a table row count by anything that
     // walks this map in order.
     if (importedDays != null) counts['_days'] = importedDays.length;
+    await CalculationStore.hydrate();
     return counts;
   }
 
@@ -7521,6 +7589,9 @@ class LocalDb {
       'breathing_session',
       'food_entry',
       'food_def',
+      'meal_template',
+      'body_weight',
+      'live_coverage',
       'med_def',
       'med_dose',
       'cycle_log',
@@ -8613,6 +8684,11 @@ class LocalDb {
       'source': source,
       'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await putBaseline(
+      'nap_dirty:$dayId',
+      '${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await putBaseline('nap_corrected:$dayId', '{}');
   }
 
   static Future<void> deleteNapEdit(String dayId, int startTs) async {
@@ -8622,6 +8698,11 @@ class LocalDb {
       where: 'day_id = ? AND start_ts = ?',
       whereArgs: [dayId, startTs],
     );
+    await putBaseline(
+      'nap_dirty:$dayId',
+      '${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await putBaseline('nap_corrected:$dayId', '{}');
   }
 
   static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
@@ -8639,7 +8720,38 @@ class LocalDb {
   static Future<Set<String>> napEditDays() async {
     final db = await instance;
     final rows = await db.query('sleep_nap', columns: ['day_id']);
-    return {for (final r in rows) r['day_id'] as String};
+    return {
+      for (final r in rows) r['day_id'] as String,
+      ...await pendingNapDays(),
+    };
+  }
+
+  static Future<Set<String>> napCorrectionDays() async {
+    final db = await instance;
+    final markers = await db.query(
+      'baselines',
+      columns: ['key'],
+      where: 'key LIKE ?',
+      whereArgs: ['nap_corrected:%'],
+    );
+    return {
+      ...await napEditDays(),
+      for (final r in markers)
+        (r['key'] as String).substring('nap_corrected:'.length),
+    };
+  }
+
+  static Future<Set<String>> pendingNapDays() async {
+    final db = await instance;
+    final rows = await db.query(
+      'baselines',
+      columns: ['key'],
+      where: 'key LIKE ?',
+      whereArgs: ['nap_dirty:%'],
+    );
+    return {
+      for (final r in rows) (r['key'] as String).substring('nap_dirty:'.length),
+    };
   }
 
   // ── breathing sessions ────────────────────────────────────────────────────

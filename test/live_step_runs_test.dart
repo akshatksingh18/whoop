@@ -123,7 +123,7 @@ void main() {
       expect(g.runs.single.startTs, 1000);
     });
 
-    test('the run cap merges rather than losing steps', () {
+    test('the memory cap never fabricates coverage across silent gaps', () {
       final g = GaitRuns(maxRuns: 3);
       for (var i = 0; i < 10; i++) {
         g.addChunk(
@@ -134,7 +134,7 @@ void main() {
         );
       }
       expect(g.runs, hasLength(3));
-      expect(g.runs.fold<int>(0, (a, r) => a + r.rawSteps), 100);
+      expect(g.runs.fold<int>(0, (a, r) => a + r.rawSteps), 30);
     });
   });
 
@@ -177,8 +177,8 @@ void main() {
     final db = await LocalDb.instance;
     final rows = await db.query('live_coverage', orderBy: 'start_ts');
 
-    // 1. TWO spans, one per walk.
-    expect(rows, hasLength(2), reason: 'one row per walk, not one per session');
+    // Cadence changes retain individual measured spans within each walk.
+    expect(rows, hasLength(3));
     for (final r in rows) {
       expect(
         r['source'],
@@ -202,7 +202,7 @@ void main() {
     );
     // …and the gap between the two spans really is the still stretch.
     expect(
-      (rows[1]['start_ts'] as int) - (rows[0]['end_ts'] as int),
+      (rows.last['start_ts'] as int) - (rows[rows.length - 2]['end_ts'] as int),
       closeTo(600, 8),
     );
     expect(
@@ -215,8 +215,11 @@ void main() {
     final rawWalk1 = ana.pedometer(minutes[0]) + ana.pedometer(minutes[1]);
     final rawWalk2 = ana.pedometer(minutes[12]) + ana.pedometer(minutes[13]);
     expect(rawWalk1, greaterThan(0), reason: 'the walk must count at all');
-    expect(rows[0]['steps'], (rawWalk1 * ana.StepParams.gain).round());
-    expect(rows[1]['steps'], (rawWalk2 * ana.StepParams.gain).round());
+    final firstSteps = rows
+        .take(rows.length - 1)
+        .fold<int>(0, (a, r) => a + (r['steps'] as int));
+    expect(firstSteps, (rawWalk1 * ana.StepParams.gain).round());
+    expect(rows.last['steps'], (rawWalk2 * ana.StepParams.gain).round());
     // The shape of the bug this replaces: gain on the run AND on the session.
     // The default gain is 1.00 since the 2026-08-16 steps audit, so a second
     // application is numerically invisible and `lessThan(doubled)` no longer
@@ -224,8 +227,8 @@ void main() {
     // exact value the old 1.11 double-application used to write.
     final doubled = (rawWalk1 * ana.StepParams.gain * ana.StepParams.gain)
         .round();
-    expect(rows[0]['steps'], lessThanOrEqualTo(doubled));
-    expect(rows[0]['steps'], isNot((rawWalk1 * 1.11 * 1.11).round()));
+    expect(firstSteps, lessThanOrEqualTo(doubled));
+    expect(firstSteps, isNot((rawWalk1 * 1.11 * 1.11).round()));
 
     // 4. The still minutes contributed nothing at all.
     expect(ana.pedometer(minutes[5]), 0);

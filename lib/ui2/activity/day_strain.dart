@@ -95,7 +95,10 @@ class DayStrainData {
 
   bool get hasCurve => curve.any((v) => v != null);
 
-  static Future<DayStrainData> load(LocalRepository repo, {String? want}) async {
+  static Future<DayStrainData> load(
+    LocalRepository repo, {
+    String? want,
+  }) async {
     final asked = want ?? todayLabel();
     var days = const <String>[];
     try {
@@ -103,15 +106,13 @@ class DayStrainData {
         for (final p in pointsOf(await repo.getChart('strain')))
           dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
         todayLabel(),
-      }.toList()
-        ..sort();
+      }.toList()..sort();
     } catch (_) {
       days = const [];
     }
     final s = await repo.getDayStrain(asked);
     if (s.isEmpty) {
-      return DayStrainData(
-          day: DateTime.tryParse(asked), days: days);
+      return DayStrainData(day: DateTime.tryParse(asked), days: days);
     }
 
     final pts = <(int, double)>[
@@ -123,8 +124,7 @@ class DayStrainData {
     DateTime? day;
     var grid = const <double?>[];
     if (pts.isNotEmpty) {
-      final first =
-          DateTime.fromMillisecondsSinceEpoch(pts.first.$1 * 1000);
+      final first = DateTime.fromMillisecondsSinceEpoch(pts.first.$1 * 1000);
       day = DateTime(first.year, first.month, first.day);
       final dayStart = day.millisecondsSinceEpoch ~/ 1000;
       final out = List<double?>.filled(1440, null);
@@ -151,7 +151,8 @@ class DayStrainData {
     }
 
     final z = s['zones'];
-    final zoneMin = z is Map &&
+    final zoneMin =
+        z is Map &&
             [for (var i = 1; i <= 5; i++) z['z$i']].every((v) => v is num)
         ? [for (var i = 1; i <= 5; i++) (z['z$i'] as num).toInt()]
         : null;
@@ -177,22 +178,28 @@ class DayStrainData {
   }
 }
 
-
 class DayStrainDetail extends StatefulWidget {
   /// Preloaded, for goldens. Null means read the repo on open.
   final DayStrainData? data;
 
   /// The day to open (`yyyy-MM-dd`); null is today.
   final String? day;
-  const DayStrainDetail({super.key, this.data, this.day});
+  final bool embedded;
+  const DayStrainDetail({
+    super.key,
+    this.data,
+    this.day,
+    this.embedded = false,
+  });
 
   @override
   State<DayStrainDetail> createState() => _DayStrainDetailState();
 }
 
-class _DayStrainDetailState extends State<DayStrainDetail> {
+class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
   DayStrainData? _d;
   bool _loading = true;
+  bool _failed = false;
   late String? _day = widget.day;
 
   /// The minute under the finger on the day's curve, or null.
@@ -218,17 +225,25 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  @override
+  bool get revisionReloads => widget.data == null;
+  @override
+  void reload() => _load();
+
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final token = beginRead(#day);
     try {
       final d = await DayStrainData.load(repo, want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (stillNewest(#day, token))
+        setState(() => (_d = d, _loading = false, _failed = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (stillNewest(#day, token))
+        setState(() => (_loading = false, _failed = true));
     }
   }
 
@@ -244,19 +259,32 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     final sub = day == null
         ? ''
         : dayLabelOf(day) == todayLabel()
-            ? (l?.dayStrainToday ?? 'TODAY')
-            : '${monthName(day.month, l)} ${day.day}'.toUpperCase();
+        ? (l?.dayStrainToday ?? 'TODAY')
+        : '${monthName(day.month, l)} ${day.day}'.toUpperCase();
 
     return detailScaffold(
       c,
       l?.dayStrainTitle ?? 'Day strain',
       [
-        ...dayNavRow(_day ?? (day == null ? null : dayLabelOf(day)), d.days,
-            _goDay),
+        if (!widget.embedded)
+          ...dayNavRow(
+            _day ?? (day == null ? null : dayLabelOf(day)),
+            d.days,
+            _goDay,
+          ),
+        if (widget.embedded && day != null && dayLabelOf(day) != todayLabel())
+          Text(sub),
         if (_loading && _d == null) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
-        ] else ...[
+        ] else if (_failed)
+          StatusCard(
+            'Strain could not load',
+            'Your saved days are intact.',
+            fix: 'Retry',
+            onFix: _load,
+          )
+        else ...[
           ..._hero(p, d),
           ..._trace(p, l, d),
           ..._zones(p, l, d),
@@ -264,6 +292,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
           _how(p, l, d),
         ],
       ],
+      embedded: widget.embedded,
       sub: d.days.length < 2 ? sub : '',
     );
   }
@@ -274,10 +303,10 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   static String _band(double s) => s >= 18
       ? 'All out'
       : s >= 14
-          ? 'High'
-          : s >= 10
-              ? 'Moderate'
-              : 'Light';
+      ? 'High'
+      : s >= 10
+      ? 'Moderate'
+      : 'Light';
 
   // ── the number first: big, coloured, with a bar out of 21 ─────────────────
   List<Widget> _hero(P p, DayStrainData d) {
@@ -286,42 +315,56 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     return [
       Surface(
         pad: const EdgeInsets.all(S.x5),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Row(crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic, children: [
-              Text(s.toStringAsFixed(1),
-                  style: F.n48.copyWith(color: p.on(C.strain))),
-              const SizedBox(width: S.x2),
-              Text(_band(s), style: F.head.copyWith(color: p.ink)),
-            ]),
-          ),
-          const SizedBox(height: S.x3),
-          ClipRRect(
-            borderRadius: R.rPill,
-            child: SizedBox(
-              height: 8,
-              child: Stack(children: [
-                Positioned.fill(child: ColoredBox(color: p.track)),
-                FractionallySizedBox(
-                  widthFactor: (s / 21).clamp(0.0, 1.0),
-                  child: ColoredBox(
-                      color: p.on(C.strain), child: const SizedBox.expand()),
-                ),
-              ]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    s.toStringAsFixed(1),
+                    style: F.n48.copyWith(color: p.on(C.strain)),
+                  ),
+                  const SizedBox(width: S.x2),
+                  Text(_band(s), style: F.head.copyWith(color: p.ink)),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: S.x3),
-          Text(
+            const SizedBox(height: S.x3),
+            ClipRRect(
+              borderRadius: R.rPill,
+              child: SizedBox(
+                height: 8,
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: ColoredBox(color: p.track)),
+                    FractionallySizedBox(
+                      widthFactor: (s / 21).clamp(0.0, 1.0),
+                      child: ColoredBox(
+                        color: p.on(C.strain),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: S.x3),
+            Text(
               [
                 'of 21',
                 if (d.peakHr != null) 'peak ${d.peakHr} bpm',
-                if (d.wornMin != null) 'worn ${d.wornMin! ~/ 60}h ${d.wornMin! % 60}m',
+                if (d.wornMin != null)
+                  'worn ${d.wornMin! ~/ 60}h ${d.wornMin! % 60}m',
               ].join(' · '),
-              style: F.cap.copyWith(color: p.ink3)),
-        ]),
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ],
+        ),
       ),
       const SizedBox(height: S.x3),
     ];
@@ -353,14 +396,14 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
           s == null
               ? (l?.dayStrainNoTraceTitle ?? 'No strain trace for this day')
               : (l?.dayStrainNoMinuteTraceTitle ??
-                  'No minute-by-minute trace for this day'),
+                    'No minute-by-minute trace for this day'),
           s == null
               ? why ??
-                  (l?.dayStrainNoReasonBody ??
-                      'Nothing recorded says why this day produced no strain.')
+                    (l?.dayStrainNoReasonBody ??
+                        'Nothing recorded says why this day produced no strain.')
               : (l?.dayStrainScoredNoTraceBody(s.toStringAsFixed(1)) ??
-                  'The day strain is ${s.toStringAsFixed(1)}. The waking minutes '
-                      'it was built from are not stored for this day.'),
+                    'The day strain is ${s.toStringAsFixed(1)}. The waking minutes '
+                        'it was built from are not stored for this day.'),
           fix: (s == null && !saw)
               ? (l?.dayStrainWearBandFix ?? 'Wear the band through the day')
               : '',
@@ -386,33 +429,38 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     int at(double f) => (f * (n - 1)).round().clamp(0, n - 1);
     return [
       Surface(
-        child: Column(children: [
-          ChartFrame(
-            title: 'Through the day',
-            unit: '0–21',
-            height: 170,
-            yAxis: axis,
-            xLabels: const ['00:00', '12:00', '24:00'],
-            series: d.curve,
-            readout: _pick == null ? null : says(_pick!),
-            footnote: 'From $drawn recorded minutes.',
-            child: Scrubber(
-              value: _pick == null ? null : _pick! / (n - 1),
-              step: 1 / 48,
-              label: 'Strain through the day',
-              describe: (f) => says(at(f)),
-              onChanged: (f) => setState(() => _pick = at(f)),
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: LineChart(d.curve, p.on(C.strain),
+        child: Column(
+          children: [
+            ChartFrame(
+              title: 'Through the day',
+              unit: '0–21',
+              height: 170,
+              yAxis: axis,
+              xLabels: const ['00:00', '12:00', '24:00'],
+              series: d.curve,
+              readout: _pick == null ? null : says(_pick!),
+              footnote: 'From $drawn recorded minutes.',
+              child: Scrubber(
+                value: _pick == null ? null : _pick! / (n - 1),
+                step: 1 / 48,
+                label: 'Strain through the day',
+                describe: (f) => says(at(f)),
+                onChanged: (f) => setState(() => _pick = at(f)),
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: LineChart(
+                    d.curve,
+                    p.on(C.strain),
                     axis: axis,
                     t: animate(context, 1),
                     cursor: _pick,
-                    cursorInk: p.ink),
+                    cursorInk: p.ink,
+                  ),
+                ),
               ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
       if (d.coveragePct != null && d.coveragePct! < _lowCoveragePct)
         Padding(
@@ -440,46 +488,62 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       Section(
         l?.dayStrainTimeInZonesSection ?? 'Time in zones',
         Surface(
-          child: Column(children: [
-            for (var i = 4; i >= 0; i--) ...[
-              if (i < 4) const SizedBox(height: S.x3),
-              Row(children: [
-                SizedBox(
-                    width: 28,
-                    child: Text('Z${i + 1}',
-                        style: F.cap.copyWith(color: p.ink2))),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: R.rPill,
-                    child: SizedBox(
-                      height: 10,
-                      child: Stack(children: [
-                        Positioned.fill(child: ColoredBox(color: p.track)),
-                        FractionallySizedBox(
-                          widthFactor: (z[i] / total).clamp(0.0, 1.0),
-                          child: ColoredBox(
-                              color: ZoneBar.cols(p)[i],
-                              child: const SizedBox.expand()),
-                        ),
-                      ]),
+          child: Column(
+            children: [
+              for (var i = 4; i >= 0; i--) ...[
+                if (i < 4) const SizedBox(height: S.x3),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      child: Text(
+                        'Z${i + 1}',
+                        style: F.cap.copyWith(color: p.ink2),
+                      ),
                     ),
-                  ),
-                ),
-                SizedBox(
-                    width: 56,
-                    child: Text('${z[i]} min',
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: R.rPill,
+                        child: SizedBox(
+                          height: 10,
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: ColoredBox(color: p.track),
+                              ),
+                              FractionallySizedBox(
+                                widthFactor: (z[i] / total).clamp(0.0, 1.0),
+                                child: ColoredBox(
+                                  color: ZoneBar.cols(p)[i],
+                                  child: const SizedBox.expand(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 56,
+                      child: Text(
+                        '${z[i]} min',
                         textAlign: TextAlign.right,
-                        style: F.cap.copyWith(color: p.ink))),
-              ]),
+                        style: F.cap.copyWith(color: p.ink),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ]),
+          ),
         ),
         // Progressive disclosure: this day screen gains a LINK, not a row. The
         // ceiling, the edges in bpm and the 28-day distribution are all one tap
         // behind it.
         action: l?.dayStrainHowSet ?? 'How these are set',
-        onAction: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const ZonesDetail())),
+        onAction: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ZonesDetail())),
       ),
     ];
   }
@@ -487,20 +551,31 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   // ── the inputs, named ──────────────────────────────────────────────────────
   /// The method, folded away until asked for.
   Widget _how(P p, AppLocalizations? l, DayStrainData d) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Pressable(
-        onTap: () => setState(() => _showHow = !_showHow),
-        semanticLabel: 'How it is worked out',
-        child: Row(children: [
-          Expanded(
-              child: Text('How it\'s worked out',
-                  style: F.cap.copyWith(color: p.ink2))),
-          Icon(_showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-              size: 16, color: p.ink3),
-        ]),
-      ),
-      if (_showHow) ...[const SizedBox(height: S.x2), _inputs(p, l, d)],
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Pressable(
+          onTap: () => setState(() => _showHow = !_showHow),
+          semanticLabel: 'How it is worked out',
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'How it\'s worked out',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              ),
+              Icon(
+                _showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                size: 16,
+                color: p.ink3,
+              ),
+            ],
+          ),
+        ),
+        if (_showHow) ...[const SizedBox(height: S.x2), _inputs(p, l, d)],
+      ],
+    );
   }
 
   /// Three plain lines. The method (Banister TRIMP over waking heart rate,
@@ -509,7 +584,9 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     final max = d.maxHrUsed?.round();
     final rhr = d.rhr;
     final anchors = [
-      rhr == null ? 'your resting rate' : 'your resting rate ($rhr bpm last night)',
+      rhr == null
+          ? 'your resting rate'
+          : 'your resting rate ($rhr bpm last night)',
       max == null ? 'your max' : 'your max ($max bpm, estimated from your age)',
     ];
     final lines = [
@@ -521,12 +598,15 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     return Surface(
       elevation: 0,
       color: p.card2,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        for (var i = 0; i < lines.length; i++) ...[
-          if (i > 0) const SizedBox(height: S.x2),
-          Text(lines[i], style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < lines.length; i++) ...[
+            if (i > 0) const SizedBox(height: S.x2),
+            Text(lines[i], style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }

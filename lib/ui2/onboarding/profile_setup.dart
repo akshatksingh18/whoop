@@ -72,8 +72,12 @@ class ProfileSetupView extends StatefulWidget {
   /// the storage is.
   final UnitsController? units;
 
-  const ProfileSetupView(
-      {super.key, required this.onSave, this.initial = const {}, this.units});
+  const ProfileSetupView({
+    super.key,
+    required this.onSave,
+    this.initial = const {},
+    this.units,
+  });
 
   @override
   State<ProfileSetupView> createState() => _ProfileSetupViewState();
@@ -85,9 +89,11 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
   late String? _sex = (widget.initial['sex'] as String?)?.toLowerCase();
   late final _age = TextEditingController(text: _str(widget.initial['age']));
   late final _height = TextEditingController(
-      text: _u.heightField(widget.initial['height_cm'] as num?));
+    text: _u.heightField(widget.initial['height_cm'] as num?),
+  );
   late final _weight = TextEditingController(
-      text: _u.weightField(widget.initial['weight_kg'] as num?));
+    text: _u.weightField(widget.initial['weight_kg'] as num?),
+  );
 
   static String _str(Object? v) => v == null ? '' : '$v';
 
@@ -103,15 +109,23 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
   /// dependent metric abstains rather than scoring somebody else's body. The
   /// fields are typed in the units on their labels and stored in metric.
   Map<String, dynamic> _fields() => {
-        if (_sex != null) 'sex': _sex,
-        if (Typed.of(_age.text).value case final v?) 'age': v.round(),
-        'height_cm': ?_u.heightToCm(_height.text),
-        'weight_kg': ?_u.weightToKg(_weight.text),
-      };
+    if (_sex != null) 'sex': _sex,
+    if (Typed.of(_age.text).value case final v?) 'age': v.round(),
+    'height_cm':
+        ?(_height.text == _u.heightField(widget.initial['height_cm'] as num?)
+        ? (widget.initial['height_cm'] as num?)?.toDouble()
+        : _u.heightToCm(_height.text)),
+    'weight_kg':
+        ?(_weight.text == _u.weightField(widget.initial['weight_kg'] as num?)
+        ? (widget.initial['weight_kg'] as num?)?.toDouble()
+        : _u.weightToKg(_weight.text)),
+  };
 
   /// Continue, unless something typed cannot be read — a typo is not a blank,
   /// and dropping it silently is how a body ends up half-described.
+  bool _saving = false;
   Future<void> _continue() async {
+    if (_saving) return;
     final bad = [
       if (Typed.of(_age.text).bad) 'Age',
       if (Typed.of(_height.text).bad) _u.heightLabel,
@@ -121,7 +135,22 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
       sayUnreadable(context, bad);
       return;
     }
-    await widget.onSave(_fields());
+    setState(() => _saving = true);
+    try {
+      await widget.onSave(_fields());
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Profile could not save. Check age, height and weight, then retry.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -135,8 +164,10 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x6, S.x4, S.x8),
           children: [
-            Text(l?.profileSetupTitle ?? 'About you',
-                style: F.t1.copyWith(color: p.ink)),
+            Text(
+              l?.profileSetupTitle ?? 'About you',
+              style: F.t1.copyWith(color: p.ink),
+            ),
             const SizedBox(height: S.x3),
             Text(
               l?.profileSetupBody ??
@@ -145,21 +176,25 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),
-            Text(l?.profileSetupSexHeader ?? 'SEX',
-                style: F.over.copyWith(color: p.ink3)),
+            Text(
+              l?.profileSetupSexHeader ?? 'SEX',
+              style: F.over.copyWith(color: p.ink3),
+            ),
             const SizedBox(height: S.x2),
-            Row(children: [
-              for (final (key, label) in sexes) ...[
-                Expanded(
-                  child: _Choice(
-                    label: label,
-                    on: _sex == key,
-                    onTap: () => setState(() => _sex = key),
+            Row(
+              children: [
+                for (final (key, label) in sexes) ...[
+                  Expanded(
+                    child: _Choice(
+                      label: label,
+                      on: _sex == key,
+                      onTap: () => setState(() => _sex = key),
+                    ),
                   ),
-                ),
-                if (key != sexes.last.$1) const SizedBox(width: S.x2),
+                  if (key != sexes.last.$1) const SizedBox(width: S.x2),
+                ],
               ],
-            ]),
+            ),
             // Which constants that choice actually gets. Calories average the
             // two published sets; training load has no third set to average,
             // so it uses the male one — said here rather than nowhere.
@@ -174,26 +209,40 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
               ),
             ],
             const SizedBox(height: S.x5),
-            _Field(_age, l?.profileSetupAgeLabel ?? 'AGE',
-                l?.profileSetupAgeUnit ?? 'years',
-                l?.profileSetupAgeConsequence ??
-                    'Without it: heart-rate zones, calories, fitness age.'),
-            _Field(_height, l?.profileSetupHeightLabel ?? 'HEIGHT',
-                _u.isImperial ? 'in' : 'cm',
-                l?.profileSetupHeightConsequence ??
-                    'Without it: stride length, and distance from steps.'),
-            _Field(_weight, l?.profileSetupWeightLabel ?? 'WEIGHT',
-                _u.isImperial ? 'lb' : 'kg',
-                l?.profileSetupWeightConsequence ??
-                    'Without it: calories and training load.'),
+            _Field(
+              _age,
+              l?.profileSetupAgeLabel ?? 'AGE',
+              l?.profileSetupAgeUnit ?? 'years',
+              l?.profileSetupAgeConsequence ??
+                  'Without it: heart-rate zones, calories, fitness age.',
+            ),
+            _Field(
+              _height,
+              l?.profileSetupHeightLabel ?? 'HEIGHT',
+              _u.isImperial ? 'in' : 'cm',
+              l?.profileSetupHeightConsequence ??
+                  'Without it: stride length, and distance from steps.',
+            ),
+            _Field(
+              _weight,
+              l?.profileSetupWeightLabel ?? 'WEIGHT',
+              _u.isImperial ? 'lb' : 'kg',
+              l?.profileSetupWeightConsequence ??
+                  'Without it: calories and training load.',
+            ),
             const SizedBox(height: S.x5),
-            BigButton(l?.actionContinue ?? 'Continue',
-                color: C.green, onTap: _sex == null ? null : _continue),
+            BigButton(
+              l?.actionContinue ?? 'Continue',
+              color: C.green,
+              onTap: _sex == null ? null : _continue,
+            ),
             if (_sex == null) ...[
               const SizedBox(height: S.x2),
-              Text(l?.profileSetupPickOneToContinue ??
-                      'Pick one option above to continue.',
-                  style: F.cap.copyWith(color: p.ink3)),
+              Text(
+                l?.profileSetupPickOneToContinue ??
+                    'Pick one option above to continue.',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
             ],
           ],
         ),
@@ -223,11 +272,14 @@ class _Choice extends StatelessWidget {
           borderRadius: R.rMd,
           border: Border.all(color: on ? p.on(C.green) : p.line),
         ),
-        child: Text(label,
-            textAlign: TextAlign.center,
-            style: F.cap.copyWith(
-                color: on ? p.on(C.green) : p.ink2,
-                fontWeight: on ? FontWeight.w600 : FontWeight.w500)),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: F.cap.copyWith(
+            color: on ? p.on(C.green) : p.ink2,
+            fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
       ),
     );
   }
@@ -243,31 +295,42 @@ class _Field extends StatelessWidget {
     final p = P.of(c);
     return Padding(
       padding: const EdgeInsets.only(bottom: S.x4),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text(label, style: F.over.copyWith(color: p.ink3))),
-          Text(AppLocalizations.of(c)?.profileSetupOptional ?? 'OPTIONAL',
-              style: F.over.copyWith(color: p.ink3)),
-        ]),
-        const SizedBox(height: S.x1),
-        TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          style: F.head.copyWith(color: p.ink),
-          decoration: InputDecoration(
-            hintText: unit,
-            hintStyle: F.head.copyWith(color: p.ink3),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
-            enabledBorder:
-                UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
-            focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: p.on(C.green))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(label, style: F.over.copyWith(color: p.ink3)),
+              ),
+              Text(
+                AppLocalizations.of(c)?.profileSetupOptional ?? 'OPTIONAL',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: S.x1),
-        Text(consequence, style: F.cap.copyWith(color: p.ink3)),
-      ]),
+          const SizedBox(height: S.x1),
+          TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: F.head.copyWith(color: p.ink),
+            decoration: InputDecoration(
+              hintText: unit,
+              hintStyle: F.head.copyWith(color: p.ink3),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: p.line),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: p.on(C.green)),
+              ),
+            ),
+          ),
+          const SizedBox(height: S.x1),
+          Text(consequence, style: F.cap.copyWith(color: p.ink3)),
+        ],
+      ),
     );
   }
 }

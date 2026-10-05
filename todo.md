@@ -8,7 +8,7 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 - Build `0.9.39`/`72` is installed, confirmed by Akshat, but not accepted. He reports background
   voice cues delayed until foreground and supplied sync/calorie/macro/profile issues. The current
   installed build-72 streak does not count step-only goal days. `workout-sync-audit.md` owns findings and proposed
-  repairs; the approved build-73 implementation below passes local validation.
+  repairs; the build-73 replacement below passes local/CI/macOS and artifact validation.
 - Today refresh updating steps is confirmed on build 72. Maintenance consistency remains open:
   Akshat reports unchanged calories; the main Food card updates in an isolated real-repository
   probe, but an already-open maintenance breakdown remains stale. The report owns this distinction.
@@ -58,33 +58,19 @@ The revised version is `0.9.39`/`72`. Akshat approved publishing source
 `akshatksingh18/whoop`, running CI and building the combined replacement IPA. That source is
 pushed; Linux CI `37173914511` passes (3,279 tests, 363 intentional skips).
 macOS workflow `37174063547` passes. The downloaded IPA matches its manifest/checksum and
-passes local payload validation. It is cached as the single testing candidate; `setup.md` owns
-the source, hash and artifact path. Akshat confirms build 72 is installed; installation alone does
-not close its phone pass or current-version enrollment gates.
+passes local payload validation. `setup.md` owns its source, hash and artifact evidence.
+Akshat confirms build 72 is installed; it was not phone-accepted. Build 73 supersedes its candidate
+checks and has replaced its testing IPA after validation.
 The superseded build-71 artifact lacks the refresh fix; keep one install candidate.
-
-Before promoting build 72:
-- Installation is confirmed. Confirm signed identity, data and pairing continuity separately.
-- Force-close from Food/Trends and relaunch: Today opens. Warm resume retains the current screen.
-- Scrub Sleep and Food charts: every selected value/unit is visible, including enlarged text;
-  Deep matches the legend and Night details expands cleanly.
-- Add from My foods; Scan goes directly to the camera/product review. Denied camera access offers
-  Quick add. Check manual entry, fibre, blank optional macros, explicit zero, entry editing and Undo.
-- Expand an older history month and backdate a saved meal; verify its day/time and summary coverage.
-- Edit food and return to Today: Weekly updates without a pull; check foreground/day-rollover refresh.
-- Walk with the phone, then refresh Today: its steps, step detail, today's chart and step-based
-  maintenance update together. Repeat with the band disconnected/slow and check status messages;
-  HR-derived figures need new band data and may wait during capture or a live workout.
-- Today step-number refresh is reported working; verify the corresponding step kcal in Food,
-  an open breakdown and history, including rounding and completed-run deductions.
-- Confirm completed current-version automatic-refresh enrollment with no install error, then promote
-  the one testing candidate and update the accepted-build ledger. Keep build 70 until these gates pass.
 
 ## Build 73: approved combined repair
 
-Source `0.9.40`/`73` (algorithm 89) is implemented locally and passes release validation.
-Public publication, CI and the single macOS IPA require separate named-destination approval.
-Build 70 remains accepted; installed build 72 remains the cached testing artifact until replacement.
+Source `0.9.40`/`73` (algorithm 89), commit `a49d7837`, is published with Akshat's approval
+to public `akshatksingh18/whoop` and passes local release validation. Linux CI `37252915519`
+and the single personal macOS build `37252925924` pass against that exact source. The downloaded
+IPA matches its manifest/checksum and passes local payload validation. It replaces build 72 in
+the single testing slot; `setup.md` owns its path/hash evidence. Build 70 remains accepted.
+Build-73 installation, phone acceptance and current-version refresh enrollment are pending.
 
 - One fresh movement ledger feeds Today, Food, history, Weekly, Trends, Steps detail and an open
   maintenance sheet. Historical step charts prefer retained measured coverage over old derived
@@ -136,17 +122,23 @@ Build 70 remains accepted; installed build 72 remains the cached testing artifac
 Local validation passes: 3,318 Flutter tests (368 intentional skips), 91 focused tests with
 `PERSONAL_SIDELOAD=true`, all 7 personal-iOS contract tests, project/pin checks and representative
 rendered layouts. Analysis has 60 infos and no errors/warnings. The daily details also fit a
-320-point screen at 1.5x text. No build-73 IPA or phone verification is claimed.
+320-point screen at 1.5x text. Linux CI passes 3,323 tests with 363 intentional skips; native
+macOS compilation and downloaded IPA validation pass. Phone verification is not yet claimed.
 `workout-sync-audit.md` records the build-72 evidence and repair contract.
 
 Build-73 phone acceptance must cover:
 - Same-identity install, retained food/templates/weights/steps, pairing and encrypted restore.
+- Force-close from Food/Trends and relaunch into Today; warm resume retains the current screen.
+- Sleep/Food chart readouts wrap at enlarged text; Deep matches the legend and Night details opens.
+- Direct scan and denied-camera fallback, quick-add fibre/editing, optional blanks, explicit zero
+  and Undo. Browse older history months and backdate a saved meal without changing its day/time.
 - Locked and other-app kilometre cues, pause/resume, headphones, music, podcasts and calls.
 - Phone carried/desk/absent, source handoff, local midnight, low wrist motion and range loss;
   compare connected wrist fallback against hand-counted steps and observe battery use.
 - Step-only streak, exact threshold, raise/lower before and after completion, late steps/restart.
 - Today manual/foreground refresh updates step kcal and maintenance in every open view; profile,
-  meal and completed-workout changes update automatically. Fixed food target stays unchanged.
+  meal and completed-workout changes update automatically, including Weekly and day rollover.
+  Repeat with the band disconnected/slow; HR waits/errors remain explicit. Fixed food target stays unchanged.
 - Run/walk live, finish, history/share and daily totals agree under the displayed rounding, with
   paused movement only in daily steps and no walking-workout double addition.
 - Decimal profile saves, four macro rows, 2.5 custom servings, headings and picker deletion;

@@ -1,15 +1,16 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Build `0.9.37`/`70` is installed over build 69 and accepted. Source `0.9.39`/`72` is
-validated locally and by Linux CI/macOS build, with the additional Today-refresh fix. Its downloaded
-checksum and payload validation pass, and Akshat confirms build 72 is installed. Phone acceptance
-and current-version enrollment remain pending; `../workout-sync-audit.md` records reported issues
-and the approved repairs in local build-73 source. The initial build-71 IPA predates that fix and must not be installed.
+**State:** Build `0.9.37`/`70` is the accepted recovery build. Build `0.9.39`/`72` is the last
+confirmed phone installation, but was not phone-accepted and its testing artifact is superseded.
+Source `0.9.40`/`73`, commit `a49d7837`, is published with Akshat's approval and passes local
+checks, Linux CI/macOS build, downloaded checksum/manifest and payload validation. It is the
+single testing candidate. Installation, phone acceptance and current-version enrollment are pending;
+`../workout-sync-audit.md` records reported issues and repairs, and `../todo.md` owns the phone checklist.
 Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\WHOOP-0.9.39-build72-05c208c7` holds the single candidate. `../setup.md` owns the
+`testing\WHOOP-0.9.40-build73-a49d7837` holds the single candidate. `../setup.md` owns the
 artifact, hash and workflow records.
 
 The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →
@@ -17,8 +18,9 @@ Steps** is enabled. Encrypted history restore, identity/data/pairing preservatio
 forced-due Wi-Fi daemon refresh were verified on earlier builds. The broader lifecycle,
 background/restoration, naturally elapsed refresh and expiry-recovery gates remain open in
 `../CLAUDE.md`; Akshat reports build-72 voice cues delayed until foreground. The session/audio
-repair is implemented in local source `0.9.40`/`73`, including background audio for spoken
-workout cues. Local validation passes; separate publication/IPA approval remains and no new IPA is cached.
+repair is implemented in built source `0.9.40`/`73`, including background audio for spoken
+workout cues. Automated build checks pass; locked/background, music/call/headphone behavior needs
+the physical-device acceptance pass.
 
 ### Current install and refresh procedure
 

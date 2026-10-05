@@ -16,14 +16,18 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification — build `0.9.37`/`70` remains accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
-the recovery/refresh build in `final-ipas\whoop\backup\`. Source `0.9.39`/`72` implements the
-approved UI/food reliability cleanup plus the newly reported Today-refresh repair. The combined IPA passes local validation, Linux CI and the macOS build and is cached in
-`final-ipas\whoop\testing\WHOOP-0.9.39-build72-05c208c7` and Akshat confirms it is installed.
-Phone acceptance and current-version enrollment remain; the reported sync/voice/calorie/macro/profile
+the recovery/refresh build in `final-ipas\whoop\backup\`. Build `0.9.39`/`72` is installed,
+confirmed by Akshat, but was not phone-accepted and is superseded by the build-73 candidate.
+The reported sync/voice/calorie/macro/profile
 issues are audited in `workout-sync-audit.md`, with the approved step-goal streak extension documented there.
 Today refresh updating steps is confirmed; maintenance consistency and the stale open breakdown
-are addressed in the locally validated build-73 source.
-Source `0.9.40`/`73` (algorithm 89) implements the approved combined repair and passes local validation; separate public publication/IPA approval remain. Broader lifecycle, background and multi-cycle signing gates remain before
+are addressed in build 73, pending its phone verification.
+Source `0.9.40`/`73` (algorithm 89), commit `a49d7837`, is published with Akshat's approval and
+passes local validation, Linux CI `37252915519` and personal macOS build `37252925924`.
+The downloaded IPA matches its checksum/manifest and passes payload validation; it is the single
+testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.40-build73-a49d7837`.
+Installation, phone acceptance and current-version enrollment are unconfirmed. `setup.md` owns
+artifact evidence. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
 Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
@@ -64,8 +68,8 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 (Linux tests and the macOS workflow passed; the IPA matches its SHA-256 and passes the validator;
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
-`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 72,
-which is installed but not phone-accepted.
+`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 73,
+awaiting installation, phone acceptance and current-version enrollment.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -104,7 +108,7 @@ retryable failures protect these flows. The new widget/data regressions also cov
 navigation, failed writes and historical meal timestamps. Build 72 includes the fixes for the former Windows test
 failures, including leaked ZIP file handles and DST calendar-age arithmetic. `kAlgoVersion` is 88
 so retained movement results can recompute; no schema or personal capability change is required.
-Build 72 aligned the excluded Widget/Watch version metadata to `0.9.39`/`72`; local build 73 aligns it to `0.9.40`/`73`. Local full-suite validation
+Build 72 aligned the excluded Widget/Watch version metadata to `0.9.39`/`72`; build 73 aligns it to `0.9.40`/`73`. Build-72 local full-suite validation
 passes (3,274 tests, 368 intentional skips); analysis has 58 infos and no errors/warnings, and all
 7 personal-iOS contract tests pass. Initial source `5c00c278` is published; its Linux CI and macOS
 build pass. The additional refresh source reads phone steps before band catch-up, exposes measured
@@ -112,9 +116,9 @@ steps without waiting for derivation, awaits the calculation queue and shows tim
 messages. The full suite and focused regressions pass. Akshat approved public publication and
 the replacement IPA; source `05c208c7` is pushed. Linux CI `37173914511` passes (3,279 tests,
 363 intentional skips); macOS workflow `37174063547` passes. The downloaded build-72 IPA
-matches its manifest/checksum and passes the local payload validator; it is the single testing
-candidate. Akshat confirms installation; the `todo.md` phone/enrollment gates and the audit's
-reported issues remain. Do not install build 71.
+matches its manifest/checksum and passes the local payload validator. Akshat confirms installation,
+but it was not phone-accepted; build 73 replaces its testing artifact. Its source/hash/workflow
+evidence remains in `setup.md`, with reported issues in the audit. Do not install build 71.
 `setup.md` owns the artifact evidence.
 
 `schemaVersion` is unchanged (both build-70 storage pieces are additive, on the open path).
@@ -231,7 +235,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds the validated build-72 candidate, and superseded builds 63–69 are reproducible from their workflow
+`testing\` holds the validated build-73 candidate, and older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health
@@ -243,7 +247,7 @@ evidence below.
 
 ### Current feature limits
 
-- Local build-73 source uses session-owned voice cues with explicit background audio. Locked-screen,
+- Build-73 source uses session-owned voice cues with explicit background audio. Locked-screen,
   other-app, music/call/headphone behavior needs the phone acceptance pass; build 72's delay is
   the reported baseline, not evidence that build 73 works on hardware.
 - Run/walk Method 1 and net HR comparison share active sensor windows and recorded profile inputs.
@@ -257,8 +261,9 @@ evidence below.
   detail, while Steps has its hourly graph inline and Step calories has its own kcal trend.
 - Build-73 local validation passes: 3,318 Flutter tests (368 intentional skips), 91 focused
   personal-profile checks and all 7 personal-iOS contract tests. Analysis has 60 infos and no
-  errors/warnings. Rendered layouts and small-phone/enlarged-text regressions pass; native macOS
-  compilation and phone behavior remain unverified for this source.
+  errors/warnings. Rendered layouts and small-phone/enlarged-text regressions pass. Linux CI passes
+  3,323 tests with 363 intentional skips; native macOS compilation and downloaded IPA validation
+  pass. Phone behavior remains unverified for this source.
 - A day earns a movement streak through 10 active run/walk minutes or its dated measured step goal.
   Goals before migration are unknown; historical workout evidence is preserved.
 - Connected wrist fallback captures accepted high-rate gait without Start, supplements separately

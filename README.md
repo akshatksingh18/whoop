@@ -4,7 +4,7 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the validated build-72 candidate.
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the validated build-73 candidate.
 > `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
@@ -34,15 +34,17 @@
 > reads and visible timeout/failure feedback. The initial UI/food CI and IPA build passed, but that
 > artifact predates this repair and is superseded. Source `05c208c7` is published; local release
 > checks, Linux CI, the macOS build, downloaded checksum and payload validation pass. Build 72 is
-> cached as the single testing candidate and Akshat confirms it is installed; phone acceptance and
-> current-version enrollment remain. `workout-sync-audit.md` records reported sync/background voice,
+> installed, confirmed by Akshat, but was not phone-accepted and its testing artifact is superseded.
+> `workout-sync-audit.md` records reported sync/background voice,
 > calorie consistency, macro visibility and profile issues plus the approved step-goal streak extension;
-> the approved repairs are implemented locally in source `0.9.40`/`73` (algorithm 89) and pass
+> the approved repairs are implemented in source `0.9.40`/`73` (algorithm 89) and pass
 > local validation. Build 73 adds background audio for spoken workout cues, shared movement/calorie
 > refresh, step-goal streaks, precise profile/serving units and keyboard-safe food controls.
 > Nap corrections update immediately, with coaching rebuilt in the background and Naps reachable
 > when empty. Trends opens Week, reuses full daily charts, and separates step calories from steps.
-> Public publication and its one macOS IPA remain gated. Build 70 remains
+> Source `a49d7837` is published with Akshat's approval; Linux CI, the personal macOS build,
+> downloaded checksum and payload validation pass. Build 73 is the single testing candidate,
+> awaiting installation, phone acceptance and current-version enrollment. Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
 > maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger

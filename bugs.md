@@ -175,12 +175,13 @@ reproductions: insight retry/rebuild gaps, background voice, gross versus active
 run-step overlap, cross-midnight/pause windows, hidden macro rows, decimal/round-trip profile input
 and stale cached profile calculations. The installed build-72 session-only streak omits step-goal-only days;
 the combined rule and dated target policy are documented there. The approved repairs are
-implemented locally in `0.9.40`/`73` (algorithm 89) and pass local regression/release validation.
+implemented in `0.9.40`/`73` (algorithm 89), source `a49d7837`, and pass local regression/release
+validation, Linux CI, macOS compilation and downloaded IPA checks. Build 73 is the testing candidate.
 The personal source includes background audio for spoken workout cues; hardware behavior remains
 subject to the build-73 phone pass. `todo.md` owns the implementation and release gates.
 The added nap repair removes the full-restaging wait from reject/restore and keeps empty-day
 entry points; corrected lists, sleep periods and timelines agree before coaching finishes.
-Trends daily charts and step-calorie routing are also repaired locally, pending phone acceptance.
+Trends daily charts and step-calorie routing are also repaired, pending phone acceptance.
 
 Akshat confirms build-72 Today refresh updates step numbers but reports unchanged maintenance
 calories. The real-repository Food-card probe recalculates step energy immediately after a saved

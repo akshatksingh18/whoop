@@ -161,9 +161,13 @@ owned by `../akshatos/`; consult its build guide for implementation and device e
 
 Build-73 source is `0.9.40`/`73`, algorithm 89, with excluded Widget/Watch metadata aligned.
 It adds the approved `audio` background mode for actual workout speech; all other personal
-exclusions and While-In-Use location authorization remain. Local validation passes; no
-public source, CI or IPA for build 73 exists yet. The build-72 cached artifact remains installed,
-and accepted build 70 remains the recovery IPA. `todo.md` owns acceptance gates.
+exclusions and While-In-Use location authorization remain. Local validation passes; source
+`a49d7837c4d2da368a708a1aeb77983fb19e8c1c` is published with Akshat's approval to the public
+repository. Linux CI `37252915519` and personal macOS build `37252925924` pass. The downloaded
+IPA passes checksum, manifest and payload validation and is the single testing candidate.
+Build 72 remains the last confirmed phone installation; accepted build 70 remains the recovery
+IPA. Build-73 installation, phone acceptance and current-version enrollment are pending.
+`todo.md` owns acceptance gates; artifact evidence appears below.
 
 Build-73 checks: all 3,318 Flutter tests pass with 368 intentional skips, plus 91 focused tests
 with `PERSONAL_SIDELOAD=true`. Analysis reports 60 infos and no errors/warnings. All 7 Python
@@ -250,7 +254,7 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-it remains the accepted backup while build 72 occupies `testing\`. The checksum, manifest and
+it remains the accepted backup while build 73 occupies `testing\`. The checksum, manifest and
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
@@ -262,7 +266,7 @@ Linux CI `37170843509` and macOS workflow `37171288516` passed. That artifact ha
 downloaded/installed and is held before release because it predates the newly reported Today-refresh
 fix. It must not be installed and remains reproducible from that workflow.
 
-Build `0.9.39`/`72` combines all approved UI/food changes with the Today-refresh repair, with
+Superseded build `0.9.39`/`72` combines all approved UI/food changes with the Today-refresh repair, with
 algorithm 88 and unchanged schema/capabilities. Local full-suite validation passes (3,274 tests,
 368 intentional skips), analysis has no errors/warnings, and all 7 personal-iOS contract tests pass.
 Source `05c208c79fe61c35e8df587e7becfd59698cbf02` is published with Akshat's approval.
@@ -272,15 +276,34 @@ Linux CI `37173914511` passes (3,279 tests, 363 intentional skips). Personal mac
 `87e2f7a860f5b13130f68394b65952dec43b3db9d4bd28f77f88597517f7183d`, matches the downloaded
 checksum and manifest. The manifest confirms version `0.9.39`, build `72`, the full source revision
 above and unchanged minimal personal capabilities. `tool/personal_ios.py validate` passes.
-The IPA, manifest and checksum are cached in the single candidate folder
-`../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`. Akshat confirms this build is installed
+The IPA, manifest and checksum were cached in
+`../final-ipas/whoop/testing/WHOOP-0.9.39-build72-05c208c7`; that folder was removed after build 73
+passed validation and replaced the testing slot. Build 72 remains reproducible from its workflow.
+Akshat confirms this build is installed
 on the phone used for his screenshots. Reported background voice and sync/calorie/macro/profile
-issues are audited in `workout-sync-audit.md`; approved fixes are implemented locally in build 73.
+issues are audited in `workout-sync-audit.md`; approved fixes are implemented in build 73.
 Akshat confirms Today refresh now updates steps, while maintenance-calorie consistency remains
 open. The audit reproduces a stale open breakdown and confirms main-card step recalculation in
 an isolated real-repository probe; this is a partial check, not phone acceptance.
-Build 70 remains accepted; installation does not constitute build 72's phone pass. Build 72 must pass its phone check
-and current-version automatic-refresh enrollment before cache promotion or ledger acceptance.
+Build 70 remains accepted; build 72 was never phone-accepted. The current candidate's phone and
+current-version automatic-refresh gates are carried into build 73's checklist.
+
+Build `0.9.40`/`73` implements the approved combined repair, with algorithm 89 and unchanged schema.
+Source `a49d7837c4d2da368a708a1aeb77983fb19e8c1c` is published with Akshat's approval.
+Linux CI `37252915519` passes (3,323 tests, 363 intentional skips, analysis with 60 infos and no
+errors/warnings). Personal macOS workflow `37252925924` passes against that exact source,
+including the personal build contract, Dart gates, native compilation and packaged IPA validation.
+Artifact `whoop-personal-a49d7837c4d2-unsigned.ipa` (17,848,647 bytes), SHA-256
+`b0f5998a00cb13ef105a49869557800186d4503ab2aa8758f9d333c2885f5c3f`, matches the downloaded
+checksum and manifest. The manifest confirms version `0.9.40`, build `73` and the full source
+revision above. `tool/personal_ios.py validate` and ZIP CRC integrity checks pass at the final path.
+The payload retains `bluetooth-central`, `location` and the approved real-workout `audio` mode;
+Watch/widgets/Live Activities, HealthKit, App Groups, background fetch/processing and required
+Firebase initialization remain excluded. The IPA, manifest and checksum occupy the single folder
+`../final-ipas/whoop/testing/WHOOP-0.9.40-build73-a49d7837`.
+Installation, phone acceptance and completed current-version automatic-refresh registration for
+`0.9.40` at `com.akshat.personal.whoop.5564K8D4SV` are pending. The build-70 recovery IPA and
+accepted-build ledger remain unchanged; promote build 73 only after the `todo.md` gates pass.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

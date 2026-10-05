@@ -4,8 +4,11 @@
 `05c208c79fe61c35e8df587e7becfd59698cbf02`. Akshat confirms this is the phone build used for
 the screenshots, reports background voice failure and confirms Today refresh now updates steps.
 He reports maintenance calories appearing unchanged. The approved repair is implemented locally in
-`0.9.40`/`73` (algorithm 89) and passes local validation; public publication and the macOS IPA still
-require named-destination approval. Build 70 remains accepted; build 72 is installed, not accepted.
+`0.9.40`/`73` (algorithm 89) and passes local validation. Akshat approved publication and the
+single personal IPA; source `a49d7837` is published and Linux CI/macOS compilation pass.
+The downloaded IPA passes checksum, manifest and payload checks and is the single testing
+candidate, awaiting installation, phone acceptance and current-version enrollment.
+Build 70 remains accepted; build 72 is installed, not accepted.
 The evidence sections below describe build 72; `todo.md` owns current implementation and phone gates.
 
 ## Evidence and limits
@@ -269,8 +272,8 @@ session's active component, so never add them together. Keep the existing within
 rule while showing the appropriate Method 1 value. Do not subtract resting energy again from the
 already-net Method 1 estimates. Daily maintenance continues to use only Method 1 movement, with
 run-window steps removed and a walking workout included once through its steps. BMR and the 10%
-logged-food digestion term remain separate components. This refines the plan; it does not authorize
-app implementation, another IPA or publication.
+logged-food digestion term remain separate components. Akshat subsequently approved implementing
+this contract in build 73 and separately approved its public source and personal IPA.
 
 ## Conservative-estimate limitations and accounting defects
 
@@ -540,4 +543,5 @@ history/Food; decimal entry and unchanged saves; all macro rows; step-only strea
 Measure wrist fallback against counted steps with the phone carried, left nearby and out of range;
 offline WHOOP 4 coverage is a documented limitation, not an acceptance promise of accurate steps.
 Only after the phone pass and current-version refresh enrollment should the resulting candidate
-replace accepted build 70. No promotion, build or publication was performed by this audit.
+replace accepted build 70. `setup.md` owns subsequent publication/build evidence; this audit
+does not constitute phone acceptance or cache promotion.

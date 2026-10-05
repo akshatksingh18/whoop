@@ -4,9 +4,10 @@ Everything the app stores and where each item appears in the approved local buil
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
 the personal source `0.9.40`/`73` (algorithm 89).
 
-**Status:** Build 73 is implemented locally and passes regression/release validation.
-Public publication, macOS IPA compilation and phone acceptance are pending. Build 72 remains the
-installed/testing IPA and build 70 the accepted recovery. Stored metrics remain intact; any removal
+**Status:** Build 73 source `a49d7837` is published with Akshat's approval and passes local
+regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
+Build 73 is the single testing candidate, awaiting installation, phone acceptance and enrollment.
+Build 72 remains the last confirmed phone installation and build 70 the accepted recovery. Stored metrics remain intact; any removal
 still needs Akshat's per-item approval.
 
 ## What is stored

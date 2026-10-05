@@ -36,7 +36,10 @@ are included. Foreground refresh re-reads session movement; deletion/Undo notice
 research/implemented contract; `todo.md` owns release/phone gates. Local validation passes:
 3,343 full-suite tests (376 intentional skips), 107 personal-profile checks and eight personal-iOS
 contract tests; analysis has 113 informational lints and no errors/warnings. Rendered layout checks pass;
-publication, macOS compilation, IPA and device verification remain pending.
+Source `fac386b7` is published with Akshat's approval; Linux CI `37386075292` passes.
+Personal macOS build `37386879673` compiled the app and extension, then exposed a ZIP directory
+validation defect. The packaging guard now permits the required `PlugIns/` parent while rejecting
+other extensions/files; eight regression checks pass. The corrected IPA rebuild and device verification remain pending.
 The complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
 artifact evidence. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.

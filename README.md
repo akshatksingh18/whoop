@@ -52,8 +52,10 @@
 > tags, qualified HR drift and one workout-only Live Activity extension without App Groups.
 > Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds.
 > Budget coefficients are unchanged. Local release checks pass (3,343 full-suite tests, 107 personal
-> checks and eight iOS contract tests; analysis has no errors/warnings). `todo.md` owns release gates; no build-74 IPA
-> has been produced or installed. Native/signing/background checks remain pending.
+> checks and eight iOS contract tests; analysis has no errors/warnings). Source `fac386b7` is
+> published with approval and Linux CI `37386075292` passes. Native compilation passed; a ZIP parent-directory
+> validator defect is corrected with regression coverage and the replacement build is pending;
+> no build-74 IPA has been produced or installed yet. `todo.md` owns release/device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in

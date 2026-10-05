@@ -288,8 +288,10 @@ dependent views. Foreground/manual refresh also re-reads current session movemen
 phone coverage. Run/walk history recalculates Method 1 rather than retaining old gross estimates.
 Build-73 release checks, CI/macOS and downloaded IPA validation pass. Build-74 local release
 checks pass: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
-personal-iOS contract tests; analysis has no errors/warnings. Publication, native compilation,
-artifact and phone checks are pending; `setup.md` owns complete local evidence.
+personal-iOS contract tests; analysis has no errors/warnings. Source `fac386b7` is published
+with approval and Linux CI `37386075292` passes. Native compilation passed; the packaging guard's
+ZIP parent-directory defect is corrected. A validated replacement artifact and phone checks
+are pending; `setup.md` owns complete evidence.
 Installation is confirmed; the full calculation/refresh phone checks remain before calling these
 fixes verified on iPhone.
 

@@ -4,7 +4,10 @@
 approval of the combined repairs and useful audit/Gemini additions. Local release validation
 passes: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
 personal-iOS contract tests. Analysis has 113 infos and no errors/warnings; rendered layouts were
-inspected and generated screenshots removed. Publication, macOS compilation, IPA validation and
+inspected and generated screenshots removed. Source `fac386b7` is published with approval;
+Linux CI `37386075292` passes. Personal macOS build `37386879673` compiled the app/extension;
+its packaging gate exposed a ZIP directory-entry defect. The corrected validator accepts the
+required `PlugIns/` parent only and retains other extension/file exclusions. IPA validation and
 phone acceptance are not complete.
 Installed build 73 remains the cached testing IPA; accepted build 70 remains recovery.
 `todo.md` owns release and device gates; `setup.md` owns build evidence.

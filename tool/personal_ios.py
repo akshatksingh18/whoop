@@ -319,7 +319,8 @@ def validate_ipa(path: Path) -> dict[str, object]:
             for name in names
             if "/watch/" in name.lower()
             or (".appex/" in name.lower() and not (has_activity and name.startswith(activity_root)))
-            or ("/plugins/" in name.lower() and not (has_activity and name.startswith(activity_root)))
+            or ("/plugins/" in name.lower() and not (has_activity and (
+                name == "Payload/Runner.app/PlugIns/" or name.startswith(activity_root))))
             or name.lower().endswith("embedded.mobileprovision")
             or name.lower().endswith("googleService-info.plist".lower())
             or name.lower().endswith((".db", ".sqlite", ".jsonl", ".env"))

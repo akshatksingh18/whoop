@@ -179,7 +179,10 @@ Foreground refresh now re-reads session movement after daily steps. The Food del
 explicitly expires after two seconds: Flutter 3.41 defaults action snackbars to persistent;
 queued notices are cleared before a replacement. Undo within the window still restores the entry.
 `build-74-audit.md` owns the baseline/research and implemented contract; `todo.md` owns release and
-phone checks. Local source fixes are not yet a compiled native IPA or device acceptance result.
+phone checks. Native app/extension compilation passed, while device acceptance remains pending.
+The IPA validator permits ZIP's required `PlugIns/` parent for the contract-checked workout
+extension and rejects unexpected sibling plugins/files; the realistic archive regression covers
+the parent-directory packaging failure. A validated replacement artifact is still pending.
 
 ## Workout, sync and profile consistency
 

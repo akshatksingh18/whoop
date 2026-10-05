@@ -321,8 +321,16 @@ remain excluded. Existing BLE/location/audio modes are unchanged. Local release 
 eight personal-iOS contract tests and `personal_ios.py check`. Analysis exits successfully with
 113 informational lints and no errors/warnings. Focused rendered/flow checks pass (49 visual/flow,
 eight live-cadence and 19 navigation checks); inspected screenshots were removed from `test/goldens`.
-`git diff --check` passes. No source has been published or native IPA built for 74; no checksum/install/signing
-success is claimed. Public CI/build needs named approval; build 70 remains accepted recovery.
+`git diff --check` passes. Akshat approved publication, CI and the personal IPA build to the testing
+cache. Source `fac386b72b7c8b1b181510ee0fe3618ac8482d0e` is published to the public
+`akshatksingh18/whoop` repository; Linux CI `37386075292` passes (3,348 tests, 371 intentional
+skips, analysis with 113 infos and no errors/warnings). Personal macOS build `37386879673`
+compiled Runner and the workout extension successfully but stopped at IPA validation: ZIP's
+`Payload/Runner.app/PlugIns/` parent entry was incorrectly rejected. The packaging guard now
+allows exactly that required parent plus the verified extension contents, still rejecting extra
+plugins/files. The realistic-directory regression reproduces the failure and all eight contract
+tests now pass. No validated IPA/checksum/install/signing success is claimed yet; the corrected
+artifact rebuild is pending. Build 70 remains accepted recovery.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

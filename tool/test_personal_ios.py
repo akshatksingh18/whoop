@@ -98,6 +98,10 @@ class PersonalIosContractTest(unittest.TestCase):
             def make(ext: dict, extra: str | None = None, binary: bool = True) -> Path:
                 ipa = Path(tmp) / "activity.ipa"
                 with zipfile.ZipFile(ipa, "w") as archive:
+                    # zip -r includes directories, not only the files in them.
+                    archive.writestr("Payload/", b"")
+                    archive.writestr("Payload/Runner.app/", b"")
+                    archive.writestr("Payload/Runner.app/PlugIns/", b"")
                     archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
                     root = "Payload/Runner.app/PlugIns/OpenStrapWidgetExtension.appex/"
                     archive.writestr(root + "Info.plist", plistlib.dumps(ext))
@@ -110,6 +114,8 @@ class PersonalIosContractTest(unittest.TestCase):
                 with self.assertRaises(ContractError): validate_ipa(make(bad))
             with self.assertRaises(ContractError): validate_ipa(make(extension, binary=False))
             with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/Other.appex/Info.plist"))
+            with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/Other.appex/"))
+            with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/unexpected.txt"))
 
 
 

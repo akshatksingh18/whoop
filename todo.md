@@ -25,10 +25,13 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 
 ## Build 74: implemented combined repair and comparison
 
-Local source is `0.9.41`/`74`, algorithm 90, on Akshat's implementation approval.
+Source is `0.9.41`/`74`, algorithm 90, on Akshat's implementation approval.
 `build-74-audit.md` owns the equations, source audit, Gemini-topic assessment and implemented
-contract. Current validation is recorded in `setup.md`. No build-74 IPA exists yet; public
-publication/CI and one macOS build require approval naming `akshatksingh18/whoop`.
+contract. Current validation is recorded in `setup.md`. Akshat approved public publication,
+CI and the personal IPA build to the testing cache. Source `fac386b7` is published to
+`akshatksingh18/whoop`; Linux CI `37386075292` passes. Personal macOS build `37386879673`
+compiled the app/extension but exposed a packaging-directory guard defect. The corrected guard
+passes eight contract checks; the validated replacement build is pending. No cached build-74 IPA exists yet.
 
 Implemented: shared future-time chart limits and units; permanent daily Steps/calorie browsing;
 Step calories Today; selectable dated breathing and workout HR history; pause-clock alignment;
@@ -46,9 +49,9 @@ HR energy remains analysis only. Missing comparison inputs stay unavailable, not
 
 - Local release checks pass: 3,343 full-suite tests (376 intentional skips), 107 focused personal
   tests, eight packaging-contract tests and analysis without errors/warnings. Small/normal and
-  enlarged-text layouts were inspected; generated screenshots were removed. Prepare one source
-  commit and review public contents; `setup.md` owns the complete evidence.
-- After publication approval, run Linux CI and one personal macOS IPA build; validate exact
+  enlarged-text layouts were inspected; generated screenshots were removed. Source commit
+  `fac386b7` is reviewed and published; `setup.md` owns the complete evidence.
+- Finish Linux CI and one personal macOS IPA build; validate exact
   version/source/checksum, ZIP integrity and the single version-matched workout extension.
 - Install over build 73 with the same signed identity; confirm encrypted history, decimals,
   saved foods/meals, band pairing and current-version automatic-refresh enrollment intact.

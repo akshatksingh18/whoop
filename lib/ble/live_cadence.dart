@@ -51,6 +51,11 @@ const int kMinCadenceMinutes = 3;
 /// gait-like minutes. It is never 0 and never the mean of everything — an
 /// indoor session that never walked has no cadence, and saying "0 spm" would
 /// read as a measurement of stillness rather than an absence of walking.
+/// Most recent completed minute, explicitly labelled separately from a session median.
+int? minuteCadenceSpm(int raw) => raw >= kMinCadenceSpm && raw <= kMaxCadenceSpm
+    ? (raw * ana.StepParams.gain).round()
+    : null;
+
 int? sessionCadenceSpm(List<int> rawMinuteSteps) {
   final gait = <int>[
     for (final raw in rawMinuteSteps)

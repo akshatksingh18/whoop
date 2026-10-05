@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>CFBundleURLTypes</key>
+	<array><dict><key>CFBundleURLName</key><string>$(APP_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleURLSchemes</key><array><string>whoop</string></array></dict></array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- ── ZERO-COLLECTION BY DEFAULT (privacy tier 1) ──

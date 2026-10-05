@@ -72,12 +72,12 @@ import MapKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    #if !PERSONAL_SIDELOAD
     // Live Activity MethodChannel (start/update/end the workout activity).
     // LiveActivityBridge lives in LiveActivityBridge.swift (Runner target).
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LiveActivityBridge") {
       LiveActivityBridge.register(messenger: registrar.messenger())
     }
+    #if !PERSONAL_SIDELOAD
     // Breathing-session Live Activity — separate channel/attributes type from
     // the workout one (BreathingLiveActivityBridge.swift, Runner target).
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BreathingLiveActivityBridge") {
@@ -110,6 +110,7 @@ import MapKit
     // aggregate. See lib/health/phone_pedometer.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
       PedometerBridge.register(messenger: registrar.messenger())
+      PhoneCadenceBridge.register(messenger: registrar.messenger())
     }
     // A dark Apple Maps picture under a recorded route. See lib/gps/map_snapshot.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MapSnapshotBridge") {
@@ -184,6 +185,37 @@ enum ConfigBridge {
 // writer in the store. Requires NSMotionUsageDescription in Info.plist: without it the
 // first call CRASHES the app (Apple's words), which is why the plist edit ships with
 // this file, not after it.
+// Independent from historical queries: currentCadence only exists in live updates.
+enum PhoneCadenceBridge {
+  private static let pedometer = CMPedometer()
+  private static var generation = 0
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: "openstrap/phone_cadence", binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      generation += 1
+      pedometer.stopUpdates()
+      if call.method == "stop" { result(nil); return }
+      guard call.method == "start" else { result(FlutterMethodNotImplemented); return }
+      guard CMPedometer.isCadenceAvailable(), CMPedometer.authorizationStatus() == .authorized,
+            let args = call.arguments as? [String: Any], let token = args["generation"] as? Int
+      else { result(false); return }
+      let nativeToken = generation
+      pedometer.startUpdates(from: Date()) { data, error in
+        DispatchQueue.main.async {
+          guard nativeToken == generation else { return }
+          var reading: [String: Any] = ["generation": token]
+          if error == nil, let data = data, let cadence = data.currentCadence {
+            reading["stepsPerSecond"] = cadence.doubleValue
+            reading["atMs"] = Int(data.endDate.timeIntervalSince1970 * 1000)
+          }
+          channel.invokeMethod("cadence", arguments: reading)
+        }
+      }
+      result(true)
+    }
+  }
+}
+
 enum PedometerBridge {
   private static let channelName = "openstrap/phone_steps"
   private static let pedometer = CMPedometer()
@@ -239,7 +271,8 @@ enum PedometerBridge {
           }
         }
 
-      case "stepsInInterval":
+      case "stepsInInterval", "movementInInterval":
+        let movement = call.method == "movementInInterval"
         let args = call.arguments as? [String: Any] ?? [:]
         guard let fromMs = args["fromMs"] as? Int, let toMs = args["toMs"] as? Int else {
           result(nil)
@@ -252,11 +285,11 @@ enum PedometerBridge {
         let from = Date(timeIntervalSince1970: Double(fromMs) / 1000)
         let to = Date(timeIntervalSince1970: Double(toMs) / 1000)
         guard to > from else {
-          result(0)
+          if movement { result(["steps": 0, "distance_m": 0]) } else { result(0) }
           return
         }
         guard from >= Date().addingTimeInterval(-cacheWindow) else {
-          result(notCovered)
+          if movement { result(["steps": notCovered]) } else { result(notCovered) }
           return
         }
         pedometer.queryPedometerData(from: from, to: to) { data, error in
@@ -265,7 +298,15 @@ enum PedometerBridge {
               result(nil)
               return
             }
-            result(data.numberOfSteps.intValue)
+            if movement {
+              var reading: [String: Any] = ["steps": data.numberOfSteps.intValue]
+              if let metres = data.distance?.doubleValue, metres.isFinite, metres >= 0 {
+                reading["distance_m"] = metres
+              }
+              result(reading)
+            } else {
+              result(data.numberOfSteps.intValue)
+            }
           }
         }
 

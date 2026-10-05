@@ -32,6 +32,7 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'notification_event.dart';
+import 'tap_router.dart';
 import 'notification_ids.dart';
 
 /// The next wall-clock instant at [hour]:[minute] — optionally the next
@@ -452,7 +453,7 @@ class NotificationService {
         e.title,
         e.body.isEmpty ? null : e.body,
         _details(e.category),
-        payload: e.route,
+        payload: e.route == null ? null : datedRoute(e.route!, e.date),
       );
       return true;
     } catch (_) {

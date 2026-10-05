@@ -1,4 +1,4 @@
-// Daily maintenance as a floor: BMR + step calories + 10% of food logged.
+// Daily maintenance as a budgeting estimate: BMR + step calories + 10% of food logged.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/profile.dart';
@@ -35,11 +35,13 @@ void main() {
     expect(stepCalories(1000, null), isNull);
   });
 
-  test('the steps breakdown keeps its stride distance', () {
+  test('the steps breakdown keeps its estimated step-length distance', () {
     const p = Profile(heightCm: 175, weightKg: 75, sex: 'm');
     final w = walkingEnergy(10000, p)!;
     expect(w.km, closeTo(7.2625, 1e-9));
     expect(w.kcal, closeTo(stepCalories(10000, 75)!, 1e-9));
-    expect(walkingEnergy(8000, const Profile(weightKg: 75)), isNull);
+    final withoutHeight = walkingEnergy(8000, const Profile(weightKg: 75))!;
+    expect(withoutHeight.kcal, stepCalories(8000, 75));
+    expect(withoutHeight.km, isNull);
   });
 }

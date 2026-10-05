@@ -33,16 +33,13 @@ BUNDLE_ID = "com.akshat.personal.whoop"
 
 _REMOVE_ONCE = (
     # Runner target: do not build or embed extension companions.
-    '\t\t\t\t5348974F2FDC19C90033A4D9 /* Embed Foundation Extensions */,\n',
     '\t\t\t\tFADE0002FADE0002FADE0002 /* Embed Watch Content */,\n',
-    '\t\t\t\t5348974D2FDC19C90033A4D9 /* PBXTargetDependency */,\n',
     '\t\t\t\tFADE0004FADE0004FADE0004 /* PBXTargetDependency */,\n',
     # Personal build has no Firebase resource generator or symbol uploader.
     '\t\t\t\t47E3AF2498550A854A4821B6 /* Ensure GoogleService-Info.plist */,\n',
     '\t\t\t\tAEFDDC7BFE6597FE6A6F1BB9 /* FlutterFire: "flutterfire upload-crashlytics-symbols" */,\n',
     '\t\t\t\t511D97990D2F790E7357E9B4 /* GoogleService-Info.plist in Resources */,\n',
     # Native surfaces excluded by the personal capability contract.
-    '\t\t\t\t534897A72FDC2B310033A4D9 /* LiveActivityBridge.swift in Sources */,\n',
     '\t\t\t\tBEEF00000000000000000002 /* BreathingLiveActivityBridge.swift in Sources */,\n',
     '\t\t\t\t53962E962FF6EE120061A61B /* WatchBridge.swift in Sources */,\n',
     '\t\t\t\t53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */,\n',
@@ -67,7 +64,6 @@ _FORBIDDEN_INFO_KEYS = {
     # conditions; NSLocationWhenInUseUsageDescription is no longer forbidden - see the required
     # keys below and route_math.dart/route_tracker.dart for what actually uses it.
     "NSLocationAlwaysAndWhenInUseUsageDescription",
-    "NSSupportsLiveActivities",
     "OpenStrapAppGroupIdentifier",
 }
 
@@ -188,6 +184,31 @@ def transform_project(text: str) -> str:
     )
     for config_id, name in _RUNNER_CONFIGS:
         text = _add_personal_condition(text, config_id, name)
+    # Keep exactly the local workout activity; no home widgets, breathing
+    # activity or App Group dependency in the personal extension.
+    text = _replace_exact(text,
+        "CODE_SIGN_ENTITLEMENTS = OpenStrapWidgetExtension.entitlements;",
+        "CODE_SIGN_ENTITLEMENTS = Runner/RunnerPersonal.entitlements;", 3)
+    text = _replace_exact(text,
+        'PRODUCT_BUNDLE_IDENTIFIER = "$(APP_WIDGET_BUNDLE_IDENTIFIER)";',
+        'PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).activity";', 3)
+    # Synchronized source membership is explicit and checked for upstream drift.
+    excluded = sorted(p.name for p in (ROOT / "ios" / "OpenStrapWidget").glob("*.swift")
+        if p.name not in {"OpenStrapWidgetBundle.swift", "OpenStrapWidgetLiveActivity.swift"})
+    needle = "membershipExceptions = (\n\t\t\t\tInfo.plist,"
+    text = _replace_exact(text, needle, needle + "".join(
+        "\n\t\t\t\t" + name + "," for name in excluded), 1)
+    for config_id in ("534897502FDC19C90033A4D9", "534897512FDC19C90033A4D9", "534897522FDC19C90033A4D9"):
+        # Set the condition only on the widget extension's three blocks.
+        marker = config_id + " /* "
+        start = text.find(marker, text.find("/* Begin XCBuildConfiguration section */"))
+        if start < 0: raise ContractError("missing widget configuration " + config_id)
+        end = text.find("\n\t\t};", start)
+        block = text[start:end]
+        needle = "SWIFT_VERSION = 5.0;"
+        if block.count(needle) != 1: raise ContractError("widget Swift settings changed")
+        block = block.replace(needle, 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) PERSONAL_SIDELOAD";\n\t\t\t\t' + needle)
+        text = text[:start] + block + text[end:]
     return text
 
 
@@ -199,6 +220,10 @@ def personal_info(source: dict[str, object]) -> dict[str, object]:
     out["CFBundleDisplayName"] = APP_NAME
     out["CFBundleName"] = APP_NAME
     out["OpenStrapPersonalSideload"] = True
+    out["OpenStrapWorkoutLiveActivity"] = True
+    out["NSSupportsLiveActivities"] = True
+    out["FlutterDeepLinkingEnabled"] = False
+    out["CFBundleURLTypes"] = [{"CFBundleURLName": BUNDLE_ID, "CFBundleURLSchemes": ["whoop"]}]
     # "location" added alongside the existing bluetooth-central mode: this plus While-In-Use
     # authorization (never Always - see _FORBIDDEN_INFO_KEYS) is what lets a run stay tracked
     # with the screen locked, per gps_source.dart's own comment on the same tradeoff.
@@ -235,8 +260,8 @@ def validate_info(info: dict[str, object], resolved_bundle_id: str | None = BUND
 def check_project() -> None:
     validate_new_build_identity()
     transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
-    if transformed.count("PERSONAL_SIDELOAD") != 3:
-        raise ContractError("all three Runner configurations must define PERSONAL_SIDELOAD")
+    if transformed.count("PERSONAL_SIDELOAD") != 6:
+        raise ContractError("Runner and workout extension configurations must define PERSONAL_SIDELOAD")
     entitlements = plistlib.loads(PERSONAL_ENTITLEMENTS.read_bytes())
     if entitlements:
         raise ContractError("personal Runner entitlements must remain empty")
@@ -251,6 +276,10 @@ def prepare() -> None:
     source = plistlib.loads(SOURCE_INFO.read_bytes())
     with PERSONAL_INFO.open("wb") as handle:
         plistlib.dump(personal_info(source), handle, sort_keys=False)
+    widget_info = ROOT / "ios" / "OpenStrapWidget" / "Info.plist"
+    extension = plistlib.loads(widget_info.read_bytes())
+    extension.pop("OpenStrapAppGroupIdentifier", None)
+    widget_info.write_bytes(plistlib.dumps(extension, sort_keys=False))
 
 
 def _ipa_info(archive: zipfile.ZipFile) -> tuple[str, dict[str, object]]:
@@ -267,21 +296,36 @@ def _ipa_info(archive: zipfile.ZipFile) -> tuple[str, dict[str, object]]:
 def validate_ipa(path: Path) -> dict[str, object]:
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
-        lowered = [name.lower() for name in names]
+        _, info = _ipa_info(archive)
+        has_activity = info.get("OpenStrapWorkoutLiveActivity") is True
+        activity_root = "Payload/Runner.app/PlugIns/OpenStrapWidgetExtension.appex/"
+        if has_activity:
+            extension_path = activity_root + "Info.plist"
+            if extension_path not in names: raise ContractError("workout activity extension is missing")
+            extension = plistlib.loads(archive.read(extension_path))
+            if extension.get("CFBundleIdentifier") != BUNDLE_ID + ".activity":
+                raise ContractError("workout activity bundle id differs from app")
+            for key in ("CFBundleVersion", "CFBundleShortVersionString"):
+                if extension.get(key) != info.get(key): raise ContractError("workout activity version differs from app")
+            if extension.get("NSExtension", {}).get("NSExtensionPointIdentifier") != "com.apple.widgetkit-extension":
+                raise ContractError("unexpected workout activity extension point")
+            executable = extension.get("CFBundleExecutable")
+            if not isinstance(executable, str) or not executable or "/" in executable or activity_root + executable not in names:
+                raise ContractError("workout activity executable is missing")
+            if "OpenStrapAppGroupIdentifier" in extension: raise ContractError("personal activity must not require an App Group")
+            if info.get("NSSupportsLiveActivities") is not True: raise ContractError("Live Activity support is missing")
         forbidden_paths = [
             name
             for name in names
             if "/watch/" in name.lower()
-            or ".appex/" in name.lower()
+            or (".appex/" in name.lower() and not (has_activity and name.startswith(activity_root)))
+            or ("/plugins/" in name.lower() and not (has_activity and name.startswith(activity_root)))
             or name.lower().endswith("embedded.mobileprovision")
             or name.lower().endswith("googleService-info.plist".lower())
             or name.lower().endswith((".db", ".sqlite", ".jsonl", ".env"))
         ]
         if forbidden_paths:
             raise ContractError(f"forbidden payload entries: {forbidden_paths[:5]}")
-        if any("payload/runner.app/plugins/" in name for name in lowered):
-            raise ContractError("extension PlugIns directory remains in payload")
-        _, info = _ipa_info(archive)
         validate_info(info)
         return info
 
@@ -311,7 +355,7 @@ def write_manifest(ipa: Path, output: Path, source_revision: str) -> None:
             "healthDataContribution": False,
             "watch": False,
             "widgets": False,
-            "liveActivities": False,
+            "liveActivities": info.get("OpenStrapWorkoutLiveActivity") is True,
         },
     }
     output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

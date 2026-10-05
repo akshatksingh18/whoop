@@ -26,6 +26,10 @@ import '../../gps/route_models.dart' as rm show Split;
 import '../../gps/route_models.dart' show RoutePoint;
 import '../../gps/run_analysis.dart' show paceZoneShares, runVerdict, RunMix;
 import '../../gps/run_history.dart';
+import '../../gps/workout_clock.dart';
+import '../../gps/workout_context.dart';
+import '../../gps/heart_rate_drift.dart';
+import 'workout_context.dart';
 import '../../data/db.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/prefs.dart';
@@ -35,7 +39,8 @@ import '../grammar.dart';
 import '../paint_activity.dart';
 import '../profile/profile.dart';
 import '../screens/home_screen.dart' show profileOf, repoOf, unitsOf;
-import '../../compute/profile.dart' show Profile, stepCalories, runFloorKcal;
+import '../../compute/profile.dart'
+    show Profile, stepCalories, runFloorKcal, acsmActiveKcal;
 import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
@@ -256,10 +261,34 @@ class ActivityResult {
   final int? avgHr, maxHr;
   final int? _storedCalories;
   final Profile? calculationProfile;
+  double? get acsmCalories {
+    final kg = calculationProfile?.weightKg;
+    if (isWalkType(activity.typeKey))
+      return distanceKm == null
+          ? null
+          : acsmActiveKcal(
+              runMeters: 0,
+              walkMeters: distanceKm! * 1000,
+              weightKg: kg,
+            );
+    final m = mix;
+    return !isRunType(activity.typeKey) || m == null
+        ? null
+        : acsmActiveKcal(
+            runMeters: m.runM,
+            walkMeters: m.walkM,
+            runClimbMeters: m.climbM,
+            weightKg: kg,
+          );
+  }
+
   int? get calories {
     final type = activity.typeKey;
     if (isWalkType(type)) {
-      return stepCalories(stepsCounted, calculationProfile?.weightKg)?.round();
+      return stepCalories(
+        phoneSteps ?? stepsCounted,
+        calculationProfile?.weightKg,
+      )?.round();
     }
     if (isRunType(type)) {
       final m = mix;
@@ -699,8 +728,7 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   // A run or walk with a distance shows its calories on their own card, by
   // distance and by heart rate, so the band's single figure is not repeated.
   final ownCard =
-      r.mix != null &&
-      (isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey));
+      isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey);
   add(
     'Calories',
     r.calories == null || ownCard ? null : '${grouped(r.calories!)} kcal',
@@ -832,6 +860,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   // ── the run screen ──
   RunView? _runCache;
+  HeartRateDrift? _drift;
+  bool _driftComputed = false;
 
   /// A GPS session with a recorded track gets the run screen.
   RunView? get run => arch == Arch.route && r.track.length >= 2
@@ -905,6 +935,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       _rated = null;
       _rpeDismissed = false;
       _runCache = null;
+      _driftComputed = false;
       _cursor = null;
     }
   }
@@ -1318,6 +1349,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           r.calculationProfile ?? widget.profile ?? profileOf(c),
         ),
       ],
+      if (_distanceCalories && r.sessionId != null) ...[
+        const SizedBox(height: S.x3),
+        WorkoutContextSelector(
+          tags: workoutContext(
+            WorkoutClock.read(r.sessionId!, r.start).results['context'],
+          ),
+          onChanged: (tags) {
+            final clock = WorkoutClock.read(r.sessionId!, r.start);
+            clock.results['context'] = tags;
+            clock.save();
+            _driftComputed = false;
+            setState(() {});
+            bumpInsights(c);
+          },
+        ),
+      ],
+      if (_distanceCalories &&
+          r.track.length > 1 &&
+          r.duration.inMinutes >= 20) ...[
+        const SizedBox(height: S.x3),
+        _driftCard(p),
+      ],
       // TS-09 — directly under the measurements, because that is what it is
       // being asked against, and directly where the answer lands: once rated,
       // this card is gone and 'Your rating' is the last row of the card above.
@@ -1331,10 +1384,53 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     ];
   }
 
+  Widget _driftCard(P p) {
+    final clock = r.sessionId == null
+        ? WorkoutClock('', r.start, end: r.start.add(r.duration))
+        : WorkoutClock.read(r.sessionId!, r.start);
+    if (!_driftComputed) {
+      _drift = heartRateDrift(
+        r.track,
+        r.hr,
+        clock,
+        clock.end ?? r.start.add(r.duration),
+        tags: workoutContext(clock.results['context']),
+      );
+      _driftComputed = true;
+    }
+    final drift = _drift;
+    return Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Heart-rate drift', style: F.head.copyWith(color: p.ink)),
+          const SizedBox(height: S.x2),
+          Text(
+            drift == null
+                ? 'Not enough comparable data in both halves'
+                : '${drift.change >= 0 ? "+" : ""}${drift.change.toStringAsFixed(1)} bpm at similar recorded pace',
+            style: F.t2.copyWith(color: p.ink),
+          ),
+          if (drift != null)
+            Text(
+              'First half ${drift.earlierHr.round()} bpm → second half ${drift.laterHr.round()} bpm. '
+              'At least ${(drift.hrCoverage * 100).round()}% HR and ${(drift.routeCoverage * 100).round()}% route coverage.',
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          Text(
+            'A comparison within this session, at 20+ active minutes. Pauses are excluded. '
+            'Pace must be within 5% between halves; hills and treadmill tags withhold it. '
+            'Warm-up, heat and fatigue can affect HR. This does not change calories or diagnose fitness.',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// A run or walk with a distance gets the two-method calorie card in place
   /// of the band's heart-rate calorie stat.
-  bool get _distanceCalories =>
-      r.mix != null && (isRunType(a.typeKey) || isWalkType(a.typeKey));
+  bool get _distanceCalories => isRunType(a.typeKey) || isWalkType(a.typeKey);
 
   /// What the numbers on this screen were made of. The calorie sentence is
   /// always here; the step one joins it whenever a count is on the card,
@@ -1913,6 +2009,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         'Partial trace — the band handed over $pct% of these minutes.';
   }
 
+  int? _hrPick;
   Widget _hrFrame(P p, {double height = 130, String? extra}) {
     final l = AppLocalizations.of(context);
     final axis = AxisSpec.of(r.hr.whereType<double>());
@@ -1932,13 +2029,30 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       xLabels: [l?.activitySummaryStart ?? 'Start', hms(r.duration)],
       footnote: note.isEmpty ? null : note.join(' '),
       series: r.hr,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: LineChart(
-          r.hr,
-          p.on(C.red),
-          axis: axis,
-          t: animate(context, 1),
+      readout: _hrPick == null || r.hr.isEmpty
+          ? null
+          : '${clock(_hrPick! * 60)} · ${r.hr[_hrPick!]?.round().toString() ?? 'not recorded'} bpm',
+      child: Scrubber(
+        value: _hrPick == null || r.hr.length < 2
+            ? null
+            : _hrPick! / (r.hr.length - 1),
+        onChanged: (v) {
+          if (r.hr.isNotEmpty)
+            setState(() => _hrPick = (v * (r.hr.length - 1)).round());
+        },
+        describe: (v) => r.hr.isEmpty
+            ? 'not recorded'
+            : '${clock((v * (r.hr.length - 1)).round() * 60)} · ${r.hr[(v * (r.hr.length - 1)).round()]?.round().toString() ?? 'not recorded'} bpm',
+        label: 'Heart rate through the session',
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: LineChart(
+            r.hr,
+            p.on(C.red),
+            cursor: _hrPick,
+            axis: axis,
+            t: animate(context, 1),
+          ),
         ),
       ),
     );

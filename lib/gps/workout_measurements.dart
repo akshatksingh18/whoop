@@ -52,6 +52,26 @@ class WorkoutMeasurements {
       : ((motion?.activeMinutes ?? 0) * 60).round();
   double? method1(String type) =>
       workoutMethod1(type, profile, steps: steps, mix: mix);
+  double? acsm(String type) {
+    final m = mix;
+    if (isWalkType(type))
+      return meters == null
+          ? null
+          : acsmActiveKcal(
+              runMeters: 0,
+              walkMeters: meters!,
+              weightKg: profile.weightKg,
+            );
+    return !isRunType(type) || m == null
+        ? null
+        : acsmActiveKcal(
+            runMeters: m.runM,
+            walkMeters: m.walkM,
+            runClimbMeters: m.climbM,
+            weightKg: profile.weightKg,
+          );
+  }
+
   static Future<WorkoutMeasurements> read(
     LocalRepository repo,
     String id,

@@ -77,6 +77,21 @@ String routePath(String route) => Uri.tryParse(route)?.path ?? route;
 /// The bout/record id a deep link carries, or null when it carries none.
 String? routeId(String route) => Uri.tryParse(route)?.queryParameters['id'];
 
+String? routeDay(String route) {
+  final day = Uri.tryParse(route)?.queryParameters['day'];
+  final d = DateTime.tryParse(day ?? '');
+  return day != null && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(day) && d != null &&
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' == day ? day : null;
+}
+
+String datedRoute(String route, String? day, {String? id}) {
+  final uri = Uri.tryParse(route);
+  if (uri == null) return route;
+  return uri.replace(queryParameters: {...uri.queryParameters,
+    if (day != null) 'day': day, if (id != null) 'id': id}).toString();
+}
+const kRouteTrainingReview = '/workouts/review';
+
 /// The medication reminder. Lands on Wellness, where the Medication tab's
 /// checklist is the thing that records the dose.
 ///
@@ -155,15 +170,21 @@ const Map<String, int> _screenRoutes = {
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab
   kRouteStatus: 0,
+  kRouteRecovery: 0,
+  kRouteSteps: 0,
+  kRouteWorkoutIdle: 4,
+  kRouteTrainingReview: 4,
+  '/sleep': 0,
+  '/heart': 1,
 };
 
 TapTarget resolveTapRoute(String route) {
   // Match on the PATH; hand the full route (id and all) back as the screen
   // request, so whatever the shell pushes still knows which bout it is about.
   final path = routePath(route);
-  final tab = _tabRoutes[path];
-  if (tab != null) return TapTarget(tab);
   final base = _screenRoutes[path];
   if (base != null) return TapTarget(base, route);
+  final tab = _tabRoutes[path];
+  if (tab != null) return TapTarget(tab);
   return const TapTarget(0); // unknown payload from an older build → Today
 }

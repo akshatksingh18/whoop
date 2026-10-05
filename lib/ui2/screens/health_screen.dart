@@ -150,7 +150,9 @@ class HealthData {
       if (r.key == 'step_kcal') continue;
       charts[r.key] = pointsOf(await repo.getChart(r.key));
     }
-    charts['step_kcal'] = await stepCaloriePoints(repo, charts['steps']!);
+    final movement = await stepCalorieModels(repo, charts['steps']!, days: 90);
+    charts['step_kcal'] = movement.budget;
+    charts['step_kcal_acsm'] = movement.acsm;
 
     String labelAt(int t) =>
         dayLabelOf(DateTime.fromMillisecondsSinceEpoch(t * 1000));
@@ -283,7 +285,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 children: [
                   for (var i = 0; i < rows.length; i++) ...[
                     if (i > 0) Divider(color: p.line, height: 1),
-                    _trendRow(c, p, rows[i], d.points(rows[i].key), win),
+                    _trendRow(
+                      c,
+                      p,
+                      rows[i],
+                      d.points(rows[i].key),
+                      win,
+                      alternate: d.points('step_kcal_acsm'),
+                    ),
                   ],
                 ],
               ),
@@ -306,7 +315,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       ? v.round().toString()
       : metricValue(r.unit, v);
 
-  Widget _trendRow(BuildContext c, P p, _Row r, List<ChartPoint> pts, int win) {
+  Widget _trendRow(
+    BuildContext c,
+    P p,
+    _Row r,
+    List<ChartPoint> pts,
+    int win, {
+    List<ChartPoint> alternate = const [],
+  }) {
     final dense = denseDays(pts, win);
     final vals = [for (final v in dense) ?v];
     // "7,559 steps" beside a row already called Steps says it twice.
@@ -335,6 +351,35 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       );
     }
 
+    if (r.key == 'step_kcal') {
+      final secondary = denseDays(alternate, win);
+      final paired = secondary.whereType<double>().toList();
+      return Pressable(
+        onTap: open,
+        semanticLabel: 'Walking calorie estimates, open today and history',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: S.x3),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(r.label, style: F.body.copyWith(color: p.ink)),
+              const SizedBox(height: S.x2),
+              CaloriePair(
+                budget: vals.last,
+                acsm: secondary.last,
+                compact: true,
+                note:
+                    'Latest recorded day · active walking energy; runs excluded.',
+              ),
+              Text(
+                'Average Budget ${_fmt(r, vals.reduce((a, b) => a + b) / vals.length)} · ACSM ${paired.length == vals.length ? _fmt(r, paired.reduce((a, b) => a + b) / paired.length) : "unavailable"} kcal over ${vals.length} days',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final mean = vals.reduce((a, b) => a + b) / vals.length;
     final latest = vals.last;
     return Pressable(

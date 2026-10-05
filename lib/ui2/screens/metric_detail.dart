@@ -14,7 +14,8 @@ import 'package:provider/provider.dart';
 import '../../build_profile.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../compute/day_upkeep.dart';
-import '../../compute/profile.dart' show Profile;
+import '../../compute/profile.dart' show Profile, stepCalories, acsmActiveKcal;
+import '../../gps/run_history.dart' show loadRuns;
 import '../activity/day_strain.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -141,7 +142,7 @@ const _specs = <String, MetricSpec>{
     chartKey: 'deep',
     title: 'Deep sleep',
     unit: 'min',
-    color: C.blue,
+    color: C.sleep,
     icon: LucideIcons.moon,
     method:
         'A low-confidence overlay: a wrist sensor cannot see slow-wave '
@@ -395,6 +396,7 @@ class MetricData {
   /// release boundary. This export holds three versions of the same days and
   /// readiness moved across them: 2026-08-08 went 43.8 → 47.9.
   final List<int> algoBreaks;
+  final List<ChartPoint> acsmSeries;
 
   /// The daily step-goal target, read from the profile. Only ever loaded for
   /// `key == 'steps'` — every other metric leaves it at the default and never
@@ -403,6 +405,7 @@ class MetricData {
 
   const MetricData({
     this.series = const [],
+    this.acsmSeries = const [],
     this.wear = const [],
     this.percentile,
     this.movers = const [],
@@ -411,15 +414,20 @@ class MetricData {
     this.stepGoal = kDefaultStepGoal,
   });
 
-  static Future<MetricData> load(LocalRepository repo, String key) async {
+  static Future<MetricData> load(
+    LocalRepository repo,
+    String key, {
+    int calorieDays = 30,
+  }) async {
     final spec = specOf(key);
     if (metricSuppressed(key)) return const MetricData();
     final chart = key == 'step_kcal'
         ? await repo.getChart('steps')
         : await repo.getChart(spec.chartKey);
-    final points = key == 'step_kcal'
-        ? await stepCaloriePoints(repo, pointsOf(chart))
-        : pointsOf(chart);
+    final models = key == 'step_kcal'
+        ? await stepCalorieModels(repo, pointsOf(chart), days: calorieDays)
+        : null;
+    final points = models?.budget ?? pointsOf(chart);
     // Skin temperature charts only nights this band measured: an imported
     // night's deviation is another device's units (the reason the upstream
     // build hides the trend outright).
@@ -448,6 +456,7 @@ class MetricData {
       ];
     }
     return MetricData(
+      acsmSeries: models?.acsm ?? const [],
       series: [
         for (final p in points)
           if (imported.isEmpty ||
@@ -472,19 +481,51 @@ class MetricData {
 Future<List<ChartPoint>> stepCaloriePoints(
   LocalRepository repo,
   List<ChartPoint> steps,
-) async {
+) async => (await stepCalorieModels(repo, steps)).budget;
+
+Future<({List<ChartPoint> budget, List<ChartPoint> acsm})> stepCalorieModels(
+  LocalRepository repo,
+  List<ChartPoint> steps, {
+  int days = 365,
+  DateTime? at,
+}) async {
   final profile = Profile.fromMap(await repo.getProfile());
-  final out = <ChartPoint>[];
+  final out = <ChartPoint>[], acsm = <ChartPoint>[];
+  final runs = await loadRuns(repo);
+  final now = at ?? DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final cutoff = DateTime(
+    now.year,
+    now.month,
+    now.day - days.clamp(1, 365) + 1,
+  );
   for (final point in steps) {
-    final date = dayLabelOf(
-      DateTime.fromMillisecondsSinceEpoch(point.t * 1000),
+    final instant = DateTime.fromMillisecondsSinceEpoch(point.t * 1000);
+    final date = dayLabelOf(instant), day = DateTime.parse(date);
+    if (day.isBefore(cutoff) || day.isAfter(today)) continue;
+    final upkeep = await DayUpkeep.read(
+      repo,
+      date,
+      profile,
+      eaten: 0,
+      runs: runs,
     );
-    final upkeep = await DayUpkeep.read(repo, date, profile, eaten: 0);
-    if (upkeep.steps != null && upkeep.parts != null) {
-      out.add((t: point.t, v: upkeep.parts!.steps));
-    }
+    final budget =
+        upkeep.parts?.steps ??
+        stepCalories(upkeep.walkedSteps, upkeep.profile.weightKg);
+    if (budget != null) out.add((t: point.t, v: budget));
+    final secondary =
+        upkeep.acsmParts?.steps ??
+        (upkeep.walkingMeters == null
+            ? null
+            : acsmActiveKcal(
+                runMeters: 0,
+                walkMeters: upkeep.walkingMeters!,
+                weightKg: upkeep.profile.weightKg,
+              ));
+    if (secondary != null) acsm.add((t: point.t, v: secondary));
   }
-  return out;
+  return (budget: out, acsm: acsm);
 }
 
 class TodaySignalDetail extends StatefulWidget {
@@ -607,8 +648,14 @@ class _TodaySignalDetailState extends State<TodaySignalDetail>
     if (!isWear) {
       for (final p in _points) values[(p.t - start) ~/ 60] = p.v;
     }
+    final last = isWear
+        ? latestDaySlot(_date, values.length)
+        : values.length - 1;
+    if (isWear)
+      for (var slot = last + 1; slot < values.length; slot++)
+        values[slot] = null;
     final axis = AxisSpec.of(values.whereType<double>(), floor: 0);
-    final i = _pick?.clamp(0, values.length - 1);
+    final i = _pick?.clamp(0, last);
     String time(int slot) => isWear
         ? '${slot.toString().padLeft(2, '0')}:00'
         : clockOfTs(start + slot * 60);
@@ -637,6 +684,7 @@ class _TodaySignalDetailState extends State<TodaySignalDetail>
             ? 'Recorded wear time; gaps are unmeasured.'
             : 'Rolling 5-minute RMSSD from measured beat timing. Gaps are unmeasured.',
         child: Scrubber(
+          maxValue: values.length <= 1 ? 1 : last / (values.length - 1),
           value: i == null
               ? null
               : (values.length == 1 ? 0 : i / (values.length - 1)),
@@ -697,6 +745,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   /// preference.
   int _range = 0;
   MetricData? _d;
+  final _calorieCache = <(LocalRepository, int, int, String), MetricData>{};
   bool _loading = true;
   bool _failed = false;
 
@@ -740,12 +789,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SubTabs(
-          _labelsOf(c).sublist(0, n),
-          _range.clamp(0, n - 1),
-          (i) => setState(() => (_range = i, _pick = null)),
-          color: color,
-        ),
+        SubTabs(_labelsOf(c).sublist(0, n), _range.clamp(0, n - 1), (i) {
+          setState(() => (_range = i, _pick = null));
+          if (widget.metricKey == 'step_kcal' && widget.data == null) _load();
+        }, color: color),
         if (note != null) ...[
           const SizedBox(height: S.x2),
           Text(note, style: F.over.copyWith(color: p.ink3)),
@@ -757,7 +804,6 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   @override
   void initState() {
     super.initState();
-    if (widget.metricKey == 'step_kcal') _range = 1;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -779,7 +825,34 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     }
     final token = beginRead(#metric);
     try {
-      final d = await MetricData.load(repo, widget.metricKey);
+      AppState? app;
+      try {
+        app = context.read<AppState>();
+      } catch (_) {
+        /* Isolated fixtures. */
+      }
+      final key = (
+        repo,
+        app?.insightsRevision.value ?? -1,
+        _windows[_range],
+        todayLabel(),
+      );
+      final useCache = widget.metricKey == 'step_kcal' && app != null;
+      // Cache only this screen's visible windows, keyed by committed input revision.
+      // Keep repository/day identity: restore, rollover or a new profile cannot reuse it.
+      final d =
+          (useCache ? _calorieCache[key] : null) ??
+          await MetricData.load(
+            repo,
+            widget.metricKey,
+            calorieDays: _windows[_range],
+          );
+      if (useCache && app.insightsRevision.value == key.$2) {
+        _calorieCache.removeWhere(
+          (k, _) => k.$1 != repo || k.$2 != key.$2 || k.$4 != key.$4,
+        );
+        _calorieCache[key] = d;
+      }
       if (stillNewest(#metric, token))
         setState(() => (_d = d, _loading = false, _failed = false));
     } catch (_) {
@@ -877,6 +950,15 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         // placeholder `MetricData()` and `d.stepGoal` is just the fallback
         // default, not this user's goal — showing the editor pre-filled with
         // that would risk saving it over their real one.
+        if (win == 1 &&
+            widget.data == null &&
+            const ['steps', 'step_kcal'].contains(widget.metricKey)) ...[
+          const SizedBox(height: S.x3),
+          DayStepsDetail(
+            embedded: true,
+            calories: widget.metricKey == 'step_kcal',
+          ),
+        ],
         if (!_loading && widget.metricKey == 'steps' && win == 1) ...[
           const SizedBox(height: S.x5),
           _StepGoalGauge(
@@ -902,6 +984,15 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
             onSaved: _load,
           ),
         ],
+        if (const ['steps', 'step_kcal'].contains(widget.metricKey) &&
+            win == 1 &&
+            widget.data == null) ...[
+          const SizedBox(height: S.x3),
+          DayStepsDetail(
+            embedded: true,
+            calories: widget.metricKey == 'step_kcal',
+          ),
+        ],
         // On Today the window holds one value, and its lowest, typical and
         // highest would all be that same number. The normal range is a
         // property of your history, not of the window — so on Today it reads
@@ -916,6 +1007,19 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
             all.isEmpty ? null : all.last.t,
           ),
         ),
+        if (const ['steps', 'step_kcal'].contains(widget.metricKey)) ...[
+          const SizedBox(height: S.x3),
+          detailLinkRow(
+            c,
+            LucideIcons.calendarDays,
+            'Browse days',
+            'Open today, yesterday or another saved day',
+            () => go(
+              c,
+              DayStepsDetail(calories: widget.metricKey == 'step_kcal'),
+            ),
+          ),
+        ],
         if (d.movers.isNotEmpty)
           Section(
             l?.metricDetailWhatMovesItSection ?? 'What moves it',
@@ -936,10 +1040,6 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
             style: F.cap.copyWith(color: P.of(c).ink2, height: 1.5),
           ),
         ),
-      if (widget.metricKey == 'steps' && win == 1 && widget.data == null) ...[
-        const SizedBox(height: S.x3),
-        const DayStepsDetail(embedded: true),
-      ],
     ]);
   }
 
@@ -970,6 +1070,9 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     final l = AppLocalizations.of(c);
     final mean = vals.reduce((a, b) => a + b) / vals.length;
     final latest = vals.last;
+    final alternate = widget.metricKey == 'step_kcal'
+        ? denseDays(_d?.acsmSeries ?? const [], win)
+        : const <double?>[];
     // WHICH DAY the newest reading is from. `metric_series` gets a row only on
     // a day that derives, so after a sync gap the newest stored point is days
     // old — and this line is the answer to "is there a today?".
@@ -979,20 +1082,36 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: S.x2,
-            crossAxisAlignment: WrapCrossAlignment.end,
-            children: [
-              Text(_fmt(spec, mean), style: F.n48.copyWith(color: p.ink)),
-              // NOT `spec.unit`. `metricValue('min', 443)` is already "7h 23m",
-              // so every min-unit metric — Time asleep, Deep, REM, Wear time —
-              // rendered its headline as "7h 23m min".
-              Text(
-                unitBeside(spec.unit),
-                style: F.body.copyWith(color: p.ink3),
-              ),
-            ],
-          ),
+          if (widget.metricKey == 'step_kcal')
+            CaloriePair(
+              budget: mean,
+              acsm: () {
+                final values = denseDays(
+                  _d?.acsmSeries ?? const [],
+                  win,
+                ).whereType<double>().toList();
+                return values.length != vals.length
+                    ? null
+                    : values.reduce((a, b) => a + b) / values.length;
+              }(),
+              note:
+                  'Active walking energy; running steps are excluded. ACSM uses estimated distance.',
+            )
+          else
+            Wrap(
+              spacing: S.x2,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              children: [
+                Text(_fmt(spec, mean), style: F.n48.copyWith(color: p.ink)),
+                // NOT `spec.unit`. `metricValue('min', 443)` is already "7h 23m",
+                // so every min-unit metric — Time asleep, Deep, REM, Wear time —
+                // rendered its headline as "7h 23m min".
+                Text(
+                  unitBeside(spec.unit),
+                  style: F.body.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
           const SizedBox(height: S.x1),
           Align(
             alignment: Alignment.centerLeft,
@@ -1034,7 +1153,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                 // One axis, shared by the labels and the curve. `min` unit metrics
                 // print `7h 30m` on the gridlines rather than `450`.
                 final axis = AxisSpec.of(
-                  vals,
+                  [...vals, ...alternate.whereType<double>()],
                   ticks: 3,
                   format: spec.unit == 'min'
                       ? axisHm
@@ -1093,6 +1212,9 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                   ],
                   // The dots are already beside the big number two rows up; twice on
                   // one card reads as two different claims.
+                  legend: alternate.isEmpty
+                      ? const []
+                      : [('Budget', p.on(spec.color)), ('ACSM', p.on(C.teal))],
                   series: series,
                   readout: _pick == null
                       ? null
@@ -1123,28 +1245,47 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                         _slotSays(c, spec, series, _slotAt(v, series.length)),
                     onChanged: (v) =>
                         setState(() => _pick = _slotAt(v, series.length)),
-                    child: CustomPaint(
-                      size: Size.infinite,
-                      // Fill only when the axis genuinely starts at zero. Shaded to
-                      // a baseline of 52 bpm, a 52→60 week reads as a mountain — the
-                      // truncated-axis form with the truncation hidden.
-                      painter: LineChart(
-                        series,
-                        p.on(spec.color),
-                        fill: axis?.min == 0,
-                        dots: series.length <= 40,
-                        t: animate(c, 1),
-                        dotInk: p.card,
-                        axis: axis,
-                        cursor: _pick,
-                        cursorInk: p.ink,
-                      ),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: LineChart(
+                              series,
+                              p.on(spec.color),
+                              fill: axis?.min == 0,
+                              dots: series.length <= 40,
+                              t: animate(c, 1),
+                              dotInk: p.card,
+                              axis: axis,
+                              cursor: _pick,
+                              cursorInk: p.ink,
+                            ),
+                          ),
+                        ),
+                        if (alternate.isNotEmpty)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: LineChart(
+                                alternate,
+                                p.on(C.teal),
+                                fill: false,
+                                dots: alternate.length <= 40,
+                                axis: axis,
+                                cursor: _pick,
+                                cursorInk: p.ink,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 );
               },
             ),
-          if (_pick != null) _picked(c, spec, series),
+          if (series.isNotEmpty &&
+              (_pick != null ||
+                  const ['steps', 'step_kcal'].contains(widget.metricKey)))
+            _picked(c, spec, series),
           // L4 — the coverage denominator, under the curve it belongs to.
           //
           // Deliberately unflattering, and gated to the ranges where it changes
@@ -1231,6 +1372,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     final l = AppLocalizations.of(c);
     final day = prettyDay(_dayOfSlot(i, series.length), l);
     final v = series[i];
+    if (widget.metricKey == 'step_kcal') {
+      final secondary = denseDays(_d?.acsmSeries ?? const [], series.length)[i];
+      return '$day · Budget ${v == null ? 'unavailable' : '${thousands(v)} kcal'} · ACSM ${secondary == null ? 'unavailable' : '${thousands(secondary)} kcal'}';
+    }
     return v == null
         ? (l?.metricDetailSlotNoRecord(day) ?? '$day, no record')
         : (l?.metricDetailSlotWithValue(
@@ -1250,10 +1395,13 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   Widget _picked(BuildContext c, MetricSpec spec, List<double?> series) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final i = _pick!.clamp(0, series.length - 1);
+    final i = (_pick ?? series.length - 1).clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
     final v = series[i];
-    final door = v == null ? null : _dayScreen(widget.metricKey, day);
+    final door =
+        v == null && !const ['steps', 'step_kcal'].contains(widget.metricKey)
+        ? null
+        : _dayScreen(widget.metricKey, day);
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Surface(
@@ -1282,14 +1430,22 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
               ),
             ),
             const SizedBox(width: S.x3),
-            Text(
-              v == null
-                  ? (l?.metricDetailNoRecordLabel ?? 'No record')
-                  : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
-              style: v == null
-                  ? F.cap.copyWith(color: p.ink3)
-                  : F.n17.copyWith(color: p.ink),
-            ),
+            if (widget.metricKey == 'step_kcal')
+              Flexible(
+                child: Text(
+                  _slotSays(c, spec, series, i).split(' · ').skip(1).join('\n'),
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              )
+            else
+              Text(
+                v == null
+                    ? (l?.metricDetailNoRecordLabel ?? 'No record')
+                    : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
+                style: v == null
+                    ? F.cap.copyWith(color: p.ink3)
+                    : F.n17.copyWith(color: p.ink),
+              ),
             if (door != null) ...[
               const SizedBox(width: S.x2),
               Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
@@ -1305,6 +1461,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   Widget? _dayScreen(String key, String day) => switch (key) {
     'sleep' || 'deep' || 'rem' || 'efficiency' => SleepDetail(day: day),
     'steps' => DayStepsDetail(day: day),
+    'step_kcal' => DayStepsDetail(day: day, calories: true),
     'strain' => DayStrainDetail(day: day),
     _ => null,
   };
@@ -1861,12 +2018,7 @@ List<Widget> dayNavRow(
   String? day,
   List<String> days,
   ValueChanged<String> onDay,
-) => days.length < 2
-    ? const []
-    : [
-        DayNav(day: day, days: days, onDay: onDay),
-        const SizedBox(height: S.x3),
-      ];
+) => [DayNav(day: day, days: days, onDay: onDay), const SizedBox(height: S.x3)];
 
 /// A plain door onto another screen. Deliberately quiet: a doorway is not a
 /// card, and a metric screen that grows a second loud card stops having a

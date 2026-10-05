@@ -11,11 +11,15 @@ import SwiftUI
 @main
 struct OpenStrapWidgetBundle: WidgetBundle {
     var body: some Widget {
+        #if !PERSONAL_SIDELOAD
         OpenStrapWidget()
         OpenStrapSleepWidget()
         OpenStrapOvernightWidget()
         OpenStrapBatteryWidget()
+        #endif
         OpenStrapWidgetLiveActivity()
+        #if !PERSONAL_SIDELOAD
         OpenStrapBreathingLiveActivity()
+        #endif
     }
 }

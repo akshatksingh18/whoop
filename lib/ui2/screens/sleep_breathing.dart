@@ -1,27 +1,18 @@
 // Breathing pattern in sleep — the across-nights heart-rate-cycling screen.
 //
-// Restored from the removed Nerd stats screen because it is a sleep-quality
-// signal no other screen carries. Only the ACROSS-NIGHTS card comes back, not
-// the per-night table: one night's cycle count moves for a dozen reasons, and
-// the aggregate exists precisely so no single night is read as a finding.
-//
-// It stays one tap below Sleep rather than on it, for the reason the original
-// gave: as a headline on the Sleep screen, a pattern that also fires on an
-// irregular rhythm, altitude or any broken-up night becomes a diagnosis in
-// somebody's head. The copy names no condition, shows no number except how
-// many nights are behind it, never reassures, and ends in a clinician.
+// Individual nights now have dated measured readouts; missing/irregular nights
+// retain their quality labels. The across-night finding remains separate, not
+// a breathing measurement or diagnostic reassurance.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
-import '../../state/app_state.dart';
 import '../ui2.dart';
-import 'home_screen.dart' show envValue, pointsOf;
+import 'home_screen.dart' show envValue, pointsOf, repoOf, prettyDay;
 import 'metric_detail.dart' show detailScaffold;
 
 class SleepBreathingScreen extends StatefulWidget {
@@ -37,28 +28,46 @@ class SleepBreathingScreen extends StatefulWidget {
   /// If it ever feels slow, add a repo read of `cvhr_per_hour` and
   /// `analyzed_hours` without the payload rather than shrinking the window.
   static Future<ana.Metric<ana.CvhrDistribution>> load(
-          LocalRepository repo) async =>
-      ana.cvhrPersonalDistribution(await nights(repo));
+    LocalRepository repo,
+  ) async => ana.cvhrPersonalDistribution(await nights(repo));
 
   /// The stored nights the screen reads, newest first.
   static Future<List<ana.CvhrNight>> nights(LocalRepository repo) async {
-    final days = await repo.availableDays();
+    final days = [...await repo.availableDays()]
+      ..sort((a, b) => b.compareTo(a));
+    final stop = DateTime.parse(dayLabelOf(DateTime.now()));
+    final cutoff = dayLabelOf(
+      DateTime(
+        stop.year,
+        stop.month,
+        stop.day - ana.cvhrDistributionWindowNights + 1,
+      ),
+    );
     final flags = <String, double>{
       for (final p in pointsOf(await repo.getChart('irregular_rhythm_flag')))
         dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)): p.v,
     };
     final nights = <ana.CvhrNight>[];
-    for (final day in days.take(ana.cvhrDistributionWindowNights)) {
+    for (final day
+        in days
+            .where(
+              (d) =>
+                  d.compareTo(cutoff) >= 0 &&
+                  d.compareTo(dayLabelOf(stop)) <= 0,
+            )
+            .take(ana.cvhrDistributionWindowNights)) {
       final v = envValue((await repo.getDayLungs(day))['cvhr']);
       final rate = v?['cvhr_per_hour'] as num?;
       final hours = v?['analyzed_hours'] as num?;
       if (rate == null || hours == null) continue;
-      nights.add(ana.CvhrNight(
-        dayKey: day,
-        cvhrPerHour: rate.toDouble(),
-        analyzedHours: hours.toDouble(),
-        irregularRhythm: (flags[day] ?? 0) >= 1,
-      ));
+      nights.add(
+        ana.CvhrNight(
+          dayKey: day,
+          cvhrPerHour: rate.toDouble(),
+          analyzedHours: hours.toDouble(),
+          irregularRhythm: (flags[day] ?? 0) >= 1,
+        ),
+      );
     }
     return nights;
   }
@@ -67,11 +76,15 @@ class SleepBreathingScreen extends StatefulWidget {
   State<SleepBreathingScreen> createState() => _SleepBreathingScreenState();
 }
 
-class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
+class _SleepBreathingScreenState extends State<SleepBreathingScreen>
+    with RevisionReload {
   ana.Metric<ana.CvhrDistribution>? _m;
   List<ana.CvhrNight> _nights = const [];
   bool _loading = true;
   bool _more = false;
+  bool _failed = false;
+  int? _pick;
+  Map<String, String> _notes = const {};
 
   @override
   void initState() {
@@ -81,22 +94,112 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
       _loading = false;
       return;
     }
-    final repo = context.read<AppState>().repo;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  bool get revisionReloads => widget.data == null;
+  @override
+  void reload() => _load();
+  Future<void> _load() async {
+    final repo = repoOf(context);
     if (repo == null) {
-      _loading = false;
+      setState(() => _loading = false);
       return;
     }
-    SleepBreathingScreen.nights(repo).then((ns) {
-      if (mounted) {
-        setState(() => (
-              _nights = ns,
-              _m = ana.cvhrPersonalDistribution(ns),
-              _loading = false,
-            ));
+    final token = beginRead(#breathing);
+    try {
+      final ns = await SleepBreathingScreen.nights(repo);
+      final notes = <String, String>{};
+      final valid = ns.map((n) => n.dayKey).toSet();
+      final now = DateTime.now(), last = dayLabelOf(now);
+      final first = dayLabelOf(DateTime(now.year, now.month, now.day - 29));
+      final days =
+          (await repo.availableDays())
+              .where((d) => d.compareTo(first) >= 0 && d.compareTo(last) <= 0)
+              .toList()
+            ..sort();
+      for (final day in days) {
+        if (valid.contains(day)) continue;
+        final raw = (await repo.getDayLungs(day))['cvhr'];
+        if (raw is Map) notes[day] = raw['note']?.toString() ?? 'not measured';
       }
-    }, onError: (_) {
-      if (mounted) setState(() => _loading = false);
-    });
+      if (stillNewest(#breathing, token))
+        setState(() {
+          _nights = ns;
+          _notes = notes;
+          _m = ana.cvhrPersonalDistribution(ns);
+          _loading = false;
+          _failed = false;
+        });
+    } catch (_) {
+      if (stillNewest(#breathing, token))
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+    }
+  }
+
+  Widget _history(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      child: Builder(
+        builder: (c) {
+          final byDate = {for (final n in _nights) n.dayKey: n};
+
+          final last = DateTime.parse(dayLabelOf(DateTime.now()));
+          final first = DateTime(last.year, last.month, last.day - 29);
+          final calendar = <String>[];
+          for (
+            var day = first;
+            !day.isAfter(last);
+            day = DateTime(day.year, day.month, day.day + 1)
+          ) {
+            calendar.add(dayLabelOf(day));
+          }
+          final series = [for (final day in calendar) byDate[day]?.cvhrPerHour];
+          final axis = AxisSpec.of(
+            series.whereType<double>(),
+            floor: 0,
+            ticks: 2,
+          );
+          final pick = _pick?.clamp(0, series.length - 1);
+          String says(int i) {
+            final n = byDate[calendar[i]];
+            return '${prettyDay(calendar[i])} · ${n == null ? (_notes[calendar[i]] ?? "not recorded") : "${n.cvhrPerHour.toStringAsFixed(1)} cycles per observed hour · ${n.analyzedHours.toStringAsFixed(1)} h analysed${n.irregularRhythm ? " · irregular-rhythm flag" : ""}"}';
+          }
+
+          return ChartFrame(
+            title: 'Each night',
+            unit: 'cycles per observed hour',
+            height: 110,
+            yAxis: axis,
+            series: series,
+            readout: pick == null ? null : says(pick),
+            xLabels: [prettyDay(calendar.first), prettyDay(calendar.last)],
+            child: Scrubber(
+              value: pick == null ? null : pick / (series.length - 1),
+              step: 1 / (series.length - 1),
+              label: 'Sleep heart-rate cycling by night',
+              describe: (f) => says((f * (series.length - 1)).round()),
+              onChanged: (f) =>
+                  setState(() => _pick = (f * (series.length - 1)).round()),
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: Bars(
+                  series,
+                  p.on(C.sleep),
+                  highlight: series.length - 1,
+                  cursor: pick,
+                  axis: axis,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -109,7 +212,14 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
-      ] else if (v == null)
+      ] else if (_failed)
+        StatusCard(
+          'Breathing history could not load',
+          'Your saved nights are intact.',
+          fix: 'Retry',
+          onFix: _load,
+        )
+      else if (v == null)
         StatusCard(
           l?.investigateNotEnoughNightsAcross ??
               'Not enough nights for the across-nights view',
@@ -119,81 +229,93 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen> {
         )
       else ...[
         Surface(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-              Icon(v.aboveOwnUsual ? LucideIcons.trendingUp : LucideIcons.check,
-                  size: 20,
-                  color: p.on(v.aboveOwnUsual ? C.yellow : C.green)),
-              const SizedBox(width: S.x3),
-              Expanded(
-                child: Text(
-                    v.aboveOwnUsual ? 'Higher than your usual' : 'Within your usual range',
-                    style: F.head.copyWith(color: p.ink)),
-              ),
-            ]),
-            const SizedBox(height: S.x1),
-            Text('Heart-rate cycling while asleep · ${v.nightsUsed} nights',
-                style: F.cap.copyWith(color: p.ink3)),
-            if (_nights.length >= 2) ...[
-              const SizedBox(height: S.x4),
-              Builder(builder: (c) {
-                final series = [
-                  for (final n in _nights.reversed) n.cvhrPerHour,
-                ];
-                final axis = AxisSpec.of(series, floor: 0, ticks: 2);
-                return ChartFrame(
-                  title: 'Each night',
-                  unit: 'per hour',
-                  height: 90,
-                  yAxis: axis,
-                  series: series,
-                  xLabels: const ['Oldest', 'Last night'],
-                  child: CustomPaint(
-                    size: Size.infinite,
-                    painter: Bars(series, p.on(C.sleep),
-                        highlight: series.length - 1, axis: axis),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    v.aboveOwnUsual
+                        ? LucideIcons.trendingUp
+                        : LucideIcons.check,
+                    size: 20,
+                    color: p.on(v.aboveOwnUsual ? C.yellow : C.green),
                   ),
-                );
-              }),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    child: Text(
+                      v.aboveOwnUsual
+                          ? 'Higher than your usual'
+                          : 'Within your usual range',
+                      style: F.head.copyWith(color: p.ink),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: S.x1),
+              Text(
+                'Heart-rate cycling while asleep · ${v.nightsUsed} nights',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+              const SizedBox(height: S.x3),
+              Text(
+                'A pattern in your pulse, not a breathing test.',
+                style: F.cap.copyWith(color: p.ink2),
+              ),
             ],
-            const SizedBox(height: S.x3),
-            Text('A pattern in your pulse, not a breathing test.',
-                style: F.cap.copyWith(color: p.ink2)),
-          ]),
+          ),
         ),
         const SizedBox(height: S.x4),
         Pressable(
           onTap: () => setState(() => _more = !_more),
           semanticLabel: 'What this means',
-          child: Row(children: [
-            Expanded(
-                child: Text('What this means',
-                    style: F.cap.copyWith(color: p.ink2))),
-            Icon(_more ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                size: 16, color: p.ink3),
-          ]),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'What this means',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              ),
+              Icon(
+                _more ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                size: 16,
+                color: p.ink3,
+              ),
+            ],
+          ),
         ),
         if (_more) ...[
           const SizedBox(height: S.x2),
           Surface(
             elevation: 0,
             color: p.card2,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              for (final line in const [
-                'It counts how often your heart rate swings up and down while '
-                    'you sleep. Breathing pauses cause that, but so do an '
-                    'irregular rhythm, altitude and a broken-up night.',
-                'It cannot rule anything in or out, and one night means little '
-                    'on its own.',
-                'If you snore, wake unrefreshed, or someone has seen you stop '
-                    'breathing in your sleep, a clinician can test that properly.',
-              ]) ...[
-                Text(line, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
-                const SizedBox(height: S.x2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final line in const [
+                  'It counts how often your heart rate swings up and down while '
+                      'you sleep. Breathing pauses cause that, but so do an '
+                      'irregular rhythm, altitude and a broken-up night.',
+                  'It cannot rule anything in or out, and one night means little '
+                      'on its own.',
+                  'If you snore, wake unrefreshed, or someone has seen you stop '
+                      'breathing in your sleep, a clinician can test that properly.',
+                ]) ...[
+                  Text(line, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+                  const SizedBox(height: S.x2),
+                ],
               ],
-            ]),
+            ),
           ),
         ],
+      ],
+      if (!_loading &&
+          !_failed &&
+          (_nights.isNotEmpty || _notes.isNotEmpty)) ...[
+        const SizedBox(height: S.x3),
+        _history(c),
       ],
     ]);
   }

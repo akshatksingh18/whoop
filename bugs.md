@@ -168,6 +168,19 @@ The earlier built `5c00c278` IPA lacks this repair and is superseded. Build-72 l
 macOS build, checksum and payload validation pass; Akshat confirms installation, while the feature
 phone pass and current-version enrollment remain pending.
 
+## Build-73 chart, navigation and notification defects: local build-74 repairs
+
+The installed-build-73 report and source audit confirmed future-time Strain/Steps/Wear selection,
+gesture-only daily navigation, static breathing history and generic/stale notification destinations.
+Local `0.9.41`/`74` repairs shared pointer/accessibility bounds, measured rendering, day reachability,
+dated breathing/readouts and focused notification routes. Paused route HR/cadence now maps through
+the saved active clock, preserving the pause gap. Deep sleep uses one colour and units appear once.
+Foreground refresh now re-reads session movement after daily steps. The Food deletion/Undo bar
+explicitly expires after two seconds: Flutter 3.41 defaults action snackbars to persistent;
+queued notices are cleared before a replacement. Undo within the window still restores the entry.
+`build-74-audit.md` owns the baseline/research and implemented contract; `todo.md` owns release and
+phone checks. Local source fixes are not yet a compiled native IPA or device acceptance result.
+
 ## Workout, sync and profile consistency
 
 `workout-sync-audit.md` owns the build-72 reported symptoms, source traces, research and isolated
@@ -181,7 +194,10 @@ The personal source includes background audio for spoken workout cues; hardware 
 subject to the build-73 phone pass. `todo.md` owns the implementation and release gates.
 The added nap repair removes the full-restaging wait from reject/restore and keeps empty-day
 entry points; corrected lists, sleep periods and timelines agree before coaching finishes.
-Trends daily charts and step-calorie routing are also repaired, pending phone acceptance.
+Build 73 adds shared Sleep/Strain daily views and a distinct kcal trend. Remaining Today defaults,
+daily reachability, future-time limits and other chart/notification gaps are described in
+`build-74-audit.md`; they are repaired in local build-74 source. The paused route HR/cadence
+lookup uses the saved active clock. Overall phone acceptance remains pending.
 
 Akshat confirms build-72 Today refresh updates step numbers but reports unchanged maintenance
 calories. The real-repository Food-card probe recalculates step energy immediately after a saved

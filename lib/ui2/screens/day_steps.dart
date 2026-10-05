@@ -32,14 +32,14 @@ import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
-import '../../compute/profile.dart' show Profile, walkingEnergy;
+import '../../compute/profile.dart' show Profile, walkingEnergy, acsmActiveKcal;
 import '../../compute/day_upkeep.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../profile/devices.dart' show bandLabelFor;
 import '../ui2.dart';
-import 'home_screen.dart' show prettyDay, repoOf, thousands;
+import 'home_screen.dart' show prettyDay, repoOf, thousands, go;
 import 'metric_detail.dart' show dayNavLabel, dayNavRow, detailScaffold;
 
 /// One resolved stretch of the day.
@@ -76,11 +76,17 @@ class DayStepsData {
     this.note,
     this.bandLabel = _defaultBand,
     this.walking,
+    this.acsmWalking,
+    this.distanceSource = 'Estimated step length',
+    this.hourlyWalkingKcal = const [],
   });
 
   /// Walking contribution after run-step accounting, using the day's weight.
   /// The calorie value is the same Steps part already included in maintenance.
-  final ({double kcal, double km})? walking;
+  final ({double kcal, double? km})? walking;
+  final double? acsmWalking;
+  final String distanceSource;
+  final List<double?> hourlyWalkingKcal;
 
   /// The fallback name for the strap. Nothing is paired, or the link has not
   /// said which generation it is this process — either way, naming a model we
@@ -128,10 +134,67 @@ class DayStepsData {
       eaten: 0,
     );
     final energy = walkingEnergy(upkeep.walkedSteps, upkeep.profile);
+    final hours = List<double?>.filled(24, null);
+    final runWindows = [...upkeep.runWindows]
+      ..sort((a, b) => a.start.compareTo(b.start));
+    // Session cuts are already persisted in the source ledger. Hourly kcal is
+    // apportioned from the accepted outside-run steps, not a second estimate.
+    final spans = d['spans'] as List? ?? const [];
+    for (final s in spans.whereType<Map>()) {
+      final n = (s['steps'] as num?)?.toDouble();
+      final start = (s['start_ts'] as num?)?.toInt(),
+          end = (s['end_ts'] as num?)?.toInt();
+      if (n == null || start == null || end == null || end <= start) continue;
+      for (var t = start; t < end; t += 60) {
+        final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+        final secs = (end - t).clamp(0, 60);
+        var remaining = secs, until = t;
+        for (final w in runWindows) {
+          final a = w.start.millisecondsSinceEpoch ~/ 1000;
+          final b = w.end.millisecondsSinceEpoch ~/ 1000;
+          final left = a > until ? a : until,
+              right = b < t + secs ? b : t + secs;
+          if (right > left) {
+            remaining -= right - left;
+            until = right;
+          }
+        }
+        if (remaining > 0)
+          hours[h] = (hours[h] ?? 0) + n * remaining / (end - start);
+      }
+    }
+    final totalHourly = hours.whereType<double>().fold<double>(
+      0,
+      (a, b) => a + b,
+    );
+    for (var h = 0; h < 24; h++) {
+      if (hours[h] != null)
+        hours[h] = totalHourly <= 0
+            ? null
+            : hours[h]! /
+                  totalHourly *
+                  (upkeep.parts?.steps ?? energy?.kcal ?? 0);
+    }
     return DayStepsData(
-      walking: energy == null || upkeep.parts == null
+      walking: energy == null
           ? null
-          : (kcal: upkeep.parts!.steps, km: energy.km),
+          : (
+              kcal: upkeep.parts?.steps ?? energy.kcal,
+              km: upkeep.walkingMeters == null
+                  ? null
+                  : upkeep.walkingMeters! / 1000,
+            ),
+      acsmWalking:
+          upkeep.acsmParts?.steps ??
+          acsmActiveKcal(
+            runMeters: 0,
+            walkMeters: upkeep.walkingMeters ?? 0,
+            weightKg: upkeep.walkingMeters == null
+                ? null
+                : upkeep.profile.weightKg,
+          ),
+      distanceSource: upkeep.distanceSource,
+      hourlyWalkingKcal: hours,
       day: day,
       days: days,
       spans: [
@@ -256,8 +319,15 @@ class DayStepsDetail extends StatefulWidget {
   /// The day to open. Null means today.
   final String? day;
   final bool embedded;
+  final bool calories;
 
-  const DayStepsDetail({super.key, this.data, this.day, this.embedded = false});
+  const DayStepsDetail({
+    super.key,
+    this.data,
+    this.day,
+    this.embedded = false,
+    this.calories = false,
+  });
 
   @override
   State<DayStepsDetail> createState() => _DayStepsDetailState();
@@ -312,6 +382,11 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
   }
 
   void _goDay(String day) {
+    if (widget.embedded) {
+      // One tap from the hourly preview opens the requested complete day.
+      go(context, DayStepsDetail(day: day, calories: widget.calories));
+      return;
+    }
     setState(() {
       _day = day;
       _hour = null;
@@ -329,11 +404,11 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
     // when there is no stepper.
     return detailScaffold(
       c,
-      l?.dayStepsTitle ?? 'Steps',
+      widget.calories ? 'Step calories' : l?.dayStepsTitle ?? 'Steps',
       embedded: widget.embedded,
       sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '',
       [
-        if (!widget.embedded) ...dayNavRow(_day ?? d.day, d.days, _goDay),
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
         if (_loading && _d != null) const Text('Updating steps…'),
         if (_loading && _d == null) ...[
           const SizedBox(height: S.x8),
@@ -355,20 +430,15 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Wrap(
-                    spacing: S.x2,
-                    crossAxisAlignment: WrapCrossAlignment.end,
-                    children: [
-                      Text(
-                        '≈${w.kcal.round()} kcal',
-                        style: F.n24.copyWith(color: p.ink),
-                      ),
-                      Text(
-                        'from walking · about ${w.km.toStringAsFixed(1)} km',
-                        style: F.cap.copyWith(color: p.ink3),
-                      ),
-                    ],
-                  ),
+                  if (widget.embedded && widget.calories)
+                    Text(d.distanceSource, style: F.cap.copyWith(color: p.ink3))
+                  else
+                    CaloriePair(
+                      budget: w.kcal,
+                      acsm: d.acsmWalking,
+                      note:
+                          '${d.distanceSource}. Walking calories already included in maintenance.',
+                    ),
                   const SizedBox(height: S.x1),
                   Text(
                     'Active calories already included in maintenance. '
@@ -419,11 +489,23 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
   Widget _chart(BuildContext c, P p, DayStepsData d) {
     final l = AppLocalizations.of(c);
     final (band, phone) = hourlySteps(d.spans);
+    if (widget.calories && d.hourlyWalkingKcal.length == 24) {
+      for (var h = 0; h < 24; h++) {
+        band[h] = null;
+        phone[h] = d.hourlyWalkingKcal[h];
+      }
+    }
+    final last = latestDaySlot(d.day, 24);
+    for (var h = last + 1; h < 24; h++) {
+      band[h] = null;
+      phone[h] = null;
+    }
     final totals = [for (var h = 0; h < 24; h++) band[h] ?? phone[h]];
     final axis = AxisSpec.of(totals.whereType<double>(), floor: 0);
     String says(int h) {
       final hh = h.toString().padLeft(2, '0');
-      final next = ((h + 1) % 24).toString().padLeft(2, '0');
+      final current = d.day == todayLabel() && h == last;
+      final next = (h + 1).toString().padLeft(2, '0');
       final b = band[h], ph = phone[h];
       final n = (b ?? 0) + (ph ?? 0);
       final who = b != null && ph != null
@@ -433,36 +515,44 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
           : ph != null
           ? ' · ${l?.dayStepsYourPhone ?? 'Your phone'}'
           : '';
-      return '$hh:00–$next:00 · ${b == null && ph == null ? 'none' : thousands(n)}$who';
+      return '$hh:00–${current ? 'now (partial)' : '$next:00'} · ${b == null && ph == null ? 'not recorded' : thousands(n)}$who';
     }
 
-    final hr = _hour;
+    final hr = _hour?.clamp(0, last);
     return Surface(
       child: Column(
         children: [
           ChartFrame(
-            title: l?.dayStepsChartTitle ?? 'WHEN THEY WERE COUNTED',
-            unit: l?.dayStepsUnit ?? 'steps',
+            title: widget.calories
+                ? 'Walking energy by hour'
+                : l?.dayStepsChartTitle ?? 'WHEN THEY WERE COUNTED',
+            unit: widget.calories
+                ? 'kcal · budget'
+                : l?.dayStepsUnit ?? 'steps',
             height: 150,
             yAxis: axis,
             xLabels: const ['00:00', '12:00', '24:00'],
             series: totals,
             // ONE colour, one key — a day with a single sensor has nothing to
             // tell apart, and a legend of one is noise.
-            legend: d.mixed
+            legend: d.mixed && !widget.calories
                 ? [
                     (d.bandLabel, p.on(C.green)),
                     (l?.dayStepsYourPhone ?? 'Your phone', p.on(C.teal)),
                   ]
                 : const [],
-            footnote:
-                '${_honesty(c, d)}${d.mixed ? ' Bar colour shows the main source for each hour.' : ''}',
+            footnote: widget.calories
+                ? 'Budget walking calories allocated to recorded step windows. Running windows are excluded.'
+                : '${_honesty(c, d)}${d.mixed ? ' Bar colour shows the main source for each hour.' : ''}',
             empty: axis == null ? const NoData() : null,
             readout: hr == null ? null : says(hr),
             child: Scrubber(
+              maxValue: (last + .5) / 24,
               value: hr == null ? null : (hr + .5) / 24,
               step: 1 / 24,
-              label: 'Steps by hour',
+              label: widget.calories
+                  ? 'Walking calories by hour'
+                  : 'Steps by hour',
               describe: (v) => says((v * 24).floor().clamp(0, 23)),
               onChanged: (v) =>
                   setState(() => _hour = (v * 24).floor().clamp(0, 23)),

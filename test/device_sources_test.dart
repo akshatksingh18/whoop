@@ -19,6 +19,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart';
+import 'package:openstrap_edge/build_profile.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 HealthSource _sensor({String? tier = 'beatToBeat', bool connected = false}) =>
@@ -34,20 +35,22 @@ HealthSource _sensor({String? tier = 'beatToBeat', bool connected = false}) =>
     );
 
 void main() {
-  test('a paired sensor is experimental — the label is not gated on isBand',
-      () {
-    expect(_sensor().experimental, isTrue);
-    // The phone has no family and must not pick the label up.
-    expect(
-      const HealthSource(
-        name: 'This phone',
-        kind: 'Motion coprocessor',
-        tier: SourceTier.phone,
-        icon: Icons.phone_android,
-      ).experimental,
-      isFalse,
-    );
-  });
+  test(
+    'a paired sensor is experimental — the label is not gated on isBand',
+    () {
+      expect(_sensor().experimental, isTrue);
+      // The phone has no family and must not pick the label up.
+      expect(
+        const HealthSource(
+          name: 'This phone',
+          kind: 'Motion coprocessor',
+          tier: SourceTier.phone,
+          icon: Icons.phone_android,
+        ).experimental,
+        isFalse,
+      );
+    },
+  );
 
   test('a sensor is never described in the phone\'s words', () {
     // Its own state line, whatever rung it landed on.
@@ -74,25 +77,41 @@ void main() {
     t.view.physicalSize = const Size(390 * 3, 2400 * 3);
     t.view.devicePixelRatio = 3;
     addTearDown(t.view.reset);
-    await t.pumpWidget(MaterialApp(
-      theme: buildTheme(Brightness.light),
-      home: MyDevicesView(sources: const [], onAddSensor: () {}),
-    ));
+    await t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: MyDevicesView(sources: const [], onAddSensor: () {}),
+      ),
+    );
     await t.pumpAndSettle();
     expect(find.text('Add a sensor'), findsOneWidget);
+    if (kPersonalSideload) {
+      expect(find.textContaining('Tier 1'), findsNothing);
+      return;
+    }
     const t1 = SourceTier.beatToBeat;
     final rung = find.text('Tier ${t1.rank} · ${t1.label}');
-    await t.scrollUntilVisible(rung, 300, scrollable: find.byType(Scrollable).first);
+    await t.scrollUntilVisible(
+      rung,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(rung, findsOneWidget);
     // Empty, and saying so — the rung is an invitation now, not a dead end.
     expect(find.text('Nothing here yet'), findsWidgets);
   });
 
   testWidgets('a paired strap does not satisfy "a band is paired"', (t) async {
-    await t.pumpWidget(MaterialApp(
-      theme: buildTheme(Brightness.light),
-      home: MyDevicesView(sources: [_sensor()], onPair: () {}, onAddSensor: () {}),
-    ));
+    await t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: MyDevicesView(
+          sources: [_sensor()],
+          onPair: () {},
+          onAddSensor: () {},
+        ),
+      ),
+    );
     await t.pumpAndSettle();
     // The card that offers to pair a BAND is still there, because one is not.
     expect(find.text('Pair a band'), findsOneWidget);

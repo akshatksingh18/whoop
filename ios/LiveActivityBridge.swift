@@ -1,106 +1,92 @@
-//
-//  LiveActivityBridge.swift
-//  Runner — drives the workout Live Activity from Flutter over a MethodChannel.
-//  Channel "openstrap/live_activity": start / update / end. Add to the Runner
-//  target. Requires NSSupportsLiveActivities=YES in Info.plist + iOS 16.2+.
-//
-
 import Foundation
 import Flutter
 import ActivityKit
+import UIKit
 
-// Live Activity attributes (Runner copy). MUST stay identical to the copy in the
-// widget extension (OpenStrapWidgetLiveActivity.swift) — ActivityKit matches the
-// activity to the widget by the type name + Codable shape.
+// Codable shape must match the extension copy; checked by the contract tests.
 @available(iOS 16.1, *)
 struct OpenStrapWidgetAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
-    var hr: Int
-    var zone: Int
-    // Optional because unmeasured is not zero. A profile without the anchors
-    // Keytel and Banister read cannot be scored at all, and the in-app gauge
-    // shows "—" for exactly that case; these used to arrive coerced to 0, so
-    // the lock screen claimed a real 0.0 strain / 0 kcal instead.
-    var strain: Double?
-    var calories: Int?
-    var maxHr: Int
-    var rhr: Int
+    var elapsed: Int
+    var distanceKm: Double?
+    var paceSeconds: Double?
+    var hr: Int?
+    var zone: Int?
+    var lastKmSeconds: Int?
+    var paused: Bool
+    var updatedAt: Date
+    var timerAnchor: Date
   }
+  var sessionId: String
   var sessionName: String
-  var startedAt: Date
-  var targetKcal: Int
 }
 
+@MainActor
 enum LiveActivityBridge {
-  private static let channelName = "openstrap/live_activity"
-
+  private static var channel: FlutterMethodChannel?
+  private static var pendingSession: String?
+  private static var ready = false
+  static func open(_ url: URL) -> Bool {
+    guard url.scheme == "whoop", url.host == "session",
+      let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+        .first(where: { $0.name == "id" })?.value, !id.isEmpty else { return false }
+    if ready { channel?.invokeMethod("openSession", arguments: id) }
+    else { pendingSession = id }
+    return true
+  }
   static func register(messenger: FlutterBinaryMessenger) {
-    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
-    channel.setMethodCallHandler { call, result in
-      guard #available(iOS 16.2, *) else { result(nil); return }
+    let ch = FlutterMethodChannel(name: "openstrap/live_activity", binaryMessenger: messenger)
+    channel = ch
+    ch.setMethodCallHandler { call, result in
+      if call.method == "pendingSession" {
+        ready = true
+        let id = pendingSession
+        pendingSession = nil
+        result(id)
+        return
+      }
+      guard #available(iOS 16.2, *) else { result(false); return }
       let args = call.arguments as? [String: Any] ?? [:]
-      switch call.method {
-      case "start":  start(args);  result(nil)
-      case "update": update(args); result(nil)
-      case "end":    end();        result(nil)
-      default:       result(FlutterMethodNotImplemented)
+      Task { @MainActor in
+        switch call.method {
+        case "start", "update": result(await publish(args))
+        case "end":
+          for activity in Activity<OpenStrapWidgetAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: .immediate)
+          }
+          result(true)
+        default: result(FlutterMethodNotImplemented)
+        }
       }
     }
   }
-
-  private static func i(_ a: [String: Any], _ k: String, _ d: Int = 0) -> Int {
-    (a[k] as? NSNumber)?.intValue ?? d
-  }
-  private static func dbl(_ a: [String: Any], _ k: String, _ d: Double = 0) -> Double {
-    (a[k] as? NSNumber)?.doubleValue ?? d
-  }
-  // Absent-preserving reads. Dart sends null for a figure it refuses to
-  // fabricate; substituting a default here would put the fabrication back.
-  private static func iOpt(_ a: [String: Any], _ k: String) -> Int? {
-    (a[k] as? NSNumber)?.intValue
-  }
-  private static func dblOpt(_ a: [String: Any], _ k: String) -> Double? {
-    (a[k] as? NSNumber)?.doubleValue
-  }
-
   @available(iOS 16.2, *)
-  private static func state(_ a: [String: Any]) -> OpenStrapWidgetAttributes.ContentState {
-    .init(hr: i(a, "hr"), zone: i(a, "zone"), strain: dblOpt(a, "strain"),
-          calories: iOpt(a, "calories"), maxHr: i(a, "maxHr", 190), rhr: i(a, "rhr", 60))
-  }
-
-  @available(iOS 16.2, *)
-  private static func start(_ a: [String: Any]) {
-    guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-    // One at a time — end any stragglers first.
-    for act in Activity<OpenStrapWidgetAttributes>.activities {
-      Task { await act.end(nil, dismissalPolicy: .immediate) }
+  private static func publish(_ a: [String: Any]) async -> Bool {
+    guard let id = a["id"] as? String, !id.isEmpty,
+      ActivityAuthorizationInfo().areActivitiesEnabled else { return false }
+    let now = Date()
+    let elapsed = max(0, (a["elapsed"] as? NSNumber)?.intValue ?? 0)
+    let state = OpenStrapWidgetAttributes.ContentState(
+      elapsed: elapsed,
+      distanceKm: (a["distanceKm"] as? NSNumber)?.doubleValue,
+      paceSeconds: (a["paceSeconds"] as? NSNumber)?.doubleValue,
+      hr: (a["hr"] as? NSNumber)?.intValue,
+      zone: (a["zone"] as? NSNumber)?.intValue,
+      lastKmSeconds: (a["lastKmSeconds"] as? NSNumber)?.intValue,
+      paused: a["paused"] as? Bool ?? false,
+      updatedAt: now, timerAnchor: now.addingTimeInterval(-Double(elapsed)))
+    let content = ActivityContent(state: state, staleDate: now.addingTimeInterval(45))
+    for activity in Activity<OpenStrapWidgetAttributes>.activities {
+      if activity.attributes.sessionId == id { await activity.update(content); return true }
+      await activity.end(nil, dismissalPolicy: .immediate)
     }
-    let attrs = OpenStrapWidgetAttributes(
-      sessionName: a["name"] as? String ?? "Live session",
-      startedAt: Date(timeIntervalSince1970: dbl(a, "startedAtMs") / 1000.0),
-      targetKcal: i(a, "targetKcal", 300))
+    // Updating may refresh an existing activity in the background. Creating a
+    // replacement is foreground-only; never use a Live Activity as a keepalive.
+    guard UIApplication.shared.applicationState == .active else { return false }
     do {
-      _ = try Activity.request(
-        attributes: attrs,
-        content: .init(state: state(a), staleDate: nil))
-    } catch {
-      NSLog("LiveActivity start failed: \(error)")
-    }
-  }
-
-  @available(iOS 16.2, *)
-  private static func update(_ a: [String: Any]) {
-    let content = ActivityContent(state: state(a), staleDate: nil)
-    for act in Activity<OpenStrapWidgetAttributes>.activities {
-      Task { await act.update(content) }
-    }
-  }
-
-  @available(iOS 16.2, *)
-  private static func end() {
-    for act in Activity<OpenStrapWidgetAttributes>.activities {
-      Task { await act.end(nil, dismissalPolicy: .immediate) }
-    }
+      _ = try Activity.request(attributes: OpenStrapWidgetAttributes(
+        sessionId: id, sessionName: a["name"] as? String ?? "Walking"), content: content)
+      return true
+    } catch { return false }
   }
 }

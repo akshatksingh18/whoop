@@ -1407,7 +1407,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           value: hm(deep),
           tonight: deep,
           history: d.deepHistory,
-          color: C.blue,
+          color: C.sleep,
           low: l?.sleepDetailLessThanUsual ?? 'less than usual',
           high: l?.sleepDetailMoreThanUsual ?? 'more than usual',
           fmt: (v) => hm(v),

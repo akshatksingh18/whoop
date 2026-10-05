@@ -56,9 +56,12 @@ class LiveFeed {
   final int? zone; // 1..5
   final int? calories;
   final int? hrActiveCalories;
+  final int? acsmCalories;
   final double? strain;
   final double? distanceKm;
   final int? steps;
+  final double? cadence;
+  final String? cadenceSource;
   final List<double> zoneMinutes; // five, Z1..Z5
 
   /// The stamp on the set [zoneMinutes] is binned with, and the ceiling it is
@@ -109,9 +112,12 @@ class LiveFeed {
     this.zone,
     this.calories,
     this.hrActiveCalories,
+    this.acsmCalories,
     this.strain,
     this.distanceKm,
     this.steps,
+    this.cadence,
+    this.cadenceSource,
     this.zoneMinutes = const [],
     this.zoneSource,
     this.zoneMaxHr,
@@ -1017,7 +1023,12 @@ List<Widget> _distanceStats(
       [
         if (value != null) (value.toStringAsFixed(2), unit),
         if (pacePerUnit != null) (pacePerUnit, '/$unit'),
-        ..._commonStats(ctx, a, f, weightKg, elapsed),
+        if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
+          // Both calorie models are already visible in the paired card below.
+          if (f.steps != null) ('${f.steps}', 'steps'),
+          if (f.strain != null) (f.strain!.toStringAsFixed(1), 'strain'),
+        ] else
+          ..._commonStats(ctx, a, f, weightKg, elapsed),
       ].take(3).toList(),
     ),
   ];
@@ -1228,17 +1239,36 @@ class LiveMeasured extends StatelessWidget {
             ..._distanceStats(ctx, p, f, a, weightKg, elapsed),
             if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
               const SizedBox(height: S.x2),
-              Text(
-                'Active calories · Method 1 ${isWalkType(a.typeKey) ? "steps" : "distance"}',
-                style: F.cap.copyWith(color: p.ink3),
+              CaloriePair(
+                budget: f.calories?.toDouble(),
+                acsm: f.acsmCalories?.toDouble(),
+                note:
+                    '${isWalkType(a.typeKey) ? "Budget uses steps" : "Budget uses distance"}; ACSM uses distance. '
+                    'Both exclude resting energy already in BMR.',
               ),
-              if (f.hrActiveCalories != null &&
-                  (f.calories == null ||
-                      (f.hrActiveCalories! - f.calories!).abs() > 50))
-                Text(
-                  'Method 2 · HR: ${f.hrActiveCalories} active kcal',
-                  style: F.cap.copyWith(color: p.ink2),
+            ],
+            if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
+              const SizedBox(height: S.x3),
+              Surface(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Cadence', style: F.cap.copyWith(color: p.ink2)),
+                    Text(
+                      f.cadence == null
+                          ? 'Waiting for movement'
+                          : '${f.cadence!.round()} steps/min',
+                      style: F.t2.copyWith(color: p.ink),
+                    ),
+                    Text(
+                      '${f.cadenceSource ?? "Phone first, wrist fallback"}. '
+                      'Steps each minute; compare your own similar sessions. '
+                      'Cadence does not change your calorie estimate.',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ],
                 ),
+              ),
             ],
             const SizedBox(height: S.x8),
             LiveHeart(f),

@@ -1600,7 +1600,10 @@ import 'substrate.dart';
 // Retained rows must recompute rather than carry old step/calorie totals forward.
 // Keep unedited nap proposals; replay durable nap corrections into cross-day
 // sleep need/debt from retained results, without restaging the full history.
-const int kAlgoVersion = 89;
+// 89 -> 90: Budget/ACSM comparisons share dated movement ownership and retained
+// phone distance. Rebuild prior derived/cache identities for the paired model;
+// source measurements and the accepted Budget coefficients remain unchanged.
+const int kAlgoVersion = 90;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

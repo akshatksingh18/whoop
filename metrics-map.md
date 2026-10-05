@@ -2,12 +2,16 @@
 
 Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the personal source `0.9.40`/`73` (algorithm 89).
+the local personal source `0.9.41`/`74` (algorithm 90); native/device validation is pending.
 
 **Status:** Build 73 source `a49d7837` is published with Akshat's approval and passes local
 regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
-Build 73 is the single testing candidate, awaiting installation, phone acceptance and enrollment.
-Build 72 remains the last confirmed phone installation and build 70 the accepted recovery. Stored metrics remain intact; any removal
+Build 73 is installed, confirmed by Akshat, and remains the single testing candidate pending its
+complete phone pass and enrollment. Build 70 remains the accepted recovery. `build-74-audit.md`
+records chart/navigation/notification findings and implemented calorie comparisons; `todo.md` owns
+the implemented build-74 contract and release gates. Budget coefficients are unchanged; ACSM is
+now a separate distance comparison using the same ledger. No build-74 IPA exists yet.
+Stored metrics remain intact; any removal
 still needs Akshat's per-item approval.
 
 ## What is stored
@@ -136,6 +140,10 @@ Trends opens on Week, with a Week / Month / 3 months switch. Each row shows the 
 range, a small line, and the newest reading. Sleep and Strain's Today sections reuse their full
 daily detail charts. Step calories opens its own kcal trend rather than the Steps dashboard;
 it uses the same dated walking contribution as daily maintenance.
+Build 73's Step calories detail still defaults to 7 days and lacks a direct daily breakdown;
+Steps' dated action appears only after chart selection. These remaining navigation gaps, static
+breathing history and shared readout/time limits are implemented in build 74;
+`build-74-audit.md` and `todo.md` own the validation limits.
 
 **Readiness:** history is one coloured bar per day; dragging an empty day reads its stored
 reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
@@ -223,6 +231,10 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
   for women (the midpoint otherwise). `bmrMifflin` in `lib/compute/profile.dart`.
 - **Step calories:** 2.74 × steps × kg ÷ 8,368 (Weyand et al. 2010 form), energy above resting
   only, on the day's steps **minus the steps taken during that day's runs**. `stepCalories`.
+  This is the app's chosen active-energy budget convention. The reported constant is metabolic
+  J/kg per stride at economical walking speeds; a stride is two steps and 8,368 is 2 × 4,184.
+  It is not a universal per-step mechanical minimum. `build-74-audit.md` owns the source limits
+  and comparison/wording contract; no Budget coefficient or resting subtraction changed.
 - **Running (Method 1, the accepted distance estimate):** 0.005 × kg × (0.143 × metres run + 0.1 × metres
   walked inside the run + 0.9 × metres climbed). This is Akshat's four steps folded together (speed ×
   time = distance, speed × incline × time = climb, 0.3 ÷ 60 = 0.005). `runFloorKcal`.
@@ -252,16 +264,34 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
 
 These are estimates, not guaranteed individual physiological minima. The card includes the
 whole day's BMR plus movement and food recorded so far; it is not burn elapsed since midnight.
+ACSM uses `0.005 * kg * (0.2 * run_metres + 0.1 * walk_metres + 0.9 * trusted_run_climb
++ 1.8 * trusted_walk_climb)`, excluding resting already. Daily ACSM maintenance uses the same
+full-day BMR and 10% logged-food allowance, with the same run ownership and step exclusions.
+Current GPS climb is not trusted for additions. A recorded walking route replaces overlapping
+phone distance; no walking-workout calorie addition exists. iPhone `CMPedometerData.distance`
+is saved beside its accepted step coverage. Remaining steps use an explicit height-based distance
+estimate when possible; absent distance/profile stays unavailable, never zero or an invented burn.
+
+Budget/ACSM are persistent paired values on Today/Food/history/Weekly, Trends/daily Steps,
+live/summary/history/share. HR is separate expandable analysis. No within-50-kcal merging or
+claim of a guaranteed upper/lower range remains. Neither model measures true individual TDEE.
+Calories eaten and fixed food targets are independent of exercise. `build-74-audit.md` owns the
+research and quality limits. Algorithm 90 invalidates old derived values; raw movement/profile
+records remain intact. Notification/training snapshots are retained evidence, not calorie caches.
 `DayUpkeep` is shared by Today, Food, history, Weekly, Trends, Steps detail and open maintenance
 sheets. The displayed step-calorie contribution already accounts for running, and historical
 points use dated weight. Step charts prefer retained measured counts on every covered date,
 including days without a derived result, instead of leaving older build totals in place. Measured
 steps and their calories reload immediately after the saved input revision, independently of HR
 calculation. Food/profile/workout changes, foreground return and the foreground timer invalidate
-dependent views. Run/walk history recalculates Method 1 rather than retaining old gross estimates.
-Local release checks pass (3,318 Flutter tests, 91 personal-profile checks, 7 iOS contract tests;
-analysis has no errors/warnings). Public CI, macOS compilation and phone acceptance remain before
-calling these fixes verified on iPhone.
+dependent views. Foreground/manual refresh also re-reads current session movement after daily
+phone coverage. Run/walk history recalculates Method 1 rather than retaining old gross estimates.
+Build-73 release checks, CI/macOS and downloaded IPA validation pass. Build-74 local release
+checks pass: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
+personal-iOS contract tests; analysis has no errors/warnings. Publication, native compilation,
+artifact and phone checks are pending; `setup.md` owns complete local evidence.
+Installation is confirmed; the full calculation/refresh phone checks remain before calling these
+fixes verified on iPhone.
 
 **A run's or walk's own calories** (setup/live/summary/history/share):
 - Walking Method 1: exactly `(2.74 * active_session_steps * weight_kg) / 8368`, labelled From steps.
@@ -271,10 +301,18 @@ calling these fixes verified on iPhone.
   minus resting `BMR / 1440` for each measured active minute, floored at zero. Missing HR minutes
   are not filled from the average; a partial final minute uses its actual duration. Method 2 is a
   comparison, never an extra maintenance term and never switched in merely because HR exceeds 100.
-- Both methods are labelled Active calories: energy above estimated resting burn, which is already
-  included in daily BMR. Within 50 kcal show Method 1 once; otherwise show both clearly.
+- Budget and ACSM are both labelled estimates of Active calories: energy above estimated resting
+  burn, already included in daily BMR. HR/Keytel remains in analysis with measured-minute coverage.
 - Walking is already included by daily steps and contributes no extra workout addition. Running
   substitutes its Method 1 for the Weyand energy of its covered active steps.
+- Live cadence is measured steps/minute: fresh phone data first, then accepted recent wrist
+  cadence; zero is measured stillness, absent/stale is unavailable. It does not change calorie
+  coefficients or impose a universal target. Session pause stops its cadence feed. Optional
+  terrain/treadmill/heat/multitasking/recent-strength tags are captured and editable. Qualified
+  post-session HR drift compares active halves with adequate HR/route coverage and matched pace.
+- Training review compares separate run/walk fortnights with matched tags and measured coverage,
+  shows recorded consistency and supported best efforts, and optionally notifies no more often
+  than fourteen days between deliveries. Missing comparable evidence stays silent.
 - Pausing freezes session duration, route distance, HR, zones and steps. Daily steps keep counting.
   Kilometre voice is owned by session events, with saved milestones and the actual kilometre pace;
   iOS audio mode and interruption handling require locked-screen/calls/music device acceptance.
@@ -298,7 +336,7 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout decisions (local source `0.9.40`/`73`)
+## Layout decisions (local source `0.9.41`/`74`)
 
 | Item | Decision |
 |---|---|

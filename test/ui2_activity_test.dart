@@ -1717,7 +1717,7 @@ void main() {
       expect(find.text('Distance'), findsNothing);
       expect(find.text('Calories'), findsNothing);
       // The estimate is a RATE, on the picker's own thirty-minute basis.
-      expect(find.textContaining('Method 1'), findsOneWidget);
+      expect(find.textContaining('Budget'), findsOneWidget);
       expect(find.textContaining('per 30 min'), findsNothing);
       expect(find.textContaining('for 45 min'), findsNothing);
       expect(tester.takeException(), isNull);

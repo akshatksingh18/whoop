@@ -1,70 +1,86 @@
-// Live Activity bridge (iOS) — start/update/end the claymorphic workout Live
-// Activity on the lock screen + Dynamic Island. No-ops on Android / older iOS
-// (the MethodChannel simply isn't there → MissingPluginException, swallowed).
-
+// Local Run/Walk ActivityKit bridge. Missing platform support is harmless.
 import 'package:flutter/services.dart';
-
-import '../build_profile.dart';
+import '../gps/run_history.dart';
 
 class LiveActivity {
   static const MethodChannel _ch = MethodChannel('openstrap/live_activity');
   static bool _active = false;
-
+  static Future<void> _tail = Future.value();
+  static int _epoch = 0;
+  static String? _session;
   static bool get isActive => _active;
-
-  /// Start the activity for a session. [startedAt] drives the live timer.
-  static Future<void> start({
-    required DateTime startedAt,
-    required int targetKcal,
-    required int maxHr,
-    required int rhr,
-    String name = 'Live session',
-  }) async {
-    if (kPersonalSideload) return;
+  static void Function(String id)? onSession;
+  static Future<void> listen() async {
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'openSession' && call.arguments is String) {
+        onSession?.call(call.arguments as String);
+      }
+    });
     try {
-      await _ch.invokeMethod('start', {
-        'name': name,
-        'startedAtMs': startedAt.millisecondsSinceEpoch,
-        'targetKcal': targetKcal,
-        // Null, not 0 — nothing has been measured at the moment the activity
-        // starts, and the widget renders an absent strain/kcal as "—".
-        'hr': 0, 'zone': 0, 'strain': null, 'calories': null,
-        'maxHr': maxHr, 'rhr': rhr,
-      });
-      _active = true;
-    } catch (_) {/* not iOS / not supported */}
+      final id = await _ch.invokeMethod<String>('pendingSession');
+      if (id != null && id.isNotEmpty) onSession?.call(id);
+    } catch (_) {
+      /* not iOS */
+    }
   }
 
-  /// Push a new content state. Caller should throttle (~every 3–5s).
-  ///
-  /// [strain] and [calories] are NULLABLE and must be passed through as null
-  /// when the session cannot be scored — a profile without the anchors Keytel
-  /// and Banister read, or a band that has not delivered a heart rate yet. They
-  /// were coerced to 0 here, so a new user's lock screen read a confident
-  /// "0 kcal" for a whole workout while the in-app gauge correctly read "—".
   static Future<void> update({
-    required int hr,
-    required int zone,
-    required double? strain,
-    required int? calories,
-    required int maxHr,
-    required int rhr,
+    required String id,
+    required String type,
+    required int elapsed,
+    required bool paused,
+    required double? distanceKm,
+    required int? hr,
+    int? zone,
+    int? lastKmSeconds,
   }) async {
-    if (kPersonalSideload) return;
-    if (!_active) return;
-    try {
-      await _ch.invokeMethod('update', {
-        'hr': hr, 'zone': zone, 'strain': strain, 'calories': calories,
-        'maxHr': maxHr, 'rhr': rhr,
-      });
-    } catch (_) {}
+    if (!(isRunType(type) || isWalkType(type))) return;
+    if (_session != id) {
+      _session = id;
+      _epoch++;
+    }
+    final epoch = _epoch, previous = _tail;
+    final job = () async {
+      await previous;
+      if (epoch != _epoch) return;
+      try {
+        _active =
+            await _ch.invokeMethod<bool>('update', {
+              'id': id,
+              'name': isRunType(type) ? 'Running' : 'Walking',
+              'elapsed': elapsed,
+              'paused': paused,
+              'distanceKm': distanceKm,
+              'paceSeconds': distanceKm != null && distanceKm >= .05 && !paused
+                  ? elapsed / distanceKm
+                  : null,
+              'hr': hr,
+              'zone': hr == null ? null : zone,
+              'lastKmSeconds': lastKmSeconds,
+            }) ??
+            false;
+      } catch (_) {
+        _active = false;
+      }
+    }();
+    _tail = job;
+    await job;
   }
 
   static Future<void> end() async {
-    if (kPersonalSideload) return;
-    try {
-      await _ch.invokeMethod('end');
-    } catch (_) {}
-    _active = false;
+    _epoch++;
+    _session = null;
+    final previous = _tail;
+    final job = () async {
+      await previous;
+      try {
+        await _ch.invokeMethod('end');
+      } catch (_) {
+        /* unsupported */
+      }
+      _active = false;
+    }();
+    _tail = job;
+    await job;
   }
 }

@@ -27,6 +27,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/units_controller.dart';
+import '../../gps/run_history.dart' show isRunType, isWalkType;
 import '../grammar.dart';
 import '../profile/profile.dart' show SetRow;
 import '../theme.dart';
@@ -108,21 +109,25 @@ class _ShareSheetState extends State<ShareSheet> {
       final image = await boundary.toImage(pixelRatio: 3);
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
       if (png == null) return;
-      await Share.shareXFiles(
-        [
-          XFile.fromData(png.buffer.asUint8List(),
-              mimeType: 'image/png', name: '${r.activity.typeKey}.png'),
-        ],
-        sharePositionOrigin: origin,
-      );
+      await Share.shareXFiles([
+        XFile.fromData(
+          png.buffer.asUint8List(),
+          mimeType: 'image/png',
+          name: '${r.activity.typeKey}.png',
+        ),
+      ], sharePositionOrigin: origin);
     } catch (e) {
       // A share that quietly does nothing is worse than one that says it
       // failed: this swallowed every iPad share for the life of the screen.
       if (mounted) {
         final l = AppLocalizations.of(context);
-        messenger.showSnackBar(SnackBar(
+        messenger.showSnackBar(
+          SnackBar(
             content: Text(
-                l?.activityShareOpenFailed ?? 'Could not open the share sheet.')));
+              l?.activityShareOpenFailed ?? 'Could not open the share sheet.',
+            ),
+          ),
+        );
       }
       debugPrint('share failed: $e');
     } finally {
@@ -135,8 +140,10 @@ class _ShareSheetState extends State<ShareSheet> {
   /// or it has the accent gradient.
   Future<void> _pickPhoto() async {
     try {
-      final picked = await FilePicker.platform
-          .pickFiles(type: FileType.image, allowMultiple: false);
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
       final path = picked?.files.single.path;
       if (path != null && mounted) setState(() => _photo = File(path));
     } catch (e) {
@@ -266,7 +273,10 @@ class _ShareSheetState extends State<ShareSheet> {
                   // own ratio, so this is the difference between posting the
                   // card and posting a crop of it.
                   SubTabs(
-                    [for (final f in PosterFormat.values) posterFormatLabel(c, f)],
+                    [
+                      for (final f in PosterFormat.values)
+                        posterFormatLabel(c, f),
+                    ],
                     PosterFormat.values.indexOf(_format),
                     (i) {
                       setState(() => _format = PosterFormat.values[i]);
@@ -275,32 +285,39 @@ class _ShareSheetState extends State<ShareSheet> {
                     color: r.activity.color,
                   ),
                   const SizedBox(height: S.x6),
-                  Text(l?.activitySharePhotoHeader ?? 'YOUR PHOTO',
-                      style: F.over.copyWith(color: p.ink3)),
+                  Text(
+                    l?.activitySharePhotoHeader ?? 'YOUR PHOTO',
+                    style: F.over.copyWith(color: p.ink3),
+                  ),
                   const SizedBox(height: S.x3),
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: Column(children: [
-                      SetRow(
+                    child: Column(
+                      children: [
+                        SetRow(
                           LucideIcons.imagePlus,
                           r.activity.color,
                           _photo == null
                               ? (l?.activityShareAddPhoto ?? 'Add a photo')
-                              : (l?.activityShareChangePhoto ??
-                                  'Change photo'),
+                              : (l?.activityShareChangePhoto ?? 'Change photo'),
                           sub: _photo == null
                               ? (l?.activitySharePhotoHint ??
-                                  'From this phone. Nothing is uploaded')
+                                    'From this phone. Nothing is uploaded')
                               : _photo!.path.split('/').last,
-                          onTap: _pickPhoto),
-                      if (_photo != null) ...[
-                        Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.trash2, C.red,
+                          onTap: _pickPhoto,
+                        ),
+                        if (_photo != null) ...[
+                          Divider(color: p.line, height: 1),
+                          SetRow(
+                            LucideIcons.trash2,
+                            C.red,
                             l?.activityShareRemovePhoto ?? 'Remove the photo',
                             chevron: false,
-                            onTap: () => setState(() => _photo = null)),
+                            onTap: () => setState(() => _photo = null),
+                          ),
+                        ],
                       ],
-                    ]),
+                    ),
                   ),
                   // The one thing on this screen that leaves the phone. Off
                   // until it is turned on, in the words of what it does — the
@@ -308,8 +325,10 @@ class _ShareSheetState extends State<ShareSheet> {
                   // them tells openstreetmap.org roughly where you were.
                   if (_hasRoute) ...[
                     const SizedBox(height: S.x6),
-                    Text(l?.activityShareBasemapHeader ?? 'BASEMAP',
-                        style: F.over.copyWith(color: p.ink3)),
+                    Text(
+                      l?.activityShareBasemapHeader ?? 'BASEMAP',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
                     const SizedBox(height: S.x3),
                     Surface(
                       pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -317,7 +336,8 @@ class _ShareSheetState extends State<ShareSheet> {
                         LucideIcons.map,
                         r.activity.color,
                         l?.activityShareDrawMap ?? 'Draw the real map',
-                        sub: l?.activityShareMapHint ??
+                        sub:
+                            l?.activityShareMapHint ??
                             'Asks openstreetmap.org for the tiles covering '
                                 'this route. Off, the route draws on its own',
                         value: _mapConsent
@@ -389,6 +409,7 @@ class _ShareSheetState extends State<ShareSheet> {
     );
   }
 }
+
 /// that list answers about the numbers, and it must stay in step with `_art`.
 /// The session's average pace in the reader's unit, or null when there is no
 /// pace worth printing — the stat is then not offered at all rather than
@@ -417,6 +438,18 @@ List<(String, String)> shareStats(ActivityResult r, [UnitsController? u]) =>
 /// that only reads the stat NAMES, which no unit system changes) — metric is
 /// what the store holds, so that is what a card without one shows.
 List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
+  if (isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey)) ...[
+    (
+      'Budget active',
+      r.calories == null ? 'Unavailable' : '${grouped(r.calories!)} kcal',
+    ),
+    (
+      'ACSM active',
+      r.acsmCalories == null
+          ? 'Unavailable'
+          : '${grouped(r.acsmCalories!)} kcal',
+    ),
+  ],
   ('Time', hms(r.duration)),
   if (r.distanceKm != null)
     (
@@ -431,15 +464,15 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
   // 'STEPS 8,412 steps' spends a cell saying it twice.
   if (r.stepsCounted != null) ('Steps', grouped(r.stepsCounted!)),
   if (r.avgHr != null) ('Heart rate', '${r.avgHr} bpm'),
-  // With its unit. A bare "612" on a card is a number nobody can read back.
-  if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
+  if (!(isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey)) &&
+      r.calories != null)
+    ('Calories', '${grouped(r.calories!)} kcal'),
   if (r.gainM != null) ('Elevation', '+${r.gainM!.round()} m'),
   if (r.strength.volumeKg != null)
     ('Volume', '${grouped(r.strength.volumeKg!)} kg'),
   if (!r.strength.isEmpty) ('Sets', '${r.strength.setCount}'),
   if (r.lapCount != null) ('Laps', '${r.lapCount}'),
 ];
-
 
 (String, String, String) _heroOf(ActivityResult r, UnitsController? u) {
   final fallback = (hms(r.duration), '', r.activity.name);
@@ -449,8 +482,7 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
       km == null
           ? fallback
           : (
-              (u == null ? km : u.distanceValue(km * 1000))
-                  .toStringAsFixed(2),
+              (u == null ? km : u.distanceValue(km * 1000)).toStringAsFixed(2),
               u?.distanceUnit ?? 'km',
               r.gainM == null
                   ? r.activity.name

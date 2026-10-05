@@ -28,10 +28,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../ai/briefing_engine.dart' show collectSweepSeries;
 import '../../ai/nightly_sweep.dart';
 import '../../data/local_repository.dart';
+import '../../notify/notification_report.dart';
 import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'day_timeline.dart' show DayTimelineScreen;
-import 'home_screen.dart' show go, repoOf;
+import 'home_screen.dart' show go, repoOf, prettyDay;
 import 'metric_detail.dart'
     show dayNavRow, detailLinkRow, detailScaffold, pickDay;
 import 'month_grid.dart';
@@ -62,13 +63,21 @@ class WhatChangedData {
   /// no finding for a reason that has nothing to do with the user's body.
   final bool hadToday;
 
-  static Future<WhatChangedData> load(LocalRepository repo,
-      {String? want}) async {
+  static Future<WhatChangedData> load(
+    LocalRepository repo, {
+    String? want,
+  }) async {
     final days = await repo.availableDays();
     final today = await repo.getToday();
-    final day = pickDay(
-        days, want, (today['status'] as Map?)?['today_day']?.toString());
-    if (day == null) return WhatChangedData(days: days, grid: await loadGridRows(repo));
+    final day =
+        want ??
+        pickDay(
+          days,
+          want,
+          (today['status'] as Map?)?['today_day']?.toString(),
+        );
+    if (day == null)
+      return WhatChangedData(days: days, grid: await loadGridRows(repo));
 
     // The sweep, run FOR THAT DAY. `collectSweepSeries` takes the moment to
     // read as, and treats every stored day before it as the history — so a day
@@ -92,18 +101,21 @@ class WhatChangedData {
 }
 
 class WhatChangedScreen extends StatefulWidget {
-  const WhatChangedScreen({super.key, this.day, this.data});
+  const WhatChangedScreen({super.key, this.day, this.data, this.reportId});
 
   final String? day;
   final WhatChangedData? data;
+  final String? reportId;
 
   @override
   State<WhatChangedScreen> createState() => _WhatChangedScreenState();
 }
 
-class _WhatChangedScreenState extends State<WhatChangedScreen> {
+class _WhatChangedScreenState extends State<WhatChangedScreen>
+    with RevisionReload {
   WhatChangedData? _d;
-  bool _loading = true;
+  bool _loading = true, _failed = false;
+  Map<String, dynamic>? _report;
   String? _day;
 
   @override
@@ -118,17 +130,35 @@ class _WhatChangedScreenState extends State<WhatChangedScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  @override
+  bool get revisionReloads => widget.data == null;
+  @override
+  void reload() => _load();
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final token = beginRead(#findings);
     try {
+      final report = widget.reportId == null
+          ? null
+          : await NotificationReport.read(widget.reportId!);
       final d = await WhatChangedData.load(repo, want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (stillNewest(#findings, token))
+        setState(() {
+          _d = d;
+          _report = report;
+          _loading = false;
+          _failed = false;
+        });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (stillNewest(#findings, token))
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
     }
   }
 
@@ -145,15 +175,34 @@ class _WhatChangedScreenState extends State<WhatChangedScreen> {
     final d = _d ?? const WhatChangedData();
     final l = AppLocalizations.of(c);
     return detailScaffold(
-        c, l?.whatChangedTitle ?? 'What changed',
-        sub: l?.whatChangedSub ?? 'AGAINST YOUR OWN HISTORY', [
-      ...dayNavRow(_day ?? d.day, d.days, _goDay),
-      if (_loading) ...[
-        const SizedBox(height: S.x8),
-        const Center(child: CircularProgressIndicator()),
-      ] else
-        ...whatChangedBody(c, d),
-    ]);
+      c,
+      l?.whatChangedTitle ?? 'What changed',
+      sub: l?.whatChangedSub ?? 'AGAINST YOUR OWN HISTORY',
+      [
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
+        if (widget.reportId != null && !_loading)
+          Surface(
+            child: Text(
+              _report == null
+                  ? 'The original notification finding is no longer retained.'
+                  : '${_report!['title']} · based on records available ${prettyDay(_report!['day'])}\n${_report!['body']}',
+              style: F.body.copyWith(color: P.of(c).ink, height: 1.5),
+            ),
+          ),
+        if (_failed)
+          StatusCard(
+            'Findings could not load',
+            'Your saved records are intact.',
+            fix: 'Retry',
+            onFix: _load,
+          )
+        else if (_loading) ...[
+          const SizedBox(height: S.x8),
+          const Center(child: CircularProgressIndicator()),
+        ] else
+          ...whatChangedBody(c, d),
+      ],
+    );
   }
 }
 
@@ -207,15 +256,18 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
         Surface(
           color: p.card2,
           elevation: 0,
-          child: Text(pairing, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+          child: Text(
+            pairing,
+            style: F.cap.copyWith(color: p.ink2, height: 1.5),
+          ),
         ),
       ],
       const SizedBox(height: S.x3),
       Text(
         l?.whatChangedMethodologyNote ??
             'Measured against your own trailing days, in your own units, with the '
-            'window attached — so you can disbelieve it. Nothing here is a cause '
-            'and nothing here is a diagnosis.',
+                'window attached — so you can disbelieve it. Nothing here is a cause '
+                'and nothing here is a diagnosis.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ],
@@ -225,12 +277,16 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
         c,
         LucideIcons.listOrdered,
         l?.whatChangedDayLinkTitle ?? 'What happened that day',
-        l?.whatChangedDayLinkSub ?? 'Sleep, sessions, meals and logs in time order',
+        l?.whatChangedDayLinkSub ??
+            'Sleep, sessions, meals and logs in time order',
         () => go(c, DayTimelineScreen(day: d.day)),
       ),
     ],
     if (d.grid.isNotEmpty)
-      Section(l?.whatChangedMonthSection ?? 'The month behind it', MonthGrid(d.grid)),
+      Section(
+        l?.whatChangedMonthSection ?? 'The month behind it',
+        MonthGrid(d.grid),
+      ),
   ];
 }
 
@@ -262,8 +318,10 @@ class SweepFindingRow extends StatelessWidget {
           ),
           const SizedBox(width: S.x3),
           Expanded(
-            child: Text(f.text,
-                style: F.body.copyWith(color: p.ink, height: 1.45)),
+            child: Text(
+              f.text,
+              style: F.body.copyWith(color: p.ink, height: 1.45),
+            ),
           ),
         ],
       ),

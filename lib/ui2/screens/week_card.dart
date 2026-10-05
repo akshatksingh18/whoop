@@ -21,6 +21,7 @@ import 'nutrition_screen.dart' show DayUpkeep;
 class WeekNumbers {
   const WeekNumbers({
     this.deficit,
+    this.acsmDeficit,
     this.daysLogged = 0,
     this.daysExcluded = 0,
     this.proteinDays = 0,
@@ -33,7 +34,7 @@ class WeekNumbers {
 
   /// Maintenance − eaten summed over the days with food logged; negative is a
   /// surplus.
-  final double? deficit;
+  final double? deficit, acsmDeficit;
   final int daysLogged, daysExcluded, proteinDays;
   final double? avgProtein, proteinTarget;
   final double km;
@@ -54,21 +55,27 @@ class WeekNumbers {
 
     final runs = await loadRuns(repo);
 
-    double? deficit;
-    var logged = 0;
+    double? deficit, acsmDeficit;
+    var logged = 0, acsmLogged = 0;
     final proteins = <double>[];
     for (final d in win.days) {
       final eaten = d.kcal.value;
       if (!d.countsTowardAverages || eaten == null) continue;
-      final m = (await DayUpkeep.read(
+      final upkeep = await DayUpkeep.read(
         repo,
         d.date,
         pr,
         eaten: eaten,
         runs: runs,
-      )).parts?.total;
+      );
+      final m = upkeep.parts?.total;
       if (m == null) continue;
       deficit = (deficit ?? 0) + m - eaten;
+      final a = upkeep.acsmParts?.total;
+      if (a != null) {
+        acsmDeficit = (acsmDeficit ?? 0) + a - eaten;
+        acsmLogged++;
+      }
       logged++;
       if (d.protein.value != null) proteins.add(d.protein.value!);
     }
@@ -103,6 +110,7 @@ class WeekNumbers {
 
     return WeekNumbers(
       deficit: deficit,
+      acsmDeficit: logged > 0 && acsmLogged == logged ? acsmDeficit : null,
       daysLogged: logged,
       daysExcluded: win.daysExcluded,
       proteinDays: proteins.length,
@@ -189,9 +197,21 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
     final top = <(String, String, Color)>[
       if (d != null)
         (
-          d >= 0 ? 'DEFICIT' : 'SURPLUS',
+          d >= 0 ? 'BUDGET DEFICIT' : 'BUDGET SURPLUS',
           '${thousands(d.abs())} kcal',
           d >= 0 ? C.green : C.red,
+        ),
+      if (d != null)
+        (
+          w.acsmDeficit == null
+              ? 'ACSM ESTIMATE'
+              : w.acsmDeficit! >= 0
+              ? 'ACSM DEFICIT'
+              : 'ACSM SURPLUS',
+          w.acsmDeficit == null
+              ? 'Unavailable'
+              : '${thousands(w.acsmDeficit!.abs())} kcal',
+          C.teal,
         ),
       if (w.avgProtein != null)
         (

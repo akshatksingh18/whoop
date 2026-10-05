@@ -33,6 +33,9 @@ import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
+import 'package:openstrap_edge/ui2/screens/readiness_detail.dart';
+import 'package:openstrap_edge/ui2/screens/day_steps.dart';
+import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/ui2/screens/week_card.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -453,45 +456,67 @@ void main() {
     },
   );
 
-  testWidgets('meal entry offers edit, and swipe delete has Undo', (t) async {
-    t.view.physicalSize = const Size(390, 844);
-    t.view.devicePixelRatio = 1;
-    addTearDown(t.view.reset);
-    final app = AppState.forTesting();
-    addTearDown(app.dispose);
-    final day = todayLabel();
-    await t.runAsync(() => NutritionDb.put(db, _entry('Dinner shake', day)));
-    await t.pumpWidget(_app(app, MealPage(date: day, meal: 'dinner')));
-    await _until(t, () => find.text('Dinner shake').evaluate().isNotEmpty);
-    await t.tap(find.text('Dinner shake'));
-    await t.pumpAndSettle();
-    expect(find.text('Edit entry'), findsOneWidget);
-    await t.tap(find.text('Edit entry'));
-    await t.pumpAndSettle();
-    expect(find.byType(QuickAddSheet), findsOneWidget);
-    await t.tap(
-      find
-          .byWidgetPredicate(
-            (w) => w is Pressable && w.semanticLabel == 'Close',
-          )
-          .last,
-    );
-    await t.pumpAndSettle();
-    await t.drag(find.byType(Dismissible), const Offset(-500, 0));
-    await t.pumpAndSettle();
-    await _until(t, () => find.text('Undo').evaluate().isNotEmpty);
-    await t.pump(const Duration(milliseconds: 500));
-    await t.tap(find.text('Undo'));
-    await _until(t, () => find.text('Dinner shake').evaluate().isNotEmpty);
-    expect(
-      (await t.runAsync(
-        () => NutritionDb.entriesForDay(db, day),
-      ))!.single.label,
-      'Dinner shake',
-    );
-    expect(t.takeException(), isNull);
-    await _unmount(t);
-  });
+  testWidgets(
+    'meal entry offers edit, Undo works and deletion notice expires',
+    (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      final day = todayLabel();
+      await t.runAsync(() => NutritionDb.put(db, _entry('Dinner shake', day)));
+      await t.pumpWidget(_app(app, MealPage(date: day, meal: 'dinner')));
+      await _until(t, () => find.text('Dinner shake').evaluate().isNotEmpty);
+      await t.tap(find.text('Dinner shake'));
+      await t.pumpAndSettle();
+      expect(find.text('Edit entry'), findsOneWidget);
+      await t.tap(find.text('Edit entry'));
+      await t.pumpAndSettle();
+      expect(find.byType(QuickAddSheet), findsOneWidget);
+      await t.tap(
+        find
+            .byWidgetPredicate(
+              (w) => w is Pressable && w.semanticLabel == 'Close',
+            )
+            .last,
+      );
+      await _until(t, () => find.byType(Dismissible).evaluate().isNotEmpty);
+      await t.pumpAndSettle();
+      // Let the read started by closing the editor finish before interacting.
+      await t.runAsync(() => NutritionDb.entriesForDay(db, day));
+      await t.pumpAndSettle();
+      await t.drag(find.byType(Dismissible), const Offset(-500, 0));
+      await t.pumpAndSettle();
+      await _until(t, () => find.text('Undo').evaluate().isNotEmpty);
+      await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('Undo'));
+      await _until(t, () => find.text('Dinner shake').evaluate().isNotEmpty);
+      expect(
+        (await t.runAsync(
+          () => NutritionDb.entriesForDay(db, day),
+        ))!.single.label,
+        'Dinner shake',
+      );
+      await _until(t, () => find.byType(Dismissible).evaluate().isNotEmpty);
+      await t.pumpAndSettle();
+      await t.drag(find.byType(Dismissible), const Offset(-500, 0));
+      await t.pumpAndSettle();
+      await _until(t, () => find.text('Undo').evaluate().isNotEmpty);
+      await t.pump(const Duration(milliseconds: 500));
+      expect(find.text('Deleted Dinner shake'), findsOneWidget);
+      await t.pump(const Duration(seconds: 2));
+      await t.pumpAndSettle();
+      expect(find.text('Undo'), findsNothing);
+      expect(find.text('Deleted Dinner shake'), findsNothing);
+      expect(
+        await t.runAsync(() => NutritionDb.entriesForDay(db, day)),
+        isEmpty,
+      );
+      expect(t.takeException(), isNull);
+      await _unmount(t);
+    },
+  );
 
   testWidgets(
     'food picker defaults to My foods and Scan reaches camera, not occasion entry',
@@ -888,6 +913,51 @@ void main() {
       expect(
         t.widget<AppShell>(find.byType(AppShell)).initial,
         ShellDomain.home,
+      );
+      final nav = Navigator.of(t.element(find.byType(AppShell)));
+      unawaited(
+        nav.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Old detail')),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      unawaited(
+        showModalBottomSheet<void>(
+          context: t.element(find.text('Old detail')),
+          isScrollControlled: true,
+          builder: (_) => const InputSheet(
+            children: [
+              Text('Draft'),
+              TextField(
+                decoration: InputDecoration(labelText: 'Unsaved entry'),
+              ),
+            ],
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      app.screenRequest.value = datedRoute(kRouteRecovery, '2026-10-03');
+      app.navRequest.value = 0;
+      await t.pump();
+      expect(find.text('Unsaved entry'), findsOneWidget);
+      expect(find.byType(ReadinessDetail), findsNothing);
+      Navigator.of(t.element(find.byType(InputSheet))).pop();
+      await _until(t, () => find.byType(ReadinessDetail).evaluate().isNotEmpty);
+      await _until(t, () => find.text('Old detail').evaluate().isEmpty);
+      expect(
+        t.widget<ReadinessDetail>(find.byType(ReadinessDetail)).day,
+        '2026-10-03',
+      );
+      await _unmount(t);
+      app.screenRequest.value = datedRoute(kRouteSteps, '2026-10-02');
+      app.navRequest.value = 0;
+      await t.pumpWidget(root());
+      await _until(t, () => find.byType(DayStepsDetail).evaluate().isNotEmpty);
+      expect(
+        t.widget<DayStepsDetail>(find.byType(DayStepsDetail)).day,
+        '2026-10-02',
       );
       await _unmount(t);
       app.stopForegroundRefresh();

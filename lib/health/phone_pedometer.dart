@@ -81,6 +81,38 @@ class PhonePedometer {
     }
   }
 
+  Future<({int steps, double? meters})?> _readMovement(
+    DateTime from,
+    DateTime to,
+  ) async {
+    if (_stepReader != null || defaultTargetPlatform != TargetPlatform.iOS) {
+      final steps = await _readSteps(from, to);
+      return steps == null ? null : (steps: steps, meters: null);
+    }
+    try {
+      final r = await phoneStepsChannel.invokeMapMethod<String, dynamic>(
+        'movementInInterval',
+        {
+          'fromMs': from.millisecondsSinceEpoch,
+          'toMs': to.millisecondsSinceEpoch,
+        },
+      );
+      final steps = r?['steps'] as num?;
+      final meters = (r?['distance_m'] as num?)?.toDouble();
+      return steps == null
+          ? null
+          : (
+              steps: steps.toInt(),
+              meters: meters != null && meters.isFinite && meters >= 0
+                  ? meters
+                  : null,
+            );
+    } catch (e) {
+      debugPrint('[phone_pedometer] movement read: $e');
+      return null;
+    }
+  }
+
   /// Ask for access to the phone's step sensor. Safe to call repeatedly.
   ///
   /// THIS IS THE ONLY THING THAT MAKES THE PERMISSION EXIST. On iOS a
@@ -186,6 +218,7 @@ class PhonePedometer {
     final dayId = dayLabelOf(dayStartLocal);
     try {
       final windows = <({int startTs, int endTs, int steps})>[];
+      final distances = <String, double?>{};
       var total = 0;
       var anyRead = false;
       final db = await LocalDb.instance;
@@ -204,13 +237,16 @@ class PhonePedometer {
       );
       final existing = await db.query(
         'live_coverage',
-        columns: ['start_ts', 'end_ts', 'steps'],
+        columns: ['start_ts', 'end_ts', 'steps', 'distance_m'],
         where: 'day = ? AND source = ?',
         whereArgs: [dayId, LocalDb.kStepSourcePhone],
       );
       final cached = {
         for (final r in existing)
-          '${r['start_ts']}-${r['end_ts']}': (r['steps'] as num).toInt(),
+          '${r['start_ts']}-${r['end_ts']}': (
+            steps: (r['steps'] as num).toInt(),
+            meters: (r['distance_m'] as num?)?.toDouble(),
+          ),
       };
       final sessionCuts = <int>{};
       for (final row in await db.query(
@@ -331,9 +367,15 @@ class PhonePedometer {
               exactTo.isBefore(
                 DateTime.now().subtract(const Duration(minutes: 2)),
               );
-          final n = reuse && cached.containsKey(cacheKey)
-              ? cached[cacheKey]
-              : await _readSteps(exactFrom, exactTo);
+          final previous = cached[cacheKey];
+          final reading =
+              reuse &&
+                  previous != null &&
+                  (previous.meters != null ||
+                      defaultTargetPlatform != TargetPlatform.iOS)
+              ? previous
+              : await _readMovement(exactFrom, exactTo);
+          final n = reading?.steps;
           // Read failure (see the doc above) — abandon the day rather than
           // persist a partial one over a good previous sync.
           if (n == null) return null;
@@ -353,6 +395,7 @@ class PhonePedometer {
             steps: n,
           ));
           total += n;
+          distances[cacheKey] = reading?.meters;
         }
       }
 
@@ -384,7 +427,11 @@ class PhonePedometer {
         return null;
       }
 
-      await LocalDb.replacePhoneCoverageForDay(dayId, windows);
+      await LocalDb.replacePhoneCoverageForDay(
+        dayId,
+        windows,
+        distances: distances,
+      );
       return total;
     } catch (e) {
       debugPrint('[phone_pedometer] syncDay $dayId: $e');

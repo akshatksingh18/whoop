@@ -163,7 +163,7 @@ void main() {
   group('resolveTapRoute', () {
     test('tab routes resolve to their index with no sub-screen', () {
       expect(resolveTapRoute('/today').tab, 0);
-      expect(resolveTapRoute('/sleep').tab, 1);
+      expect(resolveTapRoute('/sleep').tab, 0);
       expect(resolveTapRoute('/today').screen, isNull);
     });
 

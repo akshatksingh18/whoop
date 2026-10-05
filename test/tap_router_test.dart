@@ -8,7 +8,7 @@ void main() {
   test('tab routes land on their index with no sub-screen', () {
     expect(resolveTapRoute('/today').tab, 0);
     expect(resolveTapRoute('/today').screen, isNull);
-    expect(resolveTapRoute('/sleep').tab, 1);
+    expect(resolveTapRoute('/sleep').tab, 0);
     expect(resolveTapRoute('/workouts').tab, 4);
   });
 
@@ -24,8 +24,7 @@ void main() {
     expect(resolveTapRoute(kRouteJournalCompose).screen, kRouteJournalCompose);
   });
 
-  test(
-      'kRouteWorkoutSuggestion lands on the Workouts tab + the suggestion '
+  test('kRouteWorkoutSuggestion lands on the Workouts tab + the suggestion '
       'sub-screen (issue #113)', () {
     final t = resolveTapRoute(kRouteWorkoutSuggestion);
     expect(t.tab, 4); // Workouts tab underneath
@@ -68,12 +67,14 @@ void main() {
   // TapTarget(0) with no screen request — indistinguishable from a stale
   // payload, and the reason a band-battery alert used to land on Home three
   // taps from the battery it was about.
-  test('every route a notification can still carry resolves somewhere real',
-      () {
+  test('every route a notification can still carry resolves somewhere real', () {
     // The band's own failures — battery, charger, gone quiet.
     final profile = resolveTapRoute(kRouteProfile);
-    expect(profile.screen, kRouteProfile,
-        reason: 'without a screen request the shell only selects a tab');
+    expect(
+      profile.screen,
+      kRouteProfile,
+      reason: 'without a screen request the shell only selects a tab',
+    );
 
     // The weekly lookback. No recap screen exists, so the screen request
     // resolves to null in app.dart — but the request itself is what carries it
@@ -83,7 +84,8 @@ void main() {
     expect(recap.tab, isNot(0), reason: 'a week of data is not the Home tab');
 
     // The day's aggregated health exception, and the alarm.
-    expect(resolveTapRoute('/heart').tab, 2);
+    expect(resolveTapRoute('/heart').tab, 1);
+    expect(resolveTapRoute('/heart').screen, '/heart');
     expect(resolveTapRoute('/today').tab, 0);
   });
 }

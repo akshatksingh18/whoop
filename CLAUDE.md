@@ -16,7 +16,7 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification — build `0.9.37`/`70` remains accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
-the recovery/refresh build in `final-ipas\whoop\backup\`. Build `0.9.39`/`72` is installed,
+the recovery/refresh build in `final-ipas\whoop\backup\`. Build `0.9.39`/`72` was installed,
 confirmed by Akshat, but was not phone-accepted and is superseded by the build-73 candidate.
 The reported sync/voice/calorie/macro/profile
 issues are audited in `workout-sync-audit.md`, with the approved step-goal streak extension documented there.
@@ -26,7 +26,18 @@ Source `0.9.40`/`73` (algorithm 89), commit `a49d7837`, is published with Akshat
 passes local validation, Linux CI `37252915519` and personal macOS build `37252925924`.
 The downloaded IPA matches its checksum/manifest and passes payload validation; it is the single
 testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.40-build73-a49d7837`.
-Installation, phone acceptance and current-version enrollment are unconfirmed. `setup.md` owns
+Akshat confirms build 73 is installed and initially looks good, but reports chart/navigation and
+notification issues. Local source `0.9.41`/`74` (algorithm 90) implements the approved coordinated
+repair and persistent Budget/ACSM pair, with HR retained only for analysis. It includes accepted
+phone motion-distance windows, focused dated notification routes, an opt-in local training review
+and one workout-only Live Activity extension without App Groups. Live cadence, optional context
+tags, qualified HR drift, recorded consistency/best efforts and fourteen-day notification spacing
+are included. Foreground refresh re-reads session movement; deletion/Undo notices expire in two seconds. `build-74-audit.md` owns the
+research/implemented contract; `todo.md` owns release/phone gates. Local validation passes:
+3,343 full-suite tests (376 intentional skips), 107 personal-profile checks and eight personal-iOS
+contract tests; analysis has 113 informational lints and no errors/warnings. Rendered layout checks pass;
+publication, macOS compilation, IPA and device verification remain pending.
+The complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
 artifact evidence. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
@@ -69,7 +80,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 73,
-awaiting installation, phone acceptance and current-version enrollment.
+installed and awaiting the complete phone pass and current-version enrollment.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -163,8 +174,11 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — build-73 implementation/release/phone checks and remaining lifecycle/refresh checks; read before
+- `todo.md` — build-74 release/device gates, build-73 phone checks and remaining lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
+- `build-74-audit.md` — installed-build-73 chart, navigation, notification and workout findings;
+  primary calorie research, assessment of the pasted brainstorming, implemented ACSM/Live
+  Activity/fortnightly-review contract and acceptance tests; read before changing build 74.
 - `workout-sync-audit.md` — current build-72 sync, background voice, workout/calorie, macro,
   profile-precision and step-goal streak findings, research, reproductions and the approved repair contract;
   read before changing calculation, sync or step policy.
@@ -250,7 +264,7 @@ evidence below.
 - Build-73 source uses session-owned voice cues with explicit background audio. Locked-screen,
   other-app, music/call/headphone behavior needs the phone acceptance pass; build 72's delay is
   the reported baseline, not evidence that build 73 works on hardware.
-- Run/walk Method 1 and net HR comparison share active sensor windows and recorded profile inputs.
+- Run/walk Budget/ACSM estimates and separate net HR analysis share active windows and recorded profile inputs.
   The equations remain conservative budgeting estimates, not guaranteed physiological minima.
   Unknown movement/HR stays absent or labelled partial; no lifting calories enter maintenance.
 - All macro rows remain visible. Nullable omitted values display zero logged; no nutrition is
@@ -263,7 +277,9 @@ evidence below.
   personal-profile checks and all 7 personal-iOS contract tests. Analysis has 60 infos and no
   errors/warnings. Rendered layouts and small-phone/enlarged-text regressions pass. Linux CI passes
   3,323 tests with 363 intentional skips; native macOS compilation and downloaded IPA validation
-  pass. Phone behavior remains unverified for this source.
+  pass. Installation is confirmed, with the future-time Strain cursor defect reported; the
+  complete phone pass remains open. `build-74-audit.md` and `todo.md` own the implemented coordinated
+  chart/navigation/notification repairs, calorie comparisons and optional lock-screen feature.
 - A day earns a movement streak through 10 active run/walk minutes or its dated measured step goal.
   Goals before migration are unknown; historical workout evidence is preserved.
 - Connected wrist fallback captures accepted high-rate gait without Start, supplements separately
@@ -457,11 +473,12 @@ The personal artifact must have these properties:
   source target for a possible future fully source-signed build, but do not package it for free
   re-signing: its companion bundle-ID cross-reference is not safely rewritten by generic
   sideloaders.
-- Strip the widget extension and disable the home-screen widget and Live Activity in the personal
-  flavor. Remove the Runner App Group entitlement, the widget App Group entitlement from the
-  packaged extension, `NSSupportsLiveActivities`, and app-group bridge calls together. A partially
-  working extension is not acceptable for a health app; the current generic workflow's "might not
-  work" caveat is replaced by a deterministic phone-only artifact.
+- Build 74 permits exactly one workout-only ActivityKit extension, version-matched to Runner,
+  with bundle ID `com.akshat.personal.whoop.activity` before re-signing and empty entitlements.
+  Retain `NSSupportsLiveActivities` and the exact-session URL bridge. Compile out general home,
+  sleep, battery and breathing widgets and all App Group bridges/entitlements. Native compilation,
+  Sideloadly extension signing, overwrite and automatic-refresh enrollment must pass; accepted
+  build 70 remains recovery until phone acceptance. Do not widen this allowance to other plugins.
 - Remove HealthKit entitlements and hide/compile out Apple Health reads and writes in the initial
   personal flavor. Preserve manual profile entry and all band-derived metrics. HealthKit may be
   reintroduced only as a separate, later capability experiment after the exact free Personal Team
@@ -473,8 +490,8 @@ The personal artifact must have these properties:
   do not invent entitlements for them.
 - Package a conventional `Payload/Runner.app` IPA with no signing credentials, provisioning
   profile, personal health data, database, BLE capture, API key, injected dylib, or installer
-  metadata. Inspect the payload before release and fail packaging if `Watch/`, the widget
-  `PlugIns/*.appex`, unexpected entitlements, or personal secrets remain.
+  metadata. Inspect the payload before release and fail if `Watch/`, any extension other than
+  the single contract-checked workout ActivityKit extension, unexpected entitlements or secrets remain.
 
 ### Bundle identity, upgrades, and data continuity
 

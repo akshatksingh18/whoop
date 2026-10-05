@@ -165,8 +165,8 @@ exclusions and While-In-Use location authorization remain. Local validation pass
 `a49d7837c4d2da368a708a1aeb77983fb19e8c1c` is published with Akshat's approval to the public
 repository. Linux CI `37252915519` and personal macOS build `37252925924` pass. The downloaded
 IPA passes checksum, manifest and payload validation and is the single testing candidate.
-Build 72 remains the last confirmed phone installation; accepted build 70 remains the recovery
-IPA. Build-73 installation, phone acceptance and current-version enrollment are pending.
+Build 73 is installed, confirmed by Akshat; accepted build 70 remains the recovery IPA.
+The complete build-73 phone pass and current-version enrollment are pending.
 `todo.md` owns acceptance gates; artifact evidence appears below.
 
 Build-73 checks: all 3,318 Flutter tests pass with 368 intentional skips, plus 91 focused tests
@@ -301,9 +301,28 @@ The payload retains `bluetooth-central`, `location` and the approved real-workou
 Watch/widgets/Live Activities, HealthKit, App Groups, background fetch/processing and required
 Firebase initialization remain excluded. The IPA, manifest and checksum occupy the single folder
 `../final-ipas/whoop/testing/WHOOP-0.9.40-build73-a49d7837`.
-Installation, phone acceptance and completed current-version automatic-refresh registration for
+Akshat confirms installation and an initially good appearance, but reports chart/navigation and
+notification issues. `build-74-audit.md` owns findings/research and the implemented build-74
+contract; `todo.md` owns release and phone gates. The installed/cached testing IPA remains build 73. The complete phone pass and completed current-version automatic-refresh registration for
 `0.9.40` at `com.akshat.personal.whoop.5564K8D4SV` are pending. The build-70 recovery IPA and
 accepted-build ledger remain unchanged; promote build 73 only after the `todo.md` gates pass.
+
+Build `0.9.41`/`74` is implemented locally, algorithm 90. It retains Budget coefficients and
+adds persistent ACSM comparisons on one dated movement ledger. `live_coverage.distance_m` is
+an additive nullable on-open column; older backups remain readable and missing distance is explicit.
+Focused notification routes, retained evidence, opt-in training review, graph repairs, live
+cadence, optional context tags, qualified HR drift and a narrow Run/Walk Live Activity with
+zone/last-km pace are included. Review evidence includes recorded consistency and supported best
+efforts, with matched tags, actual HR coverage and at least fourteen days between notifications.
+Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds. The personal transform allows only the version-matched
+`.activity` extension with empty entitlements; Watch, general widgets, App Groups and HealthKit
+remain excluded. Existing BLE/location/audio modes are unchanged. Local release validation passes:
+3,343 full-suite tests with 376 intentional skips; 107 focused tests with `PERSONAL_SIDELOAD=true`;
+eight personal-iOS contract tests and `personal_ios.py check`. Analysis exits successfully with
+113 informational lints and no errors/warnings. Focused rendered/flow checks pass (49 visual/flow,
+eight live-cadence and 19 navigation checks); inspected screenshots were removed from `test/goldens`.
+`git diff --check` passes. No source has been published or native IPA built for 74; no checksum/install/signing
+success is claimed. Public CI/build needs named approval; build 70 remains accepted recovery.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

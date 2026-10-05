@@ -141,18 +141,18 @@ double? bmrMifflin(Profile p) {
 }
 
 /// Net oxygen cost of running, ml/kg per metre (Akshat's Method 1, the
-/// efficient-runner floor; ACSM's own running coefficient is 0.2).
+/// chosen budgeting coefficient; ACSM's own running coefficient is 0.2).
 const double kRunO2PerMeter = 0.143;
 
 /// Net oxygen cost of walking, ml/kg per metre (ACSM walking equation). Used
-/// for walk breaks inside a run so the floor never prices walking as running.
+/// for walk breaks inside a run so the budget never prices walking as running.
 const double kWalkO2PerMeter = 0.1;
 
 /// Oxygen cost of climbing, ml/kg per vertical metre (ACSM running grade
 /// term, 0.9 × speed × grade, summed over time = 0.9 × metres climbed).
 const double kClimbO2PerMeter = 0.9;
 
-/// Method 1, the kinematic floor: active kcal for moving [weightKg] over
+/// Budget estimate: active kcal for moving [weightKg] over
 /// [runMeters] at running speed, [walkMeters] at walking speed and up
 /// [climbMeters] of ascent.
 ///
@@ -265,19 +265,16 @@ maintenance(
 }
 
 /// Distance and active calories for [steps], for the steps breakdown. The
-/// distance is a height-based stride (0.415 × height for men, 0.413 for women,
+/// distance is a height-based step length (0.415 × height for men, 0.413 for women,
 /// their mean otherwise); the calories are [stepCalories]. Null without a
-/// height and weight, or with no steps.
-({double kcal, double km})? walkingEnergy(num? steps, Profile p) {
+/// weight or steps; missing height only withholds distance.
+({double kcal, double? km})? walkingEnergy(num? steps, Profile p) {
   final h = p.heightCm, w = p.weightKg;
   if (steps == null ||
       !steps.isFinite ||
       steps <= 0 ||
-      h == null ||
-      !h.isFinite ||
       w == null ||
       !w.isFinite ||
-      h <= 0 ||
       w <= 0) {
     return null;
   }
@@ -286,6 +283,31 @@ maintenance(
     'f' || 'female' => 0.413,
     _ => 0.414,
   };
-  final km = steps * factor * h / 100 / 1000;
+  final km = h == null || !h.isFinite || h <= 0
+      ? null
+      : steps * factor * h / 100 / 1000;
   return (kcal: stepCalories(steps, w)!, km: km);
+}
+
+/// ACSM net movement estimate, approximately 5 kcal per litre of oxygen.
+/// Resting VO2 is excluded here; daily BMR must not be subtracted again.
+double? acsmActiveKcal({
+  required double runMeters,
+  double walkMeters = 0,
+  double runClimbMeters = 0,
+  double walkClimbMeters = 0,
+  double? weightKg,
+}) {
+  final inputs = [runMeters, walkMeters, runClimbMeters, walkClimbMeters];
+  if (weightKg == null ||
+      !weightKg.isFinite ||
+      weightKg <= 0 ||
+      inputs.any((v) => !v.isFinite || v < 0))
+    return null;
+  return .005 *
+      weightKg *
+      (.2 * runMeters +
+          .1 * walkMeters +
+          .9 * runClimbMeters +
+          1.8 * walkClimbMeters);
 }

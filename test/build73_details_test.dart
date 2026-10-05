@@ -23,6 +23,7 @@ import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/screens/naps.dart';
 import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
+import 'package:openstrap_edge/ui2/screens/day_steps.dart';
 import 'package:openstrap_edge/ui2/screens/health_screen.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart'
     show showMaintenance, DayUpkeep;
@@ -707,6 +708,20 @@ void main() {
       );
       expect(find.textContaining('132 kcal'), findsNothing);
       await capture(t, 'build73-inline-steps');
+      final previous = find.byWidgetPredicate(
+        (w) => w is Pressable && w.semanticLabel == 'Previous day',
+      );
+      expect(previous, findsOneWidget);
+      await t.ensureVisible(previous);
+      await t.tap(previous);
+      final destination = find.byWidgetPredicate(
+        (w) => w is DayStepsDetail && !w.embedded,
+      );
+      await until(t, () => destination.evaluate().isNotEmpty);
+      expect(
+        t.widget<DayStepsDetail>(destination).day,
+        dayLabelOf(DateTime.now().subtract(const Duration(days: 1))),
+      );
       await close(t, state);
     },
   );
@@ -739,6 +754,10 @@ void main() {
       );
       expect(find.text('steps', findRichText: true), findsNothing);
       await t.pump(const Duration(seconds: 1));
+      await until(
+        t,
+        () => find.text('Walking energy by hour').evaluate().isNotEmpty,
+      );
       await capture(t, 'build73-step-calories');
       await close(t, state);
     },
@@ -808,6 +827,10 @@ void main() {
       r.fail = false;
       await t.tap(find.text('Retry').first);
       await until(t, () => find.text('5,000').evaluate().isNotEmpty);
+      await until(
+        t,
+        () => find.byType(CircularProgressIndicator).evaluate().isEmpty,
+      );
       await close(t, state);
     },
   );

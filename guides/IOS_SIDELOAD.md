@@ -1,11 +1,15 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Build `0.9.37`/`70` is the accepted recovery build. Build `0.9.39`/`72` is the last
-confirmed phone installation, but was not phone-accepted and its testing artifact is superseded.
+**State:** Build `0.9.37`/`70` is the accepted recovery build. Build `0.9.39`/`72` was installed,
+but was not phone-accepted and its testing artifact is superseded.
 Source `0.9.40`/`73`, commit `a49d7837`, is published with Akshat's approval and passes local
 checks, Linux CI/macOS build, downloaded checksum/manifest and payload validation. It is the
-single testing candidate. Installation, phone acceptance and current-version enrollment are pending;
-`../workout-sync-audit.md` records reported issues and repairs, and `../todo.md` owns the phone checklist.
+single testing candidate. Akshat confirms build 73 is installed; the complete phone pass and
+current-version enrollment are pending. Its future-time Strain cursor defect is repaired in local build-74 source;
+`../workout-sync-audit.md` records the earlier repairs, `../build-74-audit.md` the newer findings
+and implemented Budget/ACSM comparisons and workout Live Activity; `../todo.md` owns release
+and phone gates. Local source `0.9.41`/`74` is not built/installed yet. Its extension changes the
+payload contract and requires exact-version signing, overwrite and refresh acceptance.
 Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
@@ -50,7 +54,8 @@ Before following installation steps, the candidate IPA must pass the personal-bu
 
 - phone `Runner`, local BLE/database/analytics, local notifications, `bluetooth-central`, and
   CoreBluetooth restoration retained;
-- Watch companion and widget/Live Activity extension removed from the packaged IPA;
+- Watch companion and general/home/breathing widgets excluded; build 74 allows exactly one
+  version-matched workout Live Activity extension with empty entitlements;
 - App Group and HealthKit entitlements absent in the initial personal flavor;
 - health-data contribution and required telemetry/backend/OTA behavior off;
 - conventional `Payload/Runner.app` release/AOT artifact with no injected libraries, JIT,
@@ -113,8 +118,8 @@ For migration from an existing Android installation, preserve this order:
 3. Use the selected Apple Account and enroll the app for automatic refresh. Keep credentials/2FA
    out of Git, scripts, task arguments, and plaintext logs.
 4. Complete the iOS developer trust flow if prompted, then launch from the Home Screen. Confirm the
-   installed bundle identity/profile expiry and that HealthKit/widget/Live Activity/Watch surfaces
-   are absent.
+   installed bundle identity/profile expiry; HealthKit/general widgets/Watch stay absent. For build
+   74, test the single Run/Walk Live Activity, exact-session tap and both app/extension refresh.
 5. Pair the WHOOP 4.0 with the official WHOOP app fully quit, complete an initial drain, verify local
    metrics/offline launch, and create/restore-test an encrypted export before making this install
    authoritative.
@@ -171,9 +176,9 @@ For migration from an existing Android installation, preserve this order:
 - Background BLE is best-effort under iOS. Preserve CoreBluetooth state restoration and test locked,
   backgrounded, out-of-range/reconnect, ordinary system termination, reboot, and 72-hour soak
   behavior. Manual swipe-to-force-quit may suppress background relaunch until the app is opened.
-- The initial personal flavor intentionally has no Apple Health, widget, Live Activity, or Watch
-  companion. Do not describe those as “might work”; they are excluded until a separate capability
-  experiment passes exact free-profile and upgrade tests.
+- Apple Health, general widgets, App Groups and Watch remain excluded. Build 74 enables only
+  the workout Live Activity; native/payload and real free-profile signing, upgrade and automatic
+  refresh checks must pass before acceptance. Its overlay grants no extra background execution.
 - Local Anisette avoids dependence on Sideloadly's remote Anisette service, but Apple signing servers
   remain required. Apple can change provisioning/authentication and Sideloadly can require an update.
   Reliability comes from early retries, visible alerts, USB recovery, backups, stable identity, and

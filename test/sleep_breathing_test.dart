@@ -1,5 +1,5 @@
 // The restored across-nights breathing-pattern screen: it names no condition,
-// shows no per-night number, never reassures, and ends in a clinician.
+// keeps a non-diagnostic aggregate and dated measured readouts, never reassures.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

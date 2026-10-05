@@ -4,7 +4,7 @@
 // of maintenance. Summaries are invalidated when measurements, sessions or
 // profile inputs change; retained motion answers are backed up with the ledger.
 
-import '../compute/profile.dart' show runFloorKcal;
+import '../compute/profile.dart' show runFloorKcal, acsmActiveKcal;
 import '../data/db.dart';
 import 'workout_clock.dart';
 import 'session_track.dart';
@@ -316,6 +316,7 @@ RunDay runEnergyOn(
   String day, {
   double? weightKg,
   num? daySteps,
+  bool acsm = false,
 }) {
   var kcal = 0.0, km = 0.0;
   var steps = 0;
@@ -327,12 +328,19 @@ RunDay runEnergyOn(
     final slice = r.byDay[day];
     final mix = slice?.mix ?? r.mix;
     final k =
-        runFloorKcal(
-          runMeters: mix.runM,
-          walkMeters: mix.walkM,
-          climbMeters: mix.climbM,
-          weightKg: r.weightKg ?? weightKg,
-        ) ??
+        (acsm
+            ? acsmActiveKcal(
+                runMeters: mix.runM,
+                walkMeters: mix.walkM,
+                runClimbMeters: mix.climbM,
+                weightKg: r.weightKg ?? weightKg,
+              )
+            : runFloorKcal(
+                runMeters: mix.runM,
+                walkMeters: mix.walkM,
+                climbMeters: mix.climbM,
+                weightKg: r.weightKg ?? weightKg,
+              )) ??
         0;
     if (k <= 0) continue; // no distance: its steps stay walking steps
     count++;

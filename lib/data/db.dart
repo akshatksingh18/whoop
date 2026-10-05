@@ -1997,6 +1997,7 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
     );
+    await _addColumnIfMissing(db, 'live_coverage', 'distance_m', 'REAL');
   }
 
   /// Ensure `live_coverage.source` exists (v27).
@@ -2111,8 +2112,9 @@ class LocalDb {
 
   static Future<void> replacePhoneCoverageForDay(
     String day,
-    List<({int startTs, int endTs, int steps})> windows,
-  ) async {
+    List<({int startTs, int endTs, int steps})> windows, {
+    Map<String, double?> distances = const {},
+  }) async {
     final db = await instance;
     await db.transaction((txn) async {
       await txn.delete(
@@ -2128,6 +2130,7 @@ class LocalDb {
           'steps': w.steps,
           'day': day,
           'source': kStepSourcePhone,
+          'distance_m': distances['${w.startTs}-${w.endTs}'],
         });
       }
     });

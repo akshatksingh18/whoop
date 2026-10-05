@@ -124,11 +124,30 @@ class _PressableState extends State<Pressable> {
 
 /// A bounded form sheet with a fixed close/drag header, even above the keyboard.
 /// Scrolling dismisses the keyboard; dragging the header cancels the sheet.
-class InputSheet extends StatelessWidget {
+class InputSheet extends StatefulWidget {
   const InputSheet({super.key, required this.children});
   final List<Widget> children;
+  static final openSheets = ValueNotifier<int>(0);
+  @override
+  State<InputSheet> createState() => _InputSheetState();
+}
+
+class _InputSheetState extends State<InputSheet> {
+  @override
+  void initState() {
+    super.initState();
+    InputSheet.openSheets.value++;
+  }
+
+  @override
+  void dispose() {
+    InputSheet.openSheets.value--;
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext c) {
+    final children = widget.children;
     final p = P.of(c);
     final first = children.isEmpty ? const SizedBox.shrink() : children.first;
     final header = first is Text
@@ -254,6 +273,19 @@ class Swipe extends StatelessWidget {
 /// [describe], so the position is spoken rather than only drawn; and a tap
 /// anywhere on the strip that jumps straight there, which is the whole gesture
 /// for anyone who cannot hold a drag steady.
+/// Wall-clock bucket limit for local daily charts. Historical days stay whole.
+int latestDaySlot(String? day, int slots, {DateTime? now}) {
+  if (slots <= 1) return 0;
+  final n = now ?? DateTime.now();
+  final d = DateTime.tryParse(day ?? '');
+  if (d == null || d.isBefore(DateTime(n.year, n.month, n.day)))
+    return slots - 1;
+  if (d.isAfter(DateTime(n.year, n.month, n.day))) return 0;
+  return ((n.hour * 60 + n.minute + n.second / 60) * slots / 1440)
+      .floor()
+      .clamp(0, slots - 1);
+}
+
 class Scrubber extends StatelessWidget {
   /// 0…1 along the strip. Null means nothing has been placed yet.
   final double? value;
@@ -271,6 +303,9 @@ class Scrubber extends StatelessWidget {
   /// which is about a twenty-minute resolution on a night.
   final double step;
 
+  /// Latest selectable fraction, shared by pointer and accessibility input.
+  final double maxValue;
+
   final Widget child;
 
   const Scrubber({
@@ -281,15 +316,17 @@ class Scrubber extends StatelessWidget {
     required this.describe,
     required this.child,
     this.step = .05,
+    this.maxValue = 1,
   });
 
   @override
   Widget build(BuildContext c) {
-    final v = value;
+    final limit = maxValue.clamp(0.0, 1.0);
+    final v = value?.clamp(0.0, limit);
     // From nothing, increase enters at the start and decrease at the end —
     // either direction places the cursor rather than doing nothing.
-    final up = ((v ?? -step) + step).clamp(0.0, 1.0);
-    final down = ((v ?? 1 + step) - step).clamp(0.0, 1.0);
+    final up = ((v ?? -step) + step).clamp(0.0, limit);
+    final down = ((v ?? limit + step) - step).clamp(0.0, limit);
     return Semantics(
       label: label,
       slider: true,
@@ -305,7 +342,7 @@ class Scrubber extends StatelessWidget {
         builder: (_, box) {
           final w = box.maxWidth;
           void set(Offset o) =>
-              onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, 1.0));
+              onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, limit));
           return Listener(
             // Opaque, like Pressable. A `Listener` defers to its child by
             // default, so the strip was only touchable where the painter
@@ -356,6 +393,68 @@ class Surface extends StatelessWidget {
         ),
         child: child,
       ),
+    );
+  }
+}
+
+/// The same two movement models on every calorie surface; absent stays absent.
+class CaloriePair extends StatelessWidget {
+  const CaloriePair({
+    super.key,
+    required this.budget,
+    required this.acsm,
+    this.note = 'Estimated active calories above resting.',
+    this.compact = false,
+  });
+  final double? budget, acsm;
+  final String note;
+  final bool compact;
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    Widget column(String name, double? v, Color color) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name, style: F.cap.copyWith(color: p.ink2)),
+          Text(
+            name == 'Budget'
+                ? 'Steps / distance budget'
+                : 'Standard distance model',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          const SizedBox(height: S.x1),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              v == null ? 'Unavailable' : '${v.round()} kcal',
+              style:
+                  (v == null
+                          ? F.cap
+                          : compact
+                          ? F.n17
+                          : F.n24)
+                      .copyWith(color: p.on(color)),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            column('Budget', budget, C.green),
+            const SizedBox(width: S.x4),
+            column('ACSM', acsm, C.teal),
+          ],
+        ),
+        const SizedBox(height: S.x2),
+        Text(note, style: F.cap.copyWith(color: p.ink3, height: 1.4)),
+      ],
     );
   }
 }
@@ -2197,7 +2296,15 @@ class ChartFrame extends StatelessWidget {
                   ),
                 ),
                 TextSpan(
-                  text: '  $unit',
+                  text:
+                      unit.isEmpty ||
+                          RegExp(
+                            '(^|[^A-Za-z])' +
+                                RegExp.escape(unit) +
+                                r'([^A-Za-z]|$)',
+                          ).hasMatch(readout!)
+                      ? ''
+                      : '  $unit',
                   style: F.over.copyWith(color: p.ink3),
                 ),
               ],

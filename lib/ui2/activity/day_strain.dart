@@ -126,11 +126,12 @@ class DayStrainData {
     if (pts.isNotEmpty) {
       final first = DateTime.fromMillisecondsSinceEpoch(pts.first.$1 * 1000);
       day = DateTime(first.year, first.month, first.day);
-      final dayStart = day.millisecondsSinceEpoch ~/ 1000;
       final out = List<double?>.filled(1440, null);
       for (final p in pts) {
-        final i = (p.$1 - dayStart) ~/ 60;
-        if (i >= 0 && i < 1440) out[i] = p.$2;
+        final stamp = DateTime.fromMillisecondsSinceEpoch(p.$1 * 1000);
+        if (dayLabelOf(stamp) == dayLabelOf(day)) {
+          out[stamp.hour * 60 + stamp.minute] = p.$2;
+        }
       }
       grid = out;
     }
@@ -411,22 +412,21 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
         ),
       ];
     }
-    final axis = AxisSpec.of(d.curve.whereType<double>(), floor: 0)!;
-    final drawn = d.curve.where((v) => v != null).length;
     final n = d.curve.length;
-    // The strain built up to the minute under the finger: the nearest recorded
-    // minute at or before it.
+    final denominator = n > 1 ? n - 1 : 1;
+    final last = latestDaySlot(d.day == null ? null : dayLabelOf(d.day!), n);
+    final curve = [for (var i = 0; i < n; i++) i <= last ? d.curve[i] : null];
+    final axis = AxisSpec.of(curve.whereType<double>(), floor: 0);
+    final drawn = curve.where((v) => v != null).length;
+    final pick = _pick?.clamp(0, last);
     String says(int i) {
-      double? v;
-      for (var k = i; k >= 0 && v == null; k--) {
-        v = d.curve[k];
-      }
+      final v = curve[i];
       final hh = (i ~/ 60).toString().padLeft(2, '0');
       final mm = (i % 60).toString().padLeft(2, '0');
-      return '$hh:$mm · ${v == null ? 'none yet' : v.toStringAsFixed(1)}';
+      return '$hh:$mm · ${v == null ? 'not recorded' : v.toStringAsFixed(1)}';
     }
 
-    int at(double f) => (f * (n - 1)).round().clamp(0, n - 1);
+    int at(double f) => (f * (n - 1)).round().clamp(0, last);
     return [
       Surface(
         child: Column(
@@ -437,11 +437,12 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
               height: 170,
               yAxis: axis,
               xLabels: const ['00:00', '12:00', '24:00'],
-              series: d.curve,
-              readout: _pick == null ? null : says(_pick!),
+              series: curve,
+              readout: pick == null ? null : says(pick),
               footnote: 'From $drawn recorded minutes.',
               child: Scrubber(
-                value: _pick == null ? null : _pick! / (n - 1),
+                value: pick == null ? null : pick / denominator,
+                maxValue: last / denominator,
                 step: 1 / 48,
                 label: 'Strain through the day',
                 describe: (f) => says(at(f)),
@@ -449,11 +450,11 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
                 child: CustomPaint(
                   size: Size.infinite,
                   painter: LineChart(
-                    d.curve,
+                    curve,
                     p.on(C.strain),
                     axis: axis,
                     t: animate(context, 1),
-                    cursor: _pick,
+                    cursor: pick,
                     cursorInk: p.ink,
                   ),
                 ),
@@ -587,7 +588,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
       rhr == null
           ? 'your resting rate'
           : 'your resting rate ($rhr bpm last night)',
-      max == null ? 'your max' : 'your max ($max bpm, estimated from your age)',
+      max == null ? 'your max' : 'the ceiling used for this day ($max bpm)',
     ];
     final lines = [
       'Strain is how hard your heart worked while you were awake, from 0 to 21.',

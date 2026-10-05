@@ -34,6 +34,7 @@ import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
+import '../gps/live_cadence.dart';
 import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
     show AlarmConfirmation, AlarmEffect, SyncActivityWindow;
@@ -44,12 +45,14 @@ import '../compute/derive_scheduler.dart';
 import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
+import '../compute/training_review.dart';
 import '../compute/streak.dart' show StepGoals;
 import '../data/profile_history.dart';
 import '../data/calculation_store.dart';
 import '../gps/workout_clock.dart';
 import '../gps/workout_measurements.dart';
 import '../gps/run_analysis.dart' show runMix;
+import '../gps/route_math.dart' show totalDistanceMeters;
 import '../gps/run_voice.dart';
 import '../gps/run_history.dart' show runsChanged, isRunType, isWalkType;
 import '../data/day_label.dart';
@@ -77,6 +80,7 @@ import '../notify/battery_forecast.dart';
 import '../notify/med_buzzer.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
+import '../notify/fired_keys.dart';
 import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../health/auto_workout_import.dart';
@@ -627,6 +631,7 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPhoneSteps, ok);
     phoneStepsEnabled = ok;
+    _startCadence();
     notifyListeners();
     // The user just asked for this, so pull the full backfill window rather
     // than the cheap routine one — and then RE-DERIVE, symmetric with
@@ -678,6 +683,7 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPhoneSteps, false);
     phoneStepsEnabled = false;
+    _startCadence();
     phoneStepsLastSyncedDays = null;
     phoneStepsLastTotal = null;
     phoneStepsToday = 0;
@@ -731,6 +737,8 @@ class AppState extends ChangeNotifier {
     await _publishLiveGait();
     bumpInsights();
     if (phoneStepsEnabled) await syncPhoneSteps();
+    if (activeWorkout != null)
+      await _refreshWorkoutMovement(phoneAlreadySynced: true, fresh: true);
     await _deriveScheduler.markStoredData();
   }
 
@@ -766,6 +774,8 @@ class AppState extends ChangeNotifier {
         notes.add('Phone steps could not be read. Check This phone → Steps.');
       }
     }
+    if (activeWorkout != null)
+      await _refreshWorkoutMovement(phoneAlreadySynced: true, fresh: true);
     // Phone counts are independent of the band and its calculation queue.
     bumpInsights();
     await _deriveScheduler.markStoredData();
@@ -1272,6 +1282,7 @@ class AppState extends ChangeNotifier {
     healthSyncEnabled = false;
     healthState = HealthLinkState.unknown;
     phoneStepsEnabled = false;
+    _startCadence();
     phoneStepsToday = 0;
     _phoneStepsDay = null;
 
@@ -1405,7 +1416,7 @@ class AppState extends ChangeNotifier {
 
   void _handleTapRoute(String route) {
     final t = resolveTapRoute(route); // pure — lib/notify/tap_router.dart
-    if (t.screen != null) screenRequest.value = t.screen;
+    screenRequest.value = t.screen;
     navRequest.value = t.tab;
   }
 
@@ -1498,6 +1509,9 @@ class AppState extends ChangeNotifier {
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());
+    LiveActivity.onSession = (id) =>
+        _handleTapRoute(datedRoute(kRouteWorkoutIdle, null, id: id));
+    unawaited(LiveActivity.listen());
     unawaited(checkPendingSiriRoute());
   }
 
@@ -1558,6 +1572,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _phoneCadence.stop();
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
@@ -1566,6 +1581,7 @@ class AppState extends ChangeNotifier {
     // each of their callbacks ends in notifyListeners() on a disposed
     // ChangeNotifier (which throws in release).
     _tapSub?.cancel();
+    LiveActivity.onSession = null;
     _stopBackfillTimer();
     _stopReconnectSupervisor();
     if (identical(IosBleRestore.onWake, _onRestoreWake)) {
@@ -1886,10 +1902,75 @@ class AppState extends ChangeNotifier {
   /// notifications (see _ensureRemindersScheduled) so they fire even when the app
   /// is closed — we just re-assert that schedule here (cheap, idempotent, picks up
   /// any prefs change), then run the data-driven foreground nudges.
+  bool _reviewBusy = false;
+  DateTime? _reviewAt;
+  Future<void> _maybeTrainingReview() async {
+    final repository = repo;
+    final now = DateTime.now();
+    if (repository == null ||
+        _reviewBusy ||
+        (_reviewAt != null && now.difference(_reviewAt!).inHours < 6))
+      return;
+    _reviewBusy = true;
+    try {
+      final prefs = await NotificationPrefs.load();
+      if (!prefs.trainingReviewEnabled ||
+          prefs.inQuietHours(now.hour * 60 + now.minute))
+        return;
+      final delivered = DateTime.tryParse(
+        Prefs.getString('training.review.lastDelivered', ''),
+      );
+      if (delivered != null && now.difference(delivered).inDays < 14) return;
+      final bucket =
+          DateTime.utc(
+            now.year,
+            now.month,
+            now.day,
+          ).difference(DateTime.utc(2026)).inDays ~/
+          14;
+      // Avoid recomputing an already delivered period. emit still owns the
+      // atomic claim; this read only skips needless loading and storage.
+      if (await const FiredKeyStore().hasFired('training-review:$bucket')) {
+        _reviewAt = now;
+        return;
+      }
+      final d = await TrainingReviewData.load(
+        repository,
+        Profile.fromMap(user),
+      );
+      if (_disposed) return;
+      _reviewAt = now;
+      if (d.comparisons.isEmpty) return;
+      await d.retain();
+      final shown = await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: 'training-review:$bucket',
+          category: NotifCategory.reminders,
+          title: 'Your training review',
+          body: d.message,
+          date: d.end,
+          route: datedRoute(kRouteTrainingReview, d.end),
+        ),
+      );
+      if (shown) {
+        _reviewAt = now;
+        await (await SharedPreferences.getInstance()).setString(
+          'training.review.lastDelivered',
+          now.toIso8601String(),
+        );
+      }
+    } catch (e) {
+      _log('[review] skipped: $e');
+    } finally {
+      _reviewBusy = false;
+    }
+  }
+
   Future<void> runCadenceChecks() async {
     try {
       if (!isPaired) return;
       await _ensureRemindersScheduled();
+      unawaited(_maybeTrainingReview());
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
       // Opt-in auto-import of Health workouts (off by default; self-gates on
@@ -2512,7 +2593,7 @@ class AppState extends ChangeNotifier {
     unawaited(_checkSchemaHealth());
     // Rehydrate/finalize any workout left `status='live'` by a killed previous
     // run (issue: "can't stop workout, only delete"). Best-effort, non-blocking.
-    unawaited(_reconcileOrphanedLiveWorkout());
+    await _reconcileOrphanedLiveWorkout();
     initialized = true;
     notifyListeners();
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
@@ -3399,6 +3480,9 @@ class AppState extends ChangeNotifier {
           !_workoutChunkPaused &&
           _workoutMinuteSteps.length < 720) {
         _workoutMinuteSteps.add(minuteSteps);
+        // Reuse the calibrated step gain used for the session median.
+        _lastBandCadence = minuteCadenceSpm(minuteSteps);
+        _lastBandCadenceAt = DateTime.fromMillisecondsSinceEpoch(nowMs);
       }
       _workoutChunkPaused = false;
       committedThisTick = true;
@@ -5591,6 +5675,45 @@ class AppState extends ChangeNotifier {
   // threshold-based and never needed it.
 
   // ── live session coach ───────────────────────────────────────────────────────
+  final _phoneCadence = PhoneCadence();
+  int? _lastBandCadence;
+  DateTime? _lastBandCadenceAt;
+  ({double spm, String source})? get workoutCadence {
+    if (activeWorkout == null || WorkoutClock.current?.pausedAt != null)
+      return null;
+    final now = DateTime.now();
+    final phone = phoneStepsEnabled ? _phoneCadence.reading : null;
+    if (phone != null && phone.fresh(now))
+      return (spm: phone.spm, source: 'Your phone');
+    final at = _lastBandCadenceAt;
+    if (at != null &&
+        now.difference(at).inSeconds <= 90 &&
+        _lastBandCadence != null) {
+      return (
+        spm: _lastBandCadence!.toDouble(),
+        source: 'Wrist · last complete minute',
+      );
+    }
+    return null;
+  }
+
+  void _startCadence() {
+    _phoneCadence.stop();
+    _lastBandCadence = null;
+    _lastBandCadenceAt = null;
+    final w = activeWorkout;
+    if (phoneStepsEnabled &&
+        w != null &&
+        WorkoutClock.current?.pausedAt == null &&
+        (isRunType(w.type) || isWalkType(w.type))) {
+      unawaited(
+        _phoneCadence.start(() {
+          if (!_disposed) notifyListeners();
+        }),
+      );
+    }
+  }
+
   LiveWorkoutState? activeWorkout;
   Timer? _workoutTimer;
   KmVoice? _workoutVoice;
@@ -5627,8 +5750,34 @@ class AppState extends ChangeNotifier {
     )?.round();
   }
 
-  Future<void> _refreshWorkoutMovement() {
-    if (_movementRead != null) return _movementRead!;
+  int? get workoutAcsmKcal {
+    final w = activeWorkout;
+    if (w == null || (!isRunType(w.type) && !isWalkType(w.type))) return null;
+    final points = _routeTracker?.acceptedPoints;
+    if (points != null && points.length > 1) {
+      final mix = runMix(points);
+      return acsmActiveKcal(
+        runMeters: isRunType(w.type) ? mix.runM : 0,
+        walkMeters: isWalkType(w.type)
+            ? totalDistanceMeters(points)
+            : mix.walkM,
+        runClimbMeters: isRunType(w.type) ? mix.climbM : 0,
+        weightKg: w.profile.weightKg,
+      )?.round();
+    }
+    return _workoutMeasurements?.acsm(w.type)?.round();
+  }
+
+  Future<void> _refreshWorkoutMovement({
+    bool phoneAlreadySynced = false,
+    bool fresh = false,
+  }) {
+    if (_movementRead != null) {
+      if (!fresh) return _movementRead!;
+      return _movementRead!.then(
+        (_) => _refreshWorkoutMovement(phoneAlreadySynced: phoneAlreadySynced),
+      );
+    }
     final w = activeWorkout, repo = this.repo;
     if (w == null || repo == null) return Future.value();
     final id = w.workoutId;
@@ -5636,7 +5785,8 @@ class AppState extends ChangeNotifier {
     final job = (() async {
       await _routeTracker?.flush();
       await _publishLiveGait();
-      if (phoneStepsEnabled) await syncPhoneSteps(days: 1);
+      if (phoneStepsEnabled && !phoneAlreadySynced)
+        await syncPhoneSteps(days: 1);
       final until =
           WorkoutClock.current?.end ??
           WorkoutClock.current?.pausedAt ??
@@ -5678,12 +5828,14 @@ class AppState extends ChangeNotifier {
   int? _pauseRawAt;
   void _onWorkoutPause(bool on) {
     _workoutChunkPaused = true;
+    _startCadence();
     unawaited(
       _refreshWorkoutMovement().catchError((Object e) {
         _log('[workout] movement refresh failed: $e');
       }),
     );
     _routeTracker?.setPaused(on);
+    _pushWorkoutActivity(force: true);
     activeWorkout?._lastSampleHr = null;
     activeWorkout?._lastSampleSec = null;
     if (on) {
@@ -5720,8 +5872,6 @@ class AppState extends ChangeNotifier {
   // `maxHr` had no readers left at all; its doc still claimed the route map
   // used it, and the route map takes its ceiling from the session.
 
-  int get _restingHr => (user?['resting_hr'] as num?)?.round() ?? 60;
-
   /// Latest MEASURED nightly resting HR (`metric_series` key 'rhr'), or null
   /// before the first night has been derived. Refreshed on init and whenever a
   /// workout starts, since RHR moves on the scale of weeks.
@@ -5730,7 +5880,7 @@ class AppState extends ChangeNotifier {
   /// The resting-HR anchor for SCORING a live session: the measured nightly
   /// value, else a user-supplied one, else nothing.
   ///
-  /// Deliberately not [_restingHr], which falls back to 60 bpm. That default is
+  /// Deliberately no fallback to 60 bpm. That default is
   /// fine for display copy, but as a term inside the Banister formula it would
   /// turn an absent input into a confident-looking strain number — exactly the
   /// fabrication the honesty contract forbids. No anchor, no score.
@@ -5852,6 +6002,7 @@ class AppState extends ChangeNotifier {
     _workoutMeasurements = null;
     _movementAt = DateTime.fromMillisecondsSinceEpoch(0);
     _workoutMinuteSteps.clear();
+    _startCadence();
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -5920,15 +6071,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     _log('Live session started. Goal: ${targetKcal.round()} kcal');
     // Light up the lock screen / Dynamic Island (iOS).
-    LiveActivity.start(
-      startedAt: start,
-      targetKcal: targetKcal.round(),
-      // 0 = no ceiling, same convention `_zoneFor` uses. The widget declares
-      // the field and draws nothing with it (`zone` is computed here), so this
-      // is a passthrough, not a number anyone reads.
-      maxHr: activeWorkout?.hrMax?.round() ?? 0,
-      rhr: _restingHr,
-    );
+    _startCadence();
+    _pushWorkoutActivity();
     _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
     // GPS route: only for run/ride/walk, and only if the user grants location.
     unawaited(_maybeStartRouteTracking(id, type));
@@ -6105,7 +6249,10 @@ class AppState extends ChangeNotifier {
       // counting calories/strain/zone-seconds against a workout the user never
       // started.
       if (activeWorkout != null) return;
-      if (rows.isEmpty) return;
+      if (rows.isEmpty) {
+        await LiveActivity.end();
+        return;
+      }
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       var resumed = false;
       for (final row in rows) {
@@ -6157,6 +6304,7 @@ class AppState extends ChangeNotifier {
           _workoutRawBase = _liveRaw;
           _workoutSawSamples = false;
           _workoutMinuteSteps.clear();
+          _startCadence();
           // A first night may have been derived since init. This read finishes
           // after the session below is constructed, so it back-fills the anchor on
           // `activeWorkout` when it lands rather than blocking the start.
@@ -6207,7 +6355,13 @@ class AppState extends ChangeNotifier {
           );
         }
       }
-      if (resumed) notifyListeners();
+      if (resumed) {
+        _startCadence();
+        _pushWorkoutActivity(force: true);
+        notifyListeners();
+      } else {
+        await LiveActivity.end();
+      }
     } catch (e) {
       _log('[workout] reconcile orphaned live session failed: $e');
     }
@@ -6350,6 +6504,7 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
+    _startCadence();
     notifyListeners();
     _log(
       finalKcal == null
@@ -6400,6 +6555,7 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
+    _startCadence();
     LiveActivity.end();
   }
 
@@ -6550,7 +6706,7 @@ class AppState extends ChangeNotifier {
               '${w.idleWatch.nudgeAfter.inMinutes} minutes. If the session '
               'is over, finish it from the Workout tab.',
           date: todayLabel(),
-          route: kRouteWorkoutIdle,
+          route: datedRoute(kRouteWorkoutIdle, todayLabel(), id: id),
         ),
       );
       if (fired) {
@@ -6560,6 +6716,29 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('[workout] idle nudge skipped: $e');
     }
+  }
+
+  void _pushWorkoutActivity({bool force = false}) {
+    final w = activeWorkout;
+    final id = w?.workoutId;
+    if (w == null || id == null || !(isRunType(w.type) || isWalkType(w.type)))
+      return;
+    final now = DateTime.now();
+    if (!force && now.difference(_lastLaPush).inSeconds < 4) return;
+    _lastLaPush = now;
+    final clock = WorkoutClock.current;
+    unawaited(
+      LiveActivity.update(
+        id: id,
+        type: w.type,
+        elapsed: clock?.activeSeconds(now) ?? w.elapsed.inSeconds,
+        paused: clock?.pausedAt != null,
+        distanceKm: liveDistanceKm,
+        hr: clock?.pausedAt != null ? null : liveHr,
+        zone: liveZone,
+        lastKmSeconds: _workoutVoice?.lastSplitSec,
+      ),
+    );
   }
 
   void _tickWorkout() {
@@ -6572,7 +6751,10 @@ class AppState extends ChangeNotifier {
           clock?.activeSeconds() ??
           DateTime.now().difference(w.startTime).inSeconds,
     );
-    if (clock?.pausedAt != null || clock?.end != null) return;
+    if (clock?.pausedAt != null || clock?.end != null) {
+      _pushWorkoutActivity();
+      return;
+    }
     if (DateTime.now().difference(_movementAt).inSeconds >= 30) {
       unawaited(
         _refreshWorkoutMovement().catchError((Object e) {
@@ -6622,26 +6804,7 @@ class AppState extends ChangeNotifier {
     // Keytel with no activity gate and no resting floor. That copy charged the
     // full active rate at any heart rate the band reported, so the number on
     // the gauge did not survive the re-score of its own stream.
-    // Push to the Live Activity at most ~every 4s (ActivityKit throttles; saves battery).
-    // Skipped entirely while HR is absent: the widget's channel takes a
-    // non-null int, so the only way to push "no reading" today would be to send
-    // 0 bpm, which is a fabricated measurement on the lock screen. Holding the
-    // last frame is the lesser wrong until `LiveActivity.update` takes `int?`.
-    if (hr != null && DateTime.now().difference(_lastLaPush).inSeconds >= 4) {
-      _lastLaPush = DateTime.now();
-      LiveActivity.update(
-        hr: hr,
-        zone: _zoneFor(hr),
-        // Absent stays absent. These used to be coerced to 0, so a new user
-        // with no profile anchors — the case where both correctly abstain and
-        // the in-app gauge shows "—" — got a confident "0 kcal" pushed to the
-        // lock screen for the whole session. Unmeasured is not zero.
-        strain: w.strain,
-        calories: workoutActiveKcal,
-        maxHr: w.hrMax?.round() ?? 0, // 0 = no ceiling; the widget ignores it
-        rhr: _restingHr,
-      );
-    }
+    _pushWorkoutActivity();
     notifyListeners();
   }
 }

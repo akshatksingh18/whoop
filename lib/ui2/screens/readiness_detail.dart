@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
+import '../../data/day_label.dart' show dayLabelOf;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
@@ -91,17 +92,35 @@ class ReadinessData {
     return diag is Map ? diag.cast<String, dynamic>() : null;
   }
 
-  static Future<ReadinessData> load(LocalRepository repo) async {
+  static Future<ReadinessData> load(LocalRepository repo, {String? day}) async {
     final today = await repo.getToday();
     final cd = await repo.getInsights();
     final chart = await repo.getChart('recovery');
+    final currentDay = (today['status'] as Map?)?['today_day']?.toString();
+    if (day != null && day != currentDay) {
+      final matches = pointsOf(chart).where(
+        (p) =>
+            dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)) == day,
+      );
+      return ReadinessData(
+        readiness: matches.isEmpty
+            ? Metric.empty
+            : Metric.parse(matches.last.v),
+        series: denseDays(pointsOf(chart), 90),
+        absentDiag: await _absentDiag(day),
+        breathingNote: await _breathingNote(day),
+      );
+    }
 
     final daily = today['daily'];
     final gb = cd['readiness_glassbox'];
     final v = envValue(gb) ?? const <String, dynamic>{};
     final bd = v['breakdown'];
 
-    final readiness = overnightMetric(today, daily is Map ? daily['readiness'] : null);
+    final readiness = overnightMetric(
+      today,
+      daily is Map ? daily['readiness'] : null,
+    );
 
     return ReadinessData(
       readiness: readiness,
@@ -130,16 +149,19 @@ class ReadinessData {
       absentDiag: readiness.value != null
           ? null
           : await _absentDiag(
-              (today['status'] as Map?)?['today_day']?.toString()),
+              (today['status'] as Map?)?['today_day']?.toString(),
+            ),
       breathingNote: await _breathingNote(
-          (today['status'] as Map?)?['today_day']?.toString()),
+        (today['status'] as Map?)?['today_day']?.toString(),
+      ),
     );
   }
 }
 
 class ReadinessDetail extends StatefulWidget {
   final ReadinessData? data;
-  const ReadinessDetail({super.key, this.data});
+  final String? day;
+  const ReadinessDetail({super.key, this.data, this.day});
 
   @override
   State<ReadinessDetail> createState() => _ReadinessDetailState();
@@ -152,7 +174,8 @@ String breathingWhy(String note) {
   if (n.contains('consensus') || n.contains('agree')) {
     return 'the night\'s breathing windows disagreed';
   }
-  if (n.contains('too few') || n.contains('beats')) return 'not enough beat data';
+  if (n.contains('too few') || n.contains('beats'))
+    return 'not enough beat data';
   if (n.contains('beat rate')) return 'heart rate too high to read breathing';
   return 'not measured';
 }
@@ -167,12 +190,14 @@ String breathingWhy(String note) {
 String readinessGap(Map<String, dynamic>? diag, {required bool hasDay}) {
   if (!hasDay) return 'no data that day';
   if (diag == null) return 'not scored';
-  bool measured(String k) => diag[k] is Map && (diag[k] as Map)['value'] == true;
+  bool measured(String k) =>
+      diag[k] is Map && (diag[k] as Map)['value'] == true;
   int nights(String k) => diag[k] is Map
       ? (((diag[k] as Map)['baseline_n'] as num?)?.toInt() ?? 0)
       : 0;
   const need = 14;
-  if (!measured('hrv') && !measured('rhr')) return 'no sleep heart data that night';
+  if (!measured('hrv') && !measured('rhr'))
+    return 'no sleep heart data that night';
   final short = [
     if (measured('hrv') && nights('hrv') < need) nights('hrv'),
     if (measured('rhr') && nights('rhr') < need) nights('rhr'),
@@ -186,7 +211,7 @@ String readinessGap(Map<String, dynamic>? diag, {required bool hasDay}) {
   return 'held back: a reading was far outside your range';
 }
 
-class _ReadinessDetailState extends State<ReadinessDetail> {
+class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
   /// The day under the finger on the history chart, or null.
   int? _pick;
 
@@ -218,12 +243,12 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
 
   /// One plain line for the band the score falls in.
   static String _advice(int tier) => switch (tier) {
-        3 => 'Recovered. A good day to push hard.',
-        2 => 'Normal recovery. Train as planned.',
-        1 => 'Below your usual. Keep today easier.',
-        _ => 'Well below your usual. Put rest first.',
-      };
-  bool _loading = true;
+    3 => 'Recovered. A good day to push hard.',
+    2 => 'Normal recovery. Train as planned.',
+    1 => 'Below your usual. Keep today easier.',
+    _ => 'Well below your usual. Put rest first.',
+  };
+  bool _loading = true, _failed = false;
 
   @override
   void initState() {
@@ -236,17 +261,35 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  @override
+  bool get revisionReloads => widget.data == null;
+  @override
+  void reload() {
+    _gaps.clear();
+    _load();
+  }
+
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
+    final token = beginRead(#readiness);
     try {
-      final d = await ReadinessData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      final d = await ReadinessData.load(repo, day: widget.day);
+      if (stillNewest(#readiness, token))
+        setState(() {
+          _d = d;
+          _loading = false;
+          _failed = false;
+        });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (stillNewest(#readiness, token))
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
     }
   }
 
@@ -262,7 +305,16 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // can no longer BE that night — a date up here now would be labelling
     // today's number with somebody else's day.
     return detailScaffold(c, l?.readinessDetailTitle ?? 'Readiness', [
-      if (_loading && _d == null) ...[
+      if (widget.day != null)
+        Text(prettyDay(widget.day, l), style: F.body.copyWith(color: p.ink2)),
+      if (_failed)
+        StatusCard(
+          'Recovery could not load',
+          'Your saved nights are intact.',
+          fix: 'Retry',
+          onFix: _load,
+        )
+      else if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
       ] else ...[
@@ -272,67 +324,99 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           // built from that record — a sentence written here was competing
           // with the real answer one line down and winning.
           StatusCard.forMetric(
-                  l?.readinessDetailNotScoredTitle ??
-                      'Readiness is not scored',
-                  d.readiness,
-                  // Where the data stops, appended to whatever the pipeline
-                  // said. Not a substitute for the reason and not a reading —
-                  // "the last one was Saturday" is a fact about coverage.
-                  gap: d.heldOverNight == null
-                      ? null
-                      : (l?.readinessDetailLastNightScored(
-                              prettyDay(d.heldOverNight, l)) ??
+                l?.readinessDetailNotScoredTitle ?? 'Readiness is not scored',
+                d.readiness,
+                // Where the data stops, appended to whatever the pipeline
+                // said. Not a substitute for the reason and not a reading —
+                // "the last one was Saturday" is a fact about coverage.
+                gap: d.heldOverNight == null
+                    ? null
+                    : (l?.readinessDetailLastNightScored(
+                            prettyDay(d.heldOverNight, l),
+                          ) ??
                           'The last night scored was '
-                              '${prettyDay(d.heldOverNight, l)}.')) ??
+                              '${prettyDay(d.heldOverNight, l)}.'),
+              ) ??
               const SizedBox.shrink(),
           if (d.absentDiag != null)
-            Section(l?.readinessDetailWhatWasMissing ?? 'What was missing',
-                _absence(c, p, d.absentDiag!)),
+            Section(
+              l?.readinessDetailWhatWasMissing ?? 'What was missing',
+              _absence(c, p, d.absentDiag!),
+            ),
         ] else
           Surface(
-            child: Column(children: [
-              SizedBox(
-                width: 150,
-                height: 150,
-                child: Stack(alignment: Alignment.center, children: [
-                  CustomPaint(
-                    size: const Size(150, 150),
-                    painter: Ring(d.readiness.normalized(100), p.on(band.color),
-                        p.track,
-                        stroke: 14, t: animate(c, 1)),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: 150,
+                  height: 150,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CustomPaint(
+                        size: const Size(150, 150),
+                        painter: Ring(
+                          d.readiness.normalized(100),
+                          p.on(band.color),
+                          p.track,
+                          stroke: 14,
+                          t: animate(c, 1),
+                        ),
+                      ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${v.round()}',
+                            style: F.n48.copyWith(color: p.ink),
+                          ),
+                          Text(
+                            band.label,
+                            style: F.cap.copyWith(color: p.on(band.color)),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('${v.round()}', style: F.n48.copyWith(color: p.ink)),
-                    Text(band.label,
-                        style: F.cap.copyWith(color: p.on(band.color))),
-                  ]),
-                ]),
-              ),
-              const SizedBox(height: S.x4),
-              Text(_advice(band.tier),
+                ),
+                const SizedBox(height: S.x4),
+                Text(
+                  _advice(band.tier),
                   textAlign: TextAlign.center,
-                  style: F.body.copyWith(color: p.ink2)),
-            ]),
+                  style: F.body.copyWith(color: p.ink2),
+                ),
+              ],
+            ),
           ),
 
         if (d.breakdown.isNotEmpty) ...[
           Section('What drove it', _breakdown(c, p, d)),
           if (d.breathingNote != null) ...[
             const SizedBox(height: S.x2),
-            Text('Breathing rate not counted last night: ${d.breathingNote}.',
-                style: F.cap.copyWith(color: p.ink3)),
+            Text(
+              'Breathing rate not counted last night: ${d.breathingNote}.',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
           ],
           const SizedBox(height: S.x4),
           Pressable(
             onTap: () => setState(() => _showHow = !_showHow),
             semanticLabel: 'How it is worked out',
-            child: Row(children: [
-              Expanded(
-                  child: Text('How it\'s worked out',
-                      style: F.cap.copyWith(color: p.ink2))),
-              Icon(_showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                  size: 16, color: p.ink3),
-            ]),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'How it\'s worked out',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+                Icon(
+                  _showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 16,
+                  color: p.ink3,
+                ),
+              ],
+            ),
           ),
           if (_showHow) ...[
             const SizedBox(height: S.x2),
@@ -368,7 +452,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
               ? StatusCard(
                   l?.readinessDetailNoHistoryTitle ?? 'No readiness history',
                   l?.readinessDetailNoHistoryBody ?? '0 days scored.',
-                  fix: l?.readinessDetailWearOvernight ?? 'Wear the band overnight',
+                  fix:
+                      l?.readinessDetailWearOvernight ??
+                      'Wear the band overnight',
                   icon: LucideIcons.chartLine,
                 )
               : Surface(child: _history(c, d)),
@@ -390,8 +476,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final n = d.series.any((v) => v != null) ? _window(d).length : 0;
     return n == 0
         ? (l?.readinessDetailHistoryTitle ?? 'History')
-        : (l?.readinessDetailLastNDays(n) ??
-            'Last $n day${n == 1 ? '' : 's'}');
+        : (l?.readinessDetailLastNDays(n) ?? 'Last $n day${n == 1 ? '' : 's'}');
   }
 
   Widget _history(BuildContext c, ReadinessData d) {
@@ -449,8 +534,14 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         },
         child: CustomPaint(
           size: Size.infinite,
-          painter: Bars(win, p.on(C.green),
-              colors: colors, cursor: _pick, axis: axis, t: animate(c, 1)),
+          painter: Bars(
+            win,
+            p.on(C.green),
+            colors: colors,
+            cursor: _pick,
+            axis: axis,
+            t: animate(c, 1),
+          ),
         ),
       ),
     );
@@ -478,40 +569,45 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final note = diag['note']?.toString();
     final need = needMessageFromNote(note);
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (rows.isNotEmpty)
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Column(children: [
-            for (var i = 0; i < rows.length; i++) ...[
-              if (i > 0) Divider(color: p.line, height: 1),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: S.x3),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(rows[i].$1, style: F.body.copyWith(color: p.ink)),
-                      Text(rows[i].$2,
-                          style: F.over.copyWith(color: p.ink3)),
-                    ]),
-              ),
-            ],
-          ]),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (rows.isNotEmpty)
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) Divider(color: p.line, height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(rows[i].$1, style: F.body.copyWith(color: p.ink)),
+                        Text(rows[i].$2, style: F.over.copyWith(color: p.ink3)),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        const SizedBox(height: S.x3),
+        Text(
+          need != null
+              ? (l?.readinessDetailNeedSuffix(need) ??
+                    '$need. Each input is ranked against your own nights, so the '
+                        'score cannot start before there are enough of them.')
+              : (note != null && note.isNotEmpty
+                    ? note
+                    : (l?.readinessDetailNoNoteFallback ??
+                          'Everything above was present, and the comparison against '
+                              'your own history still could not be made.')),
+          style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
-      const SizedBox(height: S.x3),
-      Text(
-        need != null
-            ? (l?.readinessDetailNeedSuffix(need) ??
-                '$need. Each input is ranked against your own nights, so the '
-                    'score cannot start before there are enough of them.')
-            : (note != null && note.isNotEmpty
-                ? note
-                : (l?.readinessDetailNoNoteFallback ??
-                    'Everything above was present, and the comparison against '
-                        'your own history still could not be made.')),
-        style: F.cap.copyWith(color: p.ink3, height: 1.5),
-      ),
-    ]);
+      ],
+    );
   }
 
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {
@@ -522,15 +618,20 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // skin temperature missing, HRV's 40% actually carried 45.5%.
     final wsum = rows
         .where((r) => r['used'] == true)
-        .fold<double>(0, (a, r) => a + ((r['weight'] as num?)?.toDouble() ?? 0));
+        .fold<double>(
+          0,
+          (a, r) => a + ((r['weight'] as num?)?.toDouble() ?? 0),
+        );
     return Surface(
       pad: const EdgeInsets.symmetric(horizontal: S.x4),
-      child: Column(children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) Divider(color: p.line, height: 1),
-          _row(c, p, rows[i], wsum),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(color: p.line, height: 1),
+            _row(c, p, rows[i], wsum),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -549,27 +650,37 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final (String word, Color col) = !used
         ? ('Not measured', C.n500)
         : contribution == null || !pastMdc
-            ? ('About usual', C.n500)
-            : contribution >= 0
-                ? ('Better than usual', C.green)
-                : ('Worse than usual', C.orange);
+        ? ('About usual', C.n500)
+        : contribution >= 0
+        ? ('Better than usual', C.green)
+        : ('Worse than usual', C.orange);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
-            if (share != null)
-              Text('${(share * 100).round()}% of the score',
-                  style: F.over.copyWith(color: p.ink3)),
-          ]),
-        ),
-        const SizedBox(width: S.x3),
-        Text(word,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
+                if (share != null)
+                  Text(
+                    '${(share * 100).round()}% of the score',
+                    style: F.over.copyWith(color: p.ink3),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: S.x3),
+          Text(
+            word,
             style: F.cap.copyWith(
-                color: col == C.n500 ? p.ink2 : p.on(col),
-                fontWeight: FontWeight.w600)),
-      ]),
+              color: col == C.n500 ? p.ink2 : p.on(col),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

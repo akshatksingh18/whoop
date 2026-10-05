@@ -5,18 +5,87 @@
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
 `metrics-map.md` describe shipped behavior, readiness baseline rules and known limits.
 
-- Build `0.9.39`/`72` is installed, confirmed by Akshat, but not accepted. He reports background
-  voice cues delayed until foreground and supplied sync/calorie/macro/profile issues. The current
-  installed build-72 streak does not count step-only goal days. `workout-sync-audit.md` owns findings and proposed
+- Build `0.9.40`/`73` is installed, confirmed by Akshat, and initially looks good. The Strain cursor
+  still selects future times; `build-74-audit.md` records the wider graph/navigation/notification
+  findings and calorie-model research, with the implemented build-74 scope below.
+  The complete phone pass and current-version refresh enrollment are not confirmed.
+- Previously installed build `0.9.39`/`72` was not accepted. Akshat reported background
+  voice cues delayed until foreground and supplied sync/calorie/macro/profile issues. The
+  build-72 streak did not count step-only goal days. `workout-sync-audit.md` owns its findings and approved
   repairs; the build-73 replacement below passes local/CI/macOS and artifact validation.
-- Today refresh updating steps is confirmed on build 72. Maintenance consistency remains open:
+- Today refresh updating steps is confirmed on build 72. Build-73 maintenance verification remains open:
   Akshat reports unchanged calories; the main Food card updates in an isolated real-repository
-  probe, but an already-open maintenance breakdown remains stale. The report owns this distinction.
+  probe, but an already-open build-72 maintenance breakdown remained stale. Build 73 addresses
+  that source defect; the report owns the earlier reproduction and the phone pass remains pending.
 - Complete the broader physical-device matrix in `CLAUDE.md`, including locked/background route
   recording, range-loss restoration, system termination, overnight collection and the 72-hour soak.
 - Verify naturally elapsed unattended refresh cycles, the alert thresholds, Wi-Fi/USB recovery
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
+
+## Build 74: implemented combined repair and comparison
+
+Local source is `0.9.41`/`74`, algorithm 90, on Akshat's implementation approval.
+`build-74-audit.md` owns the equations, source audit, Gemini-topic assessment and implemented
+contract. Current validation is recorded in `setup.md`. No build-74 IPA exists yet; public
+publication/CI and one macOS build require approval naming `akshatksingh18/whoop`.
+
+Implemented: shared future-time chart limits and units; permanent daily Steps/calorie browsing;
+Step calories Today; selectable dated breathing and workout HR history; pause-clock alignment;
+purple deep sleep; bounded revision-cached calorie history with independent food loading/error status; persistent
+Budget/ACSM values using one movement ledger; accepted phone motion distance with labelled
+fallbacks; descriptive active/daily energy labels; focused dated/session notification destinations;
+retained weekly/training evidence; opt-in fortnightly training review with context matching,
+consistency and supported best efforts; live measured cadence; optional workout context tags;
+qualified post-session HR drift; narrow Run/Walk Live Activity with zone and last-km pace;
+fresh ongoing-workout movement during foreground refresh; two-second deletion/Undo notices.
+Budget/Weyand/run coefficients, full-day BMR and 10% logged-food allowance are unchanged.
+HR energy remains analysis only. Missing comparison inputs stay unavailable, not zero.
+
+### Release and phone gates
+
+- Local release checks pass: 3,343 full-suite tests (376 intentional skips), 107 focused personal
+  tests, eight packaging-contract tests and analysis without errors/warnings. Small/normal and
+  enlarged-text layouts were inspected; generated screenshots were removed. Prepare one source
+  commit and review public contents; `setup.md` owns the complete evidence.
+- After publication approval, run Linux CI and one personal macOS IPA build; validate exact
+  version/source/checksum, ZIP integrity and the single version-matched workout extension.
+- Install over build 73 with the same signed identity; confirm encrypted history, decimals,
+  saved foods/meals, band pairing and current-version automatic-refresh enrollment intact.
+  The extension's free-team signing/refresh must work before cache promotion.
+- Drag Today/Trends/Train daily Strain, heart-rate, Steps/calories and Wear to the right before
+  midnight. No future selection/data; past dates, midnight rollover, gaps and VoiceOver remain
+  usable. Breathing bars select their real dates, quality and coverage; failed reads offer Retry.
+- Open Steps/calorie daily details and yesterday from visible navigation before touching graphs.
+  Step calories opens Today; outer Trends remains Week. All readout units appear exactly once.
+- Compare Budget/ACSM across Today, Food, its open breakdown, history/Weekly, live/finished
+  run/walk, workout history and sharing. Manual refresh, food/profile edits and workout finish
+  update dependents without reopening. Check missing distance/height/HR without hiding Budget.
+- Walk indoors without Start, including short bouts/turns and carrying positions; check labelled
+  phone motion distance versus a known route. Phone-left-behind wrist fallback must be honest.
+  Recorded walking routes replace overlapping motion distance; calories are not added twice.
+- Pause and continue walking: daily steps still count, session metrics freeze. Resume run/walk
+  and confirm route/HR/cadence/readout alignment, fractional intervals and midnight ownership.
+- Live cadence: phone-first measured steps/minute, wrist fallback, stale/absent readings and
+  measured zero. Context tags persist/edit correctly; HR drift withholds weak/gapped comparisons.
+- Delete food: Undo restores within the window; the bar disappears after two seconds and rapid
+  deletions do not leave queued messages. No swipe is needed to dismiss it.
+- Test cold/warm/foreground notifications with an old detail or keyboard-open form. Recovery,
+  health, device, recap and idle-workout taps open exact dated/session evidence once. Unknown,
+  deleted and expired records show a clear fallback; unsaved forms are preserved.
+- Opt in to training-review notifications; inadequate data remains silent. Review shows matched
+  dates/sessions/tags/coverage, recorded consistency, supported best efforts and measured cadence
+  where available, with no causal fitness claim. Actual deliveries stay at least fourteen days apart.
+- Run/Walk Live Activity: locked screen/Dynamic Island, pause/resume, fresh/stale HR/pace,
+  GPS loss, music/calls/headphones, end/discard, termination/recovery and exact-session tap.
+  Native success is not proof of background delivery. Verify existing kilometre speech too.
+- Keep build 70 as recovery until complete device acceptance and current-version enrollment.
+  Longer lifecycle/overnight/72-hour-soak and naturally elapsed unattended refresh gates remain.
+
+Deferred after assessment: ghost routes, external weather, new zone calibration, automated
+coaching and direct lock-screen pause/finish buttons. They need reliable comparison inputs,
+new external integration approval or a separately verified native action contract. Zone and
+last-km pace are implemented in the card. Existing personal-disabled prompts remain disabled.
 
 ## Build 72: UI, food reliability and Today refresh
 
@@ -70,7 +139,8 @@ to public `akshatksingh18/whoop` and passes local release validation. Linux CI `
 and the single personal macOS build `37252925924` pass against that exact source. The downloaded
 IPA matches its manifest/checksum and passes local payload validation. It replaces build 72 in
 the single testing slot; `setup.md` owns its path/hash evidence. Build 70 remains accepted.
-Build-73 installation, phone acceptance and current-version refresh enrollment are pending.
+Akshat confirms build 73 is installed and initially looks good, with the Strain cursor issue above.
+The complete phone pass and current-version refresh enrollment remain pending.
 
 - One fresh movement ledger feeds Today, Food, history, Weekly, Trends, Steps detail and an open
   maintenance sheet. Historical step charts prefer retained measured coverage over old derived
@@ -123,7 +193,8 @@ Local validation passes: 3,318 Flutter tests (368 intentional skips), 91 focused
 `PERSONAL_SIDELOAD=true`, all 7 personal-iOS contract tests, project/pin checks and representative
 rendered layouts. Analysis has 60 infos and no errors/warnings. The daily details also fit a
 320-point screen at 1.5x text. Linux CI passes 3,323 tests with 363 intentional skips; native
-macOS compilation and downloaded IPA validation pass. Phone verification is not yet claimed.
+macOS compilation and downloaded IPA validation pass. Installation is confirmed; the complete
+phone acceptance checklist is not yet passed.
 `workout-sync-audit.md` records the build-72 evidence and repair contract.
 
 Build-73 phone acceptance must cover:

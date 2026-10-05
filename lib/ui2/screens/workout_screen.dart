@@ -16,6 +16,7 @@ import '../../compute/streak.dart';
 import '../../data/day_label.dart' show dayLabelOf;
 import '../../gps/motion_window.dart';
 import '../../gps/workout_measurements.dart';
+import '../../gps/workout_clock.dart';
 import '../../gps/route_math.dart'
     show
         totalDistanceMeters,
@@ -45,8 +46,105 @@ import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import 'home_screen.dart' show calendarDaysBetween, pad, pullToRefresh;
-import 'metric_detail.dart' show dayNavLabel;
+import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import 'log_workout.dart';
+import 'training_review.dart';
+
+/// Shared destination for a notification, lock-screen tap or saved session.
+class SessionDestination extends StatefulWidget {
+  const SessionDestination(this.id, {super.key});
+  final String? id;
+  @override
+  State<SessionDestination> createState() => _SessionDestinationState();
+}
+
+class _SessionDestinationState extends State<SessionDestination> {
+  Widget? _screen;
+  bool _failed = false;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    setState(() => _failed = false);
+    final app = context.read<AppState>();
+    try {
+      final id = widget.id ?? app.activeWorkout?.workoutId;
+      if (id == null) {
+        if (mounted) setState(() => _screen = const WorkoutScreen());
+        return;
+      }
+      if (app.activeWorkout?.workoutId == id) {
+        final activity = activityByName(app.activeWorkout!.type);
+        if (activity != null) {
+          final history = await loadSetHistory();
+          if (mounted)
+            setState(
+              () => _screen = liveFor(
+                activity,
+                private: LiveDraft.current?.private ?? false,
+                weightKg: LiveDraft.current?.weightKg,
+                host: activityHost(app, history: history),
+              ),
+            );
+          return;
+        }
+      }
+      final row = await LocalDb.session(id);
+      final start = row?['start_ts'] as num?;
+      final end = row?['end_ts'] as num?;
+      final activity = activityByName(row?['type']?.toString());
+      if (start == null || end == null || activity == null) {
+        if (mounted)
+          setState(
+            () => _screen = detailScaffold(context, 'Session', [
+              const StatusCard(
+                'Session unavailable',
+                'It may have been removed.',
+              ),
+            ]),
+          );
+        return;
+      }
+      final at = DateTime.fromMillisecondsSinceEpoch(start.toInt() * 1000);
+      final stop = DateTime.fromMillisecondsSinceEpoch(end.toInt() * 1000);
+      final clock = WorkoutClock.read(id, at, end: stop);
+      final result = await _detailOf(
+        app,
+        _PastWorkout(
+          id,
+          activity,
+          at,
+          clock.activeDuration(stop),
+          private: row?['private'] == 1,
+          calories: (row?['calories'] as num?)?.round(),
+          steps: (row?['steps'] as num?)?.round(),
+        ),
+      );
+      if (mounted) setState(() => _screen = ActivitySummary(result));
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) =>
+      _screen ??
+      detailScaffold(c, 'Session', [
+        if (_failed)
+          StatusCard(
+            'Session could not load',
+            'Your saved data is intact.',
+            fix: 'Retry',
+            onFix: _load,
+          )
+        else
+          const Center(child: CircularProgressIndicator()),
+      ]);
+}
 
 class WorkoutScreen extends StatefulWidget {
   const WorkoutScreen({super.key});
@@ -176,6 +274,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     void start(Activity a) =>
         _push(c, ActivitySetup(a, weightKg: d.weightKg, host: _host(d)));
     return [
+      detailLinkRow(
+        c,
+        LucideIcons.chartNoAxesCombined,
+        'Training review',
+        'Compare the last two fortnights using measured sessions',
+        () => _push(c, const TrainingReviewScreen()),
+      ),
+      const SizedBox(height: S.x3),
       Row(
         children: [
           Expanded(
@@ -790,7 +896,16 @@ class _HistoryRow extends StatelessWidget {
     final p = P.of(c);
     final loc = AppLocalizations.of(c);
     final a = w.activity;
-    final stats = _stats(c);
+    final pairedCalories =
+        w.importedFrom == null &&
+        (isRunType(a.typeKey) || isWalkType(a.typeKey));
+    final stats = _stats(c)
+        .where(
+          (s) =>
+              !pairedCalories ||
+              (!s.$1.startsWith('Budget') && !s.$1.startsWith('ACSM')),
+        )
+        .toList();
     return Surface(
       // An imported row does not open. The summary screen behind this tap is
       // built to show a session THIS band measured — its rating control, its
@@ -905,6 +1020,16 @@ class _HistoryRow extends StatelessWidget {
             ),
           ],
           const SizedBox(height: S.x4),
+          if (pairedCalories) ...[
+            CaloriePair(
+              budget: w.calories?.toDouble(),
+              acsm: w.acsmCalories,
+              compact: true,
+              note:
+                  'Active calories above resting; counted once in maintenance.',
+            ),
+            const SizedBox(height: S.x3),
+          ],
           for (var i = 0; i < stats.length; i++) ...[
             if (i > 0) Divider(color: p.line, height: S.x5),
             PosterStatRow(
@@ -958,7 +1083,7 @@ class _HistoryRow extends StatelessWidget {
     final caloriesLabel =
         w.importedFrom == null &&
             (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
-        ? 'Active calories'
+        ? 'Budget · active'
         : loc?.workoutCaloriesStatLabel ?? 'Calories';
     return w.importedFrom != null
         ? [
@@ -985,6 +1110,12 @@ class _HistoryRow extends StatelessWidget {
               (caloriesLabel, loc?.workoutNotCostedValue ?? 'Not costed', null)
             else
               (caloriesLabel, grouped(w.calories!), 'kcal'),
+            if (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
+              (
+                'ACSM · active',
+                w.acsmCalories == null ? '—' : grouped(w.acsmCalories!),
+                'kcal',
+              ),
             if (w.maxHr == null)
               (
                 loc?.workoutMaxHrStatLabel ?? 'Max HR',
@@ -1098,8 +1229,11 @@ LiveFeed _feedOf(AppState app) {
     zone: app.liveZone,
     calories: app.workoutActiveKcal,
     hrActiveCalories: app.workoutHrActiveKcal,
+    acsmCalories: app.workoutAcsmKcal,
     strain: w?.strain,
     steps: app.workoutStepCount,
+    cadence: app.workoutCadence?.spm,
+    cadenceSource: app.workoutCadence?.source,
     zoneMinutes: w?.zoneMinutes() ?? const [],
     // The SET those minutes were binned with, not a second resolution of the
     // anchors: `zoneSet` is pinned at session start precisely so a mid-session
@@ -1655,6 +1789,7 @@ class _PastWorkout {
   final Duration duration;
   final double? strain;
   final int? calories, avgHr, maxHr;
+  final double? acsmCalories;
 
   /// `sessions.hrr_bpm` — the bpm drop in the 60 s after the session. Carried
   /// from the list row because that is where the repository already serves it.
@@ -1695,6 +1830,7 @@ class _PastWorkout {
     this.duration, {
     this.strain,
     this.calories,
+    this.acsmCalories,
     this.avgHr,
     this.maxHr,
     this.hrr60,
@@ -1897,6 +2033,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             calories: (isRunType(a.typeKey) || isWalkType(a.typeKey))
                 ? measured?.method1(a.typeKey)?.round()
                 : (r['calories'] as num?)?.round(),
+            acsmCalories: measured?.acsm(a.typeKey),
             // The session's mean over its own HR stream, computed by the repo
             // — not the last sample anybody happened to see.
             avgHr: (r['avg_hr'] as num?)?.round(),

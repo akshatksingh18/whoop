@@ -99,10 +99,14 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(find.text('Moving time'), findsOneWidget);
-      // Heart rate (~427 kcal) and distance (~290 kcal) are more than 50
-      // apart, so both are shown.
-      expect(find.textContaining('From distance'), findsOneWidget);
-      expect(find.textContaining('From heart rate'), findsOneWidget);
+      // The primary pair never merges; HR is explicit optional analysis.
+      expect(find.text('Budget'), findsOneWidget);
+      expect(find.text('ACSM'), findsOneWidget);
+      await t.ensureVisible(find.text('Heart-rate analysis'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Heart-rate analysis'));
+      await t.pumpAndSettle();
+      expect(find.text('From heart rate'), findsOneWidget);
       // Below the calorie card; at 2x text it starts off screen.
       final page = find.byWidgetPredicate(
         (w) => w is Scrollable && w.axisDirection == AxisDirection.down,

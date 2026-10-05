@@ -64,7 +64,7 @@ final _rules = <_Rule>[
     'ungated Duration(',
     // `motion(context, …)` is the gate. Motion.fast/base/slow are the token
     // constants it is fed.
-    RegExp(r'Duration\((?!\s*\))'),
+    RegExp(r'\bDuration\((?!\s*\))'),
     'Durations come from Motion.fast/base/slow and pass through '
         'motion(context, …) so reduced motion collapses them to zero.',
     // home_screen's `_tapGrace` is a `Timer` bridging a tap to the first
@@ -200,6 +200,8 @@ const _notComponents = {
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',
   'RunSplitsCard', 'RunCharts', 'PaceZonesCard', 'MaintenanceCard',
   'RunCaloriesCard',
+  // Stateful destinations read dated/session evidence; covered by build74/food-flow tests.
+  'TrainingReviewScreen', 'SessionDestination',
   // Build 70: the Food diary screens and sheets (each reads the food store
   // and a date), the weekly card (reads the whole app), and the day swipe,
   // a gesture wrapper with no look of its own.

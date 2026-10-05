@@ -39,6 +39,7 @@ import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
+import '../activity/workout_context.dart';
 import '../activity/picker.dart' show ActivityPicker, ActivityRow;
 import '../activity/poster.dart'
     show PosterCard, PosterFormat, PosterStatRow, kPosterMapH, kPosterMapW;
@@ -408,6 +409,8 @@ Map<String, Widget> goldenCases() => {
     ),
     action: 'History',
   ),
+  'calorie_pair': const Surface(child: CaloriePair(budget: 1234, acsm: 1456)),
+  'calorie_pair_missing': const Surface(child: CaloriePair(budget: 1234, acsm: null)),
   ..._chartCases(),
   ..._nutritionAndWellnessCases(),
 };
@@ -1635,6 +1638,7 @@ final _sessions = <String, ActivityResult>{
 /// assembled from; the screens themselves are `Scaffold`s and belong on a
 /// device, not in a scroll.
 Map<String, Widget> _liveCases() => {
+  'workout_context': WorkoutContextSelector(tags: const ['flat'], onChanged: (_) {}),
   'live_heart': const LiveHeart(
     LiveFeed(
       hr: 148,

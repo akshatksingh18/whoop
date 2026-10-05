@@ -45,7 +45,9 @@ class CalculationStore {
                   k == 'steps.goal_history' ||
                   k == 'profile.calculation_history' ||
                   k.startsWith('workout.clock.') ||
-                  k.startsWith('motion.'),
+                  k.startsWith('motion.') ||
+                  k.startsWith('training.review.') ||
+                  k.startsWith('notification.report.'),
             )
             .toList()) {
       await p.remove(key);

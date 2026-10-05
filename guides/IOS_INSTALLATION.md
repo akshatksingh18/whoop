@@ -6,14 +6,19 @@ build 69 and accepted: Akshat confirmed its feature phone check and completed cu
 automatic-refresh registration at the existing signed identity, with no error. It is cached in
 `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` holds validated build 73. `../setup.md` owns
 source/hash/workflow evidence and superseded build records.
-Build `0.9.39`/`72` is installed, confirmed by Akshat, but was not phone-accepted; its cached IPA
+Build `0.9.39`/`72` was installed, confirmed by Akshat, but was not phone-accepted; its cached IPA
 is superseded by build 73. `../workout-sync-audit.md` records its reported issues and approved repairs.
 Source `0.9.40`/`73`, commit `a49d7837`, includes background audio for real workout cues and is
 published with Akshat's approval. Local checks, Linux CI, the personal macOS build, downloaded
 checksum/manifest and payload validation pass. The single testing candidate is
 `../../final-ipas/whoop/testing/WHOOP-0.9.40-build73-a49d7837`.
-Install over build 72 with the same signed identity. Build-73 installation, phone acceptance and
-current-version enrollment remain unconfirmed; `../todo.md` owns the combined phone checklist.
+Akshat confirms build 73 is installed and initially looks good, with the future-time Strain cursor
+defect recorded for build 74. Identity/data/pairing checks, the complete phone pass and
+current-version enrollment remain unconfirmed; `../todo.md` owns the combined phone checklist
+and build-74 release gates; `../build-74-audit.md` owns the research and implemented contract.
+Local source `0.9.41`/`74` enables one workout-only Live Activity extension without App Groups.
+No build-74 IPA/native or Sideloadly validation exists yet; installed build 73 keeps its old contract.
+Installation alone does not authorize cache promotion.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
 Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID
@@ -22,7 +27,7 @@ complete with the same final ID; `IOS_SIDELOAD.md` owns install-stall handling. 
 background/restoration and naturally elapsed signing gates remain in `../CLAUDE.md`.
 
 The accepted model is standalone WHOOP plus the native AkshatOS hub:
-two free-signing slots. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
+two installed app slots; the workout extension has its own App ID/signing requirement to verify. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
 not an embedded module. Its iPhone-only implementation scope is active, but installed-identity and
 physical-device verification gates remain; no paid membership or capability
 expansion is needed for the chosen packaging. The imported Android target is reference source only
@@ -67,8 +72,10 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   `bluetooth-central`, and CoreBluetooth restoration;
 - preserve the stable restoration identifier, saved band UUID, normal Flutter drain handoff, and
   every commit-before-ACK/resumable-cursor invariant;
-- remove the Watch companion and Widget/Live Activity extension from the packaged IPA;
+- remove the Watch companion and general/home/breathing widgets; build 74 retains exactly one
+  version-matched Run/Walk ActivityKit extension, empty entitlements and `.activity` bundle suffix;
 - remove App Group and HealthKit entitlements and hide/compile out their UI/bridges together;
+  keep only the workout Live Activity bridge/support key and exact-session URL destination;
 - **keep GPS route recording** — reopened on Akshat's explicit decision. `NSLocationWhenInUseUsageDescription`
   and the `location` background mode are present; `NSLocationAlwaysAndWhenInUseUsageDescription`
   stays removed, since `lib/gps/gps_source.dart` deliberately never requests Always. Buildable and
@@ -79,8 +86,9 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   initial profile;
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
   and bundled secrets off; BYOK/network features are manual opt-ins only if offline use is complete;
-- fail packaging if `Watch/`, widget `PlugIns/*.appex`, unexpected entitlements, signing
-  credentials, personal data, injected dylibs, or secrets remain.
+- fail packaging if `Watch/`, any extension except the single verified version-matched
+  workout `.activity` extension, unexpected entitlements, signing credentials, personal data,
+  injected dylibs, or secrets remain.
 
 The manual workflow applies and tests these exclusions, then runs:
 
@@ -166,9 +174,9 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. Runner and the excluded Widget/Watch metadata are aligned to `0.9.40+73` in source.
-The personal phone-only artifact
-excludes them, but its Runner version/build and source manifest still change for every new binary;
+targets ship. Runner and Widget/Watch metadata are aligned to `0.9.41+74` in source.
+The personal artifact includes the single workout ActivityKit extension and excludes Watch/general
+widgets. Runner/extension versions and the source manifest change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.
 
 ## Common failure checks

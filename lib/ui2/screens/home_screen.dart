@@ -32,7 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../compute/profile.dart' show Profile;
+import '../../compute/profile.dart' show Profile, stepCalories;
 import '../../data/day_label.dart' show todayLabel;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -1421,7 +1421,7 @@ class HomeData {
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
       caloriesTotal: metricOf(d('calories_total')),
-      walkingKcal: upkeep.steps == null ? null : upkeep.parts?.steps,
+      walkingKcal: upkeep.parts?.steps ?? stepCalories(upkeep.walkedSteps, upkeep.profile.weightKg),
       upkeep: upkeep,
       stepGoal: (today['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
       // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
@@ -1985,7 +1985,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                 ?stepSensorLabel(d.steps, l),
                 // Walking energy, on its own — not part of active or total kcal.
                 if (d.walkingKcal != null)
-                  '${d.walkingKcal!.round()} kcal from steps',
+                  'Steps: Budget ${d.walkingKcal!.round()} · ACSM ${d.upkeep?.acsmParts?.steps.round().toString() ?? '—'} kcal',
               ].join(' · '),
         onTap: () => go(c, const MetricDetail('steps')),
         trailing: d.steps.value == null || d.stepGoal <= 0
@@ -2011,17 +2011,21 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final up = upkeep?.parts;
     if (upkeep != null && up != null) {
       cards.add(
-        SignalCard(
-          LucideIcons.flame,
-          C.steps,
-          'Maintenance',
-          thousands(up.total),
-          unit: 'kcal',
+        Surface(
           onTap: () => showMaintenance(c, upkeep, today: true),
-          sub:
-              'Resting ${thousands(up.bmr)} · steps ${thousands(up.steps)}'
-              '${up.run > 0 ? ' · run ${thousands(up.run)}' : ''}'
-              '${up.food > 0 ? ' · food ${thousands(up.food)}' : ''}',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Maintenance', style: F.head.copyWith(color: P.of(c).ink)),
+              const SizedBox(height: S.x3),
+              CaloriePair(
+                budget: up.total,
+                acsm: upkeep.acsmParts?.total,
+                note:
+                    'Whole-day resting energy + movement and food logged so far.',
+              ),
+            ],
+          ),
         ),
       );
     }

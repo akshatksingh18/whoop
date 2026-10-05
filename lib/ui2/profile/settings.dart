@@ -1160,6 +1160,10 @@ class NotificationSettingsView extends StatelessWidget {
                             ),
                           ),
                         ),
+                        SetRow(LucideIcons.chartNoAxesCombined,C.teal,'Fortnightly training review',
+                          sub:'An optional local finding from comparable runs or walks. Silent without enough evidence.',
+                          value:prefs.trainingReviewEnabled ? on : off,chevron:false,
+                          onTap:()=>set(prefs.copyWith(trainingReviewEnabled:!prefs.trainingReviewEnabled))),
                         // The auto-detector's off switch, asked for twice (#102,
                         // #149) and never built: the bouts were written, the
                         // prompt was emitted, and nothing anywhere could stop

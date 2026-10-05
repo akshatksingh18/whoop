@@ -12,7 +12,7 @@
 > enabling **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone
 > steps enabled for normal iPhone-carried use: WHOOP 4 band-only historical data is too low-rate for
 > honest all-day step reconstruction. The personal profile
-> excludes Watch, widgets/Live Activities, App Groups, and HealthKit, and scheduled
+> excludes Watch, general/home/breathing widgets, App Groups, and HealthKit, and scheduled
 > processing/fetch, while retaining the phone app and CoreBluetooth restoration. Build 63 excludes
 > GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Build `65`
 > reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for
@@ -34,7 +34,7 @@
 > reads and visible timeout/failure feedback. The initial UI/food CI and IPA build passed, but that
 > artifact predates this repair and is superseded. Source `05c208c7` is published; local release
 > checks, Linux CI, the macOS build, downloaded checksum and payload validation pass. Build 72 is
-> installed, confirmed by Akshat, but was not phone-accepted and its testing artifact is superseded.
+> previously installed, confirmed by Akshat, but was not phone-accepted and its testing artifact is superseded.
 > `workout-sync-audit.md` records reported sync/background voice,
 > calorie consistency, macro visibility and profile issues plus the approved step-goal streak extension;
 > the approved repairs are implemented in source `0.9.40`/`73` (algorithm 89) and pass
@@ -44,7 +44,17 @@
 > when empty. Trends opens Week, reuses full daily charts, and separates step calories from steps.
 > Source `a49d7837` is published with Akshat's approval; Linux CI, the personal macOS build,
 > downloaded checksum and payload validation pass. Build 73 is the single testing candidate,
-> awaiting installation, phone acceptance and current-version enrollment. Build 70 remains
+> installed, confirmed by Akshat, and awaiting the complete phone pass and current-version enrollment.
+> `build-74-audit.md` records remaining chart/navigation/notification issues, calorie-model research
+> and the implemented build-74 contract. Local source `0.9.41`/`74` (algorithm 90) adds the persistent
+> Budget/ACSM pair, motion-distance coverage, graph/navigation repairs, focused notifications,
+> opt-in training review with matched context and best-effort evidence, live cadence/context
+> tags, qualified HR drift and one workout-only Live Activity extension without App Groups.
+> Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds.
+> Budget coefficients are unchanged. Local release checks pass (3,343 full-suite tests, 107 personal
+> checks and eight iOS contract tests; analysis has no errors/warnings). `todo.md` owns release gates; no build-74 IPA
+> has been produced or installed. Native/signing/background checks remain pending.
+> Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
 > maintenance, runs measured by the phone when there was no GPS, a run-or-walk streak, chart finger
@@ -184,7 +194,8 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 
 The full upstream/source-signed iOS profile also gets a home-screen widget, a lock-screen/Dynamic
 Island Live Activity, and Siri shortcuts. Akshat's initial personal free-sideload profile excludes
-the widget/Live Activity extension and App Group deliberately.
+general widgets and App Groups deliberately; build 74 enables only a narrow workout Live Activity,
+subject to native/signing/device validation.
 
 | | | |
 |:--:|:--:|:--:|

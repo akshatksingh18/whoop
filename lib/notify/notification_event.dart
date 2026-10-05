@@ -125,6 +125,8 @@ NotifClass? classOf(NotificationEvent e) => switch (e.category) {
           when e.priority == NotifPriority.normal &&
               routePath(e.route ?? '') == kRouteWorkoutIdle =>
         NotifClass.prompt,
+      NotifCategory.reminders when e.priority == NotifPriority.normal &&
+        routePath(e.route ?? '') == kRouteTrainingReview => NotifClass.lookback,
       NotifCategory.reminders || NotifCategory.recovery => null,
     };
 

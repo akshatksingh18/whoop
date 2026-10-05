@@ -31,12 +31,14 @@ class KmVoice {
   double _lastKm = 0, _lastSec = 0, _markSec = 0;
   bool _resume;
   KmVoice({int spoken = 0}) : _spoken = spoken, _resume = spoken > 0;
+  int? lastSplitSec;
   int get spokenKm => _spoken;
   Map<String, dynamic> snapshot() => {
     'spoken': _spoken,
     'km': _lastKm,
     'seconds': _lastSec,
     'crossing': _markSec,
+    'lastSplit': lastSplitSec,
   };
   static KmVoice restore(Map? saved, {int spoken = 0}) {
     final out = KmVoice(spoken: spoken);
@@ -48,6 +50,7 @@ class KmVoice {
       out._lastKm = (saved['km'] as num).toDouble();
       out._lastSec = (saved['seconds'] as num).toDouble();
       out._markSec = (saved['crossing'] as num).toDouble();
+      out.lastSplitSec = (saved['lastSplit'] as num?)?.toInt();
       out._resume = false;
     }
     return out;
@@ -73,6 +76,7 @@ class KmVoice {
       _spoken = boundary;
       _markSec = crossing;
       if (split > 0) {
+        lastSplitSec = split;
         line = kmCue(boundary, split);
         if (speak && runVoiceOn) say(line);
       }

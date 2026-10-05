@@ -10,11 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../compute/profile.dart'
-    show Profile, keytelActiveKcal, runFloorKcal, stepCalories;
+    show Profile, keytelActiveKcal, runFloorKcal, stepCalories, acsmActiveKcal;
 import '../../gps/map_snapshot.dart';
 import '../../gps/route_math.dart' show kMetersPerKm;
 import '../../gps/run_analysis.dart';
 import '../../gps/run_history.dart';
+import '../../gps/workout_clock.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
 import 'summary.dart';
@@ -87,6 +88,7 @@ class RunView {
 
   PacePoint? paceAt(double f) {
     if (pace.isEmpty) return null;
+    if (_activeIndex(f) == null) return null;
     final ts = f * spanSec;
     var best = pace.first;
     for (final p in pace) {
@@ -96,8 +98,21 @@ class RunView {
   }
 
   double? hrAt(double f) {
-    final i = ((leadSec + f * spanSec) / 60).floor();
-    return i >= 0 && i < r.hr.length ? r.hr[i] : null;
+    final i = _activeIndex(f);
+    return i != null && i >= 0 && i < r.hr.length ? r.hr[i] : null;
+  }
+
+  int? _activeIndex(double f) {
+    var at = DateTime.fromMillisecondsSinceEpoch(
+      r.start.millisecondsSinceEpoch + ((leadSec + f * spanSec) * 1000).round(),
+    );
+    final id = r.sessionId;
+    if (id == null) return ((leadSec + f * spanSec) / 60).floor();
+    final clock = WorkoutClock.read(id, r.start);
+    if (clock.end != null && at.isAtSameMomentAs(clock.end!))
+      at = DateTime.fromMillisecondsSinceEpoch(at.millisecondsSinceEpoch - 1);
+    if (!clock.includes(at)) return null;
+    return (clock.secondsAt(at) / 60).floor();
   }
 
   /// [n] evenly spaced bins over the span, for the charts.
@@ -116,8 +131,8 @@ class RunView {
   /// The phone's steps a minute at [f], or null.
   double? cadenceAt(double f) {
     final c = r.cadenceSeries;
-    final i = ((leadSec + f * spanSec) / 60).floor();
-    return i >= 0 && i < c.length ? c[i] : null;
+    final i = _activeIndex(f);
+    return i != null && i >= 0 && i < c.length ? c[i] : null;
   }
 
   List<double?> cadenceBins(int n) => [
@@ -464,15 +479,14 @@ class RunStatsGrid extends StatelessWidget {
 
 /// The two calorie numbers for a run or walk.
 ///
-/// * From distance (Method 1): the least the distance costs at the user's
+/// * Budget: the chosen lower distance estimate at the user's
 ///   weight, running metres at 0.143, walk-break metres at 0.1, plus the
 ///   climb. This is the one maintenance counts for a run.
 /// * From heart rate (Method 2, Keytel): what the heart rate says was burned
 ///   above resting, minute by minute.
 ///
-/// Within 50 kcal of each other they are one number; further apart both are
-/// shown, because the gap is itself the reading (an inefficient or hot run
-/// burns above the floor).
+/// The Budget/ACSM pair is always separate. HR stays in analysis and never
+/// changes the maintenance ledger.
 ({double? floor, ({double kcal, int measured, int slots})? hr}) runCalories(
   ActivityResult r,
   Profile? p,
@@ -480,7 +494,7 @@ class RunStatsGrid extends StatelessWidget {
   p = r.calculationProfile ?? p;
   final mix = r.mix;
   final floor = isWalkType(r.activity.typeKey)
-      ? stepCalories(r.stepsCounted, p?.weightKg)
+      ? stepCalories(r.phoneSteps ?? r.stepsCounted, p?.weightKg)
       : mix == null
       ? null
       : runFloorKcal(
@@ -495,7 +509,7 @@ class RunStatsGrid extends StatelessWidget {
   return (floor: floor, hr: hr);
 }
 
-/// How far apart the two numbers may be and still read as one.
+/// Legacy comparison threshold retained for callers; the UI never merges models.
 const double kCalorieAgree = 50;
 
 class RunCaloriesCard extends StatelessWidget {
@@ -511,28 +525,10 @@ class RunCaloriesCard extends StatelessWidget {
     final floor = cal.floor, hr = cal.hr;
     final isRun = isRunType(r.activity.typeKey);
     final mix = r.mix;
-    if (floor == null && hr == null) {
-      return Surface(
-        child: Row(
-          children: [
-            Icon(LucideIcons.flame, size: 18, color: p.ink3),
-            const SizedBox(width: S.x3),
-            Expanded(
-              child: Text(
-                'Calories need your age, height and weight in Settings → Profile.',
-                style: F.cap.copyWith(color: p.ink2),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
     final kg = (r.calculationProfile ?? profile)?.weightKg;
     final kgText = kg == null
         ? ''
         : ' at ${kg == kg.roundToDouble() ? kg.round() : kg.toStringAsFixed(1)} kg';
-    final agree =
-        floor != null && hr != null && (hr.kcal - floor).abs() <= kCalorieAgree;
     final hrMin = hr == null
         ? ''
         : '${(r.duration.inSeconds / 60 * hr.measured / hr.slots).round()} of '
@@ -563,37 +559,39 @@ class RunCaloriesCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text('Active calories', style: F.over.copyWith(color: p.ink3)),
-          if (agree) ...[
-            const SizedBox(height: S.x1),
-            Wrap(
-              spacing: S.x2,
-              crossAxisAlignment: WrapCrossAlignment.end,
+          const SizedBox(height: S.x3),
+          CaloriePair(
+            budget: floor,
+            acsm: acsmActiveKcal(
+              runMeters: isRun ? (mix?.runM ?? 0) : 0,
+              walkMeters: isRun
+                  ? (mix?.walkM ?? 0)
+                  : (r.distanceKm ?? 0) * 1000,
+              runClimbMeters: isRun ? (mix?.climbM ?? 0) : 0,
+              weightKg: (isRun ? mix != null : r.distanceKm != null)
+                  ? kg
+                  : null,
+            ),
+            note:
+                '${isRun ? "Budget uses distance and walk breaks" : "Budget uses counted steps"}$kgText. '
+                'ACSM uses distance. Both exclude resting energy.',
+          ),
+          if (hr != null)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text(
+                'Heart-rate analysis',
+                style: F.cap.copyWith(color: p.ink2),
+              ),
               children: [
-                Text(grouped(floor), style: F.n34.copyWith(color: p.ink)),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: S.x1),
-                  child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
+                row(
+                  'From heart rate',
+                  hr.kcal,
+                  'Keytel population estimate minus resting energy · $hrMin measured. '
+                      'For comparison; not added to maintenance.',
                 ),
               ],
             ),
-            Text(
-              'Method 1 and heart rate agree within 50 kcal.',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-          ] else ...[
-            if (floor != null)
-              row(
-                isRun ? 'From distance · Method 1' : 'From steps · Method 1',
-                floor,
-                'Conservative estimate$kgText',
-              ),
-            if (hr != null)
-              row(
-                'From heart rate · Method 2',
-                hr.kcal,
-                'Above resting · measured over $hrMin',
-              ),
-          ],
           if (mix != null && mix.walkM >= 50 && mix.runM >= 50) ...[
             const SizedBox(height: S.x3),
             Text(
@@ -610,7 +608,7 @@ class RunCaloriesCard extends StatelessWidget {
           const SizedBox(height: S.x2),
           Text(
             isRun
-                ? 'Maintenance counts the distance number.'
+                ? 'Both maintenance estimates count this run once.'
                 : 'Maintenance counts this walk once, through daily steps.',
             style: F.over.copyWith(color: p.ink3),
           ),

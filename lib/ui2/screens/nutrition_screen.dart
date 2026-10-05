@@ -60,12 +60,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   int _tab = 0;
   NutritionWindow? _month;
   List<String> _historyMonths = const [];
-  bool _failed = false;
+  bool _failed = false, _calorieLoading = false, _calorieFailed = false;
   List<Map<String, Object?>> _foods = const [];
   List<MealTemplate> _meals = const [];
 
   /// Steps per day for the month, for each day's maintenance figure.
-  Map<String, double?> _maintenance = const {};
+  Map<String, double?> _maintenance = const {}, _acsmMaintenance = const {};
   List<RunSummary> _runs = const [];
   List<({String date, double kg})> _weights = const [];
   bool _loading = true;
@@ -101,32 +101,54 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       );
       final foods = await MyFoods.all(db);
       final meals = await MyFoods.meals(db);
-      final maintenance = <String, double?>{};
+      final maintenance = <String, double?>{},
+          acsmMaintenance = <String, double?>{};
       final runs = await _allRuns(repo);
-      if (repo != null) {
-        for (final d in month.days) {
-          if (!stillNewest(#nutrition, t)) return;
-          maintenance[d.date] = (await DayUpkeep.read(
-            repo,
-            d.date,
-            pr,
-            eaten: d.kcal.value ?? 0,
-            runs: runs,
-          )).parts?.total;
-        }
-      }
       if (!stillNewest(#nutrition, t)) return;
       setState(() {
         _month = month;
         _historyMonths = months;
         _foods = foods;
         _meals = meals;
-        _maintenance = maintenance;
+        _maintenance = {};
+        _acsmMaintenance = {};
         _runs = runs;
         _weights = weights;
         _loading = false;
         _failed = false;
+        _calorieLoading = true;
+        _calorieFailed = false;
       });
+      // Food navigation is ready immediately; historical movement estimates
+      // finish in the background. A manual refresh still awaits both paths.
+      try {
+        if (repo != null) {
+          for (final d in month.days) {
+            if (!stillNewest(#nutrition, t)) return;
+            final upkeep = await DayUpkeep.read(
+              repo,
+              d.date,
+              pr,
+              eaten: d.kcal.value ?? 0,
+              runs: runs,
+            );
+            maintenance[d.date] = upkeep.parts?.total;
+            acsmMaintenance[d.date] = upkeep.acsmParts?.total;
+          }
+        }
+        if (!stillNewest(#nutrition, t)) return;
+        setState(() {
+          _maintenance = maintenance;
+          _acsmMaintenance = acsmMaintenance;
+          _calorieLoading = false;
+        });
+      } catch (_) {
+        if (!stillNewest(#nutrition, t)) return;
+        setState(() {
+          _calorieLoading = false;
+          _calorieFailed = true;
+        });
+      }
       // Counted when the read has LANDED, so a test waiting on it also waits
       // for the database it opened.
       NutritionScreen.debugLoads++;
@@ -233,6 +255,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final days = [...?_month?.days]; // oldest first
     if (days.isEmpty) return const SizedBox.shrink();
     final m = [for (final d in days) _maintenance[d.date]];
+    final acsm = [for (final d in days) _acsmMaintenance[d.date]];
     final eaten = [for (final d in days) d.logged ? d.kcal.value : null];
 
     // This week, Monday to today, over the days with food logged.
@@ -240,7 +263,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final monday = dayLabelOf(
       DateTime(today.year, today.month, today.day - (today.weekday - 1)),
     );
-    var deficit = 0.0, eatSum = 0.0, mSum = 0.0;
+    var deficit = 0.0, eatSum = 0.0, mSum = 0.0, acsmSum = 0.0;
+    var acsmCount = 0;
     var counted = 0;
     for (var i = 0; i < days.length; i++) {
       if (days[i].date.compareTo(monday) < 0) continue;
@@ -249,11 +273,15 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       deficit += mm - e;
       eatSum += e;
       mSum += mm;
+      if (acsm[i] != null) {
+        acsmSum += acsm[i]!;
+        acsmCount++;
+      }
       counted++;
     }
 
     final all = [
-      for (final v in [...m, ...eaten]) ?v,
+      for (final v in [...m, ...acsm, ...eaten]) ?v,
     ];
     final axis = all.isEmpty
         ? null
@@ -261,7 +289,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     String says(int i) {
       final d = days[i];
       final mm = m[i], e = eaten[i];
-      return '${dayTitle(d.date)}${d.state == DayLogState.inProgress ? ' · so far' : ''}\n${[if (mm != null) 'maintenance ${thousands(mm)}', e == null ? 'no food logged' : 'ate ${thousands(e)}', if (mm != null && e != null) '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}'].join(' · ')}';
+      return '${dayTitle(d.date)}${d.state == DayLogState.inProgress ? ' · so far' : ''}\n${[if (mm != null) 'Budget ${thousands(mm)}', if (acsm[i] != null) 'ACSM ${thousands(acsm[i])}', e == null ? 'no food logged' : 'ate ${thousands(e)}', if (mm != null && e != null) '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}'].join(' · ')}';
     }
 
     final pick = _histPick;
@@ -269,6 +297,18 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _weightCard(c, p, pr, days),
+        if (_calorieLoading)
+          Text(
+            'Updating historical calorie estimates…',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        if (_calorieFailed)
+          StatusCard(
+            'Calorie history could not load',
+            'Your food entries remain available.',
+            fix: 'Retry',
+            onFix: _load,
+          ),
         const SizedBox(height: S.x3),
         if (counted > 0)
           Surface(
@@ -284,11 +324,17 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                     deficit >= 0 ? C.green : C.red,
                   ),
                   ('AVG EATEN', thousands(eatSum / counted), C.domFood),
-                  ('AVG MAINT.', thousands(mSum / counted), C.steps),
+                  ('AVG BUDGET', thousands(mSum / counted), C.steps),
                 ]),
                 const SizedBox(height: S.x2),
+                CaloriePair(
+                  budget: mSum / counted,
+                  acsm: acsmCount == counted ? acsmSum / counted : null,
+                  compact: true,
+                  note: 'Average maintenance on these completed days.',
+                ),
                 Text(
-                  '$counted completed day${counted == 1 ? '' : 's'} · maintenance floor. '
+                  '$counted completed day${counted == 1 ? '' : 's'} · estimated maintenance. '
                   'Today and detectably incomplete logs are excluded.',
                   style: F.cap.copyWith(color: p.ink3),
                 ),
@@ -307,7 +353,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
               series: eaten,
               readout: pick == null ? null : says(pick),
               legend: [
-                ('Maintenance', p.on(C.steps)),
+                ('Budget', p.on(C.steps)),
+                ('ACSM', p.on(C.teal)),
                 ('Eaten', p.on(C.domFood)),
               ],
               xLabels: const ['30 days ago', 'Today'],
@@ -330,6 +377,17 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                         painter: Bars(
                           m,
                           p.on(C.steps).withValues(alpha: .45),
+                          axis: axis,
+                          cursor: pick,
+                        ),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: LineChart(
+                          acsm,
+                          p.on(C.teal),
+                          fill: false,
                           axis: axis,
                           cursor: pick,
                         ),
@@ -972,7 +1030,7 @@ class _FoodHistoryMonthState extends State<_FoodHistoryMonth>
     with RevisionReload {
   late bool _open = widget.month == todayLabel().substring(0, 7);
   NutritionWindow? _window;
-  Map<String, double?> _maintenance = const {};
+  Map<String, double?> _maintenance = const {}, _acsmMaintenance = const {};
   bool _failed = false;
 
   @override
@@ -995,23 +1053,28 @@ class _FoodHistoryMonthState extends State<_FoodHistoryMonth>
     try {
       final win = await NutritionDb.month(await LocalDb.instance, widget.month);
       final pr = Profile.fromMap(widget.profile);
-      final maintenance = <String, double?>{};
+      final maintenance = <String, double?>{},
+          acsmMaintenance = <String, double?>{};
       for (final d in win.days.where((d) => d.logged)) {
         if (!mounted || !stillNewest(#month, t)) return;
         final repo = repoOf(context);
         if (repo != null) {
-          maintenance[d.date] = (await DayUpkeep.read(
+          final upkeep = await DayUpkeep.read(
             repo,
             d.date,
             pr,
             eaten: d.kcal.value ?? 0,
-          )).parts?.total;
+            runs: widget.runs,
+          );
+          maintenance[d.date] = upkeep.parts?.total;
+          acsmMaintenance[d.date] = upkeep.acsmParts?.total;
         }
       }
       if (stillNewest(#month, t)) {
         setState(() {
           _window = win;
           _maintenance = maintenance;
+          _acsmMaintenance = acsmMaintenance;
           _failed = false;
         });
       }
@@ -1083,6 +1146,7 @@ class _FoodHistoryMonthState extends State<_FoodHistoryMonth>
                   day: d,
                   goal: _targetOf(widget.profile, 'kcal_target'),
                   maintenance: _maintenance[d.date],
+                  acsmMaintenance: _acsmMaintenance[d.date],
                   onTap: () async {
                     await Navigator.of(c).push(
                       MaterialPageRoute<void>(
@@ -1110,11 +1174,12 @@ class _HistoryRow extends StatelessWidget {
     required this.day,
     required this.goal,
     this.maintenance,
+    this.acsmMaintenance,
     this.onTap,
   });
 
   final NutritionDay day;
-  final double? goal, maintenance;
+  final double? goal, maintenance, acsmMaintenance;
   final VoidCallback? onTap;
 
   @override
@@ -1155,7 +1220,7 @@ class _HistoryRow extends StatelessWidget {
                 if (maintenance != null &&
                     kcal != null &&
                     day.countsTowardAverages)
-                  'Maintenance ${thousands(maintenance)} · '
+                  'Budget ${thousands(maintenance)} · ACSM ${acsmMaintenance == null ? '—' : thousands(acsmMaintenance)} · '
                       '${thousands((kcal - maintenance!).abs())} '
                       '${kcal > maintenance! ? 'over' : 'under'}',
               ].join(' · '),
@@ -1363,23 +1428,15 @@ class MaintenanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: S.x2),
-          Wrap(
-            spacing: S.x2,
-            crossAxisAlignment: WrapCrossAlignment.end,
-            children: [
-              Text(
-                thousands(m.total),
-                style: F.n34.copyWith(color: p.on(C.steps)),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: S.x1),
-                child: Text('kcal', style: F.cap.copyWith(color: p.ink3)),
-              ),
-            ],
+          CaloriePair(
+            budget: m.total,
+            acsm: upkeep.acsmParts?.total,
+            note:
+                'Whole-day resting energy + movement and food logged. ${upkeep.distanceSource}.',
           ),
           const SizedBox(height: S.x3),
           InlineMetrics([
-            ('RESTING', thousands(m.bmr), C.steps),
+            ('BMR', thousands(m.bmr), C.steps),
             ('STEPS', thousands(m.steps), C.green),
             if (upkeep.runs.count > 0) ('RUNNING', thousands(m.run), C.run),
             ('FOOD', thousands(m.food), C.domFood),
@@ -1388,7 +1445,7 @@ class MaintenanceCard extends StatelessWidget {
             const SizedBox(height: S.x3),
             Text(
               'Eaten ${thousands(eaten)} · ${thousands(diff.abs())} '
-              '${diff > 0 ? 'over' : 'under'} maintenance',
+              '${diff > 0 ? 'over' : 'under'} Budget maintenance',
               style: F.cap.copyWith(color: p.ink2),
             ),
           ],
@@ -1534,10 +1591,22 @@ Widget _maintenanceContents(
             Text(error, style: F.cap.copyWith(color: p.on(C.red))),
           Text('Daily maintenance', style: F.head.copyWith(color: p.ink)),
           const SizedBox(height: S.x1),
-          Text(
-            '${thousands(m.total)} kcal',
-            style: F.n24.copyWith(color: p.on(C.steps)),
+          CaloriePair(
+            budget: m.total,
+            acsm: u.acsmParts?.total,
+            note:
+                'Two estimates, not a guaranteed lower/upper range. ${u.distanceSource}.',
           ),
+          if (u.acsmParts case final a?) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              'ACSM movement: walking ${thousands(a.steps)} kcal · running ${thousands(a.run)} kcal. '
+              'Resting and food are identical in both columns.',
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          ],
+          const SizedBox(height: S.x3),
+          Text('Budget breakdown', style: F.head.copyWith(color: p.ink)),
           for (final (name, kcal, why) in rows) ...[
             const SizedBox(height: S.x4),
             Row(

@@ -759,7 +759,7 @@ class _DayHeartCardState extends State<DayHeartCard> {
     final hr = widget.g.hr;
     for (var d = 0; d <= 5; d++) {
       for (final i in [slot - d, slot + d]) {
-        if (i >= 0 && i < hr.length && hr[i] != null) return (i, hr[i]!);
+        if (i >= 0 && i < hr.length && i <= (_limit * (widget.g.slots - 1)).floor() && hr[i] != null) return (i, hr[i]!);
       }
     }
     return null;
@@ -790,7 +790,9 @@ class _DayHeartCardState extends State<DayHeartCard> {
     final l = AppLocalizations.of(c);
     final n = g.slots;
     double at(int m) => n <= 0 ? 0 : m / n;
-    final vals = [for (final v in g.hr) ?v];
+    final last = (_limit * (g.slots - 1)).floor();
+    final shown = [for (var i = 0; i < g.hr.length; i++) i <= last ? g.hr[i] : null];
+    final vals = [for (final v in shown) ?v];
     final axis = AxisSpec.of(vals, ticks: 3);
     // A day with no recorded minute draws nothing — a frame with an axis and
     // no line under it reads as a measurement of zero.
@@ -824,9 +826,10 @@ class _DayHeartCardState extends State<DayHeartCard> {
             if (gaps.isNotEmpty)
               (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
           ],
-          series: g.hr,
+          series: shown,
           child: Scrubber(
             value: _scrub,
+            maxValue: _limit,
             onChanged: (v) => setState(() => _scrub = math.min(v, _limit)),
             label: 'Heart rate through the day',
             describe: _describe,
@@ -849,7 +852,7 @@ class _DayHeartCardState extends State<DayHeartCard> {
               Positioned.fill(
                 child: CustomPaint(
                   size: Size.infinite,
-                  painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
+                  painter: LineChart(shown, p.on(C.red), fill: false, axis: axis),
                 ),
               ),
               if (_scrub != null)

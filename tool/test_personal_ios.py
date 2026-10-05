@@ -36,15 +36,14 @@ class PersonalIosContractTest(unittest.TestCase):
 
     def test_project_transform_removes_personal_exclusions(self) -> None:
         transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
-        self.assertEqual(transformed.count("PERSONAL_SIDELOAD"), 3)
-        self.assertEqual(transformed.count("Runner/RunnerPersonal.entitlements"), 3)
+        self.assertEqual(transformed.count("PERSONAL_SIDELOAD"), 6)
+        self.assertEqual(transformed.count("Runner/RunnerPersonal.entitlements"), 6)
         self.assertEqual(transformed.count("Runner/Info-Personal.plist"), 3)
         self.assertEqual(
             transformed.count("ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPersonal;"),
             3,
         )
         for forbidden in (
-            "\t\t\t\t5348974F2FDC19C90033A4D9 /* Embed Foundation Extensions */,\n",
             "\t\t\t\tFADE0002FADE0002FADE0002 /* Embed Watch Content */,\n",
             "\t\t\t\tB9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,\n",
             "\t\t\t\t60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,\n",
@@ -59,7 +58,7 @@ class PersonalIosContractTest(unittest.TestCase):
         self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central", "location", "audio"])
         self.assertIn("NSMotionUsageDescription", info)
         self.assertNotIn("NSHealthShareUsageDescription", info)
-        self.assertNotIn("NSSupportsLiveActivities", info)
+        self.assertIs(info["NSSupportsLiveActivities"], True)
 
     def test_personal_info_gps_stays_while_in_use_only(self) -> None:
         # The GPS-experiment reopening's one hard constraint: permission stays at While-In-Use,
@@ -88,6 +87,30 @@ class PersonalIosContractTest(unittest.TestCase):
                 archive.writestr("Payload/Runner.app/PlugIns/Widget.appex/Info.plist", b"x")
             with self.assertRaises(ContractError):
                 validate_ipa(ipa)
+
+    def test_only_version_matched_workout_activity_is_allowed(self) -> None:
+        info = personal_info(plistlib.loads(SOURCE_INFO.read_bytes()))
+        info.update(CFBundleIdentifier=BUNDLE_ID, CFBundleVersion="74", CFBundleShortVersionString="0.9.41")
+        extension = dict(CFBundleIdentifier=BUNDLE_ID + ".activity", CFBundleVersion="74",
+            CFBundleShortVersionString="0.9.41", CFBundleExecutable="Activity",
+            NSExtension={"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"})
+        with tempfile.TemporaryDirectory() as tmp:
+            def make(ext: dict, extra: str | None = None, binary: bool = True) -> Path:
+                ipa = Path(tmp) / "activity.ipa"
+                with zipfile.ZipFile(ipa, "w") as archive:
+                    archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
+                    root = "Payload/Runner.app/PlugIns/OpenStrapWidgetExtension.appex/"
+                    archive.writestr(root + "Info.plist", plistlib.dumps(ext))
+                    if binary: archive.writestr(root + "Activity", b"fixture executable")
+                    if extra: archive.writestr(extra, b"forbidden")
+                return ipa
+            self.assertEqual(validate_ipa(make(extension))["CFBundleVersion"], "74")
+            for bad in [dict(extension, CFBundleVersion="73"), dict(extension, CFBundleIdentifier=BUNDLE_ID + ".other"),
+                        dict(extension, OpenStrapAppGroupIdentifier="group.shared")]:
+                with self.assertRaises(ContractError): validate_ipa(make(bad))
+            with self.assertRaises(ContractError): validate_ipa(make(extension, binary=False))
+            with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/Other.appex/Info.plist"))
+
 
 
 if __name__ == "__main__":

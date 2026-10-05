@@ -111,6 +111,7 @@ class NotificationPrefs {
   /// every other outbound scheduled nudge; it also stays silent until a
   /// bedtime has actually been learned — see NotificationCenter.windDownSlot.
   final bool windDownEnabled;
+  final bool trainingReviewEnabled;
 
   /// Allowed bounds for [batteryAlertPct]. Below 5% a band is dying, not low;
   /// above 40% the alert would fire constantly and be muted forever.
@@ -138,7 +139,7 @@ class NotificationPrefs {
     this.checkInEnabled = false,
     this.batteryAlertPct = batteryPctDefault,
     this.stepGoalEnabled = true,
-    this.windDownEnabled = false,
+    this.windDownEnabled = false, this.trainingReviewEnabled = false,
   });
 
   static const _kHealth = 'notif_health';
@@ -163,11 +164,13 @@ class NotificationPrefs {
   static const String batteryPctPrefKey = 'notif_battery_pct';
   static const _kBatteryPct = batteryPctPrefKey;
   static const _kStepGoal = 'notif_stepgoal';
+  static const _kTrainingReview = 'notif_training_review';
   static const _kWindDown = 'notif_winddown';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
     return NotificationPrefs(
+      trainingReviewEnabled: p.getBool(_kTrainingReview) ?? false,
       healthEnabled: p.getBool(_kHealth) ?? true,
       recoveryEnabled: p.getBool(_kRecovery) ?? true,
       remindersEnabled: p.getBool(_kReminders) ?? true,
@@ -222,6 +225,7 @@ class NotificationPrefs {
         _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax).toInt());
     await p.setBool(_kStepGoal, stepGoalEnabled);
     await p.setBool(_kWindDown, windDownEnabled);
+    await p.setBool(_kTrainingReview, trainingReviewEnabled);
   }
 
   NotificationPrefs copyWith({
@@ -241,7 +245,7 @@ class NotificationPrefs {
     bool? checkInEnabled,
     int? batteryAlertPct,
     bool? stepGoalEnabled,
-    bool? windDownEnabled,
+    bool? windDownEnabled, bool? trainingReviewEnabled,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -262,6 +266,7 @@ class NotificationPrefs {
         batteryAlertPct: batteryAlertPct ?? this.batteryAlertPct,
         stepGoalEnabled: stepGoalEnabled ?? this.stepGoalEnabled,
         windDownEnabled: windDownEnabled ?? this.windDownEnabled,
+        trainingReviewEnabled: trainingReviewEnabled ?? this.trainingReviewEnabled,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {
@@ -316,6 +321,7 @@ class NotificationPrefs {
         routePath(event.route ?? '') == kRouteSteps) {
       return false;
     }
+    if (!trainingReviewEnabled && routePath(event.route ?? '') == kRouteTrainingReview) return false;
     final klass = classOf(event);
     if (klass == null) return false; // not one of the three — never fires
     // The alarm is the one thing quiet hours must not silence: the user armed

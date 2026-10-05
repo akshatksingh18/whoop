@@ -620,18 +620,25 @@ class _MealPageState extends State<MealPage> with RevisionReload {
 
   Future<void> _delete(FoodEntry e) async {
     // Remove the dismissed widget immediately, before the async DB write.
+    beginRead(#mealDay); // An older read must not resurrect the dismissed row.
     setState(() => _entries = _entries?.where((x) => x.id != e.id).toList());
     try {
       await NutritionDb.delete(await LocalDb.instance, e.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.clearSnackBars();
+      messenger.showSnackBar(
         SnackBar(
           content: Text('Deleted ${e.label}'),
+          duration: Motion.notice,
+          // Flutter otherwise keeps every snackbar with an action open.
+          persist: false,
           action: SnackBarAction(
             label: 'Undo',
             onPressed: () async {
               try {
                 await NutritionDb.put(await LocalDb.instance, e);
+                if (mounted) await _load();
               } catch (_) {
                 if (mounted) {
                   _say(

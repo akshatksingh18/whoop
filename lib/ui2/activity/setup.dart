@@ -24,6 +24,8 @@ import '../theme.dart';
 import 'catalogue.dart';
 import '../../gps/run_history.dart' show isRunType, isWalkType;
 import 'live.dart';
+import '../../gps/workout_clock.dart';
+import 'workout_context.dart';
 
 /// The window the calorie estimate is quoted over — the same one
 /// [ActivityRow] uses in the picker, so a row and this screen agree.
@@ -51,6 +53,7 @@ class ActivitySetup extends StatefulWidget {
 class _ActivitySetupState extends State<ActivitySetup> {
   late bool private = widget.a.private;
 
+  List<String> _contextTags = [];
   bool _starting = false;
   bool _refused = false;
 
@@ -72,6 +75,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
     // user types from here belongs to the session, and has to survive the
     // screen being minimised or the process being killed.
     if (start != null) {
+      final clock = WorkoutClock.current;
+      if (clock != null) {
+        clock.results['context'] = _contextTags;
+        clock.save();
+      }
       LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
     }
     await Navigator.of(context).pushReplacement(
@@ -202,9 +210,9 @@ class _ActivitySetupState extends State<ActivitySetup> {
                         Expanded(
                           child: Text(
                             isWalkType(a.typeKey)
-                                ? 'Active calories use your measured steps and weight (Method 1), already included in daily maintenance. Net heart-rate Method 2 is a comparison.'
+                                ? 'Budget uses counted steps and weight. ACSM uses distance and weight. Both are active energy above resting and are already counted once in maintenance. Heart-rate energy is separate analysis.'
                                 : isRunType(a.typeKey)
-                                ? 'Active calories use running distance and walking breaks (Method 1). Net heart-rate Method 2 is a comparison; resting calories are already in BMR.'
+                                ? 'Budget and ACSM use running distance and walking breaks with your weight, using different energy coefficients. Both exclude resting energy already in BMR. Heart-rate energy is separate analysis.'
                                 : a.met == null
                                 ? (l?.activitySetupNoMetEstimate ??
                                       'No estimate up front: no published MET '
@@ -231,6 +239,13 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       ],
                     ),
                   ),
+                  if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
+                    const SizedBox(height: S.x4),
+                    WorkoutContextSelector(
+                      tags: _contextTags,
+                      onChanged: (v) => setState(() => _contextTags = v),
+                    ),
+                  ],
                   if (_refused) ...[
                     const SizedBox(height: S.x4),
                     StatusCard(

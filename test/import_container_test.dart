@@ -45,13 +45,19 @@ void _writeU32LE(Uint8List b, int offset, int value) {
 }
 
 int _readU32LE(Uint8List b, int offset) =>
-    b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24);
+    b[offset] |
+    (b[offset + 1] << 8) |
+    (b[offset + 2] << 16) |
+    (b[offset + 3] << 24);
 
 /// Patch the ONE central-directory entry's declared uncompressed-size field
 /// (offset +24 from its `PK\x01\x02` signature) down by [by] bytes, leaving
 /// the compressed data and its CRC-32 untouched — the exact shape of the real
 /// bug this guards: the size field went stale, the content did not.
-Uint8List _understateCentralDirectorySize(List<int> zipBytes, {required int by}) {
+Uint8List _understateCentralDirectorySize(
+  List<int> zipBytes, {
+  required int by,
+}) {
   final b = Uint8List.fromList(zipBytes);
   final cdr = _findSig(b, const [0x50, 0x4B, 0x01, 0x02]);
   _writeU32LE(b, cdr + 24, _readU32LE(b, cdr + 24) - by);
@@ -146,16 +152,15 @@ void main() {
 
   group('sniffImportContainer', () {
     test('classifies the containers users actually pick', () {
-      expect(
-        sniffImportContainer(_zipOf({'a.csv': 'x'})),
-        ImportContainer.zip,
-      );
+      expect(sniffImportContainer(_zipOf({'a.csv': 'x'})), ImportContainer.zip);
       expect(
         sniffImportContainer(utf8.encode('SQLite format 3\x00rest')),
         ImportContainer.sqlite,
       );
-      expect(sniffImportContainer([0x1F, 0x8B, 0x08, 0x00]),
-          ImportContainer.gzip);
+      expect(
+        sniffImportContainer([0x1F, 0x8B, 0x08, 0x00]),
+        ImportContainer.gzip,
+      );
       expect(
         sniffImportContainer(utf8.encode('unix_s,iso_utc,stream\n')),
         ImportContainer.text,
@@ -192,10 +197,10 @@ void main() {
       );
       final out = await resolveImportCsvPaths([path], flavor: 'WHOOP');
       expect(out.paths, hasLength(2));
-      expect(
-        out.paths.map(p.basename).toSet(),
-        {'physiological_cycles.csv', 'sleeps.csv'},
-      );
+      expect(out.paths.map(p.basename).toSet(), {
+        'physiological_cycles.csv',
+        'sleeps.csv',
+      });
       expect(
         await File(out.paths.first).readAsString(),
         contains('Cycle start time'),
@@ -248,7 +253,9 @@ void main() {
     test('an uncompressed-size field that undercounts the real content is '
         'not treated as damage when the CRC still matches', () async {
       final content = utf8.encode('SQLite format 3 ${'z' * 5000}');
-      final zipBytes = _zipOf({'noop-backup.sqlite': String.fromCharCodes(content)});
+      final zipBytes = _zipOf({
+        'noop-backup.sqlite': String.fromCharCodes(content),
+      });
       final patched = _understateCentralDirectorySize(zipBytes, by: 37);
       final path = await write('undercounted.noopbak', patched);
 
@@ -258,31 +265,41 @@ void main() {
       await db.dispose();
     });
 
-    test('an uncompressed-size mismatch with a WRONG crc is still refused',
-        () async {
-      final content = utf8.encode('SQLite format 3 ${'z' * 5000}');
-      final zipBytes = _zipOf({'noop-backup.sqlite': String.fromCharCodes(content)});
-      // Undercount the size (as above) AND corrupt the declared CRC-32 fields
-      // themselves, leaving the compressed data untouched. The archive still
-      // decodes; what it actually produces no longer matches what it CLAIMS
-      // to have produced, which is real damage rather than a stale size field
-      // and must still be refused.
-      final tampered =
-          _corruptDeclaredCrc32(_understateCentralDirectorySize(zipBytes, by: 37));
-      final path = await write('tampered.noopbak', tampered);
+    test(
+      'an uncompressed-size mismatch with a WRONG crc is still refused',
+      () async {
+        final content = utf8.encode('SQLite format 3 ${'z' * 5000}');
+        final zipBytes = _zipOf({
+          'noop-backup.sqlite': String.fromCharCodes(content),
+        });
+        // Undercount the size (as above) AND corrupt the declared CRC-32 fields
+        // themselves, leaving the compressed data untouched. The archive still
+        // decodes; what it actually produces no longer matches what it CLAIMS
+        // to have produced, which is real damage rather than a stale size field
+        // and must still be refused.
+        final tampered = _corruptDeclaredCrc32(
+          _understateCentralDirectorySize(zipBytes, by: 37),
+        );
+        final path = await write('tampered.noopbak', tampered);
 
-      await expectLater(
-        resolveNoopDatabase(path),
-        throwsA(isA<ImportFormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('does not hold what it says'),
-        )),
-      );
-    });
+        await expectLater(
+          resolveNoopDatabase(path),
+          throwsA(
+            isA<ImportFormatException>().having(
+              (e) => e.message,
+              'message',
+              contains('does not hold what it says'),
+            ),
+          ),
+        );
+      },
+    );
 
     test('a loose database is taken as-is and never deleted', () async {
-      final path = await write('loose-noop.sqlite', utf8.encode('SQLite format 3  '));
+      final path = await write(
+        'loose-noop.sqlite',
+        utf8.encode('SQLite format 3  '),
+      );
       final db = await resolveNoopDatabase(path);
       expect(db!.path, path);
       // Disposing must NOT delete a file we did not unpack — it is the user's
@@ -333,17 +350,12 @@ void main() {
       // survivor twice.
       final path = await write(
         'export.zip',
-        _zipOf({
-          'daily/data.csv': 'a\n1\n',
-          'workouts/data.csv': 'b\n2\n',
-        }),
+        _zipOf({'daily/data.csv': 'a\n1\n', 'workouts/data.csv': 'b\n2\n'}),
       );
       final out = await resolveImportCsvPaths([path], flavor: 'WHOOP');
       expect(out.paths, hasLength(2));
       expect(out.paths.toSet(), hasLength(2), reason: 'no shared destination');
-      final bodies = [
-        for (final f in out.paths) await File(f).readAsString(),
-      ];
+      final bodies = [for (final f in out.paths) await File(f).readAsString()];
       expect(bodies, containsAll(<String>['a\n1\n', 'b\n2\n']));
       await out.dispose();
     });
@@ -354,25 +366,28 @@ void main() {
       final out = await resolveImportCsvPaths([a, b], flavor: 'WHOOP');
       expect(out.paths, hasLength(2));
       expect(out.paths.toSet(), hasLength(2));
-      final bodies = [
-        for (final f in out.paths) await File(f).readAsString(),
-      ];
+      final bodies = [for (final f in out.paths) await File(f).readAsString()];
       expect(bodies, containsAll(<String>['a\n1\n', 'b\n2\n']));
       await out.dispose();
     });
 
-    test('a malformed archive fails with a message, not a decoder crash',
-        () async {
-      // A ZIP magic number on bytes that are not a ZIP.
-      final path = await write(
-        'broken.zip',
-        [0x50, 0x4B, 0x03, 0x04, ...List<int>.filled(64, 0x41)],
-      );
-      await expectLater(
-        resolveImportCsvPaths([path], flavor: 'WHOOP'),
-        throwsA(isA<ImportFormatException>()),
-      );
-    });
+    test(
+      'a malformed archive fails with a message, not a decoder crash',
+      () async {
+        // A ZIP magic number on bytes that are not a ZIP.
+        final path = await write('broken.zip', [
+          0x50,
+          0x4B,
+          0x03,
+          0x04,
+          ...List<int>.filled(64, 0x41),
+        ]);
+        await expectLater(
+          resolveImportCsvPaths([path], flavor: 'WHOOP'),
+          throwsA(isA<ImportFormatException>()),
+        );
+      },
+    );
 
     test('an archive with no CSVs at all says so', () async {
       final path = await write(
@@ -408,16 +423,18 @@ void main() {
           .map((d) => d.path)
           .where((d) => d.contains('openstrap_import_'))
           .toSet();
-      final before = importDirs();
-      await expectLater(
-        resolveImportCsvPaths([zip, db], flavor: 'WHOOP'),
-        throwsA(isA<ImportFormatException>()),
-      );
-      expect(
-        importDirs().difference(before),
-        isEmpty,
-        reason: 'the extraction from the first file was cleaned up',
-      );
+      await IOOverrides.runZoned(() async {
+        final before = importDirs();
+        await expectLater(
+          resolveImportCsvPaths([zip, db], flavor: 'WHOOP'),
+          throwsA(isA<ImportFormatException>()),
+        );
+        expect(
+          importDirs().difference(before),
+          isEmpty,
+          reason: 'the extraction from the first file was cleaned up',
+        );
+      }, getSystemTempDirectory: () => tmp);
     });
 
     test('AppleDouble resource forks are not mistaken for CSVs', () async {
@@ -460,8 +477,10 @@ void main() {
         0,
         ...List.filled(64, 0),
       ];
-      final path =
-          await write('openstrap-20260810-120000.db.gz', gzip.encode(db));
+      final path = await write(
+        'openstrap-20260810-120000.db.gz',
+        gzip.encode(db),
+      );
       final resolved = await resolveNoopDatabase(path);
       expect(resolved, isNotNull);
       try {
@@ -475,8 +494,7 @@ void main() {
     });
 
     test('a gzipped CSV is NOT claimed by the database path', () async {
-      final path =
-          await write('data.csv.gz', gzip.encode(utf8.encode('a,b')));
+      final path = await write('data.csv.gz', gzip.encode(utf8.encode('a,b')));
       expect(await resolveNoopDatabase(path), isNull);
     });
 
@@ -491,30 +509,42 @@ void main() {
       );
     });
 
-    test('a corrupt gzip fails with guidance and leaves nothing behind',
-        () async {
-      // Valid magic so the sniff routes it here, garbage where the deflate
-      // stream should be. The deflate stream itself rejects this one; the two
-      // tests below cover the damage the decoder does NOT notice.
-      final path = await write('broken.csv.gz', <int>[
-        0x1F, 0x8B, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0x03,
-        ...List<int>.generate(64, (i) => (i * 37 + 11) & 0xFF),
-      ]);
-      final dir = await Directory.systemTemp.createTemp('gz_partial_');
-      try {
-        await expectLater(
-          inflateGzip(path, dir),
-          throwsA(isA<ImportFormatException>()),
-        );
-        expect(
-          dir.listSync(),
-          isEmpty,
-          reason: 'a half-inflated file must not be left for a caller to read',
-        );
-      } finally {
-        await dir.delete(recursive: true);
-      }
-    });
+    test(
+      'a corrupt gzip fails with guidance and leaves nothing behind',
+      () async {
+        // Valid magic so the sniff routes it here, garbage where the deflate
+        // stream should be. The deflate stream itself rejects this one; the two
+        // tests below cover the damage the decoder does NOT notice.
+        final path = await write('broken.csv.gz', <int>[
+          0x1F,
+          0x8B,
+          0x08,
+          0x00,
+          0,
+          0,
+          0,
+          0,
+          0x00,
+          0x03,
+          ...List<int>.generate(64, (i) => (i * 37 + 11) & 0xFF),
+        ]);
+        final dir = await Directory.systemTemp.createTemp('gz_partial_');
+        try {
+          await expectLater(
+            inflateGzip(path, dir),
+            throwsA(isA<ImportFormatException>()),
+          );
+          expect(
+            dir.listSync(),
+            isEmpty,
+            reason:
+                'a half-inflated file must not be left for a caller to read',
+          );
+        } finally {
+          await dir.delete(recursive: true);
+        }
+      },
+    );
 
     test('a truncated gzip is refused instead of restored short', () async {
       // The half-synced-backup case, and the one that mattered: `gzip.decoder`
@@ -545,16 +575,13 @@ void main() {
       }
     });
 
-    test('a gzip whose contents no longer match its checksum is refused',
-        () async {
+    test('a gzip whose contents no longer match its checksum is refused', () async {
       // The boundary of the case above: when the stream is COMPLETE, zlib
       // reaches the trailer and checks it itself, so this is refused whether or
       // not inflateGzip verifies anything. Pinned because that is exactly why
       // truncation was missed — the checking only ever happened at the end of a
       // stream that arrived, and a cut file never gets there.
-      final full = <int>[
-        ...gzip.encode(utf8.encode('a,b,c\n' * 500)),
-      ];
+      final full = <int>[...gzip.encode(utf8.encode('a,b,c\n' * 500))];
       final crcAt = full.length - 8;
       full[crcAt] = full[crcAt] ^ 0xFF;
       final path = await write('flipped.csv.gz', full);
@@ -606,8 +633,10 @@ void main() {
     });
 
     test('a WHOOP CSV on its own is NOT a NOOP export', () async {
-      final path = await write('sleeps.csv',
-          utf8.encode('Cycle start time,Sleep performance %\n2026-08-01,88\n'));
+      final path = await write(
+        'sleeps.csv',
+        utf8.encode('Cycle start time,Sleep performance %\n2026-08-01,88\n'),
+      );
       expect(await isNoopExport(path), isFalse);
     });
 
@@ -620,14 +649,18 @@ void main() {
     });
 
     test('a loose database is claimed by its magic', () async {
-      final path =
-          await write('unnamed', utf8.encode('SQLite format 3\x00 rows'));
+      final path = await write(
+        'unnamed',
+        utf8.encode('SQLite format 3\x00 rows'),
+      );
       expect(await isNoopExport(path), isTrue);
     });
 
     test('a single CSV zipped by hand is still a NOOP export', () async {
-      final path = await write('archive.zip',
-          _zipOf({'raw_sensor.csv': 'unix_s,iso_utc,stream\n1,x,hr\n'}));
+      final path = await write(
+        'archive.zip',
+        _zipOf({'raw_sensor.csv': 'unix_s,iso_utc,stream\n1,x,hr\n'}),
+      );
       expect(await isNoopExport(path), isTrue);
     });
 
@@ -646,8 +679,10 @@ void main() {
     test('a leading comment does not lose the file', () async {
       final path = await write(
         'export.csv',
-        utf8.encode('# noop raw sensor export\n# v3\n'
-            'unix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n'),
+        utf8.encode(
+          '# noop raw sensor export\n# v3\n'
+          'unix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n',
+        ),
       );
       expect(await isNoopExport(path), isTrue);
     });
@@ -655,7 +690,9 @@ void main() {
     test('leading blank lines do not lose the file', () async {
       final path = await write(
         'export.csv',
-        utf8.encode('\n\r\n\nunix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n'),
+        utf8.encode(
+          '\n\r\n\nunix_s,iso_utc,stream,hr_bpm\n1754000000,x,hr,61\n',
+        ),
       );
       expect(await isNoopExport(path), isTrue);
     });
@@ -664,8 +701,10 @@ void main() {
       // The positional layout in `NoopImporter._defaultCols`, no header row.
       final path = await write(
         'raw.csv',
-        utf8.encode('1754000000,2026-08-01T00:00:00Z,hr,61,,,,,,,,,,,,,\n'
-            '1754000001,2026-08-01T00:00:01Z,hr,62,,,,,,,,,,,,,\n'),
+        utf8.encode(
+          '1754000000,2026-08-01T00:00:00Z,hr,61,,,,,,,,,,,,,\n'
+          '1754000001,2026-08-01T00:00:01Z,hr,62,,,,,,,,,,,,,\n',
+        ),
       );
       expect(await isNoopExport(path), isTrue);
     });
@@ -673,8 +712,10 @@ void main() {
     test('a vendor CSV behind a comment is still not ours', () async {
       final path = await write(
         'sleeps.csv',
-        utf8.encode('# exported 2026-08-01\n'
-            'Cycle start time,Sleep performance %\n2026-08-01,88\n'),
+        utf8.encode(
+          '# exported 2026-08-01\n'
+          'Cycle start time,Sleep performance %\n2026-08-01,88\n',
+        ),
       );
       expect(await isNoopExport(path), isFalse);
     });
@@ -694,23 +735,27 @@ void main() {
       expect(await isNoopExport(path), isFalse);
     });
 
-    test('a file exactly as long as the read window keeps its last record',
-        () async {
-      // A full buffer used to MEAN truncated, so a file whose length is exactly
-      // the window — and whose final record has no trailing newline — had that
-      // record thrown away and went to the vendor importer.
-      final body = '${'# pad\n' * 678}unix_s,iso_utc,stream,hr_bpm';
-      expect(body.length, 4096);
-      final path = await write('export.csv', utf8.encode(body));
-      expect(await isNoopExport(path), isTrue);
-    });
+    test(
+      'a file exactly as long as the read window keeps its last record',
+      () async {
+        // A full buffer used to MEAN truncated, so a file whose length is exactly
+        // the window — and whose final record has no trailing newline — had that
+        // record thrown away and went to the vendor importer.
+        final body = '${'# pad\n' * 678}unix_s,iso_utc,stream,hr_bpm';
+        expect(body.length, 4096);
+        final path = await write('export.csv', utf8.encode(body));
+        expect(await isNoopExport(path), isTrue);
+      },
+    );
 
     test('a header past the read ceiling is not guessed at', () async {
       // 4 KB of comments, then the header. Bounded read means bounded answer:
       // it declines rather than materialising the file to be sure.
       final path = await write(
         'export.csv',
-        utf8.encode('${'# pad\n' * 1200}unix_s,iso_utc,stream\n1754000000,x,hr\n'),
+        utf8.encode(
+          '${'# pad\n' * 1200}unix_s,iso_utc,stream\n1754000000,x,hr\n',
+        ),
       );
       expect(await isNoopExport(path), isFalse);
     });

@@ -312,7 +312,12 @@ The published/cached build-74 artifact below remains unchanged. Local replacemen
 adds Food → Foods → My foods → Scan, review before Save, manual fallback, nullable macros,
 barcode-key updates and no library diary writes. Meal scanning shares editable review, then
 requires explicit confirmation on the portion/meal screen before a diary write. This unaccepted replacement retains `0.9.41`/`74`;
-its public publication, CI, native build and replacement artifact validation are pending.
+Akshat approved publishing the replacement. Source `ba5bb29f029ced2e5785987856484194778e7ab3`
+is published; personal macOS build `37395690305` passes. Downloaded version/source, SHA-256,
+ZIP and personal payload/extension checks pass. Full CI `37395690371` passed all scanner checks
+but failed an existing small-screen fixture whose fixed 9–10 AM steps were in the future when
+CI ran after midnight UTC. The test-only repair uses today's elapsed step window; app code is
+unchanged. Corrected-fixture CI must pass before replacing the testing artifact.
 Local scanner validation passes 71 focused personal food/lookup/store/UI tests and eight iOS
 contract tests; `personal_ios.py check` and analysis pass with no errors/warnings. The shared
 meal/library regression checks review/cancel/save, missing macros, offline lookup, barcode

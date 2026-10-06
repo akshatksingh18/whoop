@@ -116,8 +116,9 @@ class GraphRepo extends LocalRepository {
     'phone': steps,
     'spans': [
       {
-        'start_ts': base + 9 * 3600,
-        'end_ts': base + 10 * 3600,
+        // Already-recorded steps: a 9 AM fixture becomes future data on early CI runs.
+        'start_ts': base,
+        'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
         'source': 'phone',
         'steps': steps,
       },

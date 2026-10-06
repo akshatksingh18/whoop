@@ -34,8 +34,10 @@ update one food, preserve ancillary label data and work offline. Unknown/flagged
 lookups offer manual label entry; missing nutrients stay blank. Repeated library taps are guarded.
 This addition is implemented locally, not in the cached `78461799` IPA. Keep `0.9.41`/`74`
 for this unaccepted replacement; local checks pass (71 focused personal tests, eight iOS
-contract checks and analysis with no errors/warnings). Obtain public-repository publication/
-build approval for the committed source, validate the new IPA and replace the sole testing candidate. Recovery 70 stays.
+contract checks and analysis with no errors/warnings). Publication and iPhone build are approved;
+source `ba5bb29f` is published and its native build/downloaded artifact checks pass. Full CI
+requires the existing future-dated layout fixture repair (app code unchanged) before replacing
+the sole testing candidate. `setup.md` owns the exact run/artifact evidence. Recovery 70 stays.
 Phone check: Scan → review → save/reload; camera/review cancel; rescan; manual fallback;
 serving scaling and no unintended meal entry.
 

@@ -13,8 +13,8 @@ compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture co
 
 Source `0.9.41`/`74`, commit `ba5bb29f`, is published with approval; Linux CI
 `37397127258`, macOS build `37395690305` and downloaded version/source, checksum, ZIP and payload
-checks pass. Build 74 is not installed yet. Its extension changes the payload contract and requires
-exact-version signing, overwrite/data continuity, phone behavior and refresh acceptance.
+checks pass. Build 74 is installed at the exact final ID with its extension kept. It still requires
+extension behavior, overwrite/data continuity, phone behavior and refresh acceptance.
 Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under

@@ -1703,7 +1703,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final hrv = d.hrvNight ?? hrvMean;
     final z = d.skinTempZ;
 
-    final rows = <(String, String, String, Color, List<double?>)>[
+    final rows = <(String, String, String, Color, List<double?>, String)>[
       if (avgHr != null || hrMean != null)
         (
           loc?.sleepDetailHeartRate ?? 'Heart rate',
@@ -1711,9 +1711,17 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           minHr == null ? 'average' : 'average · lowest ${minHr.round()}',
           C.heart,
           hrLine,
+          'resting_hr',
         ),
       if (hrv != null)
-        ('HRV', '${hrv.round()} ms', 'through the night', C.green, hrvLine),
+        (
+          'HRV',
+          '${hrv.round()} ms',
+          'through the night',
+          C.green,
+          hrvLine,
+          'hrv',
+        ),
       if (z != null || tempLine.any((v) => v != null))
         (
           loc?.sleepDetailSkinTemp ?? 'Skin temperature',
@@ -1727,6 +1735,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               : (z > 0 ? 'warmer than usual' : 'cooler than usual'),
           C.orange,
           tempLine,
+          'skin_temp',
         ),
       if (respV != null)
         (
@@ -1735,6 +1744,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           'average',
           C.teal,
           respLine,
+          'resp_rate',
         ),
     ];
     if (rows.isEmpty) return _noOvernightLines(c);
@@ -1743,42 +1753,48 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         children: [
           for (var i = 0; i < rows.length; i++) ...[
             if (i > 0) Divider(color: p.line, height: S.x6),
-            Row(
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(rows[i].$1, style: F.cap.copyWith(color: p.ink3)),
-                      const SizedBox(height: 2),
-                      Text(
-                        rows[i].$2,
-                        style: F.n17.copyWith(color: p.on(rows[i].$4)),
-                      ),
-                      Text(rows[i].$3, style: F.over.copyWith(color: p.ink3)),
-                    ],
+            Pressable(
+              onTap: () => go(c, MetricDetail.at(rows[i].$6, d.day)),
+              semanticLabel: '${rows[i].$1} ${rows[i].$2}, open its trend',
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(rows[i].$1, style: F.cap.copyWith(color: p.ink3)),
+                        const SizedBox(height: 2),
+                        Text(
+                          rows[i].$2,
+                          style: F.n17.copyWith(color: p.on(rows[i].$4)),
+                        ),
+                        Text(rows[i].$3, style: F.over.copyWith(color: p.ink3)),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: S.x3),
-                Expanded(
-                  flex: 6,
-                  child: SizedBox(
-                    height: 40,
-                    child: rows[i].$5.where((v) => v != null).length < 2
-                        ? const SizedBox.shrink()
-                        : CustomPaint(
-                            size: Size.infinite,
-                            painter: LineChart(
-                              rows[i].$5,
-                              p.on(rows[i].$4),
-                              fill: false,
-                              t: animate(c, 1),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    flex: 6,
+                    child: SizedBox(
+                      height: 40,
+                      child: rows[i].$5.where((v) => v != null).length < 2
+                          ? const SizedBox.shrink()
+                          : CustomPaint(
+                              size: Size.infinite,
+                              painter: LineChart(
+                                rows[i].$5,
+                                p.on(rows[i].$4),
+                                fill: false,
+                                t: animate(c, 1),
+                              ),
                             ),
-                          ),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: S.x2),
+                  Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                ],
+              ),
             ),
           ],
         ],

@@ -6,8 +6,8 @@ the built personal source `0.9.41`/`74` (algorithm 90); physical-device validati
 
 **Status:** Build 74 source `ba5bb29f` is published with Akshat's approval and passes local
 regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
-Build 74 is the single testing candidate, awaiting installation, complete phone acceptance and
-current-version enrollment. Build 73 remains installed but was not accepted; its testing artifact
+Build 74 is the single testing candidate, installed and awaiting complete phone acceptance and
+current-version enrollment. Build 73 was replaced on the phone and was not accepted; its testing artifact
 is superseded. Build 70 remains the accepted recovery. `build-74-audit.md`
 records chart/navigation/notification findings and implemented calorie comparisons; `todo.md` owns
 the implemented build-74 contract and release gates. Budget coefficients are unchanged; ACSM is
@@ -137,11 +137,15 @@ Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
 | Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
 | Naps | — | — | Sleep → Naps section on a day with one; Naps screen to edit |
 | Workouts, GPS | — | — | Train: Run / Walk / Lift / Other, run-or-walk streak, draggable 7-day strain (tap opens that day), running trends (draggable weekly distance, predicted 5K/10K, best 1K/5K/10K/half), recent sessions; a run opens the run screen (Apple Maps route, calories by distance and by heart rate, best efforts, verdict, splits, linked pace/HR/elevation charts, pace zones); a walk opens the same screen without the running-only parts |
-| Food, calories left, macros | — | — | Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, My foods (default) / My meals, sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with optional fibre; decimal servings and heading selection before logging; saved-food/meal deletion directly in the picker |
+| Food, calories left, macros | — | — | Build-75 source: Maintenance → Calories (opens the whole day) → Macros; meal cards show kcal and P/C/F; one dragged order for My foods and saved meals shared with the log screen (no sort); + opens the portion screen or saved-meal review; − / + amounts; up to two named measures per food; saved meals keep sub-headings; swipe either way deletes. Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, My foods (default) / My meals, sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with optional fibre; decimal servings and heading selection before logging; saved-food/meal deletion directly in the picker |
 | Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, estimated maintenance from food and weight), completed-day weekly deficit, trailing 31-day maintenance-vs-eaten chart with range caption, lazy calendar-month accordions (current open, older closed), logged-day rows that open for editing |
 
-Trends opens on Week, with a Week / Month / 3 months switch. Each row shows the average for the
-range, a small line, and the newest reading. Sleep and Strain's Today sections reuse their full
+Build-75 source: Trends opens on 7 days, with the same Today / 7 days / 30 days / 3 months
+switch every metric screen uses. Each row shows today's value (Today) or the range's daily
+average, with a small line; tapping opens the metric at the same range. Every metric shows its
+newest day with ‹ › arrows and opens that day (night signals open Sleep, Wear the breakdown);
+7 days lists days, 30 days weekly and 3 months monthly averages with a 7-day average line.
+Build 74 and earlier opened Trends on Week and showed the newest reading in every range. Sleep and Strain's Today sections reuse their full
 daily detail charts. Step calories opens its own kcal trend rather than the Steps dashboard;
 it uses the same dated walking contribution as daily maintenance.
 Build 73's Step calories detail still defaults to 7 days and lacks a direct daily breakdown;
@@ -149,8 +153,9 @@ Steps' dated action appears only after chart selection. These remaining navigati
 breathing history and shared readout/time limits are implemented in build 74;
 `build-74-audit.md` and `todo.md` own the validation limits.
 
-**Readiness:** history is one coloured bar per day; dragging an empty day reads its stored
-reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
+**Readiness:** history is a line (build-75 source; coloured bars before), opened from Trends
+through the shared metric screen with the same ranges; its inputs open their own metric.
+Dragging an empty day reads its stored reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
 
 The end-to-end readiness audit found no bug. Each night writes HRV (`ln_rmssd`), resting HR,
 breathing and skin temperature into `metric_series`. `_BaselineHistoryCache` reads the last 28

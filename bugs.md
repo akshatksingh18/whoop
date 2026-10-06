@@ -195,7 +195,7 @@ The IPA validator permits ZIP's required `PlugIns/` parent for the contract-chec
 extension and rejects unexpected sibling plugins/files; the realistic archive regression covers
 the parent-directory packaging failure. Build-74 source `ba5bb29f`, Linux CI `37397127258`,
 macOS build `37395690305` and downloaded checksum/manifest/payload/ZIP checks pass. It is the
-testing candidate, awaiting installation and device acceptance; build 70 remains recovery.
+testing candidate, installed (Akshat), awaiting device acceptance; build 70 remains recovery.
 
 ## Workout, sync and profile consistency
 

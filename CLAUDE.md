@@ -39,8 +39,12 @@ contract tests; analysis has 113 informational lints and no errors/warnings. Ren
 Source `ba5bb29f` is published with Akshat's approval; Linux CI `37397127258` and personal macOS
 build `37395690305` pass. Downloaded source/version, checksum, ZIP integrity and payload checks
 pass, including the single version-matched workout extension. The sole testing candidate is
-`final-ipas\whoop\testing\WHOOP-0.9.41-build74-ba5bb29f`. Build 74 is not installed yet;
-its complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
+`final-ipas\whoop\testing\WHOOP-0.9.41-build74-ba5bb29f`. Akshat reports build 74 installed;
+its complete phone pass and current-version enrollment remain unconfirmed. His first-use report
+(no Live Activity, Trends day/range navigation, Food workflow, day-breakdown noise, calorie
+verification) is audited in `build-75-audit.md`. With his decisions D1–D8, source
+`0.9.42`/`75` implements it locally (unpublished, not phone-verified); `todo.md` owns its
+publication and phone gates. `setup.md` owns
 artifact evidence. The replacement includes direct My foods scanning and shared editable meal-scan
 review, manual fallback and confirmation before persistence/logging. CI passes at test-only repair
 `fa16be3c`, whose app/packaging inputs match IPA source `ba5bb29f`. `todo.md` owns phone gates.
@@ -85,7 +89,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 74,
-awaiting installation, the complete phone pass and current-version enrollment.
+installed and awaiting the complete phone pass and current-version enrollment.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -181,6 +185,10 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Files
 - `todo.md` — build-74 release/device gates, build-73 phone checks and remaining lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
+- `build-75-audit.md` — installed-build-74 findings: Live Activity scope/diagnostics, Trends
+  range/day navigation and links, bar-to-line charts, tab re-tap, Food ordering/serving/saved-meal
+  workflow, day-breakdown noise and calorie verification; Akshat's decisions D1–D8 and the
+  implemented build-75 list with deferrals; read before changing build 75.
 - `build-74-audit.md` — installed-build-73 chart, navigation, notification and workout findings;
   primary calorie research, assessment of the pasted brainstorming, implemented ACSM/Live
   Activity/fortnightly-review contract and acceptance tests; read before changing build 74.
@@ -276,8 +284,10 @@ evidence below.
   inferred. Decimal profile inputs preserve precision and refresh dated calculation dependencies.
 - Nap edits update lists, Sleep periods and the timeline from one durable ledger before the
   independent retained-history coaching rebuild finishes. Empty days retain Naps; manual reports
-  and detector proposals remain distinct. Trends opens Week and shares full Sleep/Strain Today
-  detail, while Steps has its hourly graph inline and Step calories has its own kcal trend.
+  and detector proposals remain distinct. Build-75 source shares Today · 7 days · 30 days ·
+  3 months between Trends (opening on 7 days) and every metric, carries the range into the
+  metric and shows a dated day row on every metric; Sleep/Strain/Readiness Today reuse their
+  full detail, Steps has its hourly graph inline and Step calories its own kcal trend.
 - Build-73 local validation passes: 3,318 Flutter tests (368 intentional skips), 91 focused
   personal-profile checks and all 7 personal-iOS contract tests. Analysis has 60 infos and no
   errors/warnings. Rendered layouts and small-phone/enlarged-text regressions pass. Linux CI passes
@@ -407,7 +417,7 @@ The personal artifact must have these properties:
     - **Today** (`home_screen.dart`): recovery ring with HRV and resting HR, sleep and strain
       cards, live heart rate over the all-day heart-rate line (opens the scrubbable chart), steps
       and maintenance. The greeting, "Today's plan" and (source 69) the bedtime card are gone.
-    - **Trends** (`health_screen.dart`): one row per core metric with Week / Month / 3 months (Week by default),
+    - **Trends** (`health_screen.dart`): one row per core metric with Today / 7 days / 30 days / 3 months (7 days by default; build-75 source),
       then the illness watch / findings. Naps are on Sleep from source 70. Explore, Beats, Body clock, the Stress row and
       the Consistency cards were removed; their metrics are still computed and stored.
     - **Train** (`workout_screen.dart`): Run / Walk / Lift / Other (Walk from source 69), the

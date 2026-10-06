@@ -23,6 +23,29 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 75: implemented locally (unpublished, not phone-verified)
+
+Akshat approved implementing the build-74 report together with decisions D1–D8 as
+`0.9.42`/`75`; `build-75-audit.md` owns the decisions, root causes and the implemented list.
+Local source only: publication to the public repository, CI, the personal macOS IPA build and
+the testing-cache replacement need Akshat's go-ahead. Build 74 stays the installed candidate and
+build 70 the recovery build.
+
+Phone checks once installed:
+- Walk: lock screen and Dynamic Island card appear; timer keeps counting while locked. If not,
+  Settings → About → Status → Live Activity shows the reason; tap it for a one-minute sample.
+- Trends Today/7/30/3 months: row numbers change with range; tapping opens the same range;
+  every metric shows a day row with ‹ › without touching the chart; HRV/RHR/breathing/skin
+  temperature rows open that night; Readiness has the same tabs and links.
+- Re-tap each bottom tab: back to top; Food back to Today/today; Trends to 7 days.
+- Food: drag order shared between Foods and Log; + opens the portion screen; saved-meal +
+  review; sub-headings survive save → log; swipe either way deletes; meal cards show macros;
+  Calories opens the whole day; egg chips 1–4 without repeats; − / + steps; a scoop measure
+  shows "1 scoop · 29 g".
+- Day breakdown shows only sleep, naps, workouts, band off and HR extremes; battery on Today.
+- Existing data: saved foods keep their previous order after the first open; old saved meals
+  still log under their name.
+
 ## Build 74: direct food-library scan replacement
 
 The published/testing replacement adds Scan beside My foods → New. Scan reuses camera/consent/lookup, opens an
@@ -50,7 +73,7 @@ CI and the personal IPA build to the testing cache. Corrected source `ba5bb29f` 
 `akshatksingh18/whoop`; Linux CI `37397127258` passes. The corrected packaging guard passes eight
 contract checks. Personal macOS build `37395690305` passes; downloaded source/version, checksum,
 ZIP and payload validation pass. The sole candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`; build 74 is not installed yet.
+`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`; Akshat reports build 74 installed.
 
 Implemented: shared future-time chart limits and units; permanent daily Steps/calorie browsing;
 Step calories Today; selectable dated breathing and workout HR history; pause-clock alignment;

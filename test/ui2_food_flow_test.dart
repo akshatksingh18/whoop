@@ -1432,6 +1432,16 @@ void main() {
       );
       await t.ensureVisible(log);
       await t.tap(log);
+      // Build 75: + opens the portion screen first; nothing is written
+      // until Log.
+      await _until(t, () => find.text('Log').evaluate().isNotEmpty);
+      await t.pumpAndSettle();
+      expect(
+        (await t.runAsync(() => NutritionDb.entriesForDay(db, todayLabel())))!,
+        isEmpty,
+      );
+      await t.ensureVisible(find.text('Log').last);
+      await t.tap(find.text('Log').last);
       await _until(
         t,
         () =>
@@ -1464,11 +1474,10 @@ void main() {
         t,
         () => find.text('Breakfast favourite').evaluate().isNotEmpty,
       );
-      await t.tap(
-        find.byWidgetPredicate(
-          (w) =>
-              w is Pressable && w.semanticLabel == 'Remove Breakfast favourite',
-        ),
+      // Build 75: a swipe either way removes, as on every food list.
+      await t.drag(
+        find.byKey(const ValueKey('saved-saved')),
+        const Offset(-450, 0),
       );
       await t.pumpAndSettle();
       await t.tap(find.text('Remove').last);

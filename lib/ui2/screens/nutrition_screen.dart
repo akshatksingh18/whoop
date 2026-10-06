@@ -58,6 +58,20 @@ class NutritionScreen extends StatefulWidget {
 
 class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   int _tab = 0;
+
+  void _reselected() {
+    if (shellReselect.value.$1 != ShellDomain.nutrition || !mounted) return;
+    if (_tab != 0 || _shownDay != null) {
+      setState(() => (_tab = 0, _shownDay = null));
+    }
+  }
+
+  @override
+  void dispose() {
+    shellReselect.removeListener(_reselected);
+    super.dispose();
+  }
+
   NutritionWindow? _month;
   List<String> _historyMonths = const [];
   bool _failed = false, _calorieLoading = false, _calorieFailed = false;
@@ -81,6 +95,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   @override
   void initState() {
     super.initState();
+    shellReselect.addListener(_reselected);
     _load();
   }
 
@@ -360,13 +375,17 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
               ],
               xLabels: const ['30 days ago', 'Today'],
               child: Scrubber(
-                value: pick == null ? null : (pick + .5) / days.length,
-                step: 1 / days.length,
+                // Three lines on one axis; point i sits at i/(n-1).
+                value: pick == null || days.length < 2
+                    ? null
+                    : pick / (days.length - 1),
+                step: days.length < 2 ? 1 : 1 / (days.length - 1),
                 label: 'Maintenance and eaten by day',
-                describe: (v) =>
-                    says((v * days.length).floor().clamp(0, days.length - 1)),
+                describe: (v) => says(
+                  (v * (days.length - 1)).round().clamp(0, days.length - 1),
+                ),
                 onChanged: (v) => setState(
-                  () => _histPick = (v * days.length).floor().clamp(
+                  () => _histPick = (v * (days.length - 1)).round().clamp(
                     0,
                     days.length - 1,
                   ),
@@ -375,11 +394,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                   children: [
                     Positioned.fill(
                       child: CustomPaint(
-                        painter: Bars(
+                        painter: LineChart(
                           m,
-                          p.on(C.steps).withValues(alpha: .45),
+                          p.on(C.steps),
+                          fill: false,
                           axis: axis,
                           cursor: pick,
+                          cursorInk: p.ink,
                         ),
                       ),
                     ),
@@ -600,17 +621,31 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                       style: F.cap.copyWith(color: p.ink3),
                     ),
                   )
-                : Column(
-                    children: [
-                      for (final m in _meals)
-                        PickRow(
+                : DragList(
+                    length: _meals.length,
+                    onReorder: (from, to) => edit(() async {
+                      final keys = [
+                        for (final m in reordered(_meals, from, to)) m.key,
+                      ];
+                      setState(() => _meals = reordered(_meals, from, to));
+                      await MyFoods.reorderMeals(await LocalDb.instance, keys);
+                      return null;
+                    }),
+                    itemBuilder: (_, i) {
+                      final m = _meals[i];
+                      return SwipeDelete(
+                        key: ValueKey('meal-${m.key}'),
+                        onDelete: () => edit(() => _deleteMeal(c, m)),
+                        child: PickRow(
                           m.label,
                           '${mealName(m.meal)} · ${m.items.length} '
                           'food${m.items.length == 1 ? '' : 's'}',
                           trailing: LucideIcons.chevronRight,
-                          onTap: () => edit(() => _mealActions(c, m)),
+                          onTap: () =>
+                              edit(() => MealEditor.show(c, existing: m)),
                         ),
-                    ],
+                      );
+                    },
                   ),
           ),
           action: 'New',
@@ -628,16 +663,31 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                       style: F.cap.copyWith(color: p.ink3),
                     ),
                   )
-                : Column(
-                    children: [
-                      for (final f in _foods)
-                        PickRow(
+                : DragList(
+                    length: _foods.length,
+                    onReorder: (from, to) => edit(() async {
+                      final keys = [
+                        for (final f in reordered(_foods, from, to))
+                          f['key'] as String,
+                      ];
+                      setState(() => _foods = reordered(_foods, from, to));
+                      await MyFoods.reorderFoods(await LocalDb.instance, keys);
+                      return null;
+                    }),
+                    itemBuilder: (_, i) {
+                      final f = _foods[i];
+                      return SwipeDelete(
+                        key: ValueKey('food-${f['key']}'),
+                        onDelete: () => edit(() => _deleteFood(c, f)),
+                        child: PickRow(
                           (f['label'] ?? '').toString(),
                           foodServingLine(f),
                           trailing: LucideIcons.chevronRight,
-                          onTap: () => edit(() => _foodActions(c, f)),
+                          onTap: () =>
+                              edit(() => FoodEditor.show(c, existing: f)),
                         ),
-                    ],
+                      );
+                    },
                   ),
           ),
           actions: Wrap(
@@ -674,71 +724,29 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     );
   }
 
-  Future<void> _mealActions(BuildContext c, MealTemplate m) async {
-    final choice = await _chooseAction(c, m.label);
-    if (!c.mounted) return;
-    if (choice == 'edit') {
-      await MealEditor.show(c, existing: m);
-    } else if (choice == 'delete' &&
-        await confirmRemove(
-          c,
-          title: 'Delete ${m.label}?',
-          body: 'Days you already logged keep their entries.',
-        )) {
+  // Tap opens the editor; a swipe either way deletes after this confirm.
+  Future<void> _deleteMeal(BuildContext c, MealTemplate m) async {
+    if (await confirmRemove(
+      c,
+      title: 'Delete ${m.label}?',
+      body: 'Days you already logged keep their entries.',
+    )) {
       await MyFoods.deleteMeal(await LocalDb.instance, m.key);
     }
   }
 
-  Future<void> _foodActions(BuildContext c, Map<String, Object?> f) async {
+  Future<void> _deleteFood(BuildContext c, Map<String, Object?> f) async {
     final label = (f['label'] ?? '').toString();
-    final choice = await _chooseAction(c, label);
-    if (!c.mounted) return;
-    if (choice == 'edit') {
-      await FoodEditor.show(c, existing: f);
-    } else if (choice == 'delete' &&
-        await confirmRemove(
-          c,
-          title: 'Delete $label?',
-          body:
-              'Days you already logged keep their entries; saved meals '
-              'that use it skip it.',
-        )) {
+    if (await confirmRemove(
+      c,
+      title: 'Delete $label?',
+      body:
+          'Days you already logged keep their entries; saved meals '
+          'that use it skip it.',
+    )) {
       await MyFoods.deleteFood(await LocalDb.instance, f['key'] as String);
     }
   }
-
-  Future<String?> _chooseAction(BuildContext c, String title) =>
-      showModalBottomSheet<String>(
-        context: c,
-        sheetAnimationStyle: sheetMotion(c),
-        backgroundColor: P.of(c).card,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-        ),
-        builder: (s) => Padding(
-          padding: const EdgeInsets.all(S.x5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(title, style: F.head.copyWith(color: P.of(s).ink)),
-              const SizedBox(height: S.x4),
-              BigButton(
-                'Edit',
-                color: C.domFood,
-                onTap: () => Navigator.of(s).pop('edit'),
-              ),
-              const SizedBox(height: S.x3),
-              BigButton(
-                'Delete',
-                color: C.red,
-                soft: true,
-                onTap: () => Navigator.of(s).pop('delete'),
-              ),
-            ],
-          ),
-        ),
-      );
 }
 
 // ══════════════════ ONE DAY ══════════════════
@@ -835,13 +843,24 @@ class _NutritionDayViewState extends State<NutritionDayView>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Maintenance first, then what was eaten: calories and macros
+        // together. The Calories card opens the whole day's food.
+        if (_upkeep != null) ...[
+          MaintenanceCard(_upkeep!, today: widget.date == todayLabel()),
+          const SizedBox(height: S.x3),
+        ],
         CalorieCard(
           eaten: d.kcal.value,
           goal: _targetOf(profile, 'kcal_target'),
+          onTap: () async {
+            await Navigator.of(c).push(
+              MaterialPageRoute<void>(
+                builder: (_) => DayFoodPage(date: widget.date),
+              ),
+            );
+            if (mounted) await _changed();
+          },
         ),
-        const SizedBox(height: S.x3),
-        if (_upkeep != null)
-          MaintenanceCard(_upkeep!, today: widget.date == todayLabel()),
         const SizedBox(height: S.x3),
         MacroCard(day: d, profile: profile),
         if (_proteinLeft(d, profile) case final line?) ...[
@@ -867,9 +886,15 @@ class _NutritionDayViewState extends State<NutritionDayView>
 
 /// Goal, food, and what is left. Exercise never adds to the goal.
 class CalorieCard extends StatelessWidget {
-  const CalorieCard({super.key, required this.eaten, required this.goal});
+  const CalorieCard({
+    super.key,
+    required this.eaten,
+    required this.goal,
+    this.onTap,
+  });
 
   final double? eaten, goal;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext c) {
@@ -878,12 +903,25 @@ class CalorieCard extends StatelessWidget {
     final g = goal;
     final left = g == null ? null : g - food;
     return Surface(
+      onTap: onTap,
+      semanticLabel: onTap == null ? null : 'Calories. Opens the whole day',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Calories',
-            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Calories',
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (onTap != null)
+                Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+            ],
           ),
           const SizedBox(height: S.x3),
           // Wrap, not Row: at the largest text sizes the number and its label
@@ -1477,7 +1515,10 @@ class MaintenanceCard extends StatelessWidget {
             const SizedBox(height: S.x3),
             Text(
               'Eaten ${thousands(eaten)} · ${thousands(diff.abs())} '
-              '${diff > 0 ? 'over' : 'under'} Budget maintenance',
+              '${diff > 0 ? 'over' : 'under'} Budget maintenance'
+              // Today's resting energy is the whole day's, but steps and food
+              // are only so far, so the gap closes as the day goes on.
+              '${today ? ' so far' : ''}',
               style: F.cap.copyWith(color: p.ink2),
             ),
           ],

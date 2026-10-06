@@ -153,6 +153,19 @@ DbRebuild? dbRebuildOf(BuildContext c) {
 /// `watch`: AppState ticks at ~1 Hz while a session is live, and this screen
 /// only cares about the bool flipping. The bare-day card branches on it — see
 /// [workoutHoldCard].
+/// The band's last reported battery and charging state, or null with no
+/// reading (or no [AppState] above, as in goldens).
+(double, bool)? bandBatteryOf(BuildContext c) {
+  try {
+    final b = c.select<AppState, (double?, bool?)>(
+      (a) => (a.device.batteryPct, a.device.charging),
+    );
+    return b.$1 == null ? null : (b.$1!, b.$2 ?? false);
+  } catch (_) {
+    return null;
+  }
+}
+
 bool workoutLiveOf(BuildContext c) {
   try {
     return c.select<AppState, bool>((a) => a.activeWorkout != null);
@@ -1747,6 +1760,35 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     ],
                   ),
                 ),
+                // The band's battery at a glance, so checking it does not mean
+                // opening Settings. The last reading the band reported.
+                if (bandBatteryOf(c) case (final pct, final charging)) ...[
+                  Semantics(
+                    label: 'Band battery ${pct.round()} percent'
+                        '${charging ? ', charging' : ''}',
+                    excludeSemantics: true,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          charging
+                              ? LucideIcons.batteryCharging
+                              : pct < 20
+                              ? LucideIcons.batteryLow
+                              : LucideIcons.battery,
+                          size: 18,
+                          color: pct < 20 && !charging ? p.on(C.red) : p.ink2,
+                        ),
+                        const SizedBox(width: S.x1),
+                        Text(
+                          '${pct.round()}%',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: S.x3),
+                ],
                 Pressable(
                   semanticLabel: 'Settings',
                   onTap: () => go(c, const MoreSettings()),

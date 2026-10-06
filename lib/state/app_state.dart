@@ -6721,8 +6721,7 @@ class AppState extends ChangeNotifier {
   void _pushWorkoutActivity({bool force = false}) {
     final w = activeWorkout;
     final id = w?.workoutId;
-    if (w == null || id == null || !(isRunType(w.type) || isWalkType(w.type)))
-      return;
+    if (w == null || id == null || !liveActivityEligible(w.type)) return;
     final now = DateTime.now();
     if (!force && now.difference(_lastLaPush).inSeconds < 4) return;
     _lastLaPush = now;
@@ -6737,9 +6736,21 @@ class AppState extends ChangeNotifier {
         hr: clock?.pausedAt != null ? null : liveHr,
         zone: liveZone,
         lastKmSeconds: _workoutVoice?.lastSplitSec,
-      ),
+      ).then((_) {
+        final why = LiveActivity.lastReason;
+        if (why != null && why != _laReason) {
+          _laReason = why;
+          _log('[workout] live activity: $why');
+        }
+      }),
     );
   }
+
+  String? _laReason;
+
+  /// Foreground return: a start refused while the app was in the background
+  /// (a band-gesture start, a crash resume) is retried now.
+  void refreshLiveActivity() => _pushWorkoutActivity(force: true);
 
   void _tickWorkout() {
     final w = activeWorkout;

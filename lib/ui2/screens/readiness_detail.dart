@@ -161,7 +161,16 @@ class ReadinessData {
 class ReadinessDetail extends StatefulWidget {
   final ReadinessData? data;
   final String? day;
-  const ReadinessDetail({super.key, this.data, this.day});
+
+  /// Inside the shared metric screen's Today tab: no nav bar and no history,
+  /// which that screen's ranges already draw.
+  final bool embedded;
+  const ReadinessDetail({
+    super.key,
+    this.data,
+    this.day,
+    this.embedded = false,
+  });
 
   @override
   State<ReadinessDetail> createState() => _ReadinessDetailState();
@@ -304,163 +313,170 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
     // today's number with somebody else's day.
-    return detailScaffold(c, l?.readinessDetailTitle ?? 'Readiness', [
-      if (widget.day != null)
-        Text(prettyDay(widget.day, l), style: F.body.copyWith(color: p.ink2)),
-      if (_failed)
-        StatusCard(
-          'Recovery could not load',
-          'Your saved nights are intact.',
-          fix: 'Retry',
-          onFix: _load,
-        )
-      else if (_loading && _d == null) ...[
-        const SizedBox(height: S.x8),
-        const Center(child: CircularProgressIndicator()),
-      ] else ...[
-        if (v == null) ...[
-          // No `why:`. The pipeline records why readiness abstained on every
-          // day it does, and the "What was missing" section directly below is
-          // built from that record — a sentence written here was competing
-          // with the real answer one line down and winning.
-          StatusCard.forMetric(
-                l?.readinessDetailNotScoredTitle ?? 'Readiness is not scored',
-                d.readiness,
-                // Where the data stops, appended to whatever the pipeline
-                // said. Not a substitute for the reason and not a reading —
-                // "the last one was Saturday" is a fact about coverage.
-                gap: d.heldOverNight == null
-                    ? null
-                    : (l?.readinessDetailLastNightScored(
-                            prettyDay(d.heldOverNight, l),
-                          ) ??
-                          'The last night scored was '
-                              '${prettyDay(d.heldOverNight, l)}.'),
-              ) ??
-              const SizedBox.shrink(),
-          if (d.absentDiag != null)
-            Section(
-              l?.readinessDetailWhatWasMissing ?? 'What was missing',
-              _absence(c, p, d.absentDiag!),
-            ),
-        ] else
-          Surface(
-            child: Column(
-              children: [
-                SizedBox(
-                  width: 150,
-                  height: 150,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      CustomPaint(
-                        size: const Size(150, 150),
-                        painter: Ring(
-                          d.readiness.normalized(100),
-                          p.on(band.color),
-                          p.track,
-                          stroke: 14,
-                          t: animate(c, 1),
-                        ),
-                      ),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${v.round()}',
-                            style: F.n48.copyWith(color: p.ink),
-                          ),
-                          Text(
-                            band.label,
-                            style: F.cap.copyWith(color: p.on(band.color)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: S.x4),
-                Text(
-                  _advice(band.tier),
-                  textAlign: TextAlign.center,
-                  style: F.body.copyWith(color: p.ink2),
-                ),
-              ],
-            ),
-          ),
-
-        if (d.breakdown.isNotEmpty) ...[
-          Section('What drove it', _breakdown(c, p, d)),
-          if (d.breathingNote != null) ...[
-            const SizedBox(height: S.x2),
-            Text(
-              'Breathing rate not counted last night: ${d.breathingNote}.',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-          ],
-          const SizedBox(height: S.x4),
-          Pressable(
-            onTap: () => setState(() => _showHow = !_showHow),
-            semanticLabel: 'How it is worked out',
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'How it\'s worked out',
-                    style: F.cap.copyWith(color: p.ink2),
-                  ),
-                ),
-                Icon(
-                  _showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                  size: 16,
-                  color: p.ink3,
-                ),
-              ],
-            ),
-          ),
-          if (_showHow) ...[
-            const SizedBox(height: S.x2),
+    return detailScaffold(
+      c,
+      l?.readinessDetailTitle ?? 'Readiness',
+      embedded: widget.embedded,
+      [
+        if (widget.day != null)
+          Text(prettyDay(widget.day, l), style: F.body.copyWith(color: p.ink2)),
+        if (_failed)
+          StatusCard(
+            'Recovery could not load',
+            'Your saved nights are intact.',
+            fix: 'Retry',
+            onFix: _load,
+          )
+        else if (_loading && _d == null) ...[
+          const SizedBox(height: S.x8),
+          const Center(child: CircularProgressIndicator()),
+        ] else ...[
+          if (v == null) ...[
+            // No `why:`. The pipeline records why readiness abstained on every
+            // day it does, and the "What was missing" section directly below is
+            // built from that record — a sentence written here was competing
+            // with the real answer one line down and winning.
+            StatusCard.forMetric(
+                  l?.readinessDetailNotScoredTitle ?? 'Readiness is not scored',
+                  d.readiness,
+                  // Where the data stops, appended to whatever the pipeline
+                  // said. Not a substitute for the reason and not a reading —
+                  // "the last one was Saturday" is a fact about coverage.
+                  gap: d.heldOverNight == null
+                      ? null
+                      : (l?.readinessDetailLastNightScored(
+                              prettyDay(d.heldOverNight, l),
+                            ) ??
+                            'The last night scored was '
+                                '${prettyDay(d.heldOverNight, l)}.'),
+                ) ??
+                const SizedBox.shrink(),
+            if (d.absentDiag != null)
+              Section(
+                l?.readinessDetailWhatWasMissing ?? 'What was missing',
+                _absence(c, p, d.absentDiag!),
+              ),
+          ] else
             Surface(
-              elevation: 0,
-              color: p.card2,
-              child: Text(
-                '${d.inputsUsed} of ${d.breakdown.length} inputs were available. '
-                'Each is compared with your own recent nights; HRV and resting '
-                'heart rate carry most of the weight, skin temperature the least '
-                '(it is a relative reading, not a calibrated temperature).',
-                style: F.cap.copyWith(color: p.ink3, height: 1.5),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: 150,
+                    height: 150,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        CustomPaint(
+                          size: const Size(150, 150),
+                          painter: Ring(
+                            d.readiness.normalized(100),
+                            p.on(band.color),
+                            p.track,
+                            stroke: 14,
+                            t: animate(c, 1),
+                          ),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${v.round()}',
+                              style: F.n48.copyWith(color: p.ink),
+                            ),
+                            Text(
+                              band.label,
+                              style: F.cap.copyWith(color: p.on(band.color)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: S.x4),
+                  Text(
+                    _advice(band.tier),
+                    textAlign: TextAlign.center,
+                    style: F.body.copyWith(color: p.ink2),
+                  ),
+                ],
               ),
             ),
-          ],
-        ] else if (v != null)
-          Section(
-            l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
-            StatusCard(
-              l?.readinessDetailNoBreakdownTitle ?? 'No breakdown yet',
-              l?.readinessDetailNoBreakdownBody ??
-                  'Ranking each input against your own history takes about two '
-                      'weeks of nights.',
-              icon: LucideIcons.listTree,
-            ),
-          ),
 
-        // The header used to say "Last 90 days" over a chart of five points.
-        // It says what is drawn.
-        Section(
-          _historyTitle(c, d),
-          !d.series.any((v) => v != null)
-              ? StatusCard(
-                  l?.readinessDetailNoHistoryTitle ?? 'No readiness history',
-                  l?.readinessDetailNoHistoryBody ?? '0 days scored.',
-                  fix:
-                      l?.readinessDetailWearOvernight ??
-                      'Wear the band overnight',
-                  icon: LucideIcons.chartLine,
-                )
-              : Surface(child: _history(c, d)),
-        ),
+          if (d.breakdown.isNotEmpty) ...[
+            Section('What drove it', _breakdown(c, p, d)),
+            if (d.breathingNote != null) ...[
+              const SizedBox(height: S.x2),
+              Text(
+                'Breathing rate not counted last night: ${d.breathingNote}.',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+            ],
+            const SizedBox(height: S.x4),
+            Pressable(
+              onTap: () => setState(() => _showHow = !_showHow),
+              semanticLabel: 'How it is worked out',
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'How it\'s worked out',
+                      style: F.cap.copyWith(color: p.ink2),
+                    ),
+                  ),
+                  Icon(
+                    _showHow ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                    size: 16,
+                    color: p.ink3,
+                  ),
+                ],
+              ),
+            ),
+            if (_showHow) ...[
+              const SizedBox(height: S.x2),
+              Surface(
+                elevation: 0,
+                color: p.card2,
+                child: Text(
+                  '${d.inputsUsed} of ${d.breakdown.length} inputs were available. '
+                  'Each is compared with your own recent nights; HRV and resting '
+                  'heart rate carry most of the weight, skin temperature the least '
+                  '(it is a relative reading, not a calibrated temperature).',
+                  style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                ),
+              ),
+            ],
+          ] else if (v != null)
+            Section(
+              l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
+              StatusCard(
+                l?.readinessDetailNoBreakdownTitle ?? 'No breakdown yet',
+                l?.readinessDetailNoBreakdownBody ??
+                    'Ranking each input against your own history takes about two '
+                        'weeks of nights.',
+                icon: LucideIcons.listTree,
+              ),
+            ),
+
+          // The header used to say "Last 90 days" over a chart of five points.
+          // It says what is drawn.
+          if (!widget.embedded)
+            Section(
+              _historyTitle(c, d),
+              !d.series.any((v) => v != null)
+                  ? StatusCard(
+                      l?.readinessDetailNoHistoryTitle ??
+                          'No readiness history',
+                      l?.readinessDetailNoHistoryBody ?? '0 days scored.',
+                      fix:
+                          l?.readinessDetailWearOvernight ??
+                          'Wear the band overnight',
+                      icon: LucideIcons.chartLine,
+                    )
+                  : Surface(child: _history(c, d)),
+            ),
+        ],
       ],
-    ]);
+    );
   }
 
   /// The last 90 CALENDAR days, trimmed to start at the first day that
@@ -501,12 +517,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       return '$when · no score, ${_gaps[label(i)] ?? '…'}';
     }
 
-    // Bars, one per day, in the recovery colours; at large text or with no
-    // per-day colours the plain line was hard to read with gaps.
-    final colors = [
-      for (final v in win) p.on(v == null ? C.n500 : readinessBand(v, l).color),
-    ];
-    int at(double f) => n < 1 ? 0 : (f * n).floor().clamp(0, n - 1);
+    // A line like every other day-by-day chart; the band of the touched day
+    // is in the readout. Point i sits at i/(n-1).
+    int at(double f) => n < 2 ? 0 : (f * (n - 1)).round().clamp(0, n - 1);
     return ChartFrame(
       title: l?.readinessDetailTitle ?? 'Readiness',
       unit: l?.readinessDetailUnit ?? '/100',
@@ -523,8 +536,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       ],
       series: win,
       child: Scrubber(
-        value: _pick == null || n < 1 ? null : (_pick! + .5) / n,
-        step: n < 1 ? 1 : 1 / n,
+        value: _pick == null || n < 2 ? null : _pick! / (n - 1),
+        step: n < 2 ? 1 : 1 / (n - 1),
         label: 'Readiness history',
         describe: (f) => says(at(f)),
         onChanged: (f) {
@@ -534,12 +547,15 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
         },
         child: CustomPaint(
           size: Size.infinite,
-          painter: Bars(
+          painter: LineChart(
             win,
             p.on(C.green),
-            colors: colors,
-            cursor: _pick,
+            fill: false,
+            dots: n <= 40,
+            dotInk: p.card,
             axis: axis,
+            cursor: _pick,
+            cursorInk: p.ink,
             t: animate(c, 1),
           ),
         ),
@@ -654,32 +670,52 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
         : contribution >= 0
         ? ('Better than usual', C.green)
         : ('Worse than usual', C.orange);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
-                if (share != null)
+    final metric = switch (key) {
+      'hrv' => 'hrv',
+      'rhr' => 'resting_hr',
+      'resp' => 'resp_rate',
+      'temp' => 'skin_temp',
+      _ => null,
+    };
+    return Pressable(
+      onTap: metric == null
+          ? null
+          : () => go(c, MetricDetail.at(metric, widget.day)),
+      semanticLabel: '${driverLabel(key, l)}, $word',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    '${(share * 100).round()}% of the score',
-                    style: F.over.copyWith(color: p.ink3),
+                    driverLabel(key, l),
+                    style: F.body.copyWith(color: p.ink),
                   ),
-              ],
+                  if (share != null)
+                    Text(
+                      '${(share * 100).round()}% of the score',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: S.x3),
-          Text(
-            word,
-            style: F.cap.copyWith(
-              color: col == C.n500 ? p.ink2 : p.on(col),
-              fontWeight: FontWeight.w600,
+            const SizedBox(width: S.x3),
+            Text(
+              word,
+              style: F.cap.copyWith(
+                color: col == C.n500 ? p.ink2 : p.on(col),
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+            if (metric != null) ...[
+              const SizedBox(width: S.x2),
+              Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+            ],
+          ],
+        ),
       ),
     );
   }

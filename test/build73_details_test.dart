@@ -727,7 +727,7 @@ void main() {
     },
   );
   testWidgets(
-    'Trends defaults to Week and Step calories opens calorie-specific detail',
+    'Trends defaults to 7 days and Step calories opens at the same range',
     (t) async {
       final r = GraphRepo(), state = AppState.forTesting();
       state.repo = r;
@@ -735,7 +735,8 @@ void main() {
       phone(t);
       await t.pumpWidget(app(state, const HealthScreen()));
       await until(t, () => find.text('Step calories').evaluate().isNotEmpty);
-      expect(t.widget<SubTabs>(find.byType(SubTabs).first).index, 0);
+      // Build 75: Today · 7 days · 30 days · 3 months, opening on 7 days.
+      expect(t.widget<SubTabs>(find.byType(SubTabs).first).index, 1);
       await t.ensureVisible(find.text('Step calories'));
       await t.tap(find.text('Step calories'));
       await until(t, () => find.byType(MetricDetail).evaluate().isNotEmpty);
@@ -753,7 +754,14 @@ void main() {
             .evaluate()
             .isNotEmpty,
       );
+      expect(t.widget<MetricDetail>(find.byType(MetricDetail)).range, 1);
       expect(find.text('steps', findRichText: true), findsNothing);
+      await t.tap(
+        find.descendant(
+          of: find.byType(MetricDetail),
+          matching: find.text('Today'),
+        ).first,
+      );
       await t.pump(const Duration(seconds: 1));
       await until(
         t,

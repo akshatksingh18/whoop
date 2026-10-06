@@ -90,6 +90,7 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       // currently unreadable.
       unawaited(context.read<CoachConfig>().refreshKeyOnResume());
       app.maybeFinishFromLiveActivity();
+      app.refreshLiveActivity();
       unawaited(app.maybeStopBreathingFromLiveActivity());
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
       app.runCadenceChecks(); // evening wind-down / weekly recap nudges (best-effort)
@@ -437,7 +438,10 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
   // because there was no recap screen to push. There is now: the sweep's
   // findings, which the app has been computing every night and delivering
   // only as a notification you could dismiss into nothing.
-  kRouteRecap => WhatChangedScreen(day: routeDay(route), reportId: routeId(route)),
+  kRouteRecap => WhatChangedScreen(
+    day: routeDay(route),
+    reportId: routeId(route),
+  ),
   '/heart' => WhatChangedScreen(day: routeDay(route)),
   kRouteRecovery => ReadinessDetail(day: routeDay(route)),
   kRouteSteps => DayStepsDetail(day: routeDay(route)),

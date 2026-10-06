@@ -8,7 +8,7 @@ inspected and generated screenshots removed. Source `ba5bb29f` is published with
 Linux CI `37397127258` and personal macOS build `37395690305` pass. Downloaded version/source,
 checksum, ZIP integrity and personal payload/extension checks pass. The corrected validator accepts
 the required `PlugIns/` parent only and retains other extension/file exclusions.
-Build 74 is the sole cached testing IPA and is not installed yet; build 73 remains installed.
+Build 74 is the sole cached testing IPA and is installed over build 73; `build-75-audit.md` owns its first-use report.
 Phone acceptance and current-version enrollment remain pending; accepted build 70 remains recovery.
 `todo.md` owns release and device gates; `setup.md` owns build evidence.
 

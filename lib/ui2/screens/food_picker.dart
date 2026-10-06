@@ -283,16 +283,26 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
 
 /// How much of [def] was eaten, with every number following the weight.
 class GramsSheet extends StatefulWidget {
-  const GramsSheet({super.key, required this.def, this.initial});
+  const GramsSheet({
+    super.key,
+    required this.def,
+    this.initial,
+    this.action = 'Add',
+  });
 
   final Map<String, Object?> def;
   final double? initial;
+  final String action;
 
   static Future<double?> show(
     BuildContext c,
     Map<String, Object?> def, {
     double? initial,
-  }) => _sheet<double>(c, (_) => GramsSheet(def: def, initial: initial));
+    String action = 'Add',
+  }) => _sheet<double>(
+    c,
+    (_) => GramsSheet(def: def, initial: initial, action: action),
+  );
 
   @override
   State<GramsSheet> createState() => _GramsSheetState();
@@ -331,11 +341,7 @@ class _GramsSheetState extends State<GramsSheet> {
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x4),
-      OsTextField(
-        controller: _g,
-        label: 'Amount (${foodUnit(widget.def)})',
-        keyboard: const TextInputType.numberWithOptions(decimal: true),
-      ),
+      AmountInput(controller: _g, def: widget.def),
       const SizedBox(height: S.x3),
       Text(
         n == null
@@ -351,7 +357,7 @@ class _GramsSheetState extends State<GramsSheet> {
       ),
       const SizedBox(height: S.x5),
       BigButton(
-        'Add',
+        widget.action,
         color: C.domFood,
         onTap: grams == null || grams <= 0
             ? null
@@ -446,12 +452,18 @@ class _FoodEditorState extends State<FoodEditor> {
   final _carbs = TextEditingController();
   final _fat = TextEditingController();
   final _fibre = TextEditingController();
+  final _measureName = [TextEditingController(), TextEditingController()];
+  final _measureAmount = [TextEditingController(), TextEditingController()];
 
   @override
   void initState() {
     super.initState();
     final e = widget.existing;
     if (e != null) {
+      for (final (i, m) in foodMeasures(e).indexed) {
+        _measureName[i].text = m.label;
+        _measureAmount[i].text = _trim(m.amount);
+      }
       // Shown back on its own serving when it has one, else per 100 g.
       final ref = (e['serving_g'] as num?)?.toDouble() ?? 100;
       String at(String k) {
@@ -484,6 +496,8 @@ class _FoodEditorState extends State<FoodEditor> {
       _carbs,
       _fat,
       _fibre,
+      ..._measureName,
+      ..._measureAmount,
     ]) {
       t.dispose();
     }
@@ -509,6 +523,20 @@ class _FoodEditorState extends State<FoodEditor> {
         () => _error = 'Check ${bad.join(', ')}: enter a non-negative number.',
       );
       return;
+    }
+    final measures = <FoodMeasure>[];
+    for (var i = 0; i < 2; i++) {
+      final name = _measureName[i].text.trim();
+      final amount = Typed.of(_measureAmount[i].text);
+      if (name.isEmpty && amount.blank) continue;
+      if (name.isEmpty || amount.value == null || amount.value! <= 0) {
+        setState(
+          () => _error =
+              'A measure needs a name and an amount greater than zero, or leave both blank.',
+        );
+        return;
+      }
+      measures.add((label: name, amount: amount.value!));
     }
     final ref = Typed.of(_ref.text).value;
     final label = _label.text.trim();
@@ -550,6 +578,7 @@ class _FoodEditorState extends State<FoodEditor> {
         carbs: Typed.of(_carbs.text).value,
         fat: Typed.of(_fat.text).value,
         fibre: Typed.of(_fibre.text).value,
+        measures: measures,
       ),
     };
     if (widget.existing?['source'] == 'barcode') def['source'] = 'barcode';
@@ -593,11 +622,32 @@ class _FoodEditorState extends State<FoodEditor> {
       const SizedBox(height: S.x4),
       if (widget.reviewBarcode) offCredit(),
       OsTextField(controller: _label, label: 'Description', hint: 'Oats'),
-      const SizedBox(height: S.x3),
-      OsTextField(
-        controller: _unit,
-        label: 'Serving unit',
-        hint: 'g, link, slice, cup…',
+      const SizedBox(height: S.x4),
+      // The label's serving on one line: "per [50] [g]". Everything logged
+      // later scales from it in the same unit.
+      Text('NUTRITION LABEL IS FOR', style: F.over.copyWith(color: p.ink3)),
+      const SizedBox(height: S.x2),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 2,
+            child: OsTextField(
+              controller: _ref,
+              label: 'Serving amount',
+              keyboard: num,
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          Expanded(
+            flex: 3,
+            child: OsTextField(
+              controller: _unit,
+              label: 'Serving unit',
+              hint: 'g, link, slice…',
+            ),
+          ),
+        ],
       ),
       const SizedBox(height: S.x2),
       Wrap(
@@ -624,13 +674,45 @@ class _FoodEditorState extends State<FoodEditor> {
             ),
         ],
       ),
-      const SizedBox(height: S.x3),
-      field(_ref, 'Serving amount'),
+      const SizedBox(height: S.x4),
       field(_kcal, 'Calories (kcal)'),
       field(_protein, 'Protein (g)'),
       field(_carbs, 'Carbs (g)'),
       field(_fat, 'Fat (g)'),
       field(_fibre, 'Fibre (g)'),
+      const SizedBox(height: S.x2),
+      Text('NAMED MEASURES · OPTIONAL', style: F.over.copyWith(color: p.ink3)),
+      const SizedBox(height: S.x1),
+      Text(
+        'For reference, e.g. 1 scoop = 29 g. You still log the amount you weigh.',
+        style: F.cap.copyWith(color: p.ink3),
+      ),
+      const SizedBox(height: S.x2),
+      for (var i = 0; i < 2; i++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: S.x2),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: OsTextField(
+                  controller: _measureName[i],
+                  label: 'Measure',
+                  hint: i == 0 ? 'scoop' : 'bowl',
+                ),
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                flex: 2,
+                child: OsTextField(
+                  controller: _measureAmount[i],
+                  label: 'Weighs (${_unit.text.trim().isEmpty ? 'g' : _unit.text.trim()})',
+                  keyboard: num,
+                ),
+              ),
+            ],
+          ),
+        ),
       const SizedBox(height: S.x2),
       if (_error != null)
         Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
@@ -668,7 +750,65 @@ class _MealEditorState extends State<MealEditor> {
   late final _label = TextEditingController(text: widget.existing?.label ?? '');
   late String _meal = widget.existing?.meal ?? 'breakfast';
   late final List<(String, double)> _items = [...?widget.existing?.items];
+  // Each item's sub-heading, aligned with [_items].
+  late final List<String> _groups = [
+    for (var i = 0; i < _items.length; i++) widget.existing?.groupAt(i) ?? '',
+  ];
   Map<String, Map<String, Object?>> _defs = const {};
+
+  /// Sub-headings in the order they first appear; '' (none) last.
+  List<String> get _order {
+    final seen = <String>[];
+    for (final g in _groups) {
+      if (g.isNotEmpty && !seen.contains(g)) seen.add(g);
+    }
+    return [...seen, if (_groups.contains('')) ''];
+  }
+
+  /// Rewrite the list grouped in [_order], so a section is contiguous.
+  void _normalise() {
+    final order = _order;
+    final pairs = [for (var i = 0; i < _items.length; i++) (_items[i], _groups[i])];
+    pairs.sort((a, b) => order.indexOf(a.$2).compareTo(order.indexOf(b.$2)));
+    _items
+      ..clear()
+      ..addAll(pairs.map((x) => x.$1));
+    _groups
+      ..clear()
+      ..addAll(pairs.map((x) => x.$2));
+  }
+
+  void _reorderIn(String g, int from, int to) {
+    final idx = [for (var i = 0; i < _groups.length; i++) if (_groups[i] == g) i];
+    final moved = idx.map((i) => _items[i]).toList();
+    final item = moved.removeAt(from);
+    moved.insert(to > from ? to - 1 : to, item);
+    setState(() {
+      for (var k = 0; k < idx.length; k++) {
+        _items[idx[k]] = moved[k];
+      }
+    });
+  }
+
+  Future<void> _editItem(int i) async {
+    final def = _defs[_items[i].$1];
+    if (def == null) return;
+    final result = await _sheet<(double, String)>(
+      context,
+      (s) => _ItemEditor(
+        def: def,
+        amount: _items[i].$2,
+        group: _groups[i],
+        groups: _order.where((g) => g.isNotEmpty).toList(),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _items[i] = (_items[i].$1, result.$1);
+      _groups[i] = result.$2;
+      _normalise();
+    });
+  }
 
   @override
   void initState() {
@@ -716,7 +856,10 @@ class _MealEditorState extends State<MealEditor> {
     if (def == null || !mounted) return;
     final grams = await GramsSheet.show(context, def);
     if (grams == null || !mounted) return;
-    setState(() => _items.add((def['key'] as String, grams)));
+    setState(() {
+      _items.add((def['key'] as String, grams));
+      _groups.add('');
+    });
   }
 
   Future<void> _save() async {
@@ -748,6 +891,7 @@ class _MealEditorState extends State<MealEditor> {
           units: {
             for (final item in items) item.$1: foodUnit(_defs[item.$1] ?? {}),
           },
+          groups: [..._groups],
         ),
       );
       if (mounted) Navigator.of(context).pop(true);
@@ -809,12 +953,43 @@ class _MealEditorState extends State<MealEditor> {
         ],
       ),
       const SizedBox(height: S.x4),
-      for (var i = 0; i < _items.length; i++)
-        PickRow(
-          (_defs[_items[i].$1]?['label'] ?? 'Deleted food').toString(),
-          portionText(_items[i].$2, foodUnit(_defs[_items[i].$1] ?? {})),
-          trailing: LucideIcons.x,
-          onTap: () => setState(() => _items.removeAt(i)),
+      for (final g in _order) ...[
+        if (_order.length > 1 || g.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: S.x2, bottom: S.x1),
+            child: Text(
+              g.isEmpty ? 'Other' : g,
+              style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
+            ),
+          ),
+        DragList(
+          length: [for (final x in _groups) if (x == g) x].length,
+          onReorder: (from, to) => _reorderIn(g, from, to),
+          itemBuilder: (c, k) {
+            final i = [
+              for (var j = 0; j < _groups.length; j++) if (_groups[j] == g) j,
+            ][k];
+            final item = _items[i];
+            return SwipeDelete(
+              key: ValueKey('meal-item-$i-${item.$1}'),
+              onDelete: () async => setState(() {
+                _items.removeAt(i);
+                _groups.removeAt(i);
+              }),
+              child: PickRow(
+                (_defs[item.$1]?['label'] ?? 'Deleted food').toString(),
+                portionText(item.$2, foodUnit(_defs[item.$1] ?? {})),
+                trailing: LucideIcons.pencil,
+                onTap: () => _editItem(i),
+              ),
+            );
+          },
+        ),
+      ],
+      if (_items.isNotEmpty)
+        Text(
+          'Tap to change an amount or sub-heading. Hold to drag. Swipe to remove.',
+          style: F.over.copyWith(color: p.ink3),
         ),
       if (_items.isNotEmpty)
         Padding(
@@ -845,6 +1020,456 @@ class _MealEditorState extends State<MealEditor> {
         _saving ? 'Saving…' : 'Save',
         color: C.domFood,
         onTap: _saving ? null : _save,
+      ),
+    ]);
+  }
+}
+
+
+// ══════════════════ SHARED PIECES ══════════════════
+
+/// Whether [def] is logged by weight or volume rather than by count.
+bool weighedFood(Map<String, Object?> def) {
+  final u = foodUnit(def).toLowerCase();
+  return u == 'g' || u == 'ml';
+}
+
+String _amount(double v) =>
+    v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(1);
+
+/// How much of a food, in its own unit: one large field with − and + either
+/// side, and chips for the usual amounts, each labelled once.
+///
+/// A counted food (1 egg = 1 serving) steps by one and offers 1–4. A weighed
+/// food steps by its first named measure, or 5 g, and offers its measures
+/// with their weights ("2 scoops · 58 g") — the scale stays the source of
+/// truth, the measure is a shortcut.
+class AmountInput extends StatelessWidget {
+  const AmountInput({super.key, required this.controller, required this.def});
+
+  final TextEditingController controller;
+  final Map<String, Object?> def;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final unit = foodUnit(def);
+    final weighed = weighedFood(def);
+    final measures = weighed ? foodMeasures(def) : const <FoodMeasure>[];
+    final step = weighed
+        ? (measures.isEmpty ? 5.0 : measures.first.amount)
+        : 1.0;
+    final ref = (def['serving_g'] as num?)?.toDouble();
+    final chips = <(String, double)>[
+      if (!weighed) ...[
+        ('½ $unit', .5),
+        for (final k in const [1, 2, 3, 4])
+          (portionText(k, unit), k.toDouble()),
+      ] else if (measures.isNotEmpty) ...[
+        for (final m in measures)
+          for (final k in m == measures.first ? const [1, 2] : const [1])
+            (
+              '${portionText(k, m.label)} · ${portionText(m.amount * k, unit)}',
+              m.amount * k,
+            ),
+      ] else if (ref != null && ref > 0)
+        for (final k in const [.5, 1.0, 2.0])
+          (portionText(ref * k, unit), ref * k),
+    ];
+    void set(double v) => controller.text = _amount(v < 0 ? 0 : v);
+    double now() => Typed.of(controller.text).value ?? 0;
+    Widget stepper(IconData icon, String label, double delta) => Pressable(
+      semanticLabel: label,
+      onTap: () => set(now() + delta),
+      child: Container(
+        width: 48,
+        height: 48,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: p.wash(C.domFood),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, size: 20, color: p.on(C.domFood)),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            stepper(LucideIcons.minus, 'Less', -step),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: OsTextField(
+                controller: controller,
+                label: 'Amount ($unit)',
+                keyboard: const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ),
+            const SizedBox(width: S.x3),
+            stepper(LucideIcons.plus, 'More', step),
+          ],
+        ),
+        if (chips.isNotEmpty) ...[
+          const SizedBox(height: S.x2),
+          Wrap(
+            spacing: S.x2,
+            runSpacing: S.x2,
+            children: [
+              for (final (label, v) in chips)
+                Pressable(
+                  semanticLabel: label,
+                  onTap: () => set(v),
+                  child: Pill(label, C.n400),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A list the user orders by holding a row and dragging it. Shrink-wrapped
+/// for use inside a page or sheet that already scrolls. Rows must be keyed.
+class DragList extends StatelessWidget {
+  const DragList({
+    super.key,
+    required this.length,
+    required this.itemBuilder,
+    required this.onReorder,
+  });
+
+  final int length;
+  final IndexedWidgetBuilder itemBuilder;
+
+  /// (from, to) as [ReorderableListView] reports it: `to` counts the moved
+  /// row still in place.
+  final void Function(int from, int to) onReorder;
+
+  @override
+  Widget build(BuildContext c) => ReorderableListView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    padding: EdgeInsets.zero,
+    buildDefaultDragHandles: false,
+    itemCount: length,
+    onReorder: onReorder,
+    proxyDecorator: (child, _, _) =>
+        Material(color: Colors.transparent, elevation: 4, child: child),
+    itemBuilder: (c, i) {
+      final row = itemBuilder(c, i);
+      return ReorderableDelayedDragStartListener(
+        // Derived, not reused: one key per widget keeps finders unambiguous.
+        key: ValueKey<Object>(('drag', row.key ?? i)),
+        index: i,
+        child: row,
+      );
+    },
+  );
+}
+
+/// Move [list]'s item [from] to [to] (reorderable-list arithmetic).
+List<T> reordered<T>(List<T> list, int from, int to) {
+  final out = [...list];
+  final item = out.removeAt(from);
+  out.insert(to > from ? to - 1 : to, item);
+  return out;
+}
+
+/// Swipe either way to delete, the same on every food list. [onDelete]
+/// confirms, writes and removes the row from its owner's state; the swipe
+/// itself never removes it, so a cancelled or failed delete keeps the row.
+class SwipeDelete extends StatelessWidget {
+  const SwipeDelete({
+    required Key super.key,
+    required this.onDelete,
+    required this.child,
+  });
+
+  final Future<void> Function() onDelete;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    Widget bg(Alignment a) => Container(
+      alignment: a,
+      padding: const EdgeInsets.symmetric(horizontal: S.x4),
+      color: p.wash(C.red),
+      child: Icon(LucideIcons.trash2, color: p.on(C.red)),
+    );
+    return Dismissible(
+      key: ValueKey('swipe-${key.hashCode}'),
+      confirmDismiss: (_) async {
+        await onDelete();
+        return false;
+      },
+      background: bg(Alignment.centerLeft),
+      secondaryBackground: bg(Alignment.centerRight),
+      child: child,
+    );
+  }
+}
+
+/// A sub-heading for an item: an existing one, a new one, or none ('').
+Future<String?> pickFoodGroup(
+  BuildContext c,
+  List<String> groups,
+  String current,
+) async {
+  final t = TextEditingController();
+  final picked = await _sheet<String>(
+    c,
+    (s) => _sheetBody(s, [
+      Text('Sub-heading', style: F.head.copyWith(color: P.of(s).ink)),
+      const SizedBox(height: S.x3),
+      for (final g in groups)
+        PickRow(
+          g,
+          g == current ? 'Current' : 'Move here',
+          trailing: g == current
+              ? LucideIcons.check
+              : LucideIcons.cornerDownRight,
+          onTap: () => Navigator.of(s).pop(g),
+        ),
+      if (current.isNotEmpty)
+        PickRow(
+          'No sub-heading',
+          'Back to the main list',
+          trailing: LucideIcons.x,
+          onTap: () => Navigator.of(s).pop(''),
+        ),
+      const SizedBox(height: S.x3),
+      OsTextField(controller: t, label: 'New sub-heading', hint: 'Omelette'),
+      const SizedBox(height: S.x3),
+      BigButton(
+        'Use this name',
+        color: C.domFood,
+        onTap: () {
+          final v = t.text.trim();
+          if (v.isNotEmpty) Navigator.of(s).pop(v);
+        },
+      ),
+    ]),
+  );
+  t.dispose();
+  return picked;
+}
+
+/// One saved-meal item: its amount and sub-heading.
+class _ItemEditor extends StatefulWidget {
+  const _ItemEditor({
+    required this.def,
+    required this.amount,
+    required this.group,
+    required this.groups,
+  });
+
+  final Map<String, Object?> def;
+  final double amount;
+  final String group;
+  final List<String> groups;
+
+  @override
+  State<_ItemEditor> createState() => _ItemEditorState();
+}
+
+class _ItemEditorState extends State<_ItemEditor> {
+  late final _g = TextEditingController(text: _amount(widget.amount));
+  late String _group = widget.group;
+
+  @override
+  void initState() {
+    super.initState();
+    _g.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _g.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final v = Typed.of(_g.text).value;
+    final n = v == null || v <= 0 ? null : nutrientsFor(widget.def, v);
+    return _sheetBody(c, [
+      Text(
+        (widget.def['label'] ?? '').toString(),
+        style: F.head.copyWith(color: p.ink),
+      ),
+      const SizedBox(height: S.x4),
+      AmountInput(controller: _g, def: widget.def),
+      const SizedBox(height: S.x3),
+      Text(
+        n == null
+            ? 'Enter a positive amount.'
+            : macroLine(
+                kcal: n.kcal,
+                protein: n.protein,
+                carbs: n.carbs,
+                fat: n.fat,
+                fibre: n.fibre,
+              ),
+        style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: S.x3),
+      PickRow(
+        'Sub-heading',
+        _group.isEmpty ? 'None' : _group,
+        trailing: LucideIcons.layers,
+        onTap: () async {
+          final g = await pickFoodGroup(c, widget.groups, _group);
+          if (g != null && mounted) setState(() => _group = g);
+        },
+      ),
+      const SizedBox(height: S.x4),
+      BigButton(
+        'Done',
+        color: C.domFood,
+        onTap: v == null || v <= 0
+            ? null
+            : () => Navigator.of(c).pop((v, _group)),
+      ),
+    ]);
+  }
+}
+
+/// A saved meal before it is logged: every item's amount editable, any item
+/// switched off, then one Log. The saved meal itself is not changed.
+class MealReviewSheet extends StatefulWidget {
+  const MealReviewSheet({super.key, required this.meal, required this.defs});
+
+  final MealTemplate meal;
+  final Map<String, Map<String, Object?>> defs;
+
+  /// Resolves to one amount per item (null = leave out), or null if cancelled.
+  static Future<List<double?>?> show(BuildContext c, MealTemplate m) async {
+    final db = await LocalDb.instance;
+    final defs = <String, Map<String, Object?>>{};
+    for (final (key, _) in m.items) {
+      final d = await NutritionDb.foodDef(db, key);
+      if (d != null) defs[key] = d;
+    }
+    if (!c.mounted) return null;
+    return _sheet<List<double?>>(
+      c,
+      (_) => MealReviewSheet(meal: m, defs: defs),
+    );
+  }
+
+  @override
+  State<MealReviewSheet> createState() => _MealReviewSheetState();
+}
+
+class _MealReviewSheetState extends State<MealReviewSheet> {
+  late final List<double> _amounts = [
+    for (final (_, g) in widget.meal.items) g,
+  ];
+  late final List<bool> _on = [
+    for (final (key, _) in widget.meal.items) widget.defs.containsKey(key),
+  ];
+
+  Future<void> _edit(int i) async {
+    final def = widget.defs[widget.meal.items[i].$1];
+    if (def == null) return;
+    final v = await GramsSheet.show(
+      context,
+      def,
+      initial: _amounts[i],
+      action: 'Done',
+    );
+    if (v != null && mounted) setState(() => (_amounts[i] = v, _on[i] = true));
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final m = widget.meal;
+    double? total(String k) {
+      double? sum;
+      for (var i = 0; i < m.items.length; i++) {
+        final d = widget.defs[m.items[i].$1];
+        final v = (d?[k] as num?)?.toDouble();
+        if (_on[i] && v != null) sum = (sum ?? 0) + v * _amounts[i] / 100;
+      }
+      return sum;
+    }
+
+    return _sheetBody(c, [
+      Text('Log ${m.label}', style: F.head.copyWith(color: p.ink)),
+      const SizedBox(height: S.x1),
+      Text(
+        'Check each amount. Tap one to change it; untick what you did not eat.',
+        style: F.cap.copyWith(color: p.ink3),
+      ),
+      const SizedBox(height: S.x3),
+      for (var i = 0; i < m.items.length; i++) ...[
+        if (m.hasGroups && (i == 0 || m.groupAt(i) != m.groupAt(i - 1)))
+          Padding(
+            padding: const EdgeInsets.only(top: S.x2, bottom: S.x1),
+            child: Text(
+              m.groupAt(i).isEmpty ? 'Other' : m.groupAt(i),
+              style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
+            ),
+          ),
+        Row(
+          children: [
+            Pressable(
+              semanticLabel: _on[i] ? 'Leave out' : 'Include',
+              onTap: widget.defs.containsKey(m.items[i].$1)
+                  ? () => setState(() => _on[i] = !_on[i])
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.only(right: S.x3),
+                child: Icon(
+                  _on[i] ? LucideIcons.squareCheck : LucideIcons.square,
+                  size: 20,
+                  color: p.on(C.domFood),
+                ),
+              ),
+            ),
+            Expanded(
+              child: PickRow(
+                (widget.defs[m.items[i].$1]?['label'] ?? 'Deleted food')
+                    .toString(),
+                widget.defs.containsKey(m.items[i].$1)
+                    ? portionText(
+                        _amounts[i],
+                        foodUnit(widget.defs[m.items[i].$1]!),
+                      )
+                    : 'No longer in My foods',
+                trailing: LucideIcons.pencil,
+                onTap: () => _edit(i),
+              ),
+            ),
+          ],
+        ),
+      ],
+      const SizedBox(height: S.x2),
+      Text(
+        macroLine(
+          kcal: total('kcal_100'),
+          protein: total('protein_g_100'),
+          carbs: total('carbs_g_100'),
+          fat: total('fat_g_100'),
+          fibre: total('fibre_g_100'),
+        ),
+        style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: S.x4),
+      BigButton(
+        'Log',
+        color: C.domFood,
+        onTap: !_on.contains(true)
+            ? null
+            : () => Navigator.of(c).pop([
+                for (var i = 0; i < m.items.length; i++)
+                  _on[i] ? _amounts[i] : null,
+              ]),
       ),
     ]);
   }

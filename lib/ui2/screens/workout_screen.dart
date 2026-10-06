@@ -516,20 +516,23 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         xLabels: [for (var i = 0; i < 7; i++) _weekdayLetter(c, dayAt(i))],
         series: d.strain7,
         child: Scrubber(
-          value: pick == null ? null : (pick + .5) / 7,
-          step: 1 / 7,
+          // A line like every other day-by-day chart: point i sits at i/6.
+          value: pick == null ? null : pick / 6,
+          step: 1 / 6,
           label: 'Strain, last 7 days',
-          describe: (v) => says((v * 7).floor().clamp(0, 6)),
+          describe: (v) => says((v * 6).round().clamp(0, 6)),
           onChanged: (v) =>
-              setState(() => _strainPick = (v * 7).floor().clamp(0, 6)),
+              setState(() => _strainPick = (v * 6).round().clamp(0, 6)),
           child: CustomPaint(
             size: Size.infinite,
             // Today is the last slot, always — not "the newest value".
-            painter: Bars(
+            painter: LineChart(
               d.strain7,
               p.on(C.strain),
-              highlight: d.strain7.last == null ? -1 : 6,
+              dots: true,
+              dotInk: p.card,
               cursor: pick,
+              cursorInk: p.ink,
               axis: axis,
               t: animate(context, 1),
             ),

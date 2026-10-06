@@ -306,7 +306,7 @@ Firebase initialization remain excluded. The IPA, manifest and checksum were cac
 validated. Build 73 remains reproducible from its workflow record.
 Akshat confirms installation and an initially good appearance, but reports chart/navigation and
 notification issues. `build-74-audit.md` owns findings/research and the implemented build-74
-contract; `todo.md` owns release and phone gates. Build 73 remains installed but was not accepted;
+contract; `todo.md` owns release and phone gates. Build 73 was replaced on the phone by build 74 and was not accepted;
 build 74 replaces its testing artifact. The complete phone pass and current-version registration
 are carried forward to build 74. The build-70 recovery IPA and accepted-build ledger remain unchanged.
 
@@ -350,7 +350,8 @@ Independent ZIP CRC, executable, version/source and personal payload checks pass
 Runner retains `bluetooth-central`, `location`, `audio` and Live Activity support; its one
 version-matched extension is `com.akshat.personal.whoop.activity`. The IPA, manifest and checksum
 are the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`.
-Build 74 is not installed yet. Sideloadly extension signing, overwrite/data retention, background
+Akshat reports build 74 installed. Sideloadly's record shows `0.9.41` at the exact final ID
+`com.akshat.personal.whoop.5564K8D4SV` with plug-ins kept and no error. Extension behavior, background
 behavior, complete phone acceptance and completed current-version automatic-refresh enrollment
 for `0.9.41` remain pending. Build 70 stays accepted recovery until those gates pass.
 

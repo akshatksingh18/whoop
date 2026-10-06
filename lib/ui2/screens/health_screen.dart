@@ -17,7 +17,6 @@ import '../ui2.dart';
 import 'findings_log.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
-import 'readiness_detail.dart';
 
 /// One trend row: the `getChart` key, what to call it, its unit, its colour,
 /// and which way is good news.
@@ -91,9 +90,9 @@ bool breathingMeasuredOften(
   return measured > 0 && measured * 2 >= nights;
 }
 
-/// The ranges offered, in days.
-const _windows = [7, 30, 90];
-const _windowLabels = ['Week', 'Month', '3 months'];
+/// The ranges offered, in days: the same list every metric screen uses.
+const _windows = kRangeDays;
+const _windowLabels = kRangeLabels;
 
 class HealthData {
   final Map<String, dynamic> today;
@@ -186,10 +185,10 @@ class HealthScreen extends StatefulWidget {
   /// Injected only by goldens and tests; production always loads.
   final HealthData? data;
 
-  /// Which range to open on (index into week / month / 3 months).
+  /// Which range to open on (index into [kRangeDays]); 7 days by default.
   final int range;
 
-  const HealthScreen({super.key, this.data, this.range = 0});
+  const HealthScreen({super.key, this.data, this.range = 1});
 
   @override
   State<HealthScreen> createState() => _HealthScreenState();
@@ -197,12 +196,25 @@ class HealthScreen extends StatefulWidget {
 
 class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   late int _range = widget.range;
+
+  void _reselected() {
+    if (shellReselect.value.$1 != ShellDomain.health || !mounted) return;
+    if (_range != widget.range) setState(() => _range = widget.range);
+  }
+
+  @override
+  void dispose() {
+    shellReselect.removeListener(_reselected);
+    super.dispose();
+  }
+
   HealthData? _d;
   bool _loading = true, _failed = false;
 
   @override
   void initState() {
     super.initState();
+    shellReselect.addListener(_reselected);
     _d = widget.data;
     if (widget.data != null) {
       _loading = false;
@@ -327,9 +339,12 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final vals = [for (final v in dense) ?v];
     // "7,559 steps" beside a row already called Steps says it twice.
     final unit = r.key == 'steps' ? '' : unitBeside(r.unit);
-    final open = r.key == 'recovery'
-        ? () => go(c, const ReadinessDetail())
-        : () => go(c, MetricDetail(r.key));
+    // The range travels with the tap: a 3-month row opens the 3-month view.
+    final range = _windows.indexOf(win);
+    void open() => go(
+      c,
+      MetricDetail(r.key == 'recovery' ? 'readiness' : r.key, range: range),
+    );
 
     if (vals.isEmpty) {
       return Pressable(
@@ -344,7 +359,10 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               Expanded(
                 child: Text(r.label, style: F.body.copyWith(color: p.ink)),
               ),
-              Text('No data yet', style: F.cap.copyWith(color: p.ink3)),
+              Text(
+                win == 1 ? 'Not yet today' : 'No data yet',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
             ],
           ),
         ),
@@ -365,28 +383,30 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               Text(r.label, style: F.body.copyWith(color: p.ink)),
               const SizedBox(height: S.x2),
               CaloriePair(
-                budget: vals.last,
-                acsm: secondary.last,
+                budget: vals.reduce((a, b) => a + b) / vals.length,
+                acsm: paired.length == vals.length
+                    ? paired.reduce((a, b) => a + b) / paired.length
+                    : null,
                 compact: true,
-                note:
-                    'Latest recorded day · active walking energy; runs excluded.',
-              ),
-              Text(
-                'Average Budget ${_fmt(r, vals.reduce((a, b) => a + b) / vals.length)} · ACSM ${paired.length == vals.length ? _fmt(r, paired.reduce((a, b) => a + b) / paired.length) : "unavailable"} kcal over ${vals.length} days',
-                style: F.over.copyWith(color: p.ink3),
+                note: win == 1
+                    ? 'Today · active walking energy; runs excluded.'
+                    : 'Daily average over ${vals.length} of $win days · runs excluded.',
               ),
             ],
           ),
         ),
       );
     }
+    // The number IS the range: today's value on Today, otherwise the daily
+    // average over the measured days in the range. It used to be the newest
+    // reading in every range, so switching ranges changed nothing.
     final mean = vals.reduce((a, b) => a + b) / vals.length;
-    final latest = vals.last;
+    final sub = win == 1
+        ? 'Today'
+        : 'Daily average · ${vals.length} of $win days';
     return Pressable(
       onTap: open,
-      semanticLabel:
-          '${r.label}, latest ${_fmt(r, latest)} $unit, '
-          'average ${_fmt(r, mean)} $unit over ${vals.length} days',
+      semanticLabel: '${r.label}, ${_fmt(r, mean)} $unit, $sub',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(
@@ -403,10 +423,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  Text(
-                    'Avg ${_fmt(r, mean)} $unit'.trim(),
-                    style: F.over.copyWith(color: p.ink3),
-                  ),
+                  Text(sub, style: F.over.copyWith(color: p.ink3)),
                 ],
               ),
             ),
@@ -428,7 +445,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               ),
             ],
             const SizedBox(width: S.x3),
-            Text(_fmt(r, latest), style: F.n17.copyWith(color: p.ink)),
+            Text(_fmt(r, mean), style: F.n17.copyWith(color: p.ink)),
             if (unit.isNotEmpty) ...[
               const SizedBox(width: 2),
               Text(unit, style: F.over.copyWith(color: p.ink3)),

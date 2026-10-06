@@ -29,10 +29,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart' show localDayEndSec;
-import '../../data/db.dart';
 import '../../data/journal_fields.dart';
 import '../../data/local_repository.dart';
-import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/locale_controller.dart';
@@ -120,6 +118,7 @@ List<Moment> dayMoments({
   List<({String label, int at})> doses = const [],
   Map<String, JournalMetricValue> journal = const {},
   List<JournalFieldSpec> fields = const [],
+  bool bandEvents = true,
   AppLocalizations? l,
 }) {
   final out = <Moment>[];
@@ -225,7 +224,7 @@ List<Moment> dayMoments({
   // times, and a day with the charger on it should not read as four chargers.
   final seen = <String>{};
   final events = _events(l);
-  for (final e in (timeline['events'] as List?) ?? const []) {
+  for (final e in bandEvents ? (timeline['events'] as List?) ?? const [] : const []) {
     if (e is! Map) continue;
     final id = asInt(e['event_id']), t = asInt(e['ts']);
     final def = id == null ? null : events[id];
@@ -559,25 +558,11 @@ class TimelineData {
 
     final timeline = await repo.getDayTimeline(day);
     final wear = await repo.getDayWear(day);
-    final fields = await repo.getJournalFields();
-    final journal = await repo.getJournalMetrics(day);
-    final db = await LocalDb.instance;
-    final meals = await NutritionDb.entriesForDay(db, day);
-    final notes = await LocalDb.journalRows(sinceDaysEpoch: day);
 
-    // Doses: one row per (medication, slot), and only the ones actually taken
-    // carry a clock. A skipped dose is a real fact with no time attached, so it
-    // is not on the axis — see the note at the top of this file.
-    final defs = {for (final d in await MedDb.defs(db, activeOnly: false)) d.key: d};
-    final taken = <({String label, int at})>[];
-    (await MedDb.dosesForDay(db, day)).forEach((key, slots) {
-      for (final row in slots.values) {
-        final ts = (row['taken_ts'] as num?)?.toInt();
-        if (ts == null) continue;
-        taken.add((label: defs[key]?.label ?? key, at: ts));
-      }
-    });
-
+    // The breakdown is the day's body: sleep, naps, workouts, the band off the
+    // wrist and the heart-rate extremes (Akshat's build-75 decision). Food,
+    // doses, journal fields and band charger/restart events were noise here;
+    // they stay stored and food keeps its own screens.
     return TimelineData(
       day: day,
       days: days,
@@ -585,17 +570,7 @@ class TimelineData {
       moments: dayMoments(
         timeline: timeline,
         wear: wear,
-        meals: [for (final m in meals) m.sanitised],
-        doses: taken,
-        journal: journal,
-        fields: fields,
-        l: l,
-      ),
-      notes: dayNotes(
-        meals: [for (final m in meals) m.sanitised],
-        journal: journal,
-        fields: fields,
-        journalRows: [for (final r in notes) if (r['date'] == day) r],
+        bandEvents: false,
         l: l,
       ),
     );

@@ -34,8 +34,10 @@ struct OpenStrapWidgetLiveActivity: Widget {
     guard let s = seconds, s.isFinite, s > 0, s < 3600 else { return "—" }
     return String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
   }
-  @ViewBuilder private func timer(_ s: OpenStrapWidgetAttributes.ContentState, stale: Bool = false) -> some View {
-    if s.paused || stale { Text(duration(s.elapsed)) }
+  // iOS runs this clock itself, so it keeps counting while the app is not
+  // pushing updates. Only a pause freezes it; staleness affects HR and pace.
+  @ViewBuilder private func timer(_ s: OpenStrapWidgetAttributes.ContentState) -> some View {
+    if s.paused { Text(duration(s.elapsed)) }
     else { Text(s.timerAnchor, style: .timer).monospacedDigit() }
   }
   private func metric(_ value: String, _ label: String) -> some View {
@@ -56,7 +58,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
         }
         HStack(alignment: .top, spacing: 12) {
           VStack(alignment: .leading, spacing: 3) {
-            timer(c.state, stale: c.isStale).font(.system(size: 25, weight: .semibold, design: .rounded))
+            timer(c.state).font(.system(size: 25, weight: .semibold, design: .rounded))
             Text("Active time").font(.caption).foregroundStyle(.secondary)
           }.frame(maxWidth: .infinity, alignment: .leading)
           metric(c.state.distanceKm.map { String(format: "%.2f", $0) } ?? "—", "Distance · km")
@@ -69,7 +71,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
           }
           if c.isStale { Text(c.state.updatedAt, style: .time).foregroundStyle(.secondary) }
           Spacer()
-          Text("Tap for controls ›").foregroundStyle(.secondary)
+          Text("Tap to open").foregroundStyle(.secondary)
         }.font(.caption)
         if let split = c.state.lastKmSeconds, split > 0 {
           Text("Last km · \(pace(Double(split))) /km").font(.caption).foregroundStyle(.secondary)
@@ -87,7 +89,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
             .font(.headline).monospacedDigit()
         }
         DynamicIslandExpandedRegion(.bottom) {
-          HStack { timer(c.state, stale: c.isStale); Spacer(); Text(c.isStale || c.state.paused ? "— /km" : "\(pace(c.state.paceSeconds)) /km") }
+          HStack { timer(c.state); Spacer(); Text(c.isStale || c.state.paused ? "— /km" : "\(pace(c.state.paceSeconds)) /km") }
             .font(.headline).monospacedDigit()
         }
       } compactLeading: {

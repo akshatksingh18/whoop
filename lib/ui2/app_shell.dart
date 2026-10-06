@@ -34,6 +34,12 @@ enum ShellDomain {
   final Color accent;
 }
 
+/// A re-tap of the tab already showing, with a counter so two re-taps in a
+/// row both notify. A domain that keeps a sub-state (Food's day and sub-tab,
+/// Trends' range) listens and returns to its first view; scrolling back to
+/// the top is done by the shell for every tab.
+final shellReselect = ValueNotifier<(ShellDomain, int)>((ShellDomain.home, 0));
+
 // There is no `Domain` InheritedWidget. There was one, promising that a screen
 // "and anything it pushes" could pick up its accent without threading it — but
 // nothing ever read it, and a pushed route could not have: `MaterialApp.home`
@@ -73,7 +79,31 @@ class _AppShellState extends State<AppShell> {
   late ShellDomain _current = widget.initial;
   late final Set<ShellDomain> _built = {widget.initial};
 
+  /// One primary scroll controller per tab: each tab's page list adopts it,
+  /// so a re-tap can take that tab back to the top.
+  final _scroll = {for (final d in ShellDomain.values) d: ScrollController()};
+
+  @override
+  void dispose() {
+    for (final c in _scroll.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
   void _select(ShellDomain d) {
+    if (d == _current) {
+      final c = _scroll[d]!;
+      // One attached list only: a tab mid-rebuild can briefly hold two.
+      if (c.hasClients && c.positions.length == 1 && c.offset > 0) {
+        c.animateTo(
+          0,
+          duration: motion(context, Motion.slow),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      shellReselect.value = (d, shellReselect.value.$2 + 1);
+    }
     setState(() {
       _current = d;
       _built.add(d);
@@ -88,23 +118,28 @@ class _AppShellState extends State<AppShell> {
       backgroundColor: p.bg,
       body: SafeArea(
         bottom: false,
-        child: Column(children: [
-          Expanded(
-            child: IndexedStack(
-              index: _current.index,
-              children: [
-                // An unvisited tab is an empty box, not a built screen — the
-                // old shell built all forty screens' worth of state on launch.
-                for (final d in ShellDomain.values)
-                  if (_built.contains(d))
-                    widget.builder(c, d)
-                  else
-                    const SizedBox.shrink(),
-              ],
+        child: Column(
+          children: [
+            Expanded(
+              child: IndexedStack(
+                index: _current.index,
+                children: [
+                  // An unvisited tab is an empty box, not a built screen — the
+                  // old shell built all forty screens' worth of state on launch.
+                  for (final d in ShellDomain.values)
+                    if (_built.contains(d))
+                      PrimaryScrollController(
+                        controller: _scroll[d]!,
+                        child: widget.builder(c, d),
+                      )
+                    else
+                      const SizedBox.shrink(),
+                ],
+              ),
             ),
-          ),
-          if (widget.banner != null) widget.banner!,
-        ]),
+            if (widget.banner != null) widget.banner!,
+          ],
+        ),
       ),
       bottomNavigationBar: _TabBar(current: _current, onTap: _select),
     );

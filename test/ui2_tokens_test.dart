@@ -207,6 +207,10 @@ const _notComponents = {
   // a gesture wrapper with no look of its own.
   'DayHeader', 'MealCard', 'MealPage', 'LogFoodScreen', 'FoodDetailSheet',
   'QuickAddSheet', 'WeekCard', 'Swipe',
+  // Build 75: the whole-day food page and saved-meal review read the food
+  // store; the amount control, drag list and two-way swipe are food-list
+  // pieces exercised with real foods in build75_test and ui2_food_flow_test.
+  'DayFoodPage', 'MealReviewSheet', 'AmountInput', 'DragList', 'SwipeDelete',
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
   // onboarding routes

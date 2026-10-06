@@ -114,6 +114,73 @@ Future<void> createNutritionTables(Database db) async {
       "ALTER TABLE food_def ADD COLUMN unit TEXT NOT NULL DEFAULT 'g'",
     );
   }
+  // Akshat's own order for My foods and saved meals (drag to reorder), and
+  // up to two named measures per food ("scoop = 29 g"). Added in place like
+  // `grp`. The first open seeds positions from the order shown until now
+  // (most recently eaten first; saved meals A–Z), so nothing jumps.
+  if (!foodCols.contains('pos')) {
+    try {
+      await db.execute('ALTER TABLE food_def ADD COLUMN pos INTEGER');
+      final rows = await db.rawQuery(
+        'SELECT d.key FROM food_def d '
+        'LEFT JOIN (SELECT food_key, MAX(created_at) AS last FROM food_entry '
+        'GROUP BY food_key) e ON e.food_key = d.key '
+        'ORDER BY e.last IS NULL, e.last DESC, d.label COLLATE NOCASE ASC',
+      );
+      for (var i = 0; i < rows.length; i++) {
+        await db.update(
+          'food_def',
+          {'pos': i},
+          where: 'key = ?',
+          whereArgs: [rows[i]['key']],
+        );
+      }
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
+  if (!foodCols.contains('measures_json')) {
+    try {
+      await db.execute(
+        "ALTER TABLE food_def ADD COLUMN measures_json TEXT NOT NULL DEFAULT ''",
+      );
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
+  final mealCols = {
+    for (final r in await db.rawQuery('PRAGMA table_info(meal_template)'))
+      r['name'],
+  };
+  if (!mealCols.contains('pos')) {
+    try {
+      await db.execute('ALTER TABLE meal_template ADD COLUMN pos INTEGER');
+      final rows = await db.query(
+        'meal_template',
+        columns: ['key'],
+        orderBy: 'label COLLATE NOCASE ASC',
+      );
+      for (var i = 0; i < rows.length; i++) {
+        await db.update(
+          'meal_template',
+          {'pos': i},
+          where: 'key = ?',
+          whereArgs: [rows[i]['key']],
+        );
+      }
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
+  // An entry's place inside its meal/sub-heading once dragged. Null keeps
+  // the time order, after any dragged entries.
+  if (!cols.contains('pos')) {
+    try {
+      await db.execute('ALTER TABLE food_entry ADD COLUMN pos INTEGER');
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
   // Body weight, one reading per day (the latest wins). For the weight trend
   // and the maintenance measured from weight change.
   await db.execute('''
@@ -174,14 +241,24 @@ const kMeals = <String>['breakfast', 'lunch', 'dinner', 'snack'];
 /// the meal's clock time; the amount/edit forms let the user adjust it.
 DateTime foodEntryTime(String date, String meal, {DateTime? now}) {
   final clock = now ?? DateTime.now();
-  if (date == dayLabelOf(clock)) return clock;
   final d = DateTime.parse(date);
-  return DateTime(d.year, d.month, d.day, switch (meal) {
+  final usual = DateTime(d.year, d.month, d.day, switch (meal) {
     'breakfast' => 8,
     'lunch' => 13,
     'dinner' => 19,
     _ => 16,
   });
+  if (date != dayLabelOf(clock)) return usual;
+  // Today: the clock while it is that meal's time (snacks any time), and
+  // otherwise the meal's usual hour, so dinner logged at 10 AM is not
+  // stamped 10 AM. The time stays editable on the portion screen.
+  final (from, to) = switch (meal) {
+    'breakfast' => (4, 11),
+    'lunch' => (11, 16),
+    'dinner' => (16, 24),
+    _ => (0, 24),
+  };
+  return clock.hour >= from && clock.hour < to ? clock : usual;
 }
 
 class FoodEntry {
@@ -633,12 +710,34 @@ class NutritionDb {
     FoodEntry e, {
     bool notify = true,
   }) async {
-    await db.insert(
+    // A replace would drop the entry's dragged position; carry it over.
+    final kept = await db.query(
       'food_entry',
-      e.sanitised.toRow(DateTime.now().millisecondsSinceEpoch),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      columns: ['pos'],
+      where: 'id = ?',
+      whereArgs: [e.id],
+      limit: 1,
     );
+    await db.insert('food_entry', {
+      ...e.sanitised.toRow(DateTime.now().millisecondsSinceEpoch),
+      if (kept.isNotEmpty) 'pos': kept.first['pos'],
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     if (notify) changed();
+  }
+
+  /// Save the order of entries the user dragged inside one meal/sub-heading.
+  static Future<void> reorderEntries(Database db, List<String> ids) async {
+    await db.transaction((tx) async {
+      for (var i = 0; i < ids.length; i++) {
+        await tx.update(
+          'food_entry',
+          {'pos': i},
+          where: 'id = ?',
+          whereArgs: [ids[i]],
+        );
+      }
+    });
+    changed();
   }
 
   static Future<void> delete(Database db, String id) async {
@@ -651,7 +750,7 @@ class NutritionDb {
       'food_entry',
       where: 'date = ?',
       whereArgs: [date],
-      orderBy: 'at_ts ASC, created_at ASC',
+      orderBy: 'pos IS NULL, pos ASC, at_ts ASC, created_at ASC',
     );
     return [for (final r in rows) FoodEntry.fromRow(r)];
   }
@@ -722,8 +821,28 @@ class NutritionDb {
   }
 
   static Future<void> putFoodDef(Database db, Map<String, Object?> def) async {
+    // A replace rewrites the whole row: keep the saved position and measures
+    // unless this write sets them. A new food goes to the top of the list.
+    final old = await db.query(
+      'food_def',
+      columns: ['pos', 'measures_json'],
+      where: 'key = ?',
+      whereArgs: [def['key']],
+      limit: 1,
+    );
+    int? pos;
+    if (old.isNotEmpty) {
+      pos = (old.first['pos'] as num?)?.toInt();
+    } else {
+      final top = await db.rawQuery('SELECT MIN(pos) AS p FROM food_def');
+      pos = ((top.first['p'] as num?)?.toInt() ?? 0) - 1;
+    }
     await db.insert('food_def', {
       ...def,
+      'pos': def['pos'] ?? pos,
+      'measures_json':
+          def['measures_json'] ??
+          (old.isEmpty ? '' : old.first['measures_json'] ?? ''),
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     changed();
@@ -891,6 +1010,7 @@ Map<String, Object?> myFoodDef({
   double? carbs,
   double? fat,
   double? fibre,
+  List<FoodMeasure>? measures,
 }) {
   if (!refGrams.isFinite || refGrams <= 0) {
     throw ArgumentError('Serving amount must be positive.');
@@ -914,8 +1034,39 @@ Map<String, Object?> myFoodDef({
     'fat_g_100': per100(fat),
     'fibre_g_100': per100(fibre),
     'source': 'manual',
+    if (measures != null) 'measures_json': encodeMeasures(measures),
   };
 }
+
+/// A named household measure of a food and what it weighs: "scoop = 29 g".
+/// For understanding only — portions are still entered and scaled in the
+/// food's own unit (grams for a weighed food).
+typedef FoodMeasure = ({String label, double amount});
+
+/// At most two, as stored; a damaged value reads as none.
+List<FoodMeasure> foodMeasures(Map<String, Object?> def) {
+  final raw = def['measures_json'];
+  if (raw is! String || raw.isEmpty) return const [];
+  try {
+    return [
+      for (final m in jsonDecode(raw) as List)
+        if (m is Map &&
+            m['l'] is String &&
+            (m['l'] as String).trim().isNotEmpty &&
+            m['a'] is num &&
+            (m['a'] as num) > 0)
+          (label: (m['l'] as String).trim(), amount: (m['a'] as num).toDouble()),
+    ].take(2).toList();
+  } catch (_) {
+    return const [];
+  }
+}
+
+String encodeMeasures(List<FoodMeasure> ms) => ms.isEmpty
+    ? ''
+    : jsonEncode([
+        for (final m in ms.take(2)) {'l': m.label, 'a': m.amount},
+      ]);
 
 /// A food logged at [grams] into [meal] on [date].
 FoodEntry entryFromFood(
@@ -953,20 +1104,35 @@ class MealTemplate {
     required this.meal,
     required this.items,
     this.units = const {},
+    this.groups = const [],
   });
 
   final String key, label, meal;
   final Map<String, String> units;
 
-  /// (food_def key, grams), in the order they were added.
+  /// (food_def key, grams), in the user's order.
   final List<(String, double)> items;
+
+  /// The sub-heading of each item ("Oatmeal", "Eggs and Sausage"), aligned
+  /// with [items]; '' for none. Templates saved before sub-headings were kept
+  /// have none.
+  final List<String> groups;
+
+  String groupAt(int i) => i < groups.length ? groups[i] : '';
+  bool get hasGroups => groups.any((g) => g.isNotEmpty);
 
   Map<String, Object?> toRow(int nowMs) => {
     'key': key,
     'label': label,
     'meal': meal,
     'items_json': jsonEncode([
-      for (final (f, g) in items) {'food': f, 'g': g, 'unit': units[f] ?? 'g'},
+      for (final (i, (f, g)) in items.indexed)
+        {
+          'food': f,
+          'g': g,
+          'unit': units[f] ?? 'g',
+          if (groupAt(i).isNotEmpty) 'grp': groupAt(i),
+        },
     ]),
     'created_at': nowMs,
   };
@@ -974,6 +1140,7 @@ class MealTemplate {
   static MealTemplate fromRow(Map<String, Object?> r) {
     final items = <(String, double)>[];
     final units = <String, String>{};
+    final groups = <String>[];
     try {
       for (final e in (jsonDecode(r['items_json'] as String) as List)) {
         if (e is Map && e['food'] is String && e['g'] is num) {
@@ -981,6 +1148,7 @@ class MealTemplate {
           units[e['food'] as String] = e['unit'] is String
               ? e['unit'] as String
               : 'g';
+          groups.add(e['grp'] is String ? e['grp'] as String : '');
         }
       }
     } catch (_) {
@@ -992,6 +1160,7 @@ class MealTemplate {
       meal: (r['meal'] ?? 'snack').toString(),
       items: items,
       units: units,
+      groups: groups,
     );
   }
 }
@@ -999,14 +1168,42 @@ class MealTemplate {
 class MyFoods {
   MyFoods._();
 
-  /// Every food the user can pick: typed ones and cached barcode products,
-  /// most recently eaten first, then alphabetical.
+  /// Every food the user can pick, in the order Akshat dragged them into
+  /// (shared by Food → Foods and every log screen). Foods without a position
+  /// yet follow, most recently eaten first.
   static Future<List<Map<String, Object?>>> all(Database db) => db.rawQuery(
     'SELECT d.* FROM food_def d '
     'LEFT JOIN (SELECT food_key, MAX(created_at) AS last FROM food_entry '
     'GROUP BY food_key) e ON e.food_key = d.key '
-    'ORDER BY e.last IS NULL, e.last DESC, d.label COLLATE NOCASE ASC',
+    'ORDER BY d.pos IS NULL, d.pos ASC, e.last IS NULL, e.last DESC, '
+    'd.label COLLATE NOCASE ASC',
   );
+
+  /// Save a dragged order of foods: position = index.
+  static Future<void> reorderFoods(Database db, List<String> keys) =>
+      _reorder(db, 'food_def', keys);
+
+  /// Save a dragged order of saved meals.
+  static Future<void> reorderMeals(Database db, List<String> keys) =>
+      _reorder(db, 'meal_template', keys);
+
+  static Future<void> _reorder(
+    Database db,
+    String table,
+    List<String> keys,
+  ) async {
+    await db.transaction((tx) async {
+      for (var i = 0; i < keys.length; i++) {
+        await tx.update(
+          table,
+          {'pos': i},
+          where: 'key = ?',
+          whereArgs: [keys[i]],
+        );
+      }
+    });
+    NutritionDb.changed();
+  }
 
   static Future<void> deleteFood(Database db, String key) async {
     await db.delete('food_def', where: 'key = ?', whereArgs: [key]);
@@ -1016,17 +1213,31 @@ class MyFoods {
   static Future<List<MealTemplate>> meals(Database db) async {
     final rows = await db.query(
       'meal_template',
-      orderBy: 'label COLLATE NOCASE ASC',
+      orderBy: 'pos IS NULL, pos ASC, label COLLATE NOCASE ASC',
     );
     return [for (final r in rows) MealTemplate.fromRow(r)];
   }
 
   static Future<void> putMeal(Database db, MealTemplate m) async {
-    await db.insert(
+    // Keep an edited meal's place; a new one goes to the top.
+    final old = await db.query(
       'meal_template',
-      m.toRow(DateTime.now().millisecondsSinceEpoch),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      columns: ['pos'],
+      where: 'key = ?',
+      whereArgs: [m.key],
+      limit: 1,
     );
+    final int pos;
+    if (old.isNotEmpty) {
+      pos = (old.first['pos'] as num?)?.toInt() ?? 0;
+    } else {
+      final top = await db.rawQuery('SELECT MIN(pos) AS p FROM meal_template');
+      pos = ((top.first['p'] as num?)?.toInt() ?? 0) - 1;
+    }
+    await db.insert('meal_template', {
+      ...m.toRow(DateTime.now().millisecondsSinceEpoch),
+      'pos': pos,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     NutritionDb.changed();
   }
 
@@ -1044,10 +1255,11 @@ class MyFoods {
     required String meal,
     required List<FoodEntry> entries,
   }) async {
-    final items = [
+    final kept = [
       for (final e in entries)
-        if (e.foodKey != null && e.quantity != null) (e.foodKey!, e.quantity!),
+        if (e.foodKey != null && e.quantity != null) e,
     ];
+    final items = [for (final e in kept) (e.foodKey!, e.quantity!)];
     if (items.isNotEmpty) {
       await putMeal(
         db,
@@ -1060,15 +1272,20 @@ class MyFoods {
             for (final e in entries)
               if (e.foodKey != null) e.foodKey!: e.unit,
           },
+          // Sub-headings travel with the saved meal.
+          groups: [for (final e in kept) e.group],
         ),
       );
     }
     return (saved: items.length, skipped: entries.length - items.length);
   }
 
-  /// Log every item of [m] into [meal] on [date], under a sub-heading named
-  /// after the saved meal. Items whose food was since deleted are skipped.
-  /// Returns how many entries were written.
+  /// Log every item of [m] into [meal] on [date]. Each item keeps its saved
+  /// sub-heading; an item without one goes under [group] when given, or, for
+  /// an old template with no sub-headings at all, under the meal's name.
+  /// [amounts], aligned with the items, replaces each saved amount after the
+  /// review screen; a null there leaves that item out. Items whose food was
+  /// since deleted are skipped. Returns how many entries were written.
   static Future<int> logMeal(
     Database db,
     MealTemplate m,
@@ -1076,11 +1293,16 @@ class MyFoods {
     String meal, {
     DateTime? now,
     String? group,
+    List<double?>? amounts,
   }) async {
     var n = 0;
     final at = foodEntryTime(date, meal, now: now);
     await db.transaction((tx) async {
-      for (final (key, grams) in m.items) {
+      for (final (i, (key, saved)) in m.items.indexed) {
+        final grams = amounts == null
+            ? saved
+            : (i < amounts.length ? amounts[i] : saved);
+        if (grams == null || !grams.isFinite || grams <= 0) continue;
         final def = await NutritionDb.foodDef(tx, key);
         if (def == null) continue;
         if ((m.units[key] ?? 'g') != foodUnit(def)) {
@@ -1097,7 +1319,11 @@ class MyFoods {
             date: date,
             meal: meal,
             atTs: at.millisecondsSinceEpoch ~/ 1000,
-          ).inGroup(group ?? m.label),
+          ).inGroup(
+            m.groupAt(i).isNotEmpty
+                ? m.groupAt(i)
+                : (group ?? (m.hasGroups ? '' : m.label)),
+          ),
           notify: false,
         );
         n++;

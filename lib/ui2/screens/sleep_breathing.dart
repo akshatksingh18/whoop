@@ -187,11 +187,13 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen>
                   setState(() => _pick = (f * (series.length - 1)).round()),
               child: CustomPaint(
                 size: Size.infinite,
-                painter: Bars(
+                painter: LineChart(
                   series,
                   p.on(C.sleep),
-                  highlight: series.length - 1,
+                  dots: series.length <= 40,
+                  dotInk: p.card,
                   cursor: pick,
+                  cursorInk: p.ink,
                   axis: axis,
                 ),
               ),

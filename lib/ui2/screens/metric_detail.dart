@@ -23,10 +23,18 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'day_steps.dart';
-import 'day_timeline.dart' show DayGraph, DayHeartCard, dayGraph;
+import 'day_timeline.dart'
+    show DayGraph, DayHeartCard, DayTimelineScreen, dayGraph;
 import 'home_screen.dart';
 import 'journal_compose.dart' show OsTextField;
+import 'readiness_detail.dart';
 import 'sleep_detail.dart';
+
+/// The one range list Trends and every metric screen share, in days. Trends
+/// passes its choice into the metric it opens, so a 3-month view opens a
+/// 3-month detail; changing range inside a metric affects that screen only.
+const kRangeDays = [1, 7, 30, 90];
+const kRangeLabels = ['Today', '7 days', '30 days', '3 months'];
 
 // ═══════════════════ the vocabulary ═══════════════════
 
@@ -326,6 +334,7 @@ const _specs = <String, MetricSpec>{
   'skin_temp': MetricSpec(
     chartKey: 'skin_temp',
     title: 'Skin temperature',
+    unit: 'SD',
     color: C.orange,
     icon: LucideIcons.thermometer,
     higherBetter: false,
@@ -710,7 +719,36 @@ class _TodaySignalDetailState extends State<TodaySignalDetail>
 class MetricDetail extends StatefulWidget {
   final String metricKey;
   final MetricData? data;
-  const MetricDetail(this.metricKey, {super.key, this.data});
+
+  /// Index into [kRangeDays]: the range the screen opens on, normally the one
+  /// chosen on Trends.
+  final int range;
+
+  /// A day to open on, selected in the day row. Links from a dated screen
+  /// (a night on Sleep, a readiness input) pass it so the metric shows that
+  /// same day, never just "now".
+  final String? day;
+  const MetricDetail(
+    this.metricKey, {
+    super.key,
+    this.data,
+    this.range = 0,
+    this.day,
+  });
+
+  /// The metric at [day]: Today when it is today, otherwise the shortest range
+  /// that contains it, with that day selected.
+  factory MetricDetail.at(String metricKey, String? day) {
+    final behind = day == null
+        ? 0
+        : calendarDaysBetween(DateTime.parse(day), DateTime.now());
+    final range = kRangeDays.indexWhere((w) => behind < w);
+    return MetricDetail(
+      metricKey,
+      range: range < 0 ? kRangeDays.length - 1 : range,
+      day: behind <= 0 ? null : day,
+    );
+  }
 
   @override
   State<MetricDetail> createState() => _MetricDetailState();
@@ -720,18 +758,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   // Today is its own window, not the left edge of the 7-day one. Asking "what
   // is it right now" and "what has it been lately" are different questions,
   // and a range list that starts at 7 days made the first one unanswerable.
-  static const _windows = [1, 7, 30, 182, 365];
-
-  List<String> _labelsOf(BuildContext c) {
-    final l = AppLocalizations.of(c);
-    return [
-      l?.metricDetailToday ?? 'Today',
-      l?.metricDetailRange7Days ?? '7 days',
-      l?.metricDetailRange30Days ?? '30 days',
-      l?.metricDetailRange6Months ?? '6 months',
-      l?.metricDetailRangeYear ?? 'Year',
-    ];
-  }
+  static const _windows = kRangeDays;
 
   /// TODAY. A tile on Home shows today's number, so the screen behind that tap
   /// opens on today's number — anything else is a different question than the
@@ -743,7 +770,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   /// was never today. The range switcher is still here and still remembers
   /// nothing between visits — a default is where a screen starts, not a
   /// preference.
-  int _range = 0;
+  late int _range = widget.range.clamp(0, _windows.length - 1);
   MetricData? _d;
   final _calorieCache = <(LocalRepository, int, int, String), MetricData>{};
   bool _loading = true;
@@ -754,52 +781,15 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   /// 30-day window is not slot 12 of a year.
   int? _pick;
 
-  /// How many range buttons this install has data behind.
-  ///
-  /// Nothing prunes the derived series, so the honest horizon is the life of
-  /// the install — but offering "Year" to someone with three weeks is offering
-  /// a button that can only ever show three weeks under a label that says a
-  /// year. A range appears once there are enough days to fill it; the shortest
-  /// one always appears, because it is where a new user starts.
-  int _offered(MetricData d) {
-    var n = 1;
-    for (var i = 1; i < _windows.length; i++) {
-      if (d.daysAvailable >= _windows[i]) n = i + 1;
-    }
-    return n;
-  }
+  /// Every range is always offered, as on Trends. A short history simply
+  /// shows "n of 90 days" under the average rather than hiding the button.
+  int _offered(MetricData d) => _windows.length;
 
-  /// The reason the next range up is not there yet, in its own words.
-  String? _lockedNote(BuildContext c, MetricData d) {
-    final n = _offered(d);
-    if (n >= _windows.length) return null;
-    final l = AppLocalizations.of(c);
-    final label = _labelsOf(c)[n];
-    return l?.metricDetailLockedNote(label, _windows[n], d.daysAvailable) ??
-        '$label needs ${_windows[n]} days of history. '
-            'You have ${d.daysAvailable}.';
-  }
-
-  Widget _ranges(BuildContext c, MetricData d, Color color) {
-    final p = P.of(c);
-    final n = _offered(d);
-    // The personal build lists only the ranges it can draw, without a line
-    // about the ones it cannot.
-    final note = kPersonalSideload ? null : _lockedNote(c, d);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SubTabs(_labelsOf(c).sublist(0, n), _range.clamp(0, n - 1), (i) {
-          setState(() => (_range = i, _pick = null));
-          if (widget.metricKey == 'step_kcal' && widget.data == null) _load();
-        }, color: color),
-        if (note != null) ...[
-          const SizedBox(height: S.x2),
-          Text(note, style: F.over.copyWith(color: p.ink3)),
-        ],
-      ],
-    );
-  }
+  Widget _ranges(BuildContext c, MetricData d, Color color) =>
+      SubTabs(kRangeLabels, _range, (i) {
+        setState(() => (_range = i, _pick = null));
+        if (widget.metricKey == 'step_kcal' && widget.data == null) _load();
+      }, color: color);
 
   @override
   void initState() {
@@ -905,11 +895,17 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         ),
       ] else if (win == 1 &&
           widget.data == null &&
-          (widget.metricKey == 'sleep' || widget.metricKey == 'strain')) ...[
+          const [
+            'sleep',
+            'strain',
+            'readiness',
+          ].contains(widget.metricKey)) ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         if (widget.metricKey == 'sleep')
           const SleepDetail(embedded: true)
+        else if (widget.metricKey == 'readiness')
+          const ReadinessDetail(embedded: true)
         else
           const DayStrainDetail(embedded: true),
       ] else if (vals.isEmpty) ...[
@@ -972,6 +968,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks),
+        if (win > 1) ..._periods(c, spec, series),
         // Today's count against the goal set on this screen's own edit
         // affordance — a trend average has no goal to be measured against, so
         // this stays win == 1 only, same gate as the Breakdown link below.
@@ -1073,6 +1070,11 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     final alternate = widget.metricKey == 'step_kcal'
         ? denseDays(_d?.acsmSeries ?? const [], win)
         : const <double?>[];
+    // On a month or longer the day-to-day line is noisy; a 7-day average
+    // drawn under it is the trend. Each point needs four measured days.
+    final rolling = win < 30 || alternate.isNotEmpty
+        ? const <double?>[]
+        : rollingMean(series, 7, minCount: 4);
     // WHICH DAY the newest reading is from. `metric_series` gets a row only on
     // a day that derives, so after a sync gap the newest stored point is days
     // old — and this line is the answer to "is there a today?".
@@ -1181,7 +1183,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                 ];
                 return ChartFrame(
                   title: spec.title,
-                  unit: spec.unit.isEmpty ? 'score' : spec.unit,
+                  // Minutes already read "7h 05m"; a second "min" doubled it.
+                  unit: spec.unit == 'min'
+                      ? ''
+                      : (spec.unit.isEmpty ? 'score' : spec.unit),
                   height: 150,
                   yAxis: axis,
                   xMarks: marks,
@@ -1212,9 +1217,14 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                   ],
                   // The dots are already beside the big number two rows up; twice on
                   // one card reads as two different claims.
-                  legend: alternate.isEmpty
+                  legend: alternate.isNotEmpty
+                      ? [('Budget', p.on(spec.color)), ('ACSM', p.on(C.teal))]
+                      : rolling.isEmpty
                       ? const []
-                      : [('Budget', p.on(spec.color)), ('ACSM', p.on(C.teal))],
+                      : [
+                          ('Daily', p.on(spec.color)),
+                          ('7-day average', p.ink2),
+                        ],
                   series: series,
                   readout: _pick == null
                       ? null
@@ -1262,6 +1272,17 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                             ),
                           ),
                         ),
+                        if (rolling.isNotEmpty)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: LineChart(
+                                rolling,
+                                p.ink2,
+                                fill: false,
+                                axis: axis,
+                              ),
+                            ),
+                          ),
                         if (alternate.isNotEmpty)
                           Positioned.fill(
                             child: CustomPaint(
@@ -1282,10 +1303,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                 );
               },
             ),
-          if (series.isNotEmpty &&
-              (_pick != null ||
-                  const ['steps', 'step_kcal'].contains(widget.metricKey)))
-            _picked(c, spec, series),
+          // Always shown: the newest day until another is picked, with arrows,
+          // so no day needs the chart touched first.
+          // (Today has its own day view and navigation below.)
+          if (win > 1 && series.isNotEmpty) _picked(c, spec, series),
           // L4 — the coverage denominator, under the curve it belongs to.
           //
           // Deliberately unflattering, and gated to the ranges where it changes
@@ -1395,66 +1416,236 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   Widget _picked(BuildContext c, MetricSpec spec, List<double?> series) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final i = (_pick ?? series.length - 1).clamp(0, series.length - 1);
+    final newest = series.lastIndexWhere((v) => v != null);
+    final asked = widget.day == null
+        ? -1
+        : series.length -
+              1 -
+              calendarDaysBetween(DateTime.parse(widget.day!), DateTime.now());
+    final i =
+        (_pick ??
+                (asked >= 0
+                    ? asked
+                    : (newest < 0 ? series.length - 1 : newest)))
+            .clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
     final v = series[i];
     final door =
         v == null && !const ['steps', 'step_kcal'].contains(widget.metricKey)
         ? null
         : _dayScreen(widget.metricKey, day);
+    Widget arrow(IconData icon, String label, int to) {
+      final ok = to >= 0 && to < series.length;
+      return Opacity(
+        opacity: ok ? 1 : .35,
+        child: Pressable(
+          onTap: ok ? () => setState(() => _pick = to) : null,
+          semanticLabel: label,
+          child: Padding(
+            padding: const EdgeInsets.all(S.x1),
+            child: Icon(icon, size: 20, color: p.ink),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
-      child: Surface(
-        color: p.card2,
-        elevation: 0,
-        onTap: door == null ? null : () => go(c, door),
-        semanticLabel: v == null
-            ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
-                  '${prettyDay(day, l)}, no record')
-            : door == null
-            ? '${prettyDay(day, l)}, ${_fmt(spec, v)} ${unitBeside(spec.unit)}'
-                  .trimRight()
-            : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
-                  'Open ${prettyDay(day, l)}'),
+      child: Row(
+        children: [
+          arrow(LucideIcons.chevronLeft, 'Previous day', i - 1),
+          const SizedBox(width: S.x1),
+          Expanded(
+            child: Surface(
+              color: p.card2,
+              elevation: 0,
+              onTap: door == null ? null : () => go(c, door),
+              semanticLabel: v == null
+                  ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
+                        '${prettyDay(day, l)}, no record')
+                  : door == null
+                  ? '${prettyDay(day, l)}, ${_fmt(spec, v)} ${unitBeside(spec.unit)}'
+                        .trimRight()
+                  : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
+                        'Open ${prettyDay(day, l)}'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      dayNavLabel(day),
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: S.x3),
+                  if (widget.metricKey == 'step_kcal')
+                    Flexible(
+                      child: Text(
+                        _slotSays(
+                          c,
+                          spec,
+                          series,
+                          i,
+                        ).split(' · ').skip(1).join('\n'),
+                        style: F.cap.copyWith(color: p.ink2),
+                      ),
+                    )
+                  else
+                    // Flexible: at large text on a small phone the value
+                    // wraps rather than pushing the row off the card.
+                    Flexible(
+                      child: Text(
+                        v == null
+                            ? (l?.metricDetailNoRecordLabel ?? 'No record')
+                            : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'
+                                  .trimRight(),
+                        textAlign: TextAlign.right,
+                        style: v == null
+                            ? F.cap.copyWith(color: p.ink3)
+                            : F.n17.copyWith(color: p.ink),
+                      ),
+                    ),
+                  if (door != null) ...[
+                    const SizedBox(width: S.x2),
+                    Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: S.x1),
+          arrow(LucideIcons.chevronRight, 'Next day', i + 1),
+        ],
+      ),
+    );
+  }
+
+  /// What separates the ranges beyond the chart's width: each day for a week,
+  /// weekly averages for a month and monthly averages for three months. A day
+  /// row opens that day; a week or month row moves the selection to its
+  /// newest measured day.
+  List<Widget> _periods(BuildContext c, MetricSpec spec, List<double?> series) {
+    if (widget.metricKey == 'step_kcal' || series.isEmpty) return const [];
+    final p = P.of(c);
+    final len = series.length;
+    final rows = <({String label, double? value, int slot, bool day})>[];
+    if (len <= 7) {
+      for (var i = len - 1; i >= 0; i--) {
+        rows.add((
+          label: dayNavLabel(_dayOfSlot(i, len)),
+          value: series[i],
+          slot: i,
+          day: true,
+        ));
+      }
+    } else {
+      final byMonth = len > 31;
+      final groups = <String, List<int>>{};
+      for (var i = 0; i < len; i++) {
+        final d = DateTime.parse(_dayOfSlot(i, len));
+        final key = byMonth
+            ? '${d.year}-${d.month}'
+            : dayLabelOf(DateTime(d.year, d.month, d.day - (d.weekday - 1)));
+        (groups[key] ??= []).add(i);
+      }
+      for (final e in groups.entries.toList().reversed) {
+        final have = [for (final i in e.value) ?series[i]];
+        final newest = e.value.lastWhere(
+          (i) => series[i] != null,
+          orElse: () => e.value.last,
+        );
+        final first = DateTime.parse(_dayOfSlot(e.value.first, len));
+        rows.add((
+          label: byMonth
+              ? _monthName(first)
+              : 'Week of ${prettyDay(_dayOfSlot(e.value.first, len))}',
+          value: have.isEmpty
+              ? null
+              : have.reduce((a, b) => a + b) / have.length,
+          slot: newest,
+          day: false,
+        ));
+      }
+    }
+    return [
+      Section(
+        len <= 7 ? 'By day' : (len > 31 ? 'By month' : 'By week'),
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              for (var k = 0; k < rows.length; k++) ...[
+                if (k > 0) Divider(color: p.line, height: 1),
+                _periodRow(c, spec, rows[k], len),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _periodRow(
+    BuildContext c,
+    MetricSpec spec,
+    ({String label, double? value, int slot, bool day}) row,
+    int len,
+  ) {
+    final p = P.of(c);
+    final v = row.value;
+    final door = row.day && v != null
+        ? _dayScreen(widget.metricKey, _dayOfSlot(row.slot, len))
+        : null;
+    final text = v == null
+        ? 'No record'
+        : '${row.day ? '' : 'avg '}${_fmt(spec, v)} ${unitBeside(spec.unit)}'
+              .trimRight();
+    return Pressable(
+      onTap: row.day
+          ? (door == null ? null : () => go(c, door))
+          : () => setState(() => _pick = row.slot),
+      semanticLabel: '${row.label}, $text',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                dayNavLabel(day),
-                style: F.body.copyWith(
-                  color: p.ink,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              child: Text(row.label, style: F.body.copyWith(color: p.ink)),
             ),
-            const SizedBox(width: S.x3),
-            if (widget.metricKey == 'step_kcal')
-              Flexible(
-                child: Text(
-                  _slotSays(c, spec, series, i).split(' · ').skip(1).join('\n'),
-                  style: F.cap.copyWith(color: p.ink2),
-                ),
-              )
-            else
-              Text(
-                v == null
-                    ? (l?.metricDetailNoRecordLabel ?? 'No record')
-                    : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
-                style: v == null
-                    ? F.cap.copyWith(color: p.ink3)
-                    : F.n17.copyWith(color: p.ink),
-              ),
+            Text(
+              text,
+              style: v == null
+                  ? F.cap.copyWith(color: p.ink3)
+                  : F.body.copyWith(color: p.ink),
+            ),
             if (door != null) ...[
               const SizedBox(width: S.x2),
-              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+              Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
             ],
           ],
         ),
       ),
     );
   }
+
+  static String _monthName(DateTime d) => const [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][d.month - 1];
 
   /// Where a day opens. Each metric lands on the screen that actually shows
   /// that day; a metric with no per-day screen has no door (null).
@@ -1463,6 +1654,13 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     'steps' => DayStepsDetail(day: day),
     'step_kcal' => DayStepsDetail(day: day, calories: true),
     'strain' => DayStrainDetail(day: day),
+    // Night-derived signals open the night they came from (Overnight signals).
+    'hrv' ||
+    'resting_hr' ||
+    'resp_rate' ||
+    'skin_temp' => SleepDetail(day: day),
+    'readiness' || 'recovery' => ReadinessDetail(day: day),
+    'wear' => DayTimelineScreen(day: day),
     _ => null,
   };
 
@@ -1662,7 +1860,9 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     return '${v >= 0 ? '+' : '−'}$s${unit == null || unit.isEmpty ? '' : ' $unit'}';
   }
 
-  String _fmt(MetricSpec spec, double v) => metricValue(spec.unit, v);
+  String _fmt(MetricSpec spec, double v) => spec.unit == 'SD'
+      ? '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(1)}'
+      : metricValue(spec.unit, v);
 }
 
 /// Today's steps against the goal, as one small ring — the same [Ring]
@@ -2092,3 +2292,22 @@ class Legend extends StatelessWidget {
     );
   }
 }
+
+/// The mean of the [window] slots ending at each slot, or null where fewer
+/// than [minCount] of them were measured. Gaps are never filled.
+List<double?> rollingMean(
+  List<double?> series,
+  int window, {
+  int minCount = 1,
+}) => [
+  for (var i = 0; i < series.length; i++)
+    () {
+      final have = [
+        for (var j = i - window + 1; j <= i; j++)
+          if (j >= 0) ?series[j],
+      ];
+      return have.length < minCount
+          ? null
+          : have.reduce((a, b) => a + b) / have.length;
+    }(),
+];

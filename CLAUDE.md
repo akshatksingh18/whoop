@@ -41,7 +41,9 @@ build `37388415503` pass. Downloaded source/version, checksum, ZIP integrity and
 pass, including the single version-matched workout extension. The sole testing candidate is
 `final-ipas\whoop\testing\WHOOP-0.9.41-build74-78461799`. Build 74 is not installed yet;
 its complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
-artifact evidence. Broader lifecycle, background and multi-cycle signing gates remain before
+artifact evidence. A local build-74 replacement adds direct My foods scanning with review before
+saving, manual fallback and no diary writes; it is not yet in the cached IPA. `todo.md` owns its
+publication/rebuild and phone gates. Broader lifecycle, background and multi-cycle signing gates remain before
 daily-use activation.
 
 Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an

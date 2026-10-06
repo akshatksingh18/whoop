@@ -168,6 +168,17 @@ The earlier built `5c00c278` IPA lacks this repair and is superseded. Build-72 l
 macOS build, checksum and payload validation pass; Akshat confirms installation, while the feature
 phone pass and current-version enrollment remain pending.
 
+## Food-library scanning entry: local build-74 repair
+
+The screenshot and build-74 source confirm that Food → Foods → My foods → New opens only the
+manual `FoodEditor`. The scanner is reachable from meal logging, although scanned products and
+manual foods share `food_def` and are both returned by `MyFoods.all`. This is a missing library
+entry point, not evidence of a broken barcode camera. Local source now adds Scan beside New,
+review before persistence, explicit manual fallback and no library diary writes. Meal scanning
+also opens the editable review first and waits for explicit Log on its portion screen. Barcode edits retain
+ancillary label data. `todo.md` owns replacement and phone gates; the cached `78461799` IPA
+still lacks this addition until the replacement is built and validated.
+
 ## Build-73 chart, navigation and notification defects: local build-74 repairs
 
 The installed-build-73 report and source audit confirmed future-time Strain/Steps/Wear selection,

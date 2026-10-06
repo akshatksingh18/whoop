@@ -26,8 +26,7 @@ import 'food_picker.dart';
 import 'food_group_picker.dart';
 import 'home_screen.dart' show prettyDay, thousands;
 import 'journal_compose.dart' show OsTextField;
-import 'log_food.dart' show scanFoodProduct, offCredit;
-import '../../data/off_lookup.dart';
+import 'log_food.dart' show offCredit;
 import 'metric_detail.dart' show detailScaffold;
 
 // ══════════════════ DAYS ══════════════════
@@ -1064,66 +1063,15 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
 
   Future<void> _scan() async {
     final meal = _meal;
-    var typeInstead = false;
-    final result = await scanFoodProduct(
+    final def = await FoodEditor.scanAndSave(context);
+    if (def == null || !mounted) return;
+    await FoodDetailSheet.show(
       context,
-      onManual: () => typeInstead = true,
+      def: def,
+      date: widget.date,
+      meal: meal,
+      group: _group ?? '',
     );
-    if (!mounted) return;
-    if (result == null) {
-      if (typeInstead) {
-        await QuickAddSheet.show(
-          context,
-          date: widget.date,
-          meal: meal,
-          group: _group ?? '',
-        );
-      }
-      return;
-    }
-    final product = result.product;
-    if (product != null && !product.isBare) {
-      await FoodDetailSheet.show(
-        context,
-        def: product.toDefRow(),
-        date: widget.date,
-        meal: meal,
-        grams: product.defaultPortionG,
-        group: _group ?? '',
-      );
-    } else {
-      final message = switch (result.outcome) {
-        OffOutcome.notFound => 'This barcode is not in Open Food Facts yet.',
-        OffOutcome.flagged =>
-          'This product is flagged as incorrect; its numbers were not used.',
-        OffOutcome.unreachable =>
-          'The lookup could not connect. Cached products still work offline.',
-        OffOutcome.refused => 'Barcode lookup is off.',
-        OffOutcome.ok => 'The product has no usable nutrition numbers.',
-      };
-      final manual = await _sheet<bool>(
-        context,
-        (s) => _body(s, [
-          _sheetTitle(s, 'Add from the label'),
-          const SizedBox(height: S.x3),
-          Text(message, style: F.body.copyWith(color: P.of(s).ink2)),
-          const SizedBox(height: S.x4),
-          BigButton(
-            'Quick add',
-            color: C.domFood,
-            onTap: () => Navigator.of(s).pop(true),
-          ),
-        ]),
-      );
-      if (manual == true && mounted) {
-        await QuickAddSheet.show(
-          context,
-          date: widget.date,
-          meal: meal,
-          group: _group ?? '',
-        );
-      }
-    }
     if (mounted) await _load();
   }
 

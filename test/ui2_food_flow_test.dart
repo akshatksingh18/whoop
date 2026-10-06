@@ -1,6 +1,7 @@
 // Regression coverage for the personal food/UI cleanup. Uses synthetic food
 // and the real SQLite store; no barcode network requests or personal records.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -11,6 +12,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,6 +26,8 @@ import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
+import 'package:openstrap_edge/data/off_lookup.dart';
+import 'package:openstrap_edge/ui2/screens/log_food.dart';
 import 'package:openstrap_edge/gps/run_history.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/locale_controller.dart';
@@ -227,6 +232,208 @@ void main() {
       path.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
     );
   });
+
+  test(
+    'library lookup defers persistence and saved barcodes work offline',
+    () async {
+      await Prefs.setBoolAcked('nutrition.barcode_lookup', true);
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': 1,
+            'product': {
+              'product_name': 'Synthetic oats',
+              'brands': 'Test brand',
+              'serving_quantity': 50,
+              'nutriments': {'energy-kcal_100g': 200, 'proteins_100g': 10},
+            },
+          }),
+          200,
+        ),
+      );
+      final result = await lookupBarcodeFood(
+        '1234567890123',
+        cacheProduct: false,
+        client: client,
+      );
+      expect(result.outcome, OffOutcome.ok);
+      final db = await LocalDb.instance;
+      expect(await NutritionDb.foodDef(db, '1234567890123'), isNull);
+      expect(result.product!.carbsG, isNull);
+      await NutritionDb.putFoodDef(db, result.product!.toDefRow());
+      final offline = MockClient(
+        (_) async => throw StateError('Must use saved food'),
+      );
+      expect(
+        (await lookupBarcodeFood(
+          '1234567890123',
+          cacheProduct: false,
+          client: offline,
+        )).outcome,
+        OffOutcome.ok,
+      );
+      expect(await db.query('food_def'), hasLength(1));
+      expect(await db.query('food_entry'), isEmpty);
+      final missing = MockClient((_) async => http.Response('', 404));
+      expect(
+        (await lookupBarcodeFood(
+          '999',
+          cacheProduct: false,
+          client: missing,
+        )).outcome,
+        OffOutcome.notFound,
+      );
+      expect(await db.query('food_def'), hasLength(1));
+      client.close();
+      offline.close();
+      missing.close();
+    },
+  );
+
+  testWidgets(
+    'library Scan reviews saved food, cancels cleanly and saves once without logging',
+    (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final app = AppState.forTesting()
+        ..repo = _Repo()
+        ..user = {..._profile};
+      addTearDown(app.dispose);
+      await Prefs.setBoolAcked('nutrition.barcode_lookup', true);
+      final db = await LocalDb.instance;
+      await t.runAsync(
+        () => NutritionDb.putFoodDef(
+          db,
+          const OffProduct(
+            barcode: '1234567890123',
+            label: 'Synthetic oats',
+            brand: 'Test brand',
+            servingG: 50,
+            kcal: 200,
+            proteinG: 10,
+            sodiumMg: 10,
+          ).toDefRow(),
+        ),
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      for (final suffix in ['method', 'event', 'deviceOrientation']) {
+        final channel = MethodChannel(
+          'dev.steenbakker.mobile_scanner/scanner/$suffix',
+        );
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'start') {
+            throw PlatformException(code: 'PERMISSION_ERROR');
+          }
+          return null;
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      }
+      await t.pumpWidget(_app(app, const NutritionScreen()));
+      await _until(t, () => find.text('Foods').evaluate().isNotEmpty);
+      await t.tap(find.text('Foods'));
+      await _until(t, () => find.text('Scan').evaluate().isNotEmpty);
+      await _capture(t, 'food-library-scan');
+      Future<void> scan() async {
+        await t.tap(find.text('Scan'));
+        await _until(t, () => find.byType(MobileScanner).evaluate().isNotEmpty);
+        t.widget<MobileScanner>(find.byType(MobileScanner)).onDetect!(
+          BarcodeCapture(barcodes: [Barcode(rawValue: '1234567890123')]),
+        );
+        await _until(
+          t,
+          () => find.text('Review scanned food').evaluate().isNotEmpty,
+        );
+      }
+
+      await scan();
+      await _capture(t, 'food-library-review');
+      expect(find.byType(QuickAddSheet), findsNothing);
+      expect(
+        t.widget<TextField>(_field('Calories (kcal)')).controller!.text,
+        '100',
+      );
+      expect(
+        t.widget<TextField>(_field('Carbs (g)')).controller!.text,
+        isEmpty,
+      );
+      Navigator.of(t.element(find.byType(FoodEditor))).pop();
+      await _until(t, () => find.byType(FoodEditor).evaluate().isEmpty);
+      await t.pumpAndSettle();
+      expect(
+        (await t.runAsync(
+          () => NutritionDb.foodDef(db, '1234567890123'),
+        ))!['kcal_100'],
+        200,
+      );
+      await scan();
+      await t.enterText(_field('Calories (kcal)'), '120');
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Save to My foods'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Save to My foods'));
+      await _until(t, () => find.byType(FoodEditor).evaluate().isEmpty);
+      final saved = (await t.runAsync(
+        () => NutritionDb.foodDef(db, '1234567890123'),
+      ))!;
+      expect(saved['kcal_100'], 240);
+      expect(saved['carbs_g_100'], isNull);
+      expect(saved['brand'], 'Test brand');
+      expect(saved['sodium_mg_100'], 10);
+      expect(await t.runAsync(() => db.query('food_def')), hasLength(1));
+      expect(await t.runAsync(() => db.query('food_entry')), isEmpty);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Scan'));
+      await _until(
+        t,
+        () => find.text('Type the numbers instead').evaluate().isNotEmpty,
+      );
+      await t.tap(find.text('Type the numbers instead'));
+      await _until(t, () => find.text('New food').evaluate().isNotEmpty);
+      expect(find.byType(QuickAddSheet), findsNothing);
+      Navigator.of(t.element(find.byType(FoodEditor))).pop();
+      await t.pumpAndSettle();
+      expect(await t.runAsync(() => db.query('food_def')), hasLength(1));
+      await _unmount(t);
+      final mealDay = dayLabelOf(
+        DateTime.now().subtract(const Duration(days: 2)),
+      );
+      await t.pumpWidget(
+        _app(app, LogFoodScreen(date: mealDay, meal: 'breakfast')),
+      );
+      await _until(t, () => find.text('Scan').evaluate().isNotEmpty);
+      await scan();
+      expect(await t.runAsync(() => db.query('food_entry')), isEmpty);
+      await t.enterText(_field('Protein (g)'), '8');
+      await t.enterText(_field('Serving unit'), 'link');
+      await t.enterText(_field('Serving amount'), '1');
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Save to My foods'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Save to My foods'));
+      await _until(t, () => find.byType(FoodDetailSheet).evaluate().isNotEmpty);
+      expect(await t.runAsync(() => db.query('food_entry')), isEmpty);
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Log'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Log'));
+      await _until(t, () => find.byType(FoodDetailSheet).evaluate().isEmpty);
+      final entries = await t.runAsync(() => db.query('food_entry'));
+      expect(entries, hasLength(1));
+      expect(entries!.single['date'], mealDay);
+      expect(entries.single['meal'], 'breakfast');
+      expect(entries.single['protein_g'], 8);
+      expect(entries.single['unit'], 'link');
+      expect(
+        (await t.runAsync(
+          () => NutritionDb.foodDef(db, '1234567890123'),
+        ))!['sodium_mg_100'],
+        500,
+      );
+      await _unmount(t);
+    },
+  );
 
   testWidgets(
     'long selected chart values stay fully visible at phone widths and enlarged text',
@@ -582,7 +789,7 @@ void main() {
         () => find.text('Type the numbers instead').evaluate().isNotEmpty,
       );
       await t.tap(find.text('Type the numbers instead'));
-      await _until(t, () => find.byType(QuickAddSheet).evaluate().isNotEmpty);
+      await _until(t, () => find.byType(FoodEditor).evaluate().isNotEmpty);
       expect(find.text('Log an eating occasion'), findsNothing);
       await _unmount(t);
     },

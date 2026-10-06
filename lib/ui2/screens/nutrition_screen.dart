@@ -69,6 +69,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   List<RunSummary> _runs = const [];
   List<({String date, double kg})> _weights = const [];
   bool _loading = true;
+  bool _editingLibrary = false;
 
   /// The day the Today tab shows; null follows the calendar day.
   String? _shownDay;
@@ -563,9 +564,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   Widget _foodsTab(BuildContext c) {
     final p = P.of(c);
     Future<void> edit(Future<Object?> Function() f) async {
+      if (_editingLibrary) return;
+      _editingLibrary = true;
       try {
         await f();
-        if (mounted) await _load();
       } catch (_) {
         if (c.mounted) {
           ScaffoldMessenger.maybeOf(c)?.showSnackBar(
@@ -576,7 +578,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             ),
           );
         }
+      } finally {
+        _editingLibrary = false;
       }
+      if (mounted) await _load();
     }
 
     return Column(
@@ -635,8 +640,35 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                     ],
                   ),
           ),
-          action: 'New',
-          onAction: () => edit(() => FoodEditor.show(c)),
+          actions: Wrap(
+            spacing: S.x2,
+            children: [
+              for (final label in const ['Scan', 'New'])
+                Pressable(
+                  semanticLabel: label == 'Scan'
+                      ? 'Scan a food into My foods'
+                      : 'Create a food',
+                  onTap: () => edit(
+                    () => label == 'Scan'
+                        ? FoodEditor.scanAndSave(c)
+                        : FoodEditor.show(c),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: S.x2,
+                      vertical: S.x2,
+                    ),
+                    child: Text(
+                      label,
+                      style: F.cap.copyWith(
+                        color: p.on(C.blue),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );

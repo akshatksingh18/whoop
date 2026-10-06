@@ -13,6 +13,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
 import '../../data/nutrition_store.dart';
+import '../../data/off_lookup.dart';
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
 import 'log_food.dart';
@@ -364,14 +365,71 @@ class _GramsSheetState extends State<GramsSheet> {
 
 /// Type a food once, the way the label reads it. Returns the saved row.
 class FoodEditor extends StatefulWidget {
-  const FoodEditor({super.key, this.existing});
+  const FoodEditor({super.key, this.existing, this.reviewBarcode = false});
 
   final Map<String, Object?>? existing;
+  final bool reviewBarcode;
 
   static Future<Map<String, Object?>?> show(
     BuildContext c, {
     Map<String, Object?>? existing,
-  }) => _sheet<Map<String, Object?>>(c, (_) => FoodEditor(existing: existing));
+    bool reviewBarcode = false,
+  }) => _sheet<Map<String, Object?>>(
+    c,
+    (_) => FoodEditor(existing: existing, reviewBarcode: reviewBarcode),
+  );
+
+  /// A library scan never writes a diary entry or saves before confirmation.
+  static Future<Map<String, Object?>?> scanAndSave(BuildContext c) async {
+    var manual = false;
+    final result = await scanFoodProduct(
+      c,
+      cacheProduct: false,
+      onManual: () => manual = true,
+    );
+    if (!c.mounted) return null;
+    if (result == null) return manual ? show(c) : null;
+    if (result.product case final product?) {
+      final saved = await NutritionDb.foodDef(
+        await LocalDb.instance,
+        product.barcode,
+      );
+      if (!c.mounted) return null;
+      return show(
+        c,
+        existing: saved ?? product.toDefRow(),
+        reviewBarcode: true,
+      );
+    }
+    final reason = switch (result.outcome) {
+      OffOutcome.notFound => 'This barcode is not in Open Food Facts yet.',
+      OffOutcome.flagged =>
+        'This product is flagged as incorrect; its numbers were not used.',
+      OffOutcome.unreachable =>
+        'The lookup could not connect. Saved barcode foods still work offline.',
+      OffOutcome.refused => 'Barcode lookup is off.',
+      OffOutcome.ok => 'The product has no usable nutrition numbers.',
+    };
+    final useLabel = await _sheet<bool>(
+      c,
+      (context) => _sheetBody(context, [
+        Text(
+          'Add from the label',
+          style: F.head.copyWith(color: P.of(context).ink),
+        ),
+        const SizedBox(height: S.x3),
+        Text(reason, style: F.body.copyWith(color: P.of(context).ink3)),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Create a food',
+          color: C.domFood,
+          onTap: () => Navigator.of(context).pop(true),
+        ),
+      ]),
+    );
+    if (useLabel != true || !c.mounted) return null;
+    return show(c);
+  }
 
   @override
   State<FoodEditor> createState() => _FoodEditorState();
@@ -465,19 +523,35 @@ class _FoodEditorState extends State<FoodEditor> {
       _saving = true;
       _error = null;
     });
-    final def = myFoodDef(
-      key:
-          (widget.existing?['key'] as String?) ??
-          'my:${DateTime.now().microsecondsSinceEpoch}',
-      label: label,
-      refGrams: ref,
-      unit: _unit.text.trim(),
-      kcal: Typed.of(_kcal.text).value,
-      protein: Typed.of(_protein.text).value,
-      carbs: Typed.of(_carbs.text).value,
-      fat: Typed.of(_fat.text).value,
-      fibre: Typed.of(_fibre.text).value,
-    );
+    final unitChanged =
+        widget.existing != null &&
+        foodUnit(widget.existing!) != _unit.text.trim();
+    final ancillaryScale = unitChanged
+        ? ((widget.existing!['serving_g'] as num?)?.toDouble() ?? 100) / ref
+        : 1.0;
+    final def = <String, Object?>{
+      for (final key in const ['brand', 'serving_label'])
+        if (widget.existing?.containsKey(key) == true)
+          key: widget.existing![key],
+      for (final key in const ['sugar_g_100', 'sat_fat_g_100', 'sodium_mg_100'])
+        if (widget.existing?.containsKey(key) == true)
+          key: (widget.existing![key] as num?)?.toDouble() == null
+              ? null
+              : (widget.existing![key] as num).toDouble() * ancillaryScale,
+      ...myFoodDef(
+        key:
+            (widget.existing?['key'] as String?) ??
+            'my:${DateTime.now().microsecondsSinceEpoch}',
+        label: label,
+        refGrams: ref,
+        unit: _unit.text.trim(),
+        kcal: Typed.of(_kcal.text).value,
+        protein: Typed.of(_protein.text).value,
+        carbs: Typed.of(_carbs.text).value,
+        fat: Typed.of(_fat.text).value,
+        fibre: Typed.of(_fibre.text).value,
+      ),
+    };
     if (widget.existing?['source'] == 'barcode') def['source'] = 'barcode';
     try {
       await NutritionDb.putFoodDef(await LocalDb.instance, def);
@@ -502,15 +576,22 @@ class _FoodEditorState extends State<FoodEditor> {
     );
     return _sheetBody(c, [
       Text(
-        widget.existing == null ? 'New food' : 'Edit food',
+        widget.reviewBarcode
+            ? 'Review scanned food'
+            : widget.existing == null
+            ? 'New food'
+            : 'Edit food',
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x2),
       Text(
-        'Copy the numbers off the label for one serving.',
+        widget.reviewBarcode
+            ? 'Check these numbers against the label for one serving. Missing values stay blank.'
+            : 'Copy the numbers off the label for one serving.',
         style: F.cap.copyWith(color: p.ink3),
       ),
       const SizedBox(height: S.x4),
+      if (widget.reviewBarcode) offCredit(),
       OsTextField(controller: _label, label: 'Description', hint: 'Oats'),
       const SizedBox(height: S.x3),
       OsTextField(
@@ -554,7 +635,11 @@ class _FoodEditorState extends State<FoodEditor> {
       if (_error != null)
         Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
       BigButton(
-        _saving ? 'Saving…' : 'Save',
+        _saving
+            ? 'Saving…'
+            : widget.reviewBarcode
+            ? 'Save to My foods'
+            : 'Save',
         color: C.domFood,
         onTap: _saving ? null : _save,
       ),

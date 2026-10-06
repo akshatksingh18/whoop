@@ -23,6 +23,22 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 74: direct food-library scan replacement
+
+Local source adds Scan beside My foods → New. Scan reuses camera/consent/lookup, opens an
+editable serving/nutrition review and saves directly to My foods only after confirmation.
+The library flow never chooses a meal or writes diary entries; cancellation adds nothing.
+Meal scanning uses the same editable review, then a portion/meal screen; only its explicit Log
+button writes the diary. Saving the review alone only updates My foods. Saved barcode keys
+update one food, preserve ancillary label data and work offline. Unknown/flagged/unreachable
+lookups offer manual label entry; missing nutrients stay blank. Repeated library taps are guarded.
+This addition is implemented locally, not in the cached `78461799` IPA. Keep `0.9.41`/`74`
+for this unaccepted replacement; local checks pass (71 focused personal tests, eight iOS
+contract checks and analysis with no errors/warnings). Obtain public-repository publication/
+build approval for the committed source, validate the new IPA and replace the sole testing candidate. Recovery 70 stays.
+Phone check: Scan → review → save/reload; camera/review cancel; rescan; manual fallback;
+serving scaling and no unintended meal entry.
+
 ## Build 74: implemented combined repair and comparison
 
 Source is `0.9.41`/`74`, algorithm 90, on Akshat's implementation approval.

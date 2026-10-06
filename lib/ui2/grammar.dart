@@ -465,6 +465,7 @@ class Section extends StatelessWidget {
   final String? action;
   final Widget child;
   final VoidCallback? onAction;
+  final Widget? actions;
 
   const Section(
     this.title,
@@ -472,6 +473,7 @@ class Section extends StatelessWidget {
     super.key,
     this.action,
     this.onAction,
+    this.actions,
   });
 
   @override
@@ -518,6 +520,7 @@ class Section extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (actions != null) Flexible(child: actions!),
             ],
           ),
         ),

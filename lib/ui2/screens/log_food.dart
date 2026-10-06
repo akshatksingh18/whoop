@@ -25,6 +25,7 @@
 // see `FoodSource.barcode`.
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -42,6 +43,7 @@ import 'scan_barcode.dart';
 Future<OffResult?> scanFoodProduct(
   BuildContext c, {
   VoidCallback? onManual,
+  bool cacheProduct = true,
 }) async {
   if (!offLookupAllowed) {
     final agreed = await _askLookupConsent(c);
@@ -51,17 +53,22 @@ Future<OffResult?> scanFoodProduct(
   }
   final code = await scanBarcode(c, onManual: onManual);
   if (code == null || !c.mounted) return null;
-  return lookupBarcodeFood(code);
+  return lookupBarcodeFood(code, cacheProduct: cacheProduct);
 }
 
-Future<OffResult> lookupBarcodeFood(String code) async {
+Future<OffResult> lookupBarcodeFood(
+  String code, {
+  bool cacheProduct = true,
+  http.Client? client,
+}) async {
   final db = await LocalDb.instance;
   final cached = await NutritionDb.foodDef(db, code);
   if (cached != null && cached['source'] == 'barcode') {
     return OffResult(OffOutcome.ok, OffProduct.fromDefRow(cached));
   }
-  final res = await fetchOffProduct(code);
-  if (res.product case final product?) {
+  final res = await fetchOffProduct(code, client: client);
+  if (cacheProduct && res.product != null) {
+    final product = res.product!;
     await NutritionDb.putFoodDef(db, product.toDefRow());
   }
   return res;

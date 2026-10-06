@@ -51,6 +51,8 @@
 > opt-in training review with matched context and best-effort evidence, live cadence/context
 > tags, qualified HR drift and one workout-only Live Activity extension without App Groups.
 > Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds.
+> Local source also adds Scan beside My foods → New, with review before saving and no meal log;
+> this addition awaits a replacement IPA and is absent from the cached `78461799` candidate.
 > Budget coefficients are unchanged. Local release checks pass (3,343 full-suite tests, 107 personal
 > checks and eight iOS contract tests; analysis has no errors/warnings). Source `78461799` is
 > published with approval; Linux CI `37388395433` and personal macOS build `37388415503` pass.

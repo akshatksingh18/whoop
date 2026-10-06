@@ -357,6 +357,13 @@ movement or food digestion again. No automatic HR hybrid or coefficient adjustme
 | Notifications | Personal movement nudge, wind-down and step-goal alerts stay hidden/off. In the upstream-capable profile the step-goal action uses the measured total and configured target; earning the streak does not require alerts |
 | Band alarm, barcode scanning, Sleep screen, Nutrition | Kept |
 
+Local build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
+Scanning reviews serving/nutrition before Save to My foods, without a meal or diary entry.
+Cancel adds nothing; barcode-key updates preserve ancillary label data and missing macros.
+Meal scanning shares the editable review, then waits for explicit portion/meal Log.
+Manual fallback and saved-product offline lookup reuse the existing paths. `todo.md` owns
+replacement/phone gates; the currently cached `78461799` IPA lacks this addition.
+
 Common press actions use light selection haptics. Entry sheets keep a close/drag header above the
 scrolling form, respect the top safe area, and dismiss the keyboard on drag; cancellation never
 requires saving. Food forms use the same wrapper. Failed saves/read actions show retry status.

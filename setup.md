@@ -308,6 +308,16 @@ contract; `todo.md` owns release and phone gates. Build 73 remains installed but
 build 74 replaces its testing artifact. The complete phone pass and current-version registration
 are carried forward to build 74. The build-70 recovery IPA and accepted-build ledger remain unchanged.
 
+The published/cached build-74 artifact below remains unchanged. Local replacement source now
+adds Food → Foods → My foods → Scan, review before Save, manual fallback, nullable macros,
+barcode-key updates and no library diary writes. Meal scanning shares editable review, then
+requires explicit confirmation on the portion/meal screen before a diary write. This unaccepted replacement retains `0.9.41`/`74`;
+its public publication, CI, native build and replacement artifact validation are pending.
+Local scanner validation passes 71 focused personal food/lookup/store/UI tests and eight iOS
+contract tests; `personal_ios.py check` and analysis pass with no errors/warnings. The shared
+meal/library regression checks review/cancel/save, missing macros, offline lookup, barcode
+deduplication, serving-unit conversion, and explicit backdated meal confirmation.
+
 Build `0.9.41`/`74` is published and built, algorithm 90. It retains Budget coefficients and
 adds persistent ACSM comparisons on one dated movement ledger. `live_coverage.distance_m` is
 an additive nullable on-open column; older backups remain readable and missing distance is explicit.

@@ -15,6 +15,8 @@ remain fetch-only. The personal workflow remote is `origin` at the public GitHub
 same-machine bare repository at `C:\Users\aksha\git-remotes\whoop.git` is preserved as the
 `local-backup` remote. GitHub is the primary collaboration/recovery remote; `local-backup` is an
 additional same-machine copy, not an off-device backup.
+Its `main` mirrors the rewritten public `main`; the pre-rewrite history is kept there only as
+branch `archive/pre-rewrite-main` (tip `cbdd622a`) and is never pushed to GitHub.
 
 The public `main` history was rewritten as a precaution around suspected personal-health content.
 The three questioned CSV/test objects were then verified byte-for-byte as the intentionally public,

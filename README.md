@@ -51,13 +51,14 @@
 > opt-in training review with matched context and best-effort evidence, live cadence/context
 > tags, qualified HR drift and one workout-only Live Activity extension without App Groups.
 > Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds.
-> Local source also adds Scan beside My foods → New, with review before saving and no meal log;
-> this addition awaits a replacement IPA and is absent from the cached `78461799` candidate.
+> Scan is beside My foods → New. Both scan entry points open editable nutrition review;
+> only the meal portion screen’s explicit Log writes a diary entry. The replacement IPA includes it.
 > Budget coefficients are unchanged. Local release checks pass (3,343 full-suite tests, 107 personal
-> checks and eight iOS contract tests; analysis has no errors/warnings). Source `78461799` is
-> published with approval; Linux CI `37388395433` and personal macOS build `37388415503` pass.
+> checks and eight iOS contract tests; analysis has no errors/warnings). Source `ba5bb29f` is
+> published with approval; Linux CI `37397127258` (test-only fix `fa16be3c`, identical app inputs)
+> and personal macOS build `37395690305` pass.
 > The downloaded IPA passes checksum/manifest, ZIP and payload checks and is the sole candidate in
-> `final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`. Installation, phone acceptance and
+> `final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`. Installation, phone acceptance and
 > current-version refresh enrollment remain pending. `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).

@@ -308,20 +308,17 @@ contract; `todo.md` owns release and phone gates. Build 73 remains installed but
 build 74 replaces its testing artifact. The complete phone pass and current-version registration
 are carried forward to build 74. The build-70 recovery IPA and accepted-build ledger remain unchanged.
 
-The published/cached build-74 artifact below remains unchanged. Local replacement source now
-adds Food → Foods → My foods → Scan, review before Save, manual fallback, nullable macros,
-barcode-key updates and no library diary writes. Meal scanning shares editable review, then
-requires explicit confirmation on the portion/meal screen before a diary write. This unaccepted replacement retains `0.9.41`/`74`;
-Akshat approved publishing the replacement. Source `ba5bb29f029ced2e5785987856484194778e7ab3`
-is published; personal macOS build `37395690305` passes. Downloaded version/source, SHA-256,
-ZIP and personal payload/extension checks pass. Full CI `37395690371` passed all scanner checks
-but failed an existing small-screen fixture whose fixed 9–10 AM steps were in the future when
-CI ran after midnight UTC. The test-only repair uses today's elapsed step window; app code is
-unchanged. Corrected-fixture CI must pass before replacing the testing artifact.
-Local scanner validation passes 71 focused personal food/lookup/store/UI tests and eight iOS
-contract tests; `personal_ios.py check` and analysis pass with no errors/warnings. The shared
-meal/library regression checks review/cancel/save, missing macros, offline lookup, barcode
-deduplication, serving-unit conversion, and explicit backdated meal confirmation.
+The current build-74 replacement adds Food → Foods → My foods → Scan, editable review before
+Save, manual fallback, nullable macros, barcode-key updates and no library diary writes.
+Meal scanning shares the review, then requires explicit Log on its portion/meal screen.
+Local scanner validation passes 71 personal food/lookup/store/UI checks, eight iOS contract tests
+and analysis without errors/warnings; all 19 detail tests and the targeted layout check pass.
+The scanner IPA is compiled from `ba5bb29f029ced2e5785987856484194778e7ab3`.
+Full Linux CI `37397127258` passes at `fa16be3cc7a471a77a8a616cb3398831ec7707d9`.
+Those revisions differ only in test/build records; `git diff` confirms identical app, assets,
+packages, dependencies, native files, workflows and packaging tools. The initial CI failure used
+fixed 9–10 AM synthetic steps during a just-after-midnight run; the existing layout fixture now
+uses today's elapsed window. This is a test correction, not an app/chart change.
 
 Build `0.9.41`/`74` is published and built, algorithm 90. It retains Budget coefficients and
 adds persistent ACSM comparisons on one dated movement ledger. `live_coverage.distance_m` is
@@ -332,28 +329,32 @@ zone/last-km pace are included. Review evidence includes recorded consistency an
 efforts, with matched tags, actual HR coverage and at least fourteen days between notifications.
 Foreground refresh re-reads session movement; deletion/Undo notices expire after two seconds. The personal transform allows only the version-matched
 `.activity` extension with empty entitlements; Watch, general widgets, App Groups and HealthKit
-remain excluded. Existing BLE/location/audio modes are unchanged. Local release validation passes:
+remain excluded. Existing BLE/location/audio modes are unchanged. Baseline coordinated-build local release validation passes:
 3,343 full-suite tests with 376 intentional skips; 107 focused tests with `PERSONAL_SIDELOAD=true`;
 eight personal-iOS contract tests and `personal_ios.py check`. Analysis exits successfully with
 113 informational lints and no errors/warnings. Focused rendered/flow checks pass (49 visual/flow,
 eight live-cadence and 19 navigation checks); inspected screenshots were removed from `test/goldens`.
 `git diff --check` passes. Akshat approved publication, CI and the personal IPA build to the testing
-cache. Corrected source `78461799ded23813ba6dd5d67da7bd7d1cfe6f41` is published to the public
-`akshatksingh18/whoop` repository; Linux CI `37388395433` passes (3,348 tests, 371 intentional
-skips, analysis with 113 infos and no errors/warnings). Personal macOS build `37388415503` passes
-against that exact revision, including native Runner/extension compilation and IPA validation.
+cache. Corrected source `ba5bb29f029ced2e5785987856484194778e7ab3` is published to the public
+`akshatksingh18/whoop` repository; Linux CI `37397127258` passes (3,350 tests, 371 intentional
+skips, analysis with 113 infos and no errors/warnings). Personal macOS build `37395690305` passes
+against the scanner source revision, including native Runner/extension compilation and IPA validation.
 The packaging guard permits ZIP's required `PlugIns/` parent only alongside the verified extension,
 still rejecting extra plugins/files; the realistic archive regression covers that release defect.
-Artifact `whoop-personal-78461799ded2-unsigned.ipa` (18,001,026 bytes), SHA-256
-`34d0616199a12fc65d06b8722d258f846dce0c4a84adaae2a92f276fc012c760`, matches the downloaded
+Artifact `whoop-personal-ba5bb29f029c-unsigned.ipa` (18,004,597 bytes), SHA-256
+`f09a09054435776cc0d8acd0448b220ebe50a1a40c09c35e8c396596d35a8bc6`, matches the downloaded
 checksum and manifest. The manifest confirms `0.9.41`/`74` and the full source revision above.
 Independent ZIP CRC, executable, version/source and personal payload checks pass at the final path.
 Runner retains `bluetooth-central`, `location`, `audio` and Live Activity support; its one
 version-matched extension is `com.akshat.personal.whoop.activity`. The IPA, manifest and checksum
-are the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`.
+are the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`.
 Build 74 is not installed yet. Sideloadly extension signing, overwrite/data retention, background
 behavior, complete phone acceptance and completed current-version automatic-refresh enrollment
 for `0.9.41` remain pending. Build 70 stays accepted recovery until those gates pass.
+
+The superseded same-number candidate `78461799` was removed from the one-slot testing cache.
+It remains reproducible from native run `37388415503`, with SHA-256
+`34d0616199a12fc65d06b8722d258f846dce0c4a84adaae2a92f276fc012c760`; its CI was `37388395433`.
 
 **Verified Sideloadly identity rule:** build 65 and an isolated temporary-bundle copy both install
 and overwrite successfully, including after encrypted history restore and band pairing. The 0% stall

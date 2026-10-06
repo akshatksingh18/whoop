@@ -16,10 +16,13 @@ Akshat confirms build 73 is installed and initially looks good, with the future-
 defect recorded for build 74. Identity/data/pairing checks, the complete phone pass and
 current-version enrollment remain unconfirmed; `../todo.md` owns the combined phone checklist
 and build-74 release gates; `../build-74-audit.md` owns the research and implemented contract.
-Source `0.9.41`/`74`, commit `78461799`, enables one workout-only Live Activity extension without
-App Groups. Linux CI `37388395433`, macOS build `37388415503` and downloaded version/source,
+CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
+compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+
+Source `0.9.41`/`74`, commit `ba5bb29f`, enables one workout-only Live Activity extension without
+App Groups. Linux CI `37397127258`, macOS build `37395690305` and downloaded version/source,
 checksum, ZIP and payload checks pass. The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`. Build 74 is not installed yet;
+`../../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`. Build 74 is not installed yet;
 Sideloadly extension signing, overwrite/data continuity, background behavior, complete phone
 acceptance and current-version automatic-refresh enrollment remain pending. Installed build 73 keeps its old contract.
 Installation alone does not authorize cache promotion.

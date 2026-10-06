@@ -4,7 +4,7 @@ Everything the app stores and where each item appears in the approved local buil
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
 the built personal source `0.9.41`/`74` (algorithm 90); physical-device validation is pending.
 
-**Status:** Build 74 source `78461799` is published with Akshat's approval and passes local
+**Status:** Build 74 source `ba5bb29f` is published with Akshat's approval and passes local
 regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
 Build 74 is the single testing candidate, awaiting installation, complete phone acceptance and
 current-version enrollment. Build 73 remains installed but was not accepted; its testing artifact
@@ -12,6 +12,9 @@ is superseded. Build 70 remains the accepted recovery. `build-74-audit.md`
 records chart/navigation/notification findings and implemented calorie comparisons; `todo.md` owns
 the implemented build-74 contract and release gates. Budget coefficients are unchanged; ACSM is
 now a separate distance comparison using the same ledger. `setup.md` owns the artifact/workflow evidence.
+CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
+compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+
 Stored metrics remain intact; any removal
 still needs Akshat's per-item approval.
 
@@ -289,8 +292,8 @@ dependent views. Foreground/manual refresh also re-reads current session movemen
 phone coverage. Run/walk history recalculates Method 1 rather than retaining old gross estimates.
 Build-73 release checks, CI/macOS and downloaded IPA validation pass. Build-74 local release
 checks pass: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
-personal-iOS contract tests; analysis has no errors/warnings. Source `78461799` is published
-with approval; Linux CI `37388395433` and macOS build `37388415503` pass. Downloaded checksum,
+personal-iOS contract tests; analysis has no errors/warnings. Source `ba5bb29f` is published
+with approval; Linux CI `37397127258` and macOS build `37395690305` pass. Downloaded checksum,
 source/version, ZIP and payload/extension checks pass; `setup.md` owns complete evidence.
 Build 73 installation is confirmed; build 74 installation and calculation/refresh phone checks remain before calling these
 fixes verified on iPhone.
@@ -357,12 +360,13 @@ movement or food digestion again. No automatic HR hybrid or coefficient adjustme
 | Notifications | Personal movement nudge, wind-down and step-goal alerts stay hidden/off. In the upstream-capable profile the step-goal action uses the measured total and configured target; earning the streak does not require alerts |
 | Band alarm, barcode scanning, Sleep screen, Nutrition | Kept |
 
-Local build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
+Built build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
 Scanning reviews serving/nutrition before Save to My foods, without a meal or diary entry.
 Cancel adds nothing; barcode-key updates preserve ancillary label data and missing macros.
 Meal scanning shares the editable review, then waits for explicit portion/meal Log.
 Manual fallback and saved-product offline lookup reuse the existing paths. `todo.md` owns
-replacement/phone gates; the currently cached `78461799` IPA lacks this addition.
+phone gates; the cached `ba5bb29f` replacement includes this addition. CI passes with test-only
+fixture repair `fa16be3c`; its app/packaging inputs match the compiled IPA source.
 
 Common press actions use light selection haptics. Entry sheets keep a close/drag header above the
 scrolling form, respect the top safe area, and dismiss the keyboard on drag; cancellation never

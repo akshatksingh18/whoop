@@ -36,15 +36,15 @@ are included. Foreground refresh re-reads session movement; deletion/Undo notice
 research/implemented contract; `todo.md` owns release/phone gates. Local validation passes:
 3,343 full-suite tests (376 intentional skips), 107 personal-profile checks and eight personal-iOS
 contract tests; analysis has 113 informational lints and no errors/warnings. Rendered layout checks pass;
-Source `78461799` is published with Akshat's approval; Linux CI `37388395433` and personal macOS
-build `37388415503` pass. Downloaded source/version, checksum, ZIP integrity and payload checks
+Source `ba5bb29f` is published with Akshat's approval; Linux CI `37397127258` and personal macOS
+build `37395690305` pass. Downloaded source/version, checksum, ZIP integrity and payload checks
 pass, including the single version-matched workout extension. The sole testing candidate is
-`final-ipas\whoop\testing\WHOOP-0.9.41-build74-78461799`. Build 74 is not installed yet;
+`final-ipas\whoop\testing\WHOOP-0.9.41-build74-ba5bb29f`. Build 74 is not installed yet;
 its complete phone pass and current-version enrollment remain unconfirmed. `setup.md` owns
-artifact evidence. A local build-74 replacement adds direct My foods scanning with review before
-saving, manual fallback and no diary writes; it is not yet in the cached IPA. `todo.md` owns its
-publication/rebuild and phone gates. Broader lifecycle, background and multi-cycle signing gates remain before
-daily-use activation.
+artifact evidence. The replacement includes direct My foods scanning and shared editable meal-scan
+review, manual fallback and confirmation before persistence/logging. CI passes at test-only repair
+`fa16be3c`, whose app/packaging inputs match IPA source `ba5bb29f`. `todo.md` owns phone gates.
+Broader lifecycle, background and multi-cycle signing gates remain before daily-use activation.
 
 Build 65 was installed after a clean same-identity reinstall. A passphrase-encrypted build-63 export was restored into an
 isolated test install before the old container was removed, then restored into build 65; Akshat

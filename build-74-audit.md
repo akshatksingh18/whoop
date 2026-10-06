@@ -4,15 +4,24 @@
 approval of the combined repairs and useful audit/Gemini additions. Local release validation
 passes: 3,343 full-suite tests (376 intentional skips), 107 personal-profile tests and eight
 personal-iOS contract tests. Analysis has 113 infos and no errors/warnings; rendered layouts were
-inspected and generated screenshots removed. Source `78461799` is published with approval;
-Linux CI `37388395433` and personal macOS build `37388415503` pass. Downloaded version/source,
+inspected and generated screenshots removed. Source `ba5bb29f` is published with approval;
+Linux CI `37397127258` and personal macOS build `37395690305` pass. Downloaded version/source,
 checksum, ZIP integrity and personal payload/extension checks pass. The corrected validator accepts
 the required `PlugIns/` parent only and retains other extension/file exclusions.
 Build 74 is the sole cached testing IPA and is not installed yet; build 73 remains installed.
 Phone acceptance and current-version enrollment remain pending; accepted build 70 remains recovery.
 `todo.md` owns release and device gates; `setup.md` owns build evidence.
 
+CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
+compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+
 ## Implemented build-74 behavior
+
+- Food → Foods exposes Scan beside My foods → New. Both library and meal scans open an editable
+  serving/nutrition review before Save to My foods; meal logging then requires explicit Log on
+  the portion screen. Cancel adds nothing, rescans update the same barcode food, optional values
+  stay absent and saved barcode foods work offline. Unknown/flagged/unreachable scans offer manual
+  label entry. Brand and ancillary label nutrients survive editing and unit conversion.
 
 - Budget/ACSM values stay side by side on Today, Food/history/Weekly, Trends/Steps, live and
   finished run/walk screens, workout history and share cards. Budget coefficients are unchanged;

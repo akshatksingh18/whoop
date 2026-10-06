@@ -25,19 +25,19 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 
 ## Build 74: direct food-library scan replacement
 
-Local source adds Scan beside My foods → New. Scan reuses camera/consent/lookup, opens an
+The published/testing replacement adds Scan beside My foods → New. Scan reuses camera/consent/lookup, opens an
 editable serving/nutrition review and saves directly to My foods only after confirmation.
 The library flow never chooses a meal or writes diary entries; cancellation adds nothing.
 Meal scanning uses the same editable review, then a portion/meal screen; only its explicit Log
 button writes the diary. Saving the review alone only updates My foods. Saved barcode keys
 update one food, preserve ancillary label data and work offline. Unknown/flagged/unreachable
 lookups offer manual label entry; missing nutrients stay blank. Repeated library taps are guarded.
-This addition is implemented locally, not in the cached `78461799` IPA. Keep `0.9.41`/`74`
-for this unaccepted replacement; local checks pass (71 focused personal tests, eight iOS
-contract checks and analysis with no errors/warnings). Publication and iPhone build are approved;
-source `ba5bb29f` is published and its native build/downloaded artifact checks pass. Full CI
-requires the existing future-dated layout fixture repair (app code unchanged) before replacing
-the sole testing candidate. `setup.md` owns the exact run/artifact evidence. Recovery 70 stays.
+This addition is in the validated `0.9.41`/`74` replacement, source `ba5bb29f`. Local checks
+pass (71 focused personal tests, eight iOS contract checks and analysis without errors/warnings).
+Linux CI `37397127258` passes with test-only fixture repair `fa16be3c`; app and packaging inputs
+match the compiled source. Personal macOS build `37395690305`, downloaded version/source/hash,
+ZIP and payload checks pass. The sole testing candidate is `WHOOP-0.9.41-build74-ba5bb29f`.
+`setup.md` owns exact run/artifact evidence. Recovery 70 stays; phone acceptance is pending.
 Phone check: Scan → review → save/reload; camera/review cancel; rescan; manual fallback;
 serving scaling and no unintended meal entry.
 
@@ -46,11 +46,11 @@ serving scaling and no unintended meal entry.
 Source is `0.9.41`/`74`, algorithm 90, on Akshat's implementation approval.
 `build-74-audit.md` owns the equations, source audit, Gemini-topic assessment and implemented
 contract. Current validation is recorded in `setup.md`. Akshat approved public publication,
-CI and the personal IPA build to the testing cache. Corrected source `78461799` is published to
-`akshatksingh18/whoop`; Linux CI `37388395433` passes. The corrected packaging guard passes eight
-contract checks. Personal macOS build `37388415503` passes; downloaded source/version, checksum,
+CI and the personal IPA build to the testing cache. Corrected source `ba5bb29f` is published to
+`akshatksingh18/whoop`; Linux CI `37397127258` passes. The corrected packaging guard passes eight
+contract checks. Personal macOS build `37395690305` passes; downloaded source/version, checksum,
 ZIP and payload validation pass. The sole candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-78461799`; build 74 is not installed yet.
+`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`; build 74 is not installed yet.
 
 Implemented: shared future-time chart limits and units; permanent daily Steps/calorie browsing;
 Step calories Today; selectable dated breathing and workout HR history; pause-clock alignment;
@@ -69,7 +69,7 @@ HR energy remains analysis only. Missing comparison inputs stay unavailable, not
 - Local release checks pass: 3,343 full-suite tests (376 intentional skips), 107 focused personal
   tests, eight packaging-contract tests and analysis without errors/warnings. Small/normal and
   enlarged-text layouts were inspected; generated screenshots were removed. Source commit
-  `78461799` is reviewed and published; `setup.md` owns the complete evidence.
+  `ba5bb29f` is reviewed and published; `setup.md` owns the complete evidence.
 - Linux CI, personal macOS build and downloaded version/source/checksum, ZIP integrity and the
   single version-matched workout extension checks pass. Build 74 replaces the build-73 testing
   folder; `setup.md` owns the exact artifact and workflow evidence.

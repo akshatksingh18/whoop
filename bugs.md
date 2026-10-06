@@ -168,16 +168,16 @@ The earlier built `5c00c278` IPA lacks this repair and is superseded. Build-72 l
 macOS build, checksum and payload validation pass; Akshat confirms installation, while the feature
 phone pass and current-version enrollment remain pending.
 
-## Food-library scanning entry: local build-74 repair
+## Food-library scanning entry: build-74 replacement repair
 
-The screenshot and build-74 source confirm that Food → Foods → My foods → New opens only the
+The earlier screenshot/source showed that Food → Foods → My foods → New opened only the
 manual `FoodEditor`. The scanner is reachable from meal logging, although scanned products and
 manual foods share `food_def` and are both returned by `MyFoods.all`. This is a missing library
-entry point, not evidence of a broken barcode camera. Local source now adds Scan beside New,
+entry point, not evidence of a broken barcode camera. The built replacement adds Scan beside New,
 review before persistence, explicit manual fallback and no library diary writes. Meal scanning
 also opens the editable review first and waits for explicit Log on its portion screen. Barcode edits retain
-ancillary label data. `todo.md` owns replacement and phone gates; the cached `78461799` IPA
-still lacks this addition until the replacement is built and validated.
+ancillary label data. Source `ba5bb29f` is published and its replacement IPA passes validation.
+`todo.md` owns phone gates; `setup.md` records the CI fixture repair with unchanged app inputs.
 
 ## Build-73 chart, navigation and notification defects: local build-74 repairs
 
@@ -193,8 +193,8 @@ queued notices are cleared before a replacement. Undo within the window still re
 phone checks. Native app/extension compilation passed, while device acceptance remains pending.
 The IPA validator permits ZIP's required `PlugIns/` parent for the contract-checked workout
 extension and rejects unexpected sibling plugins/files; the realistic archive regression covers
-the parent-directory packaging failure. Build-74 source `78461799`, Linux CI `37388395433`,
-macOS build `37388415503` and downloaded checksum/manifest/payload/ZIP checks pass. It is the
+the parent-directory packaging failure. Build-74 source `ba5bb29f`, Linux CI `37397127258`,
+macOS build `37395690305` and downloaded checksum/manifest/payload/ZIP checks pass. It is the
 testing candidate, awaiting installation and device acceptance; build 70 remains recovery.
 
 ## Workout, sync and profile consistency

@@ -8,15 +8,18 @@ previous testing candidate, superseded by build 74. Akshat confirms build 73 is 
 current-version enrollment are pending. Its future-time Strain cursor defect is repaired in local build-74 source;
 `../workout-sync-audit.md` records the earlier repairs, `../build-74-audit.md` the newer findings
 and implemented Budget/ACSM comparisons and workout Live Activity; `../todo.md` owns release
-and phone gates. Source `0.9.41`/`74`, commit `78461799`, is published with approval; Linux CI
-`37388395433`, macOS build `37388415503` and downloaded version/source, checksum, ZIP and payload
+and phone gates. CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
+compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+
+Source `0.9.41`/`74`, commit `ba5bb29f`, is published with approval; Linux CI
+`37397127258`, macOS build `37395690305` and downloaded version/source, checksum, ZIP and payload
 checks pass. Build 74 is not installed yet. Its extension changes the payload contract and requires
 exact-version signing, overwrite/data continuity, phone behavior and refresh acceptance.
 Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\WHOOP-0.9.41-build74-78461799` holds the single candidate. `../setup.md` owns the
+`testing\WHOOP-0.9.41-build74-ba5bb29f` holds the single candidate. `../setup.md` owns the
 artifact, hash and workflow records.
 
 The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →

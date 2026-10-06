@@ -459,3 +459,20 @@ and payload checks before any IPA.
   classification for maintenance (D6 keeps non-run workouts out of maintenance; changing the
   stored session calorie path needs its own reviewed change); a stored per-day Readiness
   breakdown for past days; iOS status-bar tap to top.
+
+## Build-76 follow-up (from installed build 75; local source)
+
+Akshat installed build 75 and reported:
+- **Long decimals in Edit food** ("20.000000000000004"): nutrition is stored per 100 units, so
+  converting back to a 29 g serving adds float noise, and four copies of one formatter printed it
+  raw. One shared `editableNumber` (at most three decimals, no trailing zeros) now feeds the food
+  editor, portion sheet, quick add and barcode review. Stored values were never wrong; logging
+  already rounded.
+- **Measure typed as "1 scoop"** would read "1 1 scoop" on a chip; `foodMeasures` now reads a
+  leading count as part of the name ("2 scoops = 58 g" → scoop = 29 g), including saved ones.
+- **− / +** step by exactly 1 (1 egg, 1 g). Holding repeats, speeding up from about 8 to about
+  27 steps a second; release stops it (`Pressable.repeat`).
+- **Drag across sub-headings:** the meal page and saved-meal editor are one drag list each;
+  headings stay fixed, an item dropped under another heading (or "No sub-heading") moves there.
+- **Calories card:** eaten / goal on the left ("1,475 kcal / 2,202"), what is left (or over)
+  on the right, then the bar.

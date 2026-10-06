@@ -820,27 +820,23 @@ class _MealPageState extends State<MealPage> with RevisionReload {
     if (mounted) await _load();
   }
 
-  /// Save a dragged order inside one sub-heading.
-  Future<void> _reorder(List<FoodEntry> group, int from, int to) async {
-    final ids = [for (final e in reordered(group, from, to)) e.id];
-    final rank = {for (final (i, id) in ids.indexed) id: i};
+  /// Save a drag: new order, and a new sub-heading for anything dropped under
+  /// another one.
+  Future<void> _arrange(List<(String, FoodEntry)> arranged) async {
     beginRead(#mealDay);
-    setState(() {
-      // Show the new order at once; the write follows.
-      final rest = [
-        for (final e in _entries ?? const <FoodEntry>[])
-          if (!rank.containsKey(e.id)) e,
-      ];
-      final moved = [...group]..sort((a, b) => rank[a.id]!.compareTo(rank[b.id]!));
-      final first = (_entries ?? const <FoodEntry>[]).indexWhere(
-        (e) => rank.containsKey(e.id),
-      );
-      _entries = [...rest]..insertAll(first.clamp(0, rest.length), moved);
-    });
+    setState(
+      () => _entries = [for (final (g, e) in arranged) e.inGroup(g)],
+    );
     try {
-      await NutritionDb.reorderEntries(await LocalDb.instance, ids);
+      final db = await LocalDb.instance;
+      for (final (g, e) in arranged) {
+        if (e.group != g) await NutritionDb.put(db, e.inGroup(g));
+      }
+      await NutritionDb.reorderEntries(db, [for (final (_, e) in arranged) e.id]);
     } catch (_) {
-      if (mounted) _say(context, 'The new order was not saved. Please try again.');
+      if (mounted) {
+        _say(context, 'The change was not saved. Please try again.');
+      }
     }
     if (mounted) await _load();
   }
@@ -1000,42 +996,42 @@ class _MealPageState extends State<MealPage> with RevisionReload {
               style: F.cap.copyWith(color: p.ink3),
             ),
           ),
-        for (final g in order) ...[
+        if (es.isNotEmpty) ...[
           const SizedBox(height: S.x4),
-          if (order.length > 1 || g.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: S.x2, left: S.x1),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      g.isEmpty ? 'Other' : g,
-                      style: F.cap.copyWith(
-                        color: p.ink2,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${thousands(_kcalOf(groups[g]!))} kcal',
-                    style: F.cap.copyWith(color: p.ink3),
-                  ),
-                ],
-              ),
-            ),
+          // One list across sub-headings: hold an item and drop it under any
+          // heading (or No sub-heading) to move it; swipe either way deletes.
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: DragList(
-              length: groups[g]!.length,
-              onReorder: (from, to) => _reorder(groups[g]!, from, to),
-              itemBuilder: (c, i) {
-                final e = groups[g]![i];
-                return SwipeDelete(
-                  key: ValueKey(e.id),
-                  onDelete: () => _delete(e),
-                  child: _EntryRow(e, onTap: () => _itemActions(e)),
-                );
-              },
+            child: GroupedDragList<FoodEntry>(
+              items: [for (final g in order) ...groups[g]!],
+              groupOf: (e) => e.group,
+              headerBuilder: (c, g, items) => Padding(
+                padding: const EdgeInsets.only(top: S.x3, bottom: S.x1),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        g.isEmpty ? 'No sub-heading' : g,
+                        style: F.cap.copyWith(
+                          color: p.ink2,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (items.isNotEmpty)
+                      Text(
+                        '${thousands(_kcalOf(items))} kcal',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                  ],
+                ),
+              ),
+              onChanged: _arrange,
+              itemBuilder: (c, e) => SwipeDelete(
+                key: ValueKey(e.id),
+                onDelete: () => _delete(e),
+                child: _EntryRow(e, onTap: () => _itemActions(e)),
+              ),
             ),
           ),
         ],
@@ -1058,7 +1054,8 @@ class _MealPageState extends State<MealPage> with RevisionReload {
         ],
         const SizedBox(height: S.x3),
         Text(
-          'Tap an item to change it. Hold to drag. Swipe either way to delete.',
+          'Tap an item to change it. Hold and drag to reorder or move it under '
+          'another sub-heading. Swipe either way to delete.',
           textAlign: TextAlign.center,
           style: F.over.copyWith(color: p.ink3),
         ),
@@ -1668,8 +1665,7 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   List<Map<String, Object?>> _with = const [];
   final _picked = <String>{};
 
-  static String _trim(double v) =>
-      v == v.roundToDouble() ? v.round().toString() : v.toString();
+  static String _trim(double v) => editableNumber(v);
 
   @override
   void initState() {
@@ -2009,9 +2005,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         : foodEntryTime(widget.date, widget.meal),
   );
 
-  static String _t(double? v) => v == null
-      ? ''
-      : (v == v.roundToDouble() ? v.round().toString() : v.toString());
+  static String _t(double? v) => editableNumber(v);
 
   @override
   void dispose() {

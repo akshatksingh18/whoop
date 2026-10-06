@@ -211,6 +211,7 @@ const _notComponents = {
   // store; the amount control, drag list and two-way swipe are food-list
   // pieces exercised with real foods in build75_test and ui2_food_flow_test.
   'DayFoodPage', 'MealReviewSheet', 'AmountInput', 'DragList', 'SwipeDelete',
+  'GroupedDragList',
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
   // onboarding routes

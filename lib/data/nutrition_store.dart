@@ -1043,10 +1043,25 @@ Map<String, Object?> myFoodDef({
 /// food's own unit (grams for a weighed food).
 typedef FoodMeasure = ({String label, double amount});
 
-/// At most two, as stored; a damaged value reads as none.
+/// At most two, as stored; a damaged value reads as none. A name typed with
+/// its count ("1 scoop", "2 scoops") reads as the single measure, so a chip
+/// never says "1 1 scoop".
 List<FoodMeasure> foodMeasures(Map<String, Object?> def) {
   final raw = def['measures_json'];
   if (raw is! String || raw.isEmpty) return const [];
+  FoodMeasure single(String label, double amount) {
+    final m = RegExp(r'^(\d+(?:\.\d+)?)\s+(.+)$').firstMatch(label);
+    final n = m == null ? 0.0 : double.parse(m.group(1)!);
+    if (m == null || n <= 0) return (label: label, amount: amount);
+    final name = m.group(2)!;
+    return (
+      label: n != 1 && name.length > 1 && name.endsWith('s')
+          ? name.substring(0, name.length - 1)
+          : name,
+      amount: amount / n,
+    );
+  }
+
   try {
     return [
       for (final m in jsonDecode(raw) as List)
@@ -1055,7 +1070,7 @@ List<FoodMeasure> foodMeasures(Map<String, Object?> def) {
             (m['l'] as String).trim().isNotEmpty &&
             m['a'] is num &&
             (m['a'] as num) > 0)
-          (label: (m['l'] as String).trim(), amount: (m['a'] as num).toDouble()),
+          single((m['l'] as String).trim(), (m['a'] as num).toDouble()),
     ].take(2).toList();
   } catch (_) {
     return const [];
@@ -1519,6 +1534,11 @@ String foodUnit(Map<String, Object?> def) =>
     (def['unit'] as String?)?.trim().isNotEmpty == true
     ? (def['unit'] as String).trim()
     : 'g';
+/// A stored number as an edit field shows it: at most three decimals, no
+/// trailing zeros. Nutrition is kept per 100 units, so converting back to a
+/// 29 g serving gives 20.000000000000004 for 20 g; the field shows 20.
+String editableNumber(double? v) => v == null ? '' : portionText(v, '');
+
 String portionText(num amount, String unit) {
   final value = amount == amount.roundToDouble()
       ? amount.round().toString()

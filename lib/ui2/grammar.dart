@@ -29,6 +29,7 @@
 //     and the golden sweep measures every Pressable in every case rather than
 //     the five tabs of the shell.
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -63,11 +64,16 @@ class Pressable extends StatefulWidget {
   // guarantee, so the opt-out is gone and the seven visuals are unchanged —
   // only their hit boxes grew.
 
+  /// Holding repeats [onTap], faster the longer it is held — for − / +
+  /// steppers. A tap still calls it exactly once.
+  final bool repeat;
+
   const Pressable({
     super.key,
     required this.child,
     this.onTap,
     this.semanticLabel,
+    this.repeat = false,
   });
 
   @override
@@ -76,6 +82,30 @@ class Pressable extends StatefulWidget {
 
 class _PressableState extends State<Pressable> {
   bool _down = false;
+  Timer? _hold;
+  int _held = 0;
+
+  // About 8 steps a second at first, speeding up to about 27 a second within
+  // two seconds. The interval is a pace, not an animation, so it is not
+  // collapsed by reduced motion (that would make it instant).
+  void _tick() {
+    _held++;
+    widget.onTap?.call();
+    _hold = Timer(Motion.fast * (1 - _held / 20).clamp(.3, 1.0), _tick);
+  }
+
+  void _release() {
+    _hold?.cancel();
+    _hold = null;
+    _held = 0;
+    if (mounted) setState(() => _down = false);
+  }
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -112,6 +142,14 @@ class _PressableState extends State<Pressable> {
         onTapDown: (_) => setState(() => _down = true),
         onTapUp: (_) => setState(() => _down = false),
         onTapCancel: () => setState(() => _down = false),
+        onLongPressStart: widget.repeat
+            ? (_) {
+                HapticFeedback.selectionClick();
+                _tick();
+              }
+            : null,
+        onLongPressEnd: widget.repeat ? (_) => _release() : null,
+        onLongPressCancel: widget.repeat ? _release : null,
         child: AnimatedScale(
           scale: _down ? .975 : 1,
           duration: motion(c, Motion.fast),

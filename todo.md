@@ -23,7 +23,17 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 75: published and built, awaiting installation
+## Build 76: build-75 follow-up (local source, not yet published)
+
+Akshat installed build 75 and reported the follow-ups recorded at the end of
+`build-75-audit.md`: float-noise numbers in Edit food, − / + step and hold-to-repeat, dragging
+items between sub-headings (meals and saved meals) and the Calories card layout. Source
+`0.9.43`/`76` implements them locally; publication and the IPA need Akshat's go-ahead.
+Phone checks: Edit food shows 20, not 20.000000000000004; tap − / + = ±1, hold accelerates and
+stops on release; drag an item into another sub-heading and back, on a meal and a saved meal;
+Calories card reads eaten / goal with left on the right.
+
+## Build 75: installed (Akshat), phone pass open
 
 Akshat approved implementing the build-74 report together with decisions D1–D8 as
 `0.9.42`/`75`; `build-75-audit.md` owns the decisions, root causes and the implemented list.

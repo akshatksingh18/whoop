@@ -588,10 +588,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
 
 /// A number in a text box. Trailing zeros trimmed, because "33" is what the
 /// pack says and "33.0" is what a float says.
-String _plain(double? v) {
-  if (v == null) return '';
-  return v == v.roundToDouble() ? v.round().toString() : v.toString();
-}
+String _plain(double? v) => editableNumber(v);
 
 /// Brand in front of the product name, unless the name already carries it —
 /// "Parle Parle-G" is how that goes wrong.

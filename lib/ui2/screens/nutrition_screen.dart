@@ -924,37 +924,65 @@ class CalorieCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: S.x3),
-          // Wrap, not Row: at the largest text sizes the number and its label
-          // stack instead of pushing off the card.
+          // Eaten / goal on the left, what is left on the right. Wrap, not
+          // Row: at the largest text sizes the two stack instead of pushing
+          // off the card.
           Wrap(
-            spacing: S.x2,
+            alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x3,
+            runSpacing: S.x2,
             children: [
-              Text(
-                left == null ? '${food.round()}' : '${left.abs().round()}',
-                style: F.n34.copyWith(
-                  color: left != null && left < 0 ? p.on(C.red) : p.ink,
-                ),
+              Wrap(
+                spacing: S.x1,
+                crossAxisAlignment: WrapCrossAlignment.end,
+                children: [
+                  Text(thousands(food), style: F.n34.copyWith(color: p.ink)),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: S.x1),
+                    child: Text(
+                      g == null || g <= 0
+                          ? 'kcal eaten'
+                          : 'kcal / ${thousands(g)}',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: S.x1),
-                child: Text(
-                  left == null
-                      ? 'kcal eaten'
-                      : (left < 0 ? 'kcal over' : 'kcal left'),
-                  style: F.cap.copyWith(color: p.ink3),
+              if (left != null)
+                Wrap(
+                  spacing: S.x1,
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  children: [
+                    Text(
+                      thousands(left.abs()),
+                      style: F.n24.copyWith(
+                        color: left < 0 ? p.on(C.red) : p.ink,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        left < 0 ? 'over' : 'left',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
             ],
           ),
           if (g != null && g > 0) ...[
             const SizedBox(height: S.x3),
-            ProgressCard(
-              'Food',
-              '${food.round()}',
-              'of ${g.round()} kcal goal',
-              (food / g).clamp(0.0, 1.0).toDouble(),
-              C.domFood,
+            ClipRRect(
+              borderRadius: R.rPill,
+              child: LinearProgressIndicator(
+                value: (food / g).clamp(0.0, 1.0).toDouble(),
+                minHeight: 8,
+                backgroundColor: p.track,
+                valueColor: AlwaysStoppedAnimation(
+                  p.on(left != null && left < 0 ? C.red : C.domFood),
+                ),
+              ),
             ),
           ] else ...[
             const SizedBox(height: S.x2),

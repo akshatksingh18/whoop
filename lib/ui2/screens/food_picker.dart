@@ -482,8 +482,7 @@ class _FoodEditorState extends State<FoodEditor> {
     }
   }
 
-  static String _trim(double v) =>
-      v == v.roundToDouble() ? v.round().toString() : v.toString();
+  static String _trim(double v) => editableNumber(v);
 
   @override
   void dispose() {
@@ -778,18 +777,6 @@ class _MealEditorState extends State<MealEditor> {
       ..addAll(pairs.map((x) => x.$2));
   }
 
-  void _reorderIn(String g, int from, int to) {
-    final idx = [for (var i = 0; i < _groups.length; i++) if (_groups[i] == g) i];
-    final moved = idx.map((i) => _items[i]).toList();
-    final item = moved.removeAt(from);
-    moved.insert(to > from ? to - 1 : to, item);
-    setState(() {
-      for (var k = 0; k < idx.length; k++) {
-        _items[idx[k]] = moved[k];
-      }
-    });
-  }
-
   Future<void> _editItem(int i) async {
     final def = _defs[_items[i].$1];
     if (def == null) return;
@@ -953,42 +940,46 @@ class _MealEditorState extends State<MealEditor> {
         ],
       ),
       const SizedBox(height: S.x4),
-      for (final g in _order) ...[
-        if (_order.length > 1 || g.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: S.x2, bottom: S.x1),
-            child: Text(
-              g.isEmpty ? 'Other' : g,
-              style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
-            ),
+      GroupedDragList<int>(
+        items: [for (var i = 0; i < _items.length; i++) i],
+        groupOf: (i) => _groups[i],
+        headerBuilder: (c, g, _) => Padding(
+          padding: const EdgeInsets.only(top: S.x3, bottom: S.x1),
+          child: Text(
+            g.isEmpty ? 'No sub-heading' : g,
+            style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
           ),
-        DragList(
-          length: [for (final x in _groups) if (x == g) x].length,
-          onReorder: (from, to) => _reorderIn(g, from, to),
-          itemBuilder: (c, k) {
-            final i = [
-              for (var j = 0; j < _groups.length; j++) if (_groups[j] == g) j,
-            ][k];
-            final item = _items[i];
-            return SwipeDelete(
-              key: ValueKey('meal-item-$i-${item.$1}'),
-              onDelete: () async => setState(() {
-                _items.removeAt(i);
-                _groups.removeAt(i);
-              }),
-              child: PickRow(
-                (_defs[item.$1]?['label'] ?? 'Deleted food').toString(),
-                portionText(item.$2, foodUnit(_defs[item.$1] ?? {})),
-                trailing: LucideIcons.pencil,
-                onTap: () => _editItem(i),
-              ),
-            );
-          },
         ),
-      ],
+        onChanged: (arranged) => setState(() {
+          final items = [for (final (_, i) in arranged) _items[i]];
+          _groups
+            ..clear()
+            ..addAll([for (final (g, _) in arranged) g]);
+          _items
+            ..clear()
+            ..addAll(items);
+        }),
+        itemBuilder: (c, i) {
+          final item = _items[i];
+          return SwipeDelete(
+            key: ValueKey('meal-item-$i-${item.$1}'),
+            onDelete: () async => setState(() {
+              _items.removeAt(i);
+              _groups.removeAt(i);
+            }),
+            child: PickRow(
+              (_defs[item.$1]?['label'] ?? 'Deleted food').toString(),
+              portionText(item.$2, foodUnit(_defs[item.$1] ?? {})),
+              trailing: LucideIcons.pencil,
+              onTap: () => _editItem(i),
+            ),
+          );
+        },
+      ),
       if (_items.isNotEmpty)
         Text(
-          'Tap to change an amount or sub-heading. Hold to drag. Swipe to remove.',
+          'Tap to change an amount or sub-heading. Hold and drag to reorder or '
+          'move under another sub-heading. Swipe to remove.',
           style: F.over.copyWith(color: p.ink3),
         ),
       if (_items.isNotEmpty)
@@ -1040,10 +1031,10 @@ String _amount(double v) =>
 /// How much of a food, in its own unit: one large field with − and + either
 /// side, and chips for the usual amounts, each labelled once.
 ///
-/// A counted food (1 egg = 1 serving) steps by one and offers 1–4. A weighed
-/// food steps by its first named measure, or 5 g, and offers its measures
-/// with their weights ("2 scoops · 58 g") — the scale stays the source of
-/// truth, the measure is a shortcut.
+/// − / + always step by one (1 egg, 1 g); holding them keeps stepping, faster
+/// the longer they are held. A counted food offers 1–4; a weighed food offers
+/// its named measures with their weights ("2 scoops · 58 g") — the scale stays
+/// the source of truth, the measure is a shortcut.
 class AmountInput extends StatelessWidget {
   const AmountInput({super.key, required this.controller, required this.def});
 
@@ -1056,9 +1047,7 @@ class AmountInput extends StatelessWidget {
     final unit = foodUnit(def);
     final weighed = weighedFood(def);
     final measures = weighed ? foodMeasures(def) : const <FoodMeasure>[];
-    final step = weighed
-        ? (measures.isEmpty ? 5.0 : measures.first.amount)
-        : 1.0;
+    const step = 1.0;
     final ref = (def['serving_g'] as num?)?.toDouble();
     final chips = <(String, double)>[
       if (!weighed) ...[
@@ -1080,6 +1069,7 @@ class AmountInput extends StatelessWidget {
     double now() => Typed.of(controller.text).value ?? 0;
     Widget stepper(IconData icon, String label, double delta) => Pressable(
       semanticLabel: label,
+      repeat: true,
       onTap: () => set(now() + delta),
       child: Container(
         width: 48,
@@ -1167,6 +1157,98 @@ class DragList extends StatelessWidget {
       );
     },
   );
+}
+
+/// One drag list across sub-headings. Hold any item and drop it under
+/// another heading — or under "No sub-heading" — to move it there; headings
+/// themselves stay put. [onChanged] receives every item with its new heading,
+/// in the new order. With no named headings it is a plain drag list.
+class GroupedDragList<T> extends StatelessWidget {
+  const GroupedDragList({
+    super.key,
+    required this.items,
+    required this.groupOf,
+    required this.itemBuilder,
+    required this.headerBuilder,
+    required this.onChanged,
+  });
+
+  /// In display order.
+  final List<T> items;
+  final String Function(T) groupOf;
+
+  /// Each row must carry a unique key.
+  final Widget Function(BuildContext, T) itemBuilder;
+  final Widget Function(BuildContext, String group, List<T> items)
+  headerBuilder;
+  final void Function(List<(String, T)> arranged) onChanged;
+
+  /// Named headings in first-appearance order, then '' (always present as a
+  /// drop target once any heading exists).
+  List<String> get order {
+    final named = <String>[];
+    for (final i in items) {
+      final g = groupOf(i);
+      if (g.isNotEmpty && !named.contains(g)) named.add(g);
+    }
+    return named.isEmpty ? const [''] : [...named, ''];
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final groups = order;
+    final headed = groups.length > 1;
+    final rows = <(String?, T?)>[
+      for (final g in groups) ...[
+        if (headed) (g, null),
+        for (final i in items)
+          if (groupOf(i) == g) (null, i),
+      ],
+    ];
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      buildDefaultDragHandles: false,
+      itemCount: rows.length,
+      proxyDecorator: (child, _, _) =>
+          Material(color: Colors.transparent, elevation: 4, child: child),
+      onReorder: (from, to) {
+        if (rows[from].$2 == null) return; // headings do not move
+        final moved = [...rows];
+        final row = moved.removeAt(from);
+        moved.insert(to > from ? to - 1 : to, row);
+        var current = headed ? groups.first : '';
+        final out = <(String, T)>[];
+        for (final (g, item) in moved) {
+          if (item == null) {
+            current = g!;
+          } else {
+            out.add((current, item));
+          }
+        }
+        onChanged(out);
+      },
+      itemBuilder: (c, i) {
+        final (g, item) = rows[i];
+        if (item == null) {
+          return KeyedSubtree(
+            key: ValueKey<Object>(('heading', g!)),
+            child: headerBuilder(c, g, [
+              for (final x in items)
+                if (groupOf(x) == g) x,
+            ]),
+          );
+        }
+        final row = itemBuilder(c, item);
+        return ReorderableDelayedDragStartListener(
+          key: ValueKey<Object>(('drag', row.key ?? i)),
+          index: i,
+          child: row,
+        );
+      },
+    );
+  }
 }
 
 /// Move [list]'s item [from] to [to] (reorderable-list arithmetic).

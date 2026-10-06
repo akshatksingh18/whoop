@@ -1,6 +1,7 @@
 // Build 75: shared ranges, food order/measures/sub-headings, meal times,
 // Live Activity status and the trimmed day breakdown.
 
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
 import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
+import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart' show CalorieCard;
 
 FoodEntry _entry(String id, String food, {String group = '', int at = 0}) =>
     FoodEntry(
@@ -301,6 +303,78 @@ void main() {
     await db.close();
   });
 
+  group('build 76 food fixes', () {
+    test('stored numbers come back to an edit field without float noise', () {
+      expect(editableNumber(20.000000000000004), '20');
+      expect(editableNumber(10.000000000000002), '10');
+      expect(editableNumber(6.5), '6.5');
+      expect(editableNumber(0.125), '0.125');
+      expect(editableNumber(null), '');
+      // The round trip that produced it: 20 g on a 29 g label.
+      final def = myFoodDef(key: 'k', label: 'Whey', refGrams: 29, protein: 20);
+      final back = (def['protein_g_100'] as double) * 29 / 100;
+      expect(editableNumber(back), '20');
+    });
+
+    test('a measure typed with its count reads as one measure', () {
+      Map<String, Object?> d(String l, double a) => {
+        'measures_json': encodeMeasures([(label: l, amount: a)]),
+      };
+      expect(foodMeasures(d('1 scoop', 29)), [(label: 'scoop', amount: 29.0)]);
+      expect(foodMeasures(d('2 scoops', 58)), [(label: 'scoop', amount: 29.0)]);
+      expect(foodMeasures(d('scoop', 29)), [(label: 'scoop', amount: 29.0)]);
+    });
+
+    testWidgets('an item can be dragged under another sub-heading', (t) async {
+      List<(String, String)>? got;
+      final items = ['a', 'b', 'c'];
+      final groups = {'a': 'Oatmeal', 'b': 'Oatmeal', 'c': ''};
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: GroupedDragList<String>(
+                items: items,
+                groupOf: (i) => groups[i]!,
+                headerBuilder: (c, g, _) =>
+                    SizedBox(height: 30, child: Text('H:$g')),
+                itemBuilder: (c, i) =>
+                    SizedBox(key: ValueKey(i), height: 50, child: Text(i)),
+                onChanged: (x) => got = x,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('H:Oatmeal'), findsOneWidget);
+      expect(find.text('H:'), findsOneWidget, reason: 'No sub-heading target');
+      final g = await t.startGesture(t.getCenter(find.text('c')));
+      await t.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await g.moveBy(const Offset(0, -110));
+      await t.pump(const Duration(milliseconds: 300));
+      await g.up();
+      await t.pumpAndSettle();
+      expect(got, isNotNull);
+      expect({for (final (grp, i) in got!) i: grp}['c'], 'Oatmeal');
+    });
+
+    testWidgets('the calorie card reads eaten / goal and what is left', (
+      t,
+    ) async {
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: const Scaffold(body: CalorieCard(eaten: 1475, goal: 2202)),
+        ),
+      );
+      expect(find.text('1,475'), findsOneWidget);
+      expect(find.text('kcal / 2,202'), findsOneWidget);
+      expect(find.text('727'), findsOneWidget);
+      expect(find.text('left'), findsOneWidget);
+    });
+  });
+
   group('amount control', () {
     Future<void> pump(WidgetTester t, Map<String, Object?> def) =>
         t.pumpWidget(
@@ -338,7 +412,28 @@ void main() {
       expect(find.text('2 scoops · 58 g'), findsOneWidget);
       await t.tap(find.bySemanticsLabel('More'));
       await t.pump();
-      expect(find.text('30'), findsOneWidget, reason: '1 + one 29 g scoop');
+      expect(find.text('2'), findsOneWidget, reason: 'a tap steps by one gram');
+      // Holding keeps stepping, faster the longer it is held.
+      final hold = await t.startGesture(
+        t.getCenter(find.bySemanticsLabel('More')),
+      );
+      await t.pump(const Duration(milliseconds: 600));
+      for (var i = 0; i < 20; i++) {
+        await t.pump(const Duration(milliseconds: 100));
+      }
+      await hold.up();
+      await t.pump();
+      final held = double.parse(
+        t.widget<EditableText>(find.byType(EditableText)).controller.text,
+      );
+      expect(held, greaterThan(15));
+      final after = held;
+      await t.pump(const Duration(seconds: 1));
+      expect(
+        t.widget<EditableText>(find.byType(EditableText)).controller.text,
+        editableNumber(after),
+        reason: 'releasing stops it',
+      );
     });
   });
 

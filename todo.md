@@ -23,12 +23,13 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 76: build-75 follow-up (local source, not yet published)
+## Build 76: build-75 follow-up, published and built
 
 Akshat installed build 75 and reported the follow-ups recorded at the end of
 `build-75-audit.md`: float-noise numbers in Edit food, − / + step and hold-to-repeat, dragging
-items between sub-headings (meals and saved meals) and the Calories card layout. Source
-`0.9.43`/`76` implements them locally; publication and the IPA need Akshat's go-ahead.
+items between sub-headings (meals and saved meals) and the Calories card layout. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.43-build76-3f8ada60`;
+install over build 75 with the exact final ID; `setup.md` owns the evidence. Build 75's phone
+checks below carry forward to build 76.
 Phone checks: Edit food shows 20, not 20.000000000000004; tap − / + = ±1, hold accelerates and
 stops on release; drag an item into another sub-heading and back, on a meal and a saved meal;
 Calories card reads eaten / goal with left on the right.
@@ -37,8 +38,8 @@ Calories card reads eaten / goal with left on the right.
 
 Akshat approved implementing the build-74 report together with decisions D1–D8 as
 `0.9.42`/`75`; `build-75-audit.md` owns the decisions, root causes and the implemented list.
-Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. The sole testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.42-build75-1c203f17`; `setup.md` owns the evidence.
+Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. It was the
+testing candidate until build 76 replaced it; `setup.md` owns the evidence.
 Install over build 74 with the exact final ID. Build 70 stays the recovery build until build 75
 passes the phone checks below and current-version enrollment.
 

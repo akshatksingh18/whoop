@@ -6,7 +6,7 @@ the built personal source `0.9.41`/`74` (algorithm 90); physical-device validati
 
 **Status:** Build 74 source `ba5bb29f` is published with Akshat's approval and passes local
 regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
-Build 74 is installed but superseded: Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. Build 75 is the single testing candidate,
+Build 74 is installed but superseded: Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. Build 75 is installed. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 76 is the single testing candidate,
 awaiting installation, complete phone acceptance and current-version enrollment. Build 73 was replaced on the phone and was not accepted; its testing artifact
 is superseded. Build 70 remains the accepted recovery. `build-74-audit.md`
 records chart/navigation/notification findings and implemented calorie comparisons; `todo.md` owns

@@ -460,7 +460,7 @@ and payload checks before any IPA.
   stored session calorie path needs its own reviewed change); a stored per-day Readiness
   breakdown for past days; iOS status-bar tap to top.
 
-## Build-76 follow-up (from installed build 75; local source)
+## Build-76 follow-up (from installed build 75; source `3f8ada60`)
 
 Akshat installed build 75 and reported:
 - **Long decimals in Edit food** ("20.000000000000004"): nutrition is stored per 100 units, so

@@ -924,52 +924,55 @@ class CalorieCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: S.x3),
-          // Eaten / goal on the left, what is left on the right. Wrap, not
-          // Row: at the largest text sizes the two stack instead of pushing
-          // off the card.
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.end,
-            spacing: S.x3,
-            runSpacing: S.x2,
-            children: [
-              Wrap(
-                spacing: S.x1,
-                crossAxisAlignment: WrapCrossAlignment.end,
-                children: [
-                  Text(thousands(food), style: F.n34.copyWith(color: p.ink)),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: S.x1),
-                    child: Text(
-                      g == null || g <= 0
-                          ? 'kcal eaten'
-                          : 'kcal / ${thousands(g)}',
-                      style: F.cap.copyWith(color: p.ink3),
-                    ),
-                  ),
-                ],
-              ),
-              if (left != null)
+          // Eaten / goal on the left, what is left at the far right. Full
+          // width so spaceBetween has room to push them apart; a Wrap so at the
+          // largest text sizes the two stack instead of pushing off the card.
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              spacing: S.x3,
+              runSpacing: S.x2,
+              children: [
                 Wrap(
                   spacing: S.x1,
                   crossAxisAlignment: WrapCrossAlignment.end,
                   children: [
-                    Text(
-                      thousands(left.abs()),
-                      style: F.n24.copyWith(
-                        color: left < 0 ? p.on(C.red) : p.ink,
-                      ),
-                    ),
+                    Text(thousands(food), style: F.n34.copyWith(color: p.ink)),
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
+                      padding: const EdgeInsets.only(bottom: S.x1),
                       child: Text(
-                        left < 0 ? 'over' : 'left',
+                        g == null || g <= 0
+                            ? 'kcal eaten'
+                            : 'kcal / ${thousands(g)}',
                         style: F.cap.copyWith(color: p.ink3),
                       ),
                     ),
                   ],
                 ),
-            ],
+                if (left != null)
+                  Wrap(
+                    spacing: S.x1,
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    children: [
+                      Text(
+                        thousands(left.abs()),
+                        style: F.n24.copyWith(
+                          color: left < 0 ? p.on(C.red) : p.ink,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                          left < 0 ? 'over' : 'left',
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
           ),
           if (g != null && g > 0) ...[
             const SizedBox(height: S.x3),

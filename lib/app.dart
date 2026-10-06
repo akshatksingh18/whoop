@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import 'build_profile.dart';
 import 'package:provider/provider.dart';
 
 import 'coach/coach_config.dart';
@@ -134,7 +136,7 @@ class _OpenStrapAppState extends State<OpenStrapApp>
   Widget build(BuildContext context) {
     final locale = context.watch<LocaleController>();
     return MaterialApp(
-      title: 'OpenStrap',
+      title: kAppName,
       debugShowCheckedModeBanner: false,
       // Dark only, by Akshat's decision.
       theme: buildTheme(Brightness.dark),
@@ -300,7 +302,7 @@ class _InitFailed extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'OpenStrap could not start',
+                  '$kAppName could not start',
                   style: F.t2.copyWith(color: p.ink),
                 ),
                 const SizedBox(height: 8),

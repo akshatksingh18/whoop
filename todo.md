@@ -23,7 +23,14 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 76: build-75 follow-up, published and built
+## Build 77: build-76 follow-up (local source, not yet published)
+
+Akshat installed build 76; his follow-ups are recorded at the end of `build-75-audit.md`.
+Source `0.9.44`/`77` implements them locally; publication and the IPA need Akshat's go-ahead.
+Phone checks: Calories "left" at the far right; no OpenStrap at launch; "No sub-heading" only
+appears while dragging; pull an edit sheet down from mid-content and it closes.
+
+## Build 76: build-75 follow-up, published, built and installed (Akshat)
 
 Akshat installed build 75 and reported the follow-ups recorded at the end of
 `build-75-audit.md`: float-noise numbers in Edit food, − / + step and hold-to-repeat, dragging

@@ -43,7 +43,8 @@ it was not phone-accepted. His first-use report (no Live Activity, Trends day/ra
 Food workflow, day-breakdown noise, calorie verification) is audited in `build-75-audit.md`,
 which also holds his decisions D1–D8 and the implemented list. Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass.
 Akshat reports build 75 installed and sent food-flow follow-ups. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
-The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.43-build76-3f8ada60`, not installed yet;
+The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.43-build76-3f8ada60`; Akshat
+reports it installed and sent follow-ups, implemented locally as `0.9.44`/`77` (unpublished).
 `todo.md` owns the gates. `setup.md` owns
 artifact evidence. The replacement includes direct My foods scanning and shared editable meal-scan
 review, manual fallback and confirmation before persistence/logging. CI passes at test-only repair

@@ -683,7 +683,8 @@ class _FoodEditorState extends State<FoodEditor> {
       Text('NAMED MEASURES · OPTIONAL', style: F.over.copyWith(color: p.ink3)),
       const SizedBox(height: S.x1),
       Text(
-        'For reference, e.g. 1 scoop = 29 g. You still log the amount you weigh.',
+        'Name one measure and its weight, e.g. scoop · 29 g. Chips then offer '
+        '1 scoop · 29 g and 2 scoops · 58 g; you still log what you weigh.',
         style: F.cap.copyWith(color: p.ink3),
       ),
       const SizedBox(height: S.x2),
@@ -696,7 +697,7 @@ class _FoodEditorState extends State<FoodEditor> {
                 flex: 3,
                 child: OsTextField(
                   controller: _measureName[i],
-                  label: 'Measure',
+                  label: 'Name of one',
                   hint: i == 0 ? 'scoop' : 'bowl',
                 ),
               ),
@@ -1162,8 +1163,9 @@ class DragList extends StatelessWidget {
 /// One drag list across sub-headings. Hold any item and drop it under
 /// another heading — or under "No sub-heading" — to move it there; headings
 /// themselves stay put. [onChanged] receives every item with its new heading,
-/// in the new order. With no named headings it is a plain drag list.
-class GroupedDragList<T> extends StatelessWidget {
+/// in the new order. With no named headings it is a plain drag list. An empty
+/// "No sub-heading" appears only while dragging, as somewhere to drop.
+class GroupedDragList<T> extends StatefulWidget {
   const GroupedDragList({
     super.key,
     required this.items,
@@ -1183,21 +1185,30 @@ class GroupedDragList<T> extends StatelessWidget {
   headerBuilder;
   final void Function(List<(String, T)> arranged) onChanged;
 
-  /// Named headings in first-appearance order, then '' (always present as a
-  /// drop target once any heading exists).
-  List<String> get order {
+  @override
+  State<GroupedDragList<T>> createState() => _GroupedDragListState<T>();
+}
+
+class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
+  bool _dragging = false;
+
+  List<T> get items => widget.items;
+  String groupOf(T i) => widget.groupOf(i);
+
+  @override
+  Widget build(BuildContext c) {
+    // Named headings in first-appearance order, then '' — last, so showing
+    // it mid-drag never shifts the row being dragged.
     final named = <String>[];
     for (final i in items) {
       final g = groupOf(i);
       if (g.isNotEmpty && !named.contains(g)) named.add(g);
     }
-    return named.isEmpty ? const [''] : [...named, ''];
-  }
-
-  @override
-  Widget build(BuildContext c) {
-    final groups = order;
-    final headed = groups.length > 1;
+    final loose = items.any((i) => groupOf(i).isEmpty);
+    final groups = named.isEmpty
+        ? const ['']
+        : [...named, if (loose || _dragging) ''];
+    final headed = named.isNotEmpty;
     final rows = <(String?, T?)>[
       for (final g in groups) ...[
         if (headed) (g, null),
@@ -1213,6 +1224,8 @@ class GroupedDragList<T> extends StatelessWidget {
       itemCount: rows.length,
       proxyDecorator: (child, _, _) =>
           Material(color: Colors.transparent, elevation: 4, child: child),
+      onReorderStart: (_) => setState(() => _dragging = true),
+      onReorderEnd: (_) => setState(() => _dragging = false),
       onReorder: (from, to) {
         if (rows[from].$2 == null) return; // headings do not move
         final moved = [...rows];
@@ -1227,20 +1240,20 @@ class GroupedDragList<T> extends StatelessWidget {
             out.add((current, item));
           }
         }
-        onChanged(out);
+        widget.onChanged(out);
       },
       itemBuilder: (c, i) {
         final (g, item) = rows[i];
         if (item == null) {
           return KeyedSubtree(
             key: ValueKey<Object>(('heading', g!)),
-            child: headerBuilder(c, g, [
+            child: widget.headerBuilder(c, g, [
               for (final x in items)
                 if (groupOf(x) == g) x,
             ]),
           );
         }
-        final row = itemBuilder(c, item);
+        final row = widget.itemBuilder(c, item);
         return ReorderableDelayedDragStartListener(
           key: ValueKey<Object>(('drag', row.key ?? i)),
           index: i,

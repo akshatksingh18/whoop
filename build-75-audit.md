@@ -476,3 +476,17 @@ Akshat installed build 75 and reported:
   headings stay fixed, an item dropped under another heading (or "No sub-heading") moves there.
 - **Calories card:** eaten / goal on the left ("1,475 kcal / 2,202"), what is left (or over)
   on the right, then the bar.
+
+## Build-77 follow-up (from installed build 76; local source)
+
+Akshat installed build 76 and reported:
+- **Calories card:** "left" sat beside the eaten number because the row shrank to its content;
+  it is now full width, so "left" sits at the far right.
+- **"OpenStrap" at launch:** the cold-start cover showed the upstream mark and name. The personal
+  build now covers launch with the plain page; visible app-name strings (startup error, share
+  subjects, backup wording, workout deletion, share poster) read WHOOP via `kAppName`.
+- **Empty "No sub-heading":** shown only while dragging, as a drop target; hidden otherwise.
+- **Sheets:** pulling the content down past its top now closes the sheet (80 pt), on iOS bounce
+  and clamping platforms alike, instead of only bouncing.
+- **Measure name:** the count is intentionally not stored ("1 scoop" → scoop = 29 g, so chips can
+  offer 1 and 2 scoops). The field now reads "Name of one" and the help text says so.

@@ -6,3 +6,7 @@ const bool kPersonalSideload = bool.fromEnvironment(
   'PERSONAL_SIDELOAD',
   defaultValue: false,
 );
+
+/// The name a person sees. The personal build is "WHOOP" on the home screen,
+/// so nothing it shows says OpenStrap.
+const String kAppName = kPersonalSideload ? 'WHOOP' : 'OpenStrap';

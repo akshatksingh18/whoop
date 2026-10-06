@@ -14,6 +14,7 @@ import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
 import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
+import 'package:openstrap_edge/ui2/grammar.dart' show InputSheet;
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart' show CalorieCard;
 
 FoodEntry _entry(String id, String food, {String group = '', int at = 0}) =>
@@ -357,6 +358,64 @@ void main() {
       await t.pumpAndSettle();
       expect(got, isNotNull);
       expect({for (final (grp, i) in got!) i: grp}['c'], 'Oatmeal');
+    });
+
+    testWidgets('an empty No sub-heading is not shown outside a drag', (
+      t,
+    ) async {
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: GroupedDragList<String>(
+                items: const ['a', 'b'],
+                groupOf: (i) => 'Oatmeal',
+                headerBuilder: (c, g, _) =>
+                    SizedBox(height: 30, child: Text('H:$g')),
+                itemBuilder: (c, i) =>
+                    SizedBox(key: ValueKey(i), height: 50, child: Text(i)),
+                onChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('H:Oatmeal'), findsOneWidget);
+      expect(find.text('H:'), findsNothing);
+    });
+
+    testWidgets('pulling a sheet past its top closes it', (t) async {
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: Builder(
+            builder: (c) => Scaffold(
+              body: TextButton(
+                onPressed: () => showModalBottomSheet<void>(
+                  context: c,
+                  isScrollControlled: true,
+                  builder: (_) => InputSheet(
+                    children: [
+                      const Text('Edit food'),
+                      for (var i = 0; i < 30; i++)
+                        SizedBox(height: 60, child: Text('row $i')),
+                    ],
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      expect(find.text('Edit food'), findsOneWidget);
+      // From the middle of the content, well past the top.
+      await t.drag(find.text('row 3'), const Offset(0, 300));
+      await t.pumpAndSettle();
+      expect(find.text('Edit food'), findsNothing);
     });
 
     testWidgets('the calorie card reads eaten / goal and what is left', (

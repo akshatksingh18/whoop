@@ -42,6 +42,7 @@ import '../theme.dart';
 import 'share.dart' show shareHero, shareStats;
 import 'summary.dart';
 import 'tiles.dart';
+import '../../build_profile.dart';
 
 /// Where the card is going, which is the only thing that decides its shape.
 ///
@@ -343,7 +344,7 @@ class PosterCard extends StatelessWidget {
         // is the one string on the card that may never be truncated, and a
         // face wider than the one this was measured in is not a reason to
         // print 'OpenStr…'.
-        child: Text('OpenStrap',
+        child: Text(kAppName,
             style: F.over.copyWith(
                 color: C.white.withValues(alpha: .72),
                 fontWeight: FontWeight.w700),

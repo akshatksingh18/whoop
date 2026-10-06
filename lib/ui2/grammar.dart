@@ -171,6 +171,33 @@ class InputSheet extends StatefulWidget {
 }
 
 class _InputSheetState extends State<InputSheet> {
+  // A pull past the top of the content closes the sheet, the same as a pull
+  // on the handle: without it, dragging down from mid-sheet only bounced the
+  // content and showed empty space above it.
+  static const _closePull = 80.0;
+  double _pull = 0;
+  bool _closing = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n is ScrollStartNotification) _pull = 0;
+    if (_closing || n.metrics.axis != Axis.vertical) return false;
+    // iOS bounces: the offset itself goes below the top while dragged.
+    // Clamping platforms report the same pull as overscroll instead.
+    if (n is ScrollUpdateNotification && n.dragDetails != null) {
+      _pull = math.max(_pull, n.metrics.minScrollExtent - n.metrics.pixels);
+    } else if (n is OverscrollNotification &&
+        n.dragDetails != null &&
+        n.overscroll < 0) {
+      _pull += -n.overscroll;
+    }
+    if (_pull > _closePull) {
+      _closing = true;
+      FocusScope.of(context).unfocus();
+      Navigator.of(context).maybePop();
+    }
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -239,7 +266,9 @@ class _InputSheetState extends State<InputSheet> {
             ),
             Flexible(
               fit: FlexFit.loose,
-              child: SingleChildScrollView(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onScroll,
+                child: SingleChildScrollView(
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x5),
@@ -248,6 +277,7 @@ class _InputSheetState extends State<InputSheet> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: children.skip(1).toList(),
                 ),
+              ),
               ),
             ),
           ],

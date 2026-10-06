@@ -2,8 +2,8 @@
 
 Each item records what Akshat saw on installed build `0.9.41`/`74` (source `ba5bb29f`), the
 root cause, sibling defects found on the same code path and the design. Akshat decided D1–D8
-below and approved implementing the audit together as build `0.9.42`/`75`. The source
-implementation is local and unpublished; nothing is phone-verified. `todo.md` owns the release
+below and approved implementing the audit together as build `0.9.42`/`75`. Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass.
+Nothing is phone-verified yet. `todo.md` owns the release
 and phone gates; the "Build-75 implementation" section at the end records what changed.
 
 ## Decisions (Akshat)
@@ -416,7 +416,7 @@ Each group needs fixed-clock chart tests (midnight, gaps, future days), migratio
 new column, VoiceOver labels, enlarged-text layouts and the usual full suite, personal-profile
 and payload checks before any IPA.
 
-## Build-75 implementation (local source, unpublished)
+## Build-75 implementation (source `1c203f17`)
 
 - **Live Activity:** the bridge returns a reason for every start/update ("started", "Live
   Activities are off for WHOOP in iOS Settings", "iOS refused: …", "waiting for the app to be

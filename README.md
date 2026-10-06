@@ -57,8 +57,11 @@
 > checks and eight iOS contract tests; analysis has no errors/warnings). Source `ba5bb29f` is
 > published with approval; Linux CI `37397127258` (test-only fix `fa16be3c`, identical app inputs)
 > and personal macOS build `37395690305` pass.
-> The downloaded IPA passes checksum/manifest, ZIP and payload checks and is the sole candidate in
-> `final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`. Installation, phone acceptance and
+> Build 74 is installed but superseded by build `0.9.42`/`75` (`1c203f17`): shared Trends ranges
+> and dated metric links, Food ordering/review/sub-headings/measures, a quieter day breakdown,
+> battery on Today and Live Activity diagnostics (`build-75-audit.md`). Its Linux CI and personal
+> macOS build pass; the downloaded IPA is the sole candidate in
+> `final-ipas/whoop/testing/WHOOP-0.9.42-build75-1c203f17`. Installation, phone acceptance and
 > current-version refresh enrollment remain pending. `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).

@@ -349,11 +349,25 @@ checksum and manifest. The manifest confirms `0.9.41`/`74` and the full source r
 Independent ZIP CRC, executable, version/source and personal payload checks pass at the final path.
 Runner retains `bluetooth-central`, `location`, `audio` and Live Activity support; its one
 version-matched extension is `com.akshat.personal.whoop.activity`. The IPA, manifest and checksum
-are the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`.
+were the testing candidate until build 75 replaced them; reproduce them from run `37395690305`.
 Akshat reports build 74 installed. Sideloadly's record shows `0.9.41` at the exact final ID
 `com.akshat.personal.whoop.5564K8D4SV` with plug-ins kept and no error. Extension behavior, background
 behavior, complete phone acceptance and completed current-version automatic-refresh enrollment
 for `0.9.41` remain pending. Build 70 stays accepted recovery until those gates pass.
+
+Build `0.9.42`/`75` implements `build-75-audit.md` with Akshat's approval: source
+`1c203f1714e27832f411162bcc6f2a2b0fa1fdb7`, published to `akshatksingh18/whoop`. Local checks:
+the full Windows suite ran (3,337 passed); its eight failures were fixed and the affected files
+rerun clean (215 tests), eight personal-iOS contract tests and `personal_ios.py check` pass, and
+analysis has no errors/warnings. Linux CI `37514558854` passes (3,369 tests, 371 intentional
+skips). Personal macOS build `37514599309` passes. Artifact
+`whoop-personal-1c203f1714e2-unsigned.ipa` (18,106,619 bytes), SHA-256
+`5b1bcb121b60daa7b63d88547b3e200db19dcdb012e7d73727ff6de6e42e044e`, matches its checksum and
+manifest (`0.9.42`/`75`, full source above); ZIP, payload contract and the single
+`com.akshat.personal.whoop.activity` extension (version-matched, no App Group) pass. It is the
+sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.42-build75-1c203f17`, not yet
+installed. Same signed-identity rules apply: install over build 74 with automatic bundle ID off
+and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
 
 The superseded same-number candidate `78461799` was removed from the one-slot testing cache.
 It remains reproducible from native run `37388415503`, with SHA-256

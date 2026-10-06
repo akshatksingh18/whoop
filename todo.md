@@ -23,13 +23,14 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 75: implemented locally (unpublished, not phone-verified)
+## Build 75: published and built, awaiting installation
 
 Akshat approved implementing the build-74 report together with decisions D1–D8 as
 `0.9.42`/`75`; `build-75-audit.md` owns the decisions, root causes and the implemented list.
-Local source only: publication to the public repository, CI, the personal macOS IPA build and
-the testing-cache replacement need Akshat's go-ahead. Build 74 stays the installed candidate and
-build 70 the recovery build.
+Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. The sole testing candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.42-build75-1c203f17`; `setup.md` owns the evidence.
+Install over build 74 with the exact final ID. Build 70 stays the recovery build until build 75
+passes the phone checks below and current-version enrollment.
 
 Phone checks once installed:
 - Walk: lock screen and Dynamic Island card appear; timer keeps counting while locked. If not,
@@ -59,7 +60,7 @@ This addition is in the validated `0.9.41`/`74` replacement, source `ba5bb29f`. 
 pass (71 focused personal tests, eight iOS contract checks and analysis without errors/warnings).
 Linux CI `37397127258` passes with test-only fixture repair `fa16be3c`; app and packaging inputs
 match the compiled source. Personal macOS build `37395690305`, downloaded version/source/hash,
-ZIP and payload checks pass. The sole testing candidate is `WHOOP-0.9.41-build74-ba5bb29f`.
+ZIP and payload checks pass. It was the testing candidate until build 75 replaced it.
 `setup.md` owns exact run/artifact evidence. Recovery 70 stays; phone acceptance is pending.
 Phone check: Scan → review → save/reload; camera/review cancel; rescan; manual fallback;
 serving scaling and no unintended meal entry.
@@ -73,7 +74,8 @@ CI and the personal IPA build to the testing cache. Corrected source `ba5bb29f` 
 `akshatksingh18/whoop`; Linux CI `37397127258` passes. The corrected packaging guard passes eight
 contract checks. Personal macOS build `37395690305` passes; downloaded source/version, checksum,
 ZIP and payload validation pass. The sole candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f`; Akshat reports build 74 installed.
+`../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f` until build 75 replaced it; Akshat
+reports build 74 installed.
 
 Implemented: shared future-time chart limits and units; permanent daily Steps/calorie browsing;
 Step calories Today; selectable dated breathing and workout HR history; pause-clock alignment;

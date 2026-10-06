@@ -11,8 +11,8 @@ by build 74. Akshat confirms build 73 is installed and initially looks good, but
 navigation and notification issues; `build-74-audit.md` owns that newer source/research audit and
 `todo.md` the build-74 release/device gates. Published/built source `0.9.41`/`74` implements the coordinated
 repairs, persistent Budget/ACSM pair and narrow workout Live Activity. Native and downloaded IPA
-checks pass; build 74 is the sole testing candidate, installed and awaiting its complete phone pass
-and current-version enrollment. Build 70 remains accepted;
+checks pass; build 74 is installed but superseded by build 75 (`build-75-audit.md`), the sole
+testing candidate awaiting installation, its complete phone pass and current-version enrollment. Build 70 remains accepted;
 build 72 was installed without acceptance and has been replaced on the phone by build 73.
 The evidence sections below describe build 72; `todo.md` owns current implementation and phone gates.
 

@@ -23,7 +23,17 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 78: published and built, awaiting installation
+## Build 79: pack-printed servings, in progress
+
+Akshat asked for labels such as "6 Pieces (85g)" to be entered as printed, without dividing.
+Source `0.9.46`/`79` adds the serving weight beside a count serving, a count on other units and
+the scan pre-fill; `build-75-audit.md` ("Build 79") owns the change. It includes everything in
+build 78, which was never installed, so the build-78 phone checks below apply to build 79 too.
+Phone checks: a new food per `6` `piece` · `85` g at 140 kcal logs 3 pieces as 70 kcal and reads
+"3 pieces · 43 g", and switches to g; reopening it shows 6 · piece · 85; a per-gram food with
+other unit `6` `piece` = `85` g does the same; the saved sausage still reads 1 link · 71 g.
+
+## Build 78: published and built, never installed (superseded by build 79)
 
 Akshat installed build 77 and approved build 78: two-unit portions, the one-press drag fix,
 hiding the Training review, compact Train workouts with a monthly history, and conservative

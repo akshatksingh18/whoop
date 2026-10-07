@@ -523,8 +523,8 @@ stores the unit chosen; the Training review is hidden as recommended; Train gets
 rows and a monthly history; other workouts get a conservative method like steps and running.
 
 **Implemented in `0.9.45`/`78`:**
-- Two-unit portions as planned above. Foods labelled per count get "1 link weighs __ g"; per-gram
-  labels name other units ("link · 71 g"). The amount control switches units (converting the
+- Two-unit portions as planned above. Foods labelled per count get a gram weight (build 79 moves
+  it onto the serving row, below); per-gram labels name other units ("link · 71 g"). The amount control switches units (converting the
   amount), shows the other unit live, steps one of the selected unit and offers matching chips.
   Entries store the chosen unit; rows read "3 Links · 213 g". Last portion, often-eaten-with,
   saved-meal editing/review/logging and meal-page amount changes convert between known units.
@@ -544,3 +544,25 @@ rows and a monthly history; other workouts get a conservative method like steps 
   ((MET − 1) × kg × h; strength 3.5, calisthenics 3.8, powerlifting 5.0, else the catalogue MET),
   live, at finish and on Train/history/summary (recomputed from the banked `avg_hr`, so older
   sessions read the same way). Non-step workouts stay out of maintenance (D6).
+
+## Build 79: a serving typed as the pack prints it
+
+**Finding (Akshat, from a Sabatino's chicken label):** US labels print the serving as
+"6 Pieces (85g)". Build 78 could only take a count unit's weight per one ("1 piece weighs"), or
+another unit as "piece · __ g", so either way Akshat had to divide 85 by 6 by hand, and the number
+fields take plain numbers only.
+
+**Implemented in `0.9.46`/`79` (approved by Akshat):**
+- The serving row reads as the label: `[6] [piece] · [85] g`. When the serving unit is a count,
+  a "Weighs (g)" field for the whole serving sits on the same line (replacing "1 link weighs").
+  It is stored as before, a "g" unit of serving ÷ weight label units (6/85 piece per gram), and is
+  shown back as the typed 85. Saved per-link foods still read "1 link · 71 g".
+- "Other units" rows take a count: `[6] [piece] = [85] g`. Conversions store one unit (85/6 g); the
+  typed count is kept as an optional `n` in `measures_json`, used only to show the row back as typed.
+  Older rows without `n` read as one.
+- A barcode scan whose Open Food Facts serving text is exactly "N units (W g)" pre-fills that
+  other-unit row for review; anything else (e.g. "85 g", "1 cup") pre-fills nothing.
+- Validation: tests ran on the affected files only, at Akshat's request (10 files, 187 tests:
+  the build-75/78/79 food regressions, food flow incl. barcode review, My foods, nutrition
+  model/schema, Open Food Facts, timeline and token/gallery rules). Linux CI still runs the full
+  suite on push.

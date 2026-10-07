@@ -1,5 +1,6 @@
 // Build 75: shared ranges, food order/measures/sub-headings, meal times,
-// Live Activity status and the trimmed day breakdown.
+// Live Activity status and the trimmed day breakdown. Later builds' food
+// regressions (78, 79) live here too.
 
 import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/gps/run_history.dart' show isRunType;
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
 import 'package:openstrap_edge/ui2/screens/food_picker.dart';
+import 'package:openstrap_edge/ui2/screens/journal_compose.dart'
+    show OsTextField;
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 import 'package:openstrap_edge/ui2/grammar.dart' show InputSheet;
@@ -562,6 +565,231 @@ void main() {
       expect(got, isNotNull, reason: 'the first hold dragged');
       expect({for (final (grp, i) in got!) i: grp}['a'], '');
       expect(find.text('H:'), findsNothing, reason: 'hidden again after');
+    });
+  });
+
+  group('build 79: a serving typed as the pack prints it', () {
+    Finder field(String label) => find.descendant(
+      of: find.byWidgetPredicate((w) => w is OsTextField && w.label == label),
+      matching: find.byType(TextField),
+    );
+    String text(WidgetTester t, String label, [int i = 0]) =>
+        t.widget<TextField>(field(label).at(i)).controller!.text;
+    Widget host(Widget child) => MaterialApp(
+      theme: buildTheme(Brightness.dark),
+      home: Scaffold(body: child),
+    );
+
+    late Database db;
+    setUpAll(() async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      LocalDb.dbName = 'build79-serving.db';
+      await databaseFactory.deleteDatabase(
+        path.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
+      );
+      db = await LocalDb.instance;
+    });
+    tearDownAll(() async {
+      await LocalDb.close();
+      await databaseFactory.deleteDatabase(
+        path.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
+      );
+    });
+
+    test('a pack serving reads its count, unit and weight', () {
+      final s = servingCountOf('6 Pieces (85g)')!;
+      expect((s.count, s.name, s.grams), (6.0, 'piece', 85.0));
+      expect(servingCountOf('1 link (71 g)')!.name, 'link');
+      expect(servingCountOf('85 g'), isNull);
+      expect(servingCountOf('2 cups'), isNull);
+      expect(servingCountOf('100 g (100 g)'), isNull);
+      expect(servingCountOf(''), isNull);
+    });
+
+    test(
+      'a unit typed with its count converts per one and keeps the count',
+      () {
+        final def = {
+          'serving_g': 85.0,
+          'unit': 'g',
+          'measures_json': encodeMeasures(
+            [(label: 'piece', amount: 85 / 6)],
+            counts: {'piece': 6},
+          ),
+        };
+        expect(toBase(def, 6, 'piece'), closeTo(85, 1e-9));
+        expect(measureCounts(def), {'piece': 6.0});
+        expect(portionWithWeight(3, 'piece', def), '3 pieces · 43 g');
+        expect(
+          measureCounts({
+            'measures_json': encodeMeasures([(label: 'scoop', amount: 29)]),
+          }),
+          isEmpty,
+          reason: 'one is not stored',
+        );
+      },
+    );
+
+    Future<Map<String, Object?>?> save(WidgetTester t) async {
+      await t.ensureVisible(find.text('Save'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Save'));
+      for (
+        var i = 0;
+        i < 100 && find.byType(FoodEditor).evaluate().isNotEmpty;
+        i++
+      ) {
+        await t.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.byType(FoodEditor), findsNothing, reason: 'saved and closed');
+      final saved = await t.runAsync(
+        () => NutritionDb.foodDef(db, 'my:bites'),
+      );
+      return saved;
+    }
+
+    Future<void> open(WidgetTester t, {Map<String, Object?>? existing}) async {
+      t.view.physicalSize = const Size(390, 1600);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(
+        host(
+          Builder(
+            builder: (c) => TextButton(
+              onPressed: () => Navigator.of(c).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      Scaffold(body: FoodEditor(existing: existing)),
+                ),
+              ),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      );
+      await t.tap(find.text('go'));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('6 pieces · 85 g saves both units with no division', (t) async {
+      await open(
+        t,
+        existing: {'key': 'my:bites', 'label': '', 'serving_g': 100.0},
+      );
+      // Per gram: only the two other-unit rows weigh in grams.
+      expect(field('Weighs (g)'), findsNWidgets(2));
+      await t.enterText(field('Description'), 'Chicken bites');
+      await t.enterText(field('Serving unit'), 'piece');
+      await t.pump();
+      // Per piece: the serving row gains its weight; the other row is in pieces.
+      expect(field('Weighs (g)'), findsOneWidget);
+      expect(field('Weighs (piece)'), findsOneWidget);
+      await t.enterText(field('Serving amount'), '6');
+      await t.enterText(field('Weighs (g)'), '85');
+      await t.enterText(field('Calories (kcal)'), '140');
+      await t.enterText(field('Protein (g)'), '14');
+      final def = (await save(t))!;
+      expect(foodUnit(def), 'piece');
+      expect(toBase(def, 85, 'g'), closeTo(6, 1e-9));
+      expect(toBase(def, 1, 'piece'), 1);
+      expect(
+        nutrientsFor(def, toBase(def, 3, 'piece')!).kcal,
+        closeTo(70, 1e-9),
+      );
+      expect(
+        nutrientsFor(def, toBase(def, 170, 'g')!).kcal,
+        closeTo(280, 1e-9),
+      );
+      expect(portionWithWeight(3, 'piece', def), '3 pieces · 43 g');
+
+      // Reopened, it reads as typed: 6 piece · 85 g, not 14.17.
+      await open(t, existing: def);
+      expect(text(t, 'Serving amount'), '6');
+      expect(text(t, 'Weighs (g)'), '85');
+    });
+
+    testWidgets('a per-gram food takes 6 piece = 85 g as another unit', (
+      t,
+    ) async {
+      await open(t);
+      await t.enterText(field('Description'), 'Chicken bites');
+      await t.enterText(field('Serving amount'), '85');
+      await t.enterText(field('Calories (kcal)'), '140');
+      await t.enterText(field('Count').first, '6');
+      await t.enterText(field('Unit').first, 'piece');
+      await t.enterText(field('Weighs (g)').first, '85');
+      // The editor makes its own key; read the newest food back.
+      await t.ensureVisible(find.text('Save'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Save'));
+      for (
+        var i = 0;
+        i < 100 && find.byType(FoodEditor).evaluate().isNotEmpty;
+        i++
+      ) {
+        await t.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      final rows = (await t.runAsync(
+        () => db.query(
+          'food_def',
+          where: "label = 'Chicken bites' AND unit = 'g'",
+        ),
+      ))!;
+      expect(rows, hasLength(1));
+      final def = rows.single;
+      expect(toBase(def, 6, 'piece'), closeTo(85, 1e-9));
+      expect(
+        nutrientsFor(def, toBase(def, 3, 'piece')!).kcal,
+        closeTo(70, 1e-9),
+      );
+
+      await open(t, existing: def);
+      expect(text(t, 'Count'), '6');
+      expect(text(t, 'Unit'), 'piece');
+      expect(text(t, 'Weighs (g)'), '85');
+    });
+
+    testWidgets('a scanned "6 pieces (85 g)" offers the piece to review', (
+      t,
+    ) async {
+      await open(
+        t,
+        existing: {
+          'key': '0001',
+          'label': 'Chicken bites',
+          'serving_g': 85.0,
+          'serving_label': '6 pieces (85 g)',
+          'kcal_100': 140 * 100 / 85,
+        },
+      );
+      expect(text(t, 'Count'), '6');
+      expect(text(t, 'Unit'), 'piece');
+      expect(text(t, 'Weighs (g)'), '85');
+    });
+
+    testWidgets('a saved per-link sausage still reads 1 link · 71 g', (
+      t,
+    ) async {
+      await open(
+        t,
+        existing: {
+          'key': 'my:link',
+          'label': 'Sausage',
+          'serving_g': 1.0,
+          'unit': 'link',
+          'kcal_100': 11000.0,
+          'measures_json': encodeMeasures([(label: 'g', amount: 1 / 71)]),
+        },
+      );
+      expect(text(t, 'Serving amount'), '1');
+      expect(text(t, 'Weighs (g)'), '71');
     });
   });
 

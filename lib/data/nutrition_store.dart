@@ -1060,6 +1060,7 @@ Map<String, Object?> myFoodDef({
   double? fat,
   double? fibre,
   List<FoodMeasure>? measures,
+  Map<String, double> measureCounts = const {},
 }) {
   if (!refGrams.isFinite || refGrams <= 0) {
     throw ArgumentError('Serving amount must be positive.');
@@ -1083,7 +1084,8 @@ Map<String, Object?> myFoodDef({
     'fat_g_100': per100(fat),
     'fibre_g_100': per100(fibre),
     'source': 'manual',
-    if (measures != null) 'measures_json': encodeMeasures(measures),
+    if (measures != null)
+      'measures_json': encodeMeasures(measures, counts: measureCounts),
   };
 }
 
@@ -1177,11 +1179,62 @@ String portionWithWeight(
   return shown;
 }
 
-String encodeMeasures(List<FoodMeasure> ms) => ms.isEmpty
+/// [counts] keeps how a unit was typed off the label ("6 pieces = 85 g" is
+/// stored as one piece of 85/6 g plus n: 6), so the editor shows it back as
+/// typed. Conversions never read it.
+String encodeMeasures(
+  List<FoodMeasure> ms, {
+  Map<String, double> counts = const {},
+}) => ms.isEmpty
     ? ''
     : jsonEncode([
-        for (final m in ms.take(2)) {'l': m.label, 'a': m.amount},
+        for (final m in ms.take(2))
+          {
+            'l': m.label,
+            'a': m.amount,
+            if ((counts[m.label] ?? 1) != 1) 'n': counts[m.label],
+          },
       ]);
+
+/// The count each unit was typed with ("6" of "6 pieces = 85 g"), by name;
+/// a unit typed as one is absent.
+Map<String, double> measureCounts(Map<String, Object?> def) {
+  final raw = def['measures_json'];
+  if (raw is! String || raw.isEmpty) return const {};
+  try {
+    return {
+      for (final m in jsonDecode(raw) as List)
+        if (m is Map &&
+            m['l'] is String &&
+            m['n'] is num &&
+            (m['n'] as num) > 0)
+          (m['l'] as String).trim(): (m['n'] as num).toDouble(),
+    };
+  } catch (_) {
+    return const {};
+  }
+}
+
+/// "6 pieces (85 g)" as a pack prints its serving: the count, the unit named
+/// once ("piece") and the weight. Null for anything else ("85 g", "1 cup").
+({double count, String name, double grams})? servingCountOf(String label) {
+  final m = RegExp(
+    r'^\s*(\d+(?:\.\d+)?)\s+([A-Za-z][A-Za-z ]*?)\s*\(\s*(\d+(?:\.\d+)?)\s*g\s*\)\s*$',
+  ).firstMatch(label);
+  if (m == null) return null;
+  final count = double.parse(m.group(1)!);
+  final grams = double.parse(m.group(3)!);
+  var name = m.group(2)!.trim().toLowerCase();
+  if (count <= 0 ||
+      grams <= 0 ||
+      const {'g', 'gram', 'grams', 'ml'}.contains(name)) {
+    return null;
+  }
+  if (count != 1 && name.length > 1 && name.endsWith('s')) {
+    name = name.substring(0, name.length - 1);
+  }
+  return (count: count, name: name, grams: grams);
+}
 
 /// A food logged at [grams] into [meal] on [date].
 /// [grams] is the amount in the food's label unit; nutrients scale from it.

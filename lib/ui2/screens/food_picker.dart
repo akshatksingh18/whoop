@@ -707,13 +707,13 @@ class _FoodEditorState extends State<FoodEditor> {
       Text('NUTRITION LABEL IS FOR', style: F.over.copyWith(color: p.ink3)),
       const SizedBox(height: S.x2),
       Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
             flex: 2,
             child: OsTextField(
               controller: _ref,
-              label: 'Serving amount',
+              label: 'Amount',
               keyboard: num,
             ),
           ),
@@ -722,7 +722,7 @@ class _FoodEditorState extends State<FoodEditor> {
             flex: 3,
             child: OsTextField(
               controller: _unit,
-              label: 'Serving unit',
+              label: 'Unit',
               hint: 'g, link, slice…',
             ),
           ),
@@ -732,7 +732,7 @@ class _FoodEditorState extends State<FoodEditor> {
               flex: 2,
               child: OsTextField(
                 controller: _servingWeight,
-                label: 'Weighs (g)',
+                label: 'Weight (g)',
                 hint: '85',
                 keyboard: num,
               ),
@@ -788,7 +788,7 @@ class _FoodEditorState extends State<FoodEditor> {
         Padding(
           padding: const EdgeInsets.only(bottom: S.x2),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 flex: 2,
@@ -804,7 +804,7 @@ class _FoodEditorState extends State<FoodEditor> {
                 flex: 3,
                 child: OsTextField(
                   controller: _measureName[i],
-                  label: 'Unit',
+                  label: 'Name',
                   hint: i == 0 ? 'piece' : 'scoop',
                 ),
               ),
@@ -813,7 +813,9 @@ class _FoodEditorState extends State<FoodEditor> {
                 flex: 2,
                 child: OsTextField(
                   controller: _measureAmount[i],
-                  label: 'Weighs (${_unit.text.trim().isEmpty ? 'g' : _unit.text.trim()})',
+                  label: _countLabel
+                      ? 'In ${_unit.text.trim()}'
+                      : 'Weight (${_unit.text.trim().isEmpty ? 'g' : _unit.text.trim()})',
                   keyboard: num,
                 ),
               ),

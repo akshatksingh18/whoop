@@ -406,8 +406,8 @@ void main() {
       await scan();
       expect(await t.runAsync(() => db.query('food_entry')), isEmpty);
       await t.enterText(_field('Protein (g)'), '8');
-      await t.enterText(_field('Serving unit'), 'link');
-      await t.enterText(_field('Serving amount'), '1');
+      await t.enterText(_field('Unit'), 'link');
+      await t.enterText(_field('Amount'), '1');
       await t.pumpAndSettle();
       await t.ensureVisible(find.text('Save to My foods'));
       await t.pumpAndSettle();

@@ -681,15 +681,21 @@ void main() {
         existing: {'key': 'my:bites', 'label': '', 'serving_g': 100.0},
       );
       // Per gram: only the two other-unit rows weigh in grams.
-      expect(field('Weighs (g)'), findsNWidgets(2));
+      expect(field('Weight (g)'), findsNWidgets(2));
       await t.enterText(field('Description'), 'Chicken bites');
-      await t.enterText(field('Serving unit'), 'piece');
+      await t.enterText(field('Unit'), 'piece');
       await t.pump();
       // Per piece: the serving row gains its weight; the other row is in pieces.
-      expect(field('Weighs (g)'), findsOneWidget);
-      expect(field('Weighs (piece)'), findsOneWidget);
-      await t.enterText(field('Serving amount'), '6');
-      await t.enterText(field('Weighs (g)'), '85');
+      expect(field('Weight (g)'), findsOneWidget);
+      expect(field('In piece'), findsOneWidget);
+      // The three serving boxes line up, whatever their labels do.
+      final bottoms = {
+        for (final l in ['Amount', 'Unit', 'Weight (g)'])
+          t.getBottomLeft(field(l)).dy,
+      };
+      expect(bottoms, hasLength(1));
+      await t.enterText(field('Amount'), '6');
+      await t.enterText(field('Weight (g)'), '85');
       await t.enterText(field('Calories (kcal)'), '140');
       await t.enterText(field('Protein (g)'), '14');
       final def = (await save(t))!;
@@ -708,8 +714,8 @@ void main() {
 
       // Reopened, it reads as typed: 6 piece · 85 g, not 14.17.
       await open(t, existing: def);
-      expect(text(t, 'Serving amount'), '6');
-      expect(text(t, 'Weighs (g)'), '85');
+      expect(text(t, 'Amount'), '6');
+      expect(text(t, 'Weight (g)'), '85');
     });
 
     testWidgets('a per-gram food takes 6 piece = 85 g as another unit', (
@@ -717,11 +723,11 @@ void main() {
     ) async {
       await open(t);
       await t.enterText(field('Description'), 'Chicken bites');
-      await t.enterText(field('Serving amount'), '85');
+      await t.enterText(field('Amount'), '85');
       await t.enterText(field('Calories (kcal)'), '140');
       await t.enterText(field('Count').first, '6');
-      await t.enterText(field('Unit').first, 'piece');
-      await t.enterText(field('Weighs (g)').first, '85');
+      await t.enterText(field('Name').first, 'piece');
+      await t.enterText(field('Weight (g)').first, '85');
       // The editor makes its own key; read the newest food back.
       await t.ensureVisible(find.text('Save'));
       await t.pumpAndSettle();
@@ -752,8 +758,8 @@ void main() {
 
       await open(t, existing: def);
       expect(text(t, 'Count'), '6');
-      expect(text(t, 'Unit'), 'piece');
-      expect(text(t, 'Weighs (g)'), '85');
+      expect(text(t, 'Name'), 'piece');
+      expect(text(t, 'Weight (g)'), '85');
     });
 
     testWidgets('a scanned "6 pieces (85 g)" offers the piece to review', (
@@ -770,8 +776,8 @@ void main() {
         },
       );
       expect(text(t, 'Count'), '6');
-      expect(text(t, 'Unit'), 'piece');
-      expect(text(t, 'Weighs (g)'), '85');
+      expect(text(t, 'Name'), 'piece');
+      expect(text(t, 'Weight (g)'), '85');
     });
 
     testWidgets('a saved per-link sausage still reads 1 link · 71 g', (
@@ -788,8 +794,8 @@ void main() {
           'measures_json': encodeMeasures([(label: 'g', amount: 1 / 71)]),
         },
       );
-      expect(text(t, 'Serving amount'), '1');
-      expect(text(t, 'Weighs (g)'), '71');
+      expect(text(t, 'Amount'), '1');
+      expect(text(t, 'Weight (g)'), '71');
     });
   });
 

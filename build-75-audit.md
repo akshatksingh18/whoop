@@ -566,3 +566,11 @@ fields take plain numbers only.
   the build-75/78/79 food regressions, food flow incl. barcode review, My foods, nutrition
   model/schema, Open Food Facts, timeline and token/gallery rules). Linux CI still runs the full
   suite on push.
+
+**Build 80 (`0.9.47`/`80`, layout fix from Akshat's build-79 screenshot):** "Serving amount"
+wrapped to two lines beside "Serving unit" and "Weighs (g)", pushing its box below the others.
+The serving row now reads Amount · Unit · Weight (g), other-unit rows read Count · Name ·
+Weight (g) (or "In piece" for a count label), and both rows align boxes on their bottom edge so a
+wrapped label at larger text sizes cannot misalign them. A test checks the three serving boxes
+share one bottom edge. Validation again ran the affected food test files (107 tests); CI runs the
+full suite.

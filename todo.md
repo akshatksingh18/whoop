@@ -23,11 +23,12 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 78: implemented locally (publication approved once tests pass)
+## Build 78: published and built, awaiting installation
 
 Akshat installed build 77 and approved build 78: two-unit portions, the one-press drag fix,
 hiding the Training review, compact Train workouts with a monthly history, and conservative
-calories for treadmill/other workouts. `build-75-audit.md` ("Build-78 audit and
+calories for treadmill/other workouts. Build-78 source `0.9.45`/`78` (commit `1eae1fbc`) is published with Akshat's approval; Linux CI `37558355571` (3,380 tests, 371 intentional skips) and personal macOS build `37558356341` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.45-build78-1eae1fbc`. `build-75-audit.md` ("Build-78 audit and
 implementation") owns the decisions, research and implemented list.
 Phone checks: log the sausage as 3 links (reads "3 Links · 213 g", macros scale) and in grams;
 a per-link food with "1 link weighs" switches to g; one hold drags into "No sub-heading";
@@ -39,7 +40,7 @@ distance-method calories.
 
 Akshat installed build 76; his follow-ups are recorded at the end of `build-75-audit.md`.
 Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.44-build77-2602cacf`; install over build 76 with the exact final ID.
+It was the testing candidate until build 78 replaced it.
 Phone checks: Calories "left" at the far right; no OpenStrap at launch; "No sub-heading" only
 appears while dragging; pull an edit sheet down from mid-content and it closes.
 

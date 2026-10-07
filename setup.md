@@ -385,8 +385,18 @@ suite passes (3,370 tests, 376 intentional skips); analysis has no errors/warnin
 passes. Artifact `whoop-personal-2602cacf0a4f-unsigned.ipa` (18,103,897 bytes), SHA-256
 `efdb3841f1f0fdb92ac306b53f2c8432d4f229838c2f6dc6bf747f64212a435c`, matches its checksum and
 manifest (`0.9.44`/`77`); ZIP, payload contract and the single version-matched extension pass.
-It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.44-build77-2602cacf`, not yet
-installed. Install over build 76 with automatic bundle ID off and final ID
+Akshat reports build 77 installed; its testing folder was replaced by build 78 and is
+reproducible from run `37539992599`.
+
+Build `0.9.45`/`78` implements the build-78 audit (`build-75-audit.md`): source
+`1eae1fbcad7009da15d571417dd3a275433b4447`, published with Akshat's approval. The full Windows
+suite passes (3,375 tests, 376 intentional skips); analysis has no errors/warnings. Linux CI
+`37558355571` passes (3,380 tests, 371 intentional skips); personal macOS build `37558356341`
+passes. Artifact `whoop-personal-1eae1fbcad70-unsigned.ipa` (18,117,087 bytes), SHA-256
+`ae296b3f98d1bc7c47f17d3a205b1ef85b3651a7621f44fee8c8248ca8e6a4c3`, matches its checksum and
+manifest (`0.9.45`/`78`); ZIP, payload contract and the single version-matched extension pass.
+It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.45-build78-1eae1fbc`, not yet
+installed. Install over build 77 with automatic bundle ID off and final ID
 `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
 
 The superseded same-number candidate `78461799` was removed from the one-slot testing cache.

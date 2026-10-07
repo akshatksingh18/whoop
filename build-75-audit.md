@@ -491,7 +491,7 @@ Akshat installed build 76 and reported:
 - **Measure name:** the count is intentionally not stored ("1 scoop" → scoop = 29 g, so chips can
   offer 1 and 2 scoops). The field now reads "Name of one" and the help text says so.
 
-## Build-78 audit and implementation (from installed build 77; local source)
+## Build-78 audit and implementation (from installed build 77; source `1eae1fbc`)
 
 **1. One food, two units (links or grams, scoops or grams).** Today a food has one label unit
 (per-100 storage) plus up to two named measures that only fill the amount field; the portion
@@ -522,7 +522,7 @@ drag starts), and clear the drag state on drop, cancel and rebuild.
 stores the unit chosen; the Training review is hidden as recommended; Train gets compact recent
 rows and a monthly history; other workouts get a conservative method like steps and running.
 
-**Implemented in `0.9.45`/`78` (local source):**
+**Implemented in `0.9.45`/`78`:**
 - Two-unit portions as planned above. Foods labelled per count get "1 link weighs __ g"; per-gram
   labels name other units ("link · 71 g"). The amount control switches units (converting the
   amount), shows the other unit live, steps one of the selected unit and offers matching chips.

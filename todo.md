@@ -23,6 +23,18 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 78: implemented locally (publication approved once tests pass)
+
+Akshat installed build 77 and approved build 78: two-unit portions, the one-press drag fix,
+hiding the Training review, compact Train workouts with a monthly history, and conservative
+calories for treadmill/other workouts. `build-75-audit.md` ("Build-78 audit and
+implementation") owns the decisions, research and implemented list.
+Phone checks: log the sausage as 3 links (reads "3 Links · 213 g", macros scale) and in grams;
+a per-link food with "1 link weighs" switches to g; one hold drags into "No sub-heading";
+Training review gone from Train/Settings; Recent shows five compact rows, All workouts groups by
+month; a gym session shows a lower active figure than before; a treadmill session shows
+distance-method calories.
+
 ## Build 77: build-76 follow-up, published and built
 
 Akshat installed build 76; his follow-ups are recorded at the end of `build-75-audit.md`.

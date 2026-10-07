@@ -490,3 +490,57 @@ Akshat installed build 76 and reported:
   and clamping platforms alike, instead of only bouncing.
 - **Measure name:** the count is intentionally not stored ("1 scoop" → scoop = 29 g, so chips can
   offer 1 and 2 scoops). The field now reads "Name of one" and the help text says so.
+
+## Build-78 audit and implementation (from installed build 77; local source)
+
+**1. One food, two units (links or grams, scoops or grams).** Today a food has one label unit
+(per-100 storage) plus up to two named measures that only fill the amount field; the portion
+screen accepts the label unit only, chips stop at two measures, and a food labelled per link
+cannot express its gram weight naturally. Root constraints: `lastGrams` and "often eaten with"
+match only `e.unit = d.unit`, and `logMeal` refuses a saved item whose unit differs from the
+food's unit. Proposed:
+- Editor "Other units" rows read the same whichever unit the label uses: `1 [link] = [71] g`,
+  `1 [scoop] = [29] g`. Stored as today (`measures_json`, amount of label unit per one other
+  unit; a per-link label stores grams as 1/71 link), so existing foods keep their meaning.
+- Portion screen: a unit switch (g | link) with the amount in the chosen unit, − / + stepping one
+  of it, count chips 1–4 for count units, and the other unit shown live ("3 links = 213 g").
+  Macros scale from either. It opens on the unit last used for that food.
+- Entries store the chosen unit and amount (nutrients stay absolute, as now); rows read
+  "3 links · 213 g". Last-amount, often-eaten-with and saved meals convert between known units
+  instead of requiring the label unit; only a unit with no known conversion is refused.
+- Edge cases: a food with no weight (eggs per serving) keeps one unit; changing a conversion
+  never rewrites past entries; grams round to whole numbers, counts to two decimals.
+
+**2. First long-press drag cancelled.** Flutter's `SliverReorderableList.didUpdateWidget`
+cancels any drag when `itemCount` changes; build 77 added the empty "No sub-heading" row in
+`onReorderStart`, so the first hold only revealed the row. A cancelled drag never calls
+`onReorderEnd`, so the empty heading could stay visible. Fix: keep the row count constant (the
+empty heading is always a row, collapsed to zero height and hidden from screen readers until a
+drag starts), and clear the drag state on drop, cancel and rebuild.
+
+**Decisions (Akshat):** the portion screen opens on the unit last used for a food; the diary
+stores the unit chosen; the Training review is hidden as recommended; Train gets compact recent
+rows and a monthly history; other workouts get a conservative method like steps and running.
+
+**Implemented in `0.9.45`/`78` (local source):**
+- Two-unit portions as planned above. Foods labelled per count get "1 link weighs __ g"; per-gram
+  labels name other units ("link · 71 g"). The amount control switches units (converting the
+  amount), shows the other unit live, steps one of the selected unit and offers matching chips.
+  Entries store the chosen unit; rows read "3 Links · 213 g". Last portion, often-eaten-with,
+  saved-meal editing/review/logging and meal-page amount changes convert between known units.
+- One-press drag: the empty "No sub-heading" is a permanent zero-height row that expands during a
+  drag, so the row count never changes mid-drag; drag state clears on drop.
+- Training review hidden in the personal build: Train row, Settings toggle and notification;
+  its computation and the stored sessions are unchanged.
+- Train: Recent shows the last five sessions as one-line rows (name, date, duration, strain) that
+  open in place (zones, calories, stats, Open session, Fix the times) and delete with a swipe
+  either way; "All workouts" groups every session by month (current month open), including
+  sessions older than a month that Train could not reach before.
+- Workout calories (researched: 2024 Adult Compendium — resistance training 3.5 MET for a typical
+  multi-exercise session; Keytel/HR methods overestimate, especially resistance and interval
+  work). Treadmill, track intervals, sprinting and hurdles are running: steps priced by the
+  running distance method (phone motion distance without GPS); best efforts stay GPS-only. Every
+  other workout shows the lower of net Keytel (mean HR, minus resting) and net activity energy
+  ((MET − 1) × kg × h; strength 3.5, calisthenics 3.8, powerlifting 5.0, else the catalogue MET),
+  live, at finish and on Train/history/summary (recomputed from the banked `avg_hr`, so older
+  sessions read the same way). Non-step workouts stay out of maintenance (D6).

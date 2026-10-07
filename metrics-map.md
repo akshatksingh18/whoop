@@ -332,7 +332,10 @@ fixes verified on iPhone.
   Metric prefills and food quantity/nutrient editors retain all supplied decimals.
   Sub-minute movement allocation from older minute-level records remains proportional; the
   app cannot reconstruct an exact step timestamp that was never recorded.
-- Other workouts retain estimated HR/MET calories and remain excluded from this maintenance budget.
+- Other workouts (build-78 source) show the lower of net Keytel at the session's mean HR and net
+  activity energy ((MET − 1) × kg × h; strength 3.5 MET per the 2024 Compendium); they remain
+  excluded from this maintenance budget. Treadmill, track intervals, sprinting and hurdles are
+  running (distance method, phone motion distance without GPS; best efforts GPS-only).
   Stored daily HR/cadence `calories` and `calories_total` are separate analytics, not Method 1.
 
 **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →

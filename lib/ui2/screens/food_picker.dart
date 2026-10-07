@@ -175,18 +175,20 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 
   Future<void> _logFood(Map<String, Object?> def) async {
-    final grams = await GramsSheet.show(context, def);
-    if (grams == null || !mounted) return;
+    final portion = await GramsSheet.show(context, def);
+    if (portion == null || !mounted) return;
     final db = await LocalDb.instance;
     await NutritionDb.put(
       db,
       entryFromFood(
         def,
-        grams,
+        portion.base,
         id: NutritionDb.newId(),
         date: widget.date,
         meal: widget.meal,
         atTs: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        amount: portion.amount,
+        unit: portion.unit,
       ),
     );
     if (mounted) Navigator.of(context).pop(true);
@@ -287,21 +289,32 @@ class GramsSheet extends StatefulWidget {
     super.key,
     required this.def,
     this.initial,
+    this.initialUnit,
     this.action = 'Add',
   });
 
   final Map<String, Object?> def;
   final double? initial;
+
+  /// The unit [initial] is in; null is the label unit.
+  final String? initialUnit;
   final String action;
 
-  static Future<double?> show(
+  /// The portion as entered and its label-unit amount, or null if cancelled.
+  static Future<Portion?> show(
     BuildContext c,
     Map<String, Object?> def, {
     double? initial,
+    String? initialUnit,
     String action = 'Add',
-  }) => _sheet<double>(
+  }) => _sheet<Portion>(
     c,
-    (_) => GramsSheet(def: def, initial: initial, action: action),
+    (_) => GramsSheet(
+      def: def,
+      initial: initial,
+      initialUnit: initialUnit,
+      action: action,
+    ),
   );
 
   @override
@@ -315,16 +328,23 @@ class _GramsSheetState extends State<GramsSheet> {
       '',
     ).trim(),
   );
+  late final _unit = ValueNotifier<String>(
+    widget.initialUnit != null && unitInBase(widget.def, widget.initialUnit!) != null
+        ? widget.initialUnit!
+        : foodUnit(widget.def),
+  );
 
   @override
   void initState() {
     super.initState();
     _g.addListener(() => setState(() {}));
+    _unit.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _g.dispose();
+    _unit.dispose();
     super.dispose();
   }
 
@@ -332,16 +352,17 @@ class _GramsSheetState extends State<GramsSheet> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final grams = Typed.of(_g.text).value;
-    final n = grams == null || grams <= 0
+    final base = grams == null || grams <= 0
         ? null
-        : nutrientsFor(widget.def, grams);
+        : toBase(widget.def, grams, _unit.value);
+    final n = base == null ? null : nutrientsFor(widget.def, base);
     return _sheetBody(c, [
       Text(
         (widget.def['label'] ?? '').toString(),
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x4),
-      AmountInput(controller: _g, def: widget.def),
+      AmountInput(controller: _g, def: widget.def, unit: _unit),
       const SizedBox(height: S.x3),
       Text(
         n == null
@@ -359,9 +380,11 @@ class _GramsSheetState extends State<GramsSheet> {
       BigButton(
         widget.action,
         color: C.domFood,
-        onTap: grams == null || grams <= 0
+        onTap: grams == null || grams <= 0 || base == null
             ? null
-            : () => Navigator.of(c).pop(grams),
+            : () => Navigator.of(c).pop(
+                (amount: grams, unit: _unit.value, base: base),
+              ),
       ),
     ]);
   }
@@ -455,14 +478,33 @@ class _FoodEditorState extends State<FoodEditor> {
   final _measureName = [TextEditingController(), TextEditingController()];
   final _measureAmount = [TextEditingController(), TextEditingController()];
 
+  /// For a label per count ("1 link", "1 scoop"): what one weighs, in grams.
+  /// Stored as a "g" unit of 1/weight label units, so the food logs in grams
+  /// as well — and nobody has to write grams on the left.
+  final _weightOfOne = TextEditingController();
+
+  bool get _countLabel {
+    final u = _unit.text.trim().toLowerCase();
+    return u.isNotEmpty && u != 'g' && u != 'ml';
+  }
+
   @override
   void initState() {
     super.initState();
+    _unit.addListener(() => setState(() {}));
     final e = widget.existing;
     if (e != null) {
-      for (final (i, m) in foodMeasures(e).indexed) {
-        _measureName[i].text = m.label;
-        _measureAmount[i].text = _trim(m.amount);
+      final base = foodUnit(e).toLowerCase();
+      final count = base != 'g' && base != 'ml';
+      var i = 0;
+      for (final m in foodMeasures(e)) {
+        if (count && m.label.toLowerCase() == 'g' && m.amount > 0) {
+          _weightOfOne.text = _trim(1 / m.amount);
+        } else if (i < 2) {
+          _measureName[i].text = m.label;
+          _measureAmount[i].text = _trim(m.amount);
+          i++;
+        }
       }
       // Shown back on its own serving when it has one, else per 100 g.
       final ref = (e['serving_g'] as num?)?.toDouble() ?? 100;
@@ -497,6 +539,7 @@ class _FoodEditorState extends State<FoodEditor> {
       _fibre,
       ..._measureName,
       ..._measureAmount,
+      _weightOfOne,
     ]) {
       t.dispose();
     }
@@ -524,7 +567,17 @@ class _FoodEditorState extends State<FoodEditor> {
       return;
     }
     final measures = <FoodMeasure>[];
-    for (var i = 0; i < 2; i++) {
+    final weight = Typed.of(_weightOfOne.text, nonNegative: true);
+    if (_countLabel && !weight.blank) {
+      if (weight.value == null || weight.value! <= 0) {
+        setState(
+          () => _error = 'Enter what one ${_unit.text.trim()} weighs, or leave it blank.',
+        );
+        return;
+      }
+      measures.add((label: 'g', amount: 1 / weight.value!));
+    }
+    for (var i = 0; i < (_countLabel ? 1 : 2); i++) {
       final name = _measureName[i].text.trim();
       final amount = Typed.of(_measureAmount[i].text);
       if (name.isEmpty && amount.blank) continue;
@@ -680,15 +733,30 @@ class _FoodEditorState extends State<FoodEditor> {
       field(_fat, 'Fat (g)'),
       field(_fibre, 'Fibre (g)'),
       const SizedBox(height: S.x2),
-      Text('NAMED MEASURES · OPTIONAL', style: F.over.copyWith(color: p.ink3)),
+      Text('OTHER UNITS · OPTIONAL', style: F.over.copyWith(color: p.ink3)),
       const SizedBox(height: S.x1),
       Text(
-        'Name one measure and its weight, e.g. scoop · 29 g. Chips then offer '
-        '1 scoop · 29 g and 2 scoops · 58 g; you still log what you weigh.',
+        _countLabel
+            ? 'Log this in grams too: enter what one ${_unit.text.trim()} weighs. '
+                  'The portion screen then switches between ${_unit.text.trim()} '
+                  'and g, and the macros follow either.'
+            : 'Name another unit and its weight, e.g. link · 71 g or scoop · 29 g. '
+                  'The portion screen then switches between g and it, and the '
+                  'macros follow either.',
         style: F.cap.copyWith(color: p.ink3),
       ),
       const SizedBox(height: S.x2),
-      for (var i = 0; i < 2; i++)
+      if (_countLabel)
+        Padding(
+          padding: const EdgeInsets.only(bottom: S.x2),
+          child: OsTextField(
+            controller: _weightOfOne,
+            label: '1 ${_unit.text.trim()} weighs (g)',
+            hint: '71',
+            keyboard: num,
+          ),
+        ),
+      for (var i = 0; i < (_countLabel ? 1 : 2); i++)
         Padding(
           padding: const EdgeInsets.only(bottom: S.x2),
           child: Row(
@@ -750,6 +818,8 @@ class _MealEditorState extends State<MealEditor> {
   late final _label = TextEditingController(text: widget.existing?.label ?? '');
   late String _meal = widget.existing?.meal ?? 'breakfast';
   late final List<(String, double)> _items = [...?widget.existing?.items];
+  // The unit each food's amount is in ("link" or "g"), as saved.
+  late final Map<String, String> _units = {...?widget.existing?.units};
   // Each item's sub-heading, aligned with [_items].
   late final List<String> _groups = [
     for (var i = 0; i < _items.length; i++) widget.existing?.groupAt(i) ?? '',
@@ -781,18 +851,20 @@ class _MealEditorState extends State<MealEditor> {
   Future<void> _editItem(int i) async {
     final def = _defs[_items[i].$1];
     if (def == null) return;
-    final result = await _sheet<(double, String)>(
+    final result = await _sheet<(Portion, String)>(
       context,
       (s) => _ItemEditor(
         def: def,
         amount: _items[i].$2,
+        unit: _units[_items[i].$1] ?? foodUnit(def),
         group: _groups[i],
         groups: _order.where((g) => g.isNotEmpty).toList(),
       ),
     );
     if (result == null || !mounted) return;
     setState(() {
-      _items[i] = (_items[i].$1, result.$1);
+      _items[i] = (_items[i].$1, result.$1.amount);
+      _units[_items[i].$1] = result.$1.unit;
       _groups[i] = result.$2;
       _normalise();
     });
@@ -842,10 +914,11 @@ class _MealEditorState extends State<MealEditor> {
       ]),
     );
     if (def == null || !mounted) return;
-    final grams = await GramsSheet.show(context, def);
-    if (grams == null || !mounted) return;
+    final portion = await GramsSheet.show(context, def);
+    if (portion == null || !mounted) return;
     setState(() {
-      _items.add((def['key'] as String, grams));
+      _items.add((def['key'] as String, portion.amount));
+      _units[def['key'] as String] = portion.unit;
       _groups.add('');
     });
   }
@@ -877,7 +950,8 @@ class _MealEditorState extends State<MealEditor> {
           meal: _meal,
           items: items,
           units: {
-            for (final item in items) item.$1: foodUnit(_defs[item.$1] ?? {}),
+            for (final item in items)
+              item.$1: _units[item.$1] ?? foodUnit(_defs[item.$1] ?? {}),
           },
           groups: [..._groups],
         ),
@@ -901,7 +975,8 @@ class _MealEditorState extends State<MealEditor> {
       for (final (key, g) in _items) {
         final d = _defs[key];
         final v = (d?[k] as num?)?.toDouble();
-        if (v != null) sum = (sum ?? 0) + v * g / 100;
+        final b = d == null ? null : toBase(d, g, _units[key] ?? foodUnit(d));
+        if (v != null && b != null) sum = (sum ?? 0) + v * b / 100;
       }
       return sum;
     }
@@ -970,7 +1045,11 @@ class _MealEditorState extends State<MealEditor> {
             }),
             child: PickRow(
               (_defs[item.$1]?['label'] ?? 'Deleted food').toString(),
-              portionText(item.$2, foodUnit(_defs[item.$1] ?? {})),
+              portionWithWeight(
+                item.$2,
+                _units[item.$1] ?? foodUnit(_defs[item.$1] ?? {}),
+                _defs[item.$1],
+              ),
               trailing: LucideIcons.pencil,
               onTap: () => _editItem(i),
             ),
@@ -1020,6 +1099,9 @@ class _MealEditorState extends State<MealEditor> {
 
 // ══════════════════ SHARED PIECES ══════════════════
 
+/// A portion as entered ("3 link") and its amount in the food's label unit.
+typedef Portion = ({double amount, String unit, double base});
+
 /// Whether [def] is logged by weight or volume rather than by count.
 bool weighedFood(Map<String, Object?> def) {
   final u = foodUnit(def).toLowerCase();
@@ -1029,45 +1111,87 @@ bool weighedFood(Map<String, Object?> def) {
 String _amount(double v) =>
     v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(1);
 
-/// How much of a food, in its own unit: one large field with − and + either
-/// side, and chips for the usual amounts, each labelled once.
+/// How much of a food, in any of its units: a unit switch when the food has
+/// more than one ("g | link"), one large field with − and + either side, the
+/// same portion in the other unit underneath ("3 links = 213 g"), and chips
+/// for the usual amounts, each labelled once.
 ///
-/// − / + always step by one (1 egg, 1 g); holding them keeps stepping, faster
-/// the longer they are held. A counted food offers 1–4; a weighed food offers
-/// its named measures with their weights ("2 scoops · 58 g") — the scale stays
-/// the source of truth, the measure is a shortcut.
+/// − / + step by one of the selected unit; holding repeats, faster. A count
+/// unit offers ½ and 1–4; a weight unit offers the food's count units with
+/// their weights ("2 links · 142 g"). Switching unit converts the amount.
+/// [unit] is owned by the caller, which logs in it; null keeps the label unit.
 class AmountInput extends StatelessWidget {
-  const AmountInput({super.key, required this.controller, required this.def});
+  const AmountInput({
+    super.key,
+    required this.controller,
+    required this.def,
+    this.unit,
+  });
 
   final TextEditingController controller;
   final Map<String, Object?> def;
+  final ValueNotifier<String>? unit;
+
+  static bool _weight(String u) => u.toLowerCase() == 'g' || u.toLowerCase() == 'ml';
 
   @override
   Widget build(BuildContext c) {
+    final picker = unit;
+    // Without a unit owner the amount stays in the label unit (no switch),
+    // but the food's other units still label its chips.
+    if (picker == null) {
+      return _body(c, foodUnit(def), foodUnitNames(def), switchable: false);
+    }
+    return ValueListenableBuilder<String>(
+      valueListenable: picker,
+      builder: (c, u, _) => _body(c, u, foodUnitNames(def), switchable: true),
+    );
+  }
+
+  Widget _body(
+    BuildContext c,
+    String unit,
+    List<String> units, {
+    required bool switchable,
+  }) {
     final p = P.of(c);
-    final unit = foodUnit(def);
-    final weighed = weighedFood(def);
-    final measures = weighed ? foodMeasures(def) : const <FoodMeasure>[];
-    const step = 1.0;
+    double now() => Typed.of(controller.text).value ?? 0;
+    void set(double v) => controller.text = _amount(v < 0 ? 0 : v);
+    final others = [
+      for (final u in units)
+        if (u.toLowerCase() != unit.toLowerCase()) u,
+    ];
+    String inUnit(double baseAmount, String u) {
+      final per = unitInBase(def, u);
+      return per == null || per <= 0
+          ? ''
+          : portionText(
+              _weight(u)
+                  ? (baseAmount / per).roundToDouble()
+                  : double.parse((baseAmount / per).toStringAsFixed(2)),
+              u,
+            );
+    }
+
     final ref = (def['serving_g'] as num?)?.toDouble();
     final chips = <(String, double)>[
-      if (!weighed) ...[
+      if (!_weight(unit)) ...[
         ('½ $unit', .5),
-        for (final k in const [1, 2, 3, 4])
-          (portionText(k, unit), k.toDouble()),
-      ] else if (measures.isNotEmpty) ...[
-        for (final m in measures)
-          for (final k in m == measures.first ? const [1, 2] : const [1])
-            (
-              '${portionText(k, m.label)} · ${portionText(m.amount * k, unit)}',
-              m.amount * k,
-            ),
-      ] else if (ref != null && ref > 0)
-        for (final k in const [.5, 1.0, 2.0])
-          (portionText(ref * k, unit), ref * k),
+        for (final k in const [1, 2, 3, 4]) (portionText(k, unit), k.toDouble()),
+      ] else if (others.any((u) => !_weight(u))) ...[
+        for (final u in others.where((u) => !_weight(u)).take(2))
+          for (final k in u == others.firstWhere((x) => !_weight(x))
+              ? const [1, 2]
+              : const [1])
+            if (toBase(def, k.toDouble(), u) case final b?)
+              if (unitInBase(def, unit) case final per? when per > 0)
+                (
+                  '${portionText(k, u)} · ${portionText((b / per).roundToDouble(), unit)}',
+                  (b / per).roundToDouble(),
+                ),
+      ] else if (ref != null && ref > 0 && unit == foodUnit(def))
+        for (final k in const [.5, 1.0, 2.0]) (portionText(ref * k, unit), ref * k),
     ];
-    void set(double v) => controller.text = _amount(v < 0 ? 0 : v);
-    double now() => Typed.of(controller.text).value ?? 0;
     Widget stepper(IconData icon, String label, double delta) => Pressable(
       semanticLabel: label,
       repeat: true,
@@ -1086,9 +1210,38 @@ class AmountInput extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (switchable && units.length > 1) ...[
+          Wrap(
+            spacing: S.x2,
+            children: [
+              for (final u in units)
+                Pressable(
+                  semanticLabel: 'Amount in $u',
+                  onTap: () {
+                    if (u == unit) return;
+                    final b = toBase(def, now(), unit);
+                    final per = unitInBase(def, u);
+                    this.unit?.value = u;
+                    if (b != null && per != null && per > 0 && now() > 0) {
+                      final v = b / per;
+                      set(_weight(u)
+                          ? v.roundToDouble()
+                          : double.parse(v.toStringAsFixed(2)));
+                    }
+                  },
+                  child: Pill(
+                    u,
+                    u == unit ? C.domFood : C.n400,
+                    icon: u == unit ? LucideIcons.check : null,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+        ],
         Row(
           children: [
-            stepper(LucideIcons.minus, 'Less', -step),
+            stepper(LucideIcons.minus, 'Less', -1),
             const SizedBox(width: S.x3),
             Expanded(
               child: OsTextField(
@@ -1098,9 +1251,24 @@ class AmountInput extends StatelessWidget {
               ),
             ),
             const SizedBox(width: S.x3),
-            stepper(LucideIcons.plus, 'More', step),
+            stepper(LucideIcons.plus, 'More', 1),
           ],
         ),
+        if (switchable && others.isNotEmpty) ...[
+          const SizedBox(height: S.x1),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (c, _, _) {
+              final b = toBase(def, now(), unit);
+              return Text(
+                b == null || now() <= 0
+                    ? ''
+                    : '${portionText(now(), unit)} = ${inUnit(b, others.first)}',
+                style: F.cap.copyWith(color: p.ink3),
+              );
+            },
+          ),
+        ],
         if (chips.isNotEmpty) ...[
           const SizedBox(height: S.x2),
           Wrap(
@@ -1119,6 +1287,7 @@ class AmountInput extends StatelessWidget {
       ],
     );
   }
+
 }
 
 /// A list the user orders by holding a row and dragging it. Shrink-wrapped
@@ -1197,17 +1366,17 @@ class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
 
   @override
   Widget build(BuildContext c) {
-    // Named headings in first-appearance order, then '' — last, so showing
-    // it mid-drag never shifts the row being dragged.
+    // Named headings in first-appearance order, then ''. The '' heading is
+    // ALWAYS a row once any heading exists: Flutter cancels a drag whenever
+    // the row count changes, so adding it on drag start made the first hold
+    // only reveal it. Empty and not dragging, it is a zero-height row.
     final named = <String>[];
     for (final i in items) {
       final g = groupOf(i);
       if (g.isNotEmpty && !named.contains(g)) named.add(g);
     }
     final loose = items.any((i) => groupOf(i).isEmpty);
-    final groups = named.isEmpty
-        ? const ['']
-        : [...named, if (loose || _dragging) ''];
+    final groups = named.isEmpty ? const [''] : [...named, ''];
     final headed = named.isNotEmpty;
     final rows = <(String?, T?)>[
       for (final g in groups) ...[
@@ -1227,6 +1396,7 @@ class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
       onReorderStart: (_) => setState(() => _dragging = true),
       onReorderEnd: (_) => setState(() => _dragging = false),
       onReorder: (from, to) {
+        _dragging = false;
         if (rows[from].$2 == null) return; // headings do not move
         final moved = [...rows];
         final row = moved.removeAt(from);
@@ -1245,12 +1415,15 @@ class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
       itemBuilder: (c, i) {
         final (g, item) = rows[i];
         if (item == null) {
+          final hidden = g!.isEmpty && !loose && !_dragging;
           return KeyedSubtree(
-            key: ValueKey<Object>(('heading', g!)),
-            child: widget.headerBuilder(c, g, [
-              for (final x in items)
-                if (groupOf(x) == g) x,
-            ]),
+            key: ValueKey<Object>(('heading', g)),
+            child: hidden
+                ? const SizedBox.shrink()
+                : widget.headerBuilder(c, g, [
+                    for (final x in items)
+                      if (groupOf(x) == g) x,
+                  ]),
           );
         }
         final row = widget.itemBuilder(c, item);
@@ -1357,12 +1530,14 @@ class _ItemEditor extends StatefulWidget {
   const _ItemEditor({
     required this.def,
     required this.amount,
+    required this.unit,
     required this.group,
     required this.groups,
   });
 
   final Map<String, Object?> def;
   final double amount;
+  final String unit;
   final String group;
   final List<String> groups;
 
@@ -1372,17 +1547,24 @@ class _ItemEditor extends StatefulWidget {
 
 class _ItemEditorState extends State<_ItemEditor> {
   late final _g = TextEditingController(text: _amount(widget.amount));
+  late final _unit = ValueNotifier<String>(
+    unitInBase(widget.def, widget.unit) != null
+        ? widget.unit
+        : foodUnit(widget.def),
+  );
   late String _group = widget.group;
 
   @override
   void initState() {
     super.initState();
     _g.addListener(() => setState(() {}));
+    _unit.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _g.dispose();
+    _unit.dispose();
     super.dispose();
   }
 
@@ -1390,14 +1572,15 @@ class _ItemEditorState extends State<_ItemEditor> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final v = Typed.of(_g.text).value;
-    final n = v == null || v <= 0 ? null : nutrientsFor(widget.def, v);
+    final b = v == null || v <= 0 ? null : toBase(widget.def, v, _unit.value);
+    final n = b == null ? null : nutrientsFor(widget.def, b);
     return _sheetBody(c, [
       Text(
         (widget.def['label'] ?? '').toString(),
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x4),
-      AmountInput(controller: _g, def: widget.def),
+      AmountInput(controller: _g, def: widget.def, unit: _unit),
       const SizedBox(height: S.x3),
       Text(
         n == null
@@ -1425,9 +1608,11 @@ class _ItemEditorState extends State<_ItemEditor> {
       BigButton(
         'Done',
         color: C.domFood,
-        onTap: v == null || v <= 0
+        onTap: v == null || v <= 0 || b == null
             ? null
-            : () => Navigator.of(c).pop((v, _group)),
+            : () => Navigator.of(c).pop(
+                ((amount: v, unit: _unit.value, base: b), _group),
+              ),
       ),
     ]);
   }
@@ -1441,8 +1626,12 @@ class MealReviewSheet extends StatefulWidget {
   final MealTemplate meal;
   final Map<String, Map<String, Object?>> defs;
 
-  /// Resolves to one amount per item (null = leave out), or null if cancelled.
-  static Future<List<double?>?> show(BuildContext c, MealTemplate m) async {
+  /// Resolves to one amount per item (null = leave out) with its unit, or
+  /// null if cancelled.
+  static Future<({List<double?> amounts, List<String> units})?> show(
+    BuildContext c,
+    MealTemplate m,
+  ) async {
     final db = await LocalDb.instance;
     final defs = <String, Map<String, Object?>>{};
     for (final (key, _) in m.items) {
@@ -1450,7 +1639,7 @@ class MealReviewSheet extends StatefulWidget {
       if (d != null) defs[key] = d;
     }
     if (!c.mounted) return null;
-    return _sheet<List<double?>>(
+    return _sheet<({List<double?> amounts, List<String> units})>(
       c,
       (_) => MealReviewSheet(meal: m, defs: defs),
     );
@@ -1467,6 +1656,10 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
   late final List<bool> _on = [
     for (final (key, _) in widget.meal.items) widget.defs.containsKey(key),
   ];
+  late final List<String> _units = [
+    for (final (key, _) in widget.meal.items)
+      widget.meal.units[key] ?? foodUnit(widget.defs[key] ?? const {}),
+  ];
 
   Future<void> _edit(int i) async {
     final def = widget.defs[widget.meal.items[i].$1];
@@ -1475,9 +1668,12 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
       context,
       def,
       initial: _amounts[i],
+      initialUnit: _units[i],
       action: 'Done',
     );
-    if (v != null && mounted) setState(() => (_amounts[i] = v, _on[i] = true));
+    if (v != null && mounted) {
+      setState(() => (_amounts[i] = v.amount, _units[i] = v.unit, _on[i] = true));
+    }
   }
 
   @override
@@ -1489,7 +1685,8 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
       for (var i = 0; i < m.items.length; i++) {
         final d = widget.defs[m.items[i].$1];
         final v = (d?[k] as num?)?.toDouble();
-        if (_on[i] && v != null) sum = (sum ?? 0) + v * _amounts[i] / 100;
+        final b = d == null ? null : toBase(d, _amounts[i], _units[i]);
+        if (_on[i] && v != null && b != null) sum = (sum ?? 0) + v * b / 100;
       }
       return sum;
     }
@@ -1532,9 +1729,10 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
                 (widget.defs[m.items[i].$1]?['label'] ?? 'Deleted food')
                     .toString(),
                 widget.defs.containsKey(m.items[i].$1)
-                    ? portionText(
+                    ? portionWithWeight(
                         _amounts[i],
-                        foodUnit(widget.defs[m.items[i].$1]!),
+                        _units[i],
+                        widget.defs[m.items[i].$1],
                       )
                     : 'No longer in My foods',
                 trailing: LucideIcons.pencil,
@@ -1561,10 +1759,13 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
         color: C.domFood,
         onTap: !_on.contains(true)
             ? null
-            : () => Navigator.of(c).pop([
-                for (var i = 0; i < m.items.length; i++)
-                  _on[i] ? _amounts[i] : null,
-              ]),
+            : () => Navigator.of(c).pop((
+                amounts: [
+                  for (var i = 0; i < m.items.length; i++)
+                    _on[i] ? _amounts[i] : null,
+                ],
+                units: _units,
+              )),
       ),
     ]);
   }

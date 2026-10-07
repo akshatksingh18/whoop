@@ -17,6 +17,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:sqflite/sqflite.dart' show Database;
 
 import '../../data/db.dart';
 import '../../data/day_label.dart';
@@ -597,6 +598,19 @@ class _DayMealSheetState extends State<_DayMealSheet> with RevisionReload {
 
 /// One meal on one day: totals, items under their sub-headings, swipe to
 /// delete, tap to change.
+/// The saved foods behind [es], for showing each portion's weight.
+Future<Map<String, Map<String, Object?>>> _defsFor(
+  Database db,
+  List<FoodEntry> es,
+) async {
+  final out = <String, Map<String, Object?>>{};
+  for (final k in {for (final e in es) ?e.foodKey}) {
+    final d = await NutritionDb.foodDef(db, k);
+    if (d != null) out[k] = d;
+  }
+  return out;
+}
+
 /// Everything eaten on one day on one page: day totals, then Breakfast,
 /// Lunch, Dinner and Snacks with their sub-headings. A meal (or any item in
 /// it) opens that meal's page for changes.
@@ -611,6 +625,7 @@ class DayFoodPage extends StatefulWidget {
 class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
   late String _date = widget.date;
   List<FoodEntry>? _entries;
+  Map<String, Map<String, Object?>> _defs = const {};
   bool _failed = false;
 
   @override
@@ -626,9 +641,11 @@ class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
     final t = beginRead(#foodDayPage);
     final date = _date;
     try {
-      final es = await NutritionDb.entriesForDay(await LocalDb.instance, date);
+      final db = await LocalDb.instance;
+      final es = await NutritionDb.entriesForDay(db, date);
+      final defs = await _defsFor(db, es);
       if (stillNewest(#foodDayPage, t)) {
-        setState(() => (_entries = es, _failed = false));
+        setState(() => (_entries = es, _defs = defs, _failed = false));
       }
     } catch (_) {
       if (stillNewest(#foodDayPage, t)) setState(() => _failed = true);
@@ -730,7 +747,7 @@ class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
                     ),
                   ),
                 for (final e in groups[g]!)
-                  _EntryRow(e, onTap: () => _open(meal)),
+                  _EntryRow(e, def: _defs[e.foodKey], onTap: () => _open(meal)),
               ],
             ],
           ),
@@ -751,6 +768,7 @@ class MealPage extends StatefulWidget {
 class _MealPageState extends State<MealPage> with RevisionReload {
   late String _date = widget.date;
   List<FoodEntry>? _entries;
+  Map<String, Map<String, Object?>> _defs = const {};
   bool _failed = false;
 
   @override
@@ -766,13 +784,16 @@ class _MealPageState extends State<MealPage> with RevisionReload {
     final t = beginRead(#mealDay);
     final date = _date;
     try {
-      final es = await NutritionDb.entriesForDay(await LocalDb.instance, date);
+      final db = await LocalDb.instance;
+      final es = await NutritionDb.entriesForDay(db, date);
+      final defs = await _defsFor(db, es);
       if (stillNewest(#mealDay, t)) {
         setState(() {
           _entries = [
             for (final e in es)
               if (e.meal == widget.meal) e,
           ];
+          _defs = defs;
           _failed = false;
         });
       }
@@ -896,12 +917,38 @@ class _MealPageState extends State<MealPage> with RevisionReload {
             editing: true,
           );
         case 'grams':
-          final grams = await GramsSheet.show(context, {
-            ...def!,
-            'unit': e.unit,
-          }, initial: e.quantity);
-          if (grams == null) return;
-          await NutritionDb.put(db, e.atQuantity(grams));
+          if (unitInBase(def!, e.unit) == null) {
+            // A unit the food no longer knows: scale the entry as logged.
+            final g = await GramsSheet.show(context, {
+              ...def,
+              'unit': e.unit,
+              'measures_json': '',
+            }, initial: e.quantity);
+            if (g == null) return;
+            await NutritionDb.put(db, e.atQuantity(g.amount));
+          } else {
+            final g = await GramsSheet.show(
+              context,
+              def,
+              initial: e.quantity,
+              initialUnit: e.unit,
+              action: 'Save',
+            );
+            if (g == null) return;
+            await NutritionDb.put(
+              db,
+              entryFromFood(
+                def,
+                g.base,
+                id: e.id,
+                date: e.date,
+                meal: e.meal,
+                atTs: e.atTs,
+                amount: g.amount,
+                unit: g.unit,
+              ).inGroup(e.group),
+            );
+          }
         case 'group':
           if (!mounted) return;
           final g = await pickFoodGroup(context, groups, e.group);
@@ -1030,7 +1077,11 @@ class _MealPageState extends State<MealPage> with RevisionReload {
               itemBuilder: (c, e) => SwipeDelete(
                 key: ValueKey(e.id),
                 onDelete: () => _delete(e),
-                child: _EntryRow(e, onTap: () => _itemActions(e)),
+                child: _EntryRow(
+                  e,
+                  def: _defs[e.foodKey],
+                  onTap: () => _itemActions(e),
+                ),
               ),
             ),
           ),
@@ -1065,15 +1116,18 @@ class _MealPageState extends State<MealPage> with RevisionReload {
 }
 
 class _EntryRow extends StatelessWidget {
-  const _EntryRow(this.e, {this.onTap});
+  const _EntryRow(this.e, {this.onTap, this.def});
   final FoodEntry e;
   final VoidCallback? onTap;
+
+  /// The saved food, when known, so "3 links" also reads "· 213 g".
+  final Map<String, Object?>? def;
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final detail = [
-      if (e.quantity != null) portionText(e.quantity!, e.unit),
+      if (e.quantity != null) portionWithWeight(e.quantity!, e.unit, def),
       if (e.proteinG != null) 'P ${e.proteinG!.round()}',
       if (e.carbsG != null) 'C ${e.carbsG!.round()}',
       if (e.fatG != null) 'F ${e.fatG!.round()}',
@@ -1207,25 +1261,20 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
 
   /// + on a food: the portion screen first, prefilled with the amount logged
   /// last time (or the label serving). Nothing is written until Log.
-  Future<void> _plusFood(Map<String, Object?> def) async {
-    final last = await NutritionDb.lastGrams(
-      await LocalDb.instance,
-      def['key'] as String,
-    );
-    if (mounted) await _detail(def, grams: last);
-  }
+  Future<void> _plusFood(Map<String, Object?> def) => _detail(def);
 
   /// + on a saved meal: every item's amount reviewed first, then one Log.
   Future<void> _logMeal(MealTemplate m) async {
-    final amounts = await MealReviewSheet.show(context, m);
-    if (amounts == null || !mounted) return;
+    final review = await MealReviewSheet.show(context, m);
+    if (review == null || !mounted) return;
     final n = await MyFoods.logMeal(
       await LocalDb.instance,
       m,
       widget.date,
       _meal,
       group: _group,
-      amounts: amounts,
+      amounts: review.amounts,
+      units: review.units,
     );
     if (mounted) {
       _say(
@@ -1237,13 +1286,21 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
     }
   }
 
-  Future<void> _detail(Map<String, Object?> def, {double? grams}) async {
+  /// The portion screen, opened on the amount and unit last logged for
+  /// this food ("3 links"), or its label serving the first time.
+  Future<void> _detail(Map<String, Object?> def) async {
+    final last = await NutritionDb.lastPortion(
+      await LocalDb.instance,
+      def['key'] as String,
+    );
+    if (!mounted) return;
     final ok = await FoodDetailSheet.show(
       context,
       def: def,
       date: widget.date,
       meal: _meal,
-      grams: grams,
+      grams: last?.amount,
+      unit: last?.unit,
       group: _group ?? '',
     );
     if (ok == true && mounted) _say(context, 'Added ${def['label']}');
@@ -1618,12 +1675,16 @@ class FoodDetailSheet extends StatefulWidget {
     required this.date,
     required this.meal,
     this.grams,
+    this.unit,
     this.group = '',
   });
 
   final Map<String, Object?> def;
   final String date, meal;
+
+  /// The starting amount, in [unit] (the label unit when null).
   final double? grams;
+  final String? unit;
   final String group;
 
   static Future<bool?> show(
@@ -1632,6 +1693,7 @@ class FoodDetailSheet extends StatefulWidget {
     required String date,
     required String meal,
     double? grams,
+    String? unit,
     String group = '',
   }) => _sheet<bool>(
     c,
@@ -1640,6 +1702,7 @@ class FoodDetailSheet extends StatefulWidget {
       date: date,
       meal: meal,
       grams: grams,
+      unit: unit,
       group: group,
     ),
   );
@@ -1659,6 +1722,11 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   );
   late String _meal = widget.meal;
   late String _group = widget.group;
+  late final _unit = ValueNotifier<String>(
+    widget.unit != null && unitInBase(widget.def, widget.unit!) != null
+        ? widget.unit!
+        : foodUnit(widget.def),
+  );
   late TimeOfDay _time = TimeOfDay.fromDateTime(
     foodEntryTime(widget.date, widget.meal),
   );
@@ -1671,12 +1739,14 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   void initState() {
     super.initState();
     _g.addListener(() => setState(() {}));
+    _unit.addListener(() => setState(() {}));
     _loadWith();
   }
 
   @override
   void dispose() {
     _g.dispose();
+    _unit.dispose();
     super.dispose();
   }
 
@@ -1711,10 +1781,12 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   Future<void> _log() async {
     if (_saving) return;
     final grams = Typed.of(_g.text).value;
-    if (grams == null || grams <= 0) {
+    final base = grams == null ? null : toBase(_def, grams, _unit.value);
+    if (grams == null || grams <= 0 || base == null) {
       setState(() => _error = 'Enter an amount greater than zero.');
       return;
     }
+    final unit = _unit.value;
     setState(() {
       _saving = true;
       _error = null;
@@ -1731,11 +1803,13 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
           tx,
           entryFromFood(
             _def,
-            grams,
+            base,
             id: NutritionDb.newId(),
             date: widget.date,
             meal: meal,
             atTs: ts,
+            amount: grams,
+            unit: unit,
           ).inGroup(_group),
           notify: false,
         );
@@ -1777,7 +1851,8 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
     final profile = c.watch<AppState>().user ?? const <String, dynamic>{};
     double? goal(String k) => (profile[k] as num?)?.toDouble();
     final grams = Typed.of(_g.text).value;
-    final n = grams == null ? null : nutrientsFor(_def, grams);
+    final base = grams == null ? null : toBase(_def, grams, _unit.value);
+    final n = base == null ? null : nutrientsFor(_def, base);
     String pct(double? v, double? g) =>
         v == null || g == null || g <= 0 ? '' : '${(v / g * 100).round()}%';
     final macros = <(String, double?, double?, Color)>[
@@ -1792,7 +1867,7 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
       const SizedBox(height: S.x4),
       // One amount control everywhere: − / +, and chips labelled once
       // (eggs: 1 · 2 · 3 · 4; a weighed food: its measures and grams).
-      AmountInput(controller: _g, def: _def),
+      AmountInput(controller: _g, def: _def, unit: _unit),
       const SizedBox(height: S.x2),
       MealGroupPicker(
         date: widget.date,

@@ -14,11 +14,22 @@ import 'motion_window.dart';
 import 'route_math.dart' show totalDistanceMeters, movingSeconds;
 import 'run_analysis.dart';
 
-/// Activity types that count as running for best efforts, pace zones and the
-/// Running row of maintenance.
+/// Activity types that count as running for pace, the distance calorie method
+/// and the Running row of maintenance. Treadmill, track intervals, sprinting
+/// and hurdles are running too (build 78): their steps are priced by the
+/// running distance method, from phone motion distance when there is no GPS.
+/// Best efforts still come only from a GPS route, so a treadmill's estimated
+/// distance never sets a record.
 bool isRunType(String? type) {
   final t = (type ?? '').toLowerCase();
-  return t.contains('run') || t == 'cross_country';
+  return t.contains('run') ||
+      const {
+        'cross_country',
+        'treadmill',
+        'track_intervals',
+        'sprinting',
+        'hurdles',
+      }.contains(t);
 }
 
 /// Activity types that count as walking for the streak.

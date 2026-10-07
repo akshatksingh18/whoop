@@ -932,26 +932,75 @@ class NutritionDb {
     String foodKey, {
     int limit = 5,
   }) async {
-    return db.rawQuery(
-      'SELECT d.*, COUNT(*) AS n, AVG(o.quantity) AS usual_g FROM food_entry a '
+    // Portions may be in any of a food's units now; average them in label
+    // units, skipping any whose unit the food no longer converts.
+    final rows = await db.rawQuery(
+      'SELECT d.*, o.quantity AS q, o.unit AS u FROM food_entry a '
       'JOIN food_entry o ON o.date = a.date AND o.meal = a.meal '
       'AND o.food_key IS NOT NULL AND o.food_key != a.food_key '
-      'JOIN food_def d ON d.key = o.food_key '
-      'WHERE a.food_key = ? AND o.unit = d.unit GROUP BY o.food_key ORDER BY n DESC, d.label '
-      'LIMIT ?',
-      [foodKey, limit],
-    );
-  }
-
-  /// How much of [foodKey] was logged last time, for a one-tap re-log.
-  static Future<double?> lastGrams(Database db, String foodKey) async {
-    final r = await db.rawQuery(
-      'SELECT e.quantity FROM food_entry e JOIN food_def d ON d.key = e.food_key '
-      'WHERE e.food_key = ? AND e.quantity IS NOT NULL AND e.unit = d.unit '
-      'ORDER BY e.created_at DESC LIMIT 1',
+      'JOIN food_def d ON d.key = o.food_key WHERE a.food_key = ?',
       [foodKey],
     );
-    return r.isEmpty ? null : (r.first['quantity'] as num?)?.toDouble();
+    final by = <String, ({Map<String, Object?> def, int n, List<double> base})>{};
+    for (final r in rows) {
+      final key = r['key'] as String;
+      final def = {...r}..remove('q')..remove('u');
+      final q = (r['q'] as num?)?.toDouble();
+      final b = q == null ? null : toBase(def, q, (r['u'] as String?) ?? 'g');
+      final prev = by[key];
+      by[key] = (
+        def: prev?.def ?? def,
+        n: (prev?.n ?? 0) + 1,
+        base: [...?prev?.base, ?b],
+      );
+    }
+    final out = by.values.toList()
+      ..sort((a, b) {
+        final c = b.n.compareTo(a.n);
+        return c != 0
+            ? c
+            : '${a.def['label']}'.compareTo('${b.def['label']}');
+      });
+    return [
+      for (final e in out.take(limit))
+        {
+          ...e.def,
+          'n': e.n,
+          'usual_g': e.base.isEmpty
+              ? null
+              : e.base.reduce((a, b) => a + b) / e.base.length,
+        },
+    ];
+  }
+
+  /// How much of [foodKey] was logged last time, in label units, for a
+  /// one-tap re-log. Any unit the food still converts counts.
+  static Future<double?> lastGrams(Database db, String foodKey) async {
+    final last = await lastPortion(db, foodKey);
+    return last?.base;
+  }
+
+  /// The last portion of [foodKey] as it was entered ("3 links"), with its
+  /// label-unit amount; null when never logged in a unit it still converts.
+  static Future<({double amount, String unit, double base})?> lastPortion(
+    Database db,
+    String foodKey,
+  ) async {
+    final def = await foodDef(db, foodKey);
+    if (def == null) return null;
+    final rows = await db.rawQuery(
+      'SELECT quantity, unit FROM food_entry WHERE food_key = ? '
+      'AND quantity IS NOT NULL ORDER BY created_at DESC LIMIT 5',
+      [foodKey],
+    );
+    for (final r in rows) {
+      final q = (r['quantity'] as num?)?.toDouble();
+      final u = (r['unit'] as String?) ?? 'g';
+      if (q == null) continue;
+      final base = toBase(def, q, u);
+      if (base != null) return (amount: q, unit: u, base: base);
+    }
+    return null;
   }
 
   /// The trailing [days] days ending today, oldest first, already rolled up.
@@ -1077,6 +1126,57 @@ List<FoodMeasure> foodMeasures(Map<String, Object?> def) {
   }
 }
 
+/// Every unit [def] can be logged in: its label unit first, then its other
+/// units (a measure's name), without duplicates. "link" and "Link" are one.
+List<String> foodUnitNames(Map<String, Object?> def) {
+  final out = [foodUnit(def)];
+  for (final m in foodMeasures(def)) {
+    if (!out.any((u) => u.toLowerCase() == m.label.toLowerCase())) {
+      out.add(m.label);
+    }
+  }
+  return out;
+}
+
+/// How many label units one [unit] is, or null when [def] has no conversion
+/// for it. A food labelled per link with "1 link = 71 g" stores grams as a
+/// measure of 1/71 link, so both directions resolve here.
+double? unitInBase(Map<String, Object?> def, String unit) {
+  final u = unit.trim().toLowerCase();
+  if (u == foodUnit(def).toLowerCase()) return 1;
+  for (final m in foodMeasures(def)) {
+    if (m.label.toLowerCase() == u) return m.amount;
+  }
+  return null;
+}
+
+/// [amount] of [unit] in label units, or null without a conversion.
+double? toBase(Map<String, Object?> def, double amount, String unit) {
+  final f = unitInBase(def, unit);
+  return f == null ? null : amount * f;
+}
+
+/// "3 links · 213 g": the logged portion with its weight when the food knows
+/// one and the portion was not already logged by weight.
+String portionWithWeight(
+  num amount,
+  String unit,
+  Map<String, Object?>? def,
+) {
+  final shown = portionText(amount, unit);
+  final u = unit.toLowerCase();
+  if (def == null || u == 'g' || u == 'ml') return shown;
+  final base = toBase(def, amount.toDouble(), unit);
+  if (base == null) return shown;
+  for (final w in const ['g', 'ml']) {
+    final per = unitInBase(def, w);
+    if (per != null && per > 0) {
+      return '$shown · ${portionText((base / per).roundToDouble(), w)}';
+    }
+  }
+  return shown;
+}
+
 String encodeMeasures(List<FoodMeasure> ms) => ms.isEmpty
     ? ''
     : jsonEncode([
@@ -1084,6 +1184,9 @@ String encodeMeasures(List<FoodMeasure> ms) => ms.isEmpty
       ]);
 
 /// A food logged at [grams] into [meal] on [date].
+/// [grams] is the amount in the food's label unit; nutrients scale from it.
+/// [amount]/[unit], when given, are what the diary shows ("3 links") — the
+/// portion as it was entered, in any of the food's units.
 FoodEntry entryFromFood(
   Map<String, Object?> def,
   double grams, {
@@ -1091,6 +1194,8 @@ FoodEntry entryFromFood(
   required String date,
   required String meal,
   int? atTs,
+  double? amount,
+  String? unit,
 }) {
   final n = nutrientsFor(def, grams);
   return FoodEntry(
@@ -1100,8 +1205,8 @@ FoodEntry entryFromFood(
     label: (def['label'] ?? '').toString(),
     atTs: atTs,
     foodKey: def['key']?.toString(),
-    quantity: grams,
-    unit: foodUnit(def),
+    quantity: amount ?? grams,
+    unit: unit ?? foodUnit(def),
     kcal: n.kcal,
     proteinG: n.protein,
     carbsG: n.carbs,
@@ -1309,6 +1414,7 @@ class MyFoods {
     DateTime? now,
     String? group,
     List<double?>? amounts,
+    List<String>? units,
   }) async {
     var n = 0;
     final at = foodEntryTime(date, meal, now: now);
@@ -1320,20 +1426,28 @@ class MyFoods {
         if (grams == null || !grams.isFinite || grams <= 0) continue;
         final def = await NutritionDb.foodDef(tx, key);
         if (def == null) continue;
-        if ((m.units[key] ?? 'g') != foodUnit(def)) {
+        // A saved amount may be in any of the food's units ("2 links"); it is
+        // converted, and only a unit the food no longer knows is refused.
+        final unit = units != null && i < units.length
+            ? units[i]
+            : (m.units[key] ?? 'g');
+        final base = toBase(def, grams, unit);
+        if (base == null) {
           throw StateError(
-            'The serving unit of ${def['label']} changed. Edit this saved meal before logging it.',
+            'The unit of ${def['label']} changed. Edit this saved meal before logging it.',
           );
         }
         await NutritionDb.put(
           tx,
           entryFromFood(
             def,
-            grams,
+            base,
             id: '${NutritionDb.newId()}_$n',
             date: date,
             meal: meal,
             atTs: at.millisecondsSinceEpoch ~/ 1000,
+            amount: grams,
+            unit: unit,
           ).inGroup(
             m.groupAt(i).isNotEmpty
                 ? m.groupAt(i)

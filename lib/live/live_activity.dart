@@ -2,10 +2,9 @@
 import 'package:flutter/services.dart';
 import '../gps/run_history.dart';
 
-/// Running and walking sessions, treadmill included, get a lock-screen
+/// Running and walking sessions (treadmill is running) get a lock-screen
 /// activity. Other workouts deliberately do not.
-bool liveActivityEligible(String? type) =>
-    isRunType(type) || isWalkType(type) || type == 'treadmill';
+bool liveActivityEligible(String? type) => isRunType(type) || isWalkType(type);
 
 class LiveActivity {
   static const MethodChannel _ch = MethodChannel('openstrap/live_activity');

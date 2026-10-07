@@ -1160,6 +1160,7 @@ class NotificationSettingsView extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (!kPersonalSideload)
                         SetRow(LucideIcons.chartNoAxesCombined,C.teal,'Fortnightly training review',
                           sub:'An optional local finding from comparable runs or walks. Silent without enough evidence.',
                           value:prefs.trainingReviewEnabled ? on : off,chevron:false,

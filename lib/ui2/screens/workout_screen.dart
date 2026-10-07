@@ -46,7 +46,9 @@ import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import 'home_screen.dart' show calendarDaysBetween, pad, pullToRefresh;
+import 'food_picker.dart' show SwipeDelete;
 import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
+import '../../data/local_repository.dart' show LocalRepository;
 import 'log_workout.dart';
 import 'training_review.dart';
 
@@ -120,7 +122,16 @@ class _SessionDestinationState extends State<SessionDestination> {
           at,
           clock.activeDuration(stop),
           private: row?['private'] == 1,
-          calories: (row?['calories'] as num?)?.round(),
+          calories: isRunType(activity.typeKey) || isWalkType(activity.typeKey)
+              ? (row?['calories'] as num?)?.round()
+              : otherWorkoutActiveKcal(
+                  p: Profile.fromMap(app.user),
+                  minutes: clock.activeDuration(stop).inSeconds / 60,
+                  meanHr: (row?['avg_hr'] as num?)?.toDouble(),
+                  met: activity.met == null
+                      ? null
+                      : conservativeMet(activity.typeKey, activity.met!),
+                )?.round(),
           steps: (row?['steps'] as num?)?.round(),
         ),
       );
@@ -155,6 +166,9 @@ class WorkoutScreen extends StatefulWidget {
 
 class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   Future<_WorkoutData>? _load;
+
+  /// The one Recent row open in place, if any.
+  String? _openId;
 
   /// The day under the finger on the 7-day strain bars, and the week under it
   /// on distance per week. Null until a finger lands.
@@ -274,14 +288,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     void start(Activity a) =>
         _push(c, ActivitySetup(a, weightKg: d.weightKg, host: _host(d)));
     return [
-      detailLinkRow(
-        c,
-        LucideIcons.chartNoAxesCombined,
-        'Training review',
-        'Compare the last two fortnights using measured sessions',
-        () => _push(c, const TrainingReviewScreen()),
-      ),
-      const SizedBox(height: S.x3),
+      // The fortnight review is hidden in the personal build (Akshat, build
+      // 78): his runs are occasional, so it was mostly an empty screen. Its
+      // computation and the sessions it reads are unchanged.
+      if (!kPersonalSideload) ...[
+        detailLinkRow(
+          c,
+          LucideIcons.chartNoAxesCombined,
+          'Training review',
+          'Compare the last two fortnights using measured sessions',
+          () => _push(c, const TrainingReviewScreen()),
+        ),
+        const SizedBox(height: S.x3),
+      ],
       Row(
         children: [
           Expanded(
@@ -340,30 +359,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               )
             : Column(
                 children: [
-                  for (final w in d.workouts) ...[
-                    _HistoryRow(
-                      w,
-                      weightKg: d.weightKg,
-                      onDelete: w.id.isEmpty
-                          ? null
-                          : () => _confirmDeleteWorkout(c, w),
-                      // A retime re-scores the new window, so it is offered
-                      // only for a session this band measured.
-                      onRetime: w.importedFrom == null && w.id.isNotEmpty
-                          ? () => _push(
-                              c,
-                              LogWorkout(
-                                sessionId: w.id,
-                                start: w.start,
-                                end: w.start.add(w.duration),
-                                activity: w.activity,
-                                title: loc?.workoutFixTimes ?? 'Fix the times',
-                              ),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: S.x3),
+                  // The last five as one-line rows; a tap opens one in place.
+                  // Everything older lives on the history page, so this
+                  // section never grows with the month.
+                  for (final w in d.workouts.take(5)) ...[
+                    _sessionRow(c, d, w),
+                    const SizedBox(height: S.x2),
                   ],
+                  const SizedBox(height: S.x1),
+                  detailLinkRow(
+                    c,
+                    LucideIcons.history,
+                    'All workouts',
+                    'Every session, by month',
+                    () => _push(c, WorkoutHistoryScreen(weightKg: d.weightKg)),
+                  ),
                 ],
               ),
         action: 'Add a past one',
@@ -371,6 +381,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       ),
     ];
   }
+
+  /// One collapsible session row: swipe either way to delete, tap to open.
+  Widget _sessionRow(BuildContext c, _WorkoutData d, _PastWorkout w) =>
+      historyRow(
+        c,
+        w,
+        weightKg: d.weightKg,
+        expanded: _openId == _rowKey(w),
+        onToggle: () => setState(
+          () => _openId = _openId == _rowKey(w) ? null : _rowKey(w),
+        ),
+        onChanged: reload,
+      );
 
   /// Running, across every recorded run: weekly distance for eight weeks,
   /// predicted 5K and 10K times, and the best time at each distance. Updates
@@ -620,33 +643,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// (manual, or the hourly auto path) would bring the very row the user just
   /// removed straight back. A copy in Apple Health / Health Connect itself is
   /// out of our reach by design and the confirm says so.
-  Future<void> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
-    final loc = AppLocalizations.of(c);
-    final ok = await confirmRemove(
-      c,
-      title:
-          loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
-          'Delete this ${w.activity.name.toLowerCase()}?',
-      body: w.importedFrom == null
-          ? (loc?.workoutDeleteBodyOwn(storeName) ??
-                'It disappears from $kAppName. A copy in $storeName, if there is '
-                    'one, stays where it is.')
-          : (loc?.workoutDeleteBodyImported(storeName) ??
-                'It disappears from $kAppName and will not be re-imported. '
-                    'The original in $storeName stays.'),
-    );
-    if (!ok || !mounted) return;
-    forgetRun(w.id);
-    if (w.importedFrom != null && w.id.isNotEmpty) {
-      await rememberDeletedUuid(w.id);
-      await LocalDb.deleteImportedWorkout(w.id);
-    } else {
-      await LocalDb.deleteSession(w.id);
-    }
-    if (!mounted) return;
-    reload();
-  }
-
   /// Bring in what another app recorded. On History because that is the list
   /// it joins — it used to live three taps deep under More settings, next to a
   /// database export, which is not where anybody looks for their Sunday run.
@@ -884,7 +880,19 @@ class _HistoryRow extends StatelessWidget {
   /// Remove this session locally. Null hides the control (no id to delete).
   final VoidCallback? onDelete;
 
-  const _HistoryRow(this.w, {this.weightKg, this.onRetime, this.onDelete});
+  /// Collapsed rows show one line (name, date, duration, strain); a tap opens
+  /// the full card in place. Null [onToggle] keeps the card always open.
+  final bool expanded;
+  final VoidCallback? onToggle;
+
+  const _HistoryRow(
+    this.w, {
+    this.weightKg,
+    this.onRetime,
+    this.onDelete,
+    this.expanded = true,
+    this.onToggle,
+  });
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
@@ -916,7 +924,11 @@ class _HistoryRow extends StatelessWidget {
       // workout it is. A screen that presents an Apple Watch run exactly like
       // one of ours is the fabrication this whole table exists to avoid, so
       // the row stays a row until that screen can name its source.
-      onTap: w.importedFrom == null ? () => _open(c) : null,
+      onTap: onToggle ?? (w.importedFrom == null ? () => _open(c) : null),
+      semanticLabel: onToggle == null
+          ? null
+          : '${w.importedTitle ?? a.name}, ${w.when(loc)}, '
+                '${expanded ? 'tap to close' : 'tap for details'}',
       child: Column(
         children: [
           Row(
@@ -964,9 +976,12 @@ class _HistoryRow extends StatelessWidget {
                     // and an Apple Watch session are different measurements, and
                     // the name of the thing that took it is the difference.
                     Text(
-                      w.importedFrom == null
-                          ? w.when(loc)
-                          : '${w.importedFrom} · ${w.when(loc)}',
+                      [
+                        if (w.importedFrom != null) w.importedFrom!,
+                        w.when(loc),
+                        if (w.duration.inMinutes > 0)
+                          '${w.duration.inMinutes} min',
+                      ].join(' · '),
                       style: F.over.copyWith(color: p.ink3),
                     ),
                   ],
@@ -989,7 +1004,15 @@ class _HistoryRow extends StatelessWidget {
                   ),
                 ),
               ],
-              if (onDelete != null) ...[
+              if (onToggle != null) ...[
+                const SizedBox(width: S.x2),
+                Icon(
+                  expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 18,
+                  color: p.ink3,
+                ),
+              ],
+              if (onDelete != null && expanded) ...[
                 const SizedBox(width: S.x2),
                 Pressable(
                   semanticLabel:
@@ -1003,7 +1026,7 @@ class _HistoryRow extends StatelessWidget {
               ],
             ],
           ),
-          if (w.zoneMinutes.length == 5) ...[
+          if (expanded && w.zoneMinutes.length == 5) ...[
             const SizedBox(height: S.x4),
             ChartFrame(
               title: loc?.workoutTimeInZonesTitle ?? 'TIME IN ZONES',
@@ -1022,8 +1045,8 @@ class _HistoryRow extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: S.x4),
-          if (pairedCalories) ...[
+          if (expanded) const SizedBox(height: S.x4),
+          if (expanded && pairedCalories) ...[
             CaloriePair(
               budget: w.calories?.toDouble(),
               acsm: w.acsmCalories,
@@ -1033,7 +1056,7 @@ class _HistoryRow extends StatelessWidget {
             ),
             const SizedBox(height: S.x3),
           ],
-          for (var i = 0; i < stats.length; i++) ...[
+          for (var i = 0; expanded && i < stats.length; i++) ...[
             if (i > 0) Divider(color: p.line, height: S.x5),
             PosterStatRow(
               icon: statIcon(stats[i].$1),
@@ -1046,7 +1069,28 @@ class _HistoryRow extends StatelessWidget {
           // The way to correct a window the detector clipped, or one a session
           // started late. Nested inside the card's own tap: the inner Pressable
           // wins, so the row still opens the summary everywhere else.
-          if (onRetime != null) ...[
+          if (expanded && onToggle != null && w.importedFrom == null) ...[
+            Divider(color: p.line, height: S.x5),
+            Pressable(
+              onTap: () => _open(c),
+              semanticLabel: 'Open this session',
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Open session',
+                    style: F.cap.copyWith(
+                      color: p.on(C.blue),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: S.x1),
+                  Icon(LucideIcons.chevronRight, size: 14, color: p.on(C.blue)),
+                ],
+              ),
+            ),
+          ],
+          if (expanded && onRetime != null) ...[
             Divider(color: p.line, height: S.x5),
             Pressable(
               onTap: onRetime,
@@ -1083,9 +1127,9 @@ class _HistoryRow extends StatelessWidget {
   List<(String, String, String?)> _stats(BuildContext c) {
     final loc = AppLocalizations.of(c);
     final timeLabel = loc?.workoutTimeStatLabel ?? 'Time';
-    final caloriesLabel =
-        w.importedFrom == null &&
-            (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
+    // Band sessions all show the conservative active estimate now; only an
+    // imported row prints the other app's own figure.
+    final caloriesLabel = w.importedFrom == null
         ? 'Budget · active'
         : loc?.workoutCaloriesStatLabel ?? 'Calories';
     return w.importedFrom != null
@@ -1296,7 +1340,11 @@ Future<bool> _startSession(AppState app, Activity a) async {
     dayLabelOf(DateTime.now()),
     Profile.fromMap(app.user),
   );
-  app.startWorkout(type: a.typeKey, calculationProfile: profile);
+  app.startWorkout(
+    type: a.typeKey,
+    calculationProfile: profile,
+    met: a.met,
+  );
   return app.activeWorkout != null;
 }
 
@@ -1957,38 +2005,18 @@ class _WorkoutData {
   const _WorkoutData.empty() : this();
 }
 
-/// One pass over the repo. Every call is defensive: this screen must render on
-/// a device that has never synced, and a throw in any one of them must not
-/// take the whole tab down.
-Future<_WorkoutData> _loadWorkoutData(AppState app) async {
-  final repo = app.repo;
-  if (repo == null) throw StateError('Training repository unavailable');
-
-  double? weight;
-  try {
-    weight = (await repo.getProfile())['weight_kg'] as double?;
-  } catch (_) {
-    weight = null;
-  }
-
-  // One slot per calendar day for the last seven, ending today. A day that
-  // derived nothing is a hole, not a shifted neighbour: taking the last
-  // seven STORED points stamped `M T W T F S S` on whatever was there, and
-  // `metric_series` only gains a row on a day that derives — so after a sync
-  // gap the letters named days the data did not come from, and the bar drawn
-  // as "today" could be a week old.
+/// Band sessions and imported workouts for [range] ('month' on Train, 'all'
+/// on the history page), newest first.
+Future<List<_PastWorkout>> _pastWorkouts(
+  AppState app,
+  LocalRepository repo,
+  String range,
+) async {
   final now = DateTime.now();
   final end = DateTime(now.year, now.month, now.day);
-  var strain7 = List<double?>.filled(7, null);
-  try {
-    strain7 = lastSevenDays((await repo.getChart('strain'))['points'], end);
-  } catch (_) {
-    strain7 = List<double?>.filled(7, null);
-  }
-
   final past = <_PastWorkout>[];
   try {
-    final rows = (await repo.getWorkouts(range: 'month'))['workouts'];
+    final rows = (await repo.getWorkouts(range: range))['workouts'];
     if (rows is List) {
       for (final r in rows) {
         if (r is! Map) continue;
@@ -2033,9 +2061,20 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
                 ? Motion.tick * 60 * ((r['duration_min'] as num?)?.toInt() ?? 0)
                 : Motion.tick * measured.clock.activeSeconds(),
             strain: (r['strain'] as num?)?.toDouble(),
+            // Every band session shows active (net) energy by a conservative
+            // method: distance/steps for runs and walks, otherwise the lower
+            // of net heart-rate and net activity energy. Recomputed here so
+            // sessions saved before build 78 (gross HR) read the same way.
             calories: (isRunType(a.typeKey) || isWalkType(a.typeKey))
                 ? measured?.method1(a.typeKey)?.round()
-                : (r['calories'] as num?)?.round(),
+                : otherWorkoutActiveKcal(
+                    p: Profile.fromMap(app.user),
+                    minutes: ((r['duration_min'] as num?)?.toDouble() ?? 0),
+                    meanHr: (r['avg_hr'] as num?)?.toDouble(),
+                    met: a.met == null
+                        ? null
+                        : conservativeMet(a.typeKey, a.met!),
+                  )?.round(),
             acsmCalories: measured?.acsm(a.typeKey),
             // The session's mean over its own HR stream, computed by the repo
             // — not the last sample anybody happened to see.
@@ -2058,7 +2097,9 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
   // most history worth carrying, but showing three months of imports beside
   // one month of sessions would read as a band that stopped measuring.
   try {
-    final since = end.subtract(Motion.tick * 86400 * 31);
+    final since = range == 'all'
+        ? DateTime.fromMillisecondsSinceEpoch(0)
+        : end.subtract(Motion.tick * 86400 * 31);
     for (final r in await LocalDb.importedWorkouts(limit: 200)) {
       final ts = (r['start_ts'] as num?)?.toInt();
       final endTs = (r['end_ts'] as num?)?.toInt();
@@ -2103,6 +2144,40 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     // Nothing imported is the normal state, and an unreadable table must not
     // take the band's own history down with it.
   }
+  past.sort((a, b) => b.start.compareTo(a.start));
+  return past;
+}
+
+/// One pass over the repo. Every call is defensive: this screen must render on
+/// a device that has never synced, and a throw in any one of them must not
+/// take the whole tab down.
+Future<_WorkoutData> _loadWorkoutData(AppState app) async {
+  final repo = app.repo;
+  if (repo == null) throw StateError('Training repository unavailable');
+
+  double? weight;
+  try {
+    weight = (await repo.getProfile())['weight_kg'] as double?;
+  } catch (_) {
+    weight = null;
+  }
+
+  // One slot per calendar day for the last seven, ending today. A day that
+  // derived nothing is a hole, not a shifted neighbour: taking the last
+  // seven STORED points stamped `M T W T F S S` on whatever was there, and
+  // `metric_series` only gains a row on a day that derives — so after a sync
+  // gap the letters named days the data did not come from, and the bar drawn
+  // as "today" could be a week old.
+  final now = DateTime.now();
+  final end = DateTime(now.year, now.month, now.day);
+  var strain7 = List<double?>.filled(7, null);
+  try {
+    strain7 = lastSevenDays((await repo.getChart('strain'))['points'], end);
+  } catch (_) {
+    strain7 = List<double?>.filled(7, null);
+  }
+
+  final past = await _pastWorkouts(app, repo, 'month');
 
   past.sort((a, b) => b.start.compareTo(a.start));
 
@@ -2172,4 +2247,240 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     suggestions: await activeSuggestions(),
     importedLast: await lastImportAt(HealthImport.workouts),
   );
+}
+
+
+/// Confirm, then delete [w]. Returns whether it was deleted. An imported
+/// row's health-store uuid goes onto the tombstone list first, or the next
+/// import would bring the removed row straight back. A copy in Apple Health /
+/// Health Connect itself is out of reach by design and the confirm says so.
+Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
+  final loc = AppLocalizations.of(c);
+  final ok = await confirmRemove(
+    c,
+    title:
+        loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
+        'Delete this ${w.activity.name.toLowerCase()}?',
+    body: w.importedFrom == null
+        ? (loc?.workoutDeleteBodyOwn(storeName) ??
+              'It disappears from $kAppName. A copy in $storeName, if there is '
+                  'one, stays where it is.')
+        : (loc?.workoutDeleteBodyImported(storeName) ??
+              'It disappears from $kAppName and will not be re-imported. '
+                  'The original in $storeName stays.'),
+  );
+  if (!ok) return false;
+  forgetRun(w.id);
+  if (w.importedFrom != null && w.id.isNotEmpty) {
+    await rememberDeletedUuid(w.id);
+    await LocalDb.deleteImportedWorkout(w.id);
+  } else {
+    await LocalDb.deleteSession(w.id);
+  }
+  return true;
+}
+
+String _rowKey(_PastWorkout w) =>
+    '${w.importedFrom ?? ''}:${w.id}:${w.start.millisecondsSinceEpoch}';
+
+/// A session row as Train and the history page show it: collapsed to one
+/// line, opened in place, deleted with a swipe either way (confirmed), and
+/// retimed from inside the open card.
+Widget historyRow(
+  BuildContext c,
+  _PastWorkout w, {
+  double? weightKg,
+  required bool expanded,
+  required VoidCallback onToggle,
+  required VoidCallback onChanged,
+}) {
+  final loc = AppLocalizations.of(c);
+  final row = _HistoryRow(
+    w,
+    weightKg: weightKg,
+    expanded: expanded,
+    onToggle: onToggle,
+    onDelete: w.id.isEmpty
+        ? null
+        : () async {
+            await _confirmDeleteWorkout(c, w);
+            onChanged();
+          },
+    onRetime: w.importedFrom == null && w.id.isNotEmpty
+        ? () async {
+            await Navigator.of(c).push(
+              MaterialPageRoute<void>(
+                builder: (_) => LogWorkout(
+                  sessionId: w.id,
+                  start: w.start,
+                  end: w.start.add(w.duration),
+                  activity: w.activity,
+                  title: loc?.workoutFixTimes ?? 'Fix the times',
+                ),
+              ),
+            );
+            onChanged();
+          }
+        : null,
+  );
+  if (w.id.isEmpty) return KeyedSubtree(key: ValueKey(_rowKey(w)), child: row);
+  return SwipeDelete(
+    key: ValueKey(_rowKey(w)),
+    onDelete: () async {
+      await _confirmDeleteWorkout(c, w);
+      onChanged();
+    },
+    child: row,
+  );
+}
+
+/// Every session, grouped by calendar month: this month open, older months
+/// folded to one line each ("September · 14 sessions · 9 h 20 min").
+class WorkoutHistoryScreen extends StatefulWidget {
+  const WorkoutHistoryScreen({super.key, this.weightKg});
+  final double? weightKg;
+
+  @override
+  State<WorkoutHistoryScreen> createState() => _WorkoutHistoryScreenState();
+}
+
+class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
+    with RevisionReload {
+  List<_PastWorkout>? _all;
+  bool _failed = false;
+  final _openMonths = <String>{};
+  String? _openId;
+
+  @override
+  void initState() {
+    super.initState();
+    final n = DateTime.now();
+    _openMonths.add('${n.year}-${n.month}');
+    WidgetsBinding.instance.addPostFrameCallback((_) => _read());
+  }
+
+  @override
+  void reload() => _read();
+
+  Future<void> _read() async {
+    final app = context.read<AppState>();
+    final repo = app.repo;
+    if (repo == null) return;
+    final t = beginRead(#workoutHistory);
+    try {
+      final all = await _pastWorkouts(app, repo, 'all');
+      if (stillNewest(#workoutHistory, t)) {
+        setState(() => (_all = all, _failed = false));
+      }
+    } catch (_) {
+      if (stillNewest(#workoutHistory, t)) setState(() => _failed = true);
+    }
+  }
+
+  static const _months = [
+    'January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December',
+  ];
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final all = _all;
+    final byMonth = <String, List<_PastWorkout>>{};
+    for (final w in all ?? const <_PastWorkout>[]) {
+      (byMonth['${w.start.year}-${w.start.month}'] ??= []).add(w);
+    }
+    return detailScaffold(c, 'All workouts', [
+      if (_failed)
+        StatusCard(
+          'Workouts could not load',
+          'Your saved sessions are intact.',
+          fix: 'Retry',
+          onFix: _read,
+        )
+      else if (all == null)
+        const Center(child: CircularProgressIndicator())
+      else if (all.isEmpty)
+        const StatusCard(
+          'No sessions recorded yet',
+          'Start one from Train.',
+          icon: LucideIcons.dumbbell,
+        )
+      else
+        for (final e in byMonth.entries) ...[
+          const SizedBox(height: S.x3),
+          Pressable(
+            onTap: () => setState(
+              () => _openMonths.contains(e.key)
+                  ? _openMonths.remove(e.key)
+                  : _openMonths.add(e.key),
+            ),
+            semanticLabel: _monthLine(e.key, e.value),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _monthName(e.key),
+                        style: F.body.copyWith(
+                          color: p.ink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        _monthLine(e.key, e.value),
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  _openMonths.contains(e.key)
+                      ? LucideIcons.chevronUp
+                      : LucideIcons.chevronDown,
+                  size: 18,
+                  color: p.ink3,
+                ),
+              ],
+            ),
+          ),
+          if (_openMonths.contains(e.key))
+            for (final w in e.value) ...[
+              const SizedBox(height: S.x2),
+              historyRow(
+                c,
+                w,
+                weightKg: widget.weightKg,
+                expanded: _openId == _rowKey(w),
+                onToggle: () => setState(
+                  () => _openId = _openId == _rowKey(w) ? null : _rowKey(w),
+                ),
+                onChanged: _read,
+              ),
+            ],
+        ],
+      const SizedBox(height: S.x5),
+    ]);
+  }
+
+  String _monthName(String key) {
+    final parts = key.split('-');
+    final y = int.parse(parts[0]), m = int.parse(parts[1]);
+    return y == DateTime.now().year ? _months[m - 1] : '${_months[m - 1]} $y';
+  }
+
+  /// "14 sessions · 9 h 20 min · 4 runs".
+  String _monthLine(String key, List<_PastWorkout> ws) {
+    final mins = ws.fold<int>(0, (a, w) => a + w.duration.inMinutes);
+    final runs = ws.where((w) => isRunType(w.activity.typeKey)).length;
+    final walks = ws.where((w) => isWalkType(w.activity.typeKey)).length;
+    return [
+      '${ws.length} session${ws.length == 1 ? '' : 's'}',
+      mins >= 60 ? '${mins ~/ 60} h ${mins % 60} min' : '$mins min',
+      if (runs > 0) '$runs run${runs == 1 ? '' : 's'}',
+      if (walks > 0) '$walks walk${walks == 1 ? '' : 's'}',
+    ].join(' · ');
+  }
 }

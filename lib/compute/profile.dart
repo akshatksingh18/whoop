@@ -227,6 +227,53 @@ double? runFloorKcal({
   return (kcal: kcal, measured: measured, slots: slots);
 }
 
+/// The MET a non-walking, non-running workout is priced at: the catalogue
+/// value, except strength work, which the 2024 Adult Compendium puts at 3.5
+/// for a typical multi-exercise session (5.0 for heavy squats/deadlifts) —
+/// the catalogue's 6.0 is its vigorous bodybuilding figure.
+double conservativeMet(String type, double catalogueMet) =>
+    switch (type.toLowerCase()) {
+      'weight_training' || 'bodyweight' || 'functional' => 3.5,
+      'calisthenics' => 3.8,
+      'powerlifting' => 5.0,
+      _ => catalogueMet,
+    };
+
+/// Active (net) kcal for a workout that is neither walking nor running — the
+/// counterpart of the step and distance methods: energy above resting only,
+/// and the LOWER of two estimates.
+///
+/// - Heart rate: Keytel minus resting (BMR ÷ 1,440) at the session's mean HR
+///   for its active minutes. Keytel is linear in HR, so the mean gives the same
+///   total; it is known to overestimate, worst in resistance and interval work.
+/// - Activity: (MET − 1) × kg × hours, from [met] (see [conservativeMet]).
+///
+/// Either alone when the other is unavailable; null with neither. Non-step
+/// workouts stay out of maintenance (Akshat's decision); this is the number a
+/// session shows.
+double? otherWorkoutActiveKcal({
+  required Profile p,
+  required double minutes,
+  double? meanHr,
+  double? met,
+}) {
+  if (!minutes.isFinite || minutes <= 0) return null;
+  final w = p.weightKg;
+  final byMet = met == null || w == null || !met.isFinite
+      ? null
+      : math.max(0.0, met - 1) * w * minutes / 60;
+  final byHr = meanHr == null || !meanHr.isFinite || meanHr <= 0
+      ? null
+      : keytelActiveKcal(
+          List<double?>.filled(minutes.ceil(), meanHr),
+          minutes,
+          p,
+        )?.kcal;
+  if (byMet == null) return byHr;
+  if (byHr == null) return byMet;
+  return math.min(byMet, byHr);
+}
+
 /// A day's conservative maintenance budget:
 /// BMR + step calories + running (Method 1) + 10% of the food logged that day
 /// (the thermic effect of food).

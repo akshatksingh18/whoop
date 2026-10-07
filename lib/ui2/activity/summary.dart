@@ -730,7 +730,7 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   final ownCard =
       isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey);
   add(
-    'Calories',
+    'Active calories',
     r.calories == null || ownCard ? null : '${grouped(r.calories!)} kcal',
   );
   add('Strain', r.strain?.toStringAsFixed(1));

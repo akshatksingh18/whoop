@@ -43,7 +43,9 @@ it was not phone-accepted. His first-use report (no Live Activity, Trends day/ra
 Food workflow, day-breakdown noise, calorie verification) is audited in `build-75-audit.md`,
 which also holds his decisions D1–D8 and the implemented list. Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass.
 Akshat reports build 75 installed and sent food-flow follow-ups. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
-Akshat reports build 76 installed and sent follow-ups. Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
+Akshat reports build 77 installed; build `0.9.45`/`78` (two-unit portions, one-press drag,
+Training review hidden, compact Train history, conservative workout calories) is implemented
+locally. Akshat reports build 76 installed and sent follow-ups. Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
 The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.44-build77-2602cacf`, not installed yet;
 `todo.md` owns the gates. `setup.md` owns
 artifact evidence. The replacement includes direct My foods scanning and shared editable meal-scan

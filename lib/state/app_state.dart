@@ -1914,7 +1914,10 @@ class AppState extends ChangeNotifier {
     _reviewBusy = true;
     try {
       final prefs = await NotificationPrefs.load();
-      if (!prefs.trainingReviewEnabled ||
+      // Hidden in the personal build (Akshat, build 78): no review screen,
+      // so no review notification either, whatever an old preference says.
+      if (kPersonalSideload ||
+          !prefs.trainingReviewEnabled ||
           prefs.inQuietHours(now.hour * 60 + now.minute))
         return;
       final delivered = DateTime.tryParse(
@@ -5737,7 +5740,18 @@ class AppState extends ChangeNotifier {
   int? get workoutActiveKcal {
     final w = activeWorkout;
     if (w == null) return null;
-    if (!isRunType(w.type) && !isWalkType(w.type)) return w.caloriesOrNull;
+    if (!isRunType(w.type) && !isWalkType(w.type)) {
+      // Conservative net estimate, as the step and distance methods are: the
+      // lower of net heart-rate and net activity energy (build 78).
+      final mins =
+          (WorkoutClock.current?.activeSeconds() ?? w.elapsed.inSeconds) / 60;
+      return otherWorkoutActiveKcal(
+        p: w.profile,
+        minutes: mins,
+        meanHr: w.meanHr,
+        met: w.met == null ? null : conservativeMet(w.type, w.met!),
+      )?.round();
+    }
     final points = _routeTracker?.acceptedPoints;
     final mix = points != null && points.length > 1
         ? runMix(points)
@@ -5966,6 +5980,7 @@ class AppState extends ChangeNotifier {
     String? workoutId,
     String type = 'other',
     Profile? calculationProfile,
+    double? met,
   }) {
     if (activeWorkout != null) return;
     final start = DateTime.now();
@@ -6042,6 +6057,7 @@ class AppState extends ChangeNotifier {
         restingHrHistory: _rhr28,
       ),
       restingHr: _liveRestingHr,
+      met: met,
     );
     // Persist the live session (INSERT OR REPLACE — idempotent if repo already
     // inserted this id). Final stats are written on stop.
@@ -6855,6 +6871,20 @@ class LiveWorkoutState {
   /// absent also beats a confident zero.
   int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
 
+  /// The activity's catalogue MET, when the session was started from the
+  /// picker; null for a resumed or gesture-started session (heart rate only).
+  final double? met;
+
+  /// Mean heart rate over the seconds billed so far, or null before any.
+  double? get meanHr {
+    var secs = 0.0, sum = 0.0;
+    _secondsByBpm.forEach((bpm, s) {
+      secs += s;
+      sum += bpm * s;
+    });
+    return secs <= 0 ? _lastSampleHr?.toDouble() : sum / secs;
+  }
+
   /// Re-cost the bout so far. The only writer of [calories].
   ///
   /// Uses the SAME published rates, coefficients and activity gate as
@@ -7093,6 +7123,7 @@ class LiveWorkoutState {
     this.hrMax,
     this.zoneSet,
     this.restingHr,
+    this.met,
   }) : _hrPeak = RollingMaxHr(age: age),
        idleWatch = WorkoutIdleWatch(startedAt: startTime);
 

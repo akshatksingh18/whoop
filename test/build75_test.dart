@@ -10,6 +10,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/live/live_activity.dart';
+import 'package:openstrap_edge/compute/profile.dart';
+import 'package:openstrap_edge/gps/run_history.dart' show isRunType;
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
 import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
@@ -431,6 +433,135 @@ void main() {
       expect(find.text('kcal / 2,202'), findsOneWidget);
       expect(find.text('727'), findsOneWidget);
       expect(find.text('left'), findsOneWidget);
+    });
+  });
+
+  group('build 78', () {
+    final sausage = {
+      'key': 'my:sausage',
+      'label': 'Chicken sausage',
+      'serving_g': 71.0,
+      'unit': 'g',
+      'kcal_100': 110 * 100 / 71,
+      'measures_json': encodeMeasures([(label: 'Link', amount: 71)]),
+    };
+    final perLink = {
+      'key': 'my:link',
+      'label': 'Sausage per link',
+      'serving_g': 1.0,
+      'unit': 'link',
+      'kcal_100': 110 * 100.0,
+      'measures_json': encodeMeasures([(label: 'g', amount: 1 / 71)]),
+    };
+
+    test('a food converts both ways between its units', () {
+      expect(foodUnitNames(sausage), ['g', 'Link']);
+      expect(toBase(sausage, 3, 'link'), 213, reason: 'case-insensitive');
+      expect(toBase(perLink, 142, 'g'), closeTo(2, 1e-9));
+      expect(toBase(sausage, 1, 'cup'), isNull);
+      expect(portionWithWeight(3, 'Link', sausage), '3 Links · 213 g');
+      expect(portionWithWeight(2, 'link', perLink), '2 links · 142 g');
+      expect(portionWithWeight(150, 'g', sausage), '150 g');
+      final e = entryFromFood(
+        sausage,
+        toBase(sausage, 3, 'Link')!,
+        id: 'x',
+        date: '2026-10-06',
+        meal: 'breakfast',
+        amount: 3,
+        unit: 'Link',
+      );
+      expect(e.quantity, 3);
+      expect(e.unit, 'Link');
+      expect(e.kcal, closeTo(330, 1e-9));
+    });
+
+    testWidgets('switching unit converts the amount and scales the same', (
+      t,
+    ) async {
+      final unit = ValueNotifier<String>('g');
+      final amount = TextEditingController(text: '142');
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: Scaffold(
+            body: AmountInput(controller: amount, def: sausage, unit: unit),
+          ),
+        ),
+      );
+      expect(find.text('142 g = 2 Links'), findsOneWidget);
+      await t.tap(find.text('Link'));
+      await t.pump();
+      expect(unit.value, 'Link');
+      expect(amount.text, '2');
+      await t.tap(find.bySemanticsLabel('More'));
+      await t.pump();
+      expect(amount.text, '3', reason: 'one link per tap');
+      expect(find.text('3 Links = 213 g'), findsOneWidget);
+    });
+
+    test('other workouts take the lower of net HR and net activity', () {
+      const p = Profile(ageYears: 23, weightKg: 80.5, heightCm: 186.69, sex: 'm');
+      // 24 min of weight training at mean HR 130: MET net (3.5 − 1).
+      final byMet = 2.5 * 80.5 * 24 / 60;
+      final kcal = otherWorkoutActiveKcal(
+        p: p,
+        minutes: 24,
+        meanHr: 130,
+        met: conservativeMet('weight_training', 6.0),
+      )!;
+      expect(conservativeMet('weight_training', 6.0), 3.5);
+      expect(kcal, lessThanOrEqualTo(byMet + 1e-9));
+      expect(
+        otherWorkoutActiveKcal(p: p, minutes: 24, met: 3.5),
+        closeTo(byMet, 1e-9),
+      );
+      expect(otherWorkoutActiveKcal(p: p, minutes: 0, met: 5), isNull);
+      expect(otherWorkoutActiveKcal(p: const Profile(), minutes: 20), isNull);
+    });
+
+    test('treadmill and track work are running', () {
+      for (final t in ['treadmill', 'track_intervals', 'sprinting', 'running']) {
+        expect(isRunType(t), isTrue, reason: t);
+      }
+      expect(isRunType('weight_training'), isFalse);
+      expect(liveActivityEligible('treadmill'), isTrue);
+    });
+
+    testWidgets('one long-press drags into the hidden No sub-heading', (
+      t,
+    ) async {
+      List<(String, String)>? got;
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.dark),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: GroupedDragList<String>(
+                items: const ['a', 'b'],
+                groupOf: (i) => 'Oatmeal',
+                headerBuilder: (c, g, _) =>
+                    SizedBox(height: 30, child: Text('H:$g')),
+                itemBuilder: (c, i) =>
+                    SizedBox(key: ValueKey(i), height: 50, child: Text(i)),
+                onChanged: (x) => got = x,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('H:'), findsNothing);
+      final g = await t.startGesture(t.getCenter(find.text('a')));
+      await t.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await t.pump();
+      expect(find.text('H:'), findsOneWidget, reason: 'shown on the same hold');
+      await g.moveBy(const Offset(0, 140));
+      await t.pump(const Duration(milliseconds: 300));
+      await g.up();
+      await t.pumpAndSettle();
+      expect(got, isNotNull, reason: 'the first hold dragged');
+      expect({for (final (grp, i) in got!) i: grp}['a'], '');
+      expect(find.text('H:'), findsNothing, reason: 'hidden again after');
     });
   });
 

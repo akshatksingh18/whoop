@@ -23,7 +23,21 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 80: one serving line in the food editor, published and built, awaiting installation
+## Build 81: implemented locally (Akshat's go-ahead)
+
+Akshat installed build 80 and asked for a Quick add weight field, a review of the recovery score
+(5 h 30 min still scored 88), sleep detection counting a cinema visit, and an end-to-end audit.
+`build-81-audit.md` owns the findings, research, his decisions and the implemented list
+("Implemented in 0.9.48/81"). Sleep detection is unchanged by his decision. The Live Activity is
+removed: Sideloadly's free signing never provisions the extension (`bugs.md`).
+Phone checks: Quick add shows all macros and a Weight (g) field; a weighed entry reads "· 250 g";
+"Save to My foods" adds the food and links the entry; Readiness shows a filled ring and a Sleep
+row in "What drove it", and a short night lowers the score; Sleep → Against your usual shows
+Bedtime consistency after a week of nights; Recovery/HRV/resting HR/Sleep show "What moves it"
+once a pattern has five mornings each side; on Monday the week card reads "Last week"; Status has
+no Live Activity row and no black pill appears during a walk.
+
+## Build 80: one serving line in the food editor, published, built and installed (Akshat)
 
 Akshat installed build 79, reported the serving row misaligned ("Serving amount" wrapping) and
 decided to remove the Other units section. Source `0.9.47`/`80` (`build-75-audit.md`, "Build 80")
@@ -32,7 +46,7 @@ their serving line. Phone checks: Edit food shows one level serving row and no O
 chicken bites food reads 6 · pieces · 85.2 (edit to 85 if wanted); a per-gram food saved with a
 unit (e.g. the sausage, if stored per gram) opens as 1 · Link · 71 and still logs in g and links.
 Build-80 source `0.9.47`/`80` (commit `6dd75b2b`) is published with Akshat's approval; Linux CI `37565878253` (3,386 tests, 371 intentional skips) and personal macOS build `37565879521` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Tests before pushing ran on the affected food files only (127 tests); CI ran the full
-suite. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`; the first build-80
+suite. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`, installed; the first build-80
 run (`fbea4bb6`, alignment only) was cancelled before it produced an IPA.
 
 ## Build 79: published, built and installed (Akshat)

@@ -286,7 +286,10 @@ String _humanLabel(String l) {
 }
 
 /// Catalog-priority default weights (HRV > RHR > RR > temp). Helper for callers.
-const double wHrv = 0.40;
-const double wRhr = 0.30;
-const double wResp = 0.18;
-const double wTemp = 0.12;
+// Same weights as the headline `readinessComposite` (kAlgoVersion 91), so the
+// "% of the score" a breakdown row shows is the share the score really used.
+const double wHrv = 0.35;
+const double wRhr = 0.25;
+const double wSleep = 0.20;
+const double wResp = 0.12;
+const double wTemp = 0.08;

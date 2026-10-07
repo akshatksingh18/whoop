@@ -210,9 +210,9 @@ class _ActivitySetupState extends State<ActivitySetup> {
                         Expanded(
                           child: Text(
                             isWalkType(a.typeKey)
-                                ? 'Budget uses counted steps and weight. ACSM uses distance and weight. Both are active energy above resting and are already counted once in maintenance. Heart-rate energy is separate analysis.'
+                                ? 'Budget from steps, ACSM from distance. Both above resting, counted once in maintenance.'
                                 : isRunType(a.typeKey)
-                                ? 'Budget and ACSM use running distance and walking breaks with your weight, using different energy coefficients. Both exclude resting energy already in BMR. Heart-rate energy is separate analysis.'
+                                ? 'Budget and ACSM from distance and walk breaks. Both above resting.'
                                 : a.met == null
                                 ? (l?.activitySetupNoMetEstimate ??
                                       'No estimate up front: no published MET '

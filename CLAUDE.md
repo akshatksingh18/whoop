@@ -45,7 +45,8 @@ which also holds his decisions D1–D8 and the implemented list. Source `0.9.42`
 Akshat reports build 75 installed and sent food-flow follow-ups. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
 Akshat reports build 77 installed. Build-78 source `0.9.45`/`78` (commit `1eae1fbc`) is published with Akshat's approval; Linux CI `37558355571` (3,380 tests, 371 intentional skips) and personal macOS build `37558356341` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 78 adds two-unit portions, one-press drag,
 hidden Training review, compact Train history and conservative workout calories; it was never installed. Build-79 source `0.9.46`/`79` (commit `4b7f5918`) is published with Akshat's approval; Linux CI `37563199102` (3,386 tests, 371 intentional skips) and personal macOS build `37563205812` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 79 adds pack-printed servings ("6 piece · 85 g" without dividing); Akshat reports it installed. Build-80 source `0.9.47`/`80` (commit `6dd75b2b`) is published with Akshat's approval; Linux CI `37565878253` (3,386 tests, 371 intentional skips) and personal macOS build `37565879521` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 80 aligns the food editor's serving row and removes its Other units section. Akshat reports build 76 installed and sent follow-ups. Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
-The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.47-build80-6dd75b2b`, not installed yet;
+Akshat reports build 80 installed; its follow-up requests (Quick add weight, recovery inputs, sleep detection, full-app review) are audited in `build-81-audit.md`. Build-81 source `0.9.48`/`81` (algorithm 91) implements his decisions: Quick add weight/all macros/Save to My foods, sleep as a fifth readiness input, the Readiness ring fix, What-moves-it from logged data, bedtime consistency, the Monday last-week card, shorter text and removal of the never-working Live Activity extension; sleep detection is unchanged.
+The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.47-build80-6dd75b2b`, installed;
 `todo.md` owns the gates. `setup.md` owns
 artifact evidence. The replacement includes direct My foods scanning and shared editable meal-scan
 review, manual fallback and confirmation before persistence/logging. CI passes at test-only repair
@@ -91,7 +92,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 80,
-awaiting installation, the complete phone pass and current-version enrollment.
+installed, awaiting the complete phone pass and current-version enrollment.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -187,6 +188,10 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Files
 - `todo.md` — build-74 release/device gates, build-73 phone checks and remaining lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
+- `build-81-audit.md` — installed-build-80 audit: Quick add weight, recovery-score inputs (no sleep
+  input today) with WHOOP/Oura/Garmin research, sleep-detection false positives (unused HR
+  baseline, block joining), deep-sleep confidence, whole-app bugs/visual/wiring review and
+  feature proposals, Akshat's decisions and the implemented build-81 list; read before changing build 81.
 - `build-75-audit.md` — installed-build-74 findings: Live Activity scope/diagnostics, Trends
   range/day navigation and links, bar-to-line charts, tab re-tap, Food ordering/serving/saved-meal
   workflow, day-breakdown noise and calorie verification; Akshat's decisions D1–D8 and the
@@ -491,12 +496,12 @@ The personal artifact must have these properties:
   source target for a possible future fully source-signed build, but do not package it for free
   re-signing: its companion bundle-ID cross-reference is not safely rewritten by generic
   sideloaders.
-- Build 74 permits exactly one workout-only ActivityKit extension, version-matched to Runner,
-  with bundle ID `com.akshat.personal.whoop.activity` before re-signing and empty entitlements.
-  Retain `NSSupportsLiveActivities` and the exact-session URL bridge. Compile out general home,
-  sleep, battery and breathing widgets and all App Group bridges/entitlements. Native compilation,
-  Sideloadly extension signing, overwrite and automatic-refresh enrollment must pass; accepted
-  build 70 remains recovery until phone acceptance. Do not widen this allowance to other plugins.
+- No app extensions (from build 81). Builds 74–80 shipped one workout Live Activity extension,
+  but Sideloadly's free signing provisions only the app's own App ID, so iOS killed the extension at launch on a code-signing check (CODESIGNING "Invalid Page") and it never drew; `build-81-audit.md` holds the evidence. The personal IPA embeds no extension, `NSSupportsLiveActivities` is
+  forbidden, the Dart side requests no activity and Status shows no Live Activity row. The source
+  extension stays for the full upstream-capable build. Compile out general home, sleep, battery
+  and breathing widgets and all App Group bridges/entitlements. Reopening any extension needs an
+  installer that provisions its App ID.
 - Remove HealthKit entitlements and hide/compile out Apple Health reads and writes in the initial
   personal flavor. Preserve manual profile entry and all band-derived metrics. HealthKit may be
   reintroduced only as a separate, later capability experiment after the exact free Personal Team
@@ -508,8 +513,8 @@ The personal artifact must have these properties:
   do not invent entitlements for them.
 - Package a conventional `Payload/Runner.app` IPA with no signing credentials, provisioning
   profile, personal health data, database, BLE capture, API key, injected dylib, or installer
-  metadata. Inspect the payload before release and fail if `Watch/`, any extension other than
-  the single contract-checked workout ActivityKit extension, unexpected entitlements or secrets remain.
+  metadata. Inspect the payload before release and fail if `Watch/`, any app extension,
+  unexpected entitlements or secrets remain.
 
 ### Bundle identity, upgrades, and data continuity
 

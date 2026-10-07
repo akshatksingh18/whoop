@@ -530,8 +530,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           Text(
             measured == null
                 ? (coverage.days == 0
-                      ? 'Log morning weight and complete food days. At least 14 days and 8 weigh-ins are needed.'
-                      : '${coverage.complete}/${coverage.days} aligned food days complete. At least 14 days and 8 weigh-ins are needed.')
+                      ? 'Needs 14 days of full food logs and 8 morning weigh-ins.'
+                      : '${coverage.complete}/${coverage.days} full food days · needs 14 days and 8 weigh-ins.')
                 : 'Estimated maintenance from food and weight: about ${thousands(measured.kcal)} kcal · '
                       '${measured.kgPerWeek <= 0 ? 'losing' : 'gaining'} '
                       '${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week '
@@ -1698,14 +1698,12 @@ Widget _maintenanceContents(
           CaloriePair(
             budget: m.total,
             acsm: u.acsmParts?.total,
-            note:
-                'Two estimates, not a guaranteed lower/upper range. ${u.distanceSource}.',
+            note: u.distanceSource,
           ),
           if (u.acsmParts case final a?) ...[
             const SizedBox(height: S.x3),
             Text(
-              'ACSM movement: walking ${thousands(a.steps)} kcal · running ${thousands(a.run)} kcal. '
-              'Resting and food are identical in both columns.',
+              'ACSM movement: walking ${thousands(a.steps)} · running ${thousands(a.run)} kcal',
               style: F.cap.copyWith(color: p.ink2),
             ),
           ],
@@ -1735,12 +1733,9 @@ Widget _maintenanceContents(
           ],
           const SizedBox(height: S.x5),
           Text(
-            'Conservative estimate: a whole day’s BMR, plus movement and '
-            'food logged so far. Active calories are energy above resting; '
-            'resting calories are already included in BMR. Walking workouts '
-            'are included through steps. HR estimates and other workouts are '
-            'not added. Estimates have individual uncertainty.'
-            '${u.overlapUnknown ? " Run-step overlap is unavailable, so movement uses the larger estimate without adding both." : ""}',
+            'Resting all day, plus movement and food logged so far. Lifting '
+            'and heart-rate estimates are not added.'
+            '${u.overlapUnknown ? " Run-step overlap unknown: the larger movement figure is used." : ""}',
             style: F.cap.copyWith(color: p.ink3, height: 1.4),
           ),
         ],

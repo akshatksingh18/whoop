@@ -778,6 +778,7 @@ const driverLabels = {
   'rhr': 'Resting heart rate',
   'resp': 'Breathing rate',
   'temp': 'Skin temperature',
+  'sleep': 'Sleep',
 };
 
 /// A pipeline key the map does not cover is HUMANISED, never printed raw. The
@@ -790,6 +791,7 @@ String driverLabel(Object? key, [AppLocalizations? l]) {
     'rhr' => l?.homeDriverRhr ?? driverLabels['rhr'],
     'resp' => l?.homeDriverResp ?? driverLabels['resp'],
     'temp' => l?.homeDriverTemp ?? driverLabels['temp'],
+    'sleep' => driverLabels['sleep'],
     _ => null,
   };
   if (known != null) return known;
@@ -864,7 +866,7 @@ class RingTrio extends StatelessWidget {
                   strain,
                   sub: strain.measured && aim is num
                       ? ((d.strain.value ?? 0) >= aim
-                            ? 'Today\'s target ${aim.toStringAsFixed(1)} met'
+                            ? 'Target ${aim.toStringAsFixed(1)} · reached'
                             : 'Aim for about ${aim.round()} today')
                       : null,
                   onTap: _open(HomeRingKind.strain),

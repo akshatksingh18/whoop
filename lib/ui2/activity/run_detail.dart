@@ -573,8 +573,7 @@ class RunCaloriesCard extends StatelessWidget {
                   : null,
             ),
             note:
-                '${isRun ? "Budget uses distance and walk breaks" : "Budget uses counted steps"}$kgText. '
-                'ACSM uses distance. Both exclude resting energy.',
+                'Above resting · Budget from ${isRun ? "distance and walk breaks" : "counted steps"}$kgText, ACSM from distance',
           ),
           if (hr != null)
             ExpansionTile(

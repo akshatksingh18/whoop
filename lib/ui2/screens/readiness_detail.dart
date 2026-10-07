@@ -572,7 +572,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
   Widget _absence(BuildContext c, P p, Map<String, dynamic> diag) {
     final l = AppLocalizations.of(c);
     final rows = <(String, String)>[];
-    for (final k in const ['hrv', 'rhr', 'resp', 'temp']) {
+    for (final k in const ['hrv', 'rhr', 'sleep', 'resp', 'temp']) {
       final e = diag[k];
       if (e is! Map) continue;
       final n = (e['baseline_n'] as num?)?.toInt() ?? 0;
@@ -629,7 +629,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {
     final rows = d.breakdown;
     // THE WEIGHT THAT WAS USED, not the catalog weight. The score is
-    // `wpsum / wsum` over the USABLE inputs only, so the raw .40/.30/.18/.12
+    // `wpsum / wsum` over the USABLE inputs only, so the raw .35/.25/.20/.12/.08
     // are what each input would have carried had everything been present — with
     // skin temperature missing, HRV's 40% actually carried 45.5%.
     final wsum = rows
@@ -675,6 +675,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       'rhr' => 'resting_hr',
       'resp' => 'resp_rate',
       'temp' => 'skin_temp',
+      'sleep' => 'sleep',
       _ => null,
     };
     return Pressable(

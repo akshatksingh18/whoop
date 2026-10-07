@@ -137,7 +137,7 @@ Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
 | Illness watch, past findings | card when amber/red | "Noticed" section | resting HR chart, findings log |
 | Naps | — | — | Sleep → Naps section on a day with one; Naps screen to edit |
 | Workouts, GPS | — | — | Train: Run / Walk / Lift / Other, run-or-walk streak, draggable 7-day strain (tap opens that day), running trends (draggable weekly distance, predicted 5K/10K, best 1K/5K/10K/half), recent sessions; a run opens the run screen (Apple Maps route, calories by distance and by heart rate, best efforts, verdict, splits, linked pace/HR/elevation charts, pace zones); a walk opens the same screen without the running-only parts |
-| Food, calories left, macros | — | — | Build-75 source: Maintenance → Calories (opens the whole day) → Macros; meal cards show kcal and P/C/F; one dragged order for My foods and saved meals shared with the log screen (no sort); + opens the portion screen or saved-meal review; − / + amounts; up to two named measures per food; saved meals keep sub-headings; swipe either way deletes. Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, My foods (default) / My meals, sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with optional fibre; decimal servings and heading selection before logging; saved-food/meal deletion directly in the picker |
+| Food, calories left, macros | — | — | Build-75 source: Maintenance → Calories (opens the whole day) → Macros; meal cards show kcal and P/C/F; one dragged order for My foods and saved meals shared with the log screen (no sort); + opens the portion screen or saved-meal review; − / + amounts; up to two named measures per food; saved meals keep sub-headings; swipe either way deletes. Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, My foods (default) / My meals, sort, direct Scan and product review, food detail with % of goals and "often eaten with", named quick add with every macro on the sheet, an optional reference weight (g) and a "Save to My foods" pill (build-81 source); decimal servings and heading selection before logging; saved-food/meal deletion directly in the picker |
 | Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, estimated maintenance from food and weight), completed-day weekly deficit, trailing 31-day maintenance-vs-eaten chart with range caption, lazy calendar-month accordions (current open, older closed), logged-day rows that open for editing |
 
 Build-75 source: Trends opens on 7 days, with the same Today / 7 days / 30 days / 3 months
@@ -152,6 +152,19 @@ Build 73's Step calories detail still defaults to 7 days and lacks a direct dail
 Steps' dated action appears only after chart selection. These remaining navigation gaps, static
 breathing history and shared readout/time limits are implemented in build 74;
 `build-74-audit.md` and `todo.md` own the validation limits.
+
+**Readiness inputs (build-81 source, algorithm 91):** HRV 35%, resting HR 25%, last night's
+total sleep 20%, breathing 12%, skin temperature 8%, each a robust z against your own trailing
+nights (14 needed per input). Sleep's shortfall counts in full; a longer night than usual adds at
+most one deviation. The "What drove it" breakdown uses the same weights and shows a Sleep row.
+Scores stored before algorithm 91 keep the four-input formula.
+
+**What moves it (build-81 source, personal build):** Recovery, HRV, resting HR and Sleep metric
+screens show patterns from logged data (`lib/data/recovery_movers.dart`): the morning after eating
+after 22:00, over the calorie goal, hitting the protein goal, a workout after 19:00, strain 14+,
+10,000+ steps, and nights asleep after 01:00. A pattern needs five mornings with and five without;
+days where a tag cannot be known (no food logged) count on neither side. The journal source it
+replaced is no longer collected.
 
 **Readiness:** history is a line (build-75 source; coloured bars before), opened from Trends
 through the shared metric screen with the same ranges; its inputs open their own metric.
@@ -216,8 +229,9 @@ form (training load), next-morning session cost, and the beat-by-beat night data
    (against the night's average, °C) show in two wrapping header rows. Deep uses the same violet in
    Stages. A compact wake-up/stretch summary stays visible; full caveats are under Night details.
 3. **Stages:** Deep, REM, Light (minutes and % of sleep, summing to total sleep) and Awake.
-4. **Against your usual:** your last 28 nights for time asleep, deep sleep, % asleep while in bed,
-   and when you fell asleep.
+4. **Against your usual:** your last 28 nights for time asleep, deep sleep, % asleep while in bed
+   and when you fell asleep, plus (build-81 source) **Bedtime consistency**: the spread of your
+   last 14 bedtimes as ±minutes, Steady (≤30) / Varies (≤60) / Irregular, from seven nights.
 5. **Unusual:** one card only when something stood out, e.g. sleeping heart rate high or a rough
    night naming which measurements moved.
 6. **Overnight signals:** one row each with a small line: heart rate (average and lowest), HRV,

@@ -18,6 +18,7 @@ import '../../compute/profile.dart' show Profile, stepCalories, acsmActiveKcal;
 import '../../gps/run_history.dart' show loadRuns;
 import '../activity/day_strain.dart';
 import '../../data/day_label.dart';
+import '../../data/recovery_movers.dart' show kMoverOutcomes, loadRecoveryMovers;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -373,6 +374,7 @@ const _outcomeOf = {
   'resting_hr': 'rhr',
   'readiness': 'readiness',
   'efficiency': 'efficiency',
+  'sleep': 'tst_min',
 };
 
 // ═══════════════════ the screen ═══════════════════
@@ -457,12 +459,23 @@ class MetricData {
       final all = cd['percentiles'];
       final one = all is Map ? all[outcome] : null;
       pct = envValue(one);
-      final j = await repo.getJournalInsights(range: '90d');
-      final ins = j['insights'];
-      movers = [
-        for (final e in (ins is List ? ins : const []))
-          if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
-      ];
+      if (kPersonalSideload) {
+        // The personal build keeps no journal: patterns come from meals,
+        // workouts, strain, steps and bedtime it already logs (build 81).
+        movers = kMoverOutcomes.containsKey(outcome)
+            ? await loadRecoveryMovers(
+                outcome,
+                profile: await repo.getProfile(),
+              )
+            : const [];
+      } else {
+        final j = await repo.getJournalInsights(range: '90d');
+        final ins = j['insights'];
+        movers = [
+          for (final e in (ins is List ? ins : const []))
+            if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
+        ];
+      }
     }
     return MetricData(
       acsmSeries: models?.acsm ?? const [],

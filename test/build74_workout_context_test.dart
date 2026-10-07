@@ -102,7 +102,7 @@ void main() {
         expect(find.text('Waiting for movement'), findsOneWidget);
         expect(
           find.textContaining('Cadence does not change your calorie estimate.'),
-          findsOneWidget,
+          findsNothing, // build 81: the explanation paragraph is gone
         );
         expect(t.takeException(), isNull);
         await t.pumpWidget(const SizedBox.shrink());

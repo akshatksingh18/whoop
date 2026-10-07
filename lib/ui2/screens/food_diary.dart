@@ -2068,6 +2068,16 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   late final _c = TextEditingController(text: _t(widget.from?.carbsG));
   late final _f = TextEditingController(text: _t(widget.from?.fatG));
   late final _fibre = TextEditingController(text: _t(widget.from?.fibreG));
+
+  /// What the portion weighed, for reference: stored as the entry's amount in
+  /// grams ("Protein shake · 250 g"). It never scales the numbers typed here.
+  late final _grams = TextEditingController(
+    text: widget.from?.unit == 'g' ? _t(widget.from?.quantity) : '',
+  );
+
+  /// Also keep it as a food in My foods, its serving being this weight (or one
+  /// serving without one), so next time it logs from the list.
+  bool _saveFood = false;
   bool _saving = false;
   String? _error;
   late String _meal = widget.meal;
@@ -2084,7 +2094,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
 
   @override
   void dispose() {
-    for (final t in [_name, _kcal, _p, _c, _f, _fibre]) {
+    for (final t in [_name, _kcal, _p, _c, _f, _fibre, _grams]) {
       t.dispose();
     }
     super.dispose();
@@ -2098,6 +2108,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       'Carbs': _c,
       'Fat': _f,
       'Fibre': _fibre,
+      'Weight': _grams,
     };
     final bad = [
       for (final e in fields.entries)
@@ -2112,6 +2123,16 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     final kcal = Typed.of(_kcal.text).value;
     if (kcal == null) {
       setState(() => _error = 'Enter calories. Other macros can stay blank.');
+      return;
+    }
+    final grams = Typed.of(_grams.text).value;
+    if (grams != null && grams <= 0) {
+      setState(() => _error = 'Enter a weight above zero, or leave it blank.');
+      return;
+    }
+    final name = _name.text.trim();
+    if (_saveFood && name.isEmpty) {
+      setState(() => _error = 'Name it to save it to My foods.');
       return;
     }
     setState(() {
@@ -2129,13 +2150,30 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         previousTime.hour == _time.hour &&
         previousTime.minute == _time.minute;
     try {
+      final db = await LocalDb.instance;
+      String? savedKey;
+      if (_saveFood) {
+        final def = myFoodDef(
+          key: 'my:${DateTime.now().microsecondsSinceEpoch}',
+          label: name,
+          refGrams: grams ?? 1,
+          unit: grams == null ? 'serving' : 'g',
+          kcal: kcal,
+          protein: Typed.of(_p.text).value,
+          carbs: Typed.of(_c.text).value,
+          fat: Typed.of(_f.text).value,
+          fibre: Typed.of(_fibre.text).value,
+        );
+        await NutritionDb.putFoodDef(db, def);
+        savedKey = def['key'] as String;
+      }
       await NutritionDb.put(
-        await LocalDb.instance,
+        db,
         FoodEntry(
           id: original?.id ?? NutritionDb.newId(),
           date: widget.date,
           meal: _meal,
-          label: _name.text.trim().isEmpty ? 'Quick add' : _name.text.trim(),
+          label: name.isEmpty ? 'Quick add' : name,
           atTs: keepTime
               ? original!.atTs
               : DateTime(
@@ -2151,9 +2189,13 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           carbsG: Typed.of(_c.text).value,
           fatG: Typed.of(_f.text).value,
           fibreG: Typed.of(_fibre.text).value,
-          foodKey: original?.foodKey,
-          quantity: original?.quantity,
-          unit: original?.unit ?? 'g',
+          foodKey: savedKey ?? original?.foodKey,
+          quantity: grams ?? (savedKey != null ? 1 : null),
+          unit: grams != null
+              ? 'g'
+              : savedKey != null
+              ? 'serving'
+              : original?.unit ?? 'g',
           sugarG: original?.sugarG,
           satFatG: original?.satFatG,
           sodiumMg: original?.sodiumMg,
@@ -2180,6 +2222,14 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     const num = TextInputType.numberWithOptions(decimal: true);
+    Widget pair(Widget a, Widget b) => Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(child: a),
+        const SizedBox(width: S.x2),
+        Expanded(child: b),
+      ],
+    );
     return _body(c, [
       _sheetTitle(c, widget.editing ? 'Edit entry' : 'Quick add'),
       const SizedBox(height: S.x4),
@@ -2224,32 +2274,45 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         onChanged: (g) => setState(() => _group = g),
       ),
       const SizedBox(height: S.x3),
-      OsTextField(controller: _kcal, label: 'Calories (kcal)', keyboard: num),
-      const SizedBox(height: S.x3),
-      OsTextField(controller: _p, label: 'Protein (g)', keyboard: num),
-      const SizedBox(height: S.x3),
-      ExpansionTile(
-        tilePadding: EdgeInsets.zero,
-        shape: const Border(),
-        collapsedShape: const Border(),
-        initiallyExpanded: [_c, _f, _fibre].any((t) => t.text.isNotEmpty),
-        title: Text(
-          'Other macros (optional)',
-          style: F.body.copyWith(color: p.ink2),
+      pair(
+        OsTextField(controller: _kcal, label: 'Calories (kcal)', keyboard: num),
+        OsTextField(
+          controller: _grams,
+          label: 'Weight (g)',
+          hint: 'Optional',
+          keyboard: num,
         ),
-        children: [
-          OsTextField(controller: _c, label: 'Carbs (g)', keyboard: num),
-          const SizedBox(height: S.x3),
-          OsTextField(controller: _f, label: 'Fat (g)', keyboard: num),
-          const SizedBox(height: S.x3),
-          OsTextField(controller: _fibre, label: 'Fibre (g)', keyboard: num),
-          const SizedBox(height: S.x3),
-        ],
       ),
+      const SizedBox(height: S.x3),
+      pair(
+        OsTextField(controller: _p, label: 'Protein (g)', keyboard: num),
+        OsTextField(controller: _c, label: 'Carbs (g)', keyboard: num),
+      ),
+      const SizedBox(height: S.x3),
+      pair(
+        OsTextField(controller: _f, label: 'Fat (g)', keyboard: num),
+        OsTextField(controller: _fibre, label: 'Fibre (g)', keyboard: num),
+      ),
+      const SizedBox(height: S.x2),
       Text(
         'Blank macros are not tracked. Enter 0 for a known zero.',
         style: F.over.copyWith(color: p.ink3),
       ),
+      if (!widget.editing) ...[
+        const SizedBox(height: S.x3),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Pressable(
+            semanticLabel: 'Save to My foods',
+            onTap: () => setState(() => _saveFood = !_saveFood),
+            child: Pill(
+              'Save to My foods',
+              _saveFood ? C.domFood : C.n400,
+              icon: _saveFood ? LucideIcons.check : LucideIcons.plus,
+            ),
+          ),
+        ),
+      ],
       if (_error != null) ...[
         const SizedBox(height: S.x3),
         Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),

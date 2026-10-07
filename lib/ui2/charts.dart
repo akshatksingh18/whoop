@@ -637,7 +637,10 @@ class Ring extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round
-        ..color = solid ? color : const Color(0x00000000)
+        // Opaque either way: with a shader the paint's colour still sets its
+        // alpha, and the transparent colour this used to pass erased the whole
+        // faded arc (the Readiness ring drew only its track).
+        ..color = color
         ..shader = solid
             ? null
             : SweepGradient(

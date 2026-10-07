@@ -1454,6 +1454,45 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           dfmt: (v) => hm(v),
         ),
       );
+      // Bedtime consistency (build 81): how far your bedtimes spread across
+      // the last fortnight, tonight included. A spread, not a verdict on a
+      // single night, so it needs a week of nights before it says anything.
+      final recent = [
+        0.0,
+        ...rel.skip(math.max(0, rel.length - (kBedtimeNights - 1))),
+      ];
+      final spread = bedtimeSpreadMin(recent);
+      if (spread != null) {
+        rows.add(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bedtime consistency',
+                      style: F.body.copyWith(color: p.ink),
+                    ),
+                    Text(
+                      '${bedtimeWord(spread)} · last ${recent.length} nights',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '±${hm(spread)}',
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
     }
 
     final have = [
@@ -1501,6 +1540,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   }
 
   /// Signed minutes from [ref] to [t], as times of day, wrapped to ±12 h.
+  /// (Used by the timing rows and the bedtime spread above.)
   static double _relMinutes(int t, int ref) {
     final a = DateTime.fromMillisecondsSinceEpoch(t * 1000);
     final b = DateTime.fromMillisecondsSinceEpoch(ref * 1000);
@@ -1989,3 +2029,24 @@ class _Strip extends StatelessWidget {
     );
   }
 }
+
+/// Nights the bedtime-consistency row looks back over.
+const int kBedtimeNights = 14;
+
+/// Standard deviation of bedtimes, in minutes, from signed minutes relative to
+/// one night (wrapped across midnight). Null under seven nights.
+double? bedtimeSpreadMin(List<double> relMinutes) {
+  if (relMinutes.length < 7) return null;
+  final mean = relMinutes.reduce((a, b) => a + b) / relMinutes.length;
+  final v =
+      relMinutes.fold<double>(0, (a, x) => a + (x - mean) * (x - mean)) /
+      relMinutes.length;
+  return math.sqrt(v);
+}
+
+/// Plain words for a bedtime spread: within half an hour is steady.
+String bedtimeWord(double spreadMin) => spreadMin <= 30
+    ? 'Steady'
+    : spreadMin <= 60
+    ? 'Varies'
+    : 'Irregular';

@@ -62,6 +62,7 @@ Map<String, dynamic> buildCrossDayBundle(
   final rmssdList = <double?>[for (final d in days) _numOrNull(d['rmssd'])];
   final readyList = <double?>[for (final d in days) _numOrNull(d['readiness'])];
   final respList = <double?>[for (final d in days) _numOrNull(d['resp_rate'])];
+  final tstList = <double?>[for (final d in days) _numOrNull(d['tst_min'])];
   final tempList = <double?>[
     for (final d in days) _numOrNull(d['skin_temp_z']),
   ];
@@ -184,6 +185,8 @@ Map<String, dynamic> buildCrossDayBundle(
   if (gbRmssd != null) gbInputs.add(gbRmssd);
   final gbRhr = _glassInput('rhr', rhrList, ana.wRhr, lowerIsBetter: true);
   if (gbRhr != null) gbInputs.add(gbRhr);
+  final gbSleep = _glassInput('sleep', tstList, ana.wSleep, lowerIsBetter: false);
+  if (gbSleep != null) gbInputs.add(gbSleep);
   final gbResp = _glassInput('resp', respList, ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
   // temp: use absolute z so "further from your baseline" is worse.

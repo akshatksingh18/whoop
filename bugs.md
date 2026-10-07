@@ -227,6 +227,19 @@ portable; POSIX timezone-switching tests remain explicitly skipped on Windows. R
 close ZIP inputs even when validation fails and count movement-floor age by calendar dates across
 DST. Algorithm 88 permits recomputation. The personal capability profile is unchanged.
 
+## Workout Live Activity never drew (builds 74–80): resolved by removal in build 81
+
+Symptom: the Status sample and real walks reported "Started"/"Updated", but the lock screen showed
+nothing and the Dynamic Island an empty black pill (iPhone 17, iOS 26.6.2, all switches on).
+Evidence: the extension's crash reports (`OpenStrapWidgetExtension-2026-10-07-*.ips`, 0.9.47/80)
+show it killed at launch before running any code, `EXC_BAD_ACCESS (SIGKILL)`, namespace
+CODESIGNING, indicator "Invalid Page", signed as `com.akshat.personal.whoop.5564K8D4SV.activity`.
+The Sideloadly 0.70.1 install log provisions only one App ID ("Using app ID "WHOOP"") in both
+bundle-ID modes, so the extension ran under the app's profile. The shipped extension itself was
+correct (matching attribute types, widgetkit point, version 80). Build 81 removes the extension
+from the personal IPA and stops requesting activities. A future Live Activity needs an installer
+that provisions extension App IDs.
+
 ## Other known environment quirks (not app bugs)
 - Vivo/OriginOS aggressively kills background apps — battery optimization must be "No
   restrictions" for `edge`, app locked in recent-apps view, or background sync gets killed outright.

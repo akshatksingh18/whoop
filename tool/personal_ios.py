@@ -32,8 +32,13 @@ APP_NAME = "WHOOP"
 BUNDLE_ID = "com.akshat.personal.whoop"
 
 _REMOVE_ONCE = (
-    # Runner target: do not build or embed extension companions.
+    # Runner target: do not build or embed extension companions. The workout
+    # Live Activity extension is excluded again from build 81: Sideloadly's free
+    # signing provisions only the app's App ID, so iOS killed the extension at
+    # launch (CODESIGNING "Invalid Page") and the activity never drew.
+    '\t\t\t\t5348974F2FDC19C90033A4D9 /* Embed Foundation Extensions */,\n',
     '\t\t\t\tFADE0002FADE0002FADE0002 /* Embed Watch Content */,\n',
+    '\t\t\t\t5348974D2FDC19C90033A4D9 /* PBXTargetDependency */,\n',
     '\t\t\t\tFADE0004FADE0004FADE0004 /* PBXTargetDependency */,\n',
     # Personal build has no Firebase resource generator or symbol uploader.
     '\t\t\t\t47E3AF2498550A854A4821B6 /* Ensure GoogleService-Info.plist */,\n',
@@ -64,7 +69,9 @@ _FORBIDDEN_INFO_KEYS = {
     # conditions; NSLocationWhenInUseUsageDescription is no longer forbidden - see the required
     # keys below and route_math.dart/route_tracker.dart for what actually uses it.
     "NSLocationAlwaysAndWhenInUseUsageDescription",
+    "NSSupportsLiveActivities",
     "OpenStrapAppGroupIdentifier",
+    "OpenStrapWorkoutLiveActivity",
 }
 
 
@@ -220,8 +227,6 @@ def personal_info(source: dict[str, object]) -> dict[str, object]:
     out["CFBundleDisplayName"] = APP_NAME
     out["CFBundleName"] = APP_NAME
     out["OpenStrapPersonalSideload"] = True
-    out["OpenStrapWorkoutLiveActivity"] = True
-    out["NSSupportsLiveActivities"] = True
     out["FlutterDeepLinkingEnabled"] = False
     out["CFBundleURLTypes"] = [{"CFBundleURLName": BUNDLE_ID, "CFBundleURLSchemes": ["whoop"]}]
     # "location" added alongside the existing bluetooth-central mode: this plus While-In-Use
@@ -297,30 +302,12 @@ def validate_ipa(path: Path) -> dict[str, object]:
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         _, info = _ipa_info(archive)
-        has_activity = info.get("OpenStrapWorkoutLiveActivity") is True
-        activity_root = "Payload/Runner.app/PlugIns/OpenStrapWidgetExtension.appex/"
-        if has_activity:
-            extension_path = activity_root + "Info.plist"
-            if extension_path not in names: raise ContractError("workout activity extension is missing")
-            extension = plistlib.loads(archive.read(extension_path))
-            if extension.get("CFBundleIdentifier") != BUNDLE_ID + ".activity":
-                raise ContractError("workout activity bundle id differs from app")
-            for key in ("CFBundleVersion", "CFBundleShortVersionString"):
-                if extension.get(key) != info.get(key): raise ContractError("workout activity version differs from app")
-            if extension.get("NSExtension", {}).get("NSExtensionPointIdentifier") != "com.apple.widgetkit-extension":
-                raise ContractError("unexpected workout activity extension point")
-            executable = extension.get("CFBundleExecutable")
-            if not isinstance(executable, str) or not executable or "/" in executable or activity_root + executable not in names:
-                raise ContractError("workout activity executable is missing")
-            if "OpenStrapAppGroupIdentifier" in extension: raise ContractError("personal activity must not require an App Group")
-            if info.get("NSSupportsLiveActivities") is not True: raise ContractError("Live Activity support is missing")
         forbidden_paths = [
             name
             for name in names
             if "/watch/" in name.lower()
-            or (".appex/" in name.lower() and not (has_activity and name.startswith(activity_root)))
-            or ("/plugins/" in name.lower() and not (has_activity and (
-                name == "Payload/Runner.app/PlugIns/" or name.startswith(activity_root))))
+            or ".appex/" in name.lower()
+            or "/plugins/" in name.lower()
             or name.lower().endswith("embedded.mobileprovision")
             or name.lower().endswith("googleService-info.plist".lower())
             or name.lower().endswith((".db", ".sqlite", ".jsonl", ".env"))
@@ -356,7 +343,7 @@ def write_manifest(ipa: Path, output: Path, source_revision: str) -> None:
             "healthDataContribution": False,
             "watch": False,
             "widgets": False,
-            "liveActivities": info.get("OpenStrapWorkoutLiveActivity") is True,
+            "liveActivities": False,
         },
     }
     output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

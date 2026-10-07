@@ -1243,8 +1243,7 @@ class LiveMeasured extends StatelessWidget {
                 budget: f.calories?.toDouble(),
                 acsm: f.acsmCalories?.toDouble(),
                 note:
-                    '${isWalkType(a.typeKey) ? "Budget uses steps" : "Budget uses distance"}; ACSM uses distance. '
-                    'Both exclude resting energy already in BMR.',
+                    'Above resting · Budget from ${isWalkType(a.typeKey) ? "steps" : "distance"}, ACSM from distance',
               ),
             ],
             if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
@@ -1261,9 +1260,7 @@ class LiveMeasured extends StatelessWidget {
                       style: F.t2.copyWith(color: p.ink),
                     ),
                     Text(
-                      '${f.cadenceSource ?? "Phone first, wrist fallback"}. '
-                      'Steps each minute; compare your own similar sessions. '
-                      'Cadence does not change your calorie estimate.',
+                      f.cadenceSource ?? 'Phone first, wrist fallback',
                       style: F.cap.copyWith(color: p.ink3),
                     ),
                   ],

@@ -638,8 +638,8 @@ void main() {
       await t.tap(find.text('Edit'));
       await t.pumpAndSettle();
       await t.enterText(_field('Calories (kcal)'), '600');
-      await t.tap(find.text('Other macros (optional)'));
-      await t.pumpAndSettle();
+      // Every macro is on the sheet; no dropdown to open first.
+      expect(find.text('Other macros (optional)'), findsNothing);
       await t.ensureVisible(_field('Fibre (g)'));
       await t.enterText(_field('Fibre (g)'), '4.5');
       await t.enterText(_field('Fat (g)'), '0');

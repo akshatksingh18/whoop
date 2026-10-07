@@ -19,8 +19,8 @@ Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\WHOOP-0.9.47-build80-6dd75b2b` holds the single candidate (build 79 is installed but
-superseded). `../setup.md` owns the
+`testing\WHOOP-0.9.47-build80-6dd75b2b` holds the single candidate (installed; not yet
+phone-accepted). `../setup.md` owns the
 artifact, hash and workflow records.
 
 The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →
@@ -60,8 +60,9 @@ Before following installation steps, the candidate IPA must pass the personal-bu
 
 - phone `Runner`, local BLE/database/analytics, local notifications, `bluetooth-central`, and
   CoreBluetooth restoration retained;
-- Watch companion and general/home/breathing widgets excluded; build 74 allows exactly one
-  version-matched workout Live Activity extension with empty entitlements;
+- Watch companion, general/home/breathing widgets and every app extension excluded; the
+  workout Live Activity (builds 74–80) was dropped in build 81 because Sideloadly's free signing
+  provisions only the app's App ID and iOS refused to launch the extension;
 - App Group and HealthKit entitlements absent in the initial personal flavor;
 - health-data contribution and required telemetry/backend/OTA behavior off;
 - conventional `Payload/Runner.app` release/AOT artifact with no injected libraries, JIT,
@@ -124,8 +125,8 @@ For migration from an existing Android installation, preserve this order:
 3. Use the selected Apple Account and enroll the app for automatic refresh. Keep credentials/2FA
    out of Git, scripts, task arguments, and plaintext logs.
 4. Complete the iOS developer trust flow if prompted, then launch from the Home Screen. Confirm the
-   installed bundle identity/profile expiry; HealthKit/general widgets/Watch stay absent. For build
-   74, test the single Run/Walk Live Activity, exact-session tap and both app/extension refresh.
+   installed bundle identity/profile expiry; HealthKit/general widgets/Watch and app extensions
+   stay absent.
 5. Pair the WHOOP 4.0 with the official WHOOP app fully quit, complete an initial drain, verify local
    metrics/offline launch, and create/restore-test an encrypted export before making this install
    authoritative.
@@ -182,9 +183,9 @@ For migration from an existing Android installation, preserve this order:
 - Background BLE is best-effort under iOS. Preserve CoreBluetooth state restoration and test locked,
   backgrounded, out-of-range/reconnect, ordinary system termination, reboot, and 72-hour soak
   behavior. Manual swipe-to-force-quit may suppress background relaunch until the app is opened.
-- Apple Health, general widgets, App Groups and Watch remain excluded. Build 74 enables only
-  the workout Live Activity; native/payload and real free-profile signing, upgrade and automatic
-  refresh checks must pass before acceptance. Its overlay grants no extra background execution.
+- Apple Health, general widgets, App Groups, Watch and app extensions remain excluded. A
+  Sideloadly install log shows one App ID ("Using app ID "WHOOP"") in both bundle-ID modes: free
+  signing does not provision extensions, which is why the build 74–80 Live Activity never drew.
 - Local Anisette avoids dependence on Sideloadly's remote Anisette service, but Apple signing servers
   remain required. Apple can change provisioning/authentication and Sideloadly can require an update.
   Reliability comes from early retries, visible alerts, USB recovery, backups, stable identity, and

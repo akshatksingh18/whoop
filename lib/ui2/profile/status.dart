@@ -35,6 +35,9 @@ class _StatusScreenState extends State<StatusScreen> {
   bool _testing = false;
 
   Future<void> _readLa() async {
+    // The personal build ships no lock-screen extension (see
+    // `liveActivityEligible`), so there is nothing to report or test.
+    if (kPersonalSideload) return;
     final s = await LiveActivity.status();
     if (mounted) setState(() => _la = s);
   }

@@ -58,7 +58,9 @@ class PersonalIosContractTest(unittest.TestCase):
         self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central", "location", "audio"])
         self.assertIn("NSMotionUsageDescription", info)
         self.assertNotIn("NSHealthShareUsageDescription", info)
-        self.assertIs(info["NSSupportsLiveActivities"], True)
+        # Build 81: no lock-screen extension, so no Live Activity support.
+        self.assertNotIn("NSSupportsLiveActivities", info)
+        self.assertNotIn("OpenStrapWorkoutLiveActivity", info)
 
     def test_personal_info_gps_stays_while_in_use_only(self) -> None:
         # The GPS-experiment reopening's one hard constraint: permission stays at While-In-Use,
@@ -88,35 +90,30 @@ class PersonalIosContractTest(unittest.TestCase):
             with self.assertRaises(ContractError):
                 validate_ipa(ipa)
 
-    def test_only_version_matched_workout_activity_is_allowed(self) -> None:
+    def test_even_the_workout_activity_extension_is_refused(self) -> None:
+        # Build 81 dropped it: Sideloadly's free signing never provisions it.
         info = personal_info(plistlib.loads(SOURCE_INFO.read_bytes()))
-        info.update(CFBundleIdentifier=BUNDLE_ID, CFBundleVersion="74", CFBundleShortVersionString="0.9.41")
-        extension = dict(CFBundleIdentifier=BUNDLE_ID + ".activity", CFBundleVersion="74",
-            CFBundleShortVersionString="0.9.41", CFBundleExecutable="Activity",
+        info.update(CFBundleIdentifier=BUNDLE_ID, CFBundleVersion="81", CFBundleShortVersionString="0.9.48")
+        extension = dict(CFBundleIdentifier=BUNDLE_ID + ".activity", CFBundleVersion="81",
+            CFBundleShortVersionString="0.9.48", CFBundleExecutable="Activity",
             NSExtension={"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"})
         with tempfile.TemporaryDirectory() as tmp:
-            def make(ext: dict, extra: str | None = None, binary: bool = True) -> Path:
-                ipa = Path(tmp) / "activity.ipa"
-                with zipfile.ZipFile(ipa, "w") as archive:
-                    # zip -r includes directories, not only the files in them.
-                    archive.writestr("Payload/", b"")
-                    archive.writestr("Payload/Runner.app/", b"")
-                    archive.writestr("Payload/Runner.app/PlugIns/", b"")
-                    archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
-                    root = "Payload/Runner.app/PlugIns/OpenStrapWidgetExtension.appex/"
-                    archive.writestr(root + "Info.plist", plistlib.dumps(ext))
-                    if binary: archive.writestr(root + "Activity", b"fixture executable")
-                    if extra: archive.writestr(extra, b"forbidden")
-                return ipa
-            self.assertEqual(validate_ipa(make(extension))["CFBundleVersion"], "74")
-            for bad in [dict(extension, CFBundleVersion="73"), dict(extension, CFBundleIdentifier=BUNDLE_ID + ".other"),
-                        dict(extension, OpenStrapAppGroupIdentifier="group.shared")]:
-                with self.assertRaises(ContractError): validate_ipa(make(bad))
-            with self.assertRaises(ContractError): validate_ipa(make(extension, binary=False))
-            with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/Other.appex/Info.plist"))
-            with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/Other.appex/"))
-            with self.assertRaises(ContractError): validate_ipa(make(extension, "Payload/Runner.app/PlugIns/unexpected.txt"))
-
+            ipa = Path(tmp) / "activity.ipa"
+            with zipfile.ZipFile(ipa, "w") as archive:
+                archive.writestr("Payload/", b"")
+                archive.writestr("Payload/Runner.app/", b"")
+                archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
+                root = "Payload/Runner.app/PlugIns/OpenStrapWidgetExtension.appex/"
+                archive.writestr(root + "Info.plist", plistlib.dumps(extension))
+                archive.writestr(root + "Activity", b"fixture executable")
+            with self.assertRaises(ContractError):
+                validate_ipa(ipa)
+            plain = Path(tmp) / "plain.ipa"
+            with zipfile.ZipFile(plain, "w") as archive:
+                archive.writestr("Payload/", b"")
+                archive.writestr("Payload/Runner.app/", b"")
+                archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
+            self.assertEqual(validate_ipa(plain)["CFBundleVersion"], "81")
 
 
 if __name__ == "__main__":

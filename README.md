@@ -63,7 +63,7 @@
 > macOS build pass. Build 75 is installed; build `0.9.43`/`76` (`3f8ada60`) adds its food
 > follow-ups (clean edit numbers, ±1 hold-to-repeat steppers, drag between sub-headings, eaten /
 > goal Calories card); build `0.9.44`/`77` (`2602cacf`) adds its polish; build `0.9.45`/`78` (`1eae1fbc`) adds two-unit portions, compact Train history and conservative workout calories; build `0.9.46`/`79` (`4b7f5918`) adds pack-printed servings ("6 piece · 85 g"); build `0.9.47`/`80` (`6dd75b2b`) gives the food editor one aligned serving line. Its CI and macOS build pass; the downloaded IPA is the sole candidate in
-> `final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`. Installation, phone acceptance and
+> `final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`, installed. Phone acceptance and
 > current-version refresh enrollment remain pending. `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
@@ -205,8 +205,9 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 
 The full upstream/source-signed iOS profile also gets a home-screen widget, a lock-screen/Dynamic
 Island Live Activity, and Siri shortcuts. Akshat's initial personal free-sideload profile excludes
-general widgets and App Groups deliberately; build 74 enables only a narrow workout Live Activity,
-subject to native/signing/device validation.
+general widgets, App Groups and (from build 81) every app extension: builds 74–80 carried a
+workout Live Activity, but Sideloadly's free signing never provisions the extension, so iOS
+refused to launch it.
 
 | | | |
 |:--:|:--:|:--:|

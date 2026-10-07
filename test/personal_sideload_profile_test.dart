@@ -37,6 +37,11 @@ void main() {
 
     await LiveActivity.end();
     await BreathingLiveActivity.end();
+    // Build 81: the personal IPA ships no lock-screen extension, so no
+    // workout requests a Live Activity.
+    for (final type in ['running', 'walking', 'treadmill']) {
+      expect(liveActivityEligible(type), isFalse, reason: type);
+    }
   });
 
   test('personal GPS and pairing surfaces match the declared profile', () {

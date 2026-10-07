@@ -418,9 +418,8 @@ intentional skips) and passes; personal macOS build `37565879521` passes. Artifa
 `59ad47d407089f6a4e1d19b937fed0e21388eae274c4a044e2b0e79e6e1a6d37`, matches its checksum and
 manifest (`0.9.47`/`80`); ZIP, payload contract and the single version-matched extension pass. The
 first build-80 run (`fbea4bb6`) was cancelled before producing an IPA.
-It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`, not yet
-installed. Install over build 79 with automatic bundle ID off and final ID
-`com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
+It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`; Akshat reports it
+installed over build 79. Build 70 stays accepted recovery.
 
 The superseded same-number candidate `78461799` was removed from the one-slot testing cache.
 It remains reproducible from native run `37388415503`, with SHA-256

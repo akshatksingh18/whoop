@@ -35,7 +35,7 @@ complete with the same final ID; `IOS_SIDELOAD.md` owns install-stall handling. 
 background/restoration and naturally elapsed signing gates remain in `../CLAUDE.md`.
 
 The accepted model is standalone WHOOP plus the native AkshatOS hub:
-two installed app slots; the workout extension has its own App ID/signing requirement to verify. See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
+two installed app slots; the personal IPA carries no app extension (build 81). See `../../akshatos/hub-plan.md`. Keep WHOOP as this separate Flutter app,
 not an embedded module. Its iPhone-only implementation scope is active, but installed-identity and
 physical-device verification gates remain; no paid membership or capability
 expansion is needed for the chosen packaging. The imported Android target is reference source only
@@ -80,10 +80,10 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   `bluetooth-central`, and CoreBluetooth restoration;
 - preserve the stable restoration identifier, saved band UUID, normal Flutter drain handoff, and
   every commit-before-ACK/resumable-cursor invariant;
-- remove the Watch companion and general/home/breathing widgets; build 74 retains exactly one
-  version-matched Run/Walk ActivityKit extension, empty entitlements and `.activity` bundle suffix;
+- remove the Watch companion, general/home/breathing widgets and (from build 81) the workout
+  Live Activity extension: Sideloadly's free signing provisions only the app's own App ID, so iOS killed the extension at launch on a code-signing check (CODESIGNING "Invalid Page") and it never drew; `build-81-audit.md` holds the evidence;
 - remove App Group and HealthKit entitlements and hide/compile out their UI/bridges together;
-  keep only the workout Live Activity bridge/support key and exact-session URL destination;
+  the personal Info.plist carries no `NSSupportsLiveActivities`;
 - **keep GPS route recording** — reopened on Akshat's explicit decision. `NSLocationWhenInUseUsageDescription`
   and the `location` background mode are present; `NSLocationAlwaysAndWhenInUseUsageDescription`
   stays removed, since `lib/gps/gps_source.dart` deliberately never requests Always. Buildable and
@@ -94,9 +94,8 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   initial profile;
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
   and bundled secrets off; BYOK/network features are manual opt-ins only if offline use is complete;
-- fail packaging if `Watch/`, any extension except the single verified version-matched
-  workout `.activity` extension, unexpected entitlements, signing credentials, personal data,
-  injected dylibs, or secrets remain.
+- fail packaging if `Watch/`, any app extension, unexpected entitlements, signing credentials,
+  personal data, injected dylibs, or secrets remain.
 
 The manual workflow applies and tests these exclusions, then runs:
 
@@ -183,8 +182,8 @@ Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
 targets ship. Runner and Widget/Watch metadata are aligned to `0.9.41+74` in source.
-The personal artifact includes the single workout ActivityKit extension and excludes Watch/general
-widgets. Runner/extension versions and the source manifest change for every new binary;
+The personal artifact carries no app extension (build 81) and excludes Watch/general widgets.
+Runner versions and the source manifest change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.
 
 ## Common failure checks

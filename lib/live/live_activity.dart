@@ -1,10 +1,17 @@
 // Local Run/Walk ActivityKit bridge. Missing platform support is harmless.
 import 'package:flutter/services.dart';
+import '../build_profile.dart';
 import '../gps/run_history.dart';
 
 /// Running and walking sessions (treadmill is running) get a lock-screen
 /// activity. Other workouts deliberately do not.
-bool liveActivityEligible(String? type) => isRunType(type) || isWalkType(type);
+///
+/// Never in the personal build (build 81): Sideloadly's free signing provisions
+/// only the app's own App ID, so iOS kills the extension at launch on a
+/// code-signing check and the activity can never draw. The personal IPA no
+/// longer embeds the extension; nothing is requested.
+bool liveActivityEligible(String? type) =>
+    !kPersonalSideload && (isRunType(type) || isWalkType(type));
 
 class LiveActivity {
   static const MethodChannel _ch = MethodChannel('openstrap/live_activity');

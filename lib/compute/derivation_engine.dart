@@ -1603,7 +1603,13 @@ import 'substrate.dart';
 // 89 -> 90: Budget/ACSM comparisons share dated movement ownership and retained
 // phone distance. Rebuild prior derived/cache identities for the paired model;
 // source measurements and the accepted Budget coefficients remain unchanged.
-const int kAlgoVersion = 90;
+// 90 -> 91: readiness adds last night's total sleep as a fifth input (robust z
+// against your own trailing `tst_min` nights; shortfall in full, surplus capped
+// at +1 z) and re-weights HRV/RHR/sleep/resp/temp to .35/.25/.20/.12/.08 in
+// both the headline composite and the glass-box breakdown (packages/analytics
+// readiness_composite.dart + readiness_glassbox.dart). Retained days re-derive;
+// older stored scores keep the formula they were computed with.
+const int kAlgoVersion = 91;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1847,6 +1853,8 @@ class _BaselineHistoryCache {
     'resp_rate',
     'skin_temp_adc',
     'readiness',
+    // Nightly total sleep (minutes) — the readiness sleep input's baseline.
+    'tst_min',
     // Per-day high quantile of the calibration-invariant dynamic accel
     // amplitude. The 1 Hz activity estimator's floor is anchored on the MEDIAN
     // of this series across trailing days, never on a same-day value: a
@@ -4529,6 +4537,7 @@ class DerivationEngine {
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
     m['skin_temp_adc_history'] = history.valuesBefore('skin_temp_adc', date);
+    m['tst_history'] = history.valuesBefore('tst_min', date);
     // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
     // not a window (see [maxBefore]), and strictly before today so a day is
     // never banded on a ceiling its own session set.

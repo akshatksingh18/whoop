@@ -61,6 +61,11 @@ class ReadinessInput {
   /// from it is quantization noise, not physiology. See the guard in
   /// [readinessComposite].
   final double quantum;
+
+  /// Ceiling on this input's sign-oriented z (null = none). Sleep uses it: a
+  /// short night pulls readiness down in full, but a long one is not rewarded
+  /// beyond one deviation — more sleep than usual is not more recovery.
+  final double? maxOriented;
   const ReadinessInput(
     this.label,
     this.value,
@@ -69,17 +74,26 @@ class ReadinessInput {
     this.weight, {
     this.refusal,
     this.quantum = 0,
+    this.maxOriented,
   });
 }
 
 /// Canonical default inputs (caller supplies values + baselines). Weights encode
-/// the disclosed HRV > RHR > RR > temp ordering.
+/// the disclosed HRV > RHR > sleep > RR > temp ordering (0.35/0.25/0.20/0.12/
+/// 0.08; sleep added at kAlgoVersion 91 — every major tracker scores last
+/// night's sleep, and a 5.5 h night scoring 88 on heart signals alone was the
+/// report that prompted it).
 ReadinessInput hrvInput(double? v, List<double> base) =>
-    ReadinessInput('HRV', v, base, 1, 0.40);
+    ReadinessInput('HRV', v, base, 1, 0.35);
 ReadinessInput rhrInput(double? v, List<double> base) =>
-    ReadinessInput('RHR', v, base, -1, 0.30, quantum: 1); // whole bpm
+    ReadinessInput('RHR', v, base, -1, 0.25, quantum: 1); // whole bpm
 ReadinessInput respInput(double? v, List<double> base) =>
-    ReadinessInput('RR', v, base, -1, 0.20);
+    ReadinessInput('RR', v, base, -1, 0.12);
+
+/// Last night's total sleep (minutes) against your own trailing nights.
+/// Shortfall counts in full; surplus is capped at +1 z ([maxOriented]).
+ReadinessInput sleepInput(double? v, List<double> base) =>
+    ReadinessInput('sleep', v, base, 1, 0.20, maxOriented: 1);
 
 /// The skin-temp driver — GATED ON SETTLEDNESS, and the gate has no safe
 /// default.
@@ -109,18 +123,18 @@ ReadinessInput tempInput(
   double? settledFraction,
   double minSettledFraction = kMinSettledFraction,
 }) {
-  if (v == null) return ReadinessInput('temp', null, base, -1, 0.10);
+  if (v == null) return ReadinessInput('temp', null, base, -1, 0.08);
   if (settledFraction == null) {
-    return ReadinessInput('temp', null, base, -1, 0.10,
+    return ReadinessInput('temp', null, base, -1, 0.08,
         refusal: 'temp: no settled fraction measured for this night — an '
             'ungated nightly mean cannot tell skin from a warming strap');
   }
   if (settledFraction < minSettledFraction) {
-    return ReadinessInput('temp', null, base, -1, 0.10,
+    return ReadinessInput('temp', null, base, -1, 0.08,
         refusal: 'temp: unsettled_skin_temp:settled='
             '${round6(settledFraction)},need=${round6(minSettledFraction)}');
   }
-  return ReadinessInput('temp', v, base, -1, 0.10, quantum: 1); // 1 ADC count
+  return ReadinessInput('temp', v, base, -1, 0.08, quantum: 1); // 1 ADC count
 }
 
 class Readiness {
@@ -227,7 +241,9 @@ Metric<Readiness> readinessComposite(
     }
     final zr = rz ?? z(v, base);
     if (zr == null) continue;
-    final oriented = inp.goodSign * zr; // + = good for readiness
+    var oriented = inp.goodSign * zr; // + = good for readiness
+    final cap = inp.maxOriented;
+    if (cap != null && oriented > cap) oriented = cap;
     used.add(inp.label);
     weightSum += inp.weight;
     weightedZ += inp.weight * oriented;

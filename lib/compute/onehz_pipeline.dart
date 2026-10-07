@@ -174,6 +174,10 @@ class DayBundleInput {
   /// matches today's raw mean (the old z-vs-z series was a unit mismatch bug).
   final List<double> skinTempAdcHistory;
 
+  /// Trailing nightly total sleep (minutes, the `tst_min` series) — the
+  /// readiness sleep input's personal baseline.
+  final List<double> tstHistory;
+
   /// TS-03 — the highest heart rate the band has OBSERVED (held >=15 s with
   /// corroborating motion, `observed_max_hr.dart`) on any day STRICTLY BEFORE
   /// this one, or null when there is none. Not a physiological HRmax: if the
@@ -230,6 +234,7 @@ class DayBundleInput {
     this.respHistory = const [],
     this.rmssdHistory = const [],
     this.skinTempAdcHistory = const [],
+    this.tstHistory = const [],
     this.observedHrCeilingBpm,
     this.dayConfidence = 0,
     this.dayFlags = const [],
@@ -260,6 +265,7 @@ class DayBundleInput {
     'resp_history': respHistory,
     'rmssd_history': rmssdHistory,
     'skin_temp_adc_history': skinTempAdcHistory,
+    'tst_history': tstHistory,
     'observed_hr_ceiling_bpm': observedHrCeilingBpm,
     'day_confidence': dayConfidence,
     'day_flags': dayFlags,
@@ -308,6 +314,7 @@ class DayBundleInput {
       respHistory: dbls('resp_history'),
       rmssdHistory: dbls('rmssd_history'),
       skinTempAdcHistory: dbls('skin_temp_adc_history'),
+      tstHistory: dbls('tst_history'),
       observedHrCeilingBpm: (m['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
       dayConfidence: (m['day_confidence'] as num?)?.toDouble() ?? 0,
       dayFlags: strs('day_flags'),
@@ -584,9 +591,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // lives in `rhr` itself, so this is the same number the card shows.
   final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
+  // Last night's total sleep in whole minutes — the same rounding the stored
+  // `tst_min` history uses, so value and baseline are one quantity.
+  final tstToday = tstSec == null ? null : (tstSec / 60).roundToDouble();
   final composite = readinessComposite([
     hrvInput(lnToday, d.lnRmssdHistory),
     rhrInput(rhrToday, d.rhrHistory),
+    sleepInput(tstToday, d.tstHistory),
     respInput(respToday, d.respHistory),
     // Feed the RAW ADC mean + the RAW-ADC baseline so the composite computes its
     // own oriented robust-z internally (consistent with the other inputs, which
@@ -634,6 +645,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'resp': {
         'value': respToday != null,
         'baseline_n': d.respHistory.length,
+      },
+      'sleep': {
+        'value': tstToday != null,
+        'baseline_n': d.tstHistory.length,
       },
       'temp': {
         'value': skinTempAdc != null,

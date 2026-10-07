@@ -1,6 +1,8 @@
-// This week on one card, for Monday mornings and every glance after: the
-// calorie deficit at the maintenance floor, average protein against the
-// target, km run, the run-or-walk streak, and average sleep.
+// This week on one card: the calorie deficit at the maintenance floor, average
+// protein against the target, km run, the run-or-walk streak, and average
+// sleep. On Mondays (build 81), when "this week" is a single unfinished day,
+// it shows LAST week instead, against the week before: recovery, sleep,
+// strain and steps averages with their change, the deficit, km and weight.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -30,6 +32,10 @@ class WeekNumbers {
     this.km = 0,
     this.streak,
     this.avgSleepMin,
+    this.avgRecovery,
+    this.avgStrain,
+    this.avgSteps,
+    this.weightChangeKg,
   });
 
   /// Maintenance − eaten summed over the days with food logged; negative is a
@@ -41,17 +47,44 @@ class WeekNumbers {
   final int? streak;
   final double? avgSleepMin;
 
+  /// Daily averages over the week's measured days, and the change from the
+  /// first to the last weigh-in of the week (null under two weigh-ins).
+  final double? avgRecovery, avgStrain, avgSteps, weightChangeKg;
+
+  /// [weeksBack] 0 is Monday to today, 1 last week (Monday to Sunday), 2 the
+  /// week before. [withFood] false skips the per-day maintenance reads, for a
+  /// comparison week that only needs its averages.
   static Future<WeekNumbers> load(
     LocalRepository repo,
     Profile pr,
     Map<String, dynamic> user, {
     DateTime? at,
+    int weeksBack = 0,
+    bool withFood = true,
   }) async {
     final now = at ?? DateTime.now();
-    final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = DateTime(
+      today.year,
+      today.month,
+      today.day - (today.weekday - 1) - 7 * weeksBack,
+    );
+    final last = weeksBack == 0
+        ? today
+        : DateTime(monday.year, monday.month, monday.day + 6);
     final mondayLabel = dayLabelOf(monday);
+    final lastLabel = dayLabelOf(last);
+    bool inWeek(String d) =>
+        d.compareTo(mondayLabel) >= 0 && d.compareTo(lastLabel) <= 0;
     final db = await LocalDb.instance;
-    final win = await NutritionDb.window(db, days: now.weekday, now: now);
+    // Read up to TODAY, then keep the week: `window` judges "today" (still in
+    // progress) by its end date, so ending it on a past Sunday would wrongly
+    // drop that Sunday as unfinished.
+    final win = await NutritionDb.window(
+      db,
+      days: today.difference(monday).inDays + 1,
+      now: now,
+    );
 
     final runs = await loadRuns(repo);
 
@@ -59,6 +92,7 @@ class WeekNumbers {
     var logged = 0, acsmLogged = 0;
     final proteins = <double>[];
     for (final d in win.days) {
+      if (!withFood || !inWeek(d.date)) continue;
       final eaten = d.kcal.value;
       if (!d.countsTowardAverages || eaten == null) continue;
       final upkeep = await DayUpkeep.read(
@@ -83,7 +117,7 @@ class WeekNumbers {
     var km = 0.0;
     for (
       var d = monday;
-      !d.isAfter(DateTime(now.year, now.month, now.day));
+      !d.isAfter(last);
       d = DateTime(d.year, d.month, d.day + 1)
     ) {
       km += (await DayUpkeep.read(
@@ -95,18 +129,30 @@ class WeekNumbers {
       )).runs.km;
     }
 
-    double? sleep;
-    try {
-      final mins = [
-        for (final p in pointsOf(await repo.getChart('sleep')))
-          if (dayLabelOf(
-                DateTime.fromMillisecondsSinceEpoch(p.t * 1000),
-              ).compareTo(mondayLabel) >=
-              0)
-            p.v,
-      ];
-      if (mins.isNotEmpty) sleep = mins.reduce((a, b) => a + b) / mins.length;
-    } catch (_) {}
+    Future<double?> avg(String chart) async {
+      try {
+        final vs = [
+          for (final p in pointsOf(await repo.getChart(chart)))
+            if (inWeek(
+              dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
+            ))
+              p.v,
+        ];
+        return vs.isEmpty ? null : vs.reduce((a, b) => a + b) / vs.length;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final sleep = await avg('sleep');
+    double? weightChange;
+    final weights = [
+      for (final w in await BodyWeight.since(db, mondayLabel))
+        if (inWeek(w.date)) w,
+    ];
+    if (weights.length >= 2) {
+      weightChange = weights.last.kg - weights.first.kg;
+    }
 
     return WeekNumbers(
       deficit: deficit,
@@ -119,8 +165,12 @@ class WeekNumbers {
           : proteins.reduce((a, b) => a + b) / proteins.length,
       proteinTarget: (user['protein_target'] as num?)?.toDouble(),
       km: km,
-      streak: (await loadMoveStreak())?.current,
+      streak: weeksBack == 0 ? (await loadMoveStreak())?.current : null,
       avgSleepMin: sleep,
+      avgRecovery: await avg('recovery'),
+      avgStrain: await avg('strain'),
+      avgSteps: await avg('steps'),
+      weightChangeKg: weightChange,
     );
   }
 }
@@ -139,7 +189,13 @@ class WeekCard extends StatefulWidget {
 
 class _WeekCardState extends State<WeekCard> with RevisionReload {
   WeekNumbers? _w;
+
+  /// On Mondays, the week before the one [_w] shows — for the changes.
+  WeekNumbers? _before;
   bool _failed = false;
+
+  /// Monday shows last week: this week is one unfinished day.
+  static bool get _monday => DateTime.now().weekday == DateTime.monday;
 
   @override
   bool get revisionReloads => widget.data == null;
@@ -167,10 +223,20 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
       return;
     }
     try {
-      final w = await WeekNumbers.load(repo, Profile.fromMap(user), user);
+      final pr = Profile.fromMap(user);
+      final w = await WeekNumbers.load(
+        repo,
+        pr,
+        user,
+        weeksBack: _monday ? 1 : 0,
+      );
+      final before = _monday
+          ? await WeekNumbers.load(repo, pr, user, weeksBack: 2, withFood: false)
+          : null;
       if (stillNewest(#week, t)) {
         setState(() {
           _w = w;
+          _before = before;
           _failed = false;
         });
         WeekCard.debugLoads++;
@@ -222,17 +288,58 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
           C.red,
         ),
     ];
+    final b = _before;
+    final lastWeek = b != null;
+    final weight = w.weightChangeKg;
     final bottom = <(String, String, Color)>[
       ('RUN', '${w.km.toStringAsFixed(1)} km', C.run),
       if (w.streak != null) ('STREAK', '${w.streak} d', C.steps),
-      if (w.avgSleepMin != null) ('SLEEP', hm(w.avgSleepMin), C.sleep),
+      if (w.avgSleepMin != null && !lastWeek)
+        ('SLEEP', hm(w.avgSleepMin), C.sleep),
+      if (lastWeek && weight != null)
+        (
+          'WEIGHT',
+          '${weight >= 0 ? '+' : '\u2212'}${weight.abs().toStringAsFixed(1)} kg',
+          C.domFood,
+        ),
+    ];
+    final body = <(String, String, Color)>[
+      if (b != null) ...[
+        if (w.avgRecovery != null)
+          (
+            'RECOVERY',
+            weekChange(w.avgRecovery!, b.avgRecovery, (v) => '${v.round()}'),
+            C.green,
+          ),
+        if (w.avgSleepMin != null)
+          ('SLEEP', weekChange(w.avgSleepMin!, b.avgSleepMin, hm), C.sleep),
+        if (w.avgStrain != null)
+          (
+            'STRAIN',
+            weekChange(w.avgStrain!, b.avgStrain, (v) => v.toStringAsFixed(1)),
+            C.blue,
+          ),
+        if (w.avgSteps != null)
+          ('STEPS', weekChange(w.avgSteps!, b.avgSteps, thousands), C.steps),
+      ],
     ];
     return Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('This week', style: F.over.copyWith(color: p.ink3)),
+          Text(
+            lastWeek ? 'Last week \u00b7 change from the week before' : 'This week',
+            style: F.over.copyWith(color: p.ink3),
+          ),
           const SizedBox(height: S.x2),
+          if (body.isNotEmpty) ...[
+            InlineMetrics(body.take(2).toList()),
+            if (body.length > 2) ...[
+              const SizedBox(height: S.x3),
+              InlineMetrics(body.skip(2).toList()),
+            ],
+            const SizedBox(height: S.x3),
+          ],
           if (top.isNotEmpty) ...[
             InlineMetrics(top),
             const SizedBox(height: S.x3),
@@ -258,4 +365,12 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
       ),
     );
   }
+}
+
+/// "64 · +5": a week's average with its change from the week before, the
+/// change formatted the same way. Just the value with nothing to compare.
+String weekChange(double v, double? before, String Function(double) fmt) {
+  if (before == null) return fmt(v);
+  final d = v - before;
+  return '${fmt(v)} · ${d >= 0 ? '+' : '−'}${fmt(d.abs())}';
 }

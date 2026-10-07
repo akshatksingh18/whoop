@@ -23,24 +23,26 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 80: build-79 editor layout fix, in progress
+## Build 80: one serving line in the food editor, in progress
 
-Akshat installed build 79 and reported the serving row misaligned ("Serving amount" wrapping).
-Source `0.9.47`/`80` shortens the labels and bottom-aligns the boxes (`build-75-audit.md`,
-"Build 80"). Phone check: Edit food shows Amount · Unit · Weight (g) on one level.
+Akshat installed build 79, reported the serving row misaligned ("Serving amount" wrapping) and
+decided to remove the Other units section. Source `0.9.47`/`80` (`build-75-audit.md`, "Build 80")
+aligns Amount · Unit · Weight (g) and drops Other units; per-gram foods with a named unit open on
+their serving line. Phone checks: Edit food shows one level serving row and no Other units; the
+chicken bites food reads 6 · pieces · 85.2 (edit to 85 if wanted); a per-gram food saved with a
+unit (e.g. the sausage, if stored per gram) opens as 1 · Link · 71 and still logs in g and links.
 
 ## Build 79: published, built and installed (Akshat)
 
 Akshat asked for labels such as "6 Pieces (85g)" to be entered as printed, without dividing.
 Source `0.9.46`/`79` adds the serving weight beside a count serving, a count on other units and
-the scan pre-fill; `build-75-audit.md` ("Build 79") owns the change. It includes everything in
+the scan pre-fill (Other units removed in build 80); `build-75-audit.md` ("Build 79") owns the change. It includes everything in
 build 78, which was never installed, so the build-78 phone checks below apply to build 79 too.
 Akshat reports build 79 installed.
 Build-79 source `0.9.46`/`79` (commit `4b7f5918`) is published with Akshat's approval; Linux CI `37563199102` (3,386 tests, 371 intentional skips) and personal macOS build `37563205812` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Tests before pushing ran on the affected files only, at Akshat's request (187 tests);
 CI ran the full suite. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.46-build79-4b7f5918`.
 Phone checks: a new food per `6` `piece` · `85` g at 140 kcal logs 3 pieces as 70 kcal and reads
-"3 pieces · 43 g", and switches to g; reopening it shows 6 · piece · 85; a per-gram food with
-other unit `6` `piece` = `85` g does the same; the saved sausage still reads 1 link · 71 g.
+"3 pieces · 43 g", and switches to g; reopening it shows 6 · piece · 85; the saved sausage still reads 1 link · 71 g.
 
 ## Build 78: published and built, never installed (superseded by build 79)
 

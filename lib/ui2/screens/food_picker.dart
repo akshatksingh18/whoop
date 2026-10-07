@@ -475,18 +475,17 @@ class _FoodEditorState extends State<FoodEditor> {
   final _carbs = TextEditingController();
   final _fat = TextEditingController();
   final _fibre = TextEditingController();
-  final _measureName = [TextEditingController(), TextEditingController()];
-  final _measureAmount = [TextEditingController(), TextEditingController()];
-
-  /// How many of each other unit the weight is for ("6" piece = 85 g), so
-  /// a pack's serving is typed as printed; blank is one.
-  final _measureCount = [TextEditingController(), TextEditingController()];
 
   /// For a label per count ("6 pieces (85 g)"): what the whole serving
   /// weighs, in grams, as the pack prints it. Stored as a "g" unit of
   /// serving/weight label units, so the food logs in grams as well — and
   /// nobody divides 85 by 6.
   final _servingWeight = TextEditingController();
+
+  /// Units stored on the food that the serving line does not show (a
+  /// third unit from an older build). Kept on save, never shown.
+  List<FoodMeasure> _kept = const [];
+  Map<String, double> _keptCounts = const {};
 
   bool get _countLabel {
     final u = _unit.text.trim().toLowerCase();
@@ -499,37 +498,50 @@ class _FoodEditorState extends State<FoodEditor> {
     _unit.addListener(() => setState(() {}));
     final e = widget.existing;
     if (e != null) {
-      final base = foodUnit(e).toLowerCase();
-      final count = base != 'g' && base != 'ml';
+      final base = foodUnit(e);
+      final perGram = base.toLowerCase() == 'g';
       // Shown back on its own serving when it has one, else per 100 g.
-      final ref = (e['serving_g'] as num?)?.toDouble() ?? 100;
+      var ref = (e['serving_g'] as num?)?.toDouble() ?? 100;
+      var unit = base;
+      var shownAt = ref; // label units the macros below are shown for
       final counts = measureCounts(e);
-      var i = 0;
+      final kept = <FoodMeasure>[];
       for (final m in foodMeasures(e)) {
-        if (count && m.label.toLowerCase() == 'g' && m.amount > 0) {
+        final l = m.label.toLowerCase();
+        if (!perGram && l == 'g') {
           _servingWeight.text = _trim(ref / m.amount);
-        } else if (i < 2) {
+        } else if (perGram &&
+            unit == base &&
+            l != 'g' &&
+            l != 'ml') {
+          // A per-gram food with a named unit ("Link · 71 g") opens on its
+          // serving line: 1 link · 71 g.
           final n = counts[m.label] ?? 1;
-          _measureName[i].text = m.label;
-          _measureCount[i].text = n == 1 ? '' : _trim(n);
-          _measureAmount[i].text = _trim(m.amount * n);
-          i++;
+          unit = m.label;
+          ref = n;
+          shownAt = m.amount * n;
+          _servingWeight.text = _trim(shownAt);
+        } else {
+          kept.add(m);
         }
       }
-      // A scanned pack that prints "6 pieces (85 g)" offers the piece.
+      // A scanned pack that prints "6 pieces (85 g)" opens on that serving.
       final scanned = servingCountOf((e['serving_label'] ?? '').toString());
-      if (i == 0 && base == 'g' && scanned != null) {
-        _measureName[0].text = scanned.name;
-        _measureCount[0].text = scanned.count == 1 ? '' : _trim(scanned.count);
-        _measureAmount[0].text = _trim(scanned.grams);
+      if (perGram && unit == base && scanned != null) {
+        unit = scanned.name;
+        ref = scanned.count;
+        shownAt = scanned.grams;
+        _servingWeight.text = _trim(scanned.grams);
       }
+      _kept = kept;
+      _keptCounts = {for (final m in kept) m.label: ?counts[m.label]};
       String at(String k) {
         final v = (e[k] as num?)?.toDouble();
-        return v == null ? '' : _trim(v * ref / 100);
+        return v == null ? '' : _trim(v * shownAt / 100);
       }
 
       _label.text = (e['label'] ?? '').toString();
-      _unit.text = foodUnit(e);
+      _unit.text = unit;
       _ref.text = _trim(ref);
       _kcal.text = at('kcal_100');
       _protein.text = at('protein_g_100');
@@ -552,9 +564,6 @@ class _FoodEditorState extends State<FoodEditor> {
       _carbs,
       _fat,
       _fibre,
-      ..._measureName,
-      ..._measureAmount,
-      ..._measureCount,
       _servingWeight,
     ]) {
       t.dispose();
@@ -591,8 +600,8 @@ class _FoodEditorState extends State<FoodEditor> {
       );
       return;
     }
+    final unit = _unit.text.trim();
     final measures = <FoodMeasure>[];
-    final counts = <String, double>{};
     final weight = Typed.of(_servingWeight.text, nonNegative: true);
     if (_countLabel && !weight.blank) {
       if (weight.value == null || weight.value! <= 0) {
@@ -604,36 +613,36 @@ class _FoodEditorState extends State<FoodEditor> {
       }
       measures.add((label: 'g', amount: ref / weight.value!));
     }
-    for (var i = 0; i < (_countLabel ? 1 : 2); i++) {
-      final name = _measureName[i].text.trim();
-      final amount = Typed.of(_measureAmount[i].text);
-      final count = Typed.of(_measureCount[i].text);
-      if (name.isEmpty && amount.blank && count.blank) continue;
-      final n = count.blank ? 1.0 : count.value;
-      if (name.isEmpty ||
-          amount.value == null ||
-          amount.value! <= 0 ||
-          n == null ||
-          n <= 0) {
-        setState(
-          () => _error =
-              'Another unit needs a name and amounts greater than zero, or leave it blank.',
-        );
-        return;
+    // Old label units in one new one: known when the unit is unchanged, or
+    // when a per-gram food moves to its count serving with a weight.
+    final old = widget.existing;
+    final oldUnit = old == null ? null : foodUnit(old);
+    final double? oldPerNew =
+        old == null || oldUnit!.toLowerCase() == unit.toLowerCase()
+        ? 1
+        : oldUnit.toLowerCase() == 'g' && measures.isNotEmpty
+        ? weight.value! / ref
+        : null;
+    // Units the editor no longer shows stay, re-expressed in the new unit.
+    final counts = <String, double>{};
+    if (oldPerNew != null) {
+      for (final m in _kept) {
+        final l = m.label.toLowerCase();
+        if (l == unit.toLowerCase() ||
+            measures.any((x) => x.label.toLowerCase() == l)) {
+          continue;
+        }
+        measures.add((label: m.label, amount: m.amount / oldPerNew));
+        if (_keptCounts[m.label] case final n?) counts[m.label] = n;
       }
-      measures.add((label: name, amount: amount.value! / n));
-      if (n != 1) counts[name] = n;
     }
     setState(() {
       _saving = true;
       _error = null;
     });
-    final unitChanged =
-        widget.existing != null &&
-        foodUnit(widget.existing!) != _unit.text.trim();
-    final ancillaryScale = unitChanged
-        ? ((widget.existing!['serving_g'] as num?)?.toDouble() ?? 100) / ref
-        : 1.0;
+    final ancillaryScale =
+        oldPerNew ??
+        ((old?['serving_g'] as num?)?.toDouble() ?? 100) / ref;
     final def = <String, Object?>{
       for (final key in const ['brand', 'serving_label'])
         if (widget.existing?.containsKey(key) == true)
@@ -649,7 +658,7 @@ class _FoodEditorState extends State<FoodEditor> {
             'my:${DateTime.now().microsecondsSinceEpoch}',
         label: label,
         refGrams: ref,
-        unit: _unit.text.trim(),
+        unit: unit,
         kcal: Typed.of(_kcal.text).value,
         protein: Typed.of(_protein.text).value,
         carbs: Typed.of(_carbs.text).value,
@@ -772,54 +781,12 @@ class _FoodEditorState extends State<FoodEditor> {
       field(_fat, 'Fat (g)'),
       field(_fibre, 'Fibre (g)'),
       const SizedBox(height: S.x2),
-      Text('OTHER UNITS · OPTIONAL', style: F.over.copyWith(color: p.ink3)),
-      const SizedBox(height: S.x1),
-      Text(
-        _countLabel
-            ? 'Fill in the weight beside the serving to log this in grams too. '
-                  'Add another unit below the same way, e.g. 2 tbsp · 1 ${_unit.text.trim()}.'
-            : 'Copy another unit off the pack, e.g. 6 piece · 85 g or 1 scoop · 29 g. '
-                  'The portion screen then switches between g and it, and the '
-                  'macros follow either.',
-        style: F.cap.copyWith(color: p.ink3),
-      ),
-      const SizedBox(height: S.x2),
-      for (var i = 0; i < (_countLabel ? 1 : 2); i++)
+      if (_countLabel)
         Padding(
           padding: const EdgeInsets.only(bottom: S.x2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                flex: 2,
-                child: OsTextField(
-                  controller: _measureCount[i],
-                  label: 'Count',
-                  hint: '1',
-                  keyboard: num,
-                ),
-              ),
-              const SizedBox(width: S.x2),
-              Expanded(
-                flex: 3,
-                child: OsTextField(
-                  controller: _measureName[i],
-                  label: 'Name',
-                  hint: i == 0 ? 'piece' : 'scoop',
-                ),
-              ),
-              const SizedBox(width: S.x2),
-              Expanded(
-                flex: 2,
-                child: OsTextField(
-                  controller: _measureAmount[i],
-                  label: _countLabel
-                      ? 'In ${_unit.text.trim()}'
-                      : 'Weight (${_unit.text.trim().isEmpty ? 'g' : _unit.text.trim()})',
-                  keyboard: num,
-                ),
-              ),
-            ],
+          child: Text(
+            'Weight is optional: with it, this food logs in grams too.',
+            style: F.cap.copyWith(color: p.ink3),
           ),
         ),
       const SizedBox(height: S.x2),

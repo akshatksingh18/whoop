@@ -680,14 +680,13 @@ void main() {
         t,
         existing: {'key': 'my:bites', 'label': '', 'serving_g': 100.0},
       );
-      // Per gram: only the two other-unit rows weigh in grams.
-      expect(field('Weight (g)'), findsNWidgets(2));
+      // One serving line, no separate other-units section.
+      expect(find.text('OTHER UNITS · OPTIONAL'), findsNothing);
+      expect(field('Weight (g)'), findsNothing, reason: 'per gram needs none');
       await t.enterText(field('Description'), 'Chicken bites');
       await t.enterText(field('Unit'), 'piece');
       await t.pump();
-      // Per piece: the serving row gains its weight; the other row is in pieces.
       expect(field('Weight (g)'), findsOneWidget);
-      expect(field('In piece'), findsOneWidget);
       // The three serving boxes line up, whatever their labels do.
       final bottoms = {
         for (final l in ['Amount', 'Unit', 'Weight (g)'])
@@ -718,51 +717,39 @@ void main() {
       expect(text(t, 'Weight (g)'), '85');
     });
 
-    testWidgets('a per-gram food takes 6 piece = 85 g as another unit', (
+    testWidgets('a per-gram food with a named unit opens on its serving line', (
       t,
     ) async {
-      await open(t);
-      await t.enterText(field('Description'), 'Chicken bites');
-      await t.enterText(field('Amount'), '85');
-      await t.enterText(field('Calories (kcal)'), '140');
-      await t.enterText(field('Count').first, '6');
-      await t.enterText(field('Name').first, 'piece');
-      await t.enterText(field('Weight (g)').first, '85');
-      // The editor makes its own key; read the newest food back.
-      await t.ensureVisible(find.text('Save'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('Save'));
-      for (
-        var i = 0;
-        i < 100 && find.byType(FoodEditor).evaluate().isNotEmpty;
-        i++
-      ) {
-        await t.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 20)),
-        );
-        await t.pump(const Duration(milliseconds: 50));
-      }
-      final rows = (await t.runAsync(
-        () => db.query(
-          'food_def',
-          where: "label = 'Chicken bites' AND unit = 'g'",
-        ),
-      ))!;
-      expect(rows, hasLength(1));
-      final def = rows.single;
-      expect(toBase(def, 6, 'piece'), closeTo(85, 1e-9));
-      expect(
-        nutrientsFor(def, toBase(def, 3, 'piece')!).kcal,
-        closeTo(70, 1e-9),
+      // Saved by build 78/79: grams, plus "Link · 71 g" and a third unit.
+      await open(
+        t,
+        existing: {
+          'key': 'my:bites',
+          'label': 'Chicken sausage',
+          'serving_g': 71.0,
+          'unit': 'g',
+          'kcal_100': 110 * 100 / 71,
+          'sodium_mg_100': 1000.0,
+          'measures_json': encodeMeasures([
+            (label: 'Link', amount: 71),
+            (label: 'scoop', amount: 30),
+          ]),
+        },
       );
-
-      await open(t, existing: def);
-      expect(text(t, 'Count'), '6');
-      expect(text(t, 'Name'), 'piece');
-      expect(text(t, 'Weight (g)'), '85');
+      expect(text(t, 'Amount'), '1');
+      expect(text(t, 'Unit'), 'Link');
+      expect(text(t, 'Weight (g)'), '71');
+      expect(text(t, 'Calories (kcal)'), '110');
+      final def = (await save(t))!;
+      expect(foodUnit(def), 'Link');
+      expect(toBase(def, 142, 'g'), closeTo(2, 1e-9));
+      expect(nutrientsFor(def, 2).kcal, closeTo(220, 1e-9));
+      expect(def['sodium_mg_100'], closeTo(1000.0 * 71, 1e-6));
+      // The unit the editor no longer shows is kept, still 30 g.
+      expect(portionWithWeight(1, 'scoop', def), '1 scoop · 30 g');
     });
 
-    testWidgets('a scanned "6 pieces (85 g)" offers the piece to review', (
+    testWidgets('a scanned "6 pieces (85 g)" opens on that serving', (
       t,
     ) async {
       await open(
@@ -775,9 +762,10 @@ void main() {
           'kcal_100': 140 * 100 / 85,
         },
       );
-      expect(text(t, 'Count'), '6');
-      expect(text(t, 'Name'), 'piece');
+      expect(text(t, 'Amount'), '6');
+      expect(text(t, 'Unit'), 'piece');
       expect(text(t, 'Weight (g)'), '85');
+      expect(text(t, 'Calories (kcal)'), '140');
     });
 
     testWidgets('a saved per-link sausage still reads 1 link · 71 g', (

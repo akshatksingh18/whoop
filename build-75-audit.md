@@ -557,20 +557,28 @@ fields take plain numbers only.
   a "Weighs (g)" field for the whole serving sits on the same line (replacing "1 link weighs").
   It is stored as before, a "g" unit of serving ÷ weight label units (6/85 piece per gram), and is
   shown back as the typed 85. Saved per-link foods still read "1 link · 71 g".
-- "Other units" rows take a count: `[6] [piece] = [85] g`. Conversions store one unit (85/6 g); the
+- "Other units" rows took a count: `[6] [piece] = [85] g` (section removed in build 80). Conversions store one unit (85/6 g); the
   typed count is kept as an optional `n` in `measures_json`, used only to show the row back as typed.
   Older rows without `n` read as one.
-- A barcode scan whose Open Food Facts serving text is exactly "N units (W g)" pre-fills that
-  other-unit row for review; anything else (e.g. "85 g", "1 cup") pre-fills nothing.
+- A barcode scan whose Open Food Facts serving text is exactly "N units (W g)" pre-fills it for
+  review (build 80: on the serving line); anything else (e.g. "85 g", "1 cup") pre-fills nothing.
 - Validation: tests ran on the affected files only, at Akshat's request (10 files, 187 tests:
   the build-75/78/79 food regressions, food flow incl. barcode review, My foods, nutrition
   model/schema, Open Food Facts, timeline and token/gallery rules). Linux CI still runs the full
   suite on push.
 
-**Build 80 (`0.9.47`/`80`, layout fix from Akshat's build-79 screenshot):** "Serving amount"
-wrapped to two lines beside "Serving unit" and "Weighs (g)", pushing its box below the others.
-The serving row now reads Amount · Unit · Weight (g), other-unit rows read Count · Name ·
-Weight (g) (or "In piece" for a count label), and both rows align boxes on their bottom edge so a
-wrapped label at larger text sizes cannot misalign them. A test checks the three serving boxes
-share one bottom edge. Validation again ran the affected food test files (107 tests); CI runs the
-full suite.
+**Build 80 (`0.9.47`/`80`, from Akshat's build-79 screenshots, replacing the cancelled first
+build-80 run `fbea4bb6`):**
+- Layout: "Serving amount" wrapped beside "Serving unit" and "Weighs (g)", pushing its box down.
+  The serving row now reads **Amount · Unit · Weight (g)** and aligns its boxes on their bottom
+  edge, so a wrapped label at larger text sizes cannot misalign them; a test checks this.
+- The "Other units" section is removed (Akshat's decision): packs print servings as
+  "N units (W g)", which the serving line now takes in full, and its grey hints read as entered
+  values. Nothing logged becomes unreachable:
+  - a per-gram food with a named unit (e.g. "Link · 71 g") opens on its serving line
+    (`1` `Link` `71`) with macros shown for that serving; saving stores it per link with a gram
+    conversion, and sugar/saturated fat/sodium rescale by the grams per new unit;
+  - a scanned "6 pieces (85 g)" opens as `6` `piece` `85` with macros for 85 g;
+  - any further stored unit (a third unit from an older build) is kept on save, re-expressed in
+    the new unit, just not shown; past diary entries are unchanged.
+- Validation ran the affected food test files (127 tests); CI runs the full suite.

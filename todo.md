@@ -35,7 +35,7 @@ appears while dragging; pull an edit sheet down from mid-content and it closes.
 
 Akshat installed build 75 and reported the follow-ups recorded at the end of
 `build-75-audit.md`: float-noise numbers in Edit food, − / + step and hold-to-repeat, dragging
-items between sub-headings (meals and saved meals) and the Calories card layout. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.43-build76-3f8ada60`;
+items between sub-headings (meals and saved meals) and the Calories card layout. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. It was the testing candidate until build 77 replaced it;
 install over build 75 with the exact final ID; `setup.md` owns the evidence. Build 75's phone
 checks below carry forward to build 76.
 Phone checks: Edit food shows 20, not 20.000000000000004; tap − / + = ±1, hold accelerates and

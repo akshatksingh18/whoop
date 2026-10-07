@@ -395,7 +395,18 @@ suite passes (3,375 tests, 376 intentional skips); analysis has no errors/warnin
 passes. Artifact `whoop-personal-1eae1fbcad70-unsigned.ipa` (18,117,087 bytes), SHA-256
 `ae296b3f98d1bc7c47f17d3a205b1ef85b3651a7621f44fee8c8248ca8e6a4c3`, matches its checksum and
 manifest (`0.9.45`/`78`); ZIP, payload contract and the single version-matched extension pass.
-It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.45-build78-1eae1fbc`, not yet
+It was never installed; build 79 replaced its testing folder, and it is reproducible from run
+`37558356341`.
+
+Build `0.9.46`/`79` adds pack-printed servings (`build-75-audit.md`, "Build 79"): source
+`4b7f59189ec3e212cb3467b1838e43cbe4d0f042`, published with Akshat's approval. At Akshat's request
+local validation ran the affected test files only (10 files, 187 tests) plus analysis of the
+changed files and the personal-iOS contract tests; Linux CI `37563199102` ran the full suite
+(3,386 tests, 371 intentional skips) and passes; personal macOS build `37563205812` passes.
+Artifact `whoop-personal-4b7f59189ec3-unsigned.ipa` (18,123,740 bytes), SHA-256
+`337fd3f5dc6871df6baec6d12006a5efb95c7970493539d1887648675521da17`, matches its checksum and
+manifest (`0.9.46`/`79`); ZIP, payload contract and the single version-matched extension pass.
+It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.46-build79-4b7f5918`, not yet
 installed. Install over build 77 with automatic bundle ID off and final ID
 `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
 

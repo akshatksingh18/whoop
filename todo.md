@@ -23,12 +23,14 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 79: pack-printed servings, in progress
+## Build 79: published and built, awaiting installation
 
 Akshat asked for labels such as "6 Pieces (85g)" to be entered as printed, without dividing.
 Source `0.9.46`/`79` adds the serving weight beside a count serving, a count on other units and
 the scan pre-fill; `build-75-audit.md` ("Build 79") owns the change. It includes everything in
 build 78, which was never installed, so the build-78 phone checks below apply to build 79 too.
+Build-79 source `0.9.46`/`79` (commit `4b7f5918`) is published with Akshat's approval; Linux CI `37563199102` (3,386 tests, 371 intentional skips) and personal macOS build `37563205812` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Tests before pushing ran on the affected files only, at Akshat's request (187 tests);
+CI ran the full suite. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.46-build79-4b7f5918`.
 Phone checks: a new food per `6` `piece` · `85` g at 140 kcal logs 3 pieces as 70 kcal and reads
 "3 pieces · 43 g", and switches to g; reopening it shows 6 · piece · 85; a per-gram food with
 other unit `6` `piece` = `85` g does the same; the saved sausage still reads 1 link · 71 g.
@@ -38,7 +40,7 @@ other unit `6` `piece` = `85` g does the same; the saved sausage still reads 1 l
 Akshat installed build 77 and approved build 78: two-unit portions, the one-press drag fix,
 hiding the Training review, compact Train workouts with a monthly history, and conservative
 calories for treadmill/other workouts. Build-78 source `0.9.45`/`78` (commit `1eae1fbc`) is published with Akshat's approval; Linux CI `37558355571` (3,380 tests, 371 intentional skips) and personal macOS build `37558356341` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.45-build78-1eae1fbc`. `build-75-audit.md` ("Build-78 audit and
+the build-78 testing folder until build 79 replaced it. `build-75-audit.md` ("Build-78 audit and
 implementation") owns the decisions, research and implemented list.
 Phone checks: log the sausage as 3 links (reads "3 Links · 213 g", macros scale) and in grams;
 a per-link food with "1 link weighs" switches to g; one hold drags into "No sub-heading";

@@ -477,7 +477,7 @@ Akshat installed build 75 and reported:
 - **Calories card:** eaten / goal on the left ("1,475 kcal / 2,202"), what is left (or over)
   on the right, then the bar.
 
-## Build-77 follow-up (from installed build 76; local source)
+## Build-77 follow-up (from installed build 76; source `2602cacf`)
 
 Akshat installed build 76 and reported:
 - **Calories card:** "left" sat beside the eaten number because the row shrank to its content;

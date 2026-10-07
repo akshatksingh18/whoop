@@ -62,8 +62,8 @@
 > battery on Today and Live Activity diagnostics (`build-75-audit.md`). Its Linux CI and personal
 > macOS build pass. Build 75 is installed; build `0.9.43`/`76` (`3f8ada60`) adds its food
 > follow-ups (clean edit numbers, ±1 hold-to-repeat steppers, drag between sub-headings, eaten /
-> goal Calories card). Its CI and macOS build pass; the downloaded IPA is the sole candidate in
-> `final-ipas/whoop/testing/WHOOP-0.9.43-build76-3f8ada60`. Installation, phone acceptance and
+> goal Calories card); build `0.9.44`/`77` (`2602cacf`) adds its polish. Its CI and macOS build pass; the downloaded IPA is the sole candidate in
+> `final-ipas/whoop/testing/WHOOP-0.9.44-build77-2602cacf`. Installation, phone acceptance and
 > current-version refresh enrollment remain pending. `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).

@@ -23,7 +23,7 @@ Source `0.9.41`/`74`, commit `ba5bb29f`, enables one workout-only Live Activity 
 App Groups. Linux CI `37397127258`, macOS build `37395690305` and downloaded version/source,
 checksum, ZIP and payload checks pass. Build 74 is installed (Sideloadly kept the extension at
 the exact final ID). Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. Build 75 is installed. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.43-build76-3f8ada60`, with the same extension contract;
+`../../final-ipas/whoop/testing/WHOOP-0.9.44-build77-2602cacf`, with the same extension contract;
 extension behavior, overwrite/data continuity, background behavior, complete phone
 acceptance and current-version automatic-refresh enrollment remain pending. Build 73 is superseded on the phone.
 Installation alone does not authorize cache promotion.

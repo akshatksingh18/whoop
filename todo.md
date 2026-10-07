@@ -23,10 +23,11 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 77: build-76 follow-up (local source, not yet published)
+## Build 77: build-76 follow-up, published and built
 
 Akshat installed build 76; his follow-ups are recorded at the end of `build-75-audit.md`.
-Source `0.9.44`/`77` implements them locally; publication and the IPA need Akshat's go-ahead.
+Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.44-build77-2602cacf`; install over build 76 with the exact final ID.
 Phone checks: Calories "left" at the far right; no OpenStrap at launch; "No sub-heading" only
 appears while dragging; pull an edit sheet down from mid-content and it closes.
 

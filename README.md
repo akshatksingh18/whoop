@@ -62,8 +62,8 @@
 > battery on Today and Live Activity diagnostics (`build-75-audit.md`). Its Linux CI and personal
 > macOS build pass. Build 75 is installed; build `0.9.43`/`76` (`3f8ada60`) adds its food
 > follow-ups (clean edit numbers, ±1 hold-to-repeat steppers, drag between sub-headings, eaten /
-> goal Calories card); build `0.9.44`/`77` (`2602cacf`) adds its polish; build `0.9.45`/`78` (`1eae1fbc`) adds two-unit portions, compact Train history and conservative workout calories; build `0.9.46`/`79` (`4b7f5918`) adds pack-printed servings ("6 piece · 85 g"); build `0.9.47`/`80` (`6dd75b2b`) gives the food editor one aligned serving line. Its CI and macOS build pass; the downloaded IPA is the sole candidate in
-> `final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`, installed. Phone acceptance and
+> goal Calories card); build `0.9.44`/`77` (`2602cacf`) adds its polish; build `0.9.45`/`78` (`1eae1fbc`) adds two-unit portions, compact Train history and conservative workout calories; build `0.9.46`/`79` (`4b7f5918`) adds pack-printed servings ("6 piece · 85 g"); build `0.9.47`/`80` (`6dd75b2b`) gives the food editor one aligned serving line; build `0.9.48`/`81` (`d44c989f`) adds sleep to recovery, Quick add weight, patterns from logged data and bedtime consistency, and drops the Live Activity. Its CI and macOS build pass; the downloaded IPA is the sole candidate in
+> `final-ipas/whoop/testing/WHOOP-0.9.48-build81-d44c989f`, not yet installed. Installation, phone acceptance and
 > current-version refresh enrollment remain pending. `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).

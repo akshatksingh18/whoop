@@ -19,7 +19,7 @@ Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\WHOOP-0.9.46-build79-4b7f5918` holds the single candidate (build 77 is installed but
+`testing\WHOOP-0.9.47-build80-6dd75b2b` holds the single candidate (build 79 is installed but
 superseded). `../setup.md` owns the
 artifact, hash and workflow records.
 

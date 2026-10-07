@@ -23,7 +23,7 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 80: one serving line in the food editor, in progress
+## Build 80: one serving line in the food editor, published and built, awaiting installation
 
 Akshat installed build 79, reported the serving row misaligned ("Serving amount" wrapping) and
 decided to remove the Other units section. Source `0.9.47`/`80` (`build-75-audit.md`, "Build 80")
@@ -31,6 +31,9 @@ aligns Amount · Unit · Weight (g) and drops Other units; per-gram foods with a
 their serving line. Phone checks: Edit food shows one level serving row and no Other units; the
 chicken bites food reads 6 · pieces · 85.2 (edit to 85 if wanted); a per-gram food saved with a
 unit (e.g. the sausage, if stored per gram) opens as 1 · Link · 71 and still logs in g and links.
+Build-80 source `0.9.47`/`80` (commit `6dd75b2b`) is published with Akshat's approval; Linux CI `37565878253` (3,386 tests, 371 intentional skips) and personal macOS build `37565879521` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Tests before pushing ran on the affected food files only (127 tests); CI ran the full
+suite. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`; the first build-80
+run (`fbea4bb6`, alignment only) was cancelled before it produced an IPA.
 
 ## Build 79: published, built and installed (Akshat)
 
@@ -40,7 +43,7 @@ the scan pre-fill (Other units removed in build 80); `build-75-audit.md` ("Build
 build 78, which was never installed, so the build-78 phone checks below apply to build 79 too.
 Akshat reports build 79 installed.
 Build-79 source `0.9.46`/`79` (commit `4b7f5918`) is published with Akshat's approval; Linux CI `37563199102` (3,386 tests, 371 intentional skips) and personal macOS build `37563205812` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Tests before pushing ran on the affected files only, at Akshat's request (187 tests);
-CI ran the full suite. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.46-build79-4b7f5918`.
+CI ran the full suite. Its testing folder was replaced by build 80.
 Phone checks: a new food per `6` `piece` · `85` g at 140 kcal logs 3 pieces as 70 kcal and reads
 "3 pieces · 43 g", and switches to g; reopening it shows 6 · piece · 85; the saved sausage still reads 1 link · 71 g.
 

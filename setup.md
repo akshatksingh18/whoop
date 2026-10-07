@@ -406,8 +406,20 @@ changed files and the personal-iOS contract tests; Linux CI `37563199102` ran th
 Artifact `whoop-personal-4b7f59189ec3-unsigned.ipa` (18,123,740 bytes), SHA-256
 `337fd3f5dc6871df6baec6d12006a5efb95c7970493539d1887648675521da17`, matches its checksum and
 manifest (`0.9.46`/`79`); ZIP, payload contract and the single version-matched extension pass.
-It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.46-build79-4b7f5918`, not yet
-installed. Install over build 77 with automatic bundle ID off and final ID
+Akshat reports build 79 installed; build 80 replaced its testing folder, and it is reproducible
+from run `37563205812`.
+
+Build `0.9.47`/`80` aligns the food editor's serving row and removes its Other units section
+(`build-75-audit.md`, "Build 80"): source `6dd75b2b7900e570565076b3bb55704dad839a26`, published with
+Akshat's approval. Local validation ran the affected food test files only (127 tests) plus analysis
+and the personal-iOS contract tests; Linux CI `37565878253` ran the full suite (3,386 tests, 371
+intentional skips) and passes; personal macOS build `37565879521` passes. Artifact
+`whoop-personal-6dd75b2b7900-unsigned.ipa` (18,119,297 bytes), SHA-256
+`59ad47d407089f6a4e1d19b937fed0e21388eae274c4a044e2b0e79e6e1a6d37`, matches its checksum and
+manifest (`0.9.47`/`80`); ZIP, payload contract and the single version-matched extension pass. The
+first build-80 run (`fbea4bb6`) was cancelled before producing an IPA.
+It is the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.47-build80-6dd75b2b`, not yet
+installed. Install over build 79 with automatic bundle ID off and final ID
 `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
 
 The superseded same-number candidate `78461799` was removed from the one-slot testing cache.

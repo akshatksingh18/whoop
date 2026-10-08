@@ -438,9 +438,18 @@ ran the full suite (3,406 tests, 371 intentional skips) and passes; personal mac
 `37708104201` passes. Artifact `whoop-personal-4b53abbe21a0-unsigned.ipa` (18,068,787 bytes),
 SHA-256 `4720476a8e9df7d32476ddde333e26889fde9a0f960d18c2a063f9220a688588`, matches its checksum
 and manifest (`0.9.49`/`82`); ZIP and payload contract pass with no app extension. It is the sole
-testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.49-build82-4b53abbe`; Akshat reports it installed over
-build 80 with automatic bundle ID off and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70
-stays accepted recovery.
+Akshat reports it installed over build 80 with automatic bundle ID off and final ID
+`com.akshat.personal.whoop.5564K8D4SV`; build 83 replaced its testing folder.
+
+Build `0.9.50`/`83` (`todo.md`, "Build 83"): source `cbaf93cd79bbe5f50c8a91dbbf0af1b983077dc8`,
+published with Akshat's approval. Local validation ran the new log test, the refresh and router tests,
+the personal-iOS check and contract tests; Linux CI `37717941508` ran the full suite (3,408 tests, 371
+intentional skips) and passes; personal macOS build `37717959148` passes. Artifact
+`whoop-personal-cbaf93cd79bb-unsigned.ipa` (18,071,336 bytes), SHA-256
+`d925da01fbbf23acaaa9d4764a352887781823e961d35b9b978a480516f02105`, matches its checksum and manifest
+(`0.9.50`/`83`); ZIP and payload contract pass with no app extension. It is the sole testing candidate
+in `../final-ipas/whoop/testing/WHOOP-0.9.50-build83-cbaf93cd`, not yet installed. Install over build 82 with automatic
+bundle ID off and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol
 package's fixture tests fail there only because they open fixtures by a path relative to their

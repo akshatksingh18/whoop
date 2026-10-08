@@ -23,7 +23,38 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 83 (`0.9.50`/`83`): approved to build (Akshat)
+## Audit (not approved, keep for later): calibrated heart-rate + movement burn estimate
+
+Akshat asked whether the earlier note (`workout-sync-audit.md`) about a calibrated HR-plus-movement
+model is accurate and worth having. Audit only; nothing to build now (his decision).
+- **The study ([Brage 2015](https://pmc.ncbi.nlm.nih.gov/articles/PMC4562631/), PLoS ONE):** 46
+  adults, a chest-worn ECG + motion sensor (Actiheart), 14 days against doubly labelled water.
+  Activity energy measured 66 kJ/kg/day. Error (RMSE, kJ/kg/day): movement only 24 (and 12 too
+  low on average); HR only 37 group-calibrated, 32-34 individually calibrated; HR + movement 24
+  group-calibrated, 20-21 individually calibrated (r 0.67). The note is accurate: combining helps
+  and individual calibration helps more, but the combined model's gain from calibration was not
+  statistically significant.
+- **What that means in calories:** for a 75 kg person 20 kJ/kg/day is about 360 kcal/day of
+  typical error averaged over two weeks, roughly 30% of activity energy, with a chest ECG strap.
+  A single day, wrist optical HR and phone steps would be less accurate. Wrist devices are least
+  accurate during resistance training ([O'Driscoll 2020 meta-analysis](https://bjsm.bmj.com/content/54/6/332)),
+  which is the part this estimate would mainly add.
+- **Calibration without running:** not a blocker. Brage's step and walk calibrations gave results
+  similar to the treadmill, so brisk walks with phone steps/GPS or an 8-minute step test could
+  calibrate it; runs are only one option.
+- **Verdict:** a reasonable "rough burn" curiosity number, not a good basis for eating decisions.
+  The app's food-and-weight maintenance (4-6 weeks of complete logging) is the better accuracy
+  check and is already built; the conservative budget stays the planning floor. Revisit if Akshat
+  wants lifting days shown as higher-burn days, or once he runs regularly.
+- **If built later:** phone steps/GPS as the movement input (the band's 1 Hz gravity vector failed
+  its own check: `branchedEnergyFusion` called 17-22% of labelled walks/runs non-locomotor);
+  calibration from walks, a step test or runs; one answer per minute (movement when present,
+  calibrated HR above the flex point only without steps, resting otherwise); lifting counted (his
+  answer); shown separately, never moving the goal or the conservative budget.
+
+## Build 83 (`0.9.50`/`83`): published and built, awaiting installation
+
+Build-83 source `0.9.50`/`83` (commit `cbaf93cd`) is published with Akshat's approval; Linux CI `37717941508` (3,408 tests, 371 intentional skips) and personal macOS build `37717959148` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.50-build83-cbaf93cd`.
 
 Approved by Akshat after the first build-82 phone log (`bugs.md`, "Background sync and slow
 pull-to-refresh"); he has no other fixes for it. Implemented:
@@ -65,7 +96,7 @@ later asked for build 82 to be built. Implemented:
 - **Diagnostics for background sync and slow refresh** (`bugs.md`): the iPhone app log now
   actually writes (`openstrap_sync.log` in Files → WHOOP); pull-to-refresh logs each stage's
   finish time. Fixes for background spacing and the refresh spinner wait for that log.
-Build-82 source `0.9.49`/`82` (commit `4b53abbe`) is published with Akshat's approval; Linux CI `37708103583` (3,406 tests, 371 intentional skips) and personal macOS build `37708104201` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.49-build82-4b53abbe`.
+Build-82 source `0.9.49`/`82` (commit `4b53abbe`) is published with Akshat's approval; Linux CI `37708103583` (3,406 tests, 371 intentional skips) and personal macOS build `37708104201` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Its testing folder was replaced by build 83 after Akshat installed it.
 Phone checks: drag a bottom food to the top in one hold; pull down a typed sheet and see "Discard changes?"; search Foods; build a saved meal adding several foods; tap a saved meal on the log screen to review and log; after an hour in the background, share `openstrap_sync.log` and do one pull-to-refresh.
 Validation: 12 affected test files (213 tests) pass, including `test/build82_test.dart` and a
 Foods search flow test; analysis has no errors or warnings.

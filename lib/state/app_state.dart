@@ -767,6 +767,9 @@ class AppState extends ChangeNotifier {
 
   Future<String?> _pullRefresh() async {
     final notes = <String>[];
+    // Stage timings go to the log: which part of a slow refresh is slow.
+    final clock = Stopwatch()..start();
+    String secs() => '${(clock.elapsedMilliseconds / 1000).toStringAsFixed(1)} s';
     await _routeTracker?.flush();
     await _publishLiveGait();
     if (phoneStepsEnabled) {
@@ -778,6 +781,7 @@ class AppState extends ChangeNotifier {
       await _refreshWorkoutMovement(phoneAlreadySynced: true, fresh: true);
     // Phone counts are independent of the band and its calculation queue.
     bumpInsights();
+    _log('Pull refresh: phone steps done at ${secs()}');
     await _deriveScheduler.markStoredData();
     if (engine.isConnected) {
       try {
@@ -790,6 +794,7 @@ class AppState extends ChangeNotifier {
       notes.add('Band not connected');
       unawaited(syncNow()); // try to reconnect; the screen does not wait on it
     }
+    _log('Pull refresh: band pull done at ${secs()}');
     await _deriveScheduler.markStoredData();
     while (_deriveScheduler.running ||
         _deriveScheduler.pendingLight ||
@@ -811,6 +816,7 @@ class AppState extends ChangeNotifier {
     if (_derive.snapshot()['last_error'] != null) {
       notes.add('Some totals could not be calculated. Please try again.');
     }
+    _log('Pull refresh: calculation done at ${secs()}');
     bumpInsights();
     return notes.isEmpty ? null : notes.join(' ');
   }

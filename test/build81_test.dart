@@ -9,7 +9,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/data/recovery_movers.dart';
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:openstrap_edge/ui2/screens/food_diary.dart' show QuickAddSheet;
+import 'package:openstrap_edge/ui2/screens/food_picker.dart' show DragList;
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart'
     show OsTextField;
 import 'package:openstrap_edge/ui2/screens/sleep_detail.dart'
@@ -160,6 +162,60 @@ void main() {
       expect(weekChange(7.2, 8, (v) => v.toStringAsFixed(1)), '7.2 · −0.8');
       expect(weekChange(64, null, (v) => '${v.round()}'), '64');
     });
+  });
+
+  testWidgets('dragging a row to the top edge scrolls a long page', (t) async {
+    t.view.physicalSize = const Size(390, 600);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    var order = [for (var i = 0; i < 30; i++) 'Food $i'];
+    final scroll = ScrollController();
+    await t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.dark),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (c, set) => SingleChildScrollView(
+              controller: scroll,
+              child: DragList(
+                length: order.length,
+                itemBuilder: (c, i) => SizedBox(
+                  key: ValueKey(order[i]),
+                  height: 60,
+                  child: Text(order[i]),
+                ),
+                onReorder: (from, to) => set(() {
+                  final x = order.removeAt(from);
+                  order.insert(to > from ? to - 1 : to, x);
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    scroll.jumpTo(scroll.position.maxScrollExtent);
+    await t.pump();
+    final start = scroll.offset;
+    final g = await t.startGesture(t.getCenter(find.text('Food 29')));
+    await t.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+    // Up to the top edge and hold there: the page itself scrolls.
+    await g.moveTo(const Offset(195, 300));
+    await t.pump(const Duration(milliseconds: 50));
+    await g.moveTo(const Offset(195, 10));
+    for (var i = 0; i < 60; i++) {
+      await t.pump(const Duration(milliseconds: 50));
+    }
+    expect(scroll.offset, lessThan(start - 600), reason: 'page scrolled up');
+    await g.moveTo(const Offset(195, 12));
+    await t.pump(const Duration(milliseconds: 100));
+    await g.up();
+    await t.pumpAndSettle();
+    expect(
+      order.indexOf('Food 29'),
+      lessThan(20),
+      reason: 'dropped far above where a single screen could reach',
+    );
   });
 
   group('Quick add', () {

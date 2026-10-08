@@ -1591,6 +1591,42 @@ void main() {
       }
     },
   );
+
+  testWidgets('Food → Foods searches saved meals and foods by name', (
+    t,
+  ) async {
+    t.view.physicalSize = const Size(390, 1600);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final app = AppState.forTesting()
+      ..repo = _Repo()
+      ..user = {..._profile};
+    addTearDown(app.dispose);
+    final db = await LocalDb.instance;
+    await t.runAsync(() async {
+      await db.delete('food_def');
+      await db.delete('meal_template');
+      for (final n in ['Banana', 'Kerrygold butter']) {
+        await NutritionDb.putFoodDef(
+          db,
+          myFoodDef(key: 'my:$n', label: n, refGrams: 100, kcal: 90),
+        );
+      }
+    });
+    await t.pumpWidget(_app(app, const NutritionScreen()));
+    await _until(t, () => find.text('Foods').evaluate().isNotEmpty);
+    await t.tap(find.text('Foods'));
+    await _until(t, () => find.text('Banana').evaluate().isNotEmpty);
+    await t.enterText(_field('Search'), 'ban');
+    await t.pump();
+    expect(find.text('Banana'), findsOneWidget);
+    expect(find.text('Kerrygold butter'), findsNothing);
+    expect(find.text('No matches'), findsOneWidget, reason: 'no saved meal');
+    await t.enterText(_field('Search'), '');
+    await t.pump();
+    expect(find.text('Kerrygold butter'), findsOneWidget);
+    await _unmount(t);
+  });
 }
 
 // Mirrors the visible date label through the production formatter.

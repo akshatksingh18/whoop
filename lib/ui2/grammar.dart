@@ -32,6 +32,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show GestureBinding;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
@@ -163,8 +164,13 @@ class _PressableState extends State<Pressable> {
 /// A bounded form sheet with a fixed close/drag header, even above the keyboard.
 /// Scrolling dismisses the keyboard; dragging the header cancels the sheet.
 class InputSheet extends StatefulWidget {
-  const InputSheet({super.key, required this.children});
+  const InputSheet({super.key, required this.children, this.changed});
   final List<Widget> children;
+
+  /// Whether anything typed here would be lost by closing. When it answers
+  /// true, every way out — a pull, the handle, ✕, a tap above the sheet —
+  /// asks "Discard changes?" first; the sheet's own Save still closes it.
+  final bool Function()? changed;
   static final openSheets = ValueNotifier<int>(0);
   @override
   State<InputSheet> createState() => _InputSheetState();
@@ -210,6 +216,34 @@ class _InputSheetState extends State<InputSheet> {
     super.dispose();
   }
 
+  bool _asking = false;
+
+  /// A close the sheet did not ask for: confirm when there is something to
+  /// lose, then leave; otherwise stay and re-arm the pull.
+  Future<void> _guardedClose() async {
+    if (_asking) return;
+    final changed = widget.changed?.call() ?? false;
+    var leave = !changed;
+    if (changed) {
+      _asking = true;
+      leave = await confirmRemove(
+        context,
+        title: 'Discard changes?',
+        body: 'What you typed here has not been saved.',
+        remove: 'Discard',
+        keep: 'Keep editing',
+      );
+      _asking = false;
+    }
+    if (!mounted) return;
+    if (leave) {
+      Navigator.of(context).pop();
+    } else {
+      _closing = false;
+      _pull = 0;
+    }
+  }
+
   @override
   Widget build(BuildContext c) {
     final children = widget.children;
@@ -230,7 +264,12 @@ class _InputSheetState extends State<InputSheet> {
             ],
           )
         : first;
-    return SafeArea(
+    return PopScope(
+      canPop: widget.changed == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _guardedClose();
+      },
+      child: SafeArea(
       top: false,
       child: Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
@@ -282,6 +321,7 @@ class _InputSheetState extends State<InputSheet> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -2764,4 +2804,100 @@ class NavBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// While a row is held, dragging it near the top or bottom edge scrolls the
+/// PAGE the list sits in. The drag lists below are shrink-wrapped inside a
+/// page or sheet that scrolls, and Flutter's own edge scrolling only moves the
+/// list's inner, non-scrolling view — so a long list had to be reordered a
+/// screen at a time. After each scroll step the finger's last position is
+/// replayed to the drag, so the drop slot follows the moved rows even when the
+/// finger is held still at the edge.
+class DragEdgeScroll extends StatefulWidget {
+  const DragEdgeScroll({
+    super.key,
+    required this.dragging,
+    required this.child,
+  });
+
+  final bool dragging;
+  final Widget child;
+
+  /// How close to an edge the finger must be before the page scrolls: half
+  /// of this, above or below it.
+  static const double reach = 140;
+
+  @override
+  State<DragEdgeScroll> createState() => _DragEdgeScrollState();
+}
+
+class _DragEdgeScrollState extends State<DragEdgeScroll> {
+  EdgeDraggingAutoScroller? _scroller;
+  PointerMoveEvent? _last;
+  bool _replaying = false;
+
+  @override
+  void didUpdateWidget(DragEdgeScroll old) {
+    super.didUpdateWidget(old);
+    if (!widget.dragging) _stop();
+  }
+
+  @override
+  void dispose() {
+    _stop();
+    super.dispose();
+  }
+
+  void _stop() {
+    _scroller?.stopAutoScroll();
+    _last = null;
+  }
+
+  void _move(PointerMoveEvent e) {
+    if (!widget.dragging || _replaying) return;
+    final page = Scrollable.maybeOf(context);
+    if (page == null) return;
+    _last = e;
+    _scroller ??= EdgeDraggingAutoScroller(
+      page,
+      velocityScalar: 50,
+      onScrollViewScrolled: _replay,
+    );
+    _aim(e);
+  }
+
+  /// The finger stays put on screen while the page moves, but the scroller
+  /// treats its target as riding with the content; re-aiming after every step
+  /// keeps it scrolling for as long as the finger is held at the edge.
+  void _aim(PointerMoveEvent e) => _scroller?.startAutoScrollIfNecessary(
+    Rect.fromCenter(center: e.position, width: 1, height: DragEdgeScroll.reach),
+  );
+
+  void _replay() {
+    final e = _last;
+    if (e == null || !widget.dragging || !mounted) return;
+    _replaying = true;
+    try {
+      GestureBinding.instance.handlePointerEvent(
+        PointerMoveEvent(
+          pointer: e.pointer,
+          device: e.device,
+          kind: e.kind,
+          position: e.position,
+          timeStamp: e.timeStamp,
+        ),
+      );
+    } finally {
+      _replaying = false;
+    }
+    if (widget.dragging) _aim(e);
+  }
+
+  @override
+  Widget build(BuildContext c) => Listener(
+    onPointerMove: _move,
+    onPointerUp: (_) => _stop(),
+    onPointerCancel: (_) => _stop(),
+    child: widget.child,
+  );
 }

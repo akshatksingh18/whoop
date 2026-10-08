@@ -227,6 +227,38 @@ portable; POSIX timezone-switching tests remain explicitly skipped on Windows. R
 close ZIP inputs even when validation fails and count movement-floor age by calendar dates across
 DST. Algorithm 88 permits recomputation. The personal capability profile is unchanged.
 
+## Background sync and slow pull-to-refresh (investigation, build 82 planning)
+
+Report (build 80): data syncs only while the app is open, though it is not swiped away; Status
+showed band data 44 min old until the app opened. Every pull-to-refresh takes long.
+How it works now (source):
+- **Background:** `pauseForBackground` keeps the BLE connection and live streams up
+  (`bluetooth-central`), so iOS resumes the app per notification. The app's own 5-min drain
+  is skipped in the background; offloads are left to the engine's timer, floored at 15 min
+  (`BackfillPolicy.periodicFloorSeconds = 900`) with exponential backoff after three empty
+  offloads. All calculation is deferred until foreground (`_deriveScheduler.setBackground`), to
+  avoid iOS background CPU kills. So even drained data shows no new numbers until the app opens.
+- **Known kill evidence:** synced crash reports show repeated `Runner.cpu_resource_fatal` kills on
+  build 63 (48 s of CPU in 59 s, 12–14 Sept). A system-killed app that held its connection did
+  not arm the restore central (`_armRecovery` runs only when not connected), so iOS may never
+  relaunch it until opened. Whether builds 74–80 still get killed is unknown (no reports synced
+  since 21 Sept).
+- **Pull-to-refresh:** `_pullRefresh` runs phone steps, then the band backlog drain
+  (`foregroundCatchUp`, up to 20 sessions), then waits for today's full recalculation, all before
+  the spinner stops (60 s cap). Stage timings are not logged.
+Evidence so far (Akshat, 7 Oct): the phone's Analytics Data holds `Runner.cpu_resource_fatal`
+kills only up to 14 Sept (build 63) and a `Runner.diskwrites_resource` report on 22 Sept, nothing
+since, so recent builds are not being killed for CPU; the stale background data is suspension or
+offload spacing, not a crash. The app log never existed on iPhone: `FileLog` tried Android's
+external storage first, which throws on iOS, and the shared handler disabled logging. Fixed in the
+local build-82 source (iOS writes `openstrap_sync.log` to Documents, visible in Files → WHOOP), and
+pull-to-refresh now logs when phone steps, the band pull and the calculation finish. Next
+evidence: that log after a backgrounded hour and one pull-to-refresh on build 82.
+Candidate fixes (`todo.md`): spinner stops after phone steps + a ~3 s band top-up while the
+recalculation finishes on screen; timing lines per refresh stage; keep background offloads at
+15 min while connected (no long backoff); arm the restore central while connected so a system
+kill can relaunch the app; reduce background CPU if kills are confirmed.
+
 ## Workout Live Activity never drew (builds 74–80): resolved by removal in build 81
 
 Symptom: the Status sample and real walks reported "Started"/"Updated", but the lock screen showed

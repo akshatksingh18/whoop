@@ -47,6 +47,35 @@ String macroLine({
   return parts.isEmpty ? 'No nutrition numbers' : parts.join(' · ');
 }
 
+/// A saved meal's calories at its saved amounts, from [defs] (key → food).
+/// Null when no item has a calorie figure; foods no longer saved are skipped.
+double? mealKcal(MealTemplate m, Map<String, Map<String, Object?>> defs) {
+  double? sum;
+  for (final (key, amount) in m.items) {
+    final d = defs[key];
+    final per100 = (d?['kcal_100'] as num?)?.toDouble();
+    if (d == null || per100 == null) continue;
+    final base = toBase(d, amount, m.units[key] ?? foodUnit(d));
+    if (base != null) sum = (sum ?? 0) + per100 * base / 100;
+  }
+  return sum;
+}
+
+/// One line for a saved meal's row: calories, food count and usual slot.
+String mealSummary(MealTemplate m, Map<String, Map<String, Object?>> defs) {
+  final kcal = mealKcal(m, defs);
+  final n = m.items.length;
+  return [
+    if (kcal != null) '${kcal.round()} kcal',
+    '$n food${n == 1 ? '' : 's'}',
+    mealName(m.meal),
+  ].join(' · ');
+}
+
+/// Whether a food or meal name matches a typed search (case-insensitive).
+bool nameMatches(Object? name, String query) =>
+    (name ?? '').toString().toLowerCase().contains(query.trim().toLowerCase());
+
 /// Nutrition shown for the food's own labelled serving, including counted units.
 String foodServingLine(Map<String, Object?> def) {
   final amount = (def['serving_g'] as num?)?.toDouble() ?? 100;
@@ -59,6 +88,9 @@ Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) =>
       context: c,
       isScrollControlled: true,
       useSafeArea: true,
+      // The sheet closes through InputSheet (pull, handle, ✕), which can ask
+      // before discarding typed values; the route's own drag would not ask.
+      enableDrag: false,
       sheetAnimationStyle: sheetMotion(c),
       backgroundColor: P.of(c).card,
       shape: const RoundedRectangleBorder(
@@ -67,8 +99,11 @@ Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) =>
       builder: b,
     );
 
-Widget _sheetBody(BuildContext s, List<Widget> children) =>
-    InputSheet(children: children);
+Widget _sheetBody(
+  BuildContext s,
+  List<Widget> children, {
+  bool Function()? changed,
+}) => InputSheet(changed: changed, children: children);
 
 /// A tappable list row: title, detail, optional trailing icon.
 class PickRow extends StatelessWidget {
@@ -549,7 +584,25 @@ class _FoodEditorState extends State<FoodEditor> {
       _fat.text = at('fat_g_100');
       _fibre.text = at('fibre_g_100');
     }
+    _start = _snapshot;
   }
+
+  /// Everything typed, as one comparable value: [_start] is how it opened.
+  String get _snapshot => [
+    for (final t in [
+      _label,
+      _ref,
+      _unit,
+      _kcal,
+      _protein,
+      _carbs,
+      _fat,
+      _fibre,
+      _servingWeight,
+    ])
+      t.text,
+  ].join('\u0000');
+  late final String _start;
 
   static String _trim(double v) => editableNumber(v);
 
@@ -801,7 +854,7 @@ class _FoodEditorState extends State<FoodEditor> {
         color: C.domFood,
         onTap: _saving ? null : _save,
       ),
-    ]);
+    ], changed: () => !_saving && _snapshot != _start);
   }
 }
 
@@ -834,6 +887,11 @@ class _MealEditorState extends State<MealEditor> {
   ];
   Map<String, Map<String, Object?>> _defs = const {};
 
+  /// The meal as one comparable value: name, slot, items, units, headings.
+  String get _snapshot =>
+      '${_label.text}|$_meal|$_items|$_groups|${_units.entries.toList()}';
+  late final String _start = _snapshot;
+
   /// Sub-headings in the order they first appear; '' (none) last.
   List<String> get _order {
     final seen = <String>[];
@@ -856,6 +914,35 @@ class _MealEditorState extends State<MealEditor> {
       ..addAll(pairs.map((x) => x.$2));
   }
 
+  /// A saved meal keeps ONE unit per food (`MealTemplate.units` is keyed by
+  /// food). Before a copy of a food takes [unit], every other copy of it is
+  /// converted to that unit, so changing one egg row to grams cannot silently
+  /// turn another "2 eggs" into "2 g".
+  void _useUnit(String key, String unit) {
+    final def = _defs[key];
+    final old = _units[key] ?? (def == null ? unit : foodUnit(def));
+    if (def != null && old.toLowerCase() != unit.toLowerCase()) {
+      final per = unitInBase(def, unit);
+      for (var j = 0; j < _items.length; j++) {
+        if (_items[j].$1 != key) continue;
+        final base = toBase(def, _items[j].$2, old);
+        if (base != null && per != null && per > 0) {
+          _items[j] = (key, base / per);
+        }
+      }
+    }
+    _units[key] = unit;
+  }
+
+  void _addPortion(Map<String, Object?> def, Portion portion) {
+    final key = def['key'] as String;
+    setState(() {
+      _useUnit(key, portion.unit);
+      _items.add((key, portion.amount));
+      _groups.add('');
+    });
+  }
+
   Future<void> _editItem(int i) async {
     final def = _defs[_items[i].$1];
     if (def == null) return;
@@ -871,8 +958,8 @@ class _MealEditorState extends State<MealEditor> {
     );
     if (result == null || !mounted) return;
     setState(() {
+      _useUnit(_items[i].$1, result.$1.unit);
       _items[i] = (_items[i].$1, result.$1.amount);
-      _units[_items[i].$1] = result.$1.unit;
       _groups[i] = result.$2;
       _normalise();
     });
@@ -881,6 +968,7 @@ class _MealEditorState extends State<MealEditor> {
   @override
   void initState() {
     super.initState();
+    _start; // fix the starting point before anything is edited
     _loadDefs();
   }
 
@@ -901,35 +989,15 @@ class _MealEditorState extends State<MealEditor> {
     }
   }
 
-  Future<void> _addItem() async {
-    final foods = _defs.values.toList();
-    final def = await _sheet<Map<String, Object?>>(
-      context,
-      (s) => _sheetBody(s, [
-        Text('Pick a food', style: F.head.copyWith(color: P.of(s).ink)),
-        const SizedBox(height: S.x3),
-        if (foods.isEmpty)
-          Text(
-            'Add foods first, under Nutrition › Foods.',
-            style: F.cap.copyWith(color: P.of(s).ink3),
-          ),
-        for (final f in foods)
-          PickRow(
-            (f['label'] ?? '').toString(),
-            'per 100 ${foodUnit(f)}',
-            onTap: () => Navigator.of(s).pop(f),
-          ),
-      ]),
-    );
-    if (def == null || !mounted) return;
-    final portion = await GramsSheet.show(context, def);
-    if (portion == null || !mounted) return;
-    setState(() {
-      _items.add((def['key'] as String, portion.amount));
-      _units[def['key'] as String] = portion.unit;
-      _groups.add('');
-    });
-  }
+  /// Add foods: search, each food's own serving, and the picker stays open
+  /// so a whole meal goes in one visit. Each pick lands in the meal at once.
+  Future<void> _addItem() => _sheet<void>(
+    context,
+    (_) => _MealFoodPicker(
+      foods: _defs.values.toList(),
+      onAdd: _addPortion,
+    ),
+  );
 
   Future<void> _save() async {
     if (_saving) return;
@@ -1066,8 +1134,7 @@ class _MealEditorState extends State<MealEditor> {
       ),
       if (_items.isNotEmpty)
         Text(
-          'Tap to change an amount or sub-heading. Hold and drag to reorder or '
-          'move under another sub-heading. Swipe to remove.',
+          'Tap to edit · hold to drag · swipe to remove',
           style: F.over.copyWith(color: p.ink3),
         ),
       if (_items.isNotEmpty)
@@ -1100,7 +1167,7 @@ class _MealEditorState extends State<MealEditor> {
         color: C.domFood,
         onTap: _saving ? null : _save,
       ),
-    ]);
+    ], changed: () => !_saving && _snapshot != _start);
   }
 }
 
@@ -1299,8 +1366,9 @@ class AmountInput extends StatelessWidget {
 }
 
 /// A list the user orders by holding a row and dragging it. Shrink-wrapped
-/// for use inside a page or sheet that already scrolls. Rows must be keyed.
-class DragList extends StatelessWidget {
+/// for use inside a page or sheet that already scrolls; dragging to an edge
+/// scrolls that page ([DragEdgeScroll]). Rows must be keyed.
+class DragList extends StatefulWidget {
   const DragList({
     super.key,
     required this.length,
@@ -1316,24 +1384,36 @@ class DragList extends StatelessWidget {
   final void Function(int from, int to) onReorder;
 
   @override
-  Widget build(BuildContext c) => ReorderableListView.builder(
-    shrinkWrap: true,
-    physics: const NeverScrollableScrollPhysics(),
-    padding: EdgeInsets.zero,
-    buildDefaultDragHandles: false,
-    itemCount: length,
-    onReorder: onReorder,
-    proxyDecorator: (child, _, _) =>
-        Material(color: Colors.transparent, elevation: 4, child: child),
-    itemBuilder: (c, i) {
-      final row = itemBuilder(c, i);
-      return ReorderableDelayedDragStartListener(
-        // Derived, not reused: one key per widget keeps finders unambiguous.
-        key: ValueKey<Object>(('drag', row.key ?? i)),
-        index: i,
-        child: row,
-      );
-    },
+  State<DragList> createState() => _DragListState();
+}
+
+class _DragListState extends State<DragList> {
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext c) => DragEdgeScroll(
+    dragging: _dragging,
+    child: ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      buildDefaultDragHandles: false,
+      itemCount: widget.length,
+      onReorderStart: (_) => setState(() => _dragging = true),
+      onReorderEnd: (_) => setState(() => _dragging = false),
+      onReorder: widget.onReorder,
+      proxyDecorator: (child, _, _) =>
+          Material(color: Colors.transparent, elevation: 4, child: child),
+      itemBuilder: (c, i) {
+        final row = widget.itemBuilder(c, i);
+        return ReorderableDelayedDragStartListener(
+          // Derived, not reused: one key per widget keeps finders unambiguous.
+          key: ValueKey<Object>(('drag', row.key ?? i)),
+          index: i,
+          child: row,
+        );
+      },
+    ),
   );
 }
 
@@ -1393,7 +1473,9 @@ class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
           if (groupOf(i) == g) (null, i),
       ],
     ];
-    return ReorderableListView.builder(
+    return DragEdgeScroll(
+      dragging: _dragging,
+      child: ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       padding: EdgeInsets.zero,
@@ -1441,6 +1523,7 @@ class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
           child: row,
         );
       },
+      ),
     );
   }
 }
@@ -1485,6 +1568,87 @@ class SwipeDelete extends StatelessWidget {
       secondaryBackground: bg(Alignment.centerRight),
       child: child,
     );
+  }
+}
+
+/// The saved-meal food picker: search, each food's labelled serving, and a
+/// portion screen per pick; it stays open, listing what was added, until Done.
+class _MealFoodPicker extends StatefulWidget {
+  const _MealFoodPicker({required this.foods, required this.onAdd});
+
+  final List<Map<String, Object?>> foods;
+  final void Function(Map<String, Object?> def, Portion portion) onAdd;
+
+  @override
+  State<_MealFoodPicker> createState() => _MealFoodPickerState();
+}
+
+class _MealFoodPickerState extends State<_MealFoodPicker> {
+  late final _q = TextEditingController()..addListener(() => setState(() {}));
+  final _added = <String>[];
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pick(Map<String, Object?> def) async {
+    final portion = await GramsSheet.show(context, def);
+    if (portion == null || !mounted) return;
+    widget.onAdd(def, portion);
+    setState(
+      () => _added.add(
+        '${def['label']} · ${portionText(portion.amount, portion.unit)}',
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final q = _q.text.trim();
+    final foods = [
+      for (final f in widget.foods)
+        if (q.isEmpty || nameMatches(f['label'], q) || nameMatches(f['brand'], q))
+          f,
+    ];
+    return _sheetBody(c, [
+      Text('Add foods', style: F.head.copyWith(color: p.ink)),
+      const SizedBox(height: S.x3),
+      if (widget.foods.isEmpty)
+        Text(
+          'Add foods first, under Food › Foods.',
+          style: F.cap.copyWith(color: p.ink3),
+        )
+      else
+        OsTextField(controller: _q, label: 'Search', hint: 'Oats, eggs…'),
+      if (_added.isNotEmpty) ...[
+        const SizedBox(height: S.x2),
+        Text(
+          'Added: ${_added.join(', ')}',
+          style: F.cap.copyWith(color: p.on(C.domFood)),
+        ),
+      ],
+      const SizedBox(height: S.x2),
+      if (widget.foods.isNotEmpty && foods.isEmpty)
+        Text('No matches', style: F.cap.copyWith(color: p.ink3)),
+      for (final f in foods)
+        PickRow(
+          (f['label'] ?? '').toString(),
+          foodServingLine(f),
+          trailing: LucideIcons.plus,
+          onTap: () => _pick(f),
+        ),
+      const SizedBox(height: S.x3),
+      BigButton(
+        _added.isEmpty
+            ? 'Done'
+            : 'Done · ${_added.length} added',
+        color: C.domFood,
+        onTap: () => Navigator.of(c).pop(),
+      ),
+    ]);
   }
 }
 
@@ -1629,17 +1793,27 @@ class _ItemEditorState extends State<_ItemEditor> {
 /// A saved meal before it is logged: every item's amount editable, any item
 /// switched off, then one Log. The saved meal itself is not changed.
 class MealReviewSheet extends StatefulWidget {
-  const MealReviewSheet({super.key, required this.meal, required this.defs});
+  const MealReviewSheet({
+    super.key,
+    required this.meal,
+    required this.defs,
+    this.onEdit,
+  });
 
   final MealTemplate meal;
   final Map<String, Map<String, Object?>> defs;
+
+  /// Shows "Edit saved meal": closes the review and lets the caller open the
+  /// editor (the same door a food's portion screen has to its editor).
+  final VoidCallback? onEdit;
 
   /// Resolves to one amount per item (null = leave out) with its unit, or
   /// null if cancelled.
   static Future<({List<double?> amounts, List<String> units})?> show(
     BuildContext c,
-    MealTemplate m,
-  ) async {
+    MealTemplate m, {
+    VoidCallback? onEdit,
+  }) async {
     final db = await LocalDb.instance;
     final defs = <String, Map<String, Object?>>{};
     for (final (key, _) in m.items) {
@@ -1649,7 +1823,7 @@ class MealReviewSheet extends StatefulWidget {
     if (!c.mounted) return null;
     return _sheet<({List<double?> amounts, List<String> units})>(
       c,
-      (_) => MealReviewSheet(meal: m, defs: defs),
+      (_) => MealReviewSheet(meal: m, defs: defs, onEdit: onEdit),
     );
   }
 
@@ -1703,7 +1877,7 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
       Text('Log ${m.label}', style: F.head.copyWith(color: p.ink)),
       const SizedBox(height: S.x1),
       Text(
-        'Check each amount. Tap one to change it; untick what you did not eat.',
+        'Tap an amount to change it · untick what you skipped',
         style: F.cap.copyWith(color: p.ink3),
       ),
       const SizedBox(height: S.x3),
@@ -1712,7 +1886,7 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
           Padding(
             padding: const EdgeInsets.only(top: S.x2, bottom: S.x1),
             child: Text(
-              m.groupAt(i).isEmpty ? 'Other' : m.groupAt(i),
+              m.groupAt(i).isEmpty ? 'No sub-heading' : m.groupAt(i),
               style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
             ),
           ),
@@ -1775,6 +1949,18 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
                 units: _units,
               )),
       ),
+      if (widget.onEdit != null) ...[
+        const SizedBox(height: S.x2),
+        PickRow(
+          'Edit saved meal',
+          'Change its foods, amounts or sub-headings',
+          trailing: LucideIcons.pencil,
+          onTap: () {
+            widget.onEdit!();
+            Navigator.of(c).pop();
+          },
+        ),
+      ],
     ]);
   }
 }

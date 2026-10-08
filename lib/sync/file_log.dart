@@ -28,8 +28,17 @@ class FileLog {
     if (_init) return;
     _init = true;
     try {
-      final dir = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
+      // External storage exists on Android only. On iOS the call THROWS
+      // (UnsupportedError), and folding it into one try left `_file` null, so
+      // the iPhone never wrote a line. iOS uses Documents, which the personal
+      // build shares in the Files app (UIFileSharingEnabled).
+      Directory? dir;
+      if (Platform.isAndroid) {
+        try {
+          dir = await getExternalStorageDirectory();
+        } catch (_) {}
+      }
+      dir ??= await getApplicationDocumentsDirectory();
       _file = File('${dir.path}/openstrap_sync.log');
     } catch (_) {
       _file = null;

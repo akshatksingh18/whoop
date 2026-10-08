@@ -69,8 +69,14 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   @override
   void dispose() {
     shellReselect.removeListener(_reselected);
+    _foodQuery.dispose();
     super.dispose();
   }
+
+  /// Search over Foods (saved meals and My foods). While it holds text the
+  /// lists are filtered and plain; dragging to reorder needs the full list.
+  late final _foodQuery = TextEditingController()
+    ..addListener(() => setState(() {}));
 
   NutritionWindow? _month;
   List<String> _historyMonths = const [];
@@ -605,14 +611,65 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       if (mounted) await _load();
     }
 
+    final q = _foodQuery.text.trim();
+    final searching = q.isNotEmpty;
+    final defs = {for (final f in _foods) f['key'] as String: f};
+    final meals = searching
+        ? [for (final m in _meals) if (nameMatches(m.label, q)) m]
+        : _meals;
+    final foods = searching
+        ? [
+            for (final f in _foods)
+              if (nameMatches(f['label'], q) || nameMatches(f['brand'], q)) f,
+          ]
+        : _foods;
+    Widget mealTile(MealTemplate m) => SwipeDelete(
+      key: ValueKey('meal-${m.key}'),
+      onDelete: () => edit(() => _deleteMeal(c, m)),
+      child: PickRow(
+        m.label,
+        mealSummary(m, defs),
+        trailing: LucideIcons.chevronRight,
+        onTap: () => edit(() => MealEditor.show(c, existing: m)),
+      ),
+    );
+    Widget foodTile(Map<String, Object?> f) => SwipeDelete(
+      key: ValueKey('food-${f['key']}'),
+      onDelete: () => edit(() => _deleteFood(c, f)),
+      child: PickRow(
+        (f['label'] ?? '').toString(),
+        foodServingLine(f),
+        trailing: LucideIcons.chevronRight,
+        onTap: () => edit(() => FoodEditor.show(c, existing: f)),
+      ),
+    );
+    Widget none() => Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x4),
+      child: Text('No matches', style: F.cap.copyWith(color: p.ink3)),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_meals.length + _foods.length > 0) ...[
+          OsTextField(
+            controller: _foodQuery,
+            label: 'Search',
+            hint: 'Oats, eggs, breakfast…',
+          ),
+          const SizedBox(height: S.x2),
+        ],
         Section(
           'Saved meals',
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: _meals.isEmpty
+            child: searching
+                ? Column(
+                    children: meals.isEmpty
+                        ? [none()]
+                        : [for (final m in meals) mealTile(m)],
+                  )
+                : _meals.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.symmetric(vertical: S.x4),
                     child: Text(
@@ -631,21 +688,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                       await MyFoods.reorderMeals(await LocalDb.instance, keys);
                       return null;
                     }),
-                    itemBuilder: (_, i) {
-                      final m = _meals[i];
-                      return SwipeDelete(
-                        key: ValueKey('meal-${m.key}'),
-                        onDelete: () => edit(() => _deleteMeal(c, m)),
-                        child: PickRow(
-                          m.label,
-                          '${mealName(m.meal)} · ${m.items.length} '
-                          'food${m.items.length == 1 ? '' : 's'}',
-                          trailing: LucideIcons.chevronRight,
-                          onTap: () =>
-                              edit(() => MealEditor.show(c, existing: m)),
-                        ),
-                      );
-                    },
+                    itemBuilder: (_, i) => mealTile(_meals[i]),
                   ),
           ),
           action: 'New',
@@ -655,7 +698,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           'My foods',
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: _foods.isEmpty
+            child: searching
+                ? Column(
+                    children: foods.isEmpty
+                        ? [none()]
+                        : [for (final f in foods) foodTile(f)],
+                  )
+                : _foods.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.symmetric(vertical: S.x4),
                     child: Text(
@@ -674,20 +723,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                       await MyFoods.reorderFoods(await LocalDb.instance, keys);
                       return null;
                     }),
-                    itemBuilder: (_, i) {
-                      final f = _foods[i];
-                      return SwipeDelete(
-                        key: ValueKey('food-${f['key']}'),
-                        onDelete: () => edit(() => _deleteFood(c, f)),
-                        child: PickRow(
-                          (f['label'] ?? '').toString(),
-                          foodServingLine(f),
-                          trailing: LucideIcons.chevronRight,
-                          onTap: () =>
-                              edit(() => FoodEditor.show(c, existing: f)),
-                        ),
-                      );
-                    },
+                    itemBuilder: (_, i) => foodTile(_foods[i]),
                   ),
           ),
           actions: Wrap(

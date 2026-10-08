@@ -1432,7 +1432,23 @@ class MyFoods {
       for (final e in entries)
         if (e.foodKey != null && e.quantity != null) e,
     ];
-    final items = [for (final e in kept) (e.foodKey!, e.quantity!)];
+    // A saved meal keeps ONE unit per food. The first entry of a food sets
+    // it; a later entry of the same food logged in another unit ("50 g" after
+    // "2 eggs") is converted into it, not stored as 50 eggs.
+    final units = <String, String>{};
+    final items = <(String, double)>[];
+    for (final e in kept) {
+      final key = e.foodKey!;
+      final unit = units.putIfAbsent(key, () => e.unit);
+      var amount = e.quantity!;
+      if (unit.toLowerCase() != e.unit.toLowerCase()) {
+        final def = await NutritionDb.foodDef(db, key);
+        final base = def == null ? null : toBase(def, amount, e.unit);
+        final per = def == null ? null : unitInBase(def, unit);
+        if (base != null && per != null && per > 0) amount = base / per;
+      }
+      items.add((key, amount));
+    }
     if (items.isNotEmpty) {
       await putMeal(
         db,
@@ -1441,10 +1457,7 @@ class MyFoods {
           label: label,
           meal: meal,
           items: items,
-          units: {
-            for (final e in entries)
-              if (e.foodKey != null) e.foodKey!: e.unit,
-          },
+          units: units,
           // Sub-headings travel with the saved meal.
           groups: [for (final e in kept) e.group],
         ),

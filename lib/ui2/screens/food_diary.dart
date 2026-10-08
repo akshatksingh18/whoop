@@ -256,6 +256,9 @@ Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) =>
       context: c,
       isScrollControlled: true,
       useSafeArea: true,
+      // The sheet closes through InputSheet (pull, handle, ✕), which can ask
+      // before discarding typed values; the route's own drag would not ask.
+      enableDrag: false,
       sheetAnimationStyle: sheetMotion(c),
       backgroundColor: P.of(c).card,
       shape: const RoundedRectangleBorder(
@@ -264,8 +267,11 @@ Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) =>
       builder: b,
     );
 
-Widget _body(BuildContext s, List<Widget> children) =>
-    InputSheet(children: children);
+Widget _body(
+  BuildContext s,
+  List<Widget> children, {
+  bool Function()? changed,
+}) => InputSheet(changed: changed, children: children);
 
 void _say(BuildContext c, String text) {
   final messenger = ScaffoldMessenger.maybeOf(c);
@@ -1265,8 +1271,19 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
 
   /// + on a saved meal: every item's amount reviewed first, then one Log.
   Future<void> _logMeal(MealTemplate m) async {
-    final review = await MealReviewSheet.show(context, m);
-    if (review == null || !mounted) return;
+    var edit = false;
+    final review = await MealReviewSheet.show(
+      context,
+      m,
+      onEdit: () => edit = true,
+    );
+    if (!mounted) return;
+    if (edit) {
+      await MealEditor.show(context, existing: m);
+      if (mounted) await _load();
+      return;
+    }
+    if (review == null) return;
     final n = await MyFoods.logMeal(
       await LocalDb.instance,
       m,
@@ -1478,14 +1495,14 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
       ),
     );
 
+    // Tap or + logs, as a food does: both open the review. Editing the
+    // saved meal is one step further, from the review.
+    final defs = {for (final f in _foods) f['key'] as String: f};
     Widget mealRow(MealTemplate m) => row(
       m.label,
-      '${m.items.length} food${m.items.length == 1 ? '' : 's'} · ${mealName(m.meal)}',
+      mealSummary(m, defs),
       () => _logMeal(m),
-      () async {
-        await MealEditor.show(context, existing: m);
-        await _load();
-      },
+      () => _logMeal(m),
       m.key,
       true,
     );
@@ -2078,6 +2095,19 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   /// Also keep it as a food in My foods, its serving being this weight (or one
   /// serving without one), so next time it logs from the list.
   bool _saveFood = false;
+
+  /// Everything typed, as one comparable value; [_start] is how it opened.
+  String get _snapshot => [
+    for (final t in [_name, _kcal, _p, _c, _f, _fibre, _grams]) t.text,
+    _saveFood,
+  ].join('\u0000');
+  late final String _start = _snapshot;
+
+  @override
+  void initState() {
+    super.initState();
+    _start; // fix the starting point before anything is typed
+  }
   bool _saving = false;
   String? _error;
   late String _meal = widget.meal;
@@ -2328,6 +2358,6 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         color: C.domFood,
         onTap: _saving ? null : _save,
       ),
-    ]);
+    ], changed: () => !_saving && _snapshot != _start);
   }
 }

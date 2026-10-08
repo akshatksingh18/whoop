@@ -23,6 +23,35 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 82: approved to build (Akshat)
+
+Akshat approved the drag fix and the three friction fixes, plus a saved-meal flow check, and
+later asked for build 82 to be built. Implemented:
+- **Drag auto-scroll:** holding a row near the top or bottom edge scrolls the page (My foods,
+  saved meals, the log screen, meal pages and the saved-meal editor). `DragEdgeScroll` in
+  `lib/ui2/grammar.dart` re-aims after each step and replays the finger so the drop slot follows.
+- **Ask before discarding:** Edit food, Quick add and the saved-meal editor ask "Discard changes?"
+  (Discard / Keep editing) when something was typed, on every way out (pull, handle, ✕, tap
+  above); an untouched sheet closes at once. The food sheets' route drag is off so nothing skips
+  the question.
+- **Food → Foods search:** filters saved meals and My foods by name (and brand); dragging is off
+  while searching, as on the log screen.
+- **Saved meals, made consistent with foods:**
+  - The editor's "Add a food" picker searches, shows each food's own serving line ("1 egg: 70
+    kcal…", not "per 100 g"), and stays open to add several foods ("Done · 2 added").
+  - On the log screen, tapping a saved meal logs it through the review, like tapping a food; the
+    review links to "Edit saved meal".
+  - Saved-meal rows show calories ("510 kcal · 2 foods · Breakfast") on Foods and the log screen.
+  - The review names empty headings "No sub-heading", like the editor; editor and review copy is
+    shorter.
+  - One unit per food: a meal holding the same food twice (2 eggs and 50 g of egg) converts copies
+    to one unit, in the editor and when saving from a meal card, instead of silently mis-scaling.
+- **Diagnostics for background sync and slow refresh** (`bugs.md`): the iPhone app log now
+  actually writes (`openstrap_sync.log` in Files → WHOOP); pull-to-refresh logs each stage's
+  finish time. Fixes for background spacing and the refresh spinner wait for that log.
+Validation: 12 affected test files (213 tests) pass, including `test/build82_test.dart` and a
+Foods search flow test; analysis has no errors or warnings.
+
 ## Build 81: published and built, awaiting installation
 
 Akshat installed build 80 and asked for a Quick add weight field, a review of the recovery score

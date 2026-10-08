@@ -212,6 +212,7 @@ const _notComponents = {
   // pieces exercised with real foods in build75_test and ui2_food_flow_test.
   'DayFoodPage', 'MealReviewSheet', 'AmountInput', 'DragList', 'SwipeDelete',
   'GroupedDragList',
+  'DragEdgeScroll',
   // Build 78: every session by month; reads the session store on open.
   'WorkoutHistoryScreen',
   // shell and routing

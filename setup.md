@@ -447,8 +447,17 @@ the personal-iOS check and contract tests; Linux CI `37717941508` ran the full s
 intentional skips) and passes; personal macOS build `37717959148` passes. Artifact
 `whoop-personal-cbaf93cd79bb-unsigned.ipa` (18,071,336 bytes), SHA-256
 `d925da01fbbf23acaaa9d4764a352887781823e961d35b9b978a480516f02105`, matches its checksum and manifest
-(`0.9.50`/`83`); ZIP and payload contract pass with no app extension. It is the sole testing candidate
-in `../final-ipas/whoop/testing/WHOOP-0.9.50-build83-cbaf93cd`, not yet installed. Install over build 82 with automatic
+(`0.9.50`/`83`); ZIP and payload contract pass with no app extension. Akshat installed it (his 7-8 Oct log came from it); build 84 replaced its testing folder.
+
+Build `0.9.51`/`84` (`todo.md`, "Build 84"): source `37241c1e62c0b7d8f36ba63dfbe876e44ee6bd38`,
+published with Akshat's approval. Local validation ran 311 tests across the affected files (including
+`test/build84_test.dart`), the personal-iOS check and contract tests, and analysis of `lib`/`test`;
+Linux CI `37780752762` ran the full suite (3,415 tests, 371 intentional skips) and passes; personal
+macOS build `37780753121` passes (it compiles the new MetricKit Swift). Artifact
+`whoop-personal-37241c1e62c0-unsigned.ipa` (18,080,596 bytes), SHA-256
+`9590edb185c5b34f01ffa5d674e69026f9adc8125564bec387f88ebde4d25978`, matches its checksum and manifest
+(`0.9.51`/`84`); ZIP and payload contract pass with no app extension. It is the sole testing candidate
+in `../final-ipas/whoop/testing/WHOOP-0.9.51-build84-37241c1e`, not yet installed. Install over build 83 with automatic
 bundle ID off and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol

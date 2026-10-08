@@ -23,7 +23,9 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 84 (`0.9.51`/`84`): approved to build (Akshat: "based on your judgment")
+## Build 84 (`0.9.51`/`84`): published and built, awaiting installation
+
+Build-84 source `0.9.51`/`84` (commit `37241c1e`) is published with Akshat's approval; Linux CI `37780752762` (3,415 tests, 371 intentional skips) and personal macOS build `37780753121` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.51-build84-37241c1e`.
 
 Akshat asked for the refresh/background plan plus food by macro and lifting, with no stale data,
 and reported Today's strain at 0.0 while Day strain showed a number. Implemented:
@@ -261,7 +263,7 @@ before deciding whether to implement it.
   around 10% (anchored so a typical diet stays 10%, rising toward ~14% on high-protein days), flat
   10% for entries without macros, alcohol not tracked. Not approved.
 
-## Build 83 (`0.9.50`/`83`): published and built, awaiting installation
+## Build 83 (`0.9.50`/`83`): installed (Akshat's 7-8 Oct log came from it)
 
 Build-83 source `0.9.50`/`83` (commit `cbaf93cd`) is published with Akshat's approval; Linux CI `37717941508` (3,408 tests, 371 intentional skips) and personal macOS build `37717959148` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.50-build83-cbaf93cd`.
 

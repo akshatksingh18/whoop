@@ -23,7 +23,9 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 85 (`0.9.52`/`85`): approved (Akshat), implemented locally
+## Build 85 (`0.9.52`/`85`): published and built, awaiting installation
+
+Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`; install over the installed build with automatic bundle ID off.
 
 Implemented as planned below; `build-85-audit.md` ("Implemented in build 85") lists every change.
 Two deliberate deviations: the day timeline keeps carrying last night over into today (a test
@@ -63,7 +65,7 @@ Plan:
    metric), runs keep pace per km; same distance and moving time, only the unit of the rate changes.
 6. Tests for every calculation path touched; full suite; build.
 
-## Build 84 (`0.9.51`/`84`): published and built, awaiting installation
+## Build 84 (`0.9.51`/`84`): published and built, not reported installed (superseded by build 85)
 
 Build-84 source `0.9.51`/`84` (commit `37241c1e`) is published with Akshat's approval; Linux CI `37780752762` (3,415 tests, 371 intentional skips) and personal macOS build `37780753121` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.51-build84-37241c1e`.
 

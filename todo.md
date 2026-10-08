@@ -23,7 +23,7 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 82: approved to build (Akshat)
+## Build 82: published and built, awaiting installation
 
 Akshat approved the drag fix and the three friction fixes, plus a saved-meal flow check, and
 later asked for build 82 to be built. Implemented:
@@ -49,17 +49,19 @@ later asked for build 82 to be built. Implemented:
 - **Diagnostics for background sync and slow refresh** (`bugs.md`): the iPhone app log now
   actually writes (`openstrap_sync.log` in Files → WHOOP); pull-to-refresh logs each stage's
   finish time. Fixes for background spacing and the refresh spinner wait for that log.
+Build-82 source `0.9.49`/`82` (commit `4b53abbe`) is published with Akshat's approval; Linux CI `37708103583` (3,406 tests, 371 intentional skips) and personal macOS build `37708104201` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.49-build82-4b53abbe`.
+Phone checks: drag a bottom food to the top in one hold; pull down a typed sheet and see "Discard changes?"; search Foods; build a saved meal adding several foods; tap a saved meal on the log screen to review and log; after an hour in the background, share `openstrap_sync.log` and do one pull-to-refresh.
 Validation: 12 affected test files (213 tests) pass, including `test/build82_test.dart` and a
 Foods search flow test; analysis has no errors or warnings.
 
-## Build 81: published and built, awaiting installation
+## Build 81: published and built, never installed (superseded by build 82)
 
 Akshat installed build 80 and asked for a Quick add weight field, a review of the recovery score
 (5 h 30 min still scored 88), sleep detection counting a cinema visit, and an end-to-end audit.
 `build-81-audit.md` owns the findings, research, his decisions and the implemented list
 ("Implemented in 0.9.48/81"). Sleep detection is unchanged by his decision. The Live Activity is
 removed: Sideloadly's free signing never provisions the extension (`bugs.md`).
-Build-81 source `0.9.48`/`81` (commit `d44c989f`) is published with Akshat's approval; Linux CI `37699481094` (3,398 tests, 371 intentional skips) and personal macOS build `37699482851` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension in the IPA. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.48-build81-d44c989f`.
+Build-81 source `0.9.48`/`81` (commit `d44c989f`) is published with Akshat's approval; Linux CI `37699481094` (3,398 tests, 371 intentional skips) and personal macOS build `37699482851` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension in the IPA. Its testing folder was replaced by build 82.
 Phone checks: Quick add shows all macros and a Weight (g) field; a weighed entry reads "· 250 g";
 "Save to My foods" adds the food and links the entry; Readiness shows a filled ring and a Sleep
 row in "What drove it", and a short night lowers the score; Sleep → Against your usual shows

@@ -428,9 +428,23 @@ analysis; Linux CI `37699481094` ran the full suite (3,398 tests, 371 intentiona
 personal macOS build `37699482851` passes. Artifact `whoop-personal-d44c989fbbca-unsigned.ipa`
 (18,065,570 bytes), SHA-256 `29ccb93f4fa1f0298f61321c8b43267cc2f0406cf37a20b306726a2d52c5a762`,
 matches its checksum and manifest (`0.9.48`/`81`); ZIP and payload contract pass, and the IPA carries
-no app extension (the Live Activity is removed). It is the sole testing candidate in
-`../final-ipas/whoop/testing/WHOOP-0.9.48-build81-d44c989f`, not yet installed. Install over build 80 with automatic
-bundle ID off and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
+no app extension (the Live Activity is removed). It was never installed; build 82 replaced its testing folder, and it is reproducible from run
+`37699482851`.
+
+Build `0.9.49`/`82` (`todo.md`, "Build 82"): source `4b53abbe21a0276063e267e5210ba49b639ff6a3`,
+published with Akshat's approval. Local validation ran the affected test files (213 tests across 12
+files, plus the refresh tests), the personal-iOS contract tests and analysis; Linux CI `37708103583`
+ran the full suite (3,406 tests, 371 intentional skips) and passes; personal macOS build
+`37708104201` passes. Artifact `whoop-personal-4b53abbe21a0-unsigned.ipa` (18,068,787 bytes),
+SHA-256 `4720476a8e9df7d32476ddde333e26889fde9a0f960d18c2a063f9220a688588`, matches its checksum
+and manifest (`0.9.49`/`82`); ZIP and payload contract pass with no app extension. It is the sole
+testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.49-build82-4b53abbe`, not yet installed. Install over
+build 80 with automatic bundle ID off and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70
+stays accepted recovery.
+
+Local note: the analytics package's own tests pass when run from the repo root; the protocol
+package's fixture tests fail there only because they open fixtures by a path relative to their
+package folder. CI runs neither.
 
 The superseded same-number candidate `78461799` was removed from the one-slot testing cache.
 It remains reproducible from native run `37388415503`, with SHA-256

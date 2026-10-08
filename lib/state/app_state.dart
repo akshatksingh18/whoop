@@ -814,10 +814,9 @@ class AppState extends ChangeNotifier {
         _deriveScheduler.pendingHeavy) {
       final today = _todayDerivedAt;
       if (today != null && !today.isBefore(pulledAt)) break;
-      if (DateTime.now().difference(pulledAt) >= pullTodayWait) {
-        notes.add('Still calculating; Today updates when it is done.');
-        break;
-      }
+      // Today re-reads by itself when its row lands (onDayDone), so a long
+      // calculation ends the pull quietly rather than with a message.
+      if (DateTime.now().difference(pulledAt) >= pullTodayWait) break;
       final snap = _deriveScheduler.snapshot();
       // Held work (a live workout, an offload still landing) will not drain
       // on this pull; stop waiting rather than spin to the cap.
@@ -826,10 +825,10 @@ class AppState extends ChangeNotifier {
         notes.add('Other totals update after the workout ends.');
         break;
       }
-      if (snap['background'] == true) {
-        notes.add('Other totals update when the app is open.');
-        break;
-      }
+      // Backgrounded mid-pull: the calculation resumes on its own when the
+      // app is open again, which is all this note ever said — and on screen it
+      // read as a broken refresh, so the pull just ends quietly.
+      if (snap['background'] == true) break;
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
     if (_derive.snapshot()['last_error'] != null) {
@@ -5811,15 +5810,16 @@ class AppState extends ChangeNotifier {
     final w = activeWorkout;
     if (w == null) return null;
     if (!isRunType(w.type) && !isWalkType(w.type)) {
-      // Conservative net estimate, as the step and distance methods are: the
-      // lower of net heart-rate and net activity energy (build 78).
+      // The one number every screen shows for this session: MET-only for
+      // lifting, the lower of heart rate and MET otherwise (sessionActiveKcal).
       final mins =
           (WorkoutClock.current?.activeSeconds() ?? w.elapsed.inSeconds) / 60;
-      return otherWorkoutActiveKcal(
+      return sessionActiveKcal(
         p: w.profile,
+        type: w.type,
         minutes: mins,
         meanHr: w.meanHr,
-        met: w.met == null ? null : conservativeMet(w.type, w.met!),
+        catalogueMet: w.met,
       )?.round();
     }
     final points = _routeTracker?.acceptedPoints;

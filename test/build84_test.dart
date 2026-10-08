@@ -2,6 +2,7 @@
 // the low-end digestion cost (walking_energy_test holds its exact table).
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/compute/day_upkeep.dart';
@@ -15,6 +16,8 @@ void main() {
   final nine = DateTime(2026, 10, 6, 9).millisecondsSinceEpoch ~/ 1000;
 
   setUpAll(() async {
+    // Sessions are priced at their dated profile, which reads preferences.
+    SharedPreferences.setMockInitialValues({});
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     LocalDb.dbName = 'build84.db';

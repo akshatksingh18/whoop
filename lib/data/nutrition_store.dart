@@ -109,6 +109,18 @@ Future<void> createNutritionTables(Database db) async {
   final foodCols = {
     for (final r in await db.rawQuery('PRAGMA table_info(food_def)')) r['name'],
   };
+  // A food's category ("Fruits"), chosen in the food editor and read by every
+  // food list's filter (build 85). Added in place; '' is uncategorised, so
+  // every existing food and log is untouched.
+  if (!foodCols.contains('category')) {
+    try {
+      await db.execute(
+        "ALTER TABLE food_def ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+      );
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
   if (!foodCols.contains('unit')) {
     await db.execute(
       "ALTER TABLE food_def ADD COLUMN unit TEXT NOT NULL DEFAULT 'g'",
@@ -825,7 +837,7 @@ class NutritionDb {
     // unless this write sets them. A new food goes to the top of the list.
     final old = await db.query(
       'food_def',
-      columns: ['pos', 'measures_json'],
+      columns: ['pos', 'measures_json', 'category'],
       where: 'key = ?',
       whereArgs: [def['key']],
       limit: 1,
@@ -843,6 +855,9 @@ class NutritionDb {
       'measures_json':
           def['measures_json'] ??
           (old.isEmpty ? '' : old.first['measures_json'] ?? ''),
+      'category':
+          def['category'] ??
+          (old.isEmpty ? '' : old.first['category'] ?? ''),
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     changed();
@@ -1061,6 +1076,7 @@ Map<String, Object?> myFoodDef({
   double? fibre,
   List<FoodMeasure>? measures,
   Map<String, double> measureCounts = const {},
+  String? category,
 }) {
   if (!refGrams.isFinite || refGrams <= 0) {
     throw ArgumentError('Serving amount must be positive.');
@@ -1086,7 +1102,44 @@ Map<String, Object?> myFoodDef({
     'source': 'manual',
     if (measures != null)
       'measures_json': encodeMeasures(measures, counts: measureCounts),
+    if (category != null) 'category': category.trim(),
   };
+}
+
+/// The categories a food can be filed under (build 85). Plain names, one per
+/// food; a food with none is "Uncategorised".
+const List<String> kFoodCategories = [
+  'Fruits',
+  'Vegetables',
+  'Protein',
+  'Dairy & eggs',
+  'Grains & bread',
+  'Snacks & sweets',
+  'Drinks',
+  'Supplements',
+  'Meals & dishes',
+];
+
+/// The filter name for foods with no category.
+const String kUncategorised = 'Uncategorised';
+
+/// A food's category, or [kUncategorised].
+String foodCategory(Map<String, Object?> def) {
+  final c = (def['category'] ?? '').toString().trim();
+  return c.isEmpty ? kUncategorised : c;
+}
+
+/// The categories present among [defs], in [kFoodCategories] order, with
+/// uncategorised last. The filter shows only these.
+List<String> foodCategoriesIn(Iterable<Map<String, Object?>> defs) {
+  final present = {for (final d in defs) foodCategory(d)};
+  return [
+    for (final c in kFoodCategories)
+      if (present.contains(c)) c,
+    for (final c in present)
+      if (!kFoodCategories.contains(c) && c != kUncategorised) c,
+    if (present.contains(kUncategorised)) kUncategorised,
+  ];
 }
 
 /// A named household measure of a food and what it weighs: "scoop = 29 g".

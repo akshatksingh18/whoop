@@ -116,7 +116,29 @@ class _AppShellState extends State<AppShell> {
     final p = P.of(c);
     return Scaffold(
       backgroundColor: p.bg,
-      body: SafeArea(
+      body: Stack(
+        children: [
+          // Build 85: the page's top light in the tab's own colour, behind
+          // everything — the first sign of which pillar a page belongs to.
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            height: 320,
+            child: IgnorePointer(
+              child: AnimatedContainer(
+                duration: motion(c, Motion.slow),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [p.glow(_current.accent), p.bg.withValues(alpha: 0)],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
         bottom: false,
         child: Column(
           children: [
@@ -141,6 +163,8 @@ class _AppShellState extends State<AppShell> {
           ],
         ),
       ),
+        ],
+      ),
       bottomNavigationBar: _TabBar(current: _current, onTap: _select),
     );
   }
@@ -163,7 +187,11 @@ class _TabBar extends StatelessWidget {
         minimum: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x2),
         child: Container(
           height: 62,
-          decoration: BoxDecoration(color: p.card, borderRadius: R.rXl),
+          decoration: BoxDecoration(
+            gradient: p.cardFace,
+            borderRadius: R.rXl,
+            border: Border.all(color: p.edge),
+          ),
           child: Row(
             children: [
               for (final d in ShellDomain.values)
@@ -201,7 +229,20 @@ class _Tab extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(domain.icon, size: 21, color: ink),
+            // The current tab sits in a capsule of its own colour.
+            AnimatedContainer(
+              duration: motion(c, Motion.base),
+              padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: 3),
+              decoration: BoxDecoration(
+                color: on ? p.wash(domain.accent) : const Color(0x00000000),
+                borderRadius: R.rPill,
+              ),
+              child: Icon(
+                domain.icon,
+                size: 20,
+                color: on ? p.on(domain.accent) : ink,
+              ),
+            ),
             const SizedBox(height: 3),
             Text(
               domain.label,

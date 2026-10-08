@@ -227,6 +227,41 @@ double? runFloorKcal({
   return (kcal: kcal, measured: measured, slots: slots);
 }
 
+/// Active (net) kcal for any non-walking, non-running session, the ONE number
+/// every screen shows for it (build 85).
+///
+/// Strength ([isLiftType]) is priced by MET alone: (MET − 1) × kg × active
+/// hours, with [conservativeMet] (3.5 for weight training, the lowest
+/// resistance-training value in the 2024 Compendium). Heart rate is not used:
+/// at a given heart rate lifting burns less than steady exercise, so it would
+/// overstate, and Keytel was built on 57-90% of max heart rate, so below that
+/// it understates. Sets and rests are priced together, as the Compendium's
+/// whole-session averages are; the band cannot isolate a 15-second set.
+/// Other sessions keep [otherWorkoutActiveKcal] (the lower of heart rate and
+/// MET). Null without the inputs.
+double? sessionActiveKcal({
+  required Profile p,
+  required String? type,
+  required double minutes,
+  double? meanHr,
+  double? catalogueMet,
+}) {
+  if (isLiftType(type)) {
+    final key = type!.toLowerCase().replaceAll(' ', '_');
+    final w = p.weightKg;
+    if (w == null || !minutes.isFinite || minutes <= 0) return null;
+    return math.max(0.0, conservativeMet(key, 0) - 1) * w * minutes / 60;
+  }
+  return otherWorkoutActiveKcal(
+    p: p,
+    minutes: minutes,
+    meanHr: meanHr,
+    met: catalogueMet == null || type == null
+        ? null
+        : conservativeMet(type.toLowerCase().replaceAll(' ', '_'), catalogueMet),
+  );
+}
+
 /// The strength workouts the maintenance sheet's separate Lifting line counts:
 /// exactly the types [conservativeMet] prices as strength work.
 const Set<String> kLiftTypeKeys = {

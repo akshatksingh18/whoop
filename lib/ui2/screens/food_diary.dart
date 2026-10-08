@@ -1187,6 +1187,9 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
   late String _meal = widget.meal;
   String? _group;
   int _tab = 0;
+
+  /// My foods' category filter (the one Food → Foods uses); null is All.
+  String? _cat;
   final _q = TextEditingController();
   List<MealTemplate> _meals = const [];
   List<Map<String, Object?>> _foods = const [];
@@ -1405,8 +1408,9 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
     bool hit(String s) => q.isEmpty || s.toLowerCase().contains(q);
     // One order, Akshat's own (dragged here or on Food → Foods). Search
     // filters it without changing it; dragging is off while searching.
+    if (_cat != null && !foodCategoriesIn(_foods).contains(_cat)) _cat = null;
     final foods = [
-      for (final f in _foods)
+      for (final f in foodsIn(_foods, _cat))
         if (hit('${f['label']}')) f,
     ];
     final meals = [
@@ -1519,7 +1523,8 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
       f['key'] as String,
       false,
     );
-    final searching = q.isNotEmpty;
+    // Dragging needs the whole list, so a filtered list is plain.
+    final searching = q.isNotEmpty || (_tab == 0 && _cat != null);
     final list = <Widget>[
       if (_tab == 1) ...[
         if (meals.isEmpty)
@@ -1644,6 +1649,12 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
               color: C.domFood,
             ),
             const SizedBox(height: S.x2),
+            if (_tab == 0)
+              FoodCategoryFilter(
+                foods: _foods,
+                selected: _cat,
+                onSelect: (cat) => setState(() => _cat = cat),
+              ),
             Text(
               'Hold a row to drag it into your own order. Swipe to delete.',
               style: F.over.copyWith(color: p.ink3),

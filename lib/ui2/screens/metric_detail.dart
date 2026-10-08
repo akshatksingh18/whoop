@@ -39,6 +39,9 @@ const kRangeLabels = ['Today', '7 days', '30 days', '3 months'];
 
 // ═══════════════════ the vocabulary ═══════════════════
 
+/// Days a "normal range" needs before it is shown.
+const int kNormalRangeMinDays = 7;
+
 /// What a metric key means on screen, and whether we are willing to draw it.
 class MetricSpec {
   /// The alias `getChart` / `getTrend` understand (`_trendKey` maps it on).
@@ -176,9 +179,9 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.flame,
     color: C.green,
     method:
-        'Active walking calories from counted steps, using the day’s weight. '
-        'Running steps are accounted for separately. This is the Steps part '
-        'already included in maintenance; resting calories are in BMR.',
+        'Budget: counted steps × the day’s weight (Weyand). ACSM: the same '
+        'walking by distance. Steps taken in runs are priced with the run. '
+        'This is the walking part of maintenance; resting is separate.',
   ),
   'steps': MetricSpec(
     chartKey: 'steps',
@@ -1007,16 +1010,19 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         // highest would all be that same number. The normal range is a
         // property of your history, not of the window — so on Today it reads
         // the whole series.
-        Section(
-          l?.metricDetailNormalRangeSection ?? 'Your normal range',
-          _range3(
-            c,
-            spec,
-            win == 1 ? valuesOf(all) : vals,
-            d.percentile,
-            all.isEmpty ? null : all.last.t,
+        // A range needs a week of days; from one or two it printed the same
+        // number as Lowest, Typical and Highest.
+        if ((win == 1 ? valuesOf(all) : vals).length >= kNormalRangeMinDays)
+          Section(
+            l?.metricDetailNormalRangeSection ?? 'Your normal range',
+            _range3(
+              c,
+              spec,
+              win == 1 ? valuesOf(all) : vals,
+              d.percentile,
+              all.isEmpty ? null : all.last.t,
+            ),
           ),
-        ),
         if (const ['steps', 'step_kcal'].contains(widget.metricKey)) ...[
           const SizedBox(height: S.x3),
           detailLinkRow(
@@ -1109,8 +1115,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                     ? null
                     : values.reduce((a, b) => a + b) / values.length;
               }(),
-              note:
-                  'Active walking energy; running steps are excluded. ACSM uses estimated distance.',
+              note: '',
             )
           else
             Wrap(
@@ -2055,7 +2060,28 @@ Widget detailScaffold(
   final p = P.of(c);
   return Scaffold(
     backgroundColor: p.bg,
-    body: SafeArea(
+    body: Stack(
+      children: [
+        // The same top light the tabs have (build 85), neutral here: a detail
+        // screen belongs to whichever pillar opened it.
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          height: 240,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [p.glow(C.n400), p.bg.withValues(alpha: 0)],
+                ),
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
       child: Column(
         children: [
           Padding(
@@ -2075,6 +2101,8 @@ Widget detailScaffold(
           ),
         ],
       ),
+    ),
+      ],
     ),
   );
 }
@@ -2249,10 +2277,20 @@ Widget detailLinkRow(
     semanticLabel: '$title: $sub',
     child: Container(
       padding: const EdgeInsets.all(S.x4),
-      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      decoration: BoxDecoration(
+        gradient: p.cardFace,
+        borderRadius: R.rLg,
+        border: Border.all(color: p.edge),
+      ),
       child: Row(
         children: [
-          Icon(icon, size: 17, color: p.ink3),
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+            child: Icon(icon, size: 16, color: p.ink2),
+          ),
           const SizedBox(width: S.x3),
           Expanded(
             child: Column(

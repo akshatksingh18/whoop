@@ -78,6 +78,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   late final _foodQuery = TextEditingController()
     ..addListener(() => setState(() {}));
 
+  /// The Foods tab's category filter; null is All.
+  String? _foodCat;
+
   NutritionWindow? _month;
   List<String> _historyMonths = const [];
   bool _failed = false, _calorieLoading = false, _calorieFailed = false;
@@ -612,15 +615,23 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     }
 
     final q = _foodQuery.text.trim();
-    final searching = q.isNotEmpty;
+    // A category no food carries any more (it was edited away) is All.
+    if (_foodCat != null && !foodCategoriesIn(_foods).contains(_foodCat)) {
+      _foodCat = null;
+    }
+    // Filtered lists are plain: dragging to reorder needs the full list.
+    final searching = q.isNotEmpty || _foodCat != null;
     final defs = {for (final f in _foods) f['key'] as String: f};
     final meals = searching
         ? [for (final m in _meals) if (nameMatches(m.label, q)) m]
         : _meals;
     final foods = searching
         ? [
-            for (final f in _foods)
-              if (nameMatches(f['label'], q) || nameMatches(f['brand'], q)) f,
+            for (final f in foodsIn(_foods, _foodCat))
+              if (q.isEmpty ||
+                  nameMatches(f['label'], q) ||
+                  nameMatches(f['brand'], q))
+                f,
           ]
         : _foods;
     Widget mealTile(MealTemplate m) => SwipeDelete(
@@ -658,7 +669,14 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             hint: 'Oats, eggs, breakfast…',
           ),
           const SizedBox(height: S.x2),
+          FoodCategoryFilter(
+            foods: _foods,
+            selected: _foodCat,
+            onSelect: (cat) => setState(() => _foodCat = cat),
+          ),
         ],
+        // Saved meals carry no category, so a category filter shows foods only.
+        if (_foodCat == null)
         Section(
           'Saved meals',
           Surface(
@@ -938,6 +956,10 @@ class CalorieCard extends StatelessWidget {
     final food = eaten ?? 0;
     final g = goal;
     final left = g == null ? null : g - food;
+    final over = left != null && left < 0;
+    final hasGoal = g != null && g > 0;
+    // Build 85: what is left is the headline, inside a ring that fills as
+    // the day is eaten; eaten and the goal sit beside it.
     return Surface(
       onTap: onTap,
       semanticLabel: onTap == null ? null : 'Calories. Opens the whole day',
@@ -960,70 +982,84 @@ class CalorieCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: S.x3),
-          // Eaten / goal on the left, what is left at the far right. Full
-          // width so spaceBetween has room to push them apart; a Wrap so at the
-          // largest text sizes the two stack instead of pushing off the card.
-          SizedBox(
-            width: double.infinity,
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.end,
-              spacing: S.x3,
-              runSpacing: S.x2,
-              children: [
-                Wrap(
-                  spacing: S.x1,
-                  crossAxisAlignment: WrapCrossAlignment.end,
-                  children: [
-                    Text(thousands(food), style: F.n34.copyWith(color: p.ink)),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: S.x1),
-                      child: Text(
-                        g == null || g <= 0
-                            ? 'kcal eaten'
-                            : 'kcal / ${thousands(g)}',
-                        style: F.cap.copyWith(color: p.ink3),
-                      ),
-                    ),
-                  ],
-                ),
-                if (left != null)
-                  Wrap(
-                    spacing: S.x1,
-                    crossAxisAlignment: WrapCrossAlignment.end,
+          Row(
+            children: [
+              if (hasGoal) ...[
+                SizedBox(
+                  width: 92,
+                  height: 92,
+                  child: Stack(
+                    alignment: Alignment.center,
                     children: [
-                      Text(
-                        thousands(left.abs()),
-                        style: F.n24.copyWith(
-                          color: left < 0 ? p.on(C.red) : p.ink,
+                      CustomPaint(
+                        size: Size.infinite,
+                        painter: Ring(
+                          (food / g).clamp(0.0, 1.0).toDouble(),
+                          over ? C.red : C.domFood,
+                          p.track,
+                          stroke: 9,
+                          t: animate(c, 1),
+                          solid: true,
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(
-                          left < 0 ? 'over' : 'left',
-                          style: F.cap.copyWith(color: p.ink3),
-                        ),
+                      Text(
+                        '${(food / g * 100).clamp(0, 999).round()}%',
+                        style: F.n17.copyWith(color: p.ink),
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(width: S.x5),
               ],
-            ),
-          ),
-          if (g != null && g > 0) ...[
-            const SizedBox(height: S.x3),
-            ClipRRect(
-              borderRadius: R.rPill,
-              child: LinearProgressIndicator(
-                value: (food / g).clamp(0.0, 1.0).toDouble(),
-                minHeight: 8,
-                backgroundColor: p.track,
-                valueColor: AlwaysStoppedAnimation(
-                  p.on(left != null && left < 0 ? C.red : C.domFood),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (left != null)
+                      Wrap(
+                        spacing: S.x1,
+                        crossAxisAlignment: WrapCrossAlignment.end,
+                        children: [
+                          Text(
+                            thousands(left.abs()),
+                            style: F.n34.copyWith(
+                              color: over ? p.on(C.red) : p.ink,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: S.x1),
+                            child: Text(
+                              over ? 'over' : 'left',
+                              style: F.cap.copyWith(color: p.ink3),
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: S.x2),
+                    Wrap(
+                      spacing: S.x1,
+                      crossAxisAlignment: WrapCrossAlignment.end,
+                      children: [
+                        Text(
+                          thousands(food),
+                          style: (left == null ? F.n34 : F.n17).copyWith(
+                            color: p.ink,
+                          ),
+                        ),
+                        Text(
+                          g == null || g <= 0
+                              ? 'kcal eaten'
+                              : 'kcal / ${thousands(g)}',
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ] else ...[
+            ],
+          ),
+          if (!hasGoal) ...[
             const SizedBox(height: S.x2),
             Text(
               'Set a calorie goal with the target button above.',
@@ -1036,7 +1072,8 @@ class CalorieCard extends StatelessWidget {
   }
 }
 
-/// Protein, carbs, fat and fibre eaten against their targets.
+/// Protein, carbs, fat and fibre eaten against their targets: four tiles,
+/// two by two, each its own colour and bar (build 85).
 class MacroCard extends StatelessWidget {
   const MacroCard({super.key, required this.day, required this.profile});
 
@@ -1045,6 +1082,7 @@ class MacroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final p = P.of(c);
     final rows = [
       (
         'Protein',
@@ -1056,28 +1094,98 @@ class MacroCard extends StatelessWidget {
       ('Fat', day.fat.value, _targetOf(profile, 'fat_target'), C.yellow),
       ('Fibre', day.fibre.value, _targetOf(profile, 'fibre_target'), C.green),
     ];
+    Widget tile((String, double?, double?, Color) r) {
+      final (name, v, target, color) = r;
+      final frac = target == null || target <= 0
+          ? 0.0
+          : ((v ?? 0) / target).clamp(0.0, 1.0).toDouble();
+      return Container(
+        padding: const EdgeInsets.all(S.x3),
+        decoration: BoxDecoration(
+          color: p.card2,
+          borderRadius: R.rLg,
+          border: Border.all(color: p.edge),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: p.on(color),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: S.x1),
+                Expanded(
+                  child: Text(name, style: F.cap.copyWith(color: p.ink2)),
+                ),
+              ],
+            ),
+            const SizedBox(height: S.x2),
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '${(v ?? 0).round()} g',
+                    style: F.n17.copyWith(color: p.ink),
+                  ),
+                  if (target != null)
+                    TextSpan(
+                      text: '  of ${target.round()} g',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: S.x2),
+            ClipRRect(
+              borderRadius: R.rPill,
+              child: SizedBox(
+                height: 6,
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: ColoredBox(color: p.track)),
+                    FractionallySizedBox(
+                      widthFactor: frac,
+                      child: ColoredBox(
+                        color: p.on(color),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget pair(int i) => IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: tile(rows[i])),
+          const SizedBox(width: S.x2),
+          Expanded(child: tile(rows[i + 1])),
+        ],
+      ),
+    );
     return Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) const SizedBox(height: S.x3),
-            ProgressCard(
-              rows[i].$1,
-              '${(rows[i].$2 ?? 0).round()} g',
-              rows[i].$3 == null ? '' : 'of ${rows[i].$3!.round()} g',
-              rows[i].$3 == null || rows[i].$3! <= 0
-                  ? 0
-                  : ((rows[i].$2 ?? 0) / rows[i].$3!)
-                        .clamp(0.0, 1.0)
-                        .toDouble(),
-              rows[i].$4,
-            ),
-          ],
+          pair(0),
           const SizedBox(height: S.x2),
+          pair(2),
+          const SizedBox(height: S.x3),
           Text(
             'Logged macros only · blank values are not tracked',
-            style: F.over.copyWith(color: P.of(c).ink3),
+            style: F.over.copyWith(color: p.ink3),
           ),
         ],
       ),
@@ -1524,6 +1632,9 @@ Future<List<RunSummary>> _allRuns(LocalRepository? repo) async =>
 /// line in the sheet and is never added.
 /// The day's maintenance as a floor, shown beside the food and never changing
 /// the calorie goal. Tap for what each part is.
+///
+/// Build 85: the two methods side by side, the Budget day as one stacked bar,
+/// and eaten-against-Budget as the card's own row instead of a grey caption.
 class MaintenanceCard extends StatelessWidget {
   const MaintenanceCard(this.upkeep, {super.key, this.today = false});
 
@@ -1542,14 +1653,13 @@ class MaintenanceCard extends StatelessWidget {
       );
     }
     final eaten = upkeep.eaten;
-    final diff = eaten - m.total;
     return Surface(
       onTap: () => showMaintenance(c, upkeep, today: today),
       semanticLabel:
           'Maintenance ${thousands(m.total)} kcal. Shows how it is '
           'worked out.',
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
@@ -1562,38 +1672,42 @@ class MaintenanceCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Icon(LucideIcons.info, size: 16, color: p.ink3),
+              Tag(upkeep.distanceTag, icon: LucideIcons.ruler),
+              const SizedBox(width: S.x2),
+              Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
             ],
           ),
-          const SizedBox(height: S.x2),
-          CaloriePair(
-            budget: m.total,
-            acsm: upkeep.acsmParts?.total,
-            note:
-                'Whole-day resting energy + movement and food logged. ${upkeep.distanceSource}.',
-          ),
           const SizedBox(height: S.x3),
-          InlineMetrics([
-            ('BMR', thousands(m.bmr), C.steps),
-            ('STEPS', thousands(m.steps), C.green),
-            if (upkeep.runs.count > 0) ('RUNNING', thousands(m.run), C.run),
-            ('DIGESTION', thousands(m.food), C.domFood),
-          ]),
+          CaloriePair(budget: m.total, acsm: upkeep.acsmParts?.total, note: ''),
+          const SizedBox(height: S.x4),
+          StackedBar(budgetSegments(upkeep)),
           if (eaten > 0) ...[
-            const SizedBox(height: S.x3),
-            Text(
-              'Eaten ${thousands(eaten)} · ${thousands(diff.abs())} '
-              '${diff > 0 ? 'over' : 'under'} Budget maintenance'
+            const SizedBox(height: S.x4),
+            CompareRow(
+              leftLabel: 'Eaten',
+              left: eaten,
+              rightLabel: 'Budget',
+              right: m.total,
               // Today's resting energy is the whole day's, but steps and food
               // are only so far, so the gap closes as the day goes on.
-              '${today ? ' so far' : ''}',
-              style: F.cap.copyWith(color: p.ink2),
+              suffix: today ? ' so far' : '',
             ),
           ],
         ],
       ),
     );
   }
+}
+
+/// The Budget day's parts for [StackedBar], in one fixed order and colour.
+List<(String, double, Color)> budgetSegments(DayUpkeep u) {
+  final m = u.parts!;
+  return [
+    ('Resting', m.bmr, C.steps),
+    ('Walking', m.steps, C.green),
+    if (u.runs.count > 0) ('Running', m.run, C.run),
+    ('Digestion', m.food, C.domFood),
+  ];
 }
 
 /// What each part of maintenance is and the numbers it came from, one short
@@ -1678,6 +1792,7 @@ Widget _maintenanceContents(
       'Add age, height and weight.',
     );
   }
+  final a = u.acsmParts;
   final pr = u.profile;
   String kg(double? w) => w == null
       ? ''
@@ -1685,44 +1800,23 @@ Widget _maintenanceContents(
             ? '${w.round()} kg'
             : '${w.toStringAsFixed(1)} kg');
   final walked = u.walkedSteps;
-  final rows = <(String, double, String)>[
-    (
-      'Resting',
-      m.bmr,
-      'What your body burns at rest over a whole day, from age '
-          '${pr.ageYears}, ${pr.heightCm?.toStringAsFixed(1)} cm and '
-          '${kg(pr.weightKg)}.',
-    ),
-    (
-      'Steps',
-      m.steps,
-      walked == null
-          ? 'No steps counted yet.'
-          : u.runs.steps > 0
-          ? '${thousands(walked)} steps outside your '
-                '${u.runs.count == 1 ? 'run' : 'runs'}, at ${kg(pr.weightKg)}.'
-          : '${thousands(walked)} steps at ${kg(pr.weightKg)}.',
-    ),
-    if (u.runs.count > 0)
-      (
-        'Running',
-        m.run,
-        '${u.runs.km.toStringAsFixed(2)} km in ${u.runs.count} '
-            '${u.runs.count == 1 ? 'run' : 'runs'}: conservative distance energy '
-            'costs using each workout’s recorded weight.',
-      ),
-    (
-      'Digestion',
-      m.food,
-      u.eaten > 0
-          ? 'Digesting the ${thousands(u.eaten)} kcal you logged, at the low '
-                'end: 20% of protein, 5% of carbs, none of fat, 5% of food '
-                'without macros.'
-          : 'Nothing logged yet.',
-    ),
-  ];
   final lift = u.lifting;
   final p = P.of(c);
+  // Each column lists its own parts, so neither method borrows a breakdown.
+  final budgetParts = <(String, double)>[
+    ('Resting', m.bmr),
+    ('Walking', m.steps),
+    if (u.runs.count > 0) ('Running', m.run),
+    ('Digestion', m.food),
+  ];
+  final acsmParts = a == null
+      ? const <(String, double)>[]
+      : <(String, double)>[
+          ('Resting', a.bmr),
+          ('Walking', a.steps),
+          if (u.runs.count > 0) ('Running', a.run),
+          ('Digestion', a.food),
+        ];
   return SafeArea(
     child: SingleChildScrollView(
       padding: const EdgeInsets.all(S.x5),
@@ -1732,80 +1826,122 @@ Widget _maintenanceContents(
         children: [
           if (error != null)
             Text(error, style: F.cap.copyWith(color: p.on(C.red))),
-          Text('Daily maintenance', style: F.head.copyWith(color: p.ink)),
-          const SizedBox(height: S.x1),
+          Text('Daily maintenance', style: F.t2.copyWith(color: p.ink)),
+          const SizedBox(height: S.x2),
+          Wrap(
+            spacing: S.x2,
+            runSpacing: S.x2,
+            children: [
+              Tag(u.distanceTag, icon: LucideIcons.ruler),
+              Tag(
+                today ? 'Resting all day · food and steps so far' : 'Whole day',
+                icon: LucideIcons.clock,
+              ),
+              if (u.overlapUnknown)
+                const Tag('Run steps overlap unknown', icon: LucideIcons.info),
+            ],
+          ),
+          const SizedBox(height: S.x5),
           CaloriePair(
             budget: m.total,
-            acsm: u.acsmParts?.total,
-            note: u.distanceSource,
+            acsm: a?.total,
+            note: '',
+            budgetParts: budgetParts,
+            acsmParts: acsmParts,
           ),
-          if (u.acsmParts case final a?) ...[
-            const SizedBox(height: S.x3),
-            Text(
-              'ACSM movement: walking ${thousands(a.steps)} · running ${thousands(a.run)} kcal',
-              style: F.cap.copyWith(color: p.ink2),
-            ),
-          ],
-          const SizedBox(height: S.x3),
-          Text('Budget breakdown', style: F.head.copyWith(color: p.ink)),
-          for (final (name, kcal, why) in rows) ...[
+          const SizedBox(height: S.x5),
+          StackedBar(budgetSegments(u)),
+          if (u.eaten > 0) ...[
             const SizedBox(height: S.x4),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    name,
-                    style: F.body.copyWith(
-                      color: p.ink,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${thousands(kcal)} kcal',
-                  style: F.n17.copyWith(color: p.ink),
-                ),
-              ],
+            CompareRow(
+              leftLabel: 'Eaten',
+              left: u.eaten,
+              rightLabel: 'Budget',
+              right: m.total,
+              suffix: today ? ' so far' : '',
             ),
-            const SizedBox(height: 2),
-            Text(why, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
           ],
           if (lift != null) ...[
             const SizedBox(height: S.x5),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Lifting (extra, not in maintenance)',
-                    style: F.body.copyWith(
-                      color: p.ink,
-                      fontWeight: FontWeight.w600,
-                    ),
+            // Shown, never added: its own card under the total, in the
+            // strength colour, saying so in its title.
+            Container(
+              padding: const EdgeInsets.all(S.x4),
+              decoration: BoxDecoration(
+                color: p.wash(C.domMove),
+                borderRadius: R.rLg,
+                border: Border.all(color: p.edge),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        LucideIcons.dumbbell,
+                        size: 16,
+                        color: p.on(C.domMove),
+                      ),
+                      const SizedBox(width: S.x2),
+                      Expanded(
+                        child: Text(
+                          'Lifting (extra, not in maintenance)',
+                          style: F.cap.copyWith(
+                            color: p.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '+${thousands(lift.kcal)} kcal',
+                        style: F.n17.copyWith(color: p.on(C.domMove)),
+                      ),
+                    ],
                   ),
-                ),
-                Text(
-                  '+${thousands(lift.kcal)} kcal',
-                  style: F.n17.copyWith(color: p.ink),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '${lift.sessions} ${lift.sessions == 1 ? 'session' : 'sessions'}, '
-              'the lower of heart-rate and activity estimates, less steps '
-              'already counted'
-              '${lift.approximate ? ' (steps unknown, approximate)' : ''}. '
-              'With lifting ${thousands(m.total + lift.kcal)} kcal.',
-              style: F.cap.copyWith(color: p.ink2, height: 1.4),
+                  const SizedBox(height: S.x2),
+                  Wrap(
+                    spacing: S.x2,
+                    runSpacing: S.x2,
+                    children: [
+                      Tag(
+                        '${lift.sessions} '
+                        '${lift.sessions == 1 ? 'session' : 'sessions'}',
+                      ),
+                      Tag('With lifting ${thousands(m.total + lift.kcal)}'),
+                      if (lift.approximate)
+                        const Tag('Steps unknown · approximate'),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
-          const SizedBox(height: S.x5),
-          Text(
-            'Resting all day, plus movement and food logged so far. Lifting '
-            'and heart-rate estimates are not added.'
-            '${u.overlapUnknown ? " Run-step overlap unknown: the larger movement figure is used." : ""}',
-            style: F.cap.copyWith(color: p.ink3, height: 1.4),
-          ),
+          const SizedBox(height: S.x4),
+          // Keyed: a reload that adds or drops a row above keeps it open.
+          Explain(key: const ValueKey('maintenance-how'), [
+            'Resting: Mifflin–St Jeor for the whole day, from age '
+                '${pr.ageYears}, ${pr.heightCm?.toStringAsFixed(1)} cm and '
+                '${kg(pr.weightKg)}.',
+            walked == null
+                ? 'Walking: no steps counted yet.'
+                : 'Walking, Budget: ${thousands(walked)} steps'
+                      '${u.runs.steps > 0 ? ' outside your runs' : ''} × '
+                      '${kg(pr.weightKg)} (Weyand). ACSM prices the same '
+                      'walking by distance.',
+            if (u.runs.count > 0)
+              'Running: ${u.runs.km.toStringAsFixed(2)} km in ${u.runs.count} '
+                  '${u.runs.count == 1 ? 'run' : 'runs'}, by distance at each '
+                  "run's recorded weight (Method 1 and ACSM).",
+            u.eaten > 0
+                ? 'Digestion, low end: protein 20%, carbs 5%, fat 0% '
+                      '(5% for food without macros), on the '
+                      '${thousands(u.eaten)} kcal logged.'
+                : 'Digestion: nothing logged yet.',
+            if (lift != null)
+              'Lifting: 3.5 MET above resting × weight × active time (start '
+                  'to stop, minus pauses), less steps already counted. Heart '
+                  'rate is not used. Never added to maintenance.',
+          ]),
         ],
       ),
     ),

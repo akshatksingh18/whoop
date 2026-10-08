@@ -213,6 +213,9 @@ const _notComponents = {
   'DayFoodPage', 'MealReviewSheet', 'AmountInput', 'DragList', 'SwipeDelete',
   'GroupedDragList',
   'DragEdgeScroll',
+  // Build 85: the food-category filter over a food list; exercised with real
+  // foods in build85_test.
+  'FoodCategoryFilter',
   // Build 78: every session by month; reads the session store on open.
   'WorkoutHistoryScreen',
   // shell and routing

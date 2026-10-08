@@ -23,6 +23,46 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 85 (`0.9.52`/`85`): approved (Akshat), implemented locally
+
+Implemented as planned below; `build-85-audit.md` ("Implemented in build 85") lists every change.
+Two deliberate deviations: the day timeline keeps carrying last night over into today (a test
+pins it; it labels itself with its own day start), and the share card keeps pace for walks.
+Phone checks: Lift setup says about 101 kcal per 30 active min at 80.5 kg and the live screen,
+summary and Train list agree; Today shows "Updated hh:mm"; Day strain never shows yesterday's
+number as today; Food → Foods, the log screen and the saved-meal picker filter by category once
+two categories exist; a walk shows km/h; the maintenance sheet shows Budget and ACSM columns,
+the stacked bar, Eaten vs Budget and the folded explanation; no refresh message appears.
+
+Akshat's decisions on `build-85-audit.md`: lifting by exercise type only at 3.5 MET, heart rate as
+context, one number everywhere, never in maintenance; keep the digestion floor with a cleaner line;
+the two-column Budget (Method 1) | ACSM block everywhere; "Updated" times; Day strain never showing
+yesterday as today; fix every stale/mismatched item; a complete UI makeover in one build (he
+reviews on the phone, no before/after images); food categories that sync across Foods, the log
+screen and pickers; remove the "Other totals update when the app is open." refresh note. Data
+must stay exactly as calculated: logged foods, maintenance, digestion and steps unchanged except
+where a decision changes them (lifting).
+Plan:
+1. **Lifting:** net (3.5 − 1) × kg × active hours (start to stop minus pauses) on setup preview,
+   live, summary, Train list and the maintenance Lifting line; heart rate shown, never priced;
+   no gross 6.0 fallback. Sets and rests are priced together: Compendium values are whole-session
+   averages, and the band cannot see 15-second sets (wrist orientation once a second; heart rate
+   lags a set by 20-60 s), so a split would be invented.
+2. **Stale/mismatch fixes:** Day strain shows "not calculated yet" for today instead of the latest
+   older day; Train list uses active time; Lifting footer wording; "normal range" only from 7 days;
+   duplicated captions removed; "Updated hh:mm" stamps; sync-log counts labelled per connection;
+   the background refresh note removed.
+3. **Food categories:** `food_def.category` added in place (empty = Uncategorised, no schema
+   bump); chosen in the food editor; filter chips on Food → Foods, the log screen's My foods and
+   the saved-meal picker, all reading the same field.
+4. **Makeover:** new shared design pieces (layered cards with hairline edge, section headers with
+   overline, status chips, stat tiles, two-method block, stacked maintenance bar, comparison row,
+   expandable "How it's worked out", updated stamp) and restructured Today, Food, maintenance
+   sheet, Steps/Step calories, Train/workout screens, Trends and detail headers.
+5. **Walks in km/h:** live, summary and history show a walk's speed as km/h (Strava's walking
+   metric), runs keep pace per km; same distance and moving time, only the unit of the rate changes.
+6. Tests for every calculation path touched; full suite; build.
+
 ## Build 84 (`0.9.51`/`84`): published and built, awaiting installation
 
 Build-84 source `0.9.51`/`84` (commit `37241c1e`) is published with Akshat's approval; Linux CI `37780752762` (3,415 tests, 371 intentional skips) and personal macOS build `37780753121` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.51-build84-37241c1e`.

@@ -164,6 +164,10 @@ class RunView {
 String pace(double? secPerKm) =>
     secPerKm == null ? '' : (UnitsController.formatPace(secPerKm) ?? '');
 
+/// A walk's rate as km/h ("5.8"), Strava's walking metric; runs keep [pace].
+/// Same distance and moving time, only the unit of the rate differs.
+String speedKmh(double secPerKm) => (3600 / secPerKm).toStringAsFixed(1);
+
 String _effortTime(double sec) => clock(sec.round());
 
 // ══════════════════ MAP ══════════════════
@@ -425,7 +429,10 @@ class RunStatsGrid extends StatelessWidget {
     final cells = <(String, String)>[
       if (r.distanceKm != null)
         ('Distance', '${r.distanceKm!.toStringAsFixed(2)} km'),
-      if (v.movingPace != null) ('Avg pace', '${pace(v.movingPace)} /km'),
+      if (v.movingPace != null)
+        isWalkType(r.activity.typeKey)
+            ? ('Avg speed', '${speedKmh(v.movingPace!)} km/h')
+            : ('Avg pace', '${pace(v.movingPace)} /km'),
       if (r.movingSec != null) ('Moving time', clock(r.movingSec!)),
       ('Elapsed', hms(r.duration)),
       if (r.avgHr != null) ('Avg HR', '${r.avgHr} bpm'),
@@ -835,7 +842,11 @@ class RunCharts extends StatelessWidget {
     final alt = v.r.track[i].alt;
     return [
       if (meters != null) '${(meters / 1000).toStringAsFixed(2)} km',
-      pc == null ? 'stopped' : '${pace(pc)} /km',
+      pc == null
+          ? 'stopped'
+          : isWalkType(v.r.activity.typeKey)
+          ? '${speedKmh(pc)} km/h'
+          : '${pace(pc)} /km',
       if (hr != null) '${hr.round()} bpm',
       if (cad != null) '${cad.round()} spm',
       if (alt != null) '${alt.round()} m',
@@ -911,7 +922,16 @@ class RunCharts extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
+                if (isWalkType(v.r.activity.typeKey))
+                  chart(
+                    'Speed',
+                    'km/h',
+                    [for (final x in paceV) x == null ? null : 3600 / -x],
+                    p.on(C.run),
+                    (x) => x.toStringAsFixed(1),
+                  )
+                else
+                  chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
                 chart('Heart rate', 'bpm', hrV, p.on(C.heart), axisInt),
                 // From the phone, a minute at a time. Around 160+ a minute is the
                 // usual running-economy cue.

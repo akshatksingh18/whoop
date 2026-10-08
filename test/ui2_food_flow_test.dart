@@ -1333,28 +1333,34 @@ void main() {
       );
       await t.tap(find.text('Open breakdown'));
       await t.pumpAndSettle();
+      // Build 85: the inputs are in the folded explanation; the parts are in
+      // each method's own breakdown column.
+      await t.ensureVisible(find.text("How it's worked out"));
+      await t.pump();
+      await t.tap(find.text("How it's worked out"));
+      await t.pumpAndSettle();
       await _until(
         t,
-        () => find.textContaining('0 steps at').evaluate().isNotEmpty,
+        () => find.textContaining('0 steps').evaluate().isNotEmpty,
       );
       repo.measuredSteps = 10000;
       app.bumpInsights();
       await _until(
         t,
-        () => find.textContaining('10,000 steps at').evaluate().isNotEmpty,
+        () => find.textContaining('10,000 steps').evaluate().isNotEmpty,
       );
-      expect(find.text('264 kcal'), findsOneWidget);
+      // Budget walking, in its breakdown column and the stacked bar's key.
+      expect(find.text('264'), findsWidgets);
       await t.runAsync(
         () =>
             NutritionDb.put(db, _entry('fresh-food', todayLabel(), kcal: 2000)),
       );
       await _until(
         t,
-        () =>
-            find.textContaining('2,000 kcal you logged').evaluate().isNotEmpty,
+        () => find.textContaining('2,000 kcal logged').evaluate().isNotEmpty,
       );
       // 30 g protein at 20% (24) + the other 1,880 kcal at 5% (94).
-      expect(find.text('118 kcal'), findsOneWidget);
+      expect(find.text('118'), findsWidgets);
       await _capture(t, 'build73-maintenance');
       expect(t.takeException(), isNull);
       await _unmount(t);

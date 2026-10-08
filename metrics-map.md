@@ -113,6 +113,7 @@ These are still stored but no longer entered in the personal build:
 | `food_def` | your foods, stored per 100 units (grams by default, or links/slices/cups/ml/custom units): typed from a label ("50 g oats = 200 kcal…") or cached from a barcode scan |
 | `meal_template` | saved meals: a name, a usual meal slot, and foods at fixed quantities and units |
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
+| `food_def.category` | the food's category (Fruits, Vegetables, Protein, Dairy & eggs, Grains & bread, Snacks & sweets, Drinks, Supplements, Meals & dishes; '' = Uncategorised), build 85; one field read by the Foods, log-screen and saved-meal-picker filters |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
 | `body_weight` | one weight per day (latest wins); logging one also sets profile `weight_kg` |
 
@@ -279,8 +280,9 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + di
   nothing; capped at 20% of the entry. 0 until something is logged. `digestionKcal`.
 - **Lifts and other workouts are not added.** Strength sessions (weight training, bodyweight,
   functional, calisthenics, powerlifting) show only as "Lifting (extra, not in maintenance)" in
-  the detail sheet: the lower of net Keytel and (MET − 1) × kg × active hours per session, less
-  the step calories of steps inside its active windows, with "With lifting N kcal". `liftingOn`.
+  the detail sheet: (MET − 1) × kg × active hours per session (3.5 MET for weight training;
+  heart rate not used, build 85), less the step calories of steps inside its active windows, with
+  "With lifting N kcal". `liftingOn`, `sessionActiveKcal`.
 - Checked: 23 y, 80.5 kg, 186.69 cm, 15,000 steps, 2,500 kcal eaten with 180 g protein, 250 g
   carbs, 87 g fat → 1,861.81 + 395.38 + 194 = 2,451 with no run; with a 5 km run that took
   4,835 steps → 1,862 + 268 + 288 + 194 = 2,612. A 60-min lift at 80.5 kg: +201 (MET)
@@ -353,8 +355,15 @@ fixes verified on iPhone.
   Metric prefills and food quantity/nutrient editors retain all supplied decimals.
   Sub-minute movement allocation from older minute-level records remains proportional; the
   app cannot reconstruct an exact step timestamp that was never recorded.
-- Other workouts (build-78 source) show the lower of net Keytel at the session's mean HR and net
-  activity energy ((MET − 1) × kg × h; strength 3.5 MET per the 2024 Compendium); they remain
+- **Session calories, one number everywhere (build 85, `sessionActiveKcal`):** strength sessions
+  are (MET − 1) × kg × active hours (3.5 MET weight training, the lowest resistance-training
+  Compendium value; heart rate shown as context, never priced, because it overstates lifting and
+  Keytel's 57-90% HRmax range does not cover a lifting session's average). Sets and rests are
+  priced together as the Compendium's whole-session averages; the band cannot isolate a
+  15-second set. 60 active minutes at 80.5 kg = 201.25 kcal; 30 min = 100.6. The setup preview,
+  live screen, summary, Train list and maintenance Lifting line all call it, at the session's
+  recorded (else dated) weight over active time (start to stop minus pauses). Other non-step
+  sessions keep the lower of net Keytel and (MET − 1) × kg × h. All remain
   excluded from this maintenance budget. Treadmill, track intervals, sprinting and hurdles are
   running (distance method, phone motion distance without GPS; best efforts GPS-only).
   Stored daily HR/cadence `calories` and `calories_total` are separate analytics, not Method 1.
@@ -375,7 +384,7 @@ movement or food digestion again. No automatic HR hybrid or coefficient adjustme
 | Item | Decision |
 |---|---|
 | Tabs | Today · Trends · Food · Train; no sub-tabs except Food's Today/History/Foods |
-| Look | Flat rounded cards on a near-black page, floating tab bar, short labels, no paragraphs on main screens |
+| Look | Build 85 makeover: cards with a lit face and hairline edge; each tab's page lit from the top in its own colour; sections marked by a short bar; status as chips (Updated hh:mm, Distance: GPS route); stat tiles with icon wells; maintenance as a two-column Budget (Method 1) / ACSM block with per-method breakdowns, a stacked Budget bar and an Eaten vs Budget row; explanations folded under "How it's worked out"; a centred Recovery hero with HRV/resting chips; Calories as a ring with what is left; macros as a 2×2 grid; walks show speed in km/h, runs pace |
 | Health → Explore, Beats, Body clock, Stress row, Consistency cards | Removed (data still stored) |
 | Home greeting and "Today's plan" | Removed; the strain target moved into the Today cards |
 | Bedtime / sleep need | Removed from Today and Sleep (Tonight section) at Akshat's request; still computed |

@@ -983,13 +983,12 @@ Widget? _routeIssueCard(
   };
 }
 
-/// MET-derived calories for the elapsed time, or the feed's own figure when
-/// the band produced one. Null when body weight is unknown — the whole point
-/// of the MET formula is that it needs a mass.
+/// The session's own active (net) figure from its owner — the same number
+/// the summary, Train list and Lifting line show (`sessionActiveKcal`). No
+/// gross MET fallback: switching formula mid-session showed 252 kcal on a
+/// 30-min lift whose recorded figure was about 100. Null shows no number.
 int? _kcal(Activity a, LiveFeed feed, double? weightKg, int elapsed) =>
-    (isRunType(a.typeKey) || isWalkType(a.typeKey))
-    ? feed.calories
-    : feed.calories ?? a.kcal(weightKg, (elapsed / 60).round());
+    feed.calories;
 
 /// The distance/pace pair plus the common three-up, in the user's units.
 ///
@@ -1022,7 +1021,21 @@ List<Widget> _distanceStats(
       p,
       [
         if (value != null) (value.toStringAsFixed(2), unit),
-        if (pacePerUnit != null) (pacePerUnit, '/$unit'),
+        // A walk's rate is speed (km/h), as Strava shows it; a run's is pace.
+        // GPS jitter over the first seconds reads as an absurd rate (it
+        // printed 9000 km/h one second in), so a walk's speed waits for 30 s
+        // and anything above 20 km/h (or mph) is no speed at all.
+        if (isWalkType(a.typeKey) &&
+            value != null &&
+            value > 0 &&
+            elapsed >= 30 &&
+            value / (elapsed / 3600) <= 20)
+          (
+            (value / (elapsed / 3600)).toStringAsFixed(1),
+            u?.speedUnit ?? 'km/h',
+          )
+        else if (!isWalkType(a.typeKey) && pacePerUnit != null)
+          (pacePerUnit, '/$unit'),
         if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
           // Both calorie models are already visible in the paired card below.
           if (f.steps != null) ('${f.steps}', 'steps'),

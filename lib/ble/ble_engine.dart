@@ -6676,7 +6676,7 @@ class BleEngine {
       unawaited(TaskerBridge.emitSyncComplete(records: report.records));
     }
     _log(
-      '[SYNC] OFFLOAD SUMMARY: records=${report.records} '
+      '[SYNC] OFFLOAD SUMMARY (totals since connect): records=${report.records} '
       'batches=${report.batches} complete=${report.complete}',
     );
     return report;

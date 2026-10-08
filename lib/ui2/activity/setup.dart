@@ -18,6 +18,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../build_profile.dart';
+import '../../compute/profile.dart'
+    show Profile, conservativeMet, isLiftType, sessionActiveKcal;
 import '../../l10n/app_localizations.dart';
 import '../grammar.dart';
 import '../theme.dart';
@@ -118,7 +120,14 @@ class _ActivitySetupState extends State<ActivitySetup> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final a = widget.a;
-    final est = a.kcal(widget.weightKg, _estimateMin);
+    // The same function the live screen, summary, Train list and Lifting
+    // line use, so the preview is the number the session will show.
+    final est = sessionActiveKcal(
+      p: Profile(weightKg: widget.weightKg),
+      type: a.typeKey,
+      minutes: _estimateMin.toDouble(),
+      catalogueMet: a.met,
+    )?.round();
 
     return Scaffold(
       backgroundColor: p.bg,
@@ -225,14 +234,16 @@ class _ActivitySetupState extends State<ActivitySetup> {
                                 : est == null
                                 ? (l?.activitySetupCaloriesNeedWeight ??
                                       'Calories need your weight.')
-                                : (l?.activitySetupCalorieEstimate(
-                                        est,
-                                        _estimateMin,
-                                        a.met!.toStringAsFixed(1),
-                                      ) ??
-                                      'About $est kcal per $_estimateMin min, '
-                                          'from ${a.met!.toStringAsFixed(1)} '
-                                          'MET and your weight.'),
+                                : isLiftType(a.typeKey)
+                                ? 'About $est kcal per $_estimateMin active min: '
+                                      '${conservativeMet(a.typeKey, a.met!).toStringAsFixed(1)} '
+                                      'MET above resting × your weight. Sets and '
+                                      'rests count together; heart rate is shown, '
+                                      'not counted. Not added to maintenance.'
+                                : 'Up to $est kcal per $_estimateMin active min '
+                                      '(${conservativeMet(a.typeKey, a.met!).toStringAsFixed(1)} '
+                                      'MET above resting); a lower heart-rate '
+                                      'estimate wins.',
                             style: F.cap.copyWith(color: p.ink3, height: 1.5),
                           ),
                         ),

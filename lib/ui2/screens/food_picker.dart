@@ -136,10 +136,14 @@ class PickRow extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: F.body.copyWith(color: p.ink),
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 2),
                   Text(
                     detail,
                     style: F.cap.copyWith(color: p.ink3),
@@ -151,7 +155,17 @@ class PickRow extends StatelessWidget {
             ),
             if (trailing != null) ...[
               const SizedBox(width: S.x3),
-              Icon(trailing, size: 18, color: p.on(C.domFood)),
+              // The row's action in a round well (build 85).
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(C.domFood),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(trailing, size: 16, color: p.on(C.domFood)),
+              ),
             ],
           ],
         ),
@@ -428,6 +442,59 @@ class _GramsSheetState extends State<GramsSheet> {
 // ══════════════════ NEW / EDIT FOOD ══════════════════
 
 /// Type a food once, the way the label reads it. Returns the saved row.
+/// The category filter every food list shares (Food → Foods, the log
+/// screen's My foods, the saved-meal picker): "All" plus the categories the
+/// foods actually carry, one row, scrolling sideways. Null is All.
+class FoodCategoryFilter extends StatelessWidget {
+  const FoodCategoryFilter({
+    super.key,
+    required this.foods,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final Iterable<Map<String, Object?>> foods;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext c) {
+    final cats = foodCategoriesIn(foods);
+    // One category (or none) is nothing to filter by.
+    if (cats.length < 2) return const SizedBox.shrink();
+    Widget chip(String label, String? value) => Padding(
+      padding: const EdgeInsets.only(right: S.x2),
+      child: Pressable(
+        semanticLabel: selected == value
+            ? '$label, selected'
+            : 'Show $label',
+        onTap: () => onSelect(value),
+        child: Pill(label, selected == value ? C.domFood : C.n400),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: S.x2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            chip('All', null),
+            for (final cat in cats) chip(cat, cat),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// [foods] in [category] (null keeps all).
+List<Map<String, Object?>> foodsIn(
+  List<Map<String, Object?>> foods,
+  String? category,
+) => category == null
+    ? foods
+    : [for (final f in foods) if (foodCategory(f) == category) f];
+
 class FoodEditor extends StatefulWidget {
   const FoodEditor({super.key, this.existing, this.reviewBarcode = false});
 
@@ -522,6 +589,9 @@ class _FoodEditorState extends State<FoodEditor> {
   List<FoodMeasure> _kept = const [];
   Map<String, double> _keptCounts = const {};
 
+  /// The food's category ('' for none), shared by every food list's filter.
+  String _category = '';
+
   bool get _countLabel {
     final u = _unit.text.trim().toLowerCase();
     return u.isNotEmpty && u != 'g' && u != 'ml';
@@ -576,6 +646,7 @@ class _FoodEditorState extends State<FoodEditor> {
       }
 
       _label.text = (e['label'] ?? '').toString();
+      _category = (e['category'] ?? '').toString().trim();
       _unit.text = unit;
       _ref.text = _trim(ref);
       _kcal.text = at('kcal_100');
@@ -601,6 +672,7 @@ class _FoodEditorState extends State<FoodEditor> {
       _servingWeight,
     ])
       t.text,
+    _category,
   ].join('\u0000');
   late final String _start;
 
@@ -719,6 +791,7 @@ class _FoodEditorState extends State<FoodEditor> {
         fibre: Typed.of(_fibre.text).value,
         measures: measures,
         measureCounts: counts,
+        category: _category,
       ),
     };
     if (widget.existing?['source'] == 'barcode') def['source'] = 'barcode';
@@ -762,6 +835,25 @@ class _FoodEditorState extends State<FoodEditor> {
       const SizedBox(height: S.x4),
       if (widget.reviewBarcode) offCredit(),
       OsTextField(controller: _label, label: 'Description', hint: 'Oats'),
+      const SizedBox(height: S.x4),
+      Text('CATEGORY', style: F.over.copyWith(color: p.ink3)),
+      const SizedBox(height: S.x2),
+      Wrap(
+        spacing: S.x2,
+        runSpacing: S.x2,
+        children: [
+          for (final cat in kFoodCategories)
+            Pressable(
+              semanticLabel: _category == cat
+                  ? 'Category $cat, selected'
+                  : 'Category $cat',
+              // Tap again to clear: a food may have no category.
+              onTap: () =>
+                  setState(() => _category = _category == cat ? '' : cat),
+              child: Pill(cat, _category == cat ? C.domFood : C.n400),
+            ),
+        ],
+      ),
       const SizedBox(height: S.x4),
       // The label's serving on one line, as the pack prints it: "per [50]
       // [g]", or "[6] [piece] · [85] g". Everything logged later scales from
@@ -1587,6 +1679,9 @@ class _MealFoodPickerState extends State<_MealFoodPicker> {
   late final _q = TextEditingController()..addListener(() => setState(() {}));
   final _added = <String>[];
 
+  /// The shared category filter; null is All.
+  String? _cat;
+
   @override
   void dispose() {
     _q.dispose();
@@ -1609,7 +1704,7 @@ class _MealFoodPickerState extends State<_MealFoodPicker> {
     final p = P.of(c);
     final q = _q.text.trim();
     final foods = [
-      for (final f in widget.foods)
+      for (final f in foodsIn(widget.foods, _cat))
         if (q.isEmpty || nameMatches(f['label'], q) || nameMatches(f['brand'], q))
           f,
     ];
@@ -1623,6 +1718,12 @@ class _MealFoodPickerState extends State<_MealFoodPicker> {
         )
       else
         OsTextField(controller: _q, label: 'Search', hint: 'Oats, eggs…'),
+      const SizedBox(height: S.x2),
+      FoodCategoryFilter(
+        foods: widget.foods,
+        selected: _cat,
+        onSelect: (cat) => setState(() => _cat = cat),
+      ),
       if (_added.isNotEmpty) ...[
         const SizedBox(height: S.x2),
         Text(

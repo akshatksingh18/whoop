@@ -143,6 +143,26 @@ class P {
   Color get card => dark ? const Color(0xFF141418) : C.white;
   Color get card2 => dark ? const Color(0xFF1C1C22) : C.n100;
   Color get line => dark ? const Color(0xFF26262E) : C.n200;
+
+  /// The hairline round every card (build 85): a card is lifted by its edge
+  /// and a soft top light, not by a shadow the dark page cannot show.
+  Color get edge => dark ? const Color(0xFF24242C) : C.n200;
+
+  /// The top of a card's light. Never lighter than [card2] in the dark theme,
+  /// so the muted ink solved against [card2] still clears AA on every card.
+  Color get cardHi => dark ? const Color(0xFF1B1B21) : C.white;
+
+  /// A card's surface: [cardHi] at the top falling to [card].
+  LinearGradient get cardFace => LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [cardHi, card],
+  );
+
+  /// The page's top light in a tab's own colour: the first thing that says
+  /// which pillar a page belongs to. Behind content only, never under text.
+  Color glow(Color accent) =>
+      accent.withValues(alpha: dark ? .16 : .10);
   Color get track => dark ? const Color(0xFF26262E) : C.n200;
 
   Color get ink => dark ? const Color(0xFFFFFFFF) : C.n900;
@@ -303,6 +323,16 @@ class F {
       height: 14 / 11,
       fontWeight: FontWeight.w600,
       letterSpacing: .5);
+
+  /// A section's heading (build 85): smaller and wider-set than [head], so
+  /// sections read as chapters and card titles as content.
+  static const section = TextStyle(
+      fontFamily: _f,
+      fontFamilyFallback: _fb,
+      fontSize: 13,
+      height: 18 / 13,
+      fontWeight: FontWeight.w700,
+      letterSpacing: .9);
 
   // Numerals — a parallel display ramp. Tabular, so a live value never jitters
   // its own layout as digits change.

@@ -430,20 +430,23 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (widget.embedded && widget.calories)
-                    Text(d.distanceSource, style: F.cap.copyWith(color: p.ink3))
-                  else
-                    CaloriePair(
-                      budget: w.kcal,
-                      acsm: d.acsmWalking,
-                      note:
-                          '${d.distanceSource}. Walking calories already included in maintenance.',
-                    ),
-                  const SizedBox(height: S.x1),
-                  Text(
-                    'Active calories already included in maintenance. '
-                    'Running steps are accounted for separately.',
-                    style: F.over.copyWith(color: p.ink3, height: 1.4),
+                  // Each fact once, as a chip (build 85): the screen above
+                  // already shows the pair when this is embedded.
+                  if (!(widget.embedded && widget.calories)) ...[
+                    CaloriePair(budget: w.kcal, acsm: d.acsmWalking, note: ''),
+                    const SizedBox(height: S.x3),
+                  ],
+                  Wrap(
+                    spacing: S.x2,
+                    runSpacing: S.x2,
+                    children: [
+                      Tag(
+                        distanceTagOf(d.distanceSource),
+                        icon: LucideIcons.ruler,
+                      ),
+                      const Tag('In maintenance', icon: LucideIcons.check),
+                      const Tag('Run steps counted with runs'),
+                    ],
                   ),
                 ],
               ),

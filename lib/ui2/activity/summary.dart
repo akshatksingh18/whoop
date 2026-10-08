@@ -40,7 +40,7 @@ import '../paint_activity.dart';
 import '../profile/profile.dart';
 import '../screens/home_screen.dart' show profileOf, repoOf, unitsOf;
 import '../../compute/profile.dart'
-    show Profile, stepCalories, runFloorKcal, acsmActiveKcal;
+    show Profile, stepCalories, runFloorKcal, acsmActiveKcal, conservativeMet, isLiftType;
 import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
@@ -678,7 +678,18 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   add('Time', hms(r.duration));
   switch (r.arch) {
     case Arch.route:
-      add('Pace', pace == null ? null : '$pace /$distanceUnit');
+      // Walks read as speed (km/h), as Strava shows them; runs as pace.
+      if (isWalkType(r.activity.typeKey)) {
+        add(
+          'Speed',
+          secPerKm == null || secPerKm <= 0
+              ? null
+              : '${(3600 / (secPerKm * perUnit)).toStringAsFixed(1)} '
+                    '${u?.speedUnit ?? 'km/h'}',
+        );
+      } else {
+        add('Pace', pace == null ? null : '$pace /$distanceUnit');
+      }
     case Arch.strength:
       // Guarded like Arch.match below. 'SETS 0' and 'REPS 0' used to sit
       // directly under the card saying nothing was logged, and the share card
@@ -1494,7 +1505,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       return l?.activitySummaryCaloriesNeedWeight ??
           'Calories need your weight.';
     }
-    final met = a.met?.toStringAsFixed(1);
+    final met = a.met == null
+        ? null
+        : conservativeMet(a.typeKey, a.met!).toStringAsFixed(1);
+    if (r.calories != null && isLiftType(a.typeKey)) {
+      // The figure is sessionActiveKcal: MET only, sets and rests together.
+      return '$met MET above resting × your weight × active time (start to '
+          'stop, minus pauses). Heart rate is shown, not counted: it '
+          'overstates lifting. Not added to maintenance.';
+    }
     if (r.calories == null) {
       return r.strain == null
           ? l?.activitySummaryNoCalorieNoStrain ??
@@ -1517,11 +1536,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               'to.';
     }
     return r.avgHr == null
-        ? l?.activitySummaryCalorieNoHr(met) ??
-              'Estimated from $met MET and your weight. No heart rate reached '
-                  'this session, so none of it is in the figure.'
-        : l?.activitySummaryCalorieWithHr(met) ??
-              'Estimated from $met MET, your weight and heart rate.';
+        ? '$met MET above resting × your weight × active time. No heart rate '
+              'reached this session.'
+        : 'The lower of $met MET above resting and your heart-rate estimate, '
+              'over active time.';
   }
 
   /// (value, unit, caption). The hero is the archetype's own headline — and

@@ -47,7 +47,7 @@ import '../ui2.dart';
 import '../profile/settings.dart' show MoreSettings;
 import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
-import 'nutrition_screen.dart' show DayUpkeep, showMaintenance;
+import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard, showMaintenance;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -1084,87 +1084,127 @@ class _RecoveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Surface(
+    // Build 85: the day's headline as a centred hero, lit from the top in the
+    // recovery band's own colour, with its two inputs as chips under it.
+    return Pressable(
       onTap: onTap,
       semanticLabel: r.spoken,
-      pad: const EdgeInsets.all(S.x5),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 112,
-            height: 112,
-            child: Stack(
-              alignment: Alignment.center,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x5),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.alphaBlend(
+                p.wash(r.measured ? r.color : C.n400),
+                p.cardHi,
+              ),
+              p.card,
+            ],
+          ),
+          borderRadius: R.rXl,
+          border: Border.all(color: p.edge),
+        ),
+        child: Column(
+          children: [
+            Row(
               children: [
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: r.calibrating
-                      ? DashedRing(
-                          r.frac ?? 0,
-                          r.arc(p),
-                          p.track,
-                          stroke: 11,
-                          segments: r.need ?? 24,
-                        )
-                      : Ring(
-                          r.frac ?? 0,
-                          r.arc(p),
-                          p.track,
-                          stroke: 11,
-                          t: animate(c, 1),
-                          solid: r.measured,
-                        ),
+                Icon(r.icon, size: 16, color: r.ink(p)),
+                const SizedBox(width: S.x2),
+                Expanded(
+                  child: Text(
+                    r.label,
+                    style: F.section.copyWith(color: p.ink2),
+                  ),
                 ),
-                if (r.measured)
-                  Padding(
-                    padding: const EdgeInsets.all(S.x5),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(r.value, style: F.n34.copyWith(color: p.ink)),
-                    ),
-                  )
-                else
-                  Icon(r.icon, size: 26, color: p.ink3),
+                if (r.measured && r.sub.isNotEmpty) Pill(r.sub, r.color),
               ],
             ),
-          ),
-          const SizedBox(width: S.x5),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(r.label, style: F.cap.copyWith(color: p.ink3)),
-                const SizedBox(height: 2),
-                Text(
-                  r.measured ? r.sub : r.value,
-                  style: F.t2.copyWith(color: r.measured ? r.ink(p) : p.ink2),
-                ),
-                if (!r.measured && r.sub.isNotEmpty)
-                  Text(r.sub, style: F.cap.copyWith(color: p.ink3)),
-                if (r.why != null)
-                  Text(
-                    r.why!,
-                    style: F.cap.copyWith(color: p.ink3),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+            const SizedBox(height: S.x4),
+            SizedBox(
+              width: 148,
+              height: 148,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: r.calibrating
+                        ? DashedRing(
+                            r.frac ?? 0,
+                            r.arc(p),
+                            p.track,
+                            stroke: 12,
+                            segments: r.need ?? 24,
+                          )
+                        : Ring(
+                            r.frac ?? 0,
+                            r.arc(p),
+                            p.track,
+                            stroke: 12,
+                            t: animate(c, 1),
+                            solid: r.measured,
+                          ),
                   ),
-                if (hrv != null || rhr != null) ...[
-                  const SizedBox(height: S.x2),
+                  if (r.measured)
+                    Padding(
+                      padding: const EdgeInsets.all(S.x6),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          r.value,
+                          style: F.n48.copyWith(color: p.ink),
+                        ),
+                      ),
+                    )
+                  else
+                    Icon(r.icon, size: 30, color: p.ink3),
+                ],
+              ),
+            ),
+            if (!r.measured) ...[
+              const SizedBox(height: S.x3),
+              Text(
+                r.value,
+                textAlign: TextAlign.center,
+                style: F.head.copyWith(color: p.ink2),
+              ),
+              if (r.sub.isNotEmpty)
+                Text(
+                  r.sub,
+                  textAlign: TextAlign.center,
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              if (r.why != null)
+                Text(
+                  r.why!,
+                  textAlign: TextAlign.center,
+                  style: F.cap.copyWith(color: p.ink3),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+            if (hrv != null || rhr != null) ...[
+              const SizedBox(height: S.x4),
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                alignment: WrapAlignment.center,
+                children: [
                   if (hrv != null)
-                    Text(
-                      'HRV ${hrv!.round()} ms',
-                      style: F.cap.copyWith(color: p.ink2),
-                    ),
+                    Tag('HRV ${hrv!.round()} ms', icon: LucideIcons.activity),
                   if (rhr != null)
-                    Text(
+                    Tag(
                       'Resting ${rhr!.round()} bpm',
-                      style: F.cap.copyWith(color: p.ink2),
+                      icon: LucideIcons.heartPulse,
                     ),
                 ],
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1193,7 +1233,16 @@ class _MiniCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(r.icon, size: 16, color: r.ink(p)),
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(r.measured ? r.color : C.n400),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(r.icon, size: 14, color: r.ink(p)),
+              ),
               const SizedBox(width: S.x2),
               Expanded(
                 child: Text(
@@ -1209,14 +1258,14 @@ class _MiniCard extends StatelessWidget {
           Text(
             r.value,
             style: r.measured
-                ? F.n24.copyWith(color: p.ink)
+                ? F.n34.copyWith(color: p.ink)
                 : F.body.copyWith(color: p.ink2),
           ),
           const SizedBox(height: S.x3),
           ClipRRect(
             borderRadius: R.rPill,
             child: SizedBox(
-              height: 6,
+              height: 8,
               child: Stack(
                 children: [
                   Positioned.fill(child: ColoredBox(color: p.track)),
@@ -1277,6 +1326,9 @@ class HomeData {
   final Metric bedtime;
   final Map<String, dynamic>? strainTarget;
 
+  /// When today's numbers were last calculated; null before the first.
+  final DateTime? updatedAt;
+
   /// Non-null when the cross-day rollup was withheld rather than absent — see
   /// [staleInsightsCard]. Drivers, sleep need and bedtime are all empty in that
   /// case, and the screen owes the user the reason.
@@ -1324,6 +1376,7 @@ class HomeData {
     this.sleepNeedMin = Metric.empty,
     this.bedtime = Metric.empty,
     this.strainTarget,
+    this.updatedAt,
     this.heldOverNight,
     this.illnessState,
     this.illnessDay,
@@ -1353,6 +1406,7 @@ class HomeData {
     sleepNeedMin: sleepNeedMin,
     bedtime: bedtime,
     strainTarget: strainTarget,
+    updatedAt: updatedAt,
     heldOverNight: heldOverNight,
     illnessState: state,
     illnessDay: day,
@@ -1453,6 +1507,10 @@ class HomeData {
       strainTarget: strain is Map && strain['strain_target'] is Map
           ? (strain['strain_target'] as Map).cast<String, dynamic>()
           : null,
+      updatedAt: switch ((today['status'] as Map?)?['activity_computed_at']) {
+        final num ms => DateTime.fromMillisecondsSinceEpoch(ms.toInt()),
+        _ => null,
+      },
       insightsStale: staleReasonOf(cd),
     );
   }
@@ -1754,10 +1812,21 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Today', style: F.t1.copyWith(color: p.ink)),
-                      Text(
-                        prettyDay(d.dayId, l),
-                        style: F.cap.copyWith(color: p.ink3),
+                      Text('Today', style: F.display.copyWith(color: p.ink)),
+                      const SizedBox(height: S.x1),
+                      // When these numbers were calculated, beside the date,
+                      // so an old number never passes for a current one.
+                      Wrap(
+                        spacing: S.x2,
+                        runSpacing: S.x1,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            prettyDay(d.dayId, l),
+                            style: F.cap.copyWith(color: p.ink3),
+                          ),
+                          if (widget.data == null) UpdatedStamp(d.updatedAt),
+                        ],
                       ),
                     ],
                   ),
@@ -1997,106 +2066,74 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
   Widget _glance(BuildContext c, HomeData d) {
     final l = AppLocalizations.of(c);
-    final cards = <Widget>[];
-
+    final steps = d.steps.value;
     // Steps keeps its tile whether or not a counter reported. Zero steps is a
-    // real reading — an unmoved counter — and it renders as 0, not as absence.
-    // When nothing counted at all the tile stays and says so in two words,
-    // rather than the whole card being replaced by a paragraph about wrist
-    // motion: the answer to "how many steps" is short either way.
-    cards.add(
-      SignalCard(
-        LucideIcons.footprints,
-        C.green,
-        l?.homeSteps ?? 'Steps',
-        d.steps.value == null
-            ? (l?.homeStepsNone ?? 'None')
-            : thousands(d.steps.value),
-        // The sensor rides the line that is already there rather than adding a
-        // row: the day is resolved per window now, so "8,412" can be the strap's
-        // count, the phone's, or both, and the card has to say which. The split
-        // behind a mixed day is on the Steps breakdown, two taps down.
-        sub: d.steps.value == null
-            ? (l?.homeStepsNotRecorded ?? 'NOT RECORDED')
-            : [
-                if (d.stepGoal > 0)
-                  l?.homeStepsPercentGoal(
-                        ((d.steps.value! / d.stepGoal) * 100)
-                            .clamp(0, 999)
-                            .round(),
-                      ) ??
-                      '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
-                ?stepSensorLabel(d.steps, l),
-                // Walking energy, on its own — not part of active or total kcal.
-                if (d.walkingKcal != null)
-                  'Steps: Budget ${d.walkingKcal!.round()} · ACSM ${d.upkeep?.acsmParts?.steps.round().toString() ?? '—'} kcal',
-              ].join(' · '),
-        onTap: () => go(c, const MetricDetail('steps')),
-        trailing: d.steps.value == null || d.stepGoal <= 0
-            ? null
-            : SizedBox(
-                width: 20,
-                height: 20,
-                child: CustomPaint(
-                  painter: Ring(
-                    d.steps.value! / d.stepGoal,
-                    C.green,
-                    P.of(c).track,
-                    stroke: 3,
-                    solid: true,
-                  ),
+    // real reading and renders as 0, not as absence.
+    final stepsTile = StatTile(
+      label: l?.homeSteps ?? 'Steps',
+      icon: LucideIcons.footprints,
+      color: C.green,
+      value: steps == null ? (l?.homeStepsNone ?? 'None') : thousands(steps),
+      sub: steps == null
+          ? (l?.homeStepsNotRecorded ?? 'Not recorded')
+          : [
+              if (d.stepGoal > 0)
+                '${((steps / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
+              ?stepSensorLabel(d.steps, l),
+            ].join(' · '),
+      onTap: () => go(c, const MetricDetail('steps')),
+      trailing: steps == null || d.stepGoal <= 0
+          ? null
+          : SizedBox(
+              width: 20,
+              height: 20,
+              child: CustomPaint(
+                painter: Ring(
+                  steps / d.stepGoal,
+                  C.green,
+                  P.of(c).track,
+                  stroke: 3,
+                  solid: true,
                 ),
               ),
-      ),
+            ),
     );
-    // Maintenance so far: resting + steps outside runs + runs by distance +
-    // digestion of food logged. A floor: lifting is a separate sheet line.
     final upkeep = d.upkeep;
     final up = upkeep?.parts;
-    if (upkeep != null && up != null) {
-      cards.add(
-        Surface(
-          onTap: () => showMaintenance(c, upkeep, today: true),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Maintenance', style: F.head.copyWith(color: P.of(c).ink)),
-              const SizedBox(height: S.x3),
-              CaloriePair(
-                budget: up.total,
-                acsm: upkeep.acsmParts?.total,
-                note:
-                    'Whole-day resting energy + movement and food logged so far.',
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
+    final eatenTile = upkeep == null || up == null
+        ? null
+        : StatTile(
+            label: 'Eaten',
+            icon: LucideIcons.utensils,
+            color: C.domFood,
+            value: thousands(upkeep.eaten),
+            unit: 'kcal',
+            sub: 'Budget ${thousands(up.total)} so far',
+            onTap: () => showMaintenance(c, upkeep, today: true),
+          );
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (var i = 0; i < cards.length; i += 2) ...[
-          if (i > 0) const SizedBox(height: S.x3),
-          // IntrinsicHeight, because `stretch` inside a ListView asks for an
-          // infinite height. The two cards in a row must match: a short card
-          // beside a tall one reads as a layout bug, not as less data.
-          // An odd last card takes the whole width rather than half of it with a
-          // hole beside it. Three cards is the ordinary count now that sleep is
-          // a ring, so the gap would be there every day.
-          if (i + 1 >= cards.length)
-            cards[i]
-          else
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: cards[i]),
-                  const SizedBox(width: S.x3),
-                  Expanded(child: cards[i + 1]),
-                ],
-              ),
+        // IntrinsicHeight: `stretch` inside a ListView asks for an infinite
+        // height, and two tiles side by side must match.
+        if (eatenTile == null)
+          stepsTile
+        else
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: stepsTile),
+                const SizedBox(width: S.x3),
+                Expanded(child: eatenTile),
+              ],
             ),
+          ),
+        // Maintenance so far: the same card Food shows, both methods, the
+        // Budget day as a bar and eaten against it. Lifting is a sheet line.
+        if (upkeep != null && up != null) ...[
+          const SizedBox(height: S.x3),
+          MaintenanceCard(upkeep, today: true),
         ],
       ],
     );

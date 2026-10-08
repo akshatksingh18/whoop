@@ -147,6 +147,15 @@ class LocalRepositoryImpl extends LocalRepository {
       await _bundle(date) ??
       (_isTodayLabel(date) ? await _latestBundle() : null);
 
+  /// The exact day's bundle and nothing else, for DAY measures (all-day heart
+  /// rate, wear, stress, strain). The timeline keeps [_bundleForDate]: it
+  /// deliberately carries last night over into today and labels it with its
+  /// own `day_start`. [_bundleForDate]'s fallback is
+  /// right for the overnight screens (today's sleep IS last night), but for a
+  /// day measure it served yesterday's numbers under today's date: Day strain
+  /// read 10.8 from yesterday while Today showed 0.0 from this morning.
+  Future<Map<String, dynamic>?> _dayBundle(String date) => _bundle(date);
+
   /// THE read seam for the compact curve format: every bundle this class serves
   /// comes through here, so downstream readers keep seeing plain [{t,v}] lists
   /// and none of them has to know the wire format exists.
@@ -775,7 +784,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayHeart(String date) async {
-    final b = await _bundleForDate(date);
+    final b = await _dayBundle(date);
     if (b == null) return const {};
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
     final rmssd = _scalar(b, 'rmssd');
@@ -1295,7 +1304,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayWear(String date) async {
-    final b = await _bundleForDate(date);
+    final b = await _dayBundle(date);
     if (b == null) return const {};
     final cov = _sub(b, 'coverage');
     final hrSamples = (cov?['hr_samples'] as num?)?.toInt();
@@ -1461,7 +1470,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // score stays null when the SI is absent, so the screen renders "—" (the old
     // `100 - readiness` imputation was removed). Nocturnal arousal isn't computed,
     // so `sleep_stress` is intentionally absent (the screen handles it).
-    final b = await _bundleForDate(date);
+    final b = await _dayBundle(date);
     if (b == null) return const {};
 
     final stressBlk = b['stress'] is Map
@@ -1521,8 +1530,24 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async {
-    final b = await _bundleForDate(date);
-    if (b == null) return const {};
+    final b = await _dayBundle(date);
+    if (b == null) {
+      // Today before its first full calculation: the same interim figure the
+      // Today ring reads (getToday's wake features), so the two never differ.
+      final wake = _isTodayLabel(date) ? await _wakeFeatures(date) : null;
+      final v = (wake?['strain'] as num?)?.toDouble();
+      if (wake == null) return const {};
+      // Steps belong to this exact date, read fresh, as for a derived day.
+      final stepsNow = (await getDaySteps(date))['day_total'] as num?;
+      return {
+        'steps': stepsNow?.round(),
+        'strain': v,
+        'curve': const <Map<String, dynamic>>[],
+        'zones': const <String, int?>{},
+        'interim': true,
+        'note': v == null ? needInputNote('today_activity') : null,
+      };
+    }
     final zones = _sub(b, 'zones');
     final hrStats = _sub(b, 'hr_stats');
     final series = _sub(b, 'series');

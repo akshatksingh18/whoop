@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'profile.dart';
-import 'hr_max.dart' show hrCeilingForAge, kHrFloorBpm;
 import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
@@ -90,6 +89,10 @@ class DayUpkeep {
       total: m.bmr + movement + m.food,
     );
   }
+
+  /// [distanceSource] as a short chip ("Distance: GPS route"). The long
+  /// sentence stays for the explanation; the chip is what a card shows.
+  String get distanceTag => distanceTagOf(distanceSource);
 
   num? get walkedSteps =>
       steps == null ? null : (steps! - runs.steps).clamp(0, steps!);
@@ -216,11 +219,23 @@ class DayUpkeep {
   }
 }
 
+/// The profile a session is priced with: the one recorded with it, else the
+/// dated profile for the day it started — so a past session keeps the weight
+/// it was done at on every screen.
+Future<Profile> sessionProfile(
+  String id,
+  DateTime start,
+  Profile fallback, {
+  DateTime? end,
+}) async =>
+    WorkoutClock.read(id, start, end: end).profile ??
+    await ProfileHistory.on(dayLabelOf(start), fallback);
+
 /// Net energy of the day's strength sessions ([kLiftTypeKeys]), each priced by
-/// [otherWorkoutActiveKcal] (the lower of net heart rate and (MET − 1) × kg ×
-/// active hours), less the step calories of steps taken inside the session's
-/// active windows, which the Steps row already counts. A session is filed under
-/// the day it started. Null when the day has no lifting session or no weight.
+/// [sessionActiveKcal] ((MET − 1) × kg × active hours; heart rate not used),
+/// less the step calories of steps taken inside the session's active windows,
+/// which the Steps row already counts. A session is filed under the day it
+/// started. Null when the day has no lifting session or no weight.
 Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   String date,
   Profile profile,
@@ -237,12 +252,6 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
       if (isLiftType(r['type'] as String?)) r,
   ];
   if (rows.isEmpty) return null;
-  final hr = await LocalDb.sessionHrStats(
-    lo,
-    hi,
-    maxHrCeiling: hrCeilingForAge(profile.ageYears),
-    minHrFloor: kHrFloorBpm,
-  );
   var kcal = 0.0;
   var counted = 0;
   var approximate = false;
@@ -258,13 +267,11 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
     if (!end.isAfter(start)) continue;
     final clock = WorkoutClock.read(id, start, end: end);
     final minutes = clock.activeDuration(end).inSeconds / 60;
-    final type = (r['type'] as String).toLowerCase().replaceAll(' ', '_');
-    final meanHr = hr[id]?['avg_hr'];
-    final net = otherWorkoutActiveKcal(
-      p: profile,
+    final at = await sessionProfile(id, start, profile, end: end);
+    final net = sessionActiveKcal(
+      p: at,
+      type: r['type'] as String,
       minutes: minutes,
-      meanHr: meanHr != null && meanHr > 0 ? meanHr.toDouble() : null,
-      met: conservativeMet(type, 0),
     );
     if (net == null) continue;
     var steps = 0;
@@ -277,7 +284,7 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
       }
     }
     if (!known) approximate = true;
-    kcal += math.max(0.0, net - (stepCalories(steps, kg) ?? 0));
+    kcal += math.max(0.0, net - (stepCalories(steps, at.weightKg) ?? 0));
     counted++;
   }
   if (counted == 0) return null;
@@ -400,3 +407,16 @@ Future<({double? meters, String source})> _walkingDistance(
         : 'Phone motion + estimated step length',
   );
 }
+
+/// A distance source sentence as a short chip ("Distance: GPS route"). The
+/// sentence stays for explanations; the chip is what a card shows.
+String distanceTagOf(String source) => switch (source) {
+  'Recorded walking route' => 'Distance: GPS route',
+  'Walking route + phone motion / estimated step length' =>
+    'Distance: route + phone',
+  'Estimated from step length' => 'Distance: step length',
+  'Phone motion-distance estimate' => 'Distance: phone motion',
+  'Phone motion + estimated step length' => 'Distance: phone + step length',
+  'Distance unavailable' => 'Distance unavailable',
+  _ => 'Distance incomplete',
+};

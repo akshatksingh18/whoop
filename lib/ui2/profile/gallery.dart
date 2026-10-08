@@ -411,6 +411,31 @@ Map<String, Widget> goldenCases() => {
   ),
   'calorie_pair': const Surface(child: CaloriePair(budget: 1234, acsm: 1456)),
   'calorie_pair_missing': const Surface(child: CaloriePair(budget: 1234, acsm: null)),
+  // Build 85 scannable pieces.
+  'tag': const Tag('Distance: GPS route', icon: LucideIcons.mapPin),
+  'updated_stamp': UpdatedStamp(DateTime(2026, 10, 8, 7, 5), now: DateTime(2026, 10, 8, 9)),
+  'stat_tile': const StatTile(
+    label: 'Steps',
+    value: '8,642',
+    unit: 'steps',
+    color: C.steps,
+    sub: '108% of goal',
+    icon: LucideIcons.footprints,
+  ),
+  'stacked_bar': const Surface(
+    child: StackedBar([
+      ('Resting', 1862, C.steps),
+      ('Walking', 395, C.green),
+      ('Digestion', 194, C.domFood),
+    ]),
+  ),
+  'compare_row': const CompareRow(
+    leftLabel: 'Eaten',
+    left: 2448,
+    rightLabel: 'Budget',
+    right: 2451,
+  ),
+  'explain': const Surface(child: Explain(['Resting: Mifflin–St Jeor.'])),
   ..._chartCases(),
   ..._nutritionAndWellnessCases(),
 };

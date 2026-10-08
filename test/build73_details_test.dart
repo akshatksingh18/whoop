@@ -672,11 +672,21 @@ void main() {
         ),
       );
       await t.tap(find.text('Open'));
+      // Build 85: the step count is in the folded explanation.
       await until(
         t,
-        () => find.textContaining('5,000 steps at').evaluate().isNotEmpty,
+        () => find.text("How it's worked out").evaluate().isNotEmpty,
       );
-      expect(find.textContaining('9,000 steps at'), findsNothing);
+      // Let the sheet finish rising before tapping inside it.
+      await t.pump(const Duration(seconds: 1));
+      await t.ensureVisible(find.text("How it's worked out"));
+      await t.pump(const Duration(seconds: 1));
+      await t.tap(find.text("How it's worked out"));
+      await until(
+        t,
+        () => find.textContaining('5,000 steps').evaluate().isNotEmpty,
+      );
+      expect(find.textContaining('9,000 steps'), findsNothing);
       await close(t, state);
     },
   );

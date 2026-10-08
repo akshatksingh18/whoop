@@ -494,9 +494,13 @@ class Surface extends StatelessWidget {
       child: Container(
         width: double.infinity,
         padding: pad,
+        // Build 85: a lit face and a hairline edge. A tinted [color] stays
+        // flat, so a status card reads as a note rather than a card.
         decoration: BoxDecoration(
-          color: color ?? p.card,
-          borderRadius: R.rLg,
+          color: color,
+          gradient: color == null ? p.cardFace : null,
+          borderRadius: R.rXl,
+          border: Border.all(color: p.edge),
           boxShadow: p.el(elevation),
         ),
         child: child,
@@ -505,7 +509,24 @@ class Surface extends StatelessWidget {
   }
 }
 
+/// "2,451" — the grouping every calorie figure in the design pieces uses.
+String _thousands(int v) {
+  final neg = v < 0;
+  final d = v.abs().toString();
+  final b = StringBuffer();
+  for (var i = 0; i < d.length; i++) {
+    if (i > 0 && (d.length - i) % 3 == 0) b.write(',');
+    b.write(d[i]);
+  }
+  return '${neg ? '-' : ''}$b';
+}
+
 /// The same two movement models on every calorie surface; absent stays absent.
+///
+/// Build 85: two columns, each under its own coloured rule and method tag, so
+/// the Budget (Method 1) and ACSM figures can never be read as one number.
+/// [budgetParts] / [acsmParts] list each column's own breakdown, label and
+/// kcal, so a breakdown is never shared between the two methods.
 class CaloriePair extends StatelessWidget {
   const CaloriePair({
     super.key,
@@ -513,39 +534,74 @@ class CaloriePair extends StatelessWidget {
     required this.acsm,
     this.note = 'Estimated active calories above resting.',
     this.compact = false,
+    this.budgetParts = const [],
+    this.acsmParts = const [],
   });
   final double? budget, acsm;
   final String note;
   final bool compact;
+  final List<(String, double)> budgetParts, acsmParts;
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    Widget column(String name, double? v, Color color) => Expanded(
+    Widget column(
+      String name,
+      String method,
+      double? v,
+      Color color,
+      List<(String, double)> parts,
+    ) => Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(name, style: F.cap.copyWith(color: p.ink2)),
-          Text(
-            name == 'Budget'
-                ? 'Steps / distance budget'
-                : 'Standard distance model',
-            style: F.over.copyWith(color: p.ink3),
+          Container(
+            height: 3,
+            width: 28,
+            decoration: BoxDecoration(
+              color: p.on(color),
+              borderRadius: R.rPill,
+            ),
           ),
-          const SizedBox(height: S.x1),
+          const SizedBox(height: S.x2),
+          Text(
+            name,
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+          Text(method, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
-              v == null ? 'Unavailable' : '${v.round()} kcal',
+              v == null ? 'Unavailable' : '${_thousands(v.round())} kcal',
               style:
                   (v == null
                           ? F.cap
                           : compact
                           ? F.n17
                           : F.n24)
-                      .copyWith(color: p.on(color)),
+                      .copyWith(color: v == null ? p.ink3 : p.on(color)),
             ),
           ),
+          for (final (label, kcal) in parts) ...[
+            const SizedBox(height: S.x1),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: F.over.copyWith(color: p.ink3),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  _thousands(kcal.round()),
+                  style: F.over.copyWith(color: p.ink2),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -555,13 +611,15 @@ class CaloriePair extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            column('Budget', budget, C.green),
-            const SizedBox(width: S.x4),
-            column('ACSM', acsm, C.teal),
+            column('Budget', 'Method 1 · steps', budget, C.green, budgetParts),
+            const SizedBox(width: S.x5),
+            column('ACSM', 'Standard · distance', acsm, C.teal, acsmParts),
           ],
         ),
-        const SizedBox(height: S.x2),
-        Text(note, style: F.cap.copyWith(color: p.ink3, height: 1.4)),
+        if (note.isNotEmpty) ...[
+          const SizedBox(height: S.x3),
+          Text(note, style: F.cap.copyWith(color: p.ink3, height: 1.4)),
+        ],
       ],
     );
   }
@@ -591,7 +649,7 @@ class Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(S.x1, S.x5, S.x1, S.x2),
+          padding: const EdgeInsets.fromLTRB(S.x1, S.x6, S.x1, S.x3),
           child: Row(
             // spaceBetween owns the gap, so the action sits on the right edge
             // however short the title is. Previously the title was Expanded
@@ -603,11 +661,28 @@ class Section extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Flexible(
-                child: Text(
-                  title,
-                  style: F.head.copyWith(color: p.ink),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // A short bar marks a chapter of the page (build 85).
+                    Container(
+                      width: 3,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: p.ink3,
+                        borderRadius: R.rPill,
+                      ),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: F.section.copyWith(color: p.ink2),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (action != null)
@@ -674,7 +749,16 @@ class SignalCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: p.on(color)),
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(color),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(icon, size: 14, color: p.on(color)),
+              ),
               const SizedBox(width: S.x2),
               Expanded(
                 child: Text(
@@ -1315,13 +1399,24 @@ class StatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              leading ?? Icon(icon, size: 16, color: p.ink3),
-              const SizedBox(width: S.x2),
+              // The glyph in its own round well (build 85), so a note has a
+              // face rather than a stray icon at the start of a line.
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(C.n400),
+                  shape: BoxShape.circle,
+                ),
+                child: leading ?? Icon(icon, size: 15, color: p.ink2),
+              ),
+              const SizedBox(width: S.x3),
               Expanded(
                 child: Text(
                   what,
                   style: F.body.copyWith(
-                    color: p.ink2,
+                    color: p.ink,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1565,7 +1660,7 @@ class MetricRow extends StatelessWidget {
         // supposed to never do. It is the name that gives way now.
         Text(
           value,
-          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          style: F.n17.copyWith(color: p.ink),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -1615,7 +1710,7 @@ class MetricRow extends StatelessWidget {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim(),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: bigText(c)
             // A dense row cannot stay one line at accessibility sizes without
             // truncating the measurement, and a truncated measurement is worse
@@ -1623,7 +1718,17 @@ class MetricRow extends StatelessWidget {
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(icon, size: 18, color: p.on(color)),
+                  // The pillar's glyph in its own well (build 85).
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.wash(color),
+                      borderRadius: R.rMd,
+                    ),
+                    child: Icon(icon, size: 16, color: p.on(color)),
+                  ),
                   const SizedBox(width: S.x3),
                   Expanded(
                     child: Column(
@@ -1650,7 +1755,17 @@ class MetricRow extends StatelessWidget {
             // readings that did not read as a column.
             : Row(
                 children: [
-                  Icon(icon, size: 18, color: p.on(color)),
+                  // The pillar's glyph in its own well (build 85).
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.wash(color),
+                      borderRadius: R.rMd,
+                    ),
+                    child: Icon(icon, size: 16, color: p.on(color)),
+                  ),
                   const SizedBox(width: S.x3),
                   Expanded(child: title),
                   const SizedBox(width: S.x2),
@@ -1679,7 +1794,27 @@ class InlineMetrics extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(e.$1, style: F.over.copyWith(color: p.ink3)),
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: p.on(e.$3),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: S.x1),
+                    Flexible(
+                      child: Text(
+                        e.$1,
+                        style: F.over.copyWith(color: p.ink3),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: S.x1),
                 // scaleDown, NOT ellipsis. These are measurements sharing
                 // one row, so the slot is a third of a card and a two-digit
@@ -2079,8 +2214,17 @@ class SubTabs extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return SizedBox(
-      height: MediaQuery.textScalerOf(c).scale(S.tap),
+    return Container(
+      // The track's padding and edge sit OUTSIDE the 44 pt tap height.
+      height: MediaQuery.textScalerOf(c).scale(S.tap) + 8,
+      // Build 85: the options sit in one track, so they read as a single
+      // control rather than loose words on the page.
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: p.card,
+        borderRadius: R.rPill,
+        border: Border.all(color: p.edge),
+      ),
       // The fifth tab is off the edge on every phone we ship to — at 360 pt
       // it is entirely off-screen in both tab sets, and above 1.0x text every
       // set overflows even a 430 pt screen. ScrollHint draws nothing at all
@@ -2102,11 +2246,14 @@ class SubTabs extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: on ? p.wash(color) : const Color(0x00000000),
                   borderRadius: R.rPill,
+                  border: Border.all(
+                    color: on ? p.on(color).withValues(alpha: .35) : const Color(0x00000000),
+                  ),
                 ),
                 child: Text(
                   items[i],
                   style: F.cap.copyWith(
-                    color: on ? p.on(color) : p.ink3,
+                    color: on ? p.on(color) : p.ink2,
                     fontWeight: on ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
@@ -2159,7 +2306,11 @@ class Pill extends StatelessWidget {
     final ink = p.on(color);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: 5),
-      decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rPill),
+      decoration: BoxDecoration(
+        color: p.wash(color),
+        borderRadius: R.rPill,
+        border: Border.all(color: ink.withValues(alpha: .28)),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2744,6 +2895,384 @@ class NoData extends StatelessWidget {
 }
 
 /// The pushed-screen header. Back → title → one optional action.
+// ══════════════════ BUILD 85 · SCANNABLE PIECES ══════════════════
+// Facts as chips, numbers as tiles, compositions as bars, comparisons as
+// rows, and explanations folded away — so a screen leads with what it found
+// and keeps the how one tap down instead of in grey lines under every card.
+
+/// A small status chip: a fact the eye can catch ("Updated 07:05",
+/// "Distance: GPS route", "Approximate"). Neutral unless [color] is given.
+class Tag extends StatelessWidget {
+  const Tag(this.text, {super.key, this.icon, this.color});
+  final String text;
+  final IconData? icon;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final ink = color == null ? p.ink2 : p.on(color!);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: 3),
+      decoration: BoxDecoration(
+        color: color == null ? p.card2 : p.wash(color!),
+        borderRadius: R.rPill,
+        border: Border.all(color: p.edge),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: ink),
+            const SizedBox(width: S.x1),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              style: F.over.copyWith(color: ink, letterSpacing: .2),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// When today's numbers were last calculated, so an old number never looks
+/// current. [at] null means today has not been calculated yet.
+class UpdatedStamp extends StatelessWidget {
+  const UpdatedStamp(this.at, {super.key, this.now});
+  final DateTime? at;
+
+  /// For tests; the wall clock otherwise.
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext c) {
+    final when = at;
+    if (when == null) {
+      return const Tag('Not calculated yet', icon: LucideIcons.clock);
+    }
+    final today = now ?? DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final time = '${two(when.hour)}:${two(when.minute)}';
+    final sameDay =
+        when.year == today.year &&
+        when.month == today.month &&
+        when.day == today.day;
+    return Tag(
+      sameDay ? 'Updated $time' : 'Updated ${when.day}/${when.month} $time',
+      icon: LucideIcons.clock,
+    );
+  }
+}
+
+/// One number on its own tile: a label beside its colour well, the value, a
+/// unit and one short line. Lives in two-up grids.
+class StatTile extends StatelessWidget {
+  const StatTile({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.color,
+    this.unit = '',
+    this.sub,
+    this.icon,
+    this.onTap,
+    this.trailing,
+  });
+  final String label, value, unit;
+  final String? sub;
+  final Color color;
+  final IconData? icon;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      onTap: onTap,
+      semanticLabel: '$label $value $unit ${sub ?? ''}'.trim(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(color),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(
+                  icon ?? LucideIcons.circle,
+                  size: 14,
+                  color: p.on(color),
+                ),
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  label,
+                  style: F.cap.copyWith(color: p.ink2),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: value,
+                    style: F.n24.copyWith(color: p.ink),
+                  ),
+                  if (unit.isNotEmpty)
+                    TextSpan(
+                      text: ' $unit',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                ],
+              ),
+              maxLines: 1,
+            ),
+          ),
+          if (sub != null && sub!.isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            Text(
+              sub!,
+              style: F.over.copyWith(color: p.ink3),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A whole made of parts, as one bar: maintenance as Resting · Walking ·
+/// Running · Digestion. Each part is its own colour and is listed under the
+/// bar with its value, so the bar never stands in for the numbers.
+class StackedBar extends StatelessWidget {
+  const StackedBar(this.parts, {super.key});
+  final List<(String, double, Color)> parts;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final shown = [
+      for (final e in parts)
+        if (e.$2.isFinite && e.$2 > 0) e,
+    ];
+    final total = shown.fold<double>(0, (a, e) => a + e.$2);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: R.rPill,
+          child: SizedBox(
+            height: 10,
+            child: total <= 0
+                ? ColoredBox(color: p.track)
+                // Stretch: a ColoredBox with no child takes the smallest
+                // height it is allowed, which inside a Row is zero.
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < shown.length; i++) ...[
+                        if (i > 0)
+                          SizedBox(
+                            width: 2,
+                            child: ColoredBox(color: p.card),
+                          ),
+                        Expanded(
+                          // Thousandths keep a small part visible as a sliver.
+                          flex: math.max(
+                            1,
+                            (shown[i].$2 / total * 1000).round(),
+                          ),
+                          child: ColoredBox(color: p.on(shown[i].$3)),
+                        ),
+                      ],
+                    ],
+                  ),
+          ),
+        ),
+        const SizedBox(height: S.x3),
+        Wrap(
+          spacing: S.x4,
+          runSpacing: S.x2,
+          children: [
+            for (final e in parts)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: p.on(e.$3),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: S.x1),
+                  Text(e.$1, style: F.over.copyWith(color: p.ink3)),
+                  const SizedBox(width: S.x1),
+                  Text(
+                    _thousands(e.$2.round()),
+                    style: F.over.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Two figures and the gap between them, as the headline of a card rather
+/// than a caption under it: "Eaten 2,448 · Budget 2,451 · 3 under".
+/// Under is green and over is amber; the words say which, so colour is never
+/// the only signal.
+class CompareRow extends StatelessWidget {
+  const CompareRow({
+    super.key,
+    required this.leftLabel,
+    required this.left,
+    required this.rightLabel,
+    required this.right,
+    this.unit = 'kcal',
+    this.suffix = '',
+  });
+  final String leftLabel, rightLabel, unit;
+  final double left, right;
+
+  /// Appended to the gap's word ("Under so far").
+  final String suffix;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final gap = left - right;
+    final under = gap <= 0;
+    Widget cell(String label, String value, {Color? color}) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x1),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: F.n17.copyWith(color: color ?? p.ink),
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+    return Container(
+      padding: const EdgeInsets.all(S.x3),
+      decoration: BoxDecoration(
+        color: p.card2,
+        borderRadius: R.rLg,
+        border: Border.all(color: p.edge),
+      ),
+      child: Row(
+        children: [
+          cell(leftLabel, _thousands(left.round())),
+          cell(rightLabel, _thousands(right.round())),
+          cell(
+            under ? 'Under$suffix' : 'Over$suffix',
+            '${_thousands(gap.abs().round())} $unit',
+            color: p.on(under ? C.green : C.orange),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "How it's worked out", folded: the explanation is one tap away instead
+/// of grey lines under every number.
+class Explain extends StatefulWidget {
+  const Explain(this.lines, {super.key, this.title = "How it's worked out"});
+  final List<String> lines;
+  final String title;
+
+  @override
+  State<Explain> createState() => _ExplainState();
+}
+
+class _ExplainState extends State<Explain> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Pressable(
+          semanticLabel: _open ? 'Hide ${widget.title}' : widget.title,
+          onTap: () => setState(() => _open = !_open),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x2),
+            child: Row(
+              children: [
+                Icon(LucideIcons.info, size: 14, color: p.ink3),
+                const SizedBox(width: S.x2),
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: F.cap.copyWith(
+                      color: p.ink2,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Icon(
+                  _open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 16,
+                  color: p.ink3,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_open)
+          for (final line in widget.lines)
+            Padding(
+              padding: const EdgeInsets.only(left: S.x5, bottom: S.x2),
+              child: Text(
+                line,
+                style: F.cap.copyWith(color: p.ink3, height: 1.45),
+              ),
+            ),
+      ],
+    );
+  }
+}
+
 class NavBar extends StatelessWidget {
   final String title;
   final String sub;
@@ -2774,7 +3303,17 @@ class NavBar extends StatelessWidget {
           Pressable(
             onTap: onBack ?? () => Navigator.maybePop(c),
             semanticLabel: 'Back',
-            child: Icon(LucideIcons.chevronLeft, size: 24, color: p.ink),
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: p.card,
+                shape: BoxShape.circle,
+                border: Border.all(color: p.edge),
+              ),
+              child: Icon(LucideIcons.chevronLeft, size: 20, color: p.ink),
+            ),
           ),
           Expanded(
             child: Column(

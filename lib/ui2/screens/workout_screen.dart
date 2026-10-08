@@ -24,6 +24,7 @@ import '../../gps/route_math.dart'
         computeSplits,
         kMetersPerKm,
         kMetersPerMile;
+import '../../compute/day_upkeep.dart' show sessionProfile;
 import '../../compute/profile.dart';
 import '../../data/profile_history.dart';
 import '../../gps/run_analysis.dart'
@@ -114,6 +115,12 @@ class _SessionDestinationState extends State<SessionDestination> {
       final at = DateTime.fromMillisecondsSinceEpoch(start.toInt() * 1000);
       final stop = DateTime.fromMillisecondsSinceEpoch(end.toInt() * 1000);
       final clock = WorkoutClock.read(id, at, end: stop);
+      final priced = await sessionProfile(
+        id,
+        at,
+        Profile.fromMap(app.user),
+        end: stop,
+      );
       final result = await _detailOf(
         app,
         _PastWorkout(
@@ -124,13 +131,12 @@ class _SessionDestinationState extends State<SessionDestination> {
           private: row?['private'] == 1,
           calories: isRunType(activity.typeKey) || isWalkType(activity.typeKey)
               ? (row?['calories'] as num?)?.round()
-              : otherWorkoutActiveKcal(
-                  p: Profile.fromMap(app.user),
+              : sessionActiveKcal(
+                  p: priced,
+                  type: activity.typeKey,
                   minutes: clock.activeDuration(stop).inSeconds / 60,
                   meanHr: (row?['avg_hr'] as num?)?.toDouble(),
-                  met: activity.met == null
-                      ? null
-                      : conservativeMet(activity.typeKey, activity.met!),
+                  catalogueMet: activity.met,
                 )?.round(),
           steps: (row?['steps'] as num?)?.round(),
         ),
@@ -852,11 +858,23 @@ class _QuickTile extends StatelessWidget {
       semanticLabel: 'Start $label',
       child: Column(
         children: [
-          Icon(icon, size: 26, color: p.on(color)),
+          // A coloured disc per activity (build 85): the start buttons read
+          // as four doors, not four icons on a card.
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: p.wash(color),
+              shape: BoxShape.circle,
+              border: Border.all(color: p.on(color).withValues(alpha: .35)),
+            ),
+            child: Icon(icon, size: 22, color: p.on(color)),
+          ),
           const SizedBox(height: S.x2),
           Text(
             label,
-            style: F.cap.copyWith(color: p.ink),
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2057,23 +2075,48 @@ Future<List<_PastWorkout>> _pastWorkouts(
             DateTime.fromMillisecondsSinceEpoch(ts * 1000),
             // duration_min is minutes; Motion.tick × 60 × n keeps the one
             // Duration literal in theme.dart.
-            measured == null
-                ? Motion.tick * 60 * ((r['duration_min'] as num?)?.toInt() ?? 0)
-                : Motion.tick * measured.clock.activeSeconds(),
+            // Active time (start to stop minus pauses) wherever a clock
+            // exists, the same time the calories below are priced on.
+            measured != null
+                ? Motion.tick * measured.clock.activeSeconds()
+                : endTs != null && endTs > ts
+                ? Motion.tick *
+                      WorkoutClock.read(
+                        id,
+                        start,
+                        end: DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+                      ).activeSeconds()
+                : Motion.tick * 60 * ((r['duration_min'] as num?)?.toInt() ?? 0),
             strain: (r['strain'] as num?)?.toDouble(),
             // Every band session shows active (net) energy by a conservative
-            // method: distance/steps for runs and walks, otherwise the lower
-            // of net heart-rate and net activity energy. Recomputed here so
-            // sessions saved before build 78 (gross HR) read the same way.
+            // method: distance/steps for runs and walks, MET only for lifting,
+            // otherwise the lower of net heart-rate and net activity energy
+            // (sessionActiveKcal). Recomputed here so older sessions read the
+            // same way as the session screen and the maintenance Lifting line.
             calories: (isRunType(a.typeKey) || isWalkType(a.typeKey))
                 ? measured?.method1(a.typeKey)?.round()
-                : otherWorkoutActiveKcal(
-                    p: Profile.fromMap(app.user),
-                    minutes: ((r['duration_min'] as num?)?.toDouble() ?? 0),
+                : sessionActiveKcal(
+                    p: await sessionProfile(
+                      id,
+                      start,
+                      Profile.fromMap(app.user),
+                      end: endTs == null
+                          ? null
+                          : DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+                    ),
+                    type: a.typeKey,
+                    minutes: endTs != null && endTs > ts
+                        ? WorkoutClock.read(
+                                id,
+                                start,
+                                end: DateTime.fromMillisecondsSinceEpoch(
+                                  endTs * 1000,
+                                ),
+                              ).activeSeconds() /
+                              60
+                        : ((r['duration_min'] as num?)?.toDouble() ?? 0),
                     meanHr: (r['avg_hr'] as num?)?.toDouble(),
-                    met: a.met == null
-                        ? null
-                        : conservativeMet(a.typeKey, a.met!),
+                    catalogueMet: a.met,
                   )?.round(),
             acsmCalories: measured?.acsm(a.typeKey),
             // The session's mean over its own HR stream, computed by the repo

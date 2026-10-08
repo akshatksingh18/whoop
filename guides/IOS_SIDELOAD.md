@@ -19,8 +19,8 @@ Akshat confirmed build 70's
 feature phone check and completed automatic-refresh registration for version `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\WHOOP-0.9.49-build82-4b53abbe` holds the single candidate (not yet installed; build 80
-is installed). `../setup.md` owns the
+`testing\WHOOP-0.9.49-build82-4b53abbe` holds the single candidate (installed over build 80;
+phone pass pending). `../setup.md` owns the
 artifact, hash and workflow records.
 
 The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →

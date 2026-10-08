@@ -45,7 +45,26 @@ class FileLog {
     }
   }
 
-  static Future<void> write(String line) async {
+  // Writes run one at a time. Callers fire write() without awaiting, and
+  // FileMode.append seeks to the end on open rather than using O_APPEND, so
+  // two overlapping appends landed at the same offset and overwrote each
+  // other, leaving fragments like "drift=0s)." in the iPhone log.
+  static Future<void> _tail = Future<void>.value();
+
+  /// Appends [line] with the local wall-clock time (HH:MM:SS.mmm) in front.
+  static Future<void> write(String line) {
+    final stamped = '${stamp(DateTime.now())} $line\n';
+    return _tail = _tail.then((_) => _append(stamped));
+  }
+
+  static String stamp(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}:${two(t.second)}.'
+        '${t.millisecond.toString().padLeft(3, '0')}';
+  }
+
+  static Future<void> _append(String text) async {
     await _ensure();
     final f = _file;
     if (f == null) return;
@@ -53,7 +72,7 @@ class FileLog {
       if (_writesSinceCheck++ % _sizeCheckEvery == 0) {
         await _rotateIfNeeded(f);
       }
-      await f.writeAsString('$line\n', mode: FileMode.append);
+      await f.writeAsString(text, mode: FileMode.append);
     } catch (_) {}
   }
 
@@ -73,7 +92,9 @@ class FileLog {
     return _file?.path;
   }
 
-  static Future<void> clear() async {
+  static Future<void> clear() => _tail = _tail.then((_) => _clear());
+
+  static Future<void> _clear() async {
     await _ensure();
     try {
       await _file?.writeAsString('');

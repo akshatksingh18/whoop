@@ -252,8 +252,22 @@ since, so recent builds are not being killed for CPU; the stale background data 
 offload spacing, not a crash. The app log never existed on iPhone: `FileLog` tried Android's
 external storage first, which throws on iOS, and the shared handler disabled logging. Fixed in the
 local build-82 source (iOS writes `openstrap_sync.log` to Documents, visible in Files → WHOOP), and
-pull-to-refresh now logs when phone steps, the band pull and the calculation finish. Next
-evidence: that log after a backgrounded hour and one pull-to-refresh on build 82.
+pull-to-refresh now logs when phone steps, the band pull and the calculation finish.
+First build-82 log (Akshat, 7 Oct, two short opens, not the hour): on first open the band held
+~1,500 records, but the reconnect drain pulled 0 and stopped on the 60 s idle timeout twice; a
+later foreground refresh then pulled 1,699 records (~28 min of band history, 37 batches). While
+backgrounded the app logged "Periodic history refresh skipped — backgrounded" and no background
+offload appears before the next open, which reconnected from scratch (new link, clock set; ~9 min
+backlog). Pull-to-refresh logged phone steps and band pull both done at 0.1 s (the pull skipped
+because a capture was already running) and no calculation line (the app went to the background);
+every foreground re-derives 4 days plus a 43-day cross-day pass, the likely slow stage.
+The log itself is defective: lines carry no time, and `_log` fires `FileLog.write` unawaited,
+each opening the file in Dart's append mode (seek to end, not `O_APPEND`), so overlapping writes
+overwrite each other and leave fragments ("drift=0s)."). The empty drains came from
+`_runSyncBurst` waiting without sending a history request when the link was reused or the earlier
+offload had ended. Both are fixed in build 83 (`todo.md`): a serialized,
+time-stamped log writer, and a burst that asks the band whenever no offload is in flight. Next
+evidence: that build's log after a backgrounded hour and one pull-to-refresh.
 Candidate fixes (`todo.md`): spinner stops after phone steps + a ~3 s band top-up while the
 recalculation finishes on screen; timing lines per refresh stage; keep background offloads at
 15 min while connected (no long backoff); arm the restore central while connected so a system

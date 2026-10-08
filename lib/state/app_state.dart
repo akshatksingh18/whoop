@@ -4267,6 +4267,12 @@ class AppState extends ChangeNotifier {
     int maxSessions = 20,
   }) async {
     var last = SyncReport(0, 0, false);
+    // Only a fresh connection's INIT asks the band for history. A reused link
+    // ("already connected — reusing") or one whose earlier offload ended had
+    // nothing in flight, so waiting without asking sat out the 60 s idle
+    // timeout and drained 0 records (build-82 phone log). Ask when no offload
+    // is active, and once more if a wait we did not kick ends empty.
+    var retriedEmpty = false;
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
       // Terminal `Stuck`: a burst failed validation
       // 15 times and the abort went out, so this connection's history is over.
@@ -4286,7 +4292,8 @@ class AppState extends ChangeNotifier {
       // not mistake that for a stuck drain (spin-guard/backlogRemains below
       // read frontierAfter too).
       final frontierBefore = await LocalDb.getCursorInt('rec_ts_hw');
-      if (kickFirst || i > 0) {
+      final kicked = kickFirst || i > 0 || !engine.offloadActive;
+      if (kicked) {
         await engine.requestHistorySync();
       }
       kickFirst = false;
@@ -4329,6 +4336,12 @@ class AppState extends ChangeNotifier {
         },
       );
       if (report.batches == 0) {
+        if (!kicked && !retriedEmpty) {
+          retriedEmpty = true;
+          _log('Backfill retry — the wait we did not kick drained nothing; '
+              'asking the band.');
+          continue; // i > 0 now, so the next session requests history.
+        }
         _log('Backfill stop — no batch ACKs; trim did not advance.');
         break;
       }

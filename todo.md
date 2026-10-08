@@ -23,7 +23,23 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 82: published and built, awaiting installation
+## Build 83 (`0.9.50`/`83`): approved to build (Akshat)
+
+Approved by Akshat after the first build-82 phone log (`bugs.md`, "Background sync and slow
+pull-to-refresh"); he has no other fixes for it. Implemented:
+- **App log fixed:** every line starts with the local date and time to the millisecond, and lines
+  are written one at a time, so overlapping writes no longer overwrite each other
+  (`lib/sync/file_log.dart`, `test/file_log_test.dart`).
+- **The sync no longer waits for data it never asked for:** after a reused connection, or once an
+  earlier offload had ended, the history burst waited 60 s without asking the band and drained 0
+  records. `_runSyncBurst` now asks the band whenever no offload is in flight, and asks once more
+  if a wait it did not start ends empty.
+Validation: the new log test, `today_refresh_test` and `ui2_router_test` pass; analysis has no
+errors or warnings in the changed files.
+Then: after an hour in the background and one pull-to-refresh, share `openstrap_sync.log` to time
+background syncs and each refresh stage before the refresh and background-sync fixes.
+
+## Build 82: installed (Akshat), awaiting phone pass
 
 Akshat approved the drag fix and the three friction fixes, plus a saved-meal flow check, and
 later asked for build 82 to be built. Implemented:

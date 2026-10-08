@@ -438,7 +438,7 @@ ran the full suite (3,406 tests, 371 intentional skips) and passes; personal mac
 `37708104201` passes. Artifact `whoop-personal-4b53abbe21a0-unsigned.ipa` (18,068,787 bytes),
 SHA-256 `4720476a8e9df7d32476ddde333e26889fde9a0f960d18c2a063f9220a688588`, matches its checksum
 and manifest (`0.9.49`/`82`); ZIP and payload contract pass with no app extension. It is the sole
-testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.49-build82-4b53abbe`, not yet installed. Install over
+testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.49-build82-4b53abbe`; Akshat reports it installed over
 build 80 with automatic bundle ID off and final ID `com.akshat.personal.whoop.5564K8D4SV`. Build 70
 stays accepted recovery.
 

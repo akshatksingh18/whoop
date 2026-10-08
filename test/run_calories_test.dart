@@ -90,18 +90,24 @@ void main() {
         me,
         steps: 15000,
         eatenKcal: 2500,
+        digestionKcal: 194,
         runKcal: run,
         runSteps: 4835,
       )!;
       expect(m.steps, closeTo(2.74 * 10165 * 80.5 / 8368, 1e-6)); // 267.9
       expect(m.run, closeTo(287.8, 0.1));
-      expect(m.total, closeTo(1861.8 + 267.9 + 287.8 + 250, 0.3));
+      expect(m.total, closeTo(1861.8 + 267.9 + 287.8 + 194, 0.3));
     });
 
     test('without a run it is the build 68 number', () {
-      final m = maintenance(me, steps: 15000, eatenKcal: 2500)!;
+      final m = maintenance(
+        me,
+        steps: 15000,
+        eatenKcal: 2500,
+        digestionKcal: 194,
+      )!;
       expect(m.run, 0);
-      expect(m.total, closeTo(2507.2, 0.2));
+      expect(m.total, closeTo(2451.19, 0.01));
     });
 
     test('run steps never take the step row below zero', () {

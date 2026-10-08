@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'profile.dart';
+import 'hr_max.dart' show hrCeilingForAge, kHrFloorBpm;
 import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
@@ -21,6 +22,8 @@ class DayUpkeep {
     this.distanceSource = 'Distance unavailable',
     this.acsmRuns = kNoRunDay,
     this.runWindows = const [],
+    this.digestion,
+    this.lifting,
   });
   final Profile profile;
   final num? steps;
@@ -32,6 +35,15 @@ class DayUpkeep {
   final String distanceSource;
   final RunDay acsmRuns;
   final List<ActiveWindow> runWindows;
+
+  /// The day's summed per-entry [digestionKcal]; null prices [eaten] as food
+  /// of unknown composition.
+  final double? digestion;
+
+  /// Net strength-training energy for the day, shown as a separate line and
+  /// never added to [parts]' total (Akshat's decision, build 84). Null with no
+  /// lifting session; `approximate` when a session's steps were unknown.
+  final ({double kcal, int sessions, bool approximate})? lifting;
 
   ({double bmr, double steps, double run, double food, double total})?
   get acsmParts {
@@ -61,6 +73,7 @@ class DayUpkeep {
       profile,
       steps: steps,
       eatenKcal: eaten,
+      digestionKcal: digestion,
       runKcal: runs.kcal,
       runSteps: runs.steps,
     );
@@ -146,14 +159,21 @@ class DayUpkeep {
               null &&
           (r.floorKcal(profile.weightKg) ?? 0) > 0,
     );
+    // `eaten: 0` is a caller asking for maintenance without food.
+    final entries = eaten == 0
+        ? const <FoodEntry>[]
+        : await NutritionDb.entriesForDay(await LocalDb.instance, date);
     final food =
-        eaten ??
-        rollupDay(
-          date,
-          await NutritionDb.entriesForDay(await LocalDb.instance, date),
-          today: todayLabel(),
-        ).kcal.value ??
-        0;
+        eaten ?? rollupDay(date, entries, today: todayLabel()).kcal.value ?? 0;
+    var digestion = 0.0;
+    for (final e in entries) {
+      digestion += digestionKcal(
+        kcal: e.kcal,
+        proteinG: e.proteinG,
+        carbsG: e.carbsG,
+        fatG: e.fatG,
+      );
+    }
     final dayEnergy = runEnergyOn(
       owned,
       date,
@@ -176,6 +196,8 @@ class DayUpkeep {
         daySteps: steps,
       ),
       eaten: food,
+      digestion: food > 0 ? digestion : 0,
+      lifting: await liftingOn(date, profile),
       overlapUnknown: unknown,
       walkingMeters: distance.meters,
       distanceSource: distance.source,
@@ -192,6 +214,74 @@ class DayUpkeep {
       ],
     );
   }
+}
+
+/// Net energy of the day's strength sessions ([kLiftTypeKeys]), each priced by
+/// [otherWorkoutActiveKcal] (the lower of net heart rate and (MET − 1) × kg ×
+/// active hours), less the step calories of steps taken inside the session's
+/// active windows, which the Steps row already counts. A session is filed under
+/// the day it started. Null when the day has no lifting session or no weight.
+Future<({double kcal, int sessions, bool approximate})?> liftingOn(
+  String date,
+  Profile profile,
+) async {
+  final day = DateTime.tryParse(date);
+  final kg = profile.weightKg;
+  if (day == null || kg == null) return null;
+  final from = DateTime(day.year, day.month, day.day);
+  final to = DateTime(day.year, day.month, day.day + 1);
+  final lo = from.millisecondsSinceEpoch ~/ 1000;
+  final hi = to.millisecondsSinceEpoch ~/ 1000 - 1;
+  final rows = [
+    for (final r in await LocalDb.sessionsInRange(lo, hi))
+      if (isLiftType(r['type'] as String?)) r,
+  ];
+  if (rows.isEmpty) return null;
+  final hr = await LocalDb.sessionHrStats(
+    lo,
+    hi,
+    maxHrCeiling: hrCeilingForAge(profile.ageYears),
+    minHrFloor: kHrFloorBpm,
+  );
+  var kcal = 0.0;
+  var counted = 0;
+  var approximate = false;
+  for (final r in rows) {
+    final id = r['id'] as String?;
+    final startTs = (r['start_ts'] as num?)?.toInt();
+    if (id == null || startTs == null) continue;
+    final start = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
+    final endTs = (r['end_ts'] as num?)?.toInt();
+    final end = endTs == null
+        ? DateTime.now()
+        : DateTime.fromMillisecondsSinceEpoch(endTs * 1000);
+    if (!end.isAfter(start)) continue;
+    final clock = WorkoutClock.read(id, start, end: end);
+    final minutes = clock.activeDuration(end).inSeconds / 60;
+    final type = (r['type'] as String).toLowerCase().replaceAll(' ', '_');
+    final meanHr = hr[id]?['avg_hr'];
+    final net = otherWorkoutActiveKcal(
+      p: profile,
+      minutes: minutes,
+      meanHr: meanHr != null && meanHr > 0 ? meanHr.toDouble() : null,
+      met: conservativeMet(type, 0),
+    );
+    if (net == null) continue;
+    var steps = 0;
+    var known = false;
+    for (final w in clock.windows()) {
+      final s = await LocalDb.resolvedStepsForWindow(w.start, w.end);
+      if (s.hasPhoneCoverage || s.total > 0) {
+        known = true;
+        steps += s.total;
+      }
+    }
+    if (!known) approximate = true;
+    kcal += math.max(0.0, net - (stepCalories(steps, kg) ?? 0));
+    counted++;
+  }
+  if (counted == 0) return null;
+  return (kcal: kcal, sessions: counted, approximate: approximate);
 }
 
 /// Distance follows credited source steps and excludes the same active run windows.

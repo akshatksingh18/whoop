@@ -2597,7 +2597,8 @@ class BleEngine {
         const Duration(seconds: kKeepAliveIntervalSeconds),
         (_) => _keepAliveFire(session),
       );
-      // Periodic backfill (900s): re-trigger the historical offload while connected,
+      // Periodic backfill (checked every 5 min, run at most every 15): re-trigger
+      // the historical offload while connected,
       // floored by BackfillPolicy so a flapping link can't hammer the strap.
       session.periodicBackfill = Timer.periodic(
         const Duration(seconds: kBackfillIntervalSeconds),

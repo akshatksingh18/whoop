@@ -268,7 +268,44 @@ overwrite each other and leave fragments ("drift=0s)."). The empty drains came f
 offload had ended. Both are fixed in build 83 (`todo.md`): a serialized,
 time-stamped log writer, and a burst that asks the band whenever no offload is in flight. Next
 evidence: that build's log after a backgrounded hour and one pull-to-refresh.
-Candidate fixes (`todo.md`): spinner stops after phone steps + a ~3 s band top-up while the
+Build-83 log (Akshat, 7-8 Oct, 21:43-07:05, time-stamped):
+- **Build-83 fixes work:** reconnect drains now pull data (5-133 records, no 0-record waits),
+  "Backfill retry" fired 7 times, and lines are whole and timed.
+- **Background sync does run while connected:** the engine's backfill offloaded at 05:32 and
+  06:02 (30 min apart, the floored timer with backoff) with the app backgrounded; data reaches the
+  phone, but calculation waits for the foreground, which is why numbers look stale.
+- **Overnight restart loop (new, most important):** from 02:15 (link timeout) to 03:30 the app
+  process started over about 20 times, every 2-4 minutes. Evidence: each start re-acquires
+  foreground lease 2 (the token restarts per process), "recovered orphaned steps from a killed
+  session" appears 9 times, and every new process ran a full heavy calculation (4 days plus a
+  9-day baseline rescan) and one sleep-staging timeout (90 s) while the phone sat locked. The
+  restarted process takes the foreground session path (`===== SESSION START =====`, foreground
+  5-min refresh) instead of the background one, so it runs foreground-sized work in the
+  background. Leading hypothesis: iOS relaunches the app for Bluetooth, the app behaves as if
+  opened, the heavy calculation exceeds iOS's background CPU limit, iOS kills it, and the band
+  relaunches it again. Akshat's Analytics Data has no `Runner` or `cpu_resource` report for
+  7-8 Oct (newest Runner CPU kill 14 Sept, disk-writes 22 Sept), so a CPU kill is not confirmed.
+  The restarts are still real: each one resets the band command sequence (e.g. `24c4…` → `2406…`)
+  and the lease counter, with no "Link down" first, and the previous process stops mid-calculation
+  with no closing line. Remaining candidates: a memory kill (iOS logs those as `JetsamEvent-*`,
+  not under Runner) or silent termination of a backgrounded app followed by a Bluetooth relaunch.
+  Akshat found no report of any kind for 8 Oct, Jetsam included; the two 7 Oct reports are
+  unrelated (the build-80 Live Activity extension's known code-signing kill, and Apple's own
+  `CoreRoutineHelperService`). With no report, silent termination of the backgrounded app is the
+  leading explanation.
+- **Then a 92-minute stall:** at 03:30:07 a new process started a session while a background
+  (headless) lease was held and logged nothing until Akshat opened the app at 05:02, so no data
+  synced for 1.5 h overnight.
+- **Pull-to-refresh timing:** phone steps 0.0-0.2 s and band pull 0.1-0.2 s every time (the pull
+  joins the burst already running); calculation 5.9-67 s (50.3 s and 67.0 s on heavy days). The
+  slow part is the calculation, not the band.
+- Offload record counts in "OFFLOAD SUMMARY"/"Foreground catch-up" are cumulative for the
+  connection, not per sync, so they overstate each pull.
+Root cause found in source (build 84): the relaunch reaches Flutter as `inactive`, which
+`AppState` read as opened; build 84 asks UIKit, keeps background launches light, bumps screens
+when today's row lands, ends pull-to-refresh at today, checks offloads every 5 min and records
+MetricKit exit reasons (`todo.md`, "Build 84"). Unverified until a night's log on build 84.
+Earlier candidate fixes (`todo.md`): spinner stops after phone steps + a ~3 s band top-up while the
 recalculation finishes on screen; timing lines per refresh stage; keep background offloads at
 15 min while connected (no long backoff); arm the restore central while connected so a system
 kill can relaunch the app; reduce background CPU if kills are confirmed.

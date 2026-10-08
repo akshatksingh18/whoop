@@ -1263,7 +1263,7 @@ class HomeData {
   /// profile has no height/weight or no steps were counted.
   final double? walkingKcal;
 
-  /// Today's maintenance so far, as a floor: BMR + step calories + 10% of the
+  /// Today's maintenance so far, as a floor: BMR + step calories + digestion of the
   /// food logged today. Null without age, height and weight.
   /// Today's maintenance inputs; null before the profile is read.
   final DayUpkeep? upkeep;
@@ -2050,7 +2050,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       ),
     );
     // Maintenance so far: resting + steps outside runs + runs by distance +
-    // 10% of food logged. A floor: lifts and other workouts are not added.
+    // digestion of food logged. A floor: lifting is a separate sheet line.
     final upkeep = d.upkeep;
     final up = upkeep?.parts;
     if (upkeep != null && up != null) {

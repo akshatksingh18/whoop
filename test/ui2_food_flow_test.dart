@@ -1290,6 +1290,8 @@ void main() {
                   sex: 'm',
                 ),
                 eatenKcal: 1800,
+                // 120 g protein at 20% + the other 1,320 kcal at 5% = 162.
+                digestionKcal: digestionKcal(kcal: 1800, proteinG: 120),
                 steps: 5000,
               )!.total -
               1800,
@@ -1351,7 +1353,8 @@ void main() {
         () =>
             find.textContaining('2,000 kcal you logged').evaluate().isNotEmpty,
       );
-      expect(find.text('200 kcal'), findsOneWidget);
+      // 30 g protein at 20% (24) + the other 1,880 kcal at 5% (94).
+      expect(find.text('118 kcal'), findsOneWidget);
       await _capture(t, 'build73-maintenance');
       expect(t.takeException(), isNull);
       await _unmount(t);

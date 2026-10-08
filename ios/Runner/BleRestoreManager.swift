@@ -2,6 +2,7 @@ import Foundation
 import CoreBluetooth
 import UIKit
 import Flutter
+import MetricKit
 
 /// Keeps the app eligible for background relaunch when the paired WHOOP band becomes
 /// reachable — the mechanism WHOOP/Garmin use on iOS (CoreBluetooth State Preservation
@@ -126,6 +127,7 @@ class BleRestoreManager: NSObject {
 
   /// Wire the Dart channel. Safe on the implicit engine too (background launch).
   func attach(messenger: FlutterBinaryMessenger) {
+    ExitReasonLog.shared.start()
     let ch = FlutterMethodChannel(name: "openstrap/ble_restore", binaryMessenger: messenger)
     ch.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { result(nil); return }
@@ -194,6 +196,16 @@ class BleRestoreManager: NSObject {
       case "disarm":
         self.disarm()
         result(nil)
+      case "appState":
+        // What iOS itself says, for the launch decision in Dart. A Bluetooth
+        // relaunch can surface to Flutter as "inactive", which Dart read as
+        // opened by the user; only UIKit knows it is really in the background.
+        switch UIApplication.shared.applicationState {
+        case .active: result("active")
+        case .inactive: result("inactive")
+        case .background: result("background")
+        @unknown default: result("unknown")
+        }
       case "ready":
         self.flutterReady = true
         if self.wakeQueuedBeforeReady {
@@ -357,5 +369,46 @@ extension BleRestoreManager: CBCentralManagerDelegate {
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     NSLog("[ble-restore] didFailToConnect: \(error?.localizedDescription ?? "—")")
     if !handedOff { armIfAppropriate() }
+  }
+}
+
+/// Why iOS ended the app. Time-limit, memory and watchdog terminations leave no
+/// crash report (8 Oct: about 20 silent restarts, nothing in Analytics Data),
+/// but MetricKit reports their counts once a day on a later launch. Each
+/// payload's exit metrics are appended to `openstrap_exits.log` in Documents,
+/// beside the app log in Files → WHOOP. A file of its own, so these writes can
+/// never interleave with the Dart log's.
+final class ExitReasonLog: NSObject, MXMetricManagerSubscriber {
+  static let shared = ExitReasonLog()
+  private var started = false
+
+  func start() {
+    guard !started else { return }
+    started = true
+    MXMetricManager.shared.add(self)
+  }
+
+  func didReceive(_ payloads: [MXMetricPayload]) {
+    for payload in payloads {
+      guard let exits = payload.applicationExitMetrics,
+            let json = String(data: exits.jsonRepresentation(), encoding: .utf8)
+      else { continue }
+      let f = ISO8601DateFormatter()
+      append("\(f.string(from: payload.timeStampBegin)) to "
+        + "\(f.string(from: payload.timeStampEnd)) \(json)\n")
+    }
+  }
+
+  private func append(_ line: String) {
+    guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+          let data = line.data(using: .utf8) else { return }
+    let url = dir.appendingPathComponent("openstrap_exits.log")
+    if let h = try? FileHandle(forWritingTo: url) {
+      defer { try? h.close() }
+      _ = try? h.seekToEnd()
+      try? h.write(contentsOf: data)
+    } else {
+      try? data.write(to: url)
+    }
   }
 }

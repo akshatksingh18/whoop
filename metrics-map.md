@@ -248,7 +248,7 @@ and debt are not shown (the Sleep Coach still computes them).
 ## How calories are estimated
 
 **Daily maintenance** (Akshat's chosen conservative budgeting estimate):
-maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10% of the food logged.
+maintenance = BMR + step calories (steps outside runs) + running (Method 1) + digestion of the food logged.
 
 - **BMR:** Mifflin–St Jeor for the whole day: 10 × kg + 6.25 × cm − 5 × age, + 5 for men, − 161
   for women (the midpoint otherwise). `bmrMifflin` in `lib/compute/profile.dart`.
@@ -273,10 +273,17 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + 10
     walking energy rather than adding both unreduced. A run without distance adds nothing and its
     steps remain walking steps.
   - Walks are never in this row; their steps stay in Steps.
-- **Food (thermic effect):** 10% of the kcal logged that day; 0 until something is logged.
-- **Lifts and other workouts are not added.**
-- Checked: 23 y, 80.5 kg, 186.69 cm, 15,000 steps, 2,500 kcal eaten → 1,862 + 395 + 250 = 2,507
-  with no run; with a 5 km run that took 4,835 steps → 1,862 + 268 + 288 + 250 = 2,668
+- **Digestion (thermic effect, build 84):** per logged entry, the low end of each range: 20% of
+  protein energy (4 kcal/g), 5% of carbohydrate (4 kcal/g), 0% of fat, and 5% of kcal the logged
+  macros do not explain when any macro is missing; with all three logged, unexplained kcal adds
+  nothing; capped at 20% of the entry. 0 until something is logged. `digestionKcal`.
+- **Lifts and other workouts are not added.** Strength sessions (weight training, bodyweight,
+  functional, calisthenics, powerlifting) show only as "Lifting (extra, not in maintenance)" in
+  the detail sheet: the lower of net Keytel and (MET − 1) × kg × active hours per session, less
+  the step calories of steps inside its active windows, with "With lifting N kcal". `liftingOn`.
+- Checked: 23 y, 80.5 kg, 186.69 cm, 15,000 steps, 2,500 kcal eaten with 180 g protein, 250 g
+  carbs, 87 g fat → 1,861.81 + 395.38 + 194 = 2,451 with no run; with a 5 km run that took
+  4,835 steps → 1,862 + 268 + 288 + 194 = 2,612. A 60-min lift at 80.5 kg: +201 (MET)
   (`test/walking_energy_test.dart`, `test/run_calories_test.dart`).
 - **Where it shows:** the Maintenance card on Today, the Maintenance card on Food → Today (tap
   either for a sheet with one plain line per part and its numbers), and "Maintenance N · M
@@ -289,7 +296,7 @@ These are estimates, not guaranteed individual physiological minima. The card in
 whole day's BMR plus movement and food recorded so far; it is not burn elapsed since midnight.
 ACSM uses `0.005 * kg * (0.2 * run_metres + 0.1 * walk_metres + 0.9 * trusted_run_climb
 + 1.8 * trusted_walk_climb)`, excluding resting already. Daily ACSM maintenance uses the same
-full-day BMR and 10% logged-food allowance, with the same run ownership and step exclusions.
+full-day BMR and logged-food digestion allowance, with the same run ownership and step exclusions.
 Current GPS climb is not trusted for additions. A recorded walking route replaces overlapping
 phone distance; no walking-workout calorie addition exists. iPhone `CMPedometerData.distance`
 is saved beside its accepted step coverage. Remaining steps use an explicit height-based distance

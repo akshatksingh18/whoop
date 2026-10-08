@@ -277,6 +277,14 @@ class AppState extends ChangeNotifier {
   /// passes while a flappy link churns in the background (30-min floor).
   DateTime? _lastBackgroundHeavyAt;
 
+  /// When a calculation pass last rewrote today's day row. Pull-to-refresh
+  /// waits for this, not for the whole multi-day pass.
+  DateTime? _todayDerivedAt;
+
+  /// Longest pull-to-refresh waits for today's calculation before the spinner
+  /// stops; Today still updates by itself when that calculation lands.
+  static const Duration pullTodayWait = Duration(seconds: 15);
+
   /// Last backgrounded wake-window re-plan (its inputs change at most daily;
   /// see the throttle in [_runPeriodicBackfill]).
   DateTime? _lastWakeWindowRefreshAt;
@@ -795,10 +803,21 @@ class AppState extends ChangeNotifier {
       unawaited(syncNow()); // try to reconnect; the screen does not wait on it
     }
     _log('Pull refresh: band pull done at ${secs()}');
+    final pulledAt = DateTime.now();
     await _deriveScheduler.markStoredData();
+    // Wait for TODAY, not the whole pass: the heavy pass does today first and
+    // then three older days and a 43-day cross-day pass (50-67 s in the
+    // build-83 log). Today's screens re-read the moment today's row lands
+    // (onDayDone), so the rest finishes in the background with the spinner gone.
     while (_deriveScheduler.running ||
         _deriveScheduler.pendingLight ||
         _deriveScheduler.pendingHeavy) {
+      final today = _todayDerivedAt;
+      if (today != null && !today.isBefore(pulledAt)) break;
+      if (DateTime.now().difference(pulledAt) >= pullTodayWait) {
+        notes.add('Still calculating; Today updates when it is done.');
+        break;
+      }
       final snap = _deriveScheduler.snapshot();
       // Held work (a live workout, an offload still landing) will not drain
       // on this pull; stop waiting rather than spin to the cap.
@@ -1713,7 +1732,14 @@ class AppState extends ChangeNotifier {
           _profile,
           heavy: heavy,
           onDayDone: (day, index, total) async {
-            if (index == total || index == 1 || index % 3 == 0) {
+            if (day == todayLabel()) {
+              // Today's row just changed. Screens re-read only on a revision
+              // bump, and this pass bumped only at its end (a heavy pass runs
+              // four days, up to a minute), so Today kept the morning's 0.0
+              // strain while Day strain, read on open, showed the new value.
+              _todayDerivedAt = DateTime.now();
+              bumpInsights();
+            } else if (index == total || index == 1 || index % 3 == 0) {
               notifyListeners();
             }
           },
@@ -1755,7 +1781,10 @@ class AppState extends ChangeNotifier {
           try {
             final n = await _derive.rescanRecent(_profile);
             if (n > 0) {
-              notifyListeners(); // screens re-read the refreshed scalars
+              // A revision bump, not just notifyListeners: screens re-read
+              // only on the revision, so a rescanned readiness stayed stale.
+              bumpInsights();
+              notifyListeners();
             }
           } catch (e) {
             _log('[derive] rescan failed: $e');
@@ -2567,6 +2596,27 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Whether this launch is the user opening the app or iOS waking it for
+  /// Bluetooth, settled with UIKit before the session starts. The constructor
+  /// reads Flutter's lifecycle, but a Bluetooth relaunch can arrive as
+  /// `inactive`, which it treated as opened: overnight on 8 Oct each relaunch
+  /// ran the full foreground session and calculation with the phone locked,
+  /// about 20 times, until iOS stopped relaunching it. Only UIKit's
+  /// `.background` flips it; a user launch is `inactive` then `active`.
+  Future<void> _settleLaunchKind() async {
+    final ios = await IosBleRestore.appState();
+    final flutter = WidgetsBinding.instance.lifecycleState?.name ?? 'none';
+    if (ios == 'background' && !_background) {
+      _background = true;
+      engine.setBackground(true);
+      _deriveScheduler.setBackground(true);
+    }
+    _log(
+      '[launch] ${_background ? "background" : "foreground"} '
+      '(iOS state=${ios ?? "n/a"}, Flutter lifecycle=$flutter)',
+    );
+  }
+
   Future<void> _initSteps() async {
     paired = await PairedDevice.load();
     await refreshSensors();
@@ -2617,6 +2667,7 @@ class AppState extends ChangeNotifier {
     if (isPaired) unawaited(_ensureRemindersScheduled());
     // Not gated on pairing: an unpaired app still expires.
     unawaited(refreshSigningStatus());
+    await _settleLaunchKind();
     if (isPaired) {
       if (_background) {
         _keepAlive = true;

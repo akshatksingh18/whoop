@@ -227,6 +227,20 @@ double? runFloorKcal({
   return (kcal: kcal, measured: measured, slots: slots);
 }
 
+/// The strength workouts the maintenance sheet's separate Lifting line counts:
+/// exactly the types [conservativeMet] prices as strength work.
+const Set<String> kLiftTypeKeys = {
+  'weight_training',
+  'bodyweight',
+  'functional',
+  'calisthenics',
+  'powerlifting',
+};
+
+bool isLiftType(String? type) =>
+    type != null &&
+    kLiftTypeKeys.contains(type.toLowerCase().replaceAll(' ', '_'));
+
 /// The MET a non-walking, non-running workout is priced at: the catalogue
 /// value, except strength work, which the 2024 Adult Compendium puts at 3.5
 /// for a typical multi-exercise session (5.0 for heavy squats/deadlifts) —
@@ -274,10 +288,44 @@ double? otherWorkoutActiveKcal({
   return math.min(byMet, byHr);
 }
 
+/// Digestion cost rates, the LOW end of each published range (build 84,
+/// Akshat's conservative choice; `todo.md` holds the audit): protein 20%,
+/// carbohydrate 5%, fat 0%, and 5% for kcal of unknown composition (the low
+/// end of the 5-15% measured for mixed diets, Westerterp 2004). No entry
+/// costs more than pure protein would.
+const double kDigestProtein = 0.20;
+const double kDigestCarbs = 0.05;
+const double kDigestFat = 0.0;
+const double kDigestUnknown = 0.05;
+const double kDigestCap = 0.20;
+
+/// The digestion cost of one logged entry. Grams become energy by label
+/// factors (protein 4, carbohydrate 4, fat 9 kcal/g). With all three macros
+/// logged, kcal they do not explain (fibre, alcohol, label rounding) adds
+/// nothing; with any missing, the kcal the logged macros do not explain is
+/// priced at [kDigestUnknown]. Capped at [kDigestCap] of the entry's kcal.
+/// An entry without kcal costs nothing, as it adds nothing to the day.
+double digestionKcal({
+  double? kcal,
+  double? proteinG,
+  double? carbsG,
+  double? fatG,
+}) {
+  if (kcal == null || !kcal.isFinite || kcal <= 0) return 0;
+  double g(double? v) => v == null || !v.isFinite || v < 0 ? 0 : v;
+  final p = 4 * g(proteinG), c = 4 * g(carbsG), f = 9 * g(fatG);
+  var cost = kDigestProtein * p + kDigestCarbs * c + kDigestFat * f;
+  final complete = proteinG != null && carbsG != null && fatG != null;
+  if (!complete) cost += kDigestUnknown * math.max(0.0, kcal - (p + c + f));
+  return math.min(cost, kDigestCap * kcal);
+}
+
 /// A day's conservative maintenance budget:
-/// BMR + step calories + running (Method 1) + 10% of the food logged that day
-/// (the thermic effect of food).
+/// BMR + step calories + running (Method 1) + the digestion cost of the food
+/// logged that day.
 ///
+/// [digestionKcal] is the day's summed per-entry [digestionKcal]; without it
+/// [eatenKcal] is priced as food of unknown composition ([kDigestUnknown]).
 /// [runSteps] are the steps taken during the day's runs. They are taken off
 /// [steps] before the step formula, because those metres are already in
 /// [runKcal]; walks are never in [runKcal], so their steps stay in [steps].
@@ -287,6 +335,7 @@ maintenance(
   Profile p, {
   num? steps,
   double eatenKcal = 0,
+  double? digestionKcal,
   double runKcal = 0,
   num runSteps = 0,
 }) {
@@ -295,13 +344,15 @@ maintenance(
       !eatenKcal.isFinite ||
       !runKcal.isFinite ||
       !runSteps.isFinite ||
+      (digestionKcal != null && !digestionKcal.isFinite) ||
       (steps != null && !steps.isFinite)) {
     return null;
   }
   final walked = steps == null ? null : math.max(0, steps - runSteps);
   final st = stepCalories(walked, p.weightKg) ?? 0;
   final run = math.max(0.0, runKcal);
-  final tef = eatenKcal > 0 ? eatenKcal * 0.10 : 0.0;
+  final tef =
+      digestionKcal ?? (eatenKcal > 0 ? eatenKcal * kDigestUnknown : 0.0);
   return (
     bmr: bmr,
     steps: st,

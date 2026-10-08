@@ -131,6 +131,17 @@ class IosBleRestore {
     } catch (_) {}
   }
 
+  /// UIKit's application state: 'active', 'inactive' or 'background'; null off
+  /// iOS or when native cannot answer.
+  static Future<String?> appState() async {
+    if (!Platform.isIOS) return null;
+    try {
+      return await _ch.invokeMethod<String>('appState');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> _done() async {
     try {
       await _ch.invokeMethod('syncDone');

@@ -23,6 +23,44 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 84 (`0.9.51`/`84`): approved to build (Akshat: "based on your judgment")
+
+Akshat asked for the refresh/background plan plus food by macro and lifting, with no stale data,
+and reported Today's strain at 0.0 while Day strain showed a number. Implemented:
+- **Stale Today numbers (root causes found):**
+  - Screens re-read only on a revision bump, and a calculation pass bumped only at its end (a
+    heavy pass is four days, up to a minute), so Today kept an early value (0.0 strain) while
+    Day strain, read when opened, already showed the new one. Today's row landing now bumps at
+    once (`_afterDrain` `onDayDone`).
+  - The baseline rescan (up to 9 days of readiness) only called `notifyListeners`, so screens
+    never re-read it; it now bumps the revision.
+- **Background relaunches stay light:** a Bluetooth relaunch can reach Flutter as `inactive`,
+  which `AppState` treated as opened, so each overnight relaunch ran the foreground session and
+  full calculation. `_settleLaunchKind` asks UIKit (`appState` on the restore channel) before the
+  session starts and logs `[launch] background|foreground (iOS state=…, Flutter lifecycle=…)`.
+- **Pull-to-refresh** waits for today's row only (at most 15 s), then stops the spinner with
+  "Still calculating; Today updates when it is done." if it ran over; older days finish behind.
+- **Background offloads** are checked every 5 min (run at most every 15) instead of every 15,
+  which let any other offload push the next to 30 min.
+- **Exit reasons:** MetricKit's daily exit metrics (memory, background time limit, watchdog…)
+  are appended to `openstrap_exits.log` in Files → WHOOP (`ExitReasonLog`, Swift).
+- **Food:** digestion per entry at the low end (protein 20%, carbs 5%, fat 0%, unknown 5%, capped
+  at 20% of the entry), replacing the flat 10%; the sheet row reads "Digestion".
+- **Lifting:** "Lifting (extra, not in maintenance)" in the maintenance sheet, from the existing
+  per-session estimate less steps already counted, with "With lifting N kcal"; the total, cards,
+  goal and history are unchanged.
+Not in this build (judgment, recorded): today's calculation inside a background wake (fix 5; a
+light pass took up to 57 s locked against roughly 10 s of background time), re-deriving only
+changed days and an incremental cross-day pass (fix 4; deep engine change), the charger-only
+`BGProcessingTask` (fix 6; capability change, iOS gives no schedule) and a bounded foreground-lease
+wait (the 92-minute stall was a suspended process; a 15-min headless ceiling already exists).
+Validation: 311 tests across the affected files pass (including `test/build84_test.dart` and the
+exact digestion/lifting numbers); analysis of `lib` and `test` has no errors or warnings.
+Phone checks: Today's strain matches Day strain right after a refresh; pull-to-refresh ends within
+about 15 s; Food → Maintenance shows Digestion and, on a lifting day, the Lifting line; after a
+night, `openstrap_sync.log` shows `[launch] background` relaunches without heavy passes, and
+`openstrap_exits.log` appears after a day or two.
+
 ## Audit (not approved, keep for later): calibrated heart-rate + movement burn estimate
 
 Akshat asked whether the earlier note (`workout-sync-audit.md`) about a calibrated HR-plus-movement
@@ -51,6 +89,177 @@ model is accurate and worth having. Audit only; nothing to build now (his decisi
   calibration from walks, a step test or runs; one answer per minute (movement when present,
   calibrated HR above the flex point only without steps, resting otherwise); lifting counted (his
   answer); shown separately, never moving the goal or the conservative budget.
+
+## Plan: faster refresh and lighter background work (fixes 1, 3, 7, 8 in build 84; see there)
+
+From the build-83 log (`bugs.md`): band transfer is fast (pull 0.1-0.2 s, background offloads
+every 30 min while connected); calculation is slow (pull-to-refresh 6-67 s; a light today pass
+took 7-57 s with the phone locked); and overnight iOS closed the app about 20 times with no report
+of any kind, each relaunch re-running the full calculation, then a 92-minute stall. Apple's
+guidance: an app relaunched for Bluetooth gets roughly 10 s before suspension
+([Apple forums](https://origin-devforums.apple.com/forums/thread/815618)); time-limit and
+suspended-app memory terminations are not crashes and leave no crash report; MetricKit's
+`MXAppExitMetric` reports the exit reason ([Apple forums](https://developer.apple.com/forums/thread/828150)).
+Fixes, in priority order:
+1. **Background launches stay light.** `AppState` treats a launch as background only when Flutter
+   reports detached/paused/hidden/null; the overnight relaunches took the foreground path
+   (`===== SESSION START =====`, heavy passes, 5-min foreground timer). Ask iOS directly
+   (`UIApplication.applicationState` over the existing restore channel) and log the launch kind.
+   A background launch connects, drains, commits and stops: no heavy pass, no 9-day rescan, no
+   sleep staging until the first foreground.
+2. **No indefinite waits.** Opening a session waits a bounded time for a held background lease,
+   then takes over or retries, logging either way (the 03:30 → 05:02 stall).
+3. **Pull-to-refresh returns in seconds.** The spinner stops after phone steps, the band pull
+   and today's light pass (target under about 8 s); the 4-day heavy pass and cross-day pass run
+   afterwards without blocking. Cap the wait and show "Still calculating" if it runs over.
+4. **Do less calculation.** Re-derive only days whose stored data changed (every open re-ran 4
+   days and the 43-day cross-day pass; one baseline change re-ran 9 days including finalized
+   ones); make the cross-day pass incremental.
+5. **Fresh numbers without opening the app.** After a background offload, run today's light pass
+   inside an iOS background task (`beginBackgroundTask`, already used by `BleRestoreManager`),
+   stopping cleanly when time runs out, so Today is current on open. Only after 1-4, since the
+   light pass alone took up to 57 s locked.
+6. **Heavy work overnight on the charger (needs Akshat's decision).** A `BGProcessingTask` with
+   external power required can run the heavy pass while the phone charges; the source has
+   `BgSyncScheduler`, but the personal profile deliberately removed the `processing` mode. iOS
+   decides when (or whether) it runs, so it supplements foreground calculation, never replaces it.
+7. **Steady background transfer.** Keep the connected offload at 15 min instead of drifting to
+   30 when offloads are not empty; arm the restore central while connected so a silent
+   termination can be relaunched by the band.
+8. **Know why iOS closed it.** Log MetricKit exit reasons (memory, background time limit,
+   watchdog) to `openstrap_sync.log`; no entitlement needed.
+Phone-side notes for Akshat: do not swipe the app away (iOS then will not relaunch it for the
+band); Low Power Mode reduces background time. Check after building: one night's log shows
+background relaunches only syncing, no heavy calculation while locked, exit reasons, and
+pull-to-refresh under about 8 s.
+
+## Plan: food by macro, lifting as an extra line (implemented in build 84)
+
+Akshat's decisions after the two audits below: (1) replace the flat 10% food row with a
+macro-based digestion cost on the conservative (lower-end) side; (2) show lifting as a separate,
+clearly labelled extra line that never enters the conservative maintenance total. He asked for
+documentation only while he looks into one more thing; no code, no build.
+
+**1. Food row: lower-end digestion cost per entry** (`maintenance` in `lib/compute/profile.dart`
+today takes `eatenKcal * 0.10`; `DayUpkeep` passes the day's kcal sum as `eaten`).
+- Rates, the lower end of each published range: protein 20%, carbohydrate 5%, fat 0%; kcal of
+  unknown composition 5% (the lower end of the 5-15% measured for mixed diets, Westerterp 2004).
+  Energy from grams by label factors: protein 4, carbohydrate 4, fat 9 kcal/g.
+- Per logged entry with kcal `K` and grams `P`, `C`, `F` (each may be missing):
+  - `known = 0.20 × 4P + 0.05 × 4C` (missing grams count 0; fat adds 0);
+  - all three present: `cost = known` (any kcal the macros do not explain, such as fibre,
+    alcohol or label rounding, adds nothing);
+  - any missing: `cost = known + 0.05 × max(0, K − energy of the macros present)`;
+  - cap: `cost ≤ 0.20 × K` (no entry costs more than pure protein; covers label rounding);
+  - entries without kcal add nothing (as today). Day cost = sum over entries; nothing logged = 0.
+- Whey, shakes and other liquids use the same rates (digestion audit below). Fibre is not
+  subtracted from carbs (labels differ; at most about 6 kcal on a 30 g fibre day); alcohol is not
+  logged.
+- Worked examples (each checked by script; current flat 10% in brackets):
+
+  | Entry or day | Cost | (flat 10%) |
+  |---|---|---|
+  | Day: 2,500 kcal, 180 g P, 250 g C, 87 g F | 144 + 50 + 0 = 194.0 | (250.0) |
+  | Day: 2,500 kcal at 15/50/35% (93.75 g P, 312.5 g C) | 75 + 62.5 = 137.5 | (250.0) |
+  | Whey scoop: 120 kcal, 24 g P, 3 g C, 1.5 g F | 19.2 + 0.6 = 19.8 | (12.0) |
+  | Quick add: 500 kcal, no macros | 0.05 × 500 = 25.0 | (50.0) |
+  | 300 kcal with only 20 g P logged | 16 + 0.05 × 220 = 27.0 | (30.0) |
+  | Olive oil: 120 kcal, 14 g F, 0 P, 0 C | 0.0 | (12.0) |
+  | Powder labelled 100 kcal, 26 g P | 20.8 capped to 20.0 | (10.0) |
+
+- Full-day check against the documented example (23 y, 80.5 kg, 186.69 cm, male): BMR
+  1,861.8125 + steps 395.381 (15,000 steps) + food. Flat: 2,507.19 → 2,507. New with the
+  180/250/87 day: 2,451.19 → 2,451 (−56). A normal 15%-protein 2,500 kcal day drops by 112.5.
+- Effect to be aware of: this lowers maintenance on most days, most on low-protein days. It is
+  computed when screens read the day, so past days' maintenance and history change too; no
+  `kAlgoVersion` bump (not stored as a derived day metric). `maintenance()` needs the day's
+  entries (or summed per-entry costs) instead of only `eatenKcal`; every `DayUpkeep` caller
+  passes that.
+- Sheet label: "Digestion (by macro, low end)" in place of "Food (10%)".
+- Flat 10% versus this: 10% is the usual mixed-diet average and near the measured middle for his
+  high-protein diet (a high-protein chamber diet measured 14.6%), so it is accurate on average
+  but not a floor. Against the low end it can overcount by about 56 kcal on his 180 g-protein
+  day and 112.5 kcal on a 15%-protein day; the low-end formula cannot overcount by those rates
+  but probably undercounts by 2-5% of intake.
+
+**2. Lifting: separate extra line, outside the total**
+- Sessions counted: strength types priced by `conservativeMet` (weight training, bodyweight,
+  functional, calisthenics, powerlifting). Per session the existing `otherWorkoutActiveKcal`:
+  the lower of net Keytel at the session's mean HR over active minutes and (MET − 1) × kg × hours
+  (MET 3.5 for weight training). Sum per local day; a session over midnight split by active
+  minutes per day.
+- Worked example (80.5 kg, 60 active min, mean HR 110, same profile): by MET (3.5 − 1) × 80.5 × 1
+  = 201.25; by HR gross 8.3520 − resting 1.29293 = 7.0591 kcal/min × 60 = 423.54; the lower is
+  201.25 → shown as +201.
+- No double counting with steps: subtract the step calories of phone steps inside the session's
+  active windows (1,000 gym steps = 26.36 kcal at 80.5 kg), floored at 0. Without per-window
+  steps, show the line as approximate rather than guess.
+- Shown only in the maintenance detail sheet as "Lifting (extra, not in maintenance) +201" and,
+  under it, "With lifting 2,652" (2,451.19 + 201.25 with no phone steps in the session; with
+  1,000 gym steps the line is 201.25 − 26.36 = 174.89 → +175, total 2,626); the Maintenance cards, the calorie goal and history keep the
+  conservative number. Missing HR uses the MET value; missing weight shows no line.
+- Tests to add: the table above and the lifting example as exact-number tests next to
+  `test/walking_energy_test.dart` and `test/run_calories_test.dart`; metrics-map's calorie section
+  updated when built.
+
+## Audit (no decision yet): what the green maintenance number leaves out
+
+Akshat asked what else adds to real maintenance beyond BMR + steps + runs + 10% of food.
+Not counted, largest first for him (research in his chat; recorded here as the current view):
+- **BMR equation error:** Mifflin–St Jeor lands within 10% of measured resting rate for most
+  non-obese adults ([Frankenfield 2005](https://pure.psu.edu/en/publications/comparison-of-predictive-equations-for-resting-metabolic-rate-in-/));
+  10% of his 1,862 is about ±190 kcal/day. Muscular people often run above it.
+- **Lifting and other workouts:** excluded by design. Measured sessions run roughly 210-310 kcal
+  gross ([AUT study](https://openrepository.aut.ac.nz/handle/10292/15675)), plus an after-burn of
+  about 10-20% of that; the app already computes a conservative net value per session.
+- **Non-step daily movement (NEAT):** standing, fidgeting, chores, carrying; the most variable
+  part of daily burn ([Levine](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6058072/)). Standing
+  instead of sitting adds ~0.15 kcal/min ([Saeidifard 2018](https://mayoclinic.elsevierpure.com/en/publications/differences-of-energy-expenditure-while-sitting-versus-standing-a)),
+  about 50-70 kcal per 6 h. Steps taken without the phone are also missed.
+- **Digestion by macro:** protein costs more to digest than carbs or fat, but on his logged diet
+  the difference from a flat 10% is about ±20 kcal (see the digestion audit below).
+- **Cold, illness, dieting:** cool rooms add ~50-200 kcal/day; fever adds roughly 10% per °C;
+  long dieting lowers burn (adaptive thermogenesis). Not reliably measurable by the app.
+- **Catch-all:** the food-and-weight maintenance (4-6 weeks of complete logging) already includes
+  every one of these; it is the right check on the green number.
+Possible change, not approved: lifting as an optional, separately labelled addition.
+
+## Audit (no decision yet): digestion cost by food type
+
+Akshat asked whether whey, liquids, solids or food type change digestion cost (the 10% food row),
+before deciding whether to implement it.
+- **Per macro:** reviews rank alcohol > protein > carbohydrate > fat; a mixed diet costs 5-15% of
+  intake ([Westerterp 2004](https://www.biomedcentral.com/1743-7075/1/5)). Commonly quoted ranges are
+  protein 20-30%, carbs 5-10%, fat 0-3%. In a 24-h chamber, a high-protein/high-carb diet cost
+  14.6% of intake versus 10.5% for a high-fat diet ([Westerterp 1999](https://doi.org/10.1038/sj.ijo.0800810)).
+- **Whey versus other protein:** one crossover study found whey shakes raised digestion cost more
+  than casein or soy (Acheson 2011), but a review found no clear evidence that any protein source
+  costs more overall ([Bendtsen 2013](https://pmc.ncbi.nlm.nih.gov/articles/PMC3941822/)). Whey is
+  absorbed faster, so its cost comes sooner, not clearly larger. Treat whey like other protein.
+  Most of protein's cost is paid after absorption (building body protein, breaking down and
+  burning the surplus amino acids, making urea), not by the gut's work, so a liquid that is
+  absorbed faster still pays it. Fast whey is burned for energy more than slow casein (Boirie
+  1997), which if anything adds cost. Short measurement windows (3-6 h) may miss the tail of slow
+  proteins, which can make whey look higher than it is.
+- **Liquid versus solid:** evidence is small and mixed. Eight men burned more after a blended meal
+  than the same meal solid; a bar-versus-shake study in 29 men reversed by training group
+  ([Ratcliff 2011](https://pubmed.ncbi.nlm.nih.gov/21411830)). No dependable liquid adjustment.
+- **Whole versus processed:** a whole-food cheese sandwich cost 19.9% of its energy versus 10.7%
+  for a processed one in 17 people ([Barr and Wright 2010](https://pubmed.ncbi.nlm.nih.gov/20613890/));
+  one meal pair, not replicated as a rule, and the app cannot tell how processed a food is.
+- **Bigger effect on the intake side:** whole almonds deliver about 20-30% fewer calories than
+  label factors say ([Novotny 2012](https://pmc.ncbi.nlm.nih.gov/articles/PMC3396444)), and
+  protein's usable energy is nearer 13 kJ/g than the label 17 kJ/g once digestion is paid. These
+  change calories eaten, not burned, and are not in the label numbers he logs.
+- **What a macro formula would change for him:** with midpoints (protein 25%, carbs 7.5%, fat
+  1.5%), a 2,500 kcal day with 180 g protein, 250 g carbs and 87 g fat gives about 10.7% (267 vs 250
+  kcal); a normal 15%-protein day gives about 8%, below the flat 10%. The quoted ranges span 195-340
+  kcal for the same day, wider than the change. Midpoint tables also undercount measured mixed
+  diets, so any formula would need anchoring to whole-diet chamber data.
+- **Verdict:** real but small, about ±20 kcal/day against ±190 kcal of BMR error. Whey, liquid and
+  processing effects are not supported well enough to model. If implemented: protein-weighted
+  around 10% (anchored so a typical diet stays 10%, rising toward ~14% on high-protein days), flat
+  10% for entries without macros, alcohol not tracked. Not approved.
 
 ## Build 83 (`0.9.50`/`83`): published and built, awaiting installation
 

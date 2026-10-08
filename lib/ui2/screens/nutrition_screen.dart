@@ -6,7 +6,7 @@
 //   · Protein, carbs, fat and fibre against your own targets.
 //   · Breakfast, lunch, dinner and snacks, each with its own Add — from saved
 //     meals, from your foods by weight, or quick add / barcode.
-//   · Maintenance: what the day cost as a floor (BMR + steps + runs + 10% of the
+//   · Maintenance: what the day cost as a floor (BMR + steps + runs + digestion of the
 //     food logged), shown beside the food, never changing the goal.
 //   · History: a trailing chart and calendar-month groups of retained entries.
 //   · Foods: the foods and saved meals you log from.
@@ -1519,8 +1519,9 @@ Future<List<RunSummary>> _allRuns(LocalRepository? repo) async =>
     repo == null ? const [] : loadRuns(repo);
 
 /// What one day's maintenance is made of: resting energy, the steps walked
-/// outside runs, the runs themselves (Method 1, by distance), and 10% of the
-/// food logged. A floor: lifts and other workouts are not added.
+/// outside runs, the runs themselves (Method 1, by distance), and the low-end
+/// digestion cost of the food logged. A floor: lifting shows as a separate
+/// line in the sheet and is never added.
 /// The day's maintenance as a floor, shown beside the food and never changing
 /// the calorie goal. Tap for what each part is.
 class MaintenanceCard extends StatelessWidget {
@@ -1576,7 +1577,7 @@ class MaintenanceCard extends StatelessWidget {
             ('BMR', thousands(m.bmr), C.steps),
             ('STEPS', thousands(m.steps), C.green),
             if (upkeep.runs.count > 0) ('RUNNING', thousands(m.run), C.run),
-            ('FOOD', thousands(m.food), C.domFood),
+            ('DIGESTION', thousands(m.food), C.domFood),
           ]),
           if (eaten > 0) ...[
             const SizedBox(height: S.x3),
@@ -1711,14 +1712,16 @@ Widget _maintenanceContents(
             'costs using each workout’s recorded weight.',
       ),
     (
-      'Food',
+      'Digestion',
       m.food,
       u.eaten > 0
-          ? '10% of the ${thousands(u.eaten)} kcal you logged goes to digesting '
-                'it.'
-          : 'Nothing logged yet. 10% of what you log is added.',
+          ? 'Digesting the ${thousands(u.eaten)} kcal you logged, at the low '
+                'end: 20% of protein, 5% of carbs, none of fat, 5% of food '
+                'without macros.'
+          : 'Nothing logged yet.',
     ),
   ];
+  final lift = u.lifting;
   final p = P.of(c);
   return SafeArea(
     child: SingleChildScrollView(
@@ -1766,6 +1769,35 @@ Widget _maintenanceContents(
             ),
             const SizedBox(height: 2),
             Text(why, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+          ],
+          if (lift != null) ...[
+            const SizedBox(height: S.x5),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Lifting (extra, not in maintenance)',
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  '+${thousands(lift.kcal)} kcal',
+                  style: F.n17.copyWith(color: p.ink),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${lift.sessions} ${lift.sessions == 1 ? 'session' : 'sessions'}, '
+              'the lower of heart-rate and activity estimates, less steps '
+              'already counted'
+              '${lift.approximate ? ' (steps unknown, approximate)' : ''}. '
+              'With lifting ${thousands(m.total + lift.kcal)} kcal.',
+              style: F.cap.copyWith(color: p.ink2, height: 1.4),
+            ),
           ],
           const SizedBox(height: S.x5),
           Text(

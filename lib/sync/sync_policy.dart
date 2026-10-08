@@ -14,7 +14,10 @@ import 'dart:async';
 import 'dart:math' as math;
 
 // ── timing constants (seconds) ───────────────────────────────────────────────
-const int kBackfillIntervalSeconds = 900; // re-offload every 15 min (periodic)
+// How often the connected periodic offload is CHECKED. BackfillPolicy's
+// 15-min floor decides whether it runs; checking every 15 min let any other
+// offload in between push the next one to 30 min (build-83 log, 05:32 → 06:02).
+const int kBackfillIntervalSeconds = 300;
 const int kKeepAliveIntervalSeconds =
     30; // re-arm realtime, poll battery, watchdog
 /// How long an open offload burst may sit silent before its un-committed chunk

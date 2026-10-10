@@ -541,6 +541,7 @@ class OsTextField extends StatelessWidget {
     this.hint = '',
     this.lines = 1,
     this.keyboard,
+    this.clearable = false,
   });
 
   final TextEditingController controller;
@@ -548,6 +549,10 @@ class OsTextField extends StatelessWidget {
   final String hint;
   final int lines;
   final TextInputType? keyboard;
+
+  /// A × that empties the field in one tap, shown only while it holds text.
+  /// For search fields, so clearing a query is not a run of backspaces.
+  final bool clearable;
 
   @override
   Widget build(BuildContext c) {
@@ -568,35 +573,54 @@ class OsTextField extends StatelessWidget {
           // on the way past and then forgets. Focused, the field itself
           // announced only its HINT — and the hint disappears the moment the
           // user types, leaving "text field" with no way to ask what it is for.
-          child: Semantics(
-            label: label,
-            textField: true,
-            child: TextField(
-              controller: controller,
-              maxLines: lines,
-              minLines: 1,
-              keyboardType: keyboard,
-              textInputAction: lines == 1
-                  ? TextInputAction.done
-                  : TextInputAction.newline,
-              onSubmitted: lines == 1
-                  ? (_) => FocusScope.of(c).unfocus()
-                  : null,
-              onTapOutside: (_) => FocusScope.of(c).unfocus(),
-              style: F.body.copyWith(color: p.ink),
-              cursorColor: p.on(C.domMind),
-              decoration: InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: hint,
-                hintStyle: F.body.copyWith(color: p.ink3),
-              ),
-            ),
+          child: Row(
+            children: [
+              Expanded(child: _field(c, p)),
+              if (clearable)
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: controller,
+                  builder: (c, v, _) => v.text.isEmpty
+                      ? const SizedBox.shrink()
+                      : Pressable(
+                          semanticLabel: 'Clear $label',
+                          onTap: controller.clear,
+                          child: Icon(
+                            LucideIcons.circleX,
+                            size: 18,
+                            color: p.ink3,
+                          ),
+                        ),
+                ),
+            ],
           ),
         ),
       ],
     );
   }
+
+  Widget _field(BuildContext c, P p) => Semantics(
+    label: label,
+    textField: true,
+    child: TextField(
+      controller: controller,
+      maxLines: lines,
+      minLines: 1,
+      keyboardType: keyboard,
+      textInputAction: lines == 1
+          ? TextInputAction.done
+          : TextInputAction.newline,
+      onSubmitted: lines == 1 ? (_) => FocusScope.of(c).unfocus() : null,
+      onTapOutside: (_) => FocusScope.of(c).unfocus(),
+      style: F.body.copyWith(color: p.ink),
+      cursorColor: p.on(C.domMind),
+      decoration: InputDecoration(
+        isDense: true,
+        border: InputBorder.none,
+        hintText: hint,
+        hintStyle: F.body.copyWith(color: p.ink3),
+      ),
+    ),
+  );
 }
 
 // ══════════════════════════ MT-03 · WEIGHT ══════════════════════════

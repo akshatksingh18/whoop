@@ -624,7 +624,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final searching = q.isNotEmpty || _foodCat != null;
     final defs = {for (final f in _foods) f['key'] as String: f};
     final meals = searching
-        ? [for (final m in _meals) if (nameMatches(m.label, q)) m]
+        ? [
+            for (final m in _meals)
+              if (nameMatches(m.label, q)) m,
+          ]
         : _meals;
     final foods = searching
         ? [
@@ -667,6 +670,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           OsTextField(
             controller: _foodQuery,
             label: 'Search',
+            clearable: true,
             hint: 'Oats, eggs, breakfast…',
           ),
           const SizedBox(height: S.x2),
@@ -693,41 +697,44 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         ],
         // Saved meals carry no category, so a category filter shows foods only.
         if (_foodCat == null)
-        Section(
-          'Saved meals',
-          Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: searching
-                ? Column(
-                    children: meals.isEmpty
-                        ? [none()]
-                        : [for (final m in meals) mealTile(m)],
-                  )
-                : _meals.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(vertical: S.x4),
-                    child: Text(
-                      'A saved meal is your usual breakfast or lunch, logged in '
-                      'one tap.',
-                      style: F.cap.copyWith(color: p.ink3),
+          Section(
+            'Saved meals',
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: searching
+                  ? Column(
+                      children: meals.isEmpty
+                          ? [none()]
+                          : [for (final m in meals) mealTile(m)],
+                    )
+                  : _meals.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: S.x4),
+                      child: Text(
+                        'A saved meal is your usual breakfast or lunch, logged in '
+                        'one tap.',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                    )
+                  : DragList(
+                      length: _meals.length,
+                      onReorder: (from, to) => edit(() async {
+                        final keys = [
+                          for (final m in reordered(_meals, from, to)) m.key,
+                        ];
+                        setState(() => _meals = reordered(_meals, from, to));
+                        await MyFoods.reorderMeals(
+                          await LocalDb.instance,
+                          keys,
+                        );
+                        return null;
+                      }),
+                      itemBuilder: (_, i) => mealTile(_meals[i]),
                     ),
-                  )
-                : DragList(
-                    length: _meals.length,
-                    onReorder: (from, to) => edit(() async {
-                      final keys = [
-                        for (final m in reordered(_meals, from, to)) m.key,
-                      ];
-                      setState(() => _meals = reordered(_meals, from, to));
-                      await MyFoods.reorderMeals(await LocalDb.instance, keys);
-                      return null;
-                    }),
-                    itemBuilder: (_, i) => mealTile(_meals[i]),
-                  ),
+            ),
+            action: 'New',
+            onAction: () => edit(() => MealEditor.show(c)),
           ),
-          action: 'New',
-          onAction: () => edit(() => MealEditor.show(c)),
-        ),
         Section(
           'My foods',
           Surface(

@@ -660,7 +660,9 @@ class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
 
   Future<void> _open(String meal) async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => MealPage(date: _date, meal: meal)),
+      MaterialPageRoute<void>(
+        builder: (_) => MealPage(date: _date, meal: meal),
+      ),
     );
     if (mounted) await _load();
   }
@@ -691,10 +693,11 @@ class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
             style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
           ),
         ),
-        for (final m in kMeals) ..._meal(c, p, m, [
-          for (final e in es)
-            if (e.meal == m) e,
-        ]),
+        for (final m in kMeals)
+          ..._meal(c, p, m, [
+            for (final e in es)
+              if (e.meal == m) e,
+          ]),
         const SizedBox(height: S.x5),
       ],
     ]);
@@ -874,9 +877,7 @@ class _MealPageState extends State<MealPage> with RevisionReload {
   /// another one.
   Future<void> _arrange(List<(String, FoodEntry)> arranged) async {
     beginRead(#mealDay);
-    setState(
-      () => _entries = [for (final (g, e) in arranged) e.inGroup(g)],
-    );
+    setState(() => _entries = [for (final (g, e) in arranged) e.inGroup(g)]);
     try {
       await NutritionDb.arrangeEntries(
         await LocalDb.instance,
@@ -1401,7 +1402,8 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
           ? await MyFoods.reorderMeals(db, keys)
           : await MyFoods.reorderFoods(db, keys);
     } catch (_) {
-      if (mounted) _say(context, 'The new order was not saved. Please try again.');
+      if (mounted)
+        _say(context, 'The new order was not saved. Please try again.');
     }
     if (mounted) await _load();
   }
@@ -1638,7 +1640,12 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
               onChanged: (g) => setState(() => _group = g),
             ),
             const SizedBox(height: S.x2),
-            OsTextField(controller: _q, label: 'Search', hint: 'Oats, eggs…'),
+            OsTextField(
+              controller: _q,
+              label: 'Search',
+              hint: 'Oats, eggs…',
+              clearable: true,
+            ),
             const SizedBox(height: S.x3),
             Row(
               children: [
@@ -2147,6 +2154,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     super.initState();
     _start; // fix the starting point before anything is typed
   }
+
   bool _saving = false;
   String? _error;
   late String _meal = widget.meal;

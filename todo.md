@@ -66,6 +66,10 @@ and the wider Today/Food re-layout. Private MyFitnessPal import generated and va
 promote build 85 (or keep 70) as rollback and take a rollback-readable export; Akshat's approval
 to push and run the personal macOS build; IPA validation; install; phone acceptance.
 
+Also in build-86 source, at Akshat's request: every search field (Foods, the food log, the
+saved-meal picker, the activity picker and the Lift exercise search) has a × that clears it in
+one tap, shown only while it holds text (`OsTextField.clearable`).
+
 ### 1. Background sync and fresh insights during brief daily use
 
 **Approved for build 86; in progress.** Target: Akshat's iPhone 17 /

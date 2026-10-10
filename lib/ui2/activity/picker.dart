@@ -46,6 +46,14 @@ class ActivityPicker extends StatefulWidget {
 
 class _ActivityPickerState extends State<ActivityPicker> {
   String q = '';
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   int group = -1;
 
   /// The group that was open before this one. [AnimatedCrossFade] builds both
@@ -106,6 +114,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
                             l?.activityPickerSearchLabel ?? 'Search activities',
                         textField: true,
                         child: TextField(
+                          controller: _search,
                           autofocus: true,
                           onChanged: (v) => setState(() => q = v),
                           style: F.body.copyWith(color: p.ink),
@@ -121,6 +130,19 @@ class _ActivityPickerState extends State<ActivityPicker> {
                         ),
                       ),
                     ),
+                    if (q.isNotEmpty)
+                      Pressable(
+                        semanticLabel: 'Clear search',
+                        onTap: () => setState(() {
+                          _search.clear();
+                          q = '';
+                        }),
+                        child: Icon(
+                          LucideIcons.circleX,
+                          size: 18,
+                          color: p.ink3,
+                        ),
+                      ),
                   ],
                 ),
               ),

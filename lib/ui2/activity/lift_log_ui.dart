@@ -650,6 +650,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
         OsTextField(
           controller: _search,
           label: 'Find or add an exercise',
+          clearable: true,
           hint: 'Bench, row…',
         ),
         const SizedBox(height: S.x3),
@@ -760,10 +761,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           Pressable(
             semanticLabel: 'Add 30 seconds',
             onTap: () async {
-              await RestTimer.addSeconds(
-                30,
-                sessionId: widget.sessionId,
-              );
+              await RestTimer.addSeconds(30, sessionId: widget.sessionId);
               await _readRest();
             },
             child: Text('+30 s', style: F.cap.copyWith(color: p.ink2)),

@@ -295,7 +295,11 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
       Text('MY FOODS', style: F.over.copyWith(color: p.ink3)),
       const SizedBox(height: S.x2),
       if (_foods.length > 6)
-        OsTextField(controller: _query, label: 'Search your foods'),
+        OsTextField(
+          controller: _query,
+          label: 'Search your foods',
+          clearable: true,
+        ),
       if (foods.isEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: S.x3),
@@ -379,7 +383,8 @@ class _GramsSheetState extends State<GramsSheet> {
     ).trim(),
   );
   late final _unit = ValueNotifier<String>(
-    widget.initialUnit != null && unitInBase(widget.def, widget.initialUnit!) != null
+    widget.initialUnit != null &&
+            unitInBase(widget.def, widget.initialUnit!) != null
         ? widget.initialUnit!
         : foodUnit(widget.def),
   );
@@ -432,9 +437,9 @@ class _GramsSheetState extends State<GramsSheet> {
         color: C.domFood,
         onTap: grams == null || grams <= 0 || base == null
             ? null
-            : () => Navigator.of(c).pop(
-                (amount: grams, unit: _unit.value, base: base),
-              ),
+            : () => Navigator.of(
+                c,
+              ).pop((amount: grams, unit: _unit.value, base: base)),
       ),
     ]);
   }
@@ -466,9 +471,7 @@ class FoodCategoryFilter extends StatelessWidget {
     Widget chip(String label, String? value) => Padding(
       padding: const EdgeInsets.only(right: S.x2),
       child: Pressable(
-        semanticLabel: selected == value
-            ? '$label, selected'
-            : 'Show $label',
+        semanticLabel: selected == value ? '$label, selected' : 'Show $label',
         onTap: () => onSelect(value),
         child: Pill(label, selected == value ? C.domFood : C.n400),
       ),
@@ -478,10 +481,7 @@ class FoodCategoryFilter extends StatelessWidget {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: [
-            chip('All', null),
-            for (final cat in cats) chip(cat, cat),
-          ],
+          children: [chip('All', null), for (final cat in cats) chip(cat, cat)],
         ),
       ),
     );
@@ -665,10 +665,7 @@ class _FoodEditorState extends State<FoodEditor> {
         final l = m.label.toLowerCase();
         if (!perGram && l == 'g') {
           _servingWeight.text = _trim(ref / m.amount);
-        } else if (perGram &&
-            unit == base &&
-            l != 'g' &&
-            l != 'ml') {
+        } else if (perGram && unit == base && l != 'g' && l != 'ml') {
           // A per-gram food with a named unit ("Link · 71 g") opens on its
           // serving line: 1 link · 71 g.
           final n = counts[m.label] ?? 1;
@@ -816,8 +813,7 @@ class _FoodEditorState extends State<FoodEditor> {
       _error = null;
     });
     final ancillaryScale =
-        oldPerNew ??
-        ((old?['serving_g'] as num?)?.toDouble() ?? 100) / ref;
+        oldPerNew ?? ((old?['serving_g'] as num?)?.toDouble() ?? 100) / ref;
     final def = <String, Object?>{
       for (final key in const ['brand', 'serving_label'])
         if (widget.existing?.containsKey(key) == true)
@@ -899,9 +895,8 @@ class _FoodEditorState extends State<FoodEditor> {
                   : 'Label $cat',
               // Tap again to clear: a food may have no label.
               onTap: () => setState(
-                () => _category = labelKey(_category) == labelKey(cat)
-                    ? ''
-                    : cat,
+                () =>
+                    _category = labelKey(_category) == labelKey(cat) ? '' : cat,
               ),
               child: Pill(
                 cat,
@@ -1057,7 +1052,9 @@ class _MealEditorState extends State<MealEditor> {
   /// Rewrite the list grouped in [_order], so a section is contiguous.
   void _normalise() {
     final order = _order;
-    final pairs = [for (var i = 0; i < _items.length; i++) (_items[i], _groups[i])];
+    final pairs = [
+      for (var i = 0; i < _items.length; i++) (_items[i], _groups[i]),
+    ];
     pairs.sort((a, b) => order.indexOf(a.$2).compareTo(order.indexOf(b.$2)));
     _items
       ..clear()
@@ -1146,10 +1143,7 @@ class _MealEditorState extends State<MealEditor> {
   /// so a whole meal goes in one visit. Each pick lands in the meal at once.
   Future<void> _addItem() => _sheet<void>(
     context,
-    (_) => _MealFoodPicker(
-      foods: _defs.values.toList(),
-      onAdd: _addPortion,
-    ),
+    (_) => _MealFoodPicker(foods: _defs.values.toList(), onAdd: _addPortion),
   );
 
   Future<void> _save() async {
@@ -1324,7 +1318,6 @@ class _MealEditorState extends State<MealEditor> {
   }
 }
 
-
 // ══════════════════ SHARED PIECES ══════════════════
 
 /// A portion as entered ("3 link") and its amount in the food's label unit.
@@ -1360,7 +1353,8 @@ class AmountInput extends StatelessWidget {
   final Map<String, Object?> def;
   final ValueNotifier<String>? unit;
 
-  static bool _weight(String u) => u.toLowerCase() == 'g' || u.toLowerCase() == 'ml';
+  static bool _weight(String u) =>
+      u.toLowerCase() == 'g' || u.toLowerCase() == 'ml';
 
   @override
   Widget build(BuildContext c) {
@@ -1405,12 +1399,14 @@ class AmountInput extends StatelessWidget {
     final chips = <(String, double)>[
       if (!_weight(unit)) ...[
         ('½ $unit', .5),
-        for (final k in const [1, 2, 3, 4]) (portionText(k, unit), k.toDouble()),
+        for (final k in const [1, 2, 3, 4])
+          (portionText(k, unit), k.toDouble()),
       ] else if (others.any((u) => !_weight(u))) ...[
         for (final u in others.where((u) => !_weight(u)).take(2))
-          for (final k in u == others.firstWhere((x) => !_weight(x))
-              ? const [1, 2]
-              : const [1])
+          for (final k
+              in u == others.firstWhere((x) => !_weight(x))
+                  ? const [1, 2]
+                  : const [1])
             if (toBase(def, k.toDouble(), u) case final b?)
               if (unitInBase(def, unit) case final per? when per > 0)
                 (
@@ -1418,7 +1414,8 @@ class AmountInput extends StatelessWidget {
                   (b / per).roundToDouble(),
                 ),
       ] else if (ref != null && ref > 0 && unit == foodUnit(def))
-        for (final k in const [.5, 1.0, 2.0]) (portionText(ref * k, unit), ref * k),
+        for (final k in const [.5, 1.0, 2.0])
+          (portionText(ref * k, unit), ref * k),
     ];
     Widget stepper(IconData icon, String label, double delta) => Pressable(
       semanticLabel: label,
@@ -1452,9 +1449,11 @@ class AmountInput extends StatelessWidget {
                     this.unit?.value = u;
                     if (b != null && per != null && per > 0 && now() > 0) {
                       final v = b / per;
-                      set(_weight(u)
-                          ? v.roundToDouble()
-                          : double.parse(v.toStringAsFixed(2)));
+                      set(
+                        _weight(u)
+                            ? v.roundToDouble()
+                            : double.parse(v.toStringAsFixed(2)),
+                      );
                     }
                   },
                   child: Pill(
@@ -1515,7 +1514,6 @@ class AmountInput extends StatelessWidget {
       ],
     );
   }
-
 }
 
 /// A list the user orders by holding a row and dragging it. Shrink-wrapped
@@ -1629,53 +1627,53 @@ class _GroupedDragListState<T> extends State<GroupedDragList<T>> {
     return DragEdgeScroll(
       dragging: _dragging,
       child: ReorderableListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: EdgeInsets.zero,
-      buildDefaultDragHandles: false,
-      itemCount: rows.length,
-      proxyDecorator: (child, _, _) =>
-          Material(color: Colors.transparent, elevation: 4, child: child),
-      onReorderStart: (_) => setState(() => _dragging = true),
-      onReorderEnd: (_) => setState(() => _dragging = false),
-      onReorder: (from, to) {
-        _dragging = false;
-        if (rows[from].$2 == null) return; // headings do not move
-        final moved = [...rows];
-        final row = moved.removeAt(from);
-        moved.insert(to > from ? to - 1 : to, row);
-        var current = headed ? groups.first : '';
-        final out = <(String, T)>[];
-        for (final (g, item) in moved) {
-          if (item == null) {
-            current = g!;
-          } else {
-            out.add((current, item));
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        buildDefaultDragHandles: false,
+        itemCount: rows.length,
+        proxyDecorator: (child, _, _) =>
+            Material(color: Colors.transparent, elevation: 4, child: child),
+        onReorderStart: (_) => setState(() => _dragging = true),
+        onReorderEnd: (_) => setState(() => _dragging = false),
+        onReorder: (from, to) {
+          _dragging = false;
+          if (rows[from].$2 == null) return; // headings do not move
+          final moved = [...rows];
+          final row = moved.removeAt(from);
+          moved.insert(to > from ? to - 1 : to, row);
+          var current = headed ? groups.first : '';
+          final out = <(String, T)>[];
+          for (final (g, item) in moved) {
+            if (item == null) {
+              current = g!;
+            } else {
+              out.add((current, item));
+            }
           }
-        }
-        widget.onChanged(out);
-      },
-      itemBuilder: (c, i) {
-        final (g, item) = rows[i];
-        if (item == null) {
-          final hidden = g!.isEmpty && !loose && !_dragging;
-          return KeyedSubtree(
-            key: ValueKey<Object>(('heading', g)),
-            child: hidden
-                ? const SizedBox.shrink()
-                : widget.headerBuilder(c, g, [
-                    for (final x in items)
-                      if (groupOf(x) == g) x,
-                  ]),
+          widget.onChanged(out);
+        },
+        itemBuilder: (c, i) {
+          final (g, item) = rows[i];
+          if (item == null) {
+            final hidden = g!.isEmpty && !loose && !_dragging;
+            return KeyedSubtree(
+              key: ValueKey<Object>(('heading', g)),
+              child: hidden
+                  ? const SizedBox.shrink()
+                  : widget.headerBuilder(c, g, [
+                      for (final x in items)
+                        if (groupOf(x) == g) x,
+                    ]),
+            );
+          }
+          final row = widget.itemBuilder(c, item);
+          return ReorderableDelayedDragStartListener(
+            key: ValueKey<Object>(('drag', row.key ?? i)),
+            index: i,
+            child: row,
           );
-        }
-        final row = widget.itemBuilder(c, item);
-        return ReorderableDelayedDragStartListener(
-          key: ValueKey<Object>(('drag', row.key ?? i)),
-          index: i,
-          child: row,
-        );
-      },
+        },
       ),
     );
   }
@@ -1766,7 +1764,9 @@ class _MealFoodPickerState extends State<_MealFoodPicker> {
     final q = _q.text.trim();
     final foods = [
       for (final f in foodsIn(widget.foods, _cat))
-        if (q.isEmpty || nameMatches(f['label'], q) || nameMatches(f['brand'], q))
+        if (q.isEmpty ||
+            nameMatches(f['label'], q) ||
+            nameMatches(f['brand'], q))
           f,
     ];
     return _sheetBody(c, [
@@ -1778,7 +1778,12 @@ class _MealFoodPickerState extends State<_MealFoodPicker> {
           style: F.cap.copyWith(color: p.ink3),
         )
       else
-        OsTextField(controller: _q, label: 'Search', hint: 'Oats, eggs…'),
+        OsTextField(
+          controller: _q,
+          label: 'Search',
+          hint: 'Oats, eggs…',
+          clearable: true,
+        ),
       const SizedBox(height: S.x2),
       FoodCategoryFilter(
         foods: widget.foods,
@@ -1804,9 +1809,7 @@ class _MealFoodPickerState extends State<_MealFoodPicker> {
         ),
       const SizedBox(height: S.x3),
       BigButton(
-        _added.isEmpty
-            ? 'Done'
-            : 'Done · ${_added.length} added',
+        _added.isEmpty ? 'Done' : 'Done · ${_added.length} added',
         color: C.domFood,
         onTap: () => Navigator.of(c).pop(),
       ),
@@ -1944,9 +1947,9 @@ class _ItemEditorState extends State<_ItemEditor> {
         color: C.domFood,
         onTap: v == null || v <= 0 || b == null
             ? null
-            : () => Navigator.of(c).pop(
-                ((amount: v, unit: _unit.value, base: b), _group),
-              ),
+            : () => Navigator.of(
+                c,
+              ).pop(((amount: v, unit: _unit.value, base: b), _group)),
       ),
     ]);
   }
@@ -2016,7 +2019,9 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
       action: 'Done',
     );
     if (v != null && mounted) {
-      setState(() => (_amounts[i] = v.amount, _units[i] = v.unit, _on[i] = true));
+      setState(
+        () => (_amounts[i] = v.amount, _units[i] = v.unit, _on[i] = true),
+      );
     }
   }
 

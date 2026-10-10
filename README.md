@@ -4,7 +4,8 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds installed build 85 awaiting acceptance.
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the build-86 candidate
+> (0.9.53, not yet installed); build 85 is installed.
 > `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes

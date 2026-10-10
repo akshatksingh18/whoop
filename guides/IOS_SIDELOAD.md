@@ -10,7 +10,9 @@ Build `0.9.37`/`70` remains the accepted recovery build: its phone check and com
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.52-build85-3c141b7a` holds the installed candidate awaiting acceptance;
+`testing\WHOOP-0.9.53-build86-651345e7` holds the build-86 candidate (not yet installed);
+build 85 stays installed until it is, and its IPA is re-downloadable from run `37816260577` until
+22 Oct 2026, then rebuildable from its commit;
 `../setup.md` owns current and superseded source/hash/workflow records. `../build-85-audit.md`
 owns its approved changes, and the earlier audits retain their findings and repair contracts.
 

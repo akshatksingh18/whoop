@@ -376,27 +376,31 @@ central; do not arm the separate recovery central against its healthy connection
 daily app use requires bounded background insight opportunities as well as safe capture,
 running-worker cancellation and fast foreground catch-up; none is newly implemented here.
 
-## Night of 9–10 Oct split into a short night and two naps (build 85, open)
+## Night of 9–10 Oct split into a short night and two naps (build 85, explained)
 
-Akshat reports sleeping about 10 PM–5 AM. Installed build 85 shows the night as 9:26 PM–12:44 AM
-(3 h 06 m asleep, 3 h 18 m in bed) and two detected naps, 4:39–5:03 AM and 5:20–5:38 AM; he says
-earlier nights were recorded well.
+Akshat reports sleeping about 10 PM–5 AM. Build 85 shows the night as 9:26 PM–12:44 AM, Band off
+your wrist 12:44–4:35 AM, and two naps, 4:39–5:03 AM and 5:20–5:38 AM.
 
-What the source says (not yet confirmed against this night's data): the night window is the
-longest stretch of wrist data the van Hees rule can assert as still, bridging gaps of at most
-30 minutes (`packages/analytics/lib/src/onehz/sleep/van_hees.dart`); later still stretches
-become naps. So 12:44–4:39 AM held no assertable stillness: either the band lost skin contact
-(the screenshot's skin-temperature line drops sharply and heart rate ends at 12:44, which fits),
-or the 1 Hz accelerometer rows for that span are missing or invalid (a transfer/decode gap). The
-data cannot tell those apart from a screenshot. Next step: an exported database (Settings → Your
-data → Export the database) copied to the PC, to check `decoded_onehz` coverage, HR and
-temperature for 00:44–04:39. Until then, Sleep → Fix sleep times can set 10:00 PM–5:00 AM; the
-detected naps can be removed under Naps → Edit.
+Cause, from Akshat's sync logs: the band's own wear sensor reported it off the wrist.
+- The band sent `WRIST_OFF` (event 10) stamped 00:44:02 and `WRIST_ON` (event 9) stamped 04:35:38.
+  A WHOOP 4 records no 1 Hz heart rate or motion while it considers itself off the wrist.
+- Every history request in between returned packets but zero 1 Hz records (`historical=0,
+  recTs=none`), and records resumed at exactly 1791624939 (04:35:39). Nothing was lost in
+  transfer: the band never wrote those records.
+- No charging, no boot event, and the app was connected throughout.
+- A second 28 s `WRIST_OFF`/`WRIST_ON` at 05:08 points at a marginal fit, as does the
+  skin-temperature drop at 12:44 in the screenshot.
 
-Build 85 is not the cause. Its source changes no sleep detection, staging or recorded data: the
-analytics package is unchanged since build 74 and `kAlgoVersion` (91) since build 81; build 85
-touched only workout calories (`day_upkeep.dart`, `profile.dart`), pull-to-refresh messages and
-Food. The same algorithm scored earlier nights well, which points at this night's wrist data.
+Sleep detection then did what it is built to do with a four-hour hole: the longest still block
+became the night and the later ones naps. Build 85 is not the cause. Its source changes no sleep
+detection, staging or recorded data: the analytics package is unchanged since build 74 and
+`kAlgoVersion` (91) since build 81. The lost hours cannot be recovered. Sleep → Fix sleep times
+(10:00 PM–5:00 AM) sets the duration, and the naps can be removed under Naps → Edit.
+
+Open app defect (build 87): while the band reported off-wrist, the app treated its silence as a
+dead link and bounced the connection 23 times ("No data for >120s — bouncing the link"), costing
+battery on both devices. After a `WRIST_OFF` with no `WRIST_ON`, silence should not trigger a
+reconnect.
 
 Separate display bug, fixed in build-86 source: the chart's scrub line printed the raw skin-
 temperature count relative to the day as "Temp Δ −31.3 °C". That number is not degrees; the

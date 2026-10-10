@@ -16,16 +16,13 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification with build `0.9.52`/`85` installed on Akshat's iPhone 17
 (iOS `26.6.2`), as reported by Akshat; its phone acceptance and current-version refresh enrollment
-remain open. Build-86 source `0.9.53`/`86` (not phone-tested): bounded background sync with real
-calculation cancellation and personal `fetch`/`processing` tasks, Lift Log inside the Lift
-workout, Body and a fifth Progress tab, the B86-01..16 repairs and the structural Today/Food/Train
-redesign. A first push (`70adc902`) passed Linux CI `38065480698` and macOS build `38065492927`,
-but that IPA was held, not downloaded or installed, because the redesign was missing; the
-redesign and the remaining buildable items are local commits on `main`, not pushed. `todo.md`
-owns its decisions, implemented/open items and gates; `build-86-audit.md`,
-`background-sync-plan.md`, `lift-log-integration-plan.md` and `fitness-app-plan.md` own their
-contracts. Akshat approves the rendered redesign, then pushing and rebuilding 86. AkshatOS keeps its modules and entry ownership until import and
-combined phone acceptance. Build-86 source also ports Pushups (with Home auto-pause), strength
+remain open. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, not yet installed. It brings bounded background sync with real calculation
+cancellation and personal `fetch`/`processing` tasks, Lift Log inside the Lift workout, Body and a
+fifth Progress tab, the B86-01..16 repairs and the structural redesign. `todo.md` owns its
+decisions, implemented/open items, phone checks and gates; `build-86-audit.md`,
+`background-sync-plan.md`, `lift-log-integration-plan.md`, `fitness-app-plan.md` and
+`fitness-goal-research.md` own their contracts. AkshatOS keeps its modules and entry ownership
+until import and combined phone acceptance. Build-86 source also ports Pushups (with Home auto-pause), strength
 progress inside the live workout, flexible goals and the optional conveniences Akshat chose; AkshatOS
 Pushups stays installed and unchanged until import and phone acceptance. A SideStore signing pilot is approved
 (`../akshatos/sidestore-evaluation.md`); Sideloadly remains the refresher until it passes.
@@ -108,7 +105,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 85,
-installed (Akshat), awaiting the complete phone pass and current-version enrollment.
+replaced in `testing\` by the build-86 candidate; build 85 stays installed until 86 is.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are

@@ -1,7 +1,6 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat reports build `0.9.52`/`85` currently installed. Its complete phone pass and
-current-version automatic-refresh enrollment are not confirmed; it remains in `testing`.
+**State:** Akshat reports build `0.9.52`/`85` currently installed. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, not yet installed.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -68,8 +67,10 @@ locally (`../../health/fitness/data/whoop-body-history-import.json`).
 
 **Moved to build 87 (Akshat's decision):** per-input calculation reuse in the background sync
 (section 1), so build 86 can serve as the fallback if that change breaks sync.
+Also for build 87: do not bounce the Bluetooth link for silence while the band's latest wear
+event is `WRIST_OFF` (`bugs.md`, night of 9–10 Oct: 23 needless reconnects).
 
-**Next gates, in order:** push and rebuild 86 (Akshat's approval stands); IPA validation; choose
+**Next gates, in order:** done — pushed, rebuilt and validated (above). Remaining: choose
 the rollback (build 85 did not change sleep calculations — see `bugs.md` — so it is a sound
 fallback once Akshat accepts it, otherwise build 70) and take a rollback-readable export from 85;
 install; the phone checks below; phone acceptance.

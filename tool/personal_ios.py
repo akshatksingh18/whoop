@@ -348,7 +348,11 @@ def write_manifest(ipa: Path, output: Path, source_revision: str) -> None:
             "filesSharing": True,
             "healthKit": False,
             "locationRoutes": True,
-            "backgroundProcessing": False,
+            # Read from the packaged Info.plist, not written by hand: build 86
+            # shipped processing while this line still said False.
+            "backgroundProcessing": "processing" in (info.get("UIBackgroundModes") or []),
+            "backgroundRefresh": "fetch" in (info.get("UIBackgroundModes") or []),
+            "homeRegionAlwaysLocation": "NSLocationAlwaysAndWhenInUseUsageDescription" in info,
             "firebaseInitialization": False,
             "healthDataContribution": False,
             "watch": False,

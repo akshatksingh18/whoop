@@ -487,11 +487,23 @@ encrypted exports from 86 carry progress photos and are refused by 70 and 85, so
 rollback-readable export from 85 before installing 86. AkshatOS and private coaching sources stay
 intact until separately approved migration and phone acceptance.
 
-Build-86 source after the held push adds Pushups with Home auto-pause (Always location, region
-monitoring, approved by Akshat; the personal contract now requires the Always description) and
-a Done/Pause notification category handled in a background isolate (plugin registrant and
-notification-centre delegate set in `AppDelegate.swift`). These Swift changes compile only on the
-macOS workflow; `todo.md` owns the local validation figures and the phone checks.
+Build `0.9.53`/`86` final source `651345e7f29e5ecfad092a908b5aac0727968bbf`, published with
+Akshat's approval, adds Pushups with Home auto-pause (Always location, region monitoring; the
+personal contract requires the Always description) and a Done/Pause notification category handled
+in a background isolate (plugin registrant and notification-centre delegate in
+`AppDelegate.swift`). The intermediate push `5989f969` built (macOS `38089119030`) but failed Linux
+CI on two analyzer warnings; it was not downloaded. Linux CI `38090036814` ran the full suite
+(3,539 tests, 399 intentional skips) and passes; personal macOS build `38090037024` passes.
+Artifact `whoop-personal-651345e7f29e-unsigned.ipa` (18,915,966 bytes), SHA-256
+`606d5215d233364f83642e225b86393d44376a8451141d0dbc4018de48becf2a`, matches its checksum and
+manifest (`0.9.53`/`86`); the ZIP is intact; the payload validator passes, with background modes
+exactly bluetooth-central, location, audio, fetch and processing, the two task identifiers, the
+Always description and no app extension. Its manifest's `backgroundProcessing: false` is a
+hand-written label that was never updated; `personal_ios.py` now derives the capability fields
+from the packaged Info.plist for later builds. It is the sole testing candidate in
+`../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7`, replacing build 85's folder (build 85
+stays installed). Not yet installed. Before installing: an encrypted export from build 85 copied
+to the PC, because format-2 exports from 86 are refused by 85 and 70.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol
 package's fixture tests fail there only because they open fixtures by a path relative to their

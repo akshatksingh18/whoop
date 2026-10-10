@@ -49,6 +49,7 @@ import '../compute/training_review.dart';
 import '../compute/streak.dart' show StepGoals;
 import '../data/profile_history.dart';
 import '../data/calculation_store.dart';
+import '../data/lift_reminders.dart' show LiftReminders;
 import '../gps/workout_clock.dart';
 import '../gps/workout_measurements.dart';
 import '../gps/run_analysis.dart' show runMix;
@@ -778,7 +779,8 @@ class AppState extends ChangeNotifier {
     final notes = <String>[];
     // Stage timings go to the log: which part of a slow refresh is slow.
     final clock = Stopwatch()..start();
-    String secs() => '${(clock.elapsedMilliseconds / 1000).toStringAsFixed(1)} s';
+    String secs() =>
+        '${(clock.elapsedMilliseconds / 1000).toStringAsFixed(1)} s';
     await _routeTracker?.flush();
     await _publishLiveGait();
     if (phoneStepsEnabled) {
@@ -1277,6 +1279,8 @@ class AppState extends ChangeNotifier {
     // Surfaces outside the database that were still showing it.
     await NotificationService.instance.cancelAll();
     await WidgetService.clear();
+    // The set log's in-memory owner of the forgotten-workout ask.
+    LiftReminders.loggingSessions.clear();
     try {
       await coachConfig?.save(apiKey: ''); // deletes the keychain entry
     } catch (e) {
@@ -4440,8 +4444,10 @@ class AppState extends ChangeNotifier {
       if (report.batches == 0) {
         if (!kicked && !retriedEmpty) {
           retriedEmpty = true;
-          _log('Backfill retry — the wait we did not kick drained nothing; '
-              'asking the band.');
+          _log(
+            'Backfill retry — the wait we did not kick drained nothing; '
+            'asking the band.',
+          );
           continue; // i > 0 now, so the next session requests history.
         }
         _log('Backfill stop — no batch ACKs; trim did not advance.');

@@ -2113,7 +2113,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 }
 
 /// "Syncing the band" or "Calculating" beside Today's date while either is
-/// running, and nothing otherwise. Selects only those two flags.
+/// running; otherwise how recent the newest band data is, kept apart from
+/// when the numbers were calculated (B86-04: raw-data freshness is not the
+/// insight's revision).
 class _WorkLine extends StatelessWidget {
   const _WorkLine();
 
@@ -2125,7 +2127,25 @@ class _WorkLine extends StatelessWidget {
         : derivingOf(c)
         ? 'Calculating'
         : null;
-    if (word == null) return const SizedBox.shrink();
+    if (word == null) {
+      int? ts;
+      try {
+        ts = c.select<AppState, int?>((a) => a.lastSynced?.tsEpoch);
+      } catch (_) {
+        ts = null; // no AppState above us, as in a golden
+      }
+      if (ts == null) return const SizedBox.shrink();
+      final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+      final now = DateTime.now();
+      String two(int v) => v.toString().padLeft(2, '0');
+      final same =
+          at.year == now.year && at.month == now.month && at.day == now.day;
+      return Tag(
+        'Band data ${same ? '' : '${at.day}/${at.month} '}'
+        '${two(at.hour)}:${two(at.minute)}',
+        icon: LucideIcons.bluetooth,
+      );
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

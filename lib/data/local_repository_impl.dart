@@ -1778,6 +1778,60 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  @override
+  Future<Map<String, dynamic>> getNightSignals(int onsetTs, int wakeTs) async {
+    if (wakeTs <= onsetTs) return const {};
+    // Every local day the night touches: a 23:10 onset puts the first hour
+    // in yesterday's bundle, which a calendar-day read never saw (B86-03).
+    final labels = <String>{};
+    for (
+      var t = DateTime.fromMillisecondsSinceEpoch(onsetTs * 1000);
+      !t.isAfter(DateTime.fromMillisecondsSinceEpoch(wakeTs * 1000));
+      t = DateTime(t.year, t.month, t.day + 1)
+    ) {
+      labels.add(dayLabelOf(t));
+    }
+    labels.add(dayLabelOf(DateTime.fromMillisecondsSinceEpoch(wakeTs * 1000)));
+    final merged = <String, Map<int, num>>{
+      'hr': {},
+      'hrv': {},
+      'resp': {},
+      'skin_temp': {},
+    };
+    void take(String key, Object? list, {bool hrv = false}) {
+      if (list is! List) return;
+      for (final e in list) {
+        if (e is! Map || e['t'] is! num || e['v'] is! num) continue;
+        final t = (e['t'] as num).toInt();
+        final v = e['v'] as num;
+        if (t < onsetTs || t > wakeTs) continue;
+        // Same plausibility clip as the day timeline's HRV line.
+        if (hrv && (v < 5 || v > 220)) continue;
+        if (key == 'hr' && v <= 0) continue;
+        merged[key]!.putIfAbsent(t, () => v);
+      }
+    }
+
+    for (final label in labels) {
+      final series = _sub(await _dayBundle(label), 'series');
+      if (series == null) continue;
+      take('hr', series['hr_curve']);
+      take('hrv', series['hrv_day'], hrv: true);
+      // The sleep-only line is stamped in epoch seconds too; merged by time,
+      // so it fills the night wherever the all-day line has no window.
+      take('hrv', series['hrv_timeline'], hrv: true);
+      take('resp', series['resp_day']);
+      take('skin_temp', series['skin_temp_day']);
+    }
+    List<Map<String, dynamic>> sorted(Map<int, num> m) => [
+      for (final t in (m.keys.toList()..sort())) {'t': t, 'v': m[t]},
+    ];
+    return {
+      for (final e in merged.entries)
+        if (e.value.isNotEmpty) e.key: sorted(e.value),
+    };
+  }
+
   /// Local midnight (epoch sec) of a 'YYYY-MM-DD' date string.
   int _localMidnightSec(String ymd) => localDayStartSec(ymd) ?? 0;
 

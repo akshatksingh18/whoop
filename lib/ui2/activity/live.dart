@@ -106,6 +106,11 @@ class LiveFeed {
   /// dropped ten minutes ago.
   final bool bandConnected;
 
+  /// The route's CURRENT speed (m/s) from a fresh, accuracy-qualified fix, or
+  /// null when there is none — not the session average (B86-02). A measured
+  /// zero means standing still.
+  final double? currentSpeedMps;
+
   const LiveFeed({
     this.hr,
     this.maxHr,
@@ -128,6 +133,7 @@ class LiveFeed {
     this.routeIssue,
     this.onFixRoute,
     this.bandConnected = false,
+    this.currentSpeedMps,
   });
 
   static const none = LiveFeed();
@@ -1016,26 +1022,41 @@ List<Widget> _distanceStats(
       : UnitsController.formatPace(
           elapsed / (u == null ? meters / 1000 : u.distanceValue(meters)),
         );
+  // Current rate from a fresh fix, in the user's units per hour; a run's
+  // current pace needs real movement (under 0.5 m/s there is no pace).
+  final mps = f.currentSpeedMps;
+  final nowPerHour = mps == null
+      ? null
+      : (u == null ? mps * 3.6 : u.distanceValue(mps * 3600));
+  final nowPace = mps == null || mps < 0.5 || nowPerHour == null
+      ? null
+      : UnitsController.formatPace(3600 / nowPerHour);
   return [
     statRow(
       p,
       [
         if (value != null) (value.toStringAsFixed(2), unit),
         // A walk's rate is speed (km/h), as Strava shows it; a run's is pace.
-        // GPS jitter over the first seconds reads as an absurd rate (it
-        // printed 9000 km/h one second in), so a walk's speed waits for 30 s
-        // and anything above 20 km/h (or mph) is no speed at all.
-        if (isWalkType(a.typeKey) &&
+        // Current speed comes from a fresh GPS fix (B86-02); without one the
+        // session average stands in, labelled "avg". GPS jitter over the
+        // first seconds reads as an absurd rate (it printed 9000 km/h one
+        // second in), so an average waits for 30 s and anything above 20 km/h
+        // (or mph) is no speed at all.
+        if (isWalkType(a.typeKey) && nowPerHour != null && nowPerHour <= 20)
+          (nowPerHour.toStringAsFixed(1), u?.speedUnit ?? 'km/h')
+        else if (isWalkType(a.typeKey) &&
             value != null &&
             value > 0 &&
             elapsed >= 30 &&
             value / (elapsed / 3600) <= 20)
           (
             (value / (elapsed / 3600)).toStringAsFixed(1),
-            u?.speedUnit ?? 'km/h',
+            '${u?.speedUnit ?? 'km/h'} avg',
           )
+        else if (!isWalkType(a.typeKey) && nowPace != null)
+          (nowPace, '/$unit')
         else if (!isWalkType(a.typeKey) && pacePerUnit != null)
-          (pacePerUnit, '/$unit'),
+          (pacePerUnit, '/$unit avg'),
         if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
           // Both calorie models are already visible in the paired card below.
           if (f.steps != null) ('${f.steps}', 'steps'),

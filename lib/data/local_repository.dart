@@ -96,6 +96,12 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getDaySleep');
   Future<Map<String, dynamic>> getDayTimeline(String date) =>
       throw UnimplementedError('re-layer: getDayTimeline');
+
+  /// HR, HRV, respiration and skin temperature over one night's absolute
+  /// onset-to-wake window, read across every local day it touches (B86-03).
+  /// Empty where unsupported; callers keep their day timeline then.
+  Future<Map<String, dynamic>> getNightSignals(int onsetTs, int wakeTs) async =>
+      const {};
   Future<Map<String, dynamic>> getDayStress(String date) =>
       throw UnimplementedError('re-layer: getDayStress');
   Future<Map<String, dynamic>> getDayHeart(String date) =>

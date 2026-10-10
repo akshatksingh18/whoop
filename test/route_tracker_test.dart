@@ -729,4 +729,50 @@ void main() {
       ctrl.close();
     });
   });
+
+  group('current speed is fresh, accuracy-qualified and stops when you do', () {
+    test('a stationary fix updates speed instead of keeping the walk', () async {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(sink: (_) async {});
+      t.start(ctrl.stream);
+      ctrl.add(_fix(0, speed: 1.4));
+      ctrl.add(_fix(1, speed: 1.4));
+      await pumpEventQueue();
+      final walking = t.freshSpeedMps(1000)!;
+      expect(walking, greaterThan(1.0));
+      // Standing still: the fix is under the noise floor, so no distance,
+      // but the platform's measured near-zero speed is current speed.
+      for (var i = 2; i < 30; i++) {
+        ctrl.add(GpsSample(lat: 0, lng: 20 / _mPerDegLngAtEq, tsMs: i * 1000, speed: 0));
+      }
+      await pumpEventQueue();
+      expect(t.freshSpeedMps(29000)!, lessThan(0.1));
+      await t.stop();
+      await ctrl.close();
+    });
+
+    test('an old reading is not current speed', () async {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(sink: (_) async {});
+      t.start(ctrl.stream);
+      ctrl.add(_fix(0, speed: 1.4));
+      ctrl.add(_fix(1, speed: 1.4));
+      await pumpEventQueue();
+      expect(t.freshSpeedMps(1000 + 5000), isNotNull);
+      expect(t.freshSpeedMps(1000 + 11000), isNull);
+      await t.stop();
+      await ctrl.close();
+    });
+
+    test('a platform speed with invalid accuracy is not trusted', () async {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(sink: (_) async {});
+      t.start(ctrl.stream);
+      ctrl.add(GpsSample(lat: 0, lng: 0, tsMs: 0, speed: 9, speedAccuracy: -1));
+      await pumpEventQueue();
+      expect(t.freshSpeedMps(0), isNull);
+      await t.stop();
+      await ctrl.close();
+    });
+  });
 }

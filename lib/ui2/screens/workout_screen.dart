@@ -13,7 +13,7 @@ import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
 import '../../compute/streak.dart';
-import '../../data/day_label.dart' show dayLabelOf;
+import '../../data/day_label.dart' show dayLabelOf, todayLabel;
 import '../../gps/motion_window.dart';
 import '../../gps/workout_measurements.dart';
 import '../../gps/workout_clock.dart';
@@ -613,8 +613,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                             MoveDay.run => p.on(C.run),
                             MoveDay.walk => p.on(C.steps),
                             MoveDay.goal => p.on(C.green),
+                            MoveDay.lift => p.on(C.purple),
+                            MoveDay.other => p.on(C.teal),
+                            // Kept, not earned: drawn as an outline.
+                            MoveDay.rest || MoveDay.life => p.bg,
                             MoveDay.none => p.track,
                           },
+                          border:
+                              s.last7[i] == MoveDay.rest ||
+                                  s.last7[i] == MoveDay.life
+                              ? Border.all(color: p.ink3, width: 1.5)
+                              : null,
                         ),
                       ),
                       const SizedBox(height: S.x1),
@@ -632,16 +641,72 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           ),
           const SizedBox(height: S.x3),
           Text(
-            s.todayDone
-                ? 'Today counts.'
-                : s.current > 0
-                ? 'Your step goal or 10 minutes of running or walking keeps it going.'
-                : 'Complete your step goal or record 10 minutes of running or walking.',
+            [
+              s.todayDone
+                  ? 'Today counts.'
+                  : s.last7.last == MoveDay.rest
+                  ? 'Rest day planned. It keeps the streak; it is not counted.'
+                  : s.current > 0
+                  ? 'Your step goal or 10 minutes of exercise keeps it going.'
+                  : 'Complete your step goal or record 10 minutes of exercise.',
+              if (s.protectedInStreak > 0)
+                '${s.protectedInStreak} protected '
+                    '${s.protectedInStreak == 1 ? 'day' : 'days'} in this streak.',
+            ].join(' '),
             style: F.cap.copyWith(color: p.ink3),
           ),
+          ..._protectActions(c, p, s),
         ],
       ),
     );
+  }
+
+  /// Plan rest for today, or mark a missed yesterday as "Life happens",
+  /// within the allowance in `streak.dart` (B86-10). Neither records any
+  /// activity; both can be undone.
+  List<Widget> _protectActions(BuildContext c, P p, MoveStreak s) {
+    final now = DateTime.now();
+    final today = todayLabel();
+    final yesterday = dayLabelOf(DateTime(now.year, now.month, now.day - 1));
+    Future<void> act(Future<String?> Function() f) async {
+      final why = await f();
+      if (!c.mounted) return;
+      if (why != null) {
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(SnackBar(content: Text(why)));
+      }
+      reload();
+    }
+
+    Widget link(String label, VoidCallback onTap) => Pressable(
+      semanticLabel: label,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(top: S.x2, right: S.x4),
+        child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+      ),
+    );
+    final todayKept =
+        s.last7.last == MoveDay.rest || s.last7.last == MoveDay.life;
+    final yesterdayMissed = s.last7[5] == MoveDay.none;
+    final links = [
+      if (!s.todayDone && !todayKept)
+        link(
+          'Rest today',
+          () => act(() => StreakProtection.protect(today, Protection.rest)),
+        ),
+      if (todayKept)
+        link('Undo rest', () => act(() async {
+          await StreakProtection.clear(today);
+          return null;
+        })),
+      // Only worth offering when it would join two real activity runs.
+      if (yesterdayMissed && s.last7[4] != MoveDay.none)
+        link(
+          'Yesterday: life happens',
+          () => act(() => StreakProtection.protect(yesterday, Protection.life)),
+        ),
+    ];
+    return links.isEmpty ? const [] : [Wrap(children: links)];
   }
 
   /// Delete one session — recorded or imported. For an IMPORTED session the
@@ -1312,6 +1377,9 @@ LiveFeed _feedOf(AppState app) {
     // x axis is the session clock. `perMinuteHr()` is for statistics.
     hrCurve: _curveOverSession(w),
     distanceKm: app.liveDistanceKm,
+    currentSpeedMps: app.routeTracker?.freshSpeedMps(
+      DateTime.now().millisecondsSinceEpoch,
+    ),
     gpsActive: app.routeTracking,
     gpsWaiting: app.routeWaitingForFix,
     bandConnected: app.isConnected,

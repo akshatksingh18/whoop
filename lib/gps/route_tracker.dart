@@ -80,6 +80,7 @@ class RouteTracker {
     _last = null;
     _breakNext = true;
     currentSpeedMps.value = null;
+    _speedAtMs = null;
     stalled.value = false;
     _lastFixAt = clock.now();
   }
@@ -136,6 +137,35 @@ class RouteTracker {
   /// Smoothed instantaneous speed (m/s) — see [rmath.emaSpeed]. Null until the
   /// first usable fix (platform speed or a fallback derived from two fixes).
   final ValueNotifier<double?> currentSpeedMps = ValueNotifier<double?>(null);
+
+  /// When [currentSpeedMps] was last fed a usable reading (fix time, ms).
+  int? _speedAtMs;
+
+  /// The current speed if a usable reading arrived within [maxAge] of
+  /// [nowMs], else null — an old value is not current speed (B86-02). A
+  /// measured stationary zero is a valid current speed.
+  double? freshSpeedMps(int nowMs, {Duration maxAge = const Duration(seconds: 10)}) {
+    final at = _speedAtMs;
+    if (at == null || stalled.value || error.value != null) return null;
+    return nowMs - at <= maxAge.inMilliseconds ? currentSpeedMps.value : null;
+  }
+
+  /// The platform's own speed when its uncertainty allows it: negative
+  /// accuracy is Apple's "invalid", and a reading less certain than ±2 m/s
+  /// cannot tell a walk from standing still.
+  static double? _platformSpeed(GpsSample s) {
+    final v = s.speed;
+    if (v == null || !v.isFinite || v < 0) return null;
+    final acc = s.speedAccuracy;
+    if (acc != null && (acc < 0 || acc > 2.0)) return null;
+    return v;
+  }
+
+  void _feedSpeed(double raw, int tsMs) {
+    final clamped = math.min(raw, rmath.kMaxPlausibleSpeedMps);
+    currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, clamped);
+    _speedAtMs = tsMs;
+  }
 
   /// True when no fix has been ACCEPTED for [stallAfter] while running — see
   /// [stallAfter]'s doc. Distinct from [error]: a stall has no exception to
@@ -242,6 +272,10 @@ class RouteTracker {
         // advancing `_last`: the next fix still compares against this SAME
         // anchor, so genuine slow movement accumulates across drops and gets
         // captured, coarsely, once it clears the floor — see [minMovementM].
+        // Its speed still counts: standing still is a real current speed,
+        // and skipping it left the last walking speed on screen (B86-02).
+        final still = _platformSpeed(s);
+        if (still != null) _feedSpeed(still, s.tsMs);
         return;
       } else {
         _rejectStreak = 0;
@@ -254,9 +288,12 @@ class RouteTracker {
     // fix-to-fix derivation only when the platform doesn't report one. A
     // fresh segment anchor (gapBefore) has no meaningful "speed since last
     // point" — don't let a big time/distance gap produce a bogus spike.
-    if (gapBefore) currentSpeedMps.value = null;
+    if (gapBefore) {
+      currentSpeedMps.value = null;
+      _speedAtMs = null;
+    }
     final rawSpeed =
-        s.speed ??
+        _platformSpeed(s) ??
         (gapBefore
             ? null
             : rmath.fallbackSpeedMps(
@@ -270,8 +307,7 @@ class RouteTracker {
       // AT ALL beyond this ceiling, even damped — a real user report of a
       // transient implausible live pace (e.g. "1:45/km" mid-jog) showed a
       // single such reading still visibly swayed the displayed number.
-      final clamped = math.min(rawSpeed, rmath.kMaxPlausibleSpeedMps);
-      currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, clamped);
+      _feedSpeed(rawSpeed, s.tsMs);
     }
 
     _breakNext = false;

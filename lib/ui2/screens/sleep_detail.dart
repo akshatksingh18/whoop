@@ -245,7 +245,20 @@ class SleepData {
     if (day == null) return SleepData(days: days);
 
     final night = await repo.getDaySleepV2(day);
-    final timeline = await repo.getDayTimeline(day);
+    var timeline = await repo.getDayTimeline(day);
+    // The night's signals over its own onset-to-wake window, across midnight,
+    // in place of the calendar-day lines (B86-03). A signal the night window
+    // has nothing for keeps the day line, which shows an honest gap.
+    final on = (night['onset_ts'] as num?)?.toInt();
+    final off = (night['wake_ts'] as num?)?.toInt();
+    if (on != null && off != null && off > on) {
+      try {
+        final sig = await repo.getNightSignals(on, off);
+        if (sig.isNotEmpty) timeline = {...timeline, ...sig};
+      } catch (_) {
+        /* the day timeline still draws */
+      }
+    }
     final cd = await repo.getInsights();
     final coach = cd['sleep_coach'];
     final needEnv = coach is Map ? coach['need'] : null;

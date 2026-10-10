@@ -19,6 +19,7 @@ import '../charts.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'metric_detail.dart' show detailScaffold;
+import 'today_plan.dart' show PlanRow;
 
 String _hm(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -1034,7 +1035,10 @@ class _HomeSetupScreenState extends State<HomeSetupScreen> {
 /// a set while a day is open and Start when it is not. Hidden until Pushups
 /// has been used once.
 class TodayPushupRow extends StatefulWidget {
-  const TodayPushupRow({super.key});
+  const TodayPushupRow({super.key, this.embedded = false});
+
+  /// Drawn as one row of Today's plan card rather than its own card.
+  final bool embedded;
   @override
   State<TodayPushupRow> createState() => _TodayPushupRowState();
 }
@@ -1079,6 +1083,21 @@ class _TodayPushupRowState extends State<TodayPushupRow> {
         : due == null
         ? 'Running'
         : 'Next ${_hm(due)}';
+    if (widget.embedded) {
+      return PlanRow(
+        icon: LucideIcons.alarmClock,
+        color: C.orange,
+        title: 'Pushups · ${s.today}${goal == null ? '' : ' of $goal'}',
+        sub: sub,
+        frac: goal == null ? null : s.today / goal,
+        action: a == null ? 'Start' : 'Done',
+        onAction: () async {
+          await (a == null ? Pushups.start() : Pushups.done());
+          await _load();
+        },
+        onTap: () => _push(c, const PushupsScreen()),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Surface(

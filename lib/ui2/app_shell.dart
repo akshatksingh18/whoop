@@ -135,37 +135,44 @@ class _AppShellState extends State<AppShell> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [p.glow(_current.accent), p.bg.withValues(alpha: 0)],
+                    // The tab's own colour over a faint warm light (build 86).
+                    colors: [
+                      Color.alphaBlend(
+                        p.glow(_current.accent),
+                        C.orange.withValues(alpha: .07),
+                      ),
+                      p.bg.withValues(alpha: 0),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
           SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            Expanded(
-              child: IndexedStack(
-                index: _current.index,
-                children: [
-                  // An unvisited tab is an empty box, not a built screen — the
-                  // old shell built all forty screens' worth of state on launch.
-                  for (final d in ShellDomain.values)
-                    if (_built.contains(d))
-                      PrimaryScrollController(
-                        controller: _scroll[d]!,
-                        child: widget.builder(c, d),
-                      )
-                    else
-                      const SizedBox.shrink(),
-                ],
-              ),
+            bottom: false,
+            child: Column(
+              children: [
+                Expanded(
+                  child: IndexedStack(
+                    index: _current.index,
+                    children: [
+                      // An unvisited tab is an empty box, not a built screen — the
+                      // old shell built all forty screens' worth of state on launch.
+                      for (final d in ShellDomain.values)
+                        if (_built.contains(d))
+                          PrimaryScrollController(
+                            controller: _scroll[d]!,
+                            child: widget.builder(c, d),
+                          )
+                        else
+                          const SizedBox.shrink(),
+                    ],
+                  ),
+                ),
+                if (widget.banner != null) widget.banner!,
+              ],
             ),
-            if (widget.banner != null) widget.banner!,
-          ],
-        ),
-      ),
+          ),
         ],
       ),
       bottomNavigationBar: _TabBar(current: _current, onTap: _select),
@@ -235,7 +242,10 @@ class _Tab extends StatelessWidget {
             // The current tab sits in a capsule of its own colour.
             AnimatedContainer(
               duration: motion(c, Motion.base),
-              padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: 3),
+              padding: const EdgeInsets.symmetric(
+                horizontal: S.x3,
+                vertical: 3,
+              ),
               decoration: BoxDecoration(
                 color: on ? p.wash(domain.accent) : const Color(0x00000000),
                 borderRadius: R.rPill,

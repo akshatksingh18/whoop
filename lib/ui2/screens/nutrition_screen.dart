@@ -908,6 +908,10 @@ class _NutritionDayViewState extends State<NutritionDayView>
   /// The user's own complete/incomplete mark for this day; null is automatic.
   String? _mark;
 
+  /// Saved foods last logged, for one-tap "Log again".
+  List<({Map<String, Object?> def, double amount, String unit, double base})>
+  _recent = const [];
+
   @override
   void reload() => _load();
 
@@ -935,6 +939,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
       final db = await LocalDb.instance;
       final es = await NutritionDb.entriesForDay(db, date);
       final mark = (await NutritionDb.dayMarks(db, date))[date];
+      final recent = await NutritionDb.recentFoods(db);
       final d = rollupDay(date, es, today: todayLabel(), mark: mark);
       final upkeep = repo == null
           ? null
@@ -945,6 +950,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
           _upkeep = upkeep;
           _failed = false;
           _mark = mark;
+          _recent = recent;
         });
       }
     } catch (_) {
@@ -955,6 +961,112 @@ class _NutritionDayViewState extends State<NutritionDayView>
   Future<void> _changed() async {
     await _load();
     widget.onChanged?.call();
+  }
+
+  /// The foods you log most, at the portion you last had, one tap each into
+  /// the meal for this time of day — with Undo, because one tap is easy to
+  /// make by accident.
+  Widget _logAgain(BuildContext c, String meal) {
+    final p = P.of(c);
+    Future<void> log(
+      ({Map<String, Object?> def, double amount, String unit, double base}) r,
+    ) async {
+      final db = await LocalDb.instance;
+      final at = foodEntryTime(widget.date, meal);
+      final e = entryFromFood(
+        r.def,
+        r.base,
+        id: NutritionDb.newId(),
+        date: widget.date,
+        meal: meal,
+        atTs: at.millisecondsSinceEpoch ~/ 1000,
+        amount: r.amount,
+        unit: r.unit,
+      );
+      await NutritionDb.put(db, e);
+      await _changed();
+      if (!c.mounted) return;
+      final m = ScaffoldMessenger.maybeOf(c);
+      m?.hideCurrentSnackBar();
+      m?.showSnackBar(
+        SnackBar(
+          content: Text('${e.label} added to ${mealName(meal)}'),
+          duration: Motion.notice * 2,
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              await NutritionDb.delete(await LocalDb.instance, e.id);
+              await _changed();
+            },
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'LOG AGAIN · ${mealName(meal).toUpperCase()}',
+            style: F.section.copyWith(color: p.ink3),
+          ),
+          const SizedBox(height: S.x2),
+          SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _recent.length,
+              separatorBuilder: (_, _) => const SizedBox(width: S.x2),
+              itemBuilder: (_, i) {
+                final r = _recent[i];
+                final label = (r.def['label'] ?? '').toString();
+                return Pressable(
+                  semanticLabel:
+                      'Log $label again, ${portionText(r.amount, r.unit)}',
+                  onTap: () => log(r),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: S.x3),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.card2,
+                      borderRadius: R.rPill,
+                      border: Border.all(color: p.edge),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          LucideIcons.plus,
+                          size: 14,
+                          color: p.on(C.domFood),
+                        ),
+                        const SizedBox(width: S.x1),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 160),
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: F.cap.copyWith(color: p.ink),
+                          ),
+                        ),
+                        const SizedBox(width: S.x1),
+                        Text(
+                          portionText(r.amount, r.unit),
+                          style: F.over.copyWith(color: p.ink3),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Whether this day counts in the weekly averages, and the one tap that
@@ -1075,6 +1187,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
           },
         ),
         if (d.logged) _completeLine(c, d),
+        if (_recent.isNotEmpty) _logAgain(c, addTo),
         const SizedBox(height: S.x2),
         for (final m in kMeals)
           MealCard(

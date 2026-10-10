@@ -371,6 +371,8 @@ ShellDomain domainForTab(int tab) => switch (tab) {
   4 => ShellDomain.workout,
   // Build 86: Progress, asked for from Today's Body row.
   5 => ShellDomain.progress,
+  // Build 86: Food, asked for from Today's plan card.
+  6 => ShellDomain.nutrition,
   _ => ShellDomain.home,
 };
 

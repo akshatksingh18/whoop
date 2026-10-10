@@ -52,6 +52,7 @@ import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
 // barrel test), so their components are imported by path.
 import '../screens/screens.dart';
 import '../ui2.dart';
+import '../screens/today_plan.dart' show PlanRow;
 import 'devices.dart';
 import 'profile.dart';
 
@@ -617,6 +618,18 @@ Map<String, Widget> _nutritionAndWellnessCases() {
     'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
     'calorie_card_over': const CalorieCard(eaten: 2210, goal: 2000),
     'calorie_card_no_goal': const CalorieCard(eaten: 820, goal: null),
+    // One row of Today's plan (build 86): progress and its one action.
+    'plan_row': Surface(
+      child: PlanRow(
+        icon: LucideIcons.footprints,
+        color: C.green,
+        title: '8,642 steps',
+        sub: '1,358 to your 10,000 goal',
+        frac: .86,
+        action: 'Log',
+        onAction: () {},
+      ),
+    ),
     'calorie_card_day': CalorieCard(
       eaten: 1540,
       goal: 2000,

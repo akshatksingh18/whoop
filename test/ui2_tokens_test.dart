@@ -199,6 +199,8 @@ const _notComponents = {
   // `build86_pushups_test` covers the domain and the screen.
   'PushupsScreen', 'PushupDayScreen', 'PushupHistoryScreen',
   'PushupSettingsScreen', 'HomeSetupScreen', 'TodayPushupRow',
+  // Today's plan card reads AppState for its rows' destinations.
+  'TodayPlanCard',
   // The run screen and the maintenance card: each needs a recorded track or a
   // profile; `ui2_run_detail_test` renders the run screen at 1x and 2x.
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',

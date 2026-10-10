@@ -1082,6 +1082,39 @@ class NutritionDb {
     return last?.base;
   }
 
+  /// Saved foods most recently logged, newest first, each with the portion
+  /// it was last logged at — Food's one-tap "Log again" (build 86). Foods
+  /// deleted from My foods, or never logged in a unit they still convert,
+  /// are left out.
+  static Future<
+    List<({Map<String, Object?> def, double amount, String unit, double base})>
+  >
+  recentFoods(Database db, {int limit = 8}) async {
+    final rows = await db.rawQuery(
+      'SELECT food_key, MAX(created_at) AS last FROM food_entry '
+      'WHERE food_key IS NOT NULL GROUP BY food_key ORDER BY last DESC LIMIT ?',
+      [limit * 2],
+    );
+    final out =
+        <
+          ({Map<String, Object?> def, double amount, String unit, double base})
+        >[];
+    for (final r in rows) {
+      final key = r['food_key'] as String;
+      final def = await foodDef(db, key);
+      final last = await lastPortion(db, key);
+      if (def == null || last == null) continue;
+      out.add((
+        def: def,
+        amount: last.amount,
+        unit: last.unit,
+        base: last.base,
+      ));
+      if (out.length == limit) break;
+    }
+    return out;
+  }
+
   /// The last portion of [foodKey] as it was entered ("3 links"), with its
   /// label-unit amount; null when never logged in a unit it still converts.
   static Future<({double amount, String unit, double base})?> lastPortion(

@@ -7,6 +7,7 @@
 // Nothing here is a score. Every number shows its dates and counts, a family
 // with no data says so, and nothing claims muscle gained or a cause.
 
+import 'today_plan.dart' show PlanRow;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -1051,7 +1052,9 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
 /// Today: the 7-day weight with its reading count, a one-tap weigh-in, and
 /// the way into Progress. Not a second dashboard.
 class TodayBodyRow extends StatefulWidget {
-  const TodayBodyRow({super.key});
+  /// Drawn as one row of Today's plan card rather than its own card.
+  const TodayBodyRow({super.key, this.embedded = false});
+  final bool embedded;
   @override
   State<TodayBodyRow> createState() => _TodayBodyRowState();
 }
@@ -1091,10 +1094,43 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
     } catch (_) {}
   }
 
+  Future<void> _entry(BuildContext c) async {
+    final changed = await Navigator.of(c).push<bool>(
+      MaterialPageRoute(builder: (_) => BodyEntryScreen(unit: _unit)),
+    );
+    if (changed == true) reload();
+  }
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final m = _mean;
+    if (widget.embedded) {
+      final mean = m == null
+          ? null
+          : '${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit';
+      return PlanRow(
+        icon: LucideIcons.scale,
+        color: C.teal,
+        title: _tapeDue
+            ? 'Measurement day'
+            : _today
+            ? 'Weighed in'
+            : 'Weigh in',
+        sub: _tapeDue
+            ? 'Take your tape today${mean == null ? '' : ' · 7-day $mean'}'
+            : mean == null
+            ? 'No weigh-ins this week'
+            : '7-day $mean · ${m!.count} ${m.count == 1 ? 'reading' : 'readings'}',
+        action: !_today
+            ? 'Weigh in'
+            : _tapeDue
+            ? 'Measure'
+            : null,
+        onAction: () => _entry(c),
+        onTap: () => c.read<AppState>().navRequest.value = 5,
+      );
+    }
     return Surface(
       onTap: () => c.read<AppState>().navRequest.value = 5,
       semanticLabel: 'Body. Opens Progress',

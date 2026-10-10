@@ -352,6 +352,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           ],
         ),
       const SizedBox(height: S.x3),
+      // Your week first (build 86 redesign): the streak, the seven days and
+      // what this week holds, then the movement breaks.
+      if (d.streak != null) ...[
+        _streakCard(c, p, d.streak!, d),
+        const SizedBox(height: S.x3),
+      ],
       // Movement breaks through the day (build 86): its own reminders, goal
       // and streak; never a workout clock and never counted as exercise.
       detailLinkRow(
@@ -362,10 +368,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         () => _push(c, const PushupsScreen()),
       ),
       const SizedBox(height: S.x3),
-      if (d.streak != null) ...[
-        _streakCard(c, p, d.streak!),
-        const SizedBox(height: S.x3),
-      ],
       ..._suggestionCards(c, d),
       Section(
         'Recent',
@@ -598,12 +600,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   /// Days in a row with at least ten minutes of running or walking.
-  Widget _streakCard(BuildContext c, P p, MoveStreak s) {
+  Widget _streakCard(BuildContext c, P p, MoveStreak s, _WorkoutData d) {
     final now = DateTime.now();
-    return Surface(
+    return Container(
+      padding: const EdgeInsets.all(S.x4),
+      decoration: BoxDecoration(
+        borderRadius: R.rXl,
+        border: Border.all(color: p.edge),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(p.wash(C.orange, strength: .8), p.cardHi),
+            p.card,
+          ],
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Text('YOUR WEEK', style: F.section.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -665,6 +682,17 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 ),
             ],
           ),
+          if (d.weekCount > 0) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              [
+                '${d.weekCount} ${d.weekCount == 1 ? 'session' : 'sessions'} this week',
+                if (d.weekLoad != null)
+                  'strain ${d.weekLoad!.toStringAsFixed(1)} in total',
+              ].join(' · '),
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          ],
           const SizedBox(height: S.x3),
           Text(
             [

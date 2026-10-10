@@ -19,9 +19,7 @@ class SceneDelegate: FlutterSceneDelegate {
   /// fires less consistently when UISceneDelegate is in use).
   override func sceneDidEnterBackground(_ scene: UIScene) {
     super.sceneDidEnterBackground(scene)
-    #if !PERSONAL_SIDELOAD
     BackgroundTaskManager.schedule()
     BackgroundTaskManager.scheduleRefresh()
-    #endif
   }
 }

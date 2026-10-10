@@ -48,7 +48,6 @@ _REMOVE_ONCE = (
     '\t\t\t\tBEEF00000000000000000002 /* BreathingLiveActivityBridge.swift in Sources */,\n',
     '\t\t\t\t53962E962FF6EE120061A61B /* WatchBridge.swift in Sources */,\n',
     '\t\t\t\t53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */,\n',
-    '\t\t\t\t0BGTASK00000000000000001 /* BgSyncScheduler.swift in Sources */,\n',
     '\t\t\t\t60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,\n',
     '\t\t\t\tB9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,\n',
 )
@@ -59,8 +58,14 @@ _RUNNER_CONFIGS = (
     ("97C147071CF9000F007C117D", "Release"),
 )
 
+# Build 86 (Akshat's approval): bounded BGAppRefreshTask/BGProcessingTask
+# opportunities supplement BLE wakes and foreground catch-up. Exactly these
+# two identifiers and modes; no extension, App Group or HealthKit comes with
+# them, and neither is a correctness requirement (iOS grants no schedule).
+PERSONAL_BG_TASK_IDS = ["wtf.openstrap.edge.bgsync", "wtf.openstrap.edge.refresh"]
+PERSONAL_BACKGROUND_MODES = ["bluetooth-central", "location", "audio", "fetch", "processing"]
+
 _FORBIDDEN_INFO_KEYS = {
-    "BGTaskSchedulerPermittedIdentifiers",
     "NSHealthShareUsageDescription",
     "NSHealthUpdateUsageDescription",
     # Always is deliberately never requested - lib/gps/gps_source.dart's own design keeps
@@ -232,7 +237,8 @@ def personal_info(source: dict[str, object]) -> dict[str, object]:
     # "location" added alongside the existing bluetooth-central mode: this plus While-In-Use
     # authorization (never Always - see _FORBIDDEN_INFO_KEYS) is what lets a run stay tracked
     # with the screen locked, per gps_source.dart's own comment on the same tradeoff.
-    out["UIBackgroundModes"] = ["bluetooth-central", "location", "audio"]
+    out["UIBackgroundModes"] = list(PERSONAL_BACKGROUND_MODES)
+    out["BGTaskSchedulerPermittedIdentifiers"] = list(PERSONAL_BG_TASK_IDS)
     validate_info(out, resolved_bundle_id=None)
     return out
 
@@ -246,8 +252,14 @@ def validate_info(info: dict[str, object], resolved_bundle_id: str | None = BUND
         raise ContractError("personal-build marker is missing")
     if info.get("CFBundleDisplayName") != APP_NAME or info.get("CFBundleName") != APP_NAME:
         raise ContractError(f"personal app name must be {APP_NAME}")
-    if info.get("UIBackgroundModes") != ["bluetooth-central", "location", "audio"]:
-        raise ContractError("UIBackgroundModes must contain only bluetooth-central, location and audio")
+    if info.get("UIBackgroundModes") != PERSONAL_BACKGROUND_MODES:
+        raise ContractError(
+            "UIBackgroundModes must be exactly " + ", ".join(PERSONAL_BACKGROUND_MODES)
+        )
+    if info.get("BGTaskSchedulerPermittedIdentifiers") != PERSONAL_BG_TASK_IDS:
+        raise ContractError(
+            "BGTaskSchedulerPermittedIdentifiers must be exactly " + ", ".join(PERSONAL_BG_TASK_IDS)
+        )
     for key in _FORBIDDEN_INFO_KEYS:
         if key in info:
             raise ContractError(f"forbidden Info.plist key remains: {key}")

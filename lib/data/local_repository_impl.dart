@@ -1980,16 +1980,36 @@ class LocalRepositoryImpl extends LocalRepository {
       final curve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
       final dayStart = _localMidnightSec(today);
       final dayEnd = _localDayEndSec(today);
-      return {
-        'points': [
-          for (final e in curve)
-            if (e is Map &&
-                e['t'] is num &&
-                (e['t'] as num) >= dayStart &&
-                (e['t'] as num) < dayEnd)
-              e,
-        ],
-      };
+      final points = <Map<dynamic, dynamic>>[
+        for (final e in curve)
+          if (e is Map &&
+              e['t'] is num &&
+              (e['t'] as num) >= dayStart &&
+              (e['t'] as num) < dayEnd)
+            e,
+      ];
+      // The minutes recorded since today was last calculated, straight from
+      // the durable 1 Hz rows, so opening the app shows recent heart rate
+      // without a pull or a whole derive (B86-04). Bounded to six hours and
+      // marked provisional ('p'); the next calculation replaces them.
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final last = points.isEmpty ? null : (points.last['t'] as num).toInt();
+      final from = [
+        dayStart,
+        nowSec - 6 * 3600,
+        if (last != null) last + 60,
+      ].reduce((a, b) => a > b ? a : b);
+      try {
+        for (final m in await LocalDb.recordedHrPerMinute(
+          from,
+          nowSec < dayEnd ? nowSec + 1 : dayEnd,
+        )) {
+          points.add({...m, 'p': 1});
+        }
+      } catch (_) {
+        /* the calculated curve alone still draws */
+      }
+      return {'points': points};
     }
     final key = _trendKey(metric);
     final rows = await LocalDb.metricSeries(key);

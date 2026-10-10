@@ -464,7 +464,8 @@ void main() {
       expect(toBase(sausage, 1, 'cup'), isNull);
       expect(portionWithWeight(3, 'Link', sausage), '3 Links · 213 g');
       expect(portionWithWeight(2, 'link', perLink), '2 links · 142 g');
-      expect(portionWithWeight(150, 'g', sausage), '150 g');
+      // Build 86 (B86-07): a weighed portion names its serving too.
+      expect(portionWithWeight(150, 'g', sausage), '150 g · 2.1 Links');
       final e = entryFromFood(
         sausage,
         toBase(sausage, 3, 'Link')!,

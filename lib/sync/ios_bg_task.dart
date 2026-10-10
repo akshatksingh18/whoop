@@ -1,5 +1,12 @@
 // ios_bg_task.dart — iOS BGProcessingTask + BGAppRefreshTask Dart handler.
 //
+// Build 86: active in the personal build too. Both tasks are bounded: the
+// refresh task's calculation stops itself after [_refreshBudget], and either
+// task's expiration ("expire" from native) stops calculation at once through
+// [DeriveStop] — committed days stay, queued work waits for the next chance.
+// These are OS-granted extras; iOS promises no schedule, so foreground
+// catch-up remains the guaranteed path.
+//
 // Native (BgSyncScheduler.swift) calls the `openstrap/bg_task` channel method
 // `run` when iOS opportunistically wakes the app for a background task.
 //   - BGProcessingTask (no arguments): FULL profile — runHeadlessSync()
@@ -30,8 +37,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'dart:async';
+
 import '../compute/derivation_engine.dart';
-import '../build_profile.dart';
 import '../compute/profile.dart';
 import '../ble/ios_ble_restore.dart';
 import '../data/local_repository_impl.dart';
@@ -51,10 +59,21 @@ class IosBgTask {
 
   /// Register the method call handler. Call once at startup from main().
   /// No-op on Android.
+  /// Calculation time a BGAppRefreshTask may use after its transfer. Apple
+  /// documents about 30 s for the whole task; the transfer comes first.
+  static const _refreshBudget = Duration(seconds: 15);
+
+  /// Ceiling for a processing task's calculation if iOS never expires it.
+  static const _processingBudget = Duration(minutes: 4);
+
   static Future<void> init() async {
-    if (kPersonalSideload) return;
     if (!Platform.isIOS) return;
     _ch.setMethodCallHandler((call) async {
+      if (call.method == 'expire') {
+        // iOS is ending the task: stop now rather than run into a kill.
+        DeriveStop.request('ios_bg_task_expired');
+        return null;
+      }
       if (call.method != 'run') return null;
       // BGAppRefreshTask passes {'mode': 'sync'} → LIGHT profile (sync only).
       final args = call.arguments;
@@ -86,35 +105,29 @@ class IosBgTask {
             debugPrint('[ios-bgtask] foreground pull failed (ignored): $e');
           }
         }
-        if (!syncOnly) {
-          // Heavy derive pass (full sleep staging + 24h spectra, stale days).
-          try {
-            final profile = await _loadProfile();
-            final engine = DerivationEngine(
-                log: (l) => debugPrint('[ios-bgtask-derive] $l'),
-                background: true);
-            await engine.run(profile, heavy: true);
-            // Baseline-dirty rescan on the iOS BGTask tick: refresh
-            // baseline-dependent scalars on recent finalized days if the
-            // rolling baseline moved. Cheap no-op when unchanged.
-            await engine.rescanRecent(profile);
-            await _refreshWidgetSnapshot(profile);
-          } catch (e) {
-            debugPrint('[ios-bgtask] heavy derive skipped: $e');
-          }
-        } else {
-          // Honest best attempt: run a light derive pass during BGAppRefreshTask.
-          // This keeps today's metrics fresh without tripping the CPU watchdog.
-          try {
-            final profile = await _loadProfile();
-            final engine = DerivationEngine(
-                log: (l) => debugPrint('[ios-bgrefresh-derive] $l'),
-                background: true);
-            await engine.run(profile, heavy: false);
-            await _refreshWidgetSnapshot(profile);
-          } catch (e) {
-            debugPrint('[ios-bgrefresh] light derive skipped: $e');
-          }
+        // Calculation inside a budget: the light pass (today first) on a
+        // refresh, the heavy pass plus baseline rescan on a processing task.
+        // A stop (budget or expiration) keeps committed days and leaves the
+        // rest queued; it is not reported as a failure.
+        final budget = Timer(
+          syncOnly ? _refreshBudget : _processingBudget,
+          () => DeriveStop.request(syncOnly ? 'bg_refresh_budget' : 'bg_task_budget'),
+        );
+        try {
+          final profile = await _loadProfile();
+          final engine = DerivationEngine(
+            log: (l) => debugPrint('[ios-bgtask-derive] $l'),
+            background: true,
+          );
+          await engine.run(profile, heavy: !syncOnly);
+          if (!syncOnly) await engine.rescanRecent(profile);
+          await _refreshWidgetSnapshot(profile);
+        } on DeriveCancelled catch (e) {
+          debugPrint('[ios-bgtask] calculation stopped: $e');
+        } catch (e) {
+          debugPrint('[ios-bgtask] calculation skipped: $e');
+        } finally {
+          budget.cancel();
         }
         debugPrint('[ios-bgtask] done (syncOnly=$syncOnly)');
         return true;

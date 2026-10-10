@@ -2066,6 +2066,44 @@ class _PrepareStats {
   int rows = 0;
 }
 
+/// Calculation stopped on purpose — the app went to the background, or iOS
+/// is ending a wake it granted. Not a failure: no day is marked skipped, no
+/// success stamp is written, and the scheduler requeues the job (build 86).
+class DeriveCancelled implements Exception {
+  const DeriveCancelled(this.reason);
+  final String reason;
+  @override
+  String toString() => 'derive cancelled ($reason)';
+}
+
+/// The one process-wide stop for derivation. [request] bumps a generation:
+/// every running pass that started under an older generation stops at its
+/// next check, and every in-flight compute isolate is killed at once rather
+/// than left burning CPU into an iOS background kill (B86 background repair).
+class DeriveStop {
+  DeriveStop._();
+  static int _generation = 0;
+  static String _reason = '';
+  static final StreamController<int> _changes =
+      StreamController<int>.broadcast(sync: true);
+
+  static int get generation => _generation;
+  static Stream<int> get changes => _changes.stream;
+
+  static void request(String reason) {
+    _generation++;
+    _reason = reason;
+    _changes.add(_generation);
+  }
+
+  /// Throws [DeriveCancelled] when a stop arrived after [since].
+  static void check(int since) {
+    if (_generation != since) throw DeriveCancelled(_reason);
+  }
+
+  static DeriveCancelled get error => DeriveCancelled(_reason);
+}
+
 /// Run [worker] over [items] with at most [concurrency] running at once. Each
 /// of up to [concurrency] "lanes" pulls the next unclaimed item as soon as
 /// it's free — a mix of fast (empty/mostly-empty day) and slow (heavy
@@ -2197,6 +2235,8 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    final stopGen = DeriveStop.generation;
+    var cancelled = false;
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -2306,6 +2346,11 @@ class DerivationEngine {
       // relative to the other concurrent workers even though the actual
       // isolate CPU work they await genuinely runs in parallel across cores.
       Future<void> processDay(String dayId) async {
+        // A stop leaves the remaining days queued, not failed.
+        if (cancelled || DeriveStop.generation != stopGen) {
+          cancelled = true;
+          return;
+        }
         activeDays.add(dayId);
         _diag['active_days'] = activeDays.toList();
         try {
@@ -2335,6 +2380,14 @@ class DerivationEngine {
             failures++;
           }
         } catch (e) {
+          if (e is DeriveCancelled || DeriveStop.generation != stopGen) {
+            // Stopped mid-day: nothing for this day was committed by the
+            // killed isolate, and it is not a failure to mark.
+            cancelled = true;
+            activeDays.remove(dayId);
+            _diag['active_days'] = activeDays.toList();
+            return;
+          }
           _log('derive day $dayId FAILED/skipped: $e');
           final dayEndSec = _localNextDayLabelToSec(dayId);
           await _markDaySkipped(
@@ -2354,16 +2407,22 @@ class DerivationEngine {
       }
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      if (cancelled) throw DeriveStop.error;
 
       // 4. Cross-day rollup + notifications (best-effort).
       if (done > 0) {
+        DeriveStop.check(stopGen);
         _diag['stage'] = 'baselines';
         await _refreshBaselines();
+        DeriveStop.check(stopGen);
         _diag['stage'] = 'cross_day';
         await _runCrossDay(profile);
+        DeriveStop.check(stopGen);
         _diag['stage'] = 'notifications';
         await _runNotifications();
       }
+      // Pruning only after a pass that ran to the end (invariant 9).
+      DeriveStop.check(stopGen);
       // 5. Prune raw — never for a day still inside its raw window / un-derived.
       // Runs on EVERY derive, not just a full restage: `rawRetentionDays` is
       // the only cap on the 1 Hz substrate, and behind `scope.fullHistory` it
@@ -2393,16 +2452,27 @@ class DerivationEngine {
         }
       }
       return done;
+    } on DeriveCancelled catch (e) {
+      cancelled = true;
+      _diag['last_error'] = '$e';
+      _log('derive stopped: $e — remaining work stays queued');
+      rethrow;
     } catch (e, st) {
+      if (DeriveStop.generation != stopGen) {
+        cancelled = true;
+        _log('derive stopped mid-step: $e — remaining work stays queued');
+        throw DeriveStop.error;
+      }
       _diag['last_error'] = '$e';
       _log('derive ERROR: $e\n$st');
       return 0;
     } finally {
       // Storage housekeeping runs here, after everything, still holding
       // `_running`. See _runStorageHousekeeping — this is the only place every
-      // entry path and every early return actually reaches.
+      // entry path and every early return actually reaches. A stopped pass
+      // skips it and the strain rescale: both wait for a pass that finishes.
       _diag['stage'] = 'housekeeping';
-      await _runStorageHousekeeping();
+      if (!cancelled) await _runStorageHousekeeping();
       // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
       // inside the raw window re-derive from substrate above; everything older
       // has none, so its headline is rebuilt from the stored TRIMP + wake
@@ -2422,6 +2492,7 @@ class DerivationEngine {
       // reading day_result while it rewrites.
       _diag['stage'] = 'strain_rescale';
       try {
+        if (cancelled) throw DeriveStop.error;
         final rescaled = await backfillStrainScale(
           female: workoutSex(profile.sex) == 'female',
         );
@@ -3367,6 +3438,7 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    final stopGen = DeriveStop.generation;
     try {
       // Baseline gate: compute the CURRENT signature and compare to the stored
       // one. Unchanged → nothing to refresh; bail cheaply (no redundant writes).
@@ -3428,6 +3500,7 @@ class DerivationEngine {
       var completed = 0;
 
       Future<void> processDay(String dayId) async {
+        if (DeriveStop.generation != stopGen) return;
         try {
           final prepared = await _prepareTargetDay(dayId);
           if (prepared != null) {
@@ -3435,6 +3508,7 @@ class DerivationEngine {
             done++;
           }
         } catch (e) {
+          if (DeriveStop.generation != stopGen) return;
           _log('rescan day $dayId FAILED/skipped: $e');
           // Do NOT mark-skipped here — a finalized day already has a good row;
           // overwriting it with a skip marker would DISCARD real structure.
@@ -3445,18 +3519,25 @@ class DerivationEngine {
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
 
+      // A stopped rescan leaves the signature unstored so it runs again.
+      DeriveStop.check(stopGen);
       await _refreshBaselines();
       // Cross-day rollup + notifications reflect the refreshed scalars.
+      DeriveStop.check(stopGen);
       await _runCrossDay(profile);
       await _runNotifications();
       // Store the new signature so the next tick is a cheap no-op until it moves.
       await LocalDb.setCursor('baseline_sig', await _baselineSignature());
       return done;
     } catch (e, st) {
+      if (DeriveStop.generation != stopGen) {
+        _log('rescan stopped: $e — runs again on the next opportunity');
+        return 0;
+      }
       _log('rescan ERROR: $e\n$st');
       return 0;
     } finally {
-      await _runStorageHousekeeping();
+      if (DeriveStop.generation == stopGen) await _runStorageHousekeeping();
       _running = false;
     }
   }
@@ -7412,6 +7493,11 @@ class DerivationEngine {
       onExit: port.sendPort,
     );
     final completer = Completer<_DayBlocksOutput>();
+    final stop = DeriveStop.changes.listen((_) {
+      if (completer.isCompleted) return;
+      isolate.kill(priority: Isolate.immediate);
+      completer.completeError(DeriveStop.error);
+    });
     late final StreamSubscription<dynamic> sub;
     sub = port.listen((message) {
       if (completer.isCompleted) return;
@@ -7448,6 +7534,7 @@ class DerivationEngine {
         },
       );
     } finally {
+      await stop.cancel();
       await sub.cancel();
       port.close();
       // No-op if the isolate already exited normally; guarantees a hung or
@@ -7486,6 +7573,11 @@ class DerivationEngine {
       onExit: port.sendPort,
     );
     final completer = Completer<R>();
+    final stop = DeriveStop.changes.listen((_) {
+      if (completer.isCompleted) return;
+      isolate.kill(priority: Isolate.immediate);
+      completer.completeError(DeriveStop.error);
+    });
     late final StreamSubscription<dynamic> sub;
     sub = port.listen((msg) {
       if (completer.isCompleted) return;
@@ -7517,6 +7609,7 @@ class DerivationEngine {
         },
       );
     } finally {
+      await stop.cancel();
       await sub.cancel();
       port.close();
       // No-op if it already exited; guarantees a hung isolate never outlives

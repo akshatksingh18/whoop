@@ -207,6 +207,7 @@ class BleRestoreManager: NSObject {
         @unknown default: result("unknown")
         }
       case "ready":
+        NativeLog.note("dart ready (wakeQueued=\(self.wakeQueuedBeforeReady))")
         self.flutterReady = true
         if self.wakeQueuedBeforeReady {
           self.wakeQueuedBeforeReady = false
@@ -291,6 +292,7 @@ class BleRestoreManager: NSObject {
 
   private func signalWake() {
     beginBackground()
+    NativeLog.note("restore wake (flutterReady=\(flutterReady))")
     if flutterReady {
       channel?.invokeMethod("wake", arguments: nil)
       NSLog("[ble-restore] wake → Flutter")
@@ -314,6 +316,10 @@ class BleRestoreManager: NSObject {
   private func beginBackground() {
     endBackground()
     bgTask = UIApplication.shared.beginBackgroundTask(withName: "openstrap.bleSync") { [weak self] in
+      // iOS is ending the wake: tell Dart to stop calculation before the
+      // assertion goes, so nothing keeps burning CPU into a kill.
+      NativeLog.note("restore wake expired")
+      self?.channel?.invokeMethod("expire", arguments: nil)
       self?.endBackground()
     }
   }
@@ -345,6 +351,7 @@ extension BleRestoreManager: CBCentralManagerDelegate {
 
   func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
     let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+    NativeLog.note("willRestoreState peripherals=\(restored.count)")
     guard !restored.isEmpty else { return }
     // Take ALL of them, not just the first — the count was already being logged, so the
     // code always knew there could be more. Each carries a pending/active connect
@@ -369,6 +376,54 @@ extension BleRestoreManager: CBCentralManagerDelegate {
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     NSLog("[ble-restore] didFailToConnect: \(error?.localizedDescription ?? "—")")
     if !handedOff { armIfAppropriate() }
+  }
+}
+
+/// Native lifecycle breadcrumbs in `openstrap_native.log` (Documents, beside
+/// the app log in Files → WHOOP), written even when Dart never becomes ready:
+/// launch reason and build, restoration, wakes, Dart readiness, background
+/// task launch/expiry/completion. No health data, one short line each, and
+/// the file is cut back to its newest half past 256 KB.
+enum NativeLog {
+  private static let queue = DispatchQueue(label: "openstrap.nativelog")
+  private static let launchId = UUID().uuidString.prefix(8)
+
+  static func launch(launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
+    let info = Bundle.main.infoDictionary ?? [:]
+    let version = info["CFBundleShortVersionString"] as? String ?? "?"
+    let build = info["CFBundleVersion"] as? String ?? "?"
+    let keys = (launchOptions ?? [:]).keys.map { $0.rawValue }.sorted().joined(separator: ",")
+    let state: String
+    switch UIApplication.shared.applicationState {
+    case .active: state = "active"
+    case .inactive: state = "inactive"
+    case .background: state = "background"
+    @unknown default: state = "unknown"
+    }
+    note("launch \(version)(\(build)) iOS \(UIDevice.current.systemVersion) "
+      + "state=\(state) options=[\(keys)]")
+  }
+
+  static func note(_ text: String) {
+    let line = "\(ISO8601DateFormatter().string(from: Date())) [\(launchId)] \(text)\n"
+    NSLog("[native] \(text)")
+    queue.async {
+      guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+            let data = line.data(using: .utf8) else { return }
+      let url = dir.appendingPathComponent("openstrap_native.log")
+      if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+         let size = attrs[.size] as? Int, size > 256 * 1024,
+         let old = try? Data(contentsOf: url) {
+        try? old.suffix(old.count / 2).write(to: url)
+      }
+      if let h = try? FileHandle(forWritingTo: url) {
+        defer { try? h.close() }
+        _ = try? h.seekToEnd()
+        try? h.write(contentsOf: data)
+      } else {
+        try? data.write(to: url)
+      }
+    }
   }
 }
 

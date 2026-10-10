@@ -56,8 +56,13 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
 
       final app = context.read<AppState>();
-      if (app.isPaired) app.openSession();
-      app.startForegroundRefresh();
+      // A Bluetooth/background-task relaunch draws a first frame too; only a
+      // real open starts the foreground session. `resumed` opens it later.
+      unawaited(() async {
+        if (await app.launchedInBackground() || !mounted) return;
+        if (app.isPaired) app.openSession();
+        app.startForegroundRefresh();
+      }());
     });
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../data/db.dart';
+import 'derivation_engine.dart' show DeriveCancelled, DeriveStop;
 
 enum DeriveJobKind { light, heavy }
 
@@ -162,6 +163,10 @@ class DeriveScheduler {
     if (_background) {
       _timer?.cancel();
       _timer = null;
+      // Cancelling the timer only stopped QUEUED work; a pass already running
+      // kept calculating for up to a minute into the background and drew iOS
+      // CPU-limit kills. Stop it: committed days stay, the job is requeued.
+      if (_running) DeriveStop.request('backgrounded');
       log('[derive-scheduler] backgrounded — deferring derive to foreground');
       onChanged();
       return;
@@ -230,6 +235,12 @@ class DeriveScheduler {
       await run(kind: kind);
       if (id != null && id.isNotEmpty) {
         await LocalDb.completeComputeJob(id);
+      }
+    } on DeriveCancelled catch (e) {
+      // A stop is not a failure: hand the job back for the next opportunity.
+      log('[derive-scheduler] $e — job requeued');
+      if (id != null && id.isNotEmpty) {
+        await LocalDb.requeueComputeJob(id);
       }
     } catch (e) {
       if (id != null && id.isNotEmpty) {

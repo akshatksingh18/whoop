@@ -2,9 +2,7 @@ import Flutter
 import UIKit
 import AudioToolbox
 import AVFoundation
-#if !PERSONAL_SIDELOAD
 import BackgroundTasks
-#endif
 import CoreMotion
 import MapKit
 
@@ -16,10 +14,12 @@ import MapKit
   ) -> Bool {
     // CoreBluetooth state restoration — must be created here (early) so iOS can relaunch
     // us with willRestoreState when the band reappears. Wakes the app → headless sync.
+    NativeLog.launch(launchOptions: launchOptions)
     BleRestoreManager.shared.start(launchOptions: launchOptions)
 
-    #if !PERSONAL_SIDELOAD
     // BGTaskScheduler registration MUST happen before didFinishLaunching returns.
+    // Build 86 enables both tasks in the personal build too (bounded work,
+    // supplementary to BLE wakes and foreground catch-up).
     // The channel wiring (messenger) happens in didInitializeImplicitFlutterEngine below;
     // here we only register the identifier with the OS so it survives to that point.
     // schedule() is called after the channel is wired so Dart is ready to handle the task.
@@ -46,6 +46,7 @@ import MapKit
       BackgroundTaskManager.handleRefreshTask(refreshTask)
     }
 
+    #if !PERSONAL_SIDELOAD
     // Apple Watch companion: activate the WCSession so the watch can receive
     // today's metrics (mirrored from the App Group snapshot). No-op without a
     // paired watch. See WatchBridge.swift.
@@ -130,15 +131,16 @@ import MapKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthKitSleepWriter") {
       HealthKitSleepWriter.register(messenger: registrar.messenger())
     }
-    // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
+    #endif
+    // BGTask channel: Dart handler for opportunistic headless sync and bounded
+    // calculation (personal build included from build 86).
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
       BackgroundTaskManager.wireChannel(messenger: registrar.messenger())
       // Now that the channel is wired, submit the first task requests
-      // (heavy processing + light sync-only refresh).
+      // (processing + light refresh).
       BackgroundTaskManager.schedule()
       BackgroundTaskManager.scheduleRefresh()
     }
-    #endif
   }
 }
 

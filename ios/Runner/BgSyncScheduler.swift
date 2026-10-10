@@ -12,9 +12,9 @@ import Flutter
 /// Task identifier scoped to wtf.openstrap.edge.
 ///
 /// Design notes:
-///   - "location" is NOT added to UIBackgroundModes: OpenStrap has no GPS /
-///     workout-route feature; adding it without purpose risks App Store review
-///     rejection. We use "processing" + "fetch" only.
+///   - Expiration is a STOP: the handler tells Dart to cancel calculation
+///     ("expire"), then completes the task exactly once. A late Dart reply
+///     after expiration is ignored rather than completing the task again.
 ///   - Uses BGProcessingTaskRequest (not BGAppRefreshTaskRequest): allows a
 ///     longer wall-clock budget and does not require user-granted Background App
 ///     Refresh — more reliable for compute-heavy sync+derive.
@@ -42,6 +42,23 @@ enum BackgroundTaskManager {
     // Retained so the channel survives between task invocations.
     private static var channel: FlutterMethodChannel?
 
+    /// Completes a BGTask exactly once, whichever of expiration or the Dart
+    /// reply arrives first. Main-queue only (both callers hop there).
+    private final class Once {
+        private var done = false
+        func run(_ body: () -> Void) {
+            if done { return }
+            done = true
+            body()
+        }
+    }
+
+    /// Ask Dart to stop calculation now: iOS is ending the time it granted.
+    private static func expire(_ label: String) {
+        NativeLog.note("\(label) expired")
+        channel?.invokeMethod("expire", arguments: nil)
+    }
+
     // MARK: - AppDelegate hooks
 
     /// Wire the Dart method channel. Called from didInitializeImplicitFlutterEngine
@@ -56,29 +73,37 @@ enum BackgroundTaskManager {
     /// BGTaskScheduler.shared.register(...) inside AppDelegate.didFinishLaunching.
     static func handleTask(_ task: BGProcessingTask) {
         NSLog("[bg-task] task launched")
+        NativeLog.note("bg-processing launched")
 
         // Re-schedule immediately so there is always a next request queued.
         schedule()
 
-        // Expiration handler: partial run is fine — the non-destructive cursor
-        // means the next wake catches up from where this one left off.
+        let once = Once()
+        // Expiration: stop Dart's calculation, then complete once. Committed
+        // work stays; the non-destructive cursor and durable job queue let
+        // the next wake or foreground open continue.
         task.expirationHandler = {
-            NSLog("[bg-task] expiration handler fired")
-            task.setTaskCompleted(success: false)
+            DispatchQueue.main.async {
+                expire("bg-processing")
+                once.run { task.setTaskCompleted(success: false) }
+            }
         }
 
         guard let ch = channel else {
             NSLog("[bg-task] channel not yet wired — marking complete")
-            task.setTaskCompleted(success: true)
+            once.run { task.setTaskCompleted(success: true) }
             return
         }
 
-        // Invoke Dart. ios_bg_task.dart runs runHeadlessSync() + heavy
-        // DerivationEngine.run and returns true/false.
         ch.invokeMethod("run", arguments: nil) { reply in
             let success = (reply as? Bool) ?? true
             NSLog("[bg-task] Dart returned success=\(success)")
-            task.setTaskCompleted(success: success)
+            DispatchQueue.main.async {
+                once.run {
+                    NativeLog.note("bg-processing completed success=\(success)")
+                    task.setTaskCompleted(success: success)
+                }
+            }
         }
     }
 
@@ -114,27 +139,34 @@ enum BackgroundTaskManager {
     /// enforces the light profile.
     static func handleRefreshTask(_ task: BGAppRefreshTask) {
         NSLog("[bg-refresh] task launched")
+        NativeLog.note("bg-refresh launched")
 
         // Re-schedule immediately so there is always a next request queued.
         scheduleRefresh()
 
-        // Expiration: partial run is fine — the non-destructive cursor means the
-        // next wake (refresh, processing, restore or foreground) catches up.
+        let once = Once()
         task.expirationHandler = {
-            NSLog("[bg-refresh] expiration handler fired")
-            task.setTaskCompleted(success: false)
+            DispatchQueue.main.async {
+                expire("bg-refresh")
+                once.run { task.setTaskCompleted(success: false) }
+            }
         }
 
         guard let ch = channel else {
             NSLog("[bg-refresh] channel not yet wired — marking complete")
-            task.setTaskCompleted(success: true)
+            once.run { task.setTaskCompleted(success: true) }
             return
         }
 
         ch.invokeMethod("run", arguments: ["mode": "sync"]) { reply in
             let success = (reply as? Bool) ?? true
             NSLog("[bg-refresh] Dart returned success=\(success)")
-            task.setTaskCompleted(success: success)
+            DispatchQueue.main.async {
+                once.run {
+                    NativeLog.note("bg-refresh completed success=\(success)")
+                    task.setTaskCompleted(success: success)
+                }
+            }
         }
     }
 

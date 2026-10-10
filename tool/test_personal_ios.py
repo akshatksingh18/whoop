@@ -16,6 +16,7 @@ from tool.personal_ios import (
     transform_project,
     validate_new_build_identity,
     validate_personal_icons,
+    validate_info,
     validate_ipa,
 )
 
@@ -55,7 +56,14 @@ class PersonalIosContractTest(unittest.TestCase):
         info = personal_info(source)
         self.assertEqual(info["CFBundleDisplayName"], APP_NAME)
         self.assertEqual(info["CFBundleName"], APP_NAME)
-        self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central", "location", "audio"])
+        self.assertEqual(
+            info["UIBackgroundModes"],
+            ["bluetooth-central", "location", "audio", "fetch", "processing"],
+        )
+        self.assertEqual(
+            info["BGTaskSchedulerPermittedIdentifiers"],
+            ["wtf.openstrap.edge.bgsync", "wtf.openstrap.edge.refresh"],
+        )
         self.assertIn("NSMotionUsageDescription", info)
         self.assertNotIn("NSHealthShareUsageDescription", info)
         # Build 81: no lock-screen extension, so no Live Activity support.
@@ -70,6 +78,21 @@ class PersonalIosContractTest(unittest.TestCase):
         info = personal_info(source)
         self.assertIn("NSLocationWhenInUseUsageDescription", info)
         self.assertNotIn("NSLocationAlwaysAndWhenInUseUsageDescription", info)
+
+    def test_background_task_contract_is_exact(self) -> None:
+        # Build 86: the two task identifiers and modes, nothing wider.
+        info = personal_info(plistlib.loads(SOURCE_INFO.read_bytes()))
+        info["CFBundleIdentifier"] = BUNDLE_ID
+        widened = dict(info, UIBackgroundModes=info["UIBackgroundModes"] + ["remote-notification"])
+        with self.assertRaises(ContractError):
+            validate_info(widened)
+        missing = dict(info)
+        missing.pop("BGTaskSchedulerPermittedIdentifiers")
+        with self.assertRaises(ContractError):
+            validate_info(missing)
+        # The scheduler source ships in the personal build now.
+        transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
+        self.assertIn("BgSyncScheduler.swift in Sources", transformed)
 
     def test_personal_entitlements_are_empty(self) -> None:
         self.assertEqual(plistlib.loads(PERSONAL_ENTITLEMENTS.read_bytes()), {})

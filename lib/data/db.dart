@@ -9039,6 +9039,30 @@ class LocalDb {
   /// All-time, not a trailing window. This is "highest we've seen"; a ceiling
   /// that silently aged out of a window would move every zone edge with no
   /// visible cause. The date rides along so an old one is attributable.
+  /// Recorded heart rate as per-minute means over `[fromSec, toSec)`, from
+  /// durable 1 Hz rows only (never the RAM live stream). A minute needs at
+  /// least [minSamples] readings to count; a thin or empty minute is left out,
+  /// so gaps stay gaps. For the minutes recorded since the last calculation.
+  static Future<List<Map<String, num>>> recordedHrPerMinute(
+    int fromSec,
+    int toSec, {
+    int minSamples = 20,
+  }) async {
+    if (toSec <= fromSec) return const [];
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT (rec_ts / 60) * 60 AS t, AVG(hr) AS v, COUNT(hr) AS n '
+      'FROM decoded_onehz WHERE rec_ts >= ? AND rec_ts < ? '
+      'AND hr IS NOT NULL AND hr > 0 GROUP BY rec_ts / 60 ORDER BY t',
+      [fromSec, toSec],
+    );
+    return [
+      for (final r in rows)
+        if (((r['n'] as num?) ?? 0) >= minSamples)
+          {'t': (r['t'] as num).toInt(), 'v': ((r['v'] as num) * 10).round() / 10},
+    ];
+  }
+
   static Future<({double bpm, String date})?> observedHrCeiling() async {
     final db = await instance;
     final rows = await db.rawQuery(

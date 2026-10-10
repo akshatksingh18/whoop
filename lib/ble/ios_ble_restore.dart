@@ -8,11 +8,13 @@
 // No-op on Android (the Edge Tracking foreground service keeps the process + live
 // connection alive there — no restore central needed).
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../compute/derivation_engine.dart' show DeriveStop;
 import '../sync/background_sync.dart';
 import '../sync/headless_gate.dart';
 import '../sync/sync_policy.dart' show RestoreWakeOutcome;
@@ -32,10 +34,22 @@ class IosBleRestore {
   /// "done", and leave the native side idle with nothing watching the band.
   static Future<RestoreWakeOutcome> Function()? onWake;
 
-  /// Register the wake handler and tell native Flutter is ready. Call once at startup.
+  static bool _readySent = false;
+  static Timer? _readyFallback;
+
+  /// Register the wake handler. Native is told Flutter is ready only once the
+  /// app has chosen its band owner ([announceReady], from AppState's startup),
+  /// so a wake queued before launch cannot start a headless session while
+  /// AppState is also starting one (build 86). A fallback still announces
+  /// readiness if startup never gets that far. Call once at startup.
   static Future<void> init() async {
     if (!Platform.isIOS) return;
     _ch.setMethodCallHandler((call) async {
+      if (call.method == 'expire') {
+        // The native background assertion is ending: stop calculation now.
+        DeriveStop.request('ble_wake_expired');
+        return null;
+      }
       if (call.method != 'wake') return null;
       if (foregroundActive) {
         await _done();
@@ -72,6 +86,14 @@ class IosBleRestore {
       });
       return null;
     });
+    _readyFallback = Timer(const Duration(seconds: 15), announceReady);
+  }
+
+  /// Let native deliver a queued wake. Idempotent.
+  static Future<void> announceReady() async {
+    if (!Platform.isIOS || _readySent) return;
+    _readySent = true;
+    _readyFallback?.cancel();
     try {
       await _ch.invokeMethod('ready');
     } catch (_) {}

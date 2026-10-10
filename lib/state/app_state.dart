@@ -1591,8 +1591,25 @@ class AppState extends ChangeNotifier {
   @override
   void notifyListeners() {
     if (_disposed) return;
+    // Nobody sees the UI while backgrounded, yet live ingest notified about
+    // once a second, running every listening widget's rebuild bookkeeping on
+    // short iOS wakes (build 86 background repair). Coalesce to one notice per
+    // [_kBackgroundNotifyEvery]; the first foreground notice flushes at once.
+    // iOS only: Android keeps a foreground service with a real budget.
+    if (_background && Platform.isIOS) {
+      _backgroundNotifyTimer ??= Timer(_kBackgroundNotifyEvery, () {
+        _backgroundNotifyTimer = null;
+        if (!_disposed) super.notifyListeners();
+      });
+      return;
+    }
+    _backgroundNotifyTimer?.cancel();
+    _backgroundNotifyTimer = null;
     super.notifyListeners();
   }
+
+  static const _kBackgroundNotifyEvery = Duration(seconds: 30);
+  Timer? _backgroundNotifyTimer;
 
   @override
   void dispose() {
@@ -1600,6 +1617,7 @@ class AppState extends ChangeNotifier {
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
+    _backgroundNotifyTimer?.cancel();
     // EVERY timer this object owns, not just three of them.
     // _breathingRecomputeTimer and _workoutTimer used to survive dispose, and
     // each of their callbacks ends in notifyListeners() on a disposed
@@ -1812,6 +1830,11 @@ class AppState extends ChangeNotifier {
         unawaited(HealthUploader.instance.maybeUpload(consented: true));
       }
       if (heavy) unawaited(_maybeReclaimDiskSpace());
+    } on DeriveCancelled {
+      // Stopped on purpose (backgrounded / wake expiring): the scheduler
+      // requeues the job. Today's committed days already published per day.
+      TelemetryService.instance.breadcrumb('derive: $mode stopped');
+      rethrow;
     } catch (e, st) {
       _log('[derive] post-drain failed: $e');
       // Was silently swallowed before — this is a real pipeline failure
@@ -2523,7 +2546,24 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
       _deriveScheduler.markStoredData();
+      _publishRecorded();
     }());
+  }
+
+  DateTime? _recordedPublishedAt;
+
+  /// Newly committed band records are visible before calculation: the HR
+  /// chart reads recorded minutes past the last calculated point, so tell the
+  /// screens to re-read — at most once a minute, foreground only (B86-04).
+  void _publishRecorded() {
+    if (_background || _disposed) return;
+    final now = DateTime.now();
+    final last = _recordedPublishedAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 1)) {
+      return;
+    }
+    _recordedPublishedAt = now;
+    bumpInsights();
   }
 
   // Live (foreground / kept-alive) event path: persist every event, then let the
@@ -2617,6 +2657,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _initSteps() async {
+    // Settle background-versus-opened FIRST: the derive scheduler below arms
+    // on init, and a Bluetooth relaunch must not start a pass in the seconds
+    // before this was known (build 86).
+    await _settleLaunchKind();
     paired = await PairedDevice.load();
     await refreshSensors();
     await _loadProfile();
@@ -2666,7 +2710,6 @@ class AppState extends ChangeNotifier {
     if (isPaired) unawaited(_ensureRemindersScheduled());
     // Not gated on pairing: an unpaired app still expires.
     unawaited(refreshSigningStatus());
-    await _settleLaunchKind();
     if (isPaired) {
       if (_background) {
         _keepAlive = true;
@@ -2727,8 +2770,16 @@ class AppState extends ChangeNotifier {
         openSession();
       }
     }
+    // The band owner is chosen; a wake queued before launch may now arrive.
+    unawaited(IosBleRestore.announceReady());
     unawaited(_checkPendingTaskerBuzz());
   }
+
+  /// Whether iOS itself says this process is in the background — a Bluetooth
+  /// or background-task relaunch, not the user opening the app. The first
+  /// frame must not start a foreground session for one of those.
+  Future<bool> launchedInBackground() async =>
+      Platform.isIOS && await IosBleRestore.appState() == 'background';
 
   // Single-flight guard for _checkPendingTaskerBuzz — it's now invoked both
   // from _init() and from every "became connected" transition

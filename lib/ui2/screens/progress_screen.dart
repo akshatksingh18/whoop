@@ -104,7 +104,7 @@ class ProgressData {
     return ds.isEmpty ? null : ds.first;
   }
 
-  static const baselineKey = 'progress.baseline';
+  static const baselineKey = progressBaselineKey;
 
   static Future<ProgressData> load(BuildContext c) async {
     final repo = repoOf(c);
@@ -794,7 +794,7 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     ).add(DateTime.parse(today).difference(DateTime.parse(from)) ~/ 2);
     final first = (from: from, to: dayLabelOf(mid), days: 0, partial: false);
     final second = (
-      from: dayLabelOf(mid.add(const Duration(days: 1))),
+      from: dayLabelOf(DateTime(mid.year, mid.month, mid.day + 1)),
       to: today,
       days: 0,
       partial: false,
@@ -1014,6 +1014,81 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       MaterialPageRoute<void>(builder: (_) => BodySettingsScreen(data: d)),
     );
     reload();
+  }
+}
+
+// ── Today's Body row ────────────────────────────────────────────────────────
+
+/// Today: the 7-day weight with its reading count, a one-tap weigh-in, and
+/// the way into Progress. Not a second dashboard.
+class TodayBodyRow extends StatefulWidget {
+  const TodayBodyRow({super.key});
+  @override
+  State<TodayBodyRow> createState() => _TodayBodyRowState();
+}
+
+class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
+  ({double kg, int count})? _mean;
+  bool _today = false;
+  String _unit = 'kg';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    reload();
+  }
+
+  @override
+  void reload() async {
+    final t = beginRead(#todayBody);
+    try {
+      final ws = await BodyLogDb.weights();
+      final u = (await SharedPreferences.getInstance()).getString('body.unit') ?? 'kg';
+      final today = todayLabel();
+      if (!stillNewest(#todayBody, t)) return;
+      setState(() {
+        _mean = BodyLogDb.sevenDayMean(ws, today);
+        _today = ws.any((w) => w.date == today);
+        _unit = u;
+      });
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final m = _mean;
+    return Surface(
+      onTap: () => c.read<AppState>().navRequest.value = 5,
+      semanticLabel: 'Body. Opens Progress',
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Body', style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+            Text(
+              m == null
+                  ? 'No weigh-ins this week'
+                  : '7-day ${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit · '
+                        '${m.count} ${m.count == 1 ? 'reading' : 'readings'}',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ]),
+        ),
+        if (!_today)
+          Pressable(
+            semanticLabel: 'Log weigh-in',
+            onTap: () async {
+              final changed = await Navigator.of(c).push<bool>(
+                MaterialPageRoute(builder: (_) => BodyEntryScreen(unit: _unit)),
+              );
+              if (changed == true) reload();
+            },
+            child: Pill('Weigh in', C.teal, icon: LucideIcons.plus),
+          ),
+        const SizedBox(width: S.x2),
+        Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+      ]),
+    );
   }
 }
 

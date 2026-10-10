@@ -48,6 +48,7 @@ import '../profile/settings.dart' show MoreSettings;
 import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard, showMaintenance;
+import 'progress_screen.dart' show TodayBodyRow;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -1938,6 +1939,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             const SizedBox(height: S.x3),
             _glance(c, d),
             if (widget.data == null) ...[
+              const SizedBox(height: S.x3),
+              // Build 86: today's weigh-in in one tap, and the way to Progress.
+              const TodayBodyRow(),
               const SizedBox(height: S.x3),
               const WeekCard(),
             ],

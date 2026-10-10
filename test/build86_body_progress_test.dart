@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/profile.dart' show Profile;
 import 'package:openstrap_edge/data/body_log.dart';
+import 'package:openstrap_edge/data/calculation_store.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/lift_log.dart';
@@ -152,6 +153,7 @@ void main() {
         'format': 'whoop-body-history',
         'version': 1,
         'source': 'myfitnesspal-screenshots',
+        'baseline': {'date': '2025-01-05', 'value': 200.4, 'unit': 'lb'},
         'weights': [
           {'id': 'mfp:2025-01-05', 'date': '2025-01-05', 'value': 200.4, 'unit': 'lb'},
         ],
@@ -160,6 +162,7 @@ void main() {
       await applyBodyImport(plan, encode: (_) async => const []);
       final w = (await BodyLogDb.weightOn('2025-01-05'))!;
       expect(w.source, 'myfitnesspal-screenshots');
+      expect(await CalculationStore.read(progressBaselineKey), '2025-01-05');
       expect(w.historyOnly, isTrue);
       expect(await BodyLogDb.measures(), isNot(contains(predicate((m) => (m as BodyMeasure).date == '2025-01-05'))));
     });

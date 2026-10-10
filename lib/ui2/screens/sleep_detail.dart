@@ -1218,28 +1218,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       return bestGap > 900 ? null : best;
     }
 
-    double? nightMean(String key) {
-      final list = d.timeline[key];
-      if (list is! List) return null;
-      final vs = [
-        for (final e in list)
-          if (e is Map &&
-              e['t'] is num &&
-              e['v'] is num &&
-              (e['t'] as num) >= t0 &&
-              (e['t'] as num) <= t1)
-            (e['v'] as num).toDouble(),
-      ];
-      return vs.isEmpty ? null : vs.reduce((a, b) => a + b) / vs.length;
-    }
-
-    final hr = at('hr'), hrv = at('hrv'), temp = at('skin_temp');
-    final mean = nightMean('skin_temp');
+    // No temperature here (build 86): `skin_temp_day` is the sensor's raw
+    // count relative to the day, not degrees, and printing it as "°C" read
+    // −31.3 °C the moment the band lost skin contact. The Skin temp row and
+    // its chart show the night's temperature honestly.
+    final hr = at('hr'), hrv = at('hrv');
     final signals = [
       if (hr != null) '${hr.round()} bpm',
       if (hrv != null) 'HRV ${hrv.round()} ms',
-      if (temp != null && mean != null)
-        'Temp Δ ${temp - mean >= 0 ? '+' : '−'}${(temp - mean).abs().toStringAsFixed(1)} °C',
     ].join(' · ');
     return signals.isEmpty ? head : '$head\n$signals';
   }

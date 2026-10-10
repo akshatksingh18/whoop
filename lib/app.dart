@@ -357,6 +357,8 @@ class _InitFailed extends StatelessWidget {
 ShellDomain domainForTab(int tab) => switch (tab) {
   1 || 2 || 3 => ShellDomain.health,
   4 => ShellDomain.workout,
+  // Build 86: Progress, asked for from Today's Body row.
+  5 => ShellDomain.progress,
   _ => ShellDomain.home,
 };
 

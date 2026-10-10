@@ -216,6 +216,12 @@ const _notComponents = {
   // Build 85: the food-category filter over a food list; exercised with real
   // foods in build85_test.
   'FoodCategoryFilter',
+  // Build 86: Lift Log inside the workout and Body/Progress. Each reads or
+  // writes the lift, body or photo stores on open; covered with real records
+  // by build86_lift_ui_test and build86_progress_screen_test.
+  'LiftChoicePicker', 'LiftLivePanel', 'LiftSummaryCard', 'LiftSplitsScreen',
+  'ProgressScreen', 'BodyEntryScreen', 'PhotoCompareScreen',
+  'BodyHistoryScreen', 'BodySettingsScreen', 'TodayBodyRow',
   // Build 78: every session by month; reads the session store on open.
   'WorkoutHistoryScreen',
   // shell and routing

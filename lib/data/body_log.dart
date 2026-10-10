@@ -30,6 +30,9 @@ import 'nutrition_store.dart' show NutritionDb;
 
 const double kLbPerKg = 2.2046226218;
 
+/// Progress's chosen journey start ("Since start").
+const String progressBaselineKey = 'progress.baseline';
+
 enum BodySite {
   waistNavel,
   lowerBelly,
@@ -561,9 +564,14 @@ class BodyImportPlan {
     required this.alreadyHere,
     this.heightInches,
     this.measureWeekday,
+    this.baselineDate,
   });
 
   final String source;
+
+  /// The journey start a generated file declares; set as Progress's "Since
+  /// start" only when none is chosen yet.
+  final String? baselineDate;
 
   /// New weigh-ins (no reading on that day yet). All history only.
   final List<({String date, double value, String unit, String originId})>
@@ -689,6 +697,7 @@ Future<BodyImportPlan> planBodyImport(
   }
   final h = (m['heightInches'] as num?)?.toDouble();
   final wd = (m['measurementWeekday'] as num?)?.toInt();
+  final base = (m['baseline'] as Map?)?['date'];
   return BodyImportPlan(
     source: source,
     weights: weights,
@@ -702,6 +711,7 @@ Future<BodyImportPlan> planBodyImport(
     measureWeekday: wd == null || wd < 1 || wd > 7
         ? null
         : (wd == 1 ? 7 : wd - 1),
+    baselineDate: _validDay(base) ? base as String : null,
   );
 }
 
@@ -747,6 +757,10 @@ Future<int> applyBodyImport(
   }
   if (applyWeekday && plan.measureWeekday != null) {
     await BodyLogDb.setMeasureWeekday(plan.measureWeekday!);
+  }
+  final base = plan.baselineDate;
+  if (base != null && await CalculationStore.read(progressBaselineKey) == null) {
+    await CalculationStore.write(progressBaselineKey, base);
   }
   return n;
 }

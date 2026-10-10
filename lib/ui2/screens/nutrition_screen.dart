@@ -1575,7 +1575,12 @@ class _HistoryRow extends StatelessWidget {
             ),
             Text(
               [
-                if (protein != null) 'Protein ${protein.round()} g',
+                ...macroParts(
+                  protein: protein,
+                  carbs: day.carbs.value,
+                  fat: day.fat.value,
+                  fibre: day.fibre.value,
+                ),
                 if (day.state == DayLogState.inProgress) 'So far',
                 if (day.state == DayLogState.partial) 'Partial log',
                 if (maintenance != null &&

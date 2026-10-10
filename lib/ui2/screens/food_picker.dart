@@ -30,6 +30,28 @@ String mealName(String meal) => _mealNames[meal] ?? meal;
 
 String _n(double? v, [int dp = 0]) => v == null ? '–' : v.toStringAsFixed(dp);
 
+/// The four macros in one fixed order, P · C · F · Fb. Once any of them was
+/// logged all four print, and a missing one reads "–" rather than vanishing,
+/// so fibre never silently drops off a line (Akshat, build 86). Nothing
+/// logged at all returns no parts.
+List<String> macroParts({
+  double? protein,
+  double? carbs,
+  double? fat,
+  double? fibre,
+  int dp = 0,
+}) {
+  if (protein == null && carbs == null && fat == null && fibre == null) {
+    return const [];
+  }
+  String v(double? x) => x == null
+      ? '–'
+      : dp == 0
+      ? '${x.round()}'
+      : _n(x, dp);
+  return ['P ${v(protein)}', 'C ${v(carbs)}', 'F ${v(fat)}', 'Fb ${v(fibre)}'];
+}
+
 /// One-line nutrient summary, e.g. "200 kcal · P 6.5 · C 33 · F 3.5 · Fb 5".
 String macroLine({
   double? kcal,
@@ -40,10 +62,13 @@ String macroLine({
 }) {
   final parts = [
     if (kcal != null) '${kcal.round()} kcal',
-    if (protein != null) 'P ${_n(protein, 1)}',
-    if (carbs != null) 'C ${_n(carbs, 1)}',
-    if (fat != null) 'F ${_n(fat, 1)}',
-    if (fibre != null) 'Fb ${_n(fibre, 1)}',
+    ...macroParts(
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      fibre: fibre,
+      dp: 1,
+    ),
   ];
   return parts.isEmpty ? 'No nutrition numbers' : parts.join(' · ');
 }

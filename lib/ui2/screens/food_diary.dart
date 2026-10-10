@@ -203,8 +203,8 @@ class MealCard extends StatelessWidget {
   }
 }
 
-/// "776 kcal · P 77 · C 43 · F 32" for a meal card: the same rounding as
-/// the meal page, and only the macros that were logged.
+/// "776 kcal · P 77 · C 43 · F 32 · Fb 9" for a meal card: the same rounding
+/// as the meal page, all four macros once any was logged.
 String _mealTotals(List<FoodEntry> es) {
   double? sum(double? Function(FoodEntry) f) {
     double? t;
@@ -217,9 +217,12 @@ String _mealTotals(List<FoodEntry> es) {
 
   return [
     '${thousands(_kcalOf(es))} kcal',
-    if (sum((e) => e.proteinG) case final v?) 'P ${v.round()}',
-    if (sum((e) => e.carbsG) case final v?) 'C ${v.round()}',
-    if (sum((e) => e.fatG) case final v?) 'F ${v.round()}',
+    ...macroParts(
+      protein: sum((e) => e.proteinG),
+      carbs: sum((e) => e.carbsG),
+      fat: sum((e) => e.fatG),
+      fibre: sum((e) => e.fibreG),
+    ),
   ].join(' · ');
 }
 
@@ -1056,16 +1059,22 @@ class _MealPageState extends State<MealPage> with RevisionReload {
                 ],
               ),
               const SizedBox(height: S.x3),
-              InlineMetrics([
-                if (sum((e) => e.proteinG) case final v?)
-                  ('PROTEIN', '${v.round()} g', C.red),
-                if (sum((e) => e.carbsG) case final v?)
-                  ('CARBS', '${v.round()} g', C.blue),
-                if (sum((e) => e.fatG) case final v?)
-                  ('FAT', '${v.round()} g', C.yellow),
-                if (sum((e) => e.fibreG) case final v?)
-                  ('FIBRE', '${v.round()} g', C.green),
-              ]),
+              // All four once any was logged, so fibre never drops off.
+              if (macroParts(
+                protein: sum((e) => e.proteinG),
+                carbs: sum((e) => e.carbsG),
+                fat: sum((e) => e.fatG),
+                fibre: sum((e) => e.fibreG),
+              ).isNotEmpty)
+                InlineMetrics([
+                  for (final (name, v, color) in [
+                    ('PROTEIN', sum((e) => e.proteinG), C.red),
+                    ('CARBS', sum((e) => e.carbsG), C.blue),
+                    ('FAT', sum((e) => e.fatG), C.yellow),
+                    ('FIBRE', sum((e) => e.fibreG), C.green),
+                  ])
+                    (name, v == null ? '–' : '${v.round()} g', color),
+                ]),
             ],
           ),
         ),
@@ -1163,9 +1172,12 @@ class _EntryRow extends StatelessWidget {
     final detail = [
       if (e.quantity != null)
         portionWithWeight(e.quantity!, e.unit, conversionDef(e, def)),
-      if (e.proteinG != null) 'P ${e.proteinG!.round()}',
-      if (e.carbsG != null) 'C ${e.carbsG!.round()}',
-      if (e.fatG != null) 'F ${e.fatG!.round()}',
+      ...macroParts(
+        protein: e.proteinG,
+        carbs: e.carbsG,
+        fat: e.fatG,
+        fibre: e.fibreG,
+      ),
     ].join(' · ');
     return Pressable(
       onTap: onTap,

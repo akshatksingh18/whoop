@@ -36,6 +36,7 @@ import '../../data/off_lookup.dart';
 import '../../l10n/app_localizations.dart';
 import '../profile/profile.dart' show SetRow;
 import '../ui2.dart';
+import 'food_picker.dart' show macroParts;
 import 'journal_compose.dart' show OsTextField;
 import 'scan_barcode.dart';
 
@@ -806,9 +807,14 @@ class FoodRow extends StatelessWidget {
           'LOGGED · ENERGY NOT RECORDED';
     }
     final parts = <String>['${e.kcal!.round()} kcal'];
-    if (e.proteinG != null) parts.add('${e.proteinG!.round()}P');
-    if (e.carbsG != null) parts.add('${e.carbsG!.round()}C');
-    if (e.fatG != null) parts.add('${e.fatG!.round()}F');
+    parts.addAll(
+      macroParts(
+        protein: e.proteinG,
+        carbs: e.carbsG,
+        fat: e.fatG,
+        fibre: e.fibreG,
+      ),
+    );
     return parts.join(' · ');
   }
 }

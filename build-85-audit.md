@@ -1,14 +1,19 @@
 # Build 85 audit: lifting calories, digestion, two-method labels, stale data, UI makeover
 
-Akshat's request after installing build 84 (audit only, no app or code changes): explain the Lift
+Akshat's request against build-84 source (initially audit only): explain the Lift
 setup's "about 252 kcal per 30 min from 6 MET and your weight", how lifting calories really work,
 whether heart rate is used and what happens when it stays low; check digestion against its
 sources on the conservative side ("touching the floor", not a large underestimate); add a
 one-line duration description; separate the Budget (Method 1) and ACSM figures everywhere they
 appear; find other stale or mismatched data end to end; and audit the whole UI for a makeover
 (dull grey lines such as "walking route + phone motion / estimated step length" and "Eaten 2,448 ·
-… under Budget maintenance"). Status: audit complete; decisions for Akshat are listed at the end.
-Nothing here is implemented.
+… under Budget maintenance"). The audit recommendations below describe the pre-build-85
+behavior; Akshat's approved decisions are implemented in the final section. Build 85 is installed
+(Akshat), with phone acceptance and current-version refresh enrollment still open in `todo.md`.
+The installed makeover is not final UX acceptance: Akshat requests a structural redesign and
+reports further navigation/speed/sleep/food/freshness issues. `build-86-audit.md` owns that current
+audit and `todo.md` queues the repairs; the historical build-85 implementation evidence remains
+unchanged and does not imply those later findings are fixed.
 
 Profile used for worked numbers: 23 y, male, 80.5 kg, 186.69 cm (BMR 1,861.8125 kcal/day,
 resting 1.29293 kcal/min). Each number was checked by script.
@@ -196,7 +201,7 @@ Way of working: build the shared pieces first (two-method block, stat row with c
 "Updated" stamp), then apply screen by screen, with UI_CAPTURE renders of each screen before and
 after for Akshat to approve.
 
-## Decisions for Akshat
+## Original decision options (resolved by the implemented scope below)
 
 1. Lifting: MET-only 3.5 floor (recommended), or keep "lower of" with heart rate, or 5.0 for
    marked heavy sessions.

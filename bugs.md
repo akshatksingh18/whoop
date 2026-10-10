@@ -5,6 +5,11 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
+**Current verification:** Akshat reports build `0.9.52`/`85` installed. Supplied logs confirm
+background transfers can succeed, but long transfer gaps, foreground-only recovery and background
+CPU-limit exits remain. Build 70 remains accepted recovery; `todo.md` owns current acceptance
+gates. The background-sync section below owns the current evidence and source findings.
+
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does
 nothing for pairing). Once connected, live data works fine.
@@ -78,8 +83,11 @@ The failure sequence while backgrounded, after the live link dropped:
 - a restore relaunch after ordinary system termination.
 
 **Known iOS limits, not defects:**
-- after a manual force-quit, iOS will not relaunch the app for Bluetooth until it is opened again;
-- after an iPhone reboot, restoration is not guaranteed until WHOOP is opened once.
+- ordinary CoreBluetooth force-quit suppression has an iOS 26 AccessorySetupKit exception;
+  this app includes ASK, but phone provisioning and force-quit restoration remain unverified;
+- after an iPhone reboot, Apple requires first unlock before restoration, not necessarily
+  opening WHOOP. A pending preserved Bluetooth operation and its event are still necessary.
+  `background-sync-plan.md` links the current Apple contracts and owns the proposed repair.
 
 ## Active iPhone pairing crash
 
@@ -146,6 +154,16 @@ prevents AccessorySetupKit from presenting the primary-WHOOP picker for the rest
 
 ## UI and food reliability
 
+**Open build-85 follow-ups, queued for Build 86:** `build-86-audit.md` owns current source evidence
+and repair/test contracts for reversed Strain day arrows, average rather than current walking
+speed, incomplete cross-midnight sleep signals, automatic open-to-recorded-HR freshness, diary
+delete without confirmation, shifting workout trash/chevron and missing summary Delete,
+non-atomic session deletion, one-way portion equivalents, fixed-only food categories, typed-
+goal calorie warnings, limited activity streaks, weekly protein/coverage denominators and reset
+backup-deletion error handling. Sleep-window/freshness paths are confirmed risks, not proof of
+the exact recorded gap. These are not fixed by build 85's earlier UI/refresh work. Implementation
+remains deferred in `todo.md`; focused tests could not execute with the current Windows launcher.
+
 Source `0.9.39`/`72` fixes clipped chart readouts, inconsistent Deep colouring, restored launch
 tabs, the indirect Scan flow and unbounded food history. It adds Quick add fibre/editing, optional
 macro handling, completed-day weekly coverage and automatic weekly-card rereads. Save guards,
@@ -195,7 +213,8 @@ The IPA validator permits ZIP's required `PlugIns/` parent for the contract-chec
 extension and rejects unexpected sibling plugins/files; the realistic archive regression covers
 the parent-directory packaging failure. Build-74 source `ba5bb29f`, Linux CI `37397127258`,
 macOS build `37395690305` and downloaded checksum/manifest/payload/ZIP checks pass. It is the
-testing candidate, installed (Akshat), awaiting device acceptance; build 70 remains recovery.
+superseded candidate, previously installed (Akshat); its open device checks carry forward to
+build 85, excluding the Live Activity removed in build 81. Build 70 remains recovery.
 
 ## Workout, sync and profile consistency
 
@@ -227,11 +246,54 @@ portable; POSIX timezone-switching tests remain explicitly skipped on Windows. R
 close ZIP inputs even when validation fails and count movement-floor age by calendar dates across
 DST. Algorithm 88 permits recomputation. The personal capability profile is unchanged.
 
-## Background sync and slow pull-to-refresh (investigation, build 82 planning)
+## Background sync and slow pull-to-refresh (active investigation)
+
+**Current supplied evidence, with build 85 reported in use:**
+
+- Akshat confirms iPhone 17 / iOS `26.6.2` and expects only two or three minutes of app
+  viewing per day. Whether the supplied afternoon gap included force-quit is unknown.
+- `openstrap_exits.log` contains MetricKit's window `2026-10-08T05:00:00Z` to
+  `2026-10-09T05:00:00Z` (8 Oct midnight to 9 Oct midnight in Chicago): 20 background
+  CPU-resource-limit exits, 7 normal background exits and 3 normal foreground exits.
+  CPU termination is now confirmed for that reporting window. These are interval totals,
+  without individual exit times or build attribution; they do not prove the cause of a
+  particular gap or a CPU kill on 9 Oct afternoon.
+- The rotated sync logs cover 8 Oct 10:37 to 9 Oct 17:09, using phone-local timestamps.
+  On 8 Oct, commits stop at 12:41:09 and resume at 14:33:04 (about 112 minutes); logging
+  stops at 12:41:51 and resumes with a foreground launch at 14:31:56. On 9 Oct, commits
+  stop at 11:59:58 and resume at 13:27:44 (about 88 minutes); logging stops at 12:03:16
+  and resumes with a foreground launch at 13:26:35. Lease counters restart at 1 on those
+  launches, consistent with a new AppState/process rather than a healthy connection reclaim.
+  These are real gaps in recorded transfer/commit activity, not merely unchanged UI numbers.
+- Catch-up commits replay the earlier band timestamps after each gap. Unacknowledged chunks
+  are retained and retried; the excerpts demonstrate recovery, not a complete no-data-loss audit.
+- Background transfer works elsewhere: on 9 Oct it completes at 11:15, 11:29, 11:59,
+  15:32 and 15:47 while backgrounded. Background launches are correctly identified by
+  UIKit, so the build-84 launch classification repair is present, but reliability is not accepted.
+- Source-level remaining CPU exposure: `AppState._maybeDowngradeLiveForBackground` explicitly
+  skips the HR-only downgrade for personal iOS, retaining high-rate motion for passive wrist
+  steps. The log measures about 105 Hz. `DeriveScheduler.setBackground(true)` cancels pending
+  timers but does not cancel a running pass: on 9 Oct a heavy pass starts at 15:05:39,
+  the app backgrounds at 15:05:46, and calculation finishes through 15:06:45. Neither
+  exposure is individually proven to cause the reported exits.
+- Restoration is already enabled on the live flutter_blue_plus central in `main.dart`,
+  and its pinned Darwin implementation restores connected peripherals/subscriptions. The
+  separate recovery central intentionally declines a competing connect while live owns the
+  band; that alone does not establish absent restoration. The supplied files omit native
+  diagnostics needed to distinguish no relaunch from a failed startup/handoff.
+- Further source findings: the scheduler arms before UIKit launch state settles; the app's
+  first-frame callback can start a foreground session without that check; a queued native
+  wake can start headless sync before AppState installs its handler. The fallback still runs
+  whole-day "light" derivation with a four-minute worker timeout, and native BLE expiration
+  does not cancel Dart. These are repair candidates, not individually attributed gap causes.
+
+No application repair is implemented by this investigation. `background-sync-plan.md` owns the
+public Apple research and coordinated capture/calculation/lifecycle/restoration proposal;
+`todo.md` owns approval. Preserve wrist-only steps until an explicit policy decision is made.
 
 Report (build 80): data syncs only while the app is open, though it is not swiped away; Status
 showed band data 44 min old until the app opened. Every pull-to-refresh takes long.
-How it works now (source):
+Source behavior before the build-84 repairs:
 - **Background:** `pauseForBackground` keeps the BLE connection and live streams up
   (`bluetooth-central`), so iOS resumes the app per notification. The app's own 5-min drain
   is skipped in the background; offloads are left to the engine's timer, floored at 15 min
@@ -246,10 +308,10 @@ How it works now (source):
 - **Pull-to-refresh:** `_pullRefresh` runs phone steps, then the band backlog drain
   (`foregroundCatchUp`, up to 20 sessions), then waits for today's full recalculation, all before
   the spinner stops (60 s cap). Stage timings are not logged.
-Evidence so far (Akshat, 7 Oct): the phone's Analytics Data holds `Runner.cpu_resource_fatal`
-kills only up to 14 Sept (build 63) and a `Runner.diskwrites_resource` report on 22 Sept, nothing
-since, so recent builds are not being killed for CPU; the stale background data is suspension or
-offload spacing, not a crash. The app log never existed on iPhone: `FileLog` tried Android's
+The earlier Analytics Data check (Akshat, 7 Oct) found `Runner.cpu_resource_fatal` reports only
+up to 14 Sept and a `Runner.diskwrites_resource` report on 22 Sept. That absence did not rule
+out newer CPU exits; the MetricKit evidence above supersedes the earlier no-CPU-kill inference.
+The app log never existed on iPhone: `FileLog` tried Android's
 external storage first, which throws on iOS, and the shared handler disabled logging. Fixed in the
 local build-82 source (iOS writes `openstrap_sync.log` to Documents, visible in Files → WHOOP), and
 pull-to-refresh now logs when phone steps, the band pull and the calculation finish.
@@ -284,15 +346,16 @@ Build-83 log (Akshat, 7-8 Oct, 21:43-07:05, time-stamped):
   background. Leading hypothesis: iOS relaunches the app for Bluetooth, the app behaves as if
   opened, the heavy calculation exceeds iOS's background CPU limit, iOS kills it, and the band
   relaunches it again. Akshat's Analytics Data has no `Runner` or `cpu_resource` report for
-  7-8 Oct (newest Runner CPU kill 14 Sept, disk-writes 22 Sept), so a CPU kill is not confirmed.
+  7-8 Oct (newest Runner CPU kill 14 Sept, disk-writes 22 Sept); those files did not identify
+  the individual exit causes. The newer MetricKit window confirms CPU-limit exits in aggregate.
   The restarts are still real: each one resets the band command sequence (e.g. `24c4…` → `2406…`)
   and the lease counter, with no "Link down" first, and the previous process stops mid-calculation
   with no closing line. Remaining candidates: a memory kill (iOS logs those as `JetsamEvent-*`,
   not under Runner) or silent termination of a backgrounded app followed by a Bluetooth relaunch.
   Akshat found no report of any kind for 8 Oct, Jetsam included; the two 7 Oct reports are
   unrelated (the build-80 Live Activity extension's known code-signing kill, and Apple's own
-  `CoreRoutineHelperService`). With no report, silent termination of the backgrounded app is the
-  leading explanation.
+  `CoreRoutineHelperService`). The later MetricKit window confirms CPU-limit exits despite
+  missing individual reports; it cannot assign an exit cause to each earlier restart.
 - **Then a 92-minute stall:** at 03:30:07 a new process started a session while a background
   (headless) lease was held and logged nothing until Akshat opened the app at 05:02, so no data
   synced for 1.5 h overnight.
@@ -304,11 +367,14 @@ Build-83 log (Akshat, 7-8 Oct, 21:43-07:05, time-stamped):
 Root cause found in source (build 84): the relaunch reaches Flutter as `inactive`, which
 `AppState` read as opened; build 84 asks UIKit, keeps background launches light, bumps screens
 when today's row lands, ends pull-to-refresh at today, checks offloads every 5 min and records
-MetricKit exit reasons (`todo.md`, "Build 84"). Unverified until a night's log on build 84.
-Earlier candidate fixes (`todo.md`): spinner stops after phone steps + a ~3 s band top-up while the
-recalculation finishes on screen; timing lines per refresh stage; keep background offloads at
-15 min while connected (no long backoff); arm the restore central while connected so a system
-kill can relaunch the app; reduce background CPU if kills are confirmed.
+MetricKit exit reasons (`todo.md`, "Build 84"). These changes are retained in installed build 85;
+the supplied logs confirm background classification and successful transfers in some periods,
+but persistent stalls and CPU exits keep background reliability unaccepted.
+The current proposed repair is in `background-sync-plan.md` and `todo.md`. CPU-limit exits
+are now confirmed for the supplied MetricKit interval. Preserve restoration on the live
+central; do not arm the separate recovery central against its healthy connection. Brief
+daily app use requires bounded background insight opportunities as well as safe capture,
+running-worker cancellation and fast foreground catch-up; none is newly implemented here.
 
 ## Workout Live Activity never drew (builds 74–80): resolved by removal in build 81
 

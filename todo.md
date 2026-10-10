@@ -1,14 +1,21 @@
-# Remaining WHOOP verification
+# WHOOP Build Plan And Verification
 
-**State:** Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
+**State:** Akshat reports build `0.9.52`/`85` currently installed. Its complete phone pass and
+current-version automatic-refresh enrollment are not confirmed; it remains in `testing`.
+Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
 `metrics-map.md` describe shipped behavior, readiness baseline rules and known limits.
 
-- Build `0.9.40`/`73` is installed, confirmed by Akshat, and initially looks good. The Strain cursor
-  still selects future times; `build-74-audit.md` records the wider graph/navigation/notification
-  findings and calorie-model research, with the implemented build-74 scope below.
-  The complete phone pass and current-version refresh enrollment are not confirmed.
+- Current sync evidence (`bugs.md`, "Background sync and slow pull-to-refresh"): real transfer
+  gaps recover on foreground launch, although background offloads work in other periods.
+  MetricKit confirms background CPU-limit exits for its 8 Oct reporting window, without
+  timestamps tying them to individual gaps. Research/source tracing is complete in
+  `background-sync-plan.md`; implementation and personal background-mode approval remain open.
+- Previously installed build `0.9.40`/`73` initially looked good, but its Strain cursor selected
+  future times. Build 74 implemented the repair; `build-74-audit.md` records the wider
+  graph/navigation/notification findings and calorie-model research. Outstanding phone checks
+  carry forward to build 85, excluding the Live Activity removed in build 81.
 - Previously installed build `0.9.39`/`72` was not accepted. Akshat reported background
   voice cues delayed until foreground and supplied sync/calorie/macro/profile issues. The
   build-72 streak did not count step-only goal days. `workout-sync-audit.md` owns its findings and approved
@@ -23,9 +30,308 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 85 (`0.9.52`/`85`): published and built, awaiting installation
+## Build 86: implementation approved, in progress
 
-Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`; install over the installed build with automatic bundle ID off.
+**State:** Akshat approved implementation of the whole build-86 scope below as **one build**.
+Selected extras: repeat last set, rest timer, comparable records and independent photo
+comparisons, plus start/end times, historical body/photo entry, measurement/range controls and a
+screenshot-based MyFitnessPal import. The scope also covers weekly/monthly diet/body/strength
+insights, navigation/speed/sleep/freshness repairs, safe deletion, custom food labels, both-way
+serving equivalents, maintenance-based calorie warnings, general activity/rest protection and a
+structural UI redesign. `build-86-audit.md` owns confirmed findings, additional risks and tests.
+The confirmed fitness goal is recomposition: leaner while getting stronger. Build 85 remains
+installed until a build-86 IPA is published (separate authorization) and installed.
+
+**Akshat's decisions:**
+- One build, not split releases.
+- Imported or backdated past weights never change past calorie numbers: they are history-only
+  and do not feed `ProfileHistory.on`, maintenance or workout pricing.
+- SideStore pilot approved (section 10), with LocalDevVPN allowed on the phone as its installer
+  helper.
+- Open choices take the recommendations written in each section unless Akshat overrides them:
+  personal `fetch`/`processing` modes added with bounded work; set logging for every existing
+  lift type with tracking-only kept; ordinary Finish ends now and a forgotten-finish reminder opens
+  a Now / Last set review; AkshatOS stays intact; Monday-Sunday closed-week reviews with Body's
+  measurement weekday kept for its own blocks; same-day weight conflicts need explicit review.
+
+### 1. Background sync and fresh insights during brief daily use
+
+**Approved for build 86; in progress.** Target: Akshat's iPhone 17 /
+iOS `26.6.2`, with only two or three minutes of app viewing per day. Keeping WHOOP visible,
+continually refreshing or charging all day must not be required. The supplied gap's force-quit
+state is unknown. `background-sync-plan.md` owns the public Apple sources, source findings,
+capability boundaries, safety invariants and detailed acceptance checks.
+
+Implementation checklist:
+- [ ] Resolve native lifecycle before scheduler/bootstrap work and guard every foreground-session
+   entry. Coordinate queued native wakes with AppState so startup has one band owner.
+- [ ] Cancel actual in-flight calculation on ordinary backgrounding; preserve committed results
+   and requeue unfinished work without pruning, finalizing or marking cancellation successful.
+- [ ] Keep short BLE wakes transfer/commit/ACK-first. Replace the fallback's unconditional full
+   light derive with queued calculation; propagate expiration, retire old workers and bound
+   ownership handoffs without overlapping ACKs or orphaned work.
+- [ ] Preserve passive wrist steps and active workouts. Remove invisible UI work and profile
+   the high-rate path; no silent HR-only switch, sparse-step reconstruction or metric deletion.
+- [ ] Reuse unaffected calculation, prioritize today/new sleep, and keep raw-data freshness
+   separate from the input revision covered by an insight. Short-wake compute must be measured
+   and genuinely bounded; the current one-day "light" pass does not meet that contract.
+- [ ] Make cold foreground open/resume automatically coalesce catch-up, durable input publication
+   and bounded recent-HR/today refresh. The latest ten minutes of recorded HR must not depend on
+   pull-to-refresh or a whole historical derive; preserve gaps and separate Live from Recorded.
+   Distinguish syncing/calculating from truly not recorded, with honest input age.
+- [ ] After capability approval, enable bounded `BGAppRefreshTask` and opportunistic `BGProcessingTask` in the
+   personal flavor, with freshness work eligible without charging and expensive backlog work
+   using charging as an extra opportunity. Repair expiration/single-completion/ownership first,
+   then synchronize native/Dart registration, modes, payload transformation/validator and tests.
+   These supplement BLE and foreground catch-up; Apple provides no fixed execution schedule.
+- [ ] Add local native restoration/expiration and launch/build diagnostics, then verify ordinary
+   locked two-hour/overnight use, brief visits, termination/range recovery and a 72-hour soak.
+
+Decided: implement the repair and add personal `fetch`/`processing` modes with bounded work.
+No extension, App Group, HealthKit, cloud service or feature removal. If preserved wrist capture
+itself still exceeds the measured budget, present the phone-absent step tradeoff for a separate
+decision before changing its policy.
+
+### 2. Lift Log inside the existing WHOOP workout
+
+**Approved for build 86; in progress.** Akshat wants
+to explore one workout that behaves as WHOOP does now and also offers AkshatOS Lift Log's
+features. `lift-log-integration-plan.md` owns the current-source findings, recommended flow,
+parity inventory, timing conflicts, data import/recovery and tests. AkshatOS remains unchanged
+until a separately approved transition; `../akshatos/hub-plan.md` records that boundary.
+
+Accepted direction: choose a split or Empty workout in Lift setup, then use one WHOOP session ID,
+clock, Pause/Finish and summary, with exercises/sets and previous performance inside the live
+workout. Tracking without set logging remains possible; runs/walks retain their flow. Reuse the
+existing Flutter strength/session foundation, but do not merely enable the old sets UI: it lacks
+Lift Log's split/load-mode contract, and its row replacement does not delete omitted sets.
+
+Proposed implementation checklist, conditional on approval:
+- [ ] Preserve Lift Log's editable/flexible splits, all six load meanings and pounds, set edit/
+  delete/Undo, complete same-mode previous performance, search/order/skips, history and recovery.
+- [ ] Make session-linked log writes awaitable, serialized and retryable across start, edits,
+  zero-set finish, deletion and every stop/resume path; retain all old data with additive schema.
+- [ ] Show persisted Started time in live workouts and start/end in summaries across existing
+  workout types. Preserve pause/overnight/date context and unknown/reviewed end semantics;
+  never derive the end from active duration or reset the start when reopening.
+- [ ] Add confirmed repeat-last-set entry, an optional durable-deadline rest timer and
+  context-qualified records. No prefilled set counts as performed; rest does not pause WHOOP.
+- [ ] Keep build-85 MET-only lifting calories, manual pauses and between-set rest unchanged.
+  No fabricated total load, strength-volume calorie formula or added maintenance expenditure.
+- [ ] Coordinate the existing WHOOP quiet-HR nudge with Lift Log's one-hour no-entry reminder;
+  resolve explicit Now versus Last set finish semantics before adding a background action.
+- [ ] Add validated/previewed local AkshatOS JSON import, origin-ID dedupe, reviewed linking to
+  existing WHOOP workouts and load-mode-preserving JSON/CSV plus encrypted WHOOP recovery.
+  Imported set-only history must not fabricate or double-count wearable metrics/calories.
+- [ ] Cover feature parity, migration, delete-last-set, failures, relaunch/lock and notification
+  races; verify an actual gym session without regressing the background-sync acceptance gates.
+
+Decided (recommendations adopted): every existing lift type offers logging; tracking-only and
+zero-set workouts stay valid; ordinary Finish ends now; a forgotten-finish reminder opens a Now /
+Last set review; AkshatOS stays intact until import and combined-session phone acceptance. Repeat last set,
+rest timer and comparable records are selected; RPE/RIR, warm-up flags, pinning, programming,
+cross-mode tonnage charts, cloud sync, module removal and coaching-CSV activation are not.
+
+### 3. Body and one recomposition Progress page
+
+**Approved for build 86; in progress.** Akshat wants
+WHOOP to become his all-in-one body/fitness app, including AkshatOS Body's weight, measurements
+and photos alongside lifting, food and wearable context. `fitness-app-plan.md` owns the whole-app
+flow, evidence/comparison rules, current source gaps, import/recovery and optional future ideas.
+
+Accepted overall direction: keep Today / Trends / Food / Train and add a planned Progress tab,
+with Body entry/history inside it; no navigation has shipped. Preserve all reachable metrics.
+One `body_weight` path feeds Body, Food and Progress. One
+Lift workout owns both sensor context and sets; no duplicate starts, calories or stores.
+
+Proposed implementation checklist, conditional on approval:
+- [ ] Preserve Body's daily weight, seven-calendar-day trends, measurement-week blocks, eight
+  tape sites, edit/history, labelled estimates, front/side photos, reminder and exports.
+- [ ] Add/edit weight, tape and photos at a chosen past date; distinguish effective day from
+  creation/import time, support multiple photos/day and keep photo deletion separate from weight.
+- [ ] Add measurement selector (Steps, Weight, Neck, Waist, Hips and remaining Body sites) and
+  range selector (1 week, 1/2/3/6 months, 1 year, Since start, All). Show dated Start/Latest/Change
+  for body readings and appropriate totals/coverage for steps; range/chart/entries must agree.
+- [ ] Provide two independent photo panels: select the active side and scrub a bottom dated
+  thumbnail strip to choose its image without changing the other. Allow any two saved photos,
+  optional same-pose filtering, date labels and swap; not only first/latest or an overlay slider.
+- [ ] Unify weight/height entry with WHOOP's dated profile rules; retain input units, original
+  timestamps and IDs. Preview same-day/height conflicts; historical import must not become a
+  current weigh-in or reprice captured workouts. Keep unknown/missing site data honest.
+- [ ] Show logged-set markers on the same workout's HR timeline, retaining gaps/clock uncertainty
+  and late backfill. Set completion time is not measured set duration or per-exercise calories.
+- [ ] Build one range/baseline Progress page: weight and waist, exercise-level comparable records, eligible
+  food/protein, recorded activity and sleep/recovery, plus weekly and since-start observations.
+  Show real dates/counts/coverage, partial-week labels and late revisions; no invented muscle
+  gain, cross-mode tonnage, opaque score, automatic food targets or added lift maintenance.
+- [ ] Include explicit seven-calendar-day weight averages with observed-day counts, daily intake
+  history, closed-week/calendar-month/since-start reviews, prior comparable periods and actual
+  measurement dates. Align intake/estimated deficit with observed trends; compare waist/other
+  tape sites and same-context strength without claiming proven muscle/fat change or causation.
+- [ ] Add local evidence-based goal reviews (continue, insufficient data, review fueling/training/
+  recovery, consider adjustment) with source windows/coverage and explicit user approval of any
+  target edit. Keep calorie, protein and paired-maintenance denominators independent; unknown
+  food is not zero. Exact numeric guidance rules need review before activation.
+- [ ] Add previewed/idempotent local Body JSON-plus-photos import and encrypted media-inclusive
+  recovery. Current WHOOP database backups do not cover external photos; AkshatOS can omit/skip
+  unavailable photo files. Missing media needs explicit review, not a silent complete migration.
+- [ ] During approved implementation, generate a versioned WHOOP import from the privately
+  preserved MyFitnessPal screenshot source in `../../health/fitness/docs/myfitnesspal-import-source.md`.
+  Preview/dedupe dated weights, original pounds, generated source IDs and baseline; handle existing
+  same-day conflicts. Keep actual data/generated files outside public repos and CI. Photos will be
+  attached manually to historical days; unsupplied tape, steps, food and HR remain absent.
+- [ ] Synchronize camera/picker privacy descriptions and personal payload validators before
+  retained photos ship. Keep image work, imports and reports out of short BLE wakes.
+- [ ] Cover merge/profile/calendar/coverage and corrupt/missing-media cases, then verify gym,
+  body/photo/restore and brief-use background acceptance together on the phone.
+
+Decided (recommendations adopted): full Body parity, Monday closed-week combined reports with
+actual tape dates (Body's measurement weekday stays intact), explicit same-day conflict review,
+history-only imported weights, and no AkshatOS removal before recovery/phone acceptance. Pinning, warm-up flags, RPE/RIR, scheduling, progression,
+muscle-group charts and report export remain deferred; do not add them by enabling dormant UI.
+Private coaching ownership and existing calorie calculations remain unchanged.
+
+### 4. Navigation, live speed and complete-night charts
+
+**Requested repairs; source findings in `build-86-audit.md` B86-01 to B86-04.**
+- [ ] Fix the Strain oldest-first/newest-first mismatch; left goes older, right goes newer,
+  Today cannot advance into the future. Audit all day/chart/meal/history navigation contracts
+  and test actual caller data rather than reversing every arrow indiscriminately.
+- [ ] Show fresh GPS Current speed from the existing tracker, separate from workout Avg. Handle
+  accuracy, stationary zero, short-window smoothing, stale/error/pause/relaunch and km/h versus
+  mph consistently. Measure filter responsiveness/battery during a locked walk; no promised
+  fixed update cadence, fake location for sync or blanket Always request.
+- [ ] Read sleep signals over the complete onset-to-wake window across midnight, preserving
+  original timestamps/quality/gaps and exact-day semantics elsewhere. Audit shared chart first/
+  last points and cursor tolerances. Do not invent HRV or extend samples into missing periods.
+- [ ] Verify open/resume recent recorded HR without manual pull, late backfill revision reloads,
+  date rollover and a genuinely empty day; coordinate this with section 1 rather than a second
+  independent sync service.
+
+### 5. Safe food/workout actions and portion/category clarity
+
+**Requested changes plus source-audit failure risks; B86-05 to B86-09 and B86-12.**
+- [ ] Confirm saved diary deletion for both swipe and menu using shared `confirmRemove` behavior;
+  keep entries on cancel/failure, prevent duplicate writes and retain Undo as extra protection.
+- [ ] Make saved diary grouping/reordering atomic; a multi-row move must not partially commit
+  while reporting that the entire change failed. Preserve independent unsaved draft behavior.
+- [ ] Keep workout history expander fixed; move trash into a stable overflow menu. Add confirmed
+  Delete to just-finished and existing summaries, with Discard for unsaved drafts kept distinct.
+- [ ] Make session/route/split/set deletion atomic and session-type-aware. Refresh summaries,
+  comparable records, streaks and maintenance only after durable success; retain raw band history.
+  Audit persisted start/end and pause/overnight retiming, failures and nested gesture hit targets.
+- [ ] Format portions both ways (named serving to g/ml and base amount to fractional serving),
+  using explicit conversions only. Snapshot conversion provenance so editing/deleting My Food
+  does not silently change old portions; preserve original inputs and nutrition precision.
+- [ ] Replace required predefined categories with create/reuse/edit/merge of personal labels.
+  Retain existing stored labels, optional Uncategorised, readable filters and scan/manual parity.
+- [ ] Separate calorie goal progress from maintenance status across card/history/detail/reviews:
+  above goal but at/below known Budget maintenance stays non-warning/green; red only above
+  estimated maintenance. Preserve ACSM and mark absent/stale/partial estimates neutrally.
+- [ ] Audit reset/export/restore outcomes, including failure to delete backup files. New Body
+  media, Pushups receipts, protection ledger and timers need complete recovery/reset coverage;
+  never claim every copy/file was erased or restored when an operation failed.
+
+### 6. General activity streak and sustainable rest
+
+**Requested direction; exact policy still for review. B86-10 owns current source limits.**
+- [ ] Count completed lifting and other purposeful physical exercise alongside run/walk and
+  step-goal days; dedupe activity on the same day and preserve existing awards/dated goal rules.
+- [ ] Add clearly labelled planned Rest and limited Life happens protection, with a recoverable
+  ledger and separate counts for real activity versus preserved continuity. Do not fabricate
+  exercise/steps/calories or count meditation/breathing as physical training.
+- [ ] Review exact allowance, retroactive use, qualification thresholds and Pushups contribution
+  before implementing. Candidate: one unplanned protected day per rolling week, no consecutive
+  protections; this is a proposal, not an accepted rule. Offer weekly consistency as a candidate.
+- [ ] Avoid all-history/per-day query growth when adding sources; test overlap, edits/deletes,
+  imports, timezone/DST, today-at-risk, exhausted protection and restored history. Pending sync
+  is not proof of inactivity; reconcile late activity/protection without duplicate awards.
+
+### 7. Pushup Reminder exploration inside WHOOP
+
+**Requested exploration, not approved port/cutover.** `fitness-app-plan.md`, the audit and
+`../akshatos/hub-plan.md` record the boundary; `../akshatos/features.md` owns full parity.
+- [ ] Plan Train -> Movement breaks / Pushups, compact Today Start/Done access, its own goal/
+  streak/history, and Progress context. A reminder day must not start a second workout clock
+  or infer reps/duration/HR/calories from a Done tap.
+- [ ] Map Start/Pause/End, interval/nudges, captured daily goal, protected action inbox,
+  idempotent locked/cold Done/Pause, notification-tap routing, history/settings and recovery.
+- [ ] Design one early WHOOP notification coordinator and shared pending-request budget for
+  Pushups/rest timers/Body/existing critical alerts. Do not replace Flutter's delegate, cancel
+  other modules' requests or promise indefinite ignored reminders from a finite queue.
+- [ ] Resolve Home auto-pause explicitly: AkshatOS uses Always location, outside WHOOP's current
+  personal contract. Decide optional capability/parity rather than silently dropping it or
+  requesting it for walking. Preserve AkshatOS unchanged until a separately approved transition.
+- [ ] Plan previewed/idempotent local import with no automatically restored active reminders;
+  require recovery and phone-action acceptance and deliberate stopping of the old reminder
+  batch before opting into the new one. No background two-app synchronization is proposed.
+
+### 8. Structural UI redesign and whole-app convenience audit
+
+**Requested redesign and audit, implementation deferred.** The audit describes proposed flows,
+confirmed defects, failure risks and optional conveniences rather than calling build 85 fixed.
+- [ ] Prototype brief Today review, diary/editing, Start/Resume Lift/Walk, Body historical/photo
+  flow and one combined Progress review. Change hierarchy/composition and interaction, not only
+  card colour/ring styling; retain every unique reachable metric and existing entry point unless
+  Akshat approves its removal individually.
+- [ ] Use compact date/freshness/status and a useful HR canvas on Today, stable session controls
+  and safe history on Train, diary-first Food with portions/maintenance context, and body/strength
+  summary with integrated weekly/monthly review on Progress. No separate app-in-app shell.
+- [ ] Audit all routes/back gestures/day arrows, stable controls, hit targets, large text/small
+  screens, safe areas, tab changes, selected day/filter/scroll state, permission/error/retry and
+  loading/empty/stale/partial/offline states; compare screenshot/hit-target QA before release.
+- [ ] Repair weekly protein completeness/denominators and selected-window excluded-day counts
+  (B86-11) before reusing the existing Week card for the combined insight engine.
+- [ ] Review optional conveniences: Jump to Today/calendar, pending-work drawer using existing
+  Status, Return to workout across tabs, recent personal labels, explicit Food-day completeness,
+  due-measurement shortcut and opt-in review reminders. These are proposals, not selected scope;
+  effort ratings, programming and removed AI coach/journal/Live Activity remain deferred/removed.
+
+Optional conveniences stay proposals; approval of build 86 does not remove features or authorize
+publishing an app. Pushups (section 7) stays exploration until Akshat confirms a port and the
+Home auto-pause capability choice.
+
+### 9. Data-safety prerequisites found in the end-to-end audit
+
+**Source findings B86-13 to B86-16 in `build-86-audit.md`.**
+- [ ] Add `body_weight`, `meal_template` and `live_coverage` to damaged-database salvage, plus a
+  test that every schema table appears in salvage/import/export/wipe lists.
+- [ ] Keep imported/backdated weights history-only (decided): they must not change
+  `ProfileHistory.on`, past maintenance or older workout calories.
+- [ ] Choose the photo picker/re-encoder (new dependency or native bridge) and a resumable or
+  incremental encrypted media backup; measure backup time on the phone.
+- [ ] Promote build 85 (or explicitly keep build 70) as rollback before any schema or backup-format
+  change ships, and take a rollback-readable export first.
+
+### 10. SideStore signing pilot (alongside build 86, not part of its code)
+
+**Approved; `../akshatos/sidestore-evaluation.md` owns the pilot steps.** Akshat performs them on
+the PC and phone. Sideloadly stays the active refresher until the pilot passes. Run it on the
+current, unchanged installed IPAs (WHOOP 85, AkshatOS 34) before Build 86 is installed, so a
+signing failure and a Build 86 regression are never tested at the same time. AkshatOS moves
+first; LocalDevVPN is allowed on the phone as SideStore's installer helper, never inside WHOOP.
+- [ ] Before the pilot: verified WHOOP encrypted export copied to Windows and an AkshatOS full
+  backup with photo count checked; record each app's signed identity and expiry.
+- [ ] After the first SideStore re-sign of WHOOP: same final bundle ID, data intact, band still
+  paired, automatic-backup passphrase still readable (keychain), Status shows the new expiry.
+- [ ] Two unattended SideStore renewals away from the PC with advancing expiry and preserved data;
+  then decide adopt, keep as fallback, or remove. Adoption updates `guides/IOS_SIDELOAD.md`,
+  this file's refresh gates and the signing health check in the same change.
+
+### Combined Approval And Release Gates
+
+- [x] Plan reviewed; implementation approved as one build, with the decisions listed at the top
+  of this section. Pushups capability/parity remains open.
+- [ ] Implement the approved scope together; run focused regressions, the full suite and
+  personal-iOS payload/capability checks, and synchronize affected documentation.
+- [ ] Obtain separate publication/build authorization, then validate the replacement IPA's
+  source, version, manifest, checksum and payload before installation.
+- [ ] Complete feature and background phone acceptance before cache promotion; build 70
+  stays recovery and build 85 remains the installed candidate until a replacement is installed.
+
+## Build 85 (`0.9.52`/`85`): installed (Akshat), awaiting phone acceptance
+
+Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Akshat reports it currently installed. The sole testing candidate remains `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a` until its phone pass and current-version refresh enrollment are confirmed; build 70 stays accepted recovery.
 
 Implemented as planned below; `build-85-audit.md` ("Implemented in build 85") lists every change.
 Two deliberate deviations: the day timeline keeps carrying last night over into today (a test
@@ -67,7 +373,7 @@ Plan:
 
 ## Build 84 (`0.9.51`/`84`): published and built, not reported installed (superseded by build 85)
 
-Build-84 source `0.9.51`/`84` (commit `37241c1e`) is published with Akshat's approval; Linux CI `37780752762` (3,415 tests, 371 intentional skips) and personal macOS build `37780753121` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.51-build84-37241c1e`.
+Build-84 source `0.9.51`/`84` (commit `37241c1e`) is published with Akshat's approval; Linux CI `37780752762` (3,415 tests, 371 intentional skips) and personal macOS build `37780753121` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Its testing folder was replaced by build 85; `setup.md` retains reproduction evidence. The phone checks below carry forward to build 85.
 
 Akshat asked for the refresh/background plan plus food by macro and lifting, with no stale data,
 and reported Today's strain at 0.0 while Day strain showed a number. Implemented:
@@ -134,48 +440,17 @@ model is accurate and worth having. Audit only; nothing to build now (his decisi
   calibrated HR above the flex point only without steps, resting otherwise); lifting counted (his
   answer); shown separately, never moving the goal or the conservative budget.
 
-## Plan: faster refresh and lighter background work (fixes 1, 3, 7, 8 in build 84; see there)
+## Earlier refresh repair: implemented subset and remaining scope
 
-From the build-83 log (`bugs.md`): band transfer is fast (pull 0.1-0.2 s, background offloads
-every 30 min while connected); calculation is slow (pull-to-refresh 6-67 s; a light today pass
-took 7-57 s with the phone locked); and overnight iOS closed the app about 20 times with no report
-of any kind, each relaunch re-running the full calculation, then a 92-minute stall. Apple's
-guidance: an app relaunched for Bluetooth gets roughly 10 s before suspension
-([Apple forums](https://origin-devforums.apple.com/forums/thread/815618)); time-limit and
-suspended-app memory terminations are not crashes and leave no crash report; MetricKit's
-`MXAppExitMetric` reports the exit reason ([Apple forums](https://developer.apple.com/forums/thread/828150)).
-Fixes, in priority order:
-1. **Background launches stay light.** `AppState` treats a launch as background only when Flutter
-   reports detached/paused/hidden/null; the overnight relaunches took the foreground path
-   (`===== SESSION START =====`, heavy passes, 5-min foreground timer). Ask iOS directly
-   (`UIApplication.applicationState` over the existing restore channel) and log the launch kind.
-   A background launch connects, drains, commits and stops: no heavy pass, no 9-day rescan, no
-   sleep staging until the first foreground.
-2. **No indefinite waits.** Opening a session waits a bounded time for a held background lease,
-   then takes over or retries, logging either way (the 03:30 → 05:02 stall).
-3. **Pull-to-refresh returns in seconds.** The spinner stops after phone steps, the band pull
-   and today's light pass (target under about 8 s); the 4-day heavy pass and cross-day pass run
-   afterwards without blocking. Cap the wait and show "Still calculating" if it runs over.
-4. **Do less calculation.** Re-derive only days whose stored data changed (every open re-ran 4
-   days and the 43-day cross-day pass; one baseline change re-ran 9 days including finalized
-   ones); make the cross-day pass incremental.
-5. **Fresh numbers without opening the app.** After a background offload, run today's light pass
-   inside an iOS background task (`beginBackgroundTask`, already used by `BleRestoreManager`),
-   stopping cleanly when time runs out, so Today is current on open. Only after 1-4, since the
-   light pass alone took up to 57 s locked.
-6. **Heavy work overnight on the charger (needs Akshat's decision).** A `BGProcessingTask` with
-   external power required can run the heavy pass while the phone charges; the source has
-   `BgSyncScheduler`, but the personal profile deliberately removed the `processing` mode. iOS
-   decides when (or whether) it runs, so it supplements foreground calculation, never replaces it.
-7. **Steady background transfer.** Keep the connected offload at 15 min instead of drifting to
-   30 when offloads are not empty; arm the restore central while connected so a silent
-   termination can be relaunched by the band.
-8. **Know why iOS closed it.** Log MetricKit exit reasons (memory, background time limit,
-   watchdog) to `openstrap_sync.log`; no entitlement needed.
-Phone-side notes for Akshat: do not swipe the app away (iOS then will not relaunch it for the
-band); Low Power Mode reduces background time. Check after building: one night's log shows
-background relaunches only syncing, no heavy calculation while locked, exit reasons, and
-pull-to-refresh under about 8 s.
+Build 84 added native launch classification, the 15-second today-result refresh wait,
+five-minute background offload checks with a 15-minute floor, per-day UI refresh and a
+separate MetricKit exit log. Build 85 retains them; these did not close phone acceptance.
+The current plan above and `background-sync-plan.md` supersede the earlier repair proposal.
+They cover startup races, running-worker cancellation, bounded ownership/expiration,
+input-aware reuse and opportunistic insight processing. Do not arm a competing recovery
+central while the restorable live central owns the band. Do not run the existing whole-day
+"light" calculation merely because `beginBackgroundTask` was requested. The earlier blanket
+force-quit/no-restoration claim is superseded by Apple's iOS 26 AccessorySetupKit contract.
 
 ## Plan: food by macro, lifting as an extra line (implemented in build 84)
 
@@ -500,9 +775,9 @@ HR energy remains analysis only. Missing comparison inputs stay unavailable, not
 - Linux CI, personal macOS build and downloaded version/source/checksum, ZIP integrity and the
   single version-matched workout extension checks pass. Build 74 replaces the build-73 testing
   folder; `setup.md` owns the exact artifact and workflow evidence.
-- Install over build 73 with the same signed identity; confirm encrypted history, decimals,
+- Build 85 is installed (Akshat); confirm the same signed identity, encrypted history, decimals,
   saved foods/meals, band pairing and current-version automatic-refresh enrollment intact.
-  The extension's free-team signing/refresh must work before cache promotion.
+  The personal IPA has no extension from build 81; no Live Activity acceptance gate applies.
 - Drag Today/Trends/Train daily Strain, heart-rate, Steps/calories and Wear to the right before
   midnight. No future selection/data; past dates, midnight rollover, gaps and VoiceOver remain
   usable. Breathing bars select their real dates, quality and coverage; failed reads offer Retry.
@@ -526,9 +801,8 @@ HR energy remains analysis only. Missing comparison inputs stay unavailable, not
 - Opt in to training-review notifications; inadequate data remains silent. Review shows matched
   dates/sessions/tags/coverage, recorded consistency, supported best efforts and measured cadence
   where available, with no causal fitness claim. Actual deliveries stay at least fourteen days apart.
-- Run/Walk Live Activity: locked screen/Dynamic Island, pause/resume, fresh/stale HR/pace,
-  GPS loss, music/calls/headphones, end/discard, termination/recovery and exact-session tap.
-  Native success is not proof of background delivery. Verify existing kilometre speech too.
+- Workout Live Activity is removed from the personal build (build 81). Verify existing kilometre
+  speech under screen lock, other apps, music/calls/headphones and pause/resume.
 - Keep build 70 as recovery until complete device acceptance and current-version enrollment.
   Longer lifecycle/overnight/72-hour-soak and naturally elapsed unattended refresh gates remain.
 
@@ -579,7 +853,7 @@ pushed; Linux CI `37173914511` passes (3,279 tests, 363 intentional skips).
 macOS workflow `37174063547` passes. The downloaded IPA matches its manifest/checksum and
 passes local payload validation. `setup.md` owns its source, hash and artifact evidence.
 Akshat confirmed build 72 was installed; it was not phone-accepted. Build 73 superseded its
-testing IPA after validation; build 74 is now the candidate.
+testing IPA after validation; subsequent candidates superseded it, with build 85 now installed.
 The superseded build-71 artifact lacks the refresh fix; keep one install candidate.
 
 ## Build 73: approved combined repair

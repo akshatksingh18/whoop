@@ -14,7 +14,26 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification — build `0.9.37`/`70` remains accepted after
+**Status:** Active iPhone verification with build `0.9.52`/`85` installed on Akshat's iPhone 17
+(iOS `26.6.2`), as reported by Akshat;
+complete phone acceptance and current-version automatic-refresh enrollment remain open before
+cache promotion. Background sync has observed long stalls; `bugs.md` owns the supplied transfer
+and MetricKit CPU-exit evidence. Akshat approved implementing the whole build-86 scope as one build; `todo.md` owns its
+decisions and progress, and nothing in it is built or phone-tested yet. `background-sync-plan.md` owns the research for brief daily
+app use and fresh background data/insights; `lift-log-integration-plan.md` owns the proposed
+combined workout and its migration/feature-preservation decisions. `fitness-app-plan.md` owns
+the accepted all-in-one direction, unified body data and Progress page for Akshat's confirmed
+recomposition goal (leaner while getting stronger). Repeat last set, rest timer, comparable
+records, independent photo comparison, workout times, historical body/photo entry and
+screenshot-based local history import are selected and in progress. Installed navigation and
+data ownership remain unchanged until build 86 is installed; AkshatOS keeps its modules.
+`build-86-audit.md` owns the expanded source/UX audit: seven-day and weekly/monthly diet/body/
+strength reviews, inverted Strain dates, current speed, complete-night signals, automatic
+open freshness, safe actions, personal food labels/portion equivalents, maintenance warnings,
+activity/rest policy and a structural redesign. Pushups is exploration, not approved port;
+guidance/protection/capability details remain for review. No new phone/test acceptance is claimed.
+
+Build `0.9.37`/`70` remains accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
 the recovery/refresh build in `final-ipas\whoop\backup\`. Build `0.9.39`/`72` was installed,
 confirmed by Akshat, but was not phone-accepted and is superseded by the build-73 candidate.
@@ -46,7 +65,7 @@ Akshat reports build 75 installed and sent food-flow follow-ups. Build-76 source
 Akshat reports build 77 installed. Build-78 source `0.9.45`/`78` (commit `1eae1fbc`) is published with Akshat's approval; Linux CI `37558355571` (3,380 tests, 371 intentional skips) and personal macOS build `37558356341` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 78 adds two-unit portions, one-press drag,
 hidden Training review, compact Train history and conservative workout calories; it was never installed. Build-79 source `0.9.46`/`79` (commit `4b7f5918`) is published with Akshat's approval; Linux CI `37563199102` (3,386 tests, 371 intentional skips) and personal macOS build `37563205812` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 79 adds pack-printed servings ("6 piece · 85 g" without dividing); Akshat reports it installed. Build-80 source `0.9.47`/`80` (commit `6dd75b2b`) is published with Akshat's approval; Linux CI `37565878253` (3,386 tests, 371 intentional skips) and personal macOS build `37565879521` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 80 aligns the food editor's serving row and removes its Other units section. Akshat reports build 76 installed and sent follow-ups. Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass.
 Akshat reports build 80 installed; its follow-up requests (Quick add weight, recovery inputs, sleep detection, full-app review) are audited in `build-81-audit.md`. Build-81 source `0.9.48`/`81` (algorithm 91) implements his decisions: Quick add weight/all macros/Save to My foods, sleep as a fifth readiness input, the Readiness ring fix, What-moves-it from logged data, bedtime consistency, the Monday last-week card, shorter text and removal of the never-working Live Activity extension; sleep detection is unchanged. Build-81 source `0.9.48`/`81` (commit `d44c989f`) is published with Akshat's approval; Linux CI `37699481094` (3,398 tests, 371 intentional skips) and personal macOS build `37699482851` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension in the IPA. Build 81 was never installed. Build-82 source `0.9.49`/`82` (commit `4b53abbe`) is published with Akshat's approval; Linux CI `37708103583` (3,406 tests, 371 intentional skips) and personal macOS build `37708104201` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Build 82 adds page-scrolling drag, a discard guard on edit sheets, Foods search, the saved-meal flow fixes and a working iPhone app log (`todo.md`); Akshat reports it installed. Build-83 source `0.9.50`/`83` (commit `cbaf93cd`) is published with Akshat's approval; Linux CI `37717941508` (3,408 tests, 371 intentional skips) and personal macOS build `37717959148` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Build 83 time-stamps the app log, stops overlapping log lines overwriting each other and makes the history sync ask the band when no transfer is running. Build-84 source `0.9.51`/`84` fixes stale Today numbers (revision bump when today's row lands and after the readiness rescan), keeps iOS Bluetooth relaunches on the light background path (UIKit launch state), ends pull-to-refresh once today is calculated, checks background offloads every 5 min, logs MetricKit exit reasons to `openstrap_exits.log`, prices digestion by macro at the low end and adds a separate Lifting line (`todo.md`). Akshat's build-83 log shows build 83 installed. Build-84 source `0.9.51`/`84` (commit `37241c1e`) is published with Akshat's approval; Linux CI `37780752762` (3,415 tests, 371 intentional skips) and personal macOS build `37780753121` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Build-85 source `0.9.52`/`85` (`build-85-audit.md`, `todo.md`) implements Akshat's audit decisions: one MET-only lifting number everywhere, day measures that never borrow another day, food categories, walks in km/h and a full UI makeover. Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Build 84 was not reported installed; build 85 replaced its testing folder.
-The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.52-build85-3c141b7a`, not installed yet;
+The sole testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.52-build85-3c141b7a`, installed (Akshat), not yet phone-accepted;
 `todo.md` owns the gates. `setup.md` owns
 artifact evidence. The replacement includes direct My foods scanning and shared editable meal-scan
 review, manual fallback and confirmation before persistence/logging. CI passes at test-only repair
@@ -92,7 +111,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
 `com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds build 85,
-not installed yet, awaiting the complete phone pass and current-version enrollment.
+installed (Akshat), awaiting the complete phone pass and current-version enrollment.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -186,11 +205,26 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — build-74 release/device gates, build-73 phone checks and remaining lifecycle/refresh checks; read before
+- `todo.md` — planned build-86 scope, current build-85 phone gates and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
-- `build-85-audit.md` — installed-build-84 audit: lifting calories (setup gross 6 MET vs net 3.5 MET
+- `build-86-audit.md` — source-reviewed reported bugs, additional reliability/insight risks,
+  structural UX proposals, Pushups exploration, public evidence and unexecuted/device test
+  gates; read before implementing the expanded build-86 scope.
+- `background-sync-plan.md` — current iPhone 17/iOS 26.6.2 background-sync research, source findings,
+  proposed repair, capability decisions and brief-daily-use acceptance gates; read before changing
+  BLE restoration, lifecycle, calculation scheduling or the personal background modes.
+- `lift-log-integration-plan.md` — accepted planned addition of AkshatOS Lift Log to one existing WHOOP
+  workout, with source reuse, feature parity, timing/load invariants, local migration and approval
+  gates; read before changing strength logging or cross-project data ownership.
+- `fitness-app-plan.md` — accepted planned all-in-one recomposition experience: Body parity, unified
+  weight/profile data, HR/set timing, the consolidated Progress page, local import/media recovery
+  and scope/acceptance gates; read before changing body tracking, progress or navigation.
+- `../akshatos/sidestore-evaluation.md` (sibling repository) — SideStore research and the proposed
+  signing pilot for both apps; `todo.md` section 10 tracks its WHOOP-side checks. Sideloadly stays
+  active until that pilot passes.
+- `build-85-audit.md` — build-84-source audit and implemented build-85 decisions: lifting calories (setup gross 6 MET vs net 3.5 MET
   vs heart rate, low-HR behaviour, research), digestion against its sources, Budget/ACSM labelling,
-  end-to-end stale/mismatched data and the UI makeover plan, with Akshat's pending decisions; read
+  end-to-end stale/mismatched data and the approved UI makeover; read
   before changing calories, labels or screens.
 - `build-81-audit.md` — installed-build-80 audit: Quick add weight, recovery-score inputs (no sleep
   input today) with WHOOP/Oura/Garmin research, sleep-detection false positives (unused HR
@@ -253,7 +287,7 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA;
-  build 70 is installed and accepted. Enabling **This phone →
+  build 85 is currently installed; build 70 remains accepted recovery. Enabling **This phone →
   Steps** on build 63 verified direct iPhone-pedometer import; recheck that setting and behavior on
   the current candidate. Apple Health’s aggregate is deliberately not read. Band reconnection, installed About/
   profile details, complete sync/background behavior, GPS, and same-ID refresh remain unverified.
@@ -273,7 +307,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds the validated build-74 candidate, and older candidates are reproducible from their workflow
+`testing\` holds the installed build-85 candidate awaiting acceptance, and older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health
@@ -324,12 +358,14 @@ evidence below.
   `.ipa`, then let Sideloadly sign and install it directly from the Windows laptop with Akshat's
   free Apple Personal Team. Do not use a Flutter debug build for daily use: debug builds require
   Flutter/Xcode to relaunch from the home screen.
-- WHOOP uses one slot and the native AkshatOS hub uses a second; the third is
-  unallocated. Sideloadly has no phone-side host. AltStore/SideStore would use a further slot and
-  require an explicit workflow choice; neither is needed. Preserve WHOOP's independent lifecycle,
+- WHOOP uses one slot and the native AkshatOS hub uses a second. Sideloadly has no phone-side host. The approved SideStore pilot
+  uses the third slot for its host (`../akshatos/sidestore-evaluation.md`); until it passes,
+  Sideloadly remains the refresher and neither app is removed. Preserve WHOOP's independent lifecycle,
   minimal personal flavor, encrypted exports, and stable identity rather than embedding it in the hub.
-- Do not put the daily app inside LiveContainer and do not add StikDebug, LocalDevVPN, JIT,
-  injected tweaks, or a Sideloadly-specific runtime dependency. Those add failure surfaces and
+- Do not put the daily app inside LiveContainer and do not add StikDebug, JIT, injected tweaks,
+  a VPN dependency or a Sideloadly/SideStore-specific runtime dependency to WHOOP. LocalDevVPN is
+  allowed on the phone only as SideStore's installer helper for the approved pilot
+  (`../akshatos/sidestore-evaluation.md`); WHOOP never depends on it. Those add failure surfaces and
   cannot be trusted to preserve WHOOP's entitlements or CoreBluetooth background restoration.
 - Free Personal Team profiles expire after seven days. The installation therefore still depends
   on Apple's signing service, even with Local Anisette; no stock-iPhone build change removes that
@@ -416,7 +452,11 @@ The personal artifact must have these properties:
 
   **Selection rule:** keep what serves Akshat's goals (lifting, running, sleep, recovery) and drop
   noise and redundant manual entry. Food and body weight are deliberately logged by hand in WHOOP;
-  lifting sets are logged in AkshatOS. `metrics-map.md`
+  lifting sets are currently logged in AkshatOS. A combined WHOOP/Lift Log workout is a
+  accepted Build 86 direction (`lift-log-integration-plan.md`), not an approved ownership change.
+  Body and a consolidated recomposition Progress page are accepted plans (`fitness-app-plan.md`);
+  the installed four-tab layout and AkshatOS Body ownership remain unchanged.
+  `metrics-map.md`
   lists everything stored, where it appears, and current layout decisions.
   - **Journal removed** at Akshat's request, and the daily check-in is forced off. No Home or
     Readiness entry and no findings screen; a rough-night card on Sleep states the measurements and
@@ -437,7 +477,8 @@ The personal artifact must have these properties:
       card and the share button were removed. **Lifting sets are not logged**: in the personal
       build `Track.sets` activities run as a timed session (`archOf`), because Akshat logs lifts
       in AkshatOS Lift Log. `strength_set` rows and the sets UI stay in source for a possible
-      later migration into WHOOP.
+      later migration into WHOOP. The accepted planned direction is in `lift-log-integration-plan.md`;
+      build 85's behavior is unchanged until the combined plan is approved and implemented.
     - **Settings:** one list opened from Today (`MoreSettings`); the profile hub, AI coach, AI
       briefings, language picker and paced-breathing screen were removed. In the personal build
       the Automation group, app-icon row, add-a-sensor row and the movement-nudge and step-goal
@@ -637,6 +678,10 @@ The personal artifact must have these properties:
   app. The manual off-phone copy to Windows (Files / iTunes File Sharing) is still required.
   Encryption uses pure-Dart AES-GCM at about 1.5 MB/s, so a large database takes a while. It needs a
   measured on-phone run and a restore test.
+- **Planned media gate:** current encrypted backups contain the database, not external progress
+  JPEGs. The accepted Body plan requires versioned media-inclusive encrypted recovery, old-format
+  compatibility, explicit missing-file review and a full restore test before cutover. See
+  `fitness-app-plan.md`; no backup format or photo capability has changed yet.
 - Never uninstall WHOOP merely because its profile expired. Preserve a verified encrypted export
   while the app still opens, then install the cached IPA over the existing container with automatic
   bundle-ID rewriting off and exact final ID `com.akshat.personal.whoop.5564K8D4SV`. That path is
@@ -661,8 +706,9 @@ fully quit so it does not own the peripheral:
 4. **Range and restoration:** take the band out of range, wait for disconnect recovery to arm,
    return in range while the app is backgrounded/locked, and prove CoreBluetooth restoration wakes
    the normal resumable drain. Repeat after ordinary system termination if reproducible. Record
-   manual swipe-to-force-quit separately: iOS may suppress background relaunch until the user opens
-   the app again, which must be documented rather than misdiagnosed as a crash.
+   manual swipe-to-force-quit separately: iOS 26 documents extra relaunch support for
+   AccessorySetupKit-provisioned apps, but this phone's provisioning and behavior must be verified.
+   First unlock after reboot is a separate platform prerequisite; see `background-sync-plan.md`.
 5. **Lifecycle:** test app termination and relaunch, iPhone reboot, band reboot, phone storage
    pressure, an overnight background interval, daylight-saving/time-zone changes, and the next
    supported iOS update. After an iOS update, redo pairing/reconnect/restoration and refresh checks

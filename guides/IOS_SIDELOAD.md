@@ -1,27 +1,18 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Build `0.9.37`/`70` is the accepted recovery build. Build `0.9.39`/`72` was installed,
-but was not phone-accepted and its testing artifact is superseded.
-Source `0.9.40`/`73`, commit `a49d7837`, is published with Akshat's approval and passes local
-checks, Linux CI/macOS build, downloaded checksum/manifest and payload validation. It is the
-previous testing candidate, superseded by build 74. Akshat confirms build 73 is installed; the complete phone pass and
-current-version enrollment are pending. Its future-time Strain cursor defect is repaired in local build-74 source;
-`../workout-sync-audit.md` records the earlier repairs, `../build-74-audit.md` the newer findings
-and implemented Budget/ACSM comparisons and workout Live Activity; `../todo.md` owns release
-and phone gates. CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
-compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+**State:** Akshat reports build `0.9.52`/`85` currently installed. Source `3c141b7a` passes
+recorded local validation, Linux CI `37816259505`, macOS build `37816260577` and downloaded
+source/version/checksum/ZIP/payload checks. The personal IPA has no app extension from build 81.
+Complete phone acceptance, overwrite/data continuity and current-version automatic-refresh
+enrollment remain open; `../todo.md` owns the checks.
 
-Source `0.9.41`/`74`, commit `ba5bb29f`, is published with approval; Linux CI
-`37397127258`, macOS build `37395690305` and downloaded version/source, checksum, ZIP and payload
-checks pass. Build 74 is installed at the exact final ID with its extension kept. It still requires
-extension behavior, overwrite/data continuity, phone behavior and refresh acceptance.
-Akshat confirmed build 70's
-feature phone check and completed automatic-refresh registration for version `0.9.37` at
-`com.akshat.personal.whoop.5564K8D4SV`, with no install error. The accepted IPA is cached under
-`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`;
-`testing\WHOOP-0.9.52-build85-3c141b7a` holds the single candidate (not yet installed; build 83
-is the last reported install). `../setup.md` owns the
-artifact, hash and workflow records.
+Build `0.9.37`/`70` remains the accepted recovery build: its phone check and completed
+automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
+were confirmed with no error. It is cached under
+`D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
+`testing\WHOOP-0.9.52-build85-3c141b7a` holds the installed candidate awaiting acceptance;
+`../setup.md` owns current and superseded source/hash/workflow records. `../build-85-audit.md`
+owns its approved changes, and the earlier audits retain their findings and repair contracts.
 
 The minimal profile excludes HealthKit and reads direct iPhone motion data when **This phone →
 Steps** is enabled. Encrypted history restore, identity/data/pairing preservation and a controlled
@@ -82,8 +73,9 @@ free-sideload artifact.
   rotation.
 - Free profiles still expire after seven days; these refresh timings remain applicable. Another
   free account does not bypass the per-device cap, but the two-app model does not exceed it.
-- Use direct Windows Sideloadly. AltStore/SideStore would install a phone-side host and require a
-  separate workflow decision. They are not required, and neither app should be removed to add one.
+- Use direct Windows Sideloadly. A SideStore pilot is approved and uses the third slot for its
+  phone-side host (`../../akshatos/sidestore-evaluation.md` owns its steps); Sideloadly stays the
+  refresher until the pilot passes, and neither app is removed to make room.
 - Use the same Apple Account/team and permanent WHOOP bundle ID for every install, refresh, and
   upgrade.
 - Install Sideloadly only from <https://sideloadly.io>, configure **Local Anisette**, and use the
@@ -182,7 +174,10 @@ For migration from an existing Android installation, preserve this order:
 
 - Background BLE is best-effort under iOS. Preserve CoreBluetooth state restoration and test locked,
   backgrounded, out-of-range/reconnect, ordinary system termination, reboot, and 72-hour soak
-  behavior. Manual swipe-to-force-quit may suppress background relaunch until the app is opened.
+  behavior. On iOS 26, Apple documents additional relaunch cases for AccessorySetupKit apps,
+  including force-quit; verify this phone's provisioning and behavior rather than assuming
+  either guaranteed restoration or blanket suppression. Reboot restoration requires first unlock.
+  `../background-sync-plan.md` owns the iPhone 17/iOS 26.6.2 research and proposed repair.
 - Apple Health, general widgets, App Groups, Watch and app extensions remain excluded. A
   Sideloadly install log shows one App ID ("Using app ID "WHOOP"") in both bundle-ID modes: free
   signing does not provision extensions, which is why the build 74–80 Live Activity never drew.

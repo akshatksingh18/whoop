@@ -1,32 +1,19 @@
 # WHOOP iOS build and installation profiles
 
 **State:** The repository contains full upstream-capable iOS targets plus an implemented minimal
-personal-sideload profile and public manual macOS workflow. Build `0.9.37`/`70` is installed over
-build 69 and accepted: Akshat confirmed its feature phone check and completed current-version
-automatic-refresh registration at the existing signed identity, with no error. It is cached in
-`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`; `testing` holds validated build 74. `../setup.md` owns
-source/hash/workflow evidence and superseded build records.
-Build `0.9.39`/`72` was installed, confirmed by Akshat, but was not phone-accepted; its cached IPA
-is superseded by build 73. `../workout-sync-audit.md` records its reported issues and approved repairs.
-Source `0.9.40`/`73`, commit `a49d7837`, includes background audio for real workout cues and is
-published with Akshat's approval. Local checks, Linux CI, the personal macOS build, downloaded
-checksum/manifest and payload validation pass. Its testing folder was removed after build 74
-validated; its workflow/source/hash evidence remains in `../setup.md`.
-Akshat confirms build 73 is installed and initially looks good, with the future-time Strain cursor
-defect recorded for build 74. Identity/data/pairing checks, the complete phone pass and
-current-version enrollment remain unconfirmed; `../todo.md` owns the combined phone checklist
-and build-74 release gates; `../build-74-audit.md` owns the research and implemented contract.
-CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
-compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+personal-sideload profile and public manual macOS workflow. Akshat reports build `0.9.52`/`85`
+currently installed. Source `3c141b7a` passes recorded local validation, Linux CI, macOS compilation
+and downloaded artifact checks, with no app extension (removed in build 81).
+The single testing candidate remains
+`../../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`. Complete phone acceptance,
+data/pairing continuity, background behavior and current-version automatic-refresh enrollment
+remain open in `../todo.md`; installation alone does not authorize cache promotion.
 
-Source `0.9.41`/`74`, commit `ba5bb29f`, enables one workout-only Live Activity extension without
-App Groups. Linux CI `37397127258`, macOS build `37395690305` and downloaded version/source,
-checksum, ZIP and payload checks pass. Build 74 is installed (Sideloadly kept the extension at
-the exact final ID). Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. Build 75 is installed. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`, with no app extension (build 81);
-extension behavior, overwrite/data continuity, background behavior, complete phone
-acceptance and current-version automatic-refresh enrollment remain pending. Build 73 is superseded on the phone.
-Installation alone does not authorize cache promotion.
+Build `0.9.37`/`70` remains accepted recovery: its feature phone check and current-version
+automatic-refresh registration at the existing signed identity were confirmed with no error.
+It is cached in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`.
+`../setup.md` owns current and superseded source/hash/workflow evidence; `../build-85-audit.md`
+owns the latest approved changes, and earlier audits retain their findings and repair contracts.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
 Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID
@@ -91,7 +78,9 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
 - hide the unsupported Oura pairing row in the personal flavor while retaining its direct-BLE
   implementation in the full upstream-capable source;
 - remove `processing`, `fetch`, and their native/Dart BG task registrations from the
-  initial profile;
+  initial profile (still the installed build-85 contract). `../background-sync-plan.md`
+  proposes enabling bounded tasks for background insight freshness; approval, coordinated
+  transformation/validator changes and signed-device validation are required before activation;
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
   and bundled secrets off; BYOK/network features are manual opt-ins only if offline use is complete;
 - fail packaging if `Watch/`, any app extension, unexpected entitlements, signing credentials,

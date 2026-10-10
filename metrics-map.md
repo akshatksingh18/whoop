@@ -2,18 +2,15 @@
 
 Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the built personal source `0.9.41`/`74` (algorithm 90); physical-device validation is pending.
+the installed personal source `0.9.52`/`85` (algorithm 91); complete physical-device acceptance is pending.
 
-**Status:** Build 74 source `ba5bb29f` is published with Akshat's approval and passes local
-regression/release validation, Linux CI, macOS IPA compilation and downloaded artifact checks.
-Build 74 is installed but superseded: Source `0.9.42`/`75` (commit `1c203f17`) is published with Akshat's approval; Linux CI `37514558854` (3,369 tests, 371 intentional skips) and personal macOS build `37514599309` pass. Downloaded source/version, checksum, ZIP integrity and payload/extension checks pass. Build 75 is installed. Build-76 source `0.9.43`/`76` (commit `3f8ada60`) is published with Akshat's approval; Linux CI `37534408576` (3,373 tests, 371 intentional skips) and personal macOS build `37534409412` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Build 76 is the single testing candidate,
-awaiting installation, complete phone acceptance and current-version enrollment. Build 73 was replaced on the phone and was not accepted; its testing artifact
-is superseded. Build 70 remains the accepted recovery. `build-74-audit.md`
-records chart/navigation/notification findings and implemented calorie comparisons; `todo.md` owns
-the implemented build-74 contract and release gates. Budget coefficients are unchanged; ACSM is
-now a separate distance comparison using the same ledger. `setup.md` owns the artifact/workflow evidence.
-CI `37397127258` validates test-only repair `fa16be3c`; all app/packaging inputs match
-compiled IPA source `ba5bb29f`. `setup.md` records the elapsed-window fixture correction.
+**Status:** Build 85 source `3c141b7a` passes recorded local validation, Linux CI, macOS
+compilation and downloaded artifact checks. Akshat reports it currently installed; complete
+phone acceptance and current-version refresh enrollment remain open. Build 70 remains accepted
+recovery, and build 85 stays in the testing cache. `build-85-audit.md` owns its approved changes;
+`build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
+are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
+current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
 
 Stored metrics remain intact; any removal
 still needs Akshat's per-item approval.
@@ -197,7 +194,7 @@ steps first, then band sync and today's queued calculation. Measured steps publi
 the shared coverage resolver, even without new band records; Today, Steps, Strain detail and today's
 step-chart point agree. Stored counter/imported/interim counts remain fallbacks when no fresh source
 covered the date. Explicit phone stillness is zero; an unread day stays absent. The calculation
-enqueue is awaited, and read failures, holds and the 60-second refresh cap show a status message.
+enqueue is awaited, and read failures, holds and the 15-second today-calculation wait cap show a status message (build 84 onward).
 Today/food cards also reread after committed food writes, derived changes, foreground return,
 and the five-minute foreground refresh (including local day rollover and fresh phone counts). No pull is needed and
 workout voice also enables the approved iOS audio background mode. A fresh launch opens Today; warm resume retains position.
@@ -323,8 +320,8 @@ checks pass: 3,343 full-suite tests (376 intentional skips), 107 personal-profil
 personal-iOS contract tests; analysis has no errors/warnings. Source `ba5bb29f` is published
 with approval; Linux CI `37397127258` and macOS build `37395690305` pass. Downloaded checksum,
 source/version, ZIP and payload/extension checks pass; `setup.md` owns complete evidence.
-Build 73 installation is confirmed; build 74 installation and calculation/refresh phone checks remain before calling these
-fixes verified on iPhone.
+Build 85 installation is confirmed by Akshat; calculation/refresh phone checks remain before
+calling the carried-forward fixes verified on the current iPhone build.
 
 **A run's or walk's own calories** (setup/live/summary/history/share):
 - Walking Method 1: exactly `(2.74 * active_session_steps * weight_kg) / 8368`, labelled From steps.
@@ -379,7 +376,7 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout decisions (local source `0.9.41`/`74`)
+## Layout decisions (installed source `0.9.52`/`85`)
 
 | Item | Decision |
 |---|---|
@@ -393,10 +390,39 @@ movement or food digestion again. No automatic HR hybrid or coefficient adjustme
 | Today | Weekly card: deficit at the floor, logged protein vs target, km run, streak, average sleep; completed-day coverage and exclusions |
 | AI coach, AI briefings, language picker, paced breathing | Removed |
 | Train | One page. Removed the activity library tab, mascot card, fitness/fatigue/form, kg-lifted chart, morning-after and overreach cards, and the share poster button |
-| Lifting sets | Removed. A Lift is a timed session scored from heart rate |
+| Lifting sets | Entry removed; sets are logged in AkshatOS. A Lift is timed; calories use MET and active time, with heart rate shown as context |
 | Settings | One list (band, profile, alarm, steps, notifications, units, data, privacy, status). Removed Tasker/Shortcuts, double-tap, app icon, add-a-sensor, phone import |
 | Notifications | Personal movement nudge, wind-down and step-goal alerts stay hidden/off. In the upstream-capable profile the step-goal action uses the measured total and configured target; earning the streak does not require alerts |
 | Band alarm, barcode scanning, Sleep screen, Nutrition | Kept |
+
+**Accepted plan, not implemented:** `lift-log-integration-plan.md` describes session-linked Lift Log
+inside WHOOP for the Build 86 discussion. The installed layout above remains unchanged. Explicit
+load modes, one shared workout clock, unchanged MET-only calories and local history migration
+are review gates; no kg-lifted chart or other removed metric is automatically restored.
+
+`fitness-app-plan.md` additionally records accepted Body parity and one recomposition Progress page:
+shared weight/profile data, weight/waist and comparable strength changes, eligible food logging,
+activity and recovery context, weekly/since-start comparisons and local photo-inclusive recovery.
+A fifth Progress tab is planned, not implemented; Today / Trends / Food / Train remain installed.
+Repeat last set, rest timer, comparable records and independent two-panel photo selection are
+selected, alongside live Started/summary start-end, backdated body/photo entry, measurement/range
+selectors and a privately generated MyFitnessPal import during implementation. Numeric source
+data/media stay outside public app repos; other extras remain deferred.
+All comparisons need actual dates, load meaning and coverage; no measured muscle-gain claim,
+cross-mode tonnage, automatic target change or new lift expenditure is implied.
+
+Expanded Build 86 scope (`build-86-audit.md`, `fitness-app-plan.md`, `todo.md`) explicitly adds
+seven-calendar-day weight means with observation counts; daily intake/estimated balance; weekly,
+monthly and since-start weight/tape/comparable-strength/activity/recovery reviews; and guarded
+user-reviewed intake suggestions. No muscle/fat amount can be inferred from circumference/photos/
+performance. These are plans, not shipped metrics. The existing Week card's raw weight delta,
+protein completeness and period/maintenance denominators require reconciliation before reuse.
+Current build-85 walking speed is elapsed-session average, Strain's day order conflicts with the
+shared control, Sleep's signals use a calendar-day read, diary deletes lack confirmation, and
+calorie warnings compare to the typed goal. Their replacements, both-way historical serving
+equivalents, personal food labels and general-activity/rest policy are planned, not implemented.
+Pushups is exploration and never a sensor-measured workout/calorie source. The proposed visual
+redesign changes hierarchy/flow while retaining all unique reachable metrics.
 
 Built build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
 Scanning reviews serving/nutrition before Save to My foods, without a meal or diary entry.

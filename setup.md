@@ -256,7 +256,7 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-it remains the accepted backup while build 74 occupies `testing\`. The checksum, manifest and
+it remains the accepted backup while installed build 85 occupies `testing\`. The checksum, manifest and
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
@@ -466,9 +466,36 @@ Linux CI `37816259505` ran the full suite (3,430 tests, 395 intentional skips) a
 macOS build `37816260577` passes. Artifact `whoop-personal-3c141b7ab902-unsigned.ipa` (18,091,060
 bytes), SHA-256 `71ad6b0b6efa4070f954da8f92ca1665f3885a3e3bd2a31687fd32a9748982a8`, matches its
 checksum and manifest (`0.9.52`/`85`); ZIP and payload contract pass with no app extension. It is
-the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`, not yet installed. Install
-over the installed build with automatic bundle ID off and final ID
-`com.akshat.personal.whoop.5564K8D4SV`. Build 70 stays accepted recovery.
+the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`.
+Akshat reports build 85 currently installed on iPhone 17 / iOS `26.6.2`; complete phone acceptance, data/pairing continuity
+and current-version automatic-refresh enrollment are not newly confirmed by that report.
+Preserve final ID `com.akshat.personal.whoop.5564K8D4SV` for upgrades and refresh.
+Build 70 stays accepted recovery until the promotion gates pass.
+
+Current phone logs show intermittent background-transfer stalls and report CPU-limit exits for
+MetricKit's 8 Oct window. `bugs.md` owns the evidence and attribution limits; installation and
+successful transfers in other periods do not close background acceptance.
+`background-sync-plan.md` proposes a repair for two-to-three-minute daily app visits, including
+optional personal-profile background tasks. It is queued in the build-86 TODO while Akshat adds
+other items; no code, capability, source/build version or artifact has changed. The combined
+scope-review, implementation and capability approval gates are in `todo.md`.
+
+`lift-log-integration-plan.md` and `fitness-app-plan.md` record accepted planned direction for a
+combined Lift workout, Body parity, recomposition Progress and the selected four extras, times,
+historical entry and screenshot-based import. Implementation/import-file generation remain
+explicitly deferred while scope is collected. No navigation, data ownership,
+privacy description, entitlement or backup format is changed. Current encrypted database snapshots
+do not include external progress JPEGs; validated media-inclusive recovery and camera/picker
+description/validator reconciliation are required before the proposed Body cutover. AkshatOS and
+private coaching sources stay intact until separately approved migration and phone acceptance.
+
+`build-86-audit.md` expands the requested plan with source-reviewed navigation, current-speed,
+sleep-window, destructive-action, food-label/portion/warning and insight-coverage repairs, plus
+weekly/monthly combined reviews, activity/rest planning, Pushups exploration and structural UI
+work. No source/version, installed capability, signing identity or artifact changed. Pushups'
+notification coordinator/budget and optional Home/Always permission require explicit decisions;
+do not treat this plan as activation. Focused tests for this audit did not execute due to Windows
+Flutter launcher/snapshot errors; the recorded build-85 validation above remains the baseline.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol
 package's fixture tests fail there only because they open fixtures by a path relative to their

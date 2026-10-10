@@ -72,8 +72,9 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
 - remove App Group and HealthKit entitlements and hide/compile out their UI/bridges together;
   the personal Info.plist carries no `NSSupportsLiveActivities`;
 - **keep GPS route recording** — reopened on Akshat's explicit decision. `NSLocationWhenInUseUsageDescription`
-  and the `location` background mode are present; `NSLocationAlwaysAndWhenInUseUsageDescription`
-  stays removed, since `lib/gps/gps_source.dart` deliberately never requests Always. Buildable and
+  and the `location` background mode are present; route recording asks for While-In-Use only
+  (`lib/gps/gps_source.dart`). Build-86 source adds `NSLocationAlwaysAndWhenInUseUsageDescription`
+  for Pushups Home auto-pause (region monitoring only, Akshat's approval). Buildable and
   contract-tested, not yet device-verified — `CLAUDE.md` owns the outstanding evidence gate;
 - hide the unsupported Oura pairing row in the personal flavor while retaining its direct-BLE
   implementation in the full upstream-capable source;

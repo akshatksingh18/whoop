@@ -25,7 +25,9 @@ redesign and the remaining buildable items are local commits on `main`, not push
 owns its decisions, implemented/open items and gates; `build-86-audit.md`,
 `background-sync-plan.md`, `lift-log-integration-plan.md` and `fitness-app-plan.md` own their
 contracts. Akshat approves the rendered redesign, then pushing and rebuilding 86. AkshatOS keeps its modules and entry ownership until import and
-combined phone acceptance. Pushups stays exploration. A SideStore signing pilot is approved
+combined phone acceptance. Build-86 source also ports Pushups (with Home auto-pause), strength
+progress inside the live workout, flexible goals and the optional conveniences Akshat chose; AkshatOS
+Pushups stays installed and unchanged until import and phone acceptance. A SideStore signing pilot is approved
 (`../akshatos/sidestore-evaluation.md`); Sideloadly remains the refresher until it passes.
 
 Build `0.9.37`/`70` remains accepted after
@@ -203,7 +205,7 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 - `todo.md` — planned build-86 scope, current build-85 phone gates and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `build-86-audit.md` — source-reviewed reported bugs, additional reliability/insight risks,
-  structural UX proposals, Pushups exploration, public evidence and unexecuted/device test
+  structural UX proposals, the Pushups port, public evidence and unexecuted/device test
   gates; read before implementing the expanded build-86 scope.
 - `background-sync-plan.md` — current iPhone 17/iOS 26.6.2 background-sync research, source findings,
   proposed repair, capability decisions and brief-daily-use acceptance gates; read before changing
@@ -410,10 +412,12 @@ The personal artifact must have these properties:
   drain must retain the commit-before-ACK and resumable-cursor invariants documented below.
 - **The GPS experiment is reopened, on an explicit decision — Akshat runs and wants a traced
   route.** `NSLocationWhenInUseUsageDescription` and the `location` background mode are back in
-  `personal_ios.py`'s personal `Info.plist`; `NSLocationAlwaysAndWhenInUseUsageDescription` stays
-  forbidden — authorization is While-In-Use only, matching `lib/gps/gps_source.dart`'s own design,
-  which relies on the background mode rather than Always to keep a run tracked with the screen
-  locked. `tool/test_personal_ios.py` enforces both halves.
+  `personal_ios.py`'s personal `Info.plist`. Route recording asks for While-In-Use only
+  (`lib/gps/gps_source.dart`), relying on the background mode to keep a run tracked with the
+  screen locked. From build-86 source `NSLocationAlwaysAndWhenInUseUsageDescription` is required
+  (Akshat's approval): Pushups Home auto-pause asks for Always so one system-monitored region
+  around Home reaches the app while it is closed (`lib/data/home_region.dart`, native
+  `HomeRegionBridge` in `AppDelegate.swift`). `tool/test_personal_ios.py` enforces both keys.
   - **Code audit hardening (in build 66, not device-verified):**
     - A re-armed recorder (a run resumed after the app was killed, or a retry after a location fix)
       continues after the stored `workout_route` sequence. Before, it restarted at 0 and overwrote

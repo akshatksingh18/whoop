@@ -54,28 +54,55 @@ installed until a build-86 IPA is published (separate authorization) and install
   a Now / Last set review; AkshatOS stays intact; Monday-Sunday closed-week reviews with Body's
   measurement weekday kept for its own blocks; same-day weight conflicts need explicit review.
 
-**Implemented in source (`0.9.53`/`86`):** sections 1–6, 8 and 9 below, the B86-01..16 repairs,
-the Progress tab and Today's Body row; checklist items carry `[x]` when done in source and a note
-when partly done. A first build-86 push (`70adc902`, Akshat's approval) passed Linux CI
-`38065480698` and personal macOS build `38065492927`; that IPA was **held, not downloaded or
-installed**, because the structural redesign (section 8) had been left out. Akshat chose to hold
-86 and add it. The redesign and the remaining buildable items are now local commits on `main`
-(not pushed): Today/Food/Train redesign, fibre on every macro line, set marks on the lift HR
-trace, weekly Body blocks, since-start review, Body height offer on import, reviewed lift
-linking, streak edge-case tests, band-data age on Today and the reset fix. Local validation: full
-suite 3,499 passed, 400 intentional skips, 0 failed; analysis has no errors or warnings.
-Rendered Today/Food/Train pages (`test/build86_redesign_render_test.dart`, synthetic data) were
-sent to Akshat for approval. The Swift changes compile only on the macOS CI.
-Not built: Pushups (exploration, needs the Home auto-pause decision), a numeric intake-adjustment
-rule (needs Akshat's rule), the optional conveniences (proposals) and per-input calculation
-invalidation (left unchanged: it is derivation-engine work that the plan gates on measuring
-short-wake compute on the phone first). Private MyFitnessPal import generated and validated
-locally (`../../health/fitness/data/whoop-body-history-import.json`). Next gates, in order:
-Akshat approves the rendered redesign; his approval to push and rebuild 86; IPA validation;
-promote build 85 (or keep 70) as rollback and take a rollback-readable export; install; phone
-acceptance.
+**Implemented in source (`0.9.53`/`86`):** sections 1–9 below, the B86-01..16 repairs, the
+Progress tab, and the additions Akshat asked for after the plan (listed below); checklist items
+carry `[x]` when done in source and a note when partly done. A first build-86 push (`70adc902`,
+Akshat's approval) passed Linux CI `38065480698` and personal macOS build `38065492927`; that IPA
+was **held, not downloaded or installed**, because the structural redesign had been left out.
+Everything since is local commits on `main`, not pushed. Akshat will review the redesign on the
+phone after the rebuilt IPA. The Swift changes (Home region bridge, notification registrant and
+delegate) compile only on the macOS CI. Private MyFitnessPal import generated and validated
+locally (`../../health/fitness/data/whoop-body-history-import.json`).
 
-Also in build-86 source, at Akshat's request:
+**Moved to build 87 (Akshat's decision):** per-input calculation reuse in the background sync
+(section 1), so build 86 can serve as the fallback if that change breaks sync.
+
+**Next gates, in order:** push and rebuild 86 (Akshat's approval stands); IPA validation; choose
+the rollback (build 85 did not change sleep calculations — see `bugs.md` — so it is a sound
+fallback once Akshat accepts it, otherwise build 70) and take a rollback-readable export from 85;
+install; the phone checks below; phone acceptance.
+
+**Phone checks after installing 86** (they cannot be tested on Windows):
+- Back gesture: a left-edge swipe goes back on every pushed screen without fighting the Food day
+  swipe or swipe-to-delete rows.
+- Saved state: changing tabs keeps each tab's scroll position, Food's day and the Foods filter.
+- A real gym session: log sets with the phone locked between them; check the vs-last-time line,
+  Progress sheet, rest-timer and forgotten-workout notifications.
+- Pushups: Start my day, a reminder and nudge on the lock screen, Done and Pause there without
+  opening the app, then the app shows them once; Home auto-pause leaving and returning.
+- A normal day of two-to-three-minute visits: Today fresh on open, band-data age honest.
+- One Body entry with a photo, an encrypted export and a restore test.
+
+Also in build-86 source, at Akshat's request (after the plan):
+- **Pushups inside WHOOP** (section 7) with Home auto-pause; Akshat approved Always location.
+- **Strength progress inside the live workout:** each exercise shows ahead/level/behind last
+  time set by set as you log, the set to beat next, and a Progress sheet (best set per session as
+  an estimated one-rep load on the same setup — ranking only, never a true max — sessions,
+  heaviest load at each rep count, and a trend line that names a three-session stall).
+  `lib/data/lift_progress.dart`.
+- **Flexible goals:** the goal is chosen in Progress → Goal (Lose fat with a pace, Recomposition,
+  Keep it off, Build muscle by training age, Get stronger at this weight), and the review judges
+  the last two closed weeks against its weekly band and protein range; it suggests a 100–250 kcal
+  change only with enough data, never below resting energy, never applied. `lib/data/goal_plan.dart`;
+  `fitness-goal-research.md` owns the evidence.
+- **Selected conveniences:** Jump to Today on every day stepper; Return to workout (the existing
+  live-session bar on every tab, plus Today's plan row); the Syncing/Calculating/band-data line
+  opens Status; Food days can be marked complete or incomplete by hand; Today's Body row says
+  Measurement day and offers Measure; the measurement-day reminder's weekday and morning hour are
+  chosen in Body settings.
+- **Redesign, second pass:** warm stone palette and page light, Today's recovery hero with sleep
+  and strain under it, a Today card of what the day still asks (steps, food, weigh-in/tape,
+  Pushups, Resume/Start training), Food's Log again row, Train's Your week hero.
 - Every search field (Foods, the food log, the saved-meal picker, the activity picker and the Lift
   exercise search) has a × that clears it in one tap, shown only while it holds text
   (`OsTextField.clearable`).
@@ -200,7 +227,7 @@ Proposed implementation checklist, conditional on approval:
 - [x] Add local evidence-based goal reviews (continue, insufficient data, review fueling/training/
   recovery, consider adjustment) with source windows/coverage and explicit user approval of any
   target edit. Keep calorie, protein and paired-maintenance denominators independent; unknown
-  food is not zero. Exact numeric guidance rules need review before activation.
+  food is not zero. *Source: numeric guidance now follows the goal Akshat chooses (flexible goals above; `fitness-goal-research.md`).*
 - [x] Add previewed/idempotent local Body JSON-plus-photos import and encrypted media-inclusive
   recovery. Current WHOOP database backups do not cover external photos; AkshatOS can omit/skip
   unavailable photo files. Missing media needs explicit review, not a silent complete migration.
@@ -269,31 +296,41 @@ Private coaching ownership and existing calorie calculations remain unchanged.
 - [x] Add clearly labelled planned Rest and limited Life happens protection, with a recoverable
   ledger and separate counts for real activity versus preserved continuity. Do not fabricate
   exercise/steps/calories or count meditation/breathing as physical training.
-- [ ] Review exact allowance, retroactive use, qualification thresholds and Pushups contribution
-  before implementing. Candidate: one unplanned protected day per rolling week, no consecutive
-  protections; this is a proposal, not an accepted rule. Offer weekly consistency as a candidate. *Implemented the proposed rule (at most 2 protected days per rolling 7, at most 1 Life happens, none consecutive); Akshat can change it.*
+- [x] Review exact allowance, retroactive use, qualification thresholds and Pushups contribution
+  before implementing. *Decided (Akshat left it to judgment): at most 2 protected days per rolling
+  7, at most 1 Life happens, none consecutive, Life happens only for yesterday; Pushups never
+  counts toward the activity streak (it has its own).*
 - [x] Avoid all-history/per-day query growth when adding sources; test overlap, edits/deletes,
   imports, timezone/DST, today-at-risk, exhausted protection and restored history. Pending sync
   is not proof of inactivity; reconcile late activity/protection without duplicate awards. *Source: one indexed sessions query per load; tests cover overlap, delete, late activity on a protected day, step-goal plus protection, month end/clock change, today open and the allowance.*
 
-### 7. Pushup Reminder exploration inside WHOOP
+### 7. Pushups inside WHOOP
 
-**Requested exploration, not approved port/cutover.** `fitness-app-plan.md`, the audit and
-`../akshatos/hub-plan.md` record the boundary; `../akshatos/features.md` owns full parity.
-- [ ] Plan Train -> Movement breaks / Pushups, compact Today Start/Done access, its own goal/
-  streak/history, and Progress context. A reminder day must not start a second workout clock
-  or infer reps/duration/HR/calories from a Done tap.
-- [ ] Map Start/Pause/End, interval/nudges, captured daily goal, protected action inbox,
-  idempotent locked/cold Done/Pause, notification-tap routing, history/settings and recovery.
-- [ ] Design one early WHOOP notification coordinator and shared pending-request budget for
-  Pushups/rest timers/Body/existing critical alerts. Do not replace Flutter's delegate, cancel
-  other modules' requests or promise indefinite ignored reminders from a finite queue.
-- [ ] Resolve Home auto-pause explicitly: AkshatOS uses Always location, outside WHOOP's current
-  personal contract. Decide optional capability/parity rather than silently dropping it or
-  requesting it for walking. Preserve AkshatOS unchanged until a separately approved transition.
-- [ ] Plan previewed/idempotent local import with no automatically restored active reminders;
-  require recovery and phone-action acceptance and deliberate stopping of the old reminder
-  batch before opting into the new one. No background two-app synchronization is proposed.
+**Ported in build-86 source (Akshat's approval, including Always location).** `../akshatos/features.md`
+owns parity; AkshatOS keeps its own Pushups unchanged until import and phone acceptance, and the
+two apps do not sync. Code: `lib/data/pushups.dart`, `lib/data/pushup_reminders.dart`,
+`lib/data/home_region.dart`, `lib/ui2/screens/pushups_screen.dart`, `HomeRegionBridge` in
+`ios/Runner/AppDelegate.swift`.
+- [x] Train → Pushups, Today's plan row with Start/Done, its own goal (captured per day) and
+  streak, history by month, an end-of-day recap. A Done is one set: no reps, duration, HR or
+  calories, and nothing feeds strain, maintenance or the activity streak.
+- [x] Start/Pause/Resume/End, interval (whole minutes, only while no day is open), automatic
+  ten-minute nudges, idle 9:00 invitation (only once Pushups has been used), notification taps
+  open Pushups, Done/Pause on the notification without opening the app.
+- [x] Pending budget: one ordinary reminder plus 29 nudges, inside iOS's 64 for the whole app,
+  topped up from the saved anchor on every foreground pass; nothing else's requests are touched.
+  Lock-screen actions run in a background isolate (plugin registrant and the notification-centre
+  delegate set in AppDelegate), write an inbox file and move the reminders from a mirror of the
+  open day; the app merges the inbox with receipts so one tap never counts twice.
+- [x] Home auto-pause: one system-monitored region from a one-shot fix, 150 m default (50 m–1 km),
+  Always asked for at setup; leaving pauses only a running day, arriving resumes only a day leaving
+  paused, a manual resume outside suppresses repeat exit pauses until arrival, duplicates within
+  two minutes ignored, health shown honestly. The Home point stays in preferences only (no
+  backup) and is deleted when turned off or on reset.
+- [x] Previewed, idempotent import of the AkshatOS backup (an open AkshatOS day is refused so no
+  reminders restore running) and export in the same shape.
+- [ ] Phone acceptance: locked/backgrounded/force-quit actions, Focus/Scheduled Summary, nudges,
+  reconciliation after relaunch, Home events terminated/background, reboot before first unlock.
 
 ### 8. Structural UI redesign and whole-app convenience audit
 
@@ -311,14 +348,11 @@ point was removed.
   loading/empty/stale/partial/offline states; compare screenshot/hit-target QA before release. *Partly: Today/Food/Train render without overflow at 1x and 2x, the 44 pt tap sweep passes on the gallery, large-text wrapping fixed in the maintenance and HR headers; back gestures and saved scroll/filter state need the phone.*
 - [x] Repair weekly protein completeness/denominators and selected-window excluded-day counts
   (B86-11) before reusing the existing Week card for the combined insight engine.
-- [ ] Review optional conveniences: Jump to Today/calendar, pending-work drawer using existing
-  Status, Return to workout across tabs, recent personal labels, explicit Food-day completeness,
-  due-measurement shortcut and opt-in review reminders. These are proposals, not selected scope;
-  effort ratings, programming and removed AI coach/journal/Live Activity remain deferred/removed.
-
-Optional conveniences stay proposals; approval of build 86 does not remove features or authorize
-publishing an app. Pushups (section 7) stays exploration until Akshat confirms a port and the
-Home auto-pause capability choice.
+- [x] Review optional conveniences. *Akshat chose Jump to Today, Return to workout, the
+  pending-work line, Food-day completeness, the measurement-day shortcut and a chosen-weekday
+  measurement reminder; all are in source (see the list at the top). Recent personal labels and
+  review reminders were not chosen. Effort ratings, programming and the removed AI coach/journal/
+  Live Activity stay out.*
 
 ### 9. Data-safety prerequisites found in the end-to-end audit
 
@@ -350,7 +384,7 @@ first; LocalDevVPN is allowed on the phone as SideStore's installer helper, neve
 ### Combined Approval And Release Gates
 
 - [x] Plan reviewed; implementation approved as one build, with the decisions listed at the top
-  of this section. Pushups capability/parity remains open.
+  of this section. Pushups and its Always location were approved afterwards.
 - [ ] Implement the approved scope together; run focused regressions, the full suite and
   personal-iOS payload/capability checks, and synchronize affected documentation.
 - [ ] Obtain separate publication/build authorization, then validate the replacement IPA's

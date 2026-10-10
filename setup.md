@@ -487,13 +487,11 @@ encrypted exports from 86 carry progress photos and are refused by 70 and 85, so
 rollback-readable export from 85 before installing 86. AkshatOS and private coaching sources stay
 intact until separately approved migration and phone acceptance.
 
-`build-86-audit.md` expands the requested plan with source-reviewed navigation, current-speed,
-sleep-window, destructive-action, food-label/portion/warning and insight-coverage repairs, plus
-weekly/monthly combined reviews, activity/rest planning, Pushups exploration and structural UI
-work. No source/version, installed capability, signing identity or artifact changed. Pushups'
-notification coordinator/budget and optional Home/Always permission require explicit decisions;
-do not treat this plan as activation. Focused tests for this audit did not execute due to Windows
-Flutter launcher/snapshot errors; the recorded build-85 validation above remains the baseline.
+Build-86 source after the held push adds Pushups with Home auto-pause (Always location, region
+monitoring, approved by Akshat; the personal contract now requires the Always description) and
+a Done/Pause notification category handled in a background isolate (plugin registrant and
+notification-centre delegate set in `AppDelegate.swift`). These Swift changes compile only on the
+macOS workflow; `todo.md` owns the local validation figures and the phone checks.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol
 package's fixture tests fail there only because they open fixtures by a path relative to their

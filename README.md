@@ -244,8 +244,9 @@ spot-check, real-time breathing coherence.
 
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate zones.
 Current personal build 65 keeps GPS route capture — reopened on Akshat's decision since he runs —
-with While-In-Use permission only, never Always. The code is installed but the route/background
-device pass remains open; see `CLAUDE.md`.
+with While-In-Use permission for routes. Build-86 source asks for Always only for Pushups Home
+auto-pause (one region around Home, no trail). The route/background device pass remains open;
+see `CLAUDE.md`.
 
 **Your data, elsewhere** — full upstream builds write to **Apple Health** (HealthKit) and **Google
 Health Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.

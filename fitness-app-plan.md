@@ -3,8 +3,9 @@
 **State:** Implemented in build-86 source `0.9.53`/`86` (one build; not built or phone-tested):
 Body (`lib/data/body_log.dart`), photos (camera bridge, `photo_encode.dart`), the Progress tab
 (`progress_screen.dart`, `progress_review.dart`), imports and format-2 media backups. The review
-offers gather evidence / continue / review together; a numeric intake adjustment is not built
-until Akshat approves its rule. Weekly weight blocks start on the measurement weekday (Progress
+offers gather evidence / continue / review together, and a Goal card judges the goal Akshat
+chooses (`lib/data/goal_plan.dart`, evidence in `fitness-goal-research.md`) with suggested,
+never-applied calorie changes. Pushups is ported, and the live Lift workout shows strength progress. Weekly weight blocks start on the measurement weekday (Progress
 and Body history), reviews include Since start, an imported Body height is offered through the
 dated profile, and the lift HR trace marks logged sets. Akshat accepted the integrated workout, Body and one Progress page, selecting repeat
 last set, rest timer, comparable records and photo comparisons, plus workout times and historical

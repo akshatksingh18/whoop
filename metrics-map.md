@@ -431,8 +431,9 @@ Current build-85 walking speed is elapsed-session average, Strain's day order co
 shared control, Sleep's signals use a calendar-day read, diary deletes lack confirmation, and
 calorie warnings compare to the typed goal. Their replacements, both-way historical serving
 equivalents, personal food labels and general-activity/rest policy are planned, not implemented.
-Pushups is exploration and never a sensor-measured workout/calorie source. The proposed visual
-redesign changes hierarchy/flow while retaining all unique reachable metrics.
+Pushups (build-86 source) counts completed sets only and is never a sensor-measured
+workout/calorie source; it feeds neither strain, maintenance nor the activity streak. The redesign
+changes hierarchy/flow while retaining all unique reachable metrics.
 
 Built build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
 Scanning reviews serving/nutrition before Save to My foods, without a meal or diary entry.

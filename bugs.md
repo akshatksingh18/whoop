@@ -393,6 +393,11 @@ data → Export the database) copied to the PC, to check `decoded_onehz` coverag
 temperature for 00:44–04:39. Until then, Sleep → Fix sleep times can set 10:00 PM–5:00 AM; the
 detected naps can be removed under Naps → Edit.
 
+Build 85 is not the cause. Its source changes no sleep detection, staging or recorded data: the
+analytics package is unchanged since build 74 and `kAlgoVersion` (91) since build 81; build 85
+touched only workout calories (`day_upkeep.dart`, `profile.dart`), pull-to-refresh messages and
+Food. The same algorithm scored earlier nights well, which points at this night's wrist data.
+
 Separate display bug, fixed in build-86 source: the chart's scrub line printed the raw skin-
 temperature count relative to the day as "Temp Δ −31.3 °C". That number is not degrees; the
 readout no longer shows temperature (the Skin temp row and its chart remain).

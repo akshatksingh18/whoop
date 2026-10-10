@@ -7,8 +7,8 @@
 // Nothing here is a score. Every number shows its dates and counts, a family
 // with no data says so, and nothing claims muscle gained or a cause.
 
-import 'today_plan.dart' show PlanRow;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,11 +17,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../compute/profile.dart' show isLiftType;
+import '../../compute/profile.dart' show isLiftType, Profile, bmrMifflin;
 import '../../data/body_log.dart';
 import '../../data/calculation_store.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
+import '../../data/goal_plan.dart';
 import '../../data/lift_log.dart';
 import '../../data/nutrition_store.dart';
 import '../../data/photo_encode.dart';
@@ -33,6 +34,8 @@ import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'home_screen.dart' show pad, pointsOf, pullToRefresh, repoOf, thousands;
 import 'journal_compose.dart' show OsTextField;
+import 'metric_detail.dart' show detailScaffold;
+import 'today_plan.dart' show PlanRow;
 
 const _camera = MethodChannel('openstrap/camera');
 
@@ -76,7 +79,16 @@ class ProgressData {
     required this.baseline,
     required this.heightCm,
     this.measureWeekday = DateTime.saturday,
+    this.goal = const GoalPlan(phase: GoalPhase.recomp),
+    this.goalChosen = false,
+    this.user = const {},
   });
+
+  /// The goal you chose (recomposition until you choose), and the profile
+  /// the advice reads its calorie goal and resting energy from.
+  final GoalPlan goal;
+  final bool goalChosen;
+  final Map<String, dynamic> user;
 
   /// Body's measurement weekday: weekly weight blocks start on it.
   final int measureWeekday;
@@ -169,6 +181,9 @@ class ProgressData {
       baseline: await CalculationStore.read(baselineKey),
       heightCm: (user['height_cm'] as num?)?.toDouble(),
       measureWeekday: await BodyLogDb.measureWeekday(),
+      goal: await GoalPlan.read(),
+      goalChosen: await GoalPlan.isChosen(),
+      user: user,
     );
   }
 }
@@ -267,11 +282,7 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final today = todayLabel();
     final from = _range.from(today, baseline: d.baseline, earliest: d.earliest);
     return [
-      Text(
-        'Recomposition: leaner while getting stronger'
-        '${d.baseline == null ? '' : ' · since ${_md(d.baseline!)}'}',
-        style: F.cap.copyWith(color: p.ink3),
-      ),
+      _goalCard(c, p, d, today),
       const SizedBox(height: S.x3),
       Row(
         children: [
@@ -719,6 +730,135 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       ],
     ),
   );
+
+  // ── goal ──
+
+  /// Your goal, its aim, and what the last two closed weeks say about it —
+  /// a suggestion only; the calorie goal is yours to change.
+  Widget _goalCard(BuildContext c, P p, ProgressData d, String today) {
+    final g = d.goal;
+    final (last, before) = closedWeeks(today);
+    final ws = weightSeries(d.weights, unit: 'kg');
+    final a = weightWindow(ws, last), b = weightWindow(ws, before);
+    final weekly = a.mean == null || b.mean == null || b.mean == 0
+        ? null
+        : (a.mean! - b.mean!) / b.mean! * 100;
+    final fl = foodWindow(d.food, last), fb = foodWindow(d.food, before);
+    final kg = BodyLogDb.sevenDayMean(d.weights, today)?.kg;
+    final lifts = liftComparisons(d.lifts, before, last);
+    final waist = siteSeries(d.measures, BodySite.waistNavel);
+    final wb = inRange(waist, '0000-00-00', before.to).lastOrNull;
+    final wa = inRange(waist, last.from, last.to).lastOrNull;
+    final advice = goalAdvice(
+      plan: g,
+      weeklyPct: weekly,
+      weighIns: math.min(a.count, b.count),
+      foodDays: math.min(fl.kcalDays, fb.kcalDays),
+      kg: kg,
+      currentGoal: (d.user['kcal_target'] as num?)?.toDouble(),
+      restingKcal: bmrMifflin(Profile.fromMap(d.user)),
+      liftsBetter: lifts.where((x) => x.direction > 0).length,
+      liftsWorse: lifts.where((x) => x.direction < 0).length,
+      proteinPerKg: fl.protein == null || kg == null ? null : fl.protein! / kg,
+      waistChange: wa == null || wb == null ? null : wa.value - wb.value,
+    );
+    final band = g.band;
+    String pct(double v) =>
+        '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
+    final color = switch (advice.verdict) {
+      GoalVerdict.onTrack => C.green,
+      GoalVerdict.adjust => C.orange,
+      GoalVerdict.reviewRecovery => C.yellow,
+      GoalVerdict.needMore => C.n500,
+    };
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: R.rXl,
+        border: Border.all(color: p.edge),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(p.wash(C.teal, strength: .8), p.cardHi),
+            p.card,
+          ],
+        ),
+      ),
+      child: Pressable(
+        semanticLabel: 'Goal: ${g.phase.title}. Change goal',
+        onTap: () async {
+          final changed = await Navigator.of(c).push<bool>(
+            MaterialPageRoute(
+              builder: (_) => GoalScreen(plan: g, kg: kg),
+            ),
+          );
+          if (changed == true) reload();
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(S.x4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'GOAL',
+                      style: F.section.copyWith(color: p.ink3),
+                    ),
+                  ),
+                  Flexible(
+                    child: Text(
+                      d.goalChosen ? 'Change' : 'Choose your goal',
+                      textAlign: TextAlign.end,
+                      style: F.cap.copyWith(color: p.on(C.teal)),
+                    ),
+                  ),
+                  Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                ],
+              ),
+              const SizedBox(height: S.x1),
+              Text(g.phase.title, style: F.t2.copyWith(color: p.ink)),
+              Text(
+                'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein '
+                '${band.proteinLow}–${band.proteinHigh} g/kg'
+                '${g.since == null ? '' : ' · since ${_md(g.since!)}'}',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+              const SizedBox(height: S.x3),
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x1,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Pill(switch (advice.verdict) {
+                    GoalVerdict.onTrack => 'On track',
+                    GoalVerdict.adjust => 'Adjust',
+                    GoalVerdict.reviewRecovery => 'Check recovery',
+                    GoalVerdict.needMore => 'Needs data',
+                  }, color),
+                  Text(advice.headline, style: F.body.copyWith(color: p.ink)),
+                ],
+              ),
+              const SizedBox(height: S.x2),
+              for (final line in advice.because)
+                Text(line, style: F.cap.copyWith(color: p.ink2)),
+              if (advice.next != null) ...[
+                const SizedBox(height: S.x2),
+                Text(advice.next!, style: F.cap.copyWith(color: p.ink)),
+              ],
+              const SizedBox(height: S.x2),
+              Text(
+                'A suggestion from your last two closed weeks. The app never '
+                'changes your goals.',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   // ── review ──
 
@@ -2225,5 +2365,174 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
         ),
       ),
     );
+  }
+}
+
+/// Choose and change your goal (build 86): the phase, its pace or your
+/// training age where that changes the aim, with what each one means.
+class GoalScreen extends StatefulWidget {
+  const GoalScreen({super.key, required this.plan, this.kg});
+  final GoalPlan plan;
+  final double? kg;
+  @override
+  State<GoalScreen> createState() => _GoalScreenState();
+}
+
+class _GoalScreenState extends State<GoalScreen> {
+  late GoalPhase _phase = widget.plan.phase;
+  late GoalPace _pace = widget.plan.pace;
+  late TrainingAge _age = widget.plan.trainingAge;
+  bool _saving = false;
+
+  GoalPlan get _draft =>
+      GoalPlan(phase: _phase, pace: _pace, trainingAge: _age);
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final band = _draft.band;
+    String pct(double v) =>
+        '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
+    String kgWeek(double v) => widget.kg == null
+        ? ''
+        : ' (${v >= 0 ? '+' : '−'}${(widget.kg! * v.abs() / 100).toStringAsFixed(2)} kg)';
+    Widget option(String title, String sub, bool on, VoidCallback tap) =>
+        Pressable(
+          semanticLabel: title,
+          onTap: tap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  on ? LucideIcons.circleDot : LucideIcons.circle,
+                  size: 18,
+                  color: on ? p.on(C.teal) : p.ink3,
+                ),
+                const SizedBox(width: S.x3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: F.body.copyWith(color: p.ink)),
+                      if (sub.isNotEmpty)
+                        Text(sub, style: F.cap.copyWith(color: p.ink3)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+    return detailScaffold(c, 'Your goal', [
+      Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: Column(
+          children: [
+            for (final ph in GoalPhase.values)
+              option(
+                ph.title,
+                ph.plain,
+                _phase == ph,
+                () => setState(() => _phase = ph),
+              ),
+          ],
+        ),
+      ),
+      if (_phase == GoalPhase.fatLoss) ...[
+        const SizedBox(height: S.x4),
+        Text('PACE', style: F.section.copyWith(color: p.ink3)),
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              for (final pc in GoalPace.values)
+                option(
+                  pc.title,
+                  () {
+                    final b = GoalPlan(phase: GoalPhase.fatLoss, pace: pc).band;
+                    return '${pct(b.high)} to ${pct(b.low)} a week${kgWeek(b.low)}'
+                        '${pc == GoalPace.faster ? '. Harder to keep strength.' : ''}';
+                  }(),
+                  _pace == pc,
+                  () => setState(() => _pace = pc),
+                ),
+            ],
+          ),
+        ),
+      ],
+      if (_phase == GoalPhase.leanGain) ...[
+        const SizedBox(height: S.x4),
+        Text('TRAINING AGE', style: F.section.copyWith(color: p.ink3)),
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              for (final a in TrainingAge.values)
+                option(
+                  a.title,
+                  () {
+                    final b = GoalPlan(
+                      phase: GoalPhase.leanGain,
+                      trainingAge: a,
+                    ).band;
+                    return '${pct(b.low)} to ${pct(b.high)} a week${kgWeek(b.high)}';
+                  }(),
+                  _age == a,
+                  () => setState(() => _age = a),
+                ),
+            ],
+          ),
+        ),
+      ],
+      const SizedBox(height: S.x4),
+      Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'What the review will aim for',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+            const SizedBox(height: S.x1),
+            Text(
+              'Weight ${pct(band.low)} to ${pct(band.high)} a week on the 7-day '
+              'average, protein ${band.proteinLow}–${band.proteinHigh} g per kg, '
+              'and comparable lifts holding or better.',
+              style: F.cap.copyWith(color: p.ink),
+            ),
+            const SizedBox(height: S.x2),
+            Text(
+              'It waits for two closed weeks with four weigh-ins and five full '
+              'food days in each, suggests calorie changes of 100 to 250 kcal, '
+              'and never suggests going below your resting energy. Water, salt '
+              'and glycogen move the scale day to day; the trend is what counts.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: S.x4),
+      BigButton(
+        _saving ? 'Saving…' : 'Use this goal from today',
+        color: C.teal,
+        onTap: _saving
+            ? null
+            : () async {
+                setState(() => _saving = true);
+                await GoalPlan.save(
+                  GoalPlan(
+                    phase: _phase,
+                    pace: _pace,
+                    trainingAge: _age,
+                    since: todayLabel(),
+                    holdKg: _phase == GoalPhase.maintain ? widget.kg : null,
+                  ),
+                );
+                if (c.mounted) Navigator.of(c).pop(true);
+              },
+      ),
+    ]);
   }
 }

@@ -55,7 +55,9 @@ void main() {
 
   for (final scale in [1.0, 2.0]) {
     testWidgets('empty, then with records, at ${scale}x', (t) async {
-      t.view.physicalSize = const Size(360, 780);
+      // Taller at 2x so the page's first controls are laid out under the
+      // Goal card; the width stays the narrow 360 the test is about.
+      t.view.physicalSize = Size(360, 780 * scale * 1.5);
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.reset);
       await t.runAsync(() async {

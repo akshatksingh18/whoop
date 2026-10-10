@@ -201,6 +201,8 @@ const _notComponents = {
   'PushupSettingsScreen', 'HomeSetupScreen', 'TodayPushupRow',
   // Today's plan card reads AppState for its rows' destinations.
   'TodayPlanCard',
+  // The goal chooser reads and writes the saved goal.
+  'GoalScreen',
   // The run screen and the maintenance card: each needs a recorded track or a
   // profile; `ui2_run_detail_test` renders the run screen at 1x and 2x.
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',

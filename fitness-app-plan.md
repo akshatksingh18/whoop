@@ -1,7 +1,11 @@
 # WHOOP As An All-In-One Fitness App
 
-**State:** Approved for implementation in Build 86 (one build); in progress, not yet built or
-phone-tested. Akshat accepted the integrated workout, Body and one Progress page, selecting repeat
+**State:** Implemented in build-86 source `0.9.53`/`86` (one build; not built or phone-tested):
+Body (`lib/data/body_log.dart`), photos (camera bridge, `photo_encode.dart`), the Progress tab
+(`progress_screen.dart`, `progress_review.dart`), imports and format-2 media backups. The review
+offers gather evidence / continue / review together; a numeric intake adjustment is not built
+until Akshat approves its rule. Measurement-week average blocks and HR-timeline set markers are
+not built. Akshat accepted the integrated workout, Body and one Progress page, selecting repeat
 last set, rest timer, comparable records and photo comparisons, plus workout times and historical
 body/photo entry. Imported/backdated weights are history-only and never change past calorie
 numbers. Publication, AkshatOS removal and entry-ownership cutover still need separate approval.

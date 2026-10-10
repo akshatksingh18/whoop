@@ -77,10 +77,14 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   contract-tested, not yet device-verified — `CLAUDE.md` owns the outstanding evidence gate;
 - hide the unsupported Oura pairing row in the personal flavor while retaining its direct-BLE
   implementation in the full upstream-capable source;
-- remove `processing`, `fetch`, and their native/Dart BG task registrations from the
-  initial profile (still the installed build-85 contract). `../background-sync-plan.md`
-  proposes enabling bounded tasks for background insight freshness; approval, coordinated
-  transformation/validator changes and signed-device validation are required before activation;
+- `fetch` and `processing`: absent from installed build 85; build-86 source (Akshat's approval)
+  keeps exactly `bluetooth-central`, `location`, `audio`, `fetch`, `processing` and the two task
+  identifiers `wtf.openstrap.edge.bgsync` / `wtf.openstrap.edge.refresh`, with native
+  registration in the personal build. `tool/personal_ios.py` and its tests enforce that exact set.
+  Signed-device validation that the tasks actually run is still required
+  (`../background-sync-plan.md`);
+- the camera usage text covers barcodes and, from build-86 source, optional progress photos
+  (taken through a native camera bridge, kept only in the app, without location);
 - default required backend, OTA, health contribution, Firebase Analytics/Performance/Crashlytics,
   and bundled secrets off; BYOK/network features are manual opt-ins only if offline use is complete;
 - fail packaging if `Watch/`, any app extension, unexpected entitlements, signing credentials,

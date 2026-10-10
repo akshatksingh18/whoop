@@ -15,23 +15,16 @@ repository remains available as the `local-backup` remote; the three official Op
 remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification with build `0.9.52`/`85` installed on Akshat's iPhone 17
-(iOS `26.6.2`), as reported by Akshat;
-complete phone acceptance and current-version automatic-refresh enrollment remain open before
-cache promotion. Background sync has observed long stalls; `bugs.md` owns the supplied transfer
-and MetricKit CPU-exit evidence. Akshat approved implementing the whole build-86 scope as one build; `todo.md` owns its
-decisions and progress, and nothing in it is built or phone-tested yet. `background-sync-plan.md` owns the research for brief daily
-app use and fresh background data/insights; `lift-log-integration-plan.md` owns the proposed
-combined workout and its migration/feature-preservation decisions. `fitness-app-plan.md` owns
-the accepted all-in-one direction, unified body data and Progress page for Akshat's confirmed
-recomposition goal (leaner while getting stronger). Repeat last set, rest timer, comparable
-records, independent photo comparison, workout times, historical body/photo entry and
-screenshot-based local history import are selected and in progress. Installed navigation and
-data ownership remain unchanged until build 86 is installed; AkshatOS keeps its modules.
-`build-86-audit.md` owns the expanded source/UX audit: seven-day and weekly/monthly diet/body/
-strength reviews, inverted Strain dates, current speed, complete-night signals, automatic
-open freshness, safe actions, personal food labels/portion equivalents, maintenance warnings,
-activity/rest policy and a structural redesign. Pushups is exploration, not approved port;
-guidance/protection/capability details remain for review. No new phone/test acceptance is claimed.
+(iOS `26.6.2`), as reported by Akshat; its phone acceptance and current-version refresh enrollment
+remain open. Build-86 source `0.9.53`/`86` is implemented locally (commits on `main`, not pushed,
+not built, not phone-tested): bounded background sync with real calculation cancellation and
+personal `fetch`/`processing` tasks, Lift Log inside the Lift workout, Body and a fifth Progress
+tab, and the B86-01..16 repairs. `todo.md` owns its decisions, implemented/open items and gates;
+`build-86-audit.md`, `background-sync-plan.md`, `lift-log-integration-plan.md` and
+`fitness-app-plan.md` own their contracts. Publishing the source and building the IPA need
+Akshat's separate approval. AkshatOS keeps its modules and entry ownership until import and
+combined phone acceptance. Pushups stays exploration. A SideStore signing pilot is approved
+(`../akshatos/sidestore-evaluation.md`); Sideloadly remains the refresher until it passes.
 
 Build `0.9.37`/`70` remains accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
@@ -431,9 +424,9 @@ The personal artifact must have these properties:
   permission, battery, background, and stop-semantics evidence this reopening still calls for needs
   a real outdoor run on the phone, not a code review. Do not describe route tracking as accepted
   until that pass happens and is recorded here.
-- Build 73 adds `audio` to the personal background-mode contract for genuine workout speech.
-  It keeps While-In-Use location authorization and adds no HealthKit, App Group, companion,
-  processing/fetch or silent audio keepalive. The payload validator enforces this mode set.
+- Build 73 adds `audio` to the personal background-mode contract for genuine workout speech;
+  build-86 source adds `fetch`/`processing` (above). While-In-Use location only; no HealthKit,
+  App Group, companion or silent audio keepalive. The payload validator enforces the mode set.
 - **Akshat does not own an Oura ring**, so the upstream adapter, protocol, and derivation seams stay
   for merge value but are unverified here. The personal build hides the Oura pairing row behind
   `kPersonalSideload`; the full upstream-capable build retains it. This is an explicit unsupported-
@@ -451,11 +444,10 @@ The personal artifact must have these properties:
   wind-down entry points are also removed by the later journal and Sleep decisions below.
 
   **Selection rule:** keep what serves Akshat's goals (lifting, running, sleep, recovery) and drop
-  noise and redundant manual entry. Food and body weight are deliberately logged by hand in WHOOP;
-  lifting sets are currently logged in AkshatOS. A combined WHOOP/Lift Log workout is a
-  accepted Build 86 direction (`lift-log-integration-plan.md`), not an approved ownership change.
-  Body and a consolidated recomposition Progress page are accepted plans (`fitness-app-plan.md`);
-  the installed four-tab layout and AkshatOS Body ownership remain unchanged.
+  noise and redundant manual entry. Food and body weight are deliberately logged by hand in WHOOP.
+  Build-86 source adds set logging inside the Lift workout (`lift-log-integration-plan.md`) and
+  Body plus a fifth Progress tab (`fitness-app-plan.md`); installed build 85 still has four tabs
+  and no sets, and AkshatOS keeps Lift Log/Body ownership until import and phone acceptance.
   `metrics-map.md`
   lists everything stored, where it appears, and current layout decisions.
   - **Journal removed** at Akshat's request, and the daily check-in is forced off. No Home or
@@ -474,11 +466,10 @@ The personal artifact must have these properties:
     - **Train** (`workout_screen.dart`): Run / Walk / Lift / Other (Walk from source 69), the
       run-or-walk streak, 7-day strain bars, running trends, recent sessions.
       Fitness/fatigue/form, the kg-lifted chart, morning-after and overreach cards, the mascot
-      card and the share button were removed. **Lifting sets are not logged**: in the personal
-      build `Track.sets` activities run as a timed session (`archOf`), because Akshat logs lifts
-      in AkshatOS Lift Log. `strength_set` rows and the sets UI stay in source for a possible
-      later migration into WHOOP. The accepted planned direction is in `lift-log-integration-plan.md`;
-      build 85's behavior is unchanged until the combined plan is approved and implemented.
+      card and the share button were removed. In the personal build `Track.sets` activities still
+      use the timed screen (`archOf`); from build-86 source that screen carries the Lift Log
+      panel (`lib/ui2/activity/lift_log_ui.dart`, `lib/data/lift_log.dart`), stored in
+      `lift_log` linked to the session. The old `strength_set` rows and sets UI stay untouched.
     - **Settings:** one list opened from Today (`MoreSettings`); the profile hub, AI coach, AI
       briefings, language picker and paced-breathing screen were removed. In the personal build
       the Automation group, app-icon row, add-a-sensor row and the movement-nudge and step-goal
@@ -529,9 +520,10 @@ The personal artifact must have these properties:
   Removed UI surfaces retain their underlying computation and stored history, and git history
   holds the removed screens. Build 70 also adds food sub-groups/body weight storage and changes
   personal step resolution to phone-first (`kAlgoVersion` 87).
-- The initial personal profile removes `processing`/`fetch` modes, BG task identifiers,
-  native registration, and Dart scheduling. They remain optional future experiments, never
-  correctness requirements.
+- Build-86 source adds `fetch` and `processing` and exactly the two BG task identifiers to the
+  personal profile (Akshat's approval), with native registration, single completion and
+  expiration forwarded to Dart. They are bounded supplements to BLE wakes and foreground
+  catch-up, never correctness requirements; `tool/personal_ios.py` enforces the exact set.
 - Default the personal flavor to local-only operation: no health-data contribution, no required
   companion/backend URL, no automatic OTA dependency, and no automatic Firebase Analytics,
   Performance, or Crashlytics collection. In particular, do not carry the current release
@@ -678,10 +670,11 @@ The personal artifact must have these properties:
   app. The manual off-phone copy to Windows (Files / iTunes File Sharing) is still required.
   Encryption uses pure-Dart AES-GCM at about 1.5 MB/s, so a large database takes a while. It needs a
   measured on-phone run and a restore test.
-- **Planned media gate:** current encrypted backups contain the database, not external progress
-  JPEGs. The accepted Body plan requires versioned media-inclusive encrypted recovery, old-format
-  compatibility, explicit missing-file review and a full restore test before cutover. See
-  `fitness-app-plan.md`; no backup format or photo capability has changed yet.
+- **Media in backups (build-86 source):** an exported encrypted backup with progress photos is OSBK
+  format 2 (database plus `body_photos/` in a ZIP, `lib/data/media_backup.dart`); format 1 still
+  restores and older builds refuse format 2 by version. The automatic in-app backup stays
+  database-only (it shares the app container with the photos). A full restore test on the phone
+  remains a gate before Body/photo entry moves from AkshatOS.
 - Never uninstall WHOOP merely because its profile expired. Preserve a verified encrypted export
   while the app still opens, then install the cached IPA over the existing container with automatic
   bundle-ID rewriting off and exact final ID `com.akshat.personal.whoop.5564K8D4SV`. That path is

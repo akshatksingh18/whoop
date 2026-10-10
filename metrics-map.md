@@ -112,11 +112,15 @@ These are still stored but no longer entered in the personal build:
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
 | `food_def.category` | the food's category (Fruits, Vegetables, Protein, Dairy & eggs, Grains & bread, Snacks & sweets, Drinks, Supplements, Meals & dishes; '' = Uncategorised), build 85; one field read by the Foods, log-screen and saved-meal-picker filters |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
-| `body_weight` | one weight per day (latest wins); logging one also sets profile `weight_kg` |
+| `body_weight` | one weight per day (latest wins); today's sets profile `weight_kg`. Build-86 source adds `unit`, `entered`, `source`, `origin_id` and `history_only`: backdated/imported rows are history only and never price a day |
+| `body_measure` | build-86 source: one tape session, inches by AkshatOS site key (unknown keys kept) |
+| `body_photo` | build-86 source: a progress-photo record; the JPEG lives in `body_photos/` (metadata stripped) |
+| `lift_log` | build-86 source: one Lift Log workout as JSON, linked to its WHOOP session (imported AkshatOS history has none) |
 
 ## Where each core metric appears now
 
-Four tabs, each one scrolling page: **Today · Trends · Food · Train**.
+Four tabs on installed build 85: **Today · Trends · Food · Train**. Build-86 source adds a fifth,
+**Progress** (Body inside it), and a compact Body row on Today.
 
 | Metric | Today | Trends row | Detail screen |
 |---|---|---|---|
@@ -403,7 +407,8 @@ are review gates; no kg-lifted chart or other removed metric is automatically re
 `fitness-app-plan.md` additionally records accepted Body parity and one recomposition Progress page:
 shared weight/profile data, weight/waist and comparable strength changes, eligible food logging,
 activity and recovery context, weekly/since-start comparisons and local photo-inclusive recovery.
-A fifth Progress tab is planned, not implemented; Today / Trends / Food / Train remain installed.
+The fifth Progress tab and Body are implemented in build-86 source (not installed); the installed
+build still shows Today / Trends / Food / Train.
 Repeat last set, rest timer, comparable records and independent two-panel photo selection are
 selected, alongside live Started/summary start-end, backdated body/photo entry, measurement/range
 selectors and a privately generated MyFitnessPal import during implementation. Numeric source

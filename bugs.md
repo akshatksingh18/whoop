@@ -376,6 +376,27 @@ central; do not arm the separate recovery central against its healthy connection
 daily app use requires bounded background insight opportunities as well as safe capture,
 running-worker cancellation and fast foreground catch-up; none is newly implemented here.
 
+## Night of 9–10 Oct split into a short night and two naps (build 85, open)
+
+Akshat reports sleeping about 10 PM–5 AM. Installed build 85 shows the night as 9:26 PM–12:44 AM
+(3 h 06 m asleep, 3 h 18 m in bed) and two detected naps, 4:39–5:03 AM and 5:20–5:38 AM; he says
+earlier nights were recorded well.
+
+What the source says (not yet confirmed against this night's data): the night window is the
+longest stretch of wrist data the van Hees rule can assert as still, bridging gaps of at most
+30 minutes (`packages/analytics/lib/src/onehz/sleep/van_hees.dart`); later still stretches
+become naps. So 12:44–4:39 AM held no assertable stillness: either the band lost skin contact
+(the screenshot's skin-temperature line drops sharply and heart rate ends at 12:44, which fits),
+or the 1 Hz accelerometer rows for that span are missing or invalid (a transfer/decode gap). The
+data cannot tell those apart from a screenshot. Next step: an exported database (Settings → Your
+data → Export the database) copied to the PC, to check `decoded_onehz` coverage, HR and
+temperature for 00:44–04:39. Until then, Sleep → Fix sleep times can set 10:00 PM–5:00 AM; the
+detected naps can be removed under Naps → Edit.
+
+Separate display bug, fixed in build-86 source: the chart's scrub line printed the raw skin-
+temperature count relative to the day as "Temp Δ −31.3 °C". That number is not degrees; the
+readout no longer shows temperature (the Skin temp row and its chart remain).
+
 ## Workout Live Activity never drew (builds 74–80): resolved by removal in build 81
 
 Symptom: the Status sample and real walks reported "Started"/"Updated", but the lock screen showed

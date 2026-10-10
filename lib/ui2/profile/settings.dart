@@ -10,6 +10,7 @@
 //     form. None of them feed a metric, and a field that changes nothing is a
 //     field that implies an account.
 
+import 'dart:io';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -19,6 +20,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auto_backup.dart';
+import '../../data/body_log.dart' show BodyLogDb;
 import '../../build_profile.dart';
 import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
@@ -514,6 +516,15 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
       final dir = await backupDirectory();
       await pruneBackups(dir, keep: 0);
       left = sortBackupsNewestFirst(dir.listSync()).length;
+      // Progress photos are files, not rows (build 86): the wipe cannot
+      // reach them, so they go here and are counted if any remain.
+      final photos = await BodyLogDb.photoDir();
+      for (final f in photos.listSync().whereType<File>()) {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+      left += photos.listSync().whereType<File>().length;
     } catch (_) {
       left = -1;
     }
@@ -521,12 +532,11 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     final retry = await showDialog<bool>(
       context: c,
       builder: (d) => AlertDialog(
-        title: const Text('Backup copies not deleted'),
+        title: const Text('Some files were not deleted'),
         content: Text(
           left > 0
-              ? 'Your data was deleted, but $left automatic backup '
-                    '${left == 1 ? 'copy' : 'copies'} could not be removed '
-                    'from OpenStrap Backups.'
+              ? 'Your data was deleted, but $left backup or photo '
+                    '${left == 1 ? 'file' : 'files'} could not be removed.'
               : 'Your data was deleted, but the automatic backup folder '
                     'could not be checked, so a copy may remain.',
         ),

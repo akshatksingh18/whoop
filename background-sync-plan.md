@@ -1,7 +1,13 @@
 # Background Sync And Insight Freshness
 
-**Status:** Repair approved for Build 86, including personal `fetch`/`processing` modes; in
-progress, not yet built or phone-verified. Build
+**Status:** Implemented in build-86 source `0.9.53`/`86` (not built or phone-verified): one
+process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
+expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation
+instead of deriving; launch kind is settled before the scheduler arms and native `ready` waits for
+the band owner; personal `fetch`/`processing` tasks run bounded calculation with single
+completion; native breadcrumbs go to `openstrap_native.log`; background UI notifications
+coalesce; open shows recorded HR past the last calculation. Still open: per-input invalidation,
+high-rate-path CPU profiling, and every device gate below. Build
 `0.9.52`/`85` remains installed. Akshat reports an iPhone 17 on iOS `26.6.2`, normally
 opening WHOOP for only two or three minutes a day to read insights. He is unsure whether
 the supplied afternoon gap included swiping the app away. `todo.md` owns approval and

@@ -35,6 +35,8 @@ the CI-passing build-85 commit `3c141b7a` is still the code baseline.
 
 ### B86-01: Strain Date Arrows Are Reversed (P2, Confirmed)
 
+**Build-86 source:** day_strain sorts newest first; test pins the load-to-control order.
+
 `lib/ui2/activity/day_strain.dart:109` sorts its dates oldest first, then passes them to
 `dayNavRow` at line 271. `lib/ui2/screens/metric_detail.dart:2176` documents newest-first
 dates; its left button selects index + 1 and right selects index - 1. This explains the
@@ -47,6 +49,8 @@ control path, Today, an old day, gaps, empty/single-day data, bounds and accessi
 Existing shared-control tests alone missed the caller's ordering error.
 
 ### B86-02: Walking Speed Is A Session Average (P2, Confirmed)
+
+**Build-86 source:** freshSpeedMps (10 s max age, speedAccuracy gate, stationary fixes update it); live walk shows current km/h, the average is labelled avg.
 
 `lib/ui2/activity/live.dart:999` computes speed from cumulative distance / elapsed hours.
 `lib/ui2/screens/workout_screen.dart:1286` supplies distance but no current speed to `LiveFeed`.
@@ -68,6 +72,8 @@ Always permission just to record an explicitly started walk.
 
 ### B86-03: Sleep Signals Use A Calendar-Day Read (P1, Confirmed Window Risk)
 
+**Build-86 source:** getNightSignals reads HR/HRV/respiration/temperature over onset-to-wake across every day it touches.
+
 `lib/ui2/screens/sleep_detail.dart:247` loads the night and then `getDayTimeline(day)`.
 `lib/data/local_repository_impl.dart:1648` uses that day's bundle/HR curve, preferring
 calendar-day `hrv_day` when present at line 1727; respiration/temperature are day-based too.
@@ -84,6 +90,8 @@ Test first/last points, midnight/DST, long nights, genuine gaps, pruned/partial 
 corrected sleep and stage/cursor alignment; apply the same edge/gap checks to other charts.
 
 ### B86-04: Open-To-Fresh-History Has A Derived-Data Bottleneck (P1, Confirmed Paths)
+
+**Build-86 source:** Today's HR chart appends recorded per-minute HR past the last calculated point (provisional, 6 h bound); commits publish a revision at most once a minute.
 
 Automatic catch-up already exists: `AppState.openSession` can call `foregroundCatchUp`.
 However `refreshForeground` at `lib/state/app_state.dart:742` queues compute without awaiting
@@ -102,6 +110,8 @@ ownership, expiration and capability repair remains in `background-sync-plan.md`
 
 ### B86-05: Diary Delete Does Not Ask First (P2, Confirmed)
 
+**Build-86 source:** One confirmed delete for swipe and menu with duplicate-submit guard; drag regroup/reorder is one transaction.
+
 `lib/ui2/screens/food_diary.dart:811` removes a row with a short Undo notice; menu Delete
 at line 963 writes directly. `SwipeDelete` at `food_picker.dart:1634` delegates deletion
 and does not itself prompt. My Foods already uses `confirmRemove`.
@@ -117,6 +127,8 @@ order one atomic mutation and retain/reload the durable state on failure; test i
 multi-row moves without disturbing independent draft-only editing.
 
 ### B86-06: Workout Delete Moves The Expander; Summary Has No Delete (P2, Confirmed)
+
+**Build-86 source:** Session delete is one transaction and cascades to the lift log; the row keeps its chevron fixed; summaries delete their own saved workout.
 
 `lib/ui2/screens/workout_screen.dart:1033` adds trash only when expanded, shifting the
 chevron. Existing history deletion asks first, but its moving placement invites the wrong tap.
@@ -138,6 +150,8 @@ retimed/overnight/paused workouts, and actual persisted end rather than start + 
 
 ### B86-07: Gram Portions Omit The Named Equivalent (P2, Confirmed)
 
+**Build-86 source:** Equivalents both ways from explicit conversions; each entry snapshots its conversion (`food_entry.conv`).
+
 `lib/data/nutrition_store.dart:1216` returns early for g/ml in `portionWithWeight`.
 `unitInBase` already supports the conversion needed for the reverse direction. Preserve the
 entered amount as primary and show its equivalent named serving when an explicit conversion
@@ -151,6 +165,8 @@ old macro totals. Cover picker, saved meal, log/review, diary/detail/edit/copy a
 
 ### B86-08: Food Category Creation Is Missing (P2, Confirmed Gap)
 
+**Build-86 source:** Personal labels: create, reuse, rename/merge, clear; matching ignores case.
+
 The editor offers `kFoodCategories` only, although the string storage and category filtering
 already accept custom labels. Replace required fixed chips with create/reuse/search of the
 user's labels, optional blank/Uncategorised, and explicit rename/merge/clear management.
@@ -159,6 +175,8 @@ and diary snapshots; do not silently recategorize imported history or remove sto
 Test scan/manual/edit flows, empty/duplicate/long labels and filter fallback after a merge.
 
 ### B86-09: Calorie Warning Uses The Diet Goal (P2, Confirmed)
+
+**Build-86 source:** Red only above Budget maintenance; unknown maintenance neutral; over goal within maintenance says so.
 
 `CalorieCard` at `nutrition_screen.dart:942` treats negative goal remaining as over;
 history at line 1452 turns kcal red above the typed goal despite receiving maintenance.
@@ -174,6 +192,8 @@ late sync, historical profile changes, model disagreement and partial today. Gre
 mean low intake is advisable or authorize automatic target rewriting.
 
 ### B86-10: Activity Streak Excludes Lifting (P2, Confirmed Scope Gap)
+
+**Build-86 source:** Lifting and other purposeful exercise count; Rest / Life happens protection with the proposed allowance.
 
 `lib/compute/streak.dart:223` accepts only completed runs/walks plus qualifying step-goal
 days. Generalize physical-activity qualification to lifts and other purposeful exercise,
@@ -197,6 +217,8 @@ restore and no duplicate awards. A ledger must remain recoverable and recomputab
 
 ### B86-11: Weekly Protein And Coverage Can Mislead (P1, Confirmed)
 
+**Build-86 source:** Complete-protein denominator independent of maintenance; exclusions scoped to the shown week.
+
 `lib/ui2/screens/week_card.dart:95` accumulates protein only after maintenance is known,
 then accepts any non-null protein total rather than `NutrientTotal.complete`. This can exclude
 valid nutrition days because wearable maintenance is absent, or present a partial macro floor
@@ -212,6 +234,8 @@ monthly comparisons to Progress, not an unlabelled reuse of current first/last f
 
 ### B86-12: Reset/Media Recovery Needs An Honest Outcome (P2, Confirmed Failure Risk)
 
+**Build-86 source:** Reset counts and offers retry for leftover backup copies and progress photos.
+
 `lib/ui2/profile/settings.dart:504` catches every backup-pruning error after reset as if
 there were no folder. A permission/storage failure can leave a recovery copy despite wording
 claiming no copy remains. Distinguish absence from deletion failure and offer a visible retry.
@@ -222,6 +246,8 @@ Current `.osbk` covers SQLite, not external JPEGs; media-complete recovery is al
 
 ### B86-13: Damaged-Database Salvage Drops Weights And Saved Meals (P1, Confirmed)
 
+**Build-86 source:** Salvage lists every imported only-copy table; `table_coverage_test` enforces it.
+
 `LocalDb._salvageTables` (`lib/data/db.dart`), used by `_openOrRebuild` after a migration fails,
 omits `body_weight`, `meal_template` and `live_coverage`, although the backup-import list
 includes them. A failed Build 86 migration would reopen with an empty weight history and no
@@ -231,6 +257,8 @@ day/session delete in the same change. Add a test that fails when a table exists
 but not in those lists, as AkshatOS's `check-backup-coverage.py` does for modules.
 
 ### B86-14: `body_weight` Already Changes Past Calculations (P1, Confirmed Design Conflict)
+
+**Build-86 source:** Decided: history only. `body_weight.history_only`; ProfileHistory.on and Food's estimator skip it.
 
 `ProfileHistory.on` uses the latest `body_weight` row on or before a day as that day's weight.
 `DayUpkeep.read` (resting energy, step/run calories) and `workout_measurements` (any workout
@@ -243,6 +271,8 @@ or accept the repricing explicitly and show it in the import preview. Test both 
 
 ### B86-15: Photo Capture And Media Backup Are Not Yet Feasible As Planned (P2, Confirmed Gap)
 
+**Build-86 source:** Native camera bridge plus `photo_encode.dart` (image package, no metadata); exported encrypted backups are format 2 with photos; the automatic backup stays database-only.
+
 No image picker or image re-encoding plugin is in `pubspec.yaml` (only `mobile_scanner` and
 `file_picker`), so Body photos need a new reviewed dependency or a native bridge, including
 resize and location-metadata stripping. The camera usage string says no photo is ever kept.
@@ -252,6 +282,8 @@ Plan media backup as resumable or incremental (unchanged photos not re-encrypted
 with honest "backup incomplete" status, and measure it on the phone before cutover.
 
 ### B86-16: Rollback Target Is 15 Builds Old (P2, Release Risk)
+
+**Build-86 source:** schemaVersion is still 49 (new tables are added on open), so build 70/85 can open the database; format-2 backups are refused by them. Promote build 85 or keep 70 deliberately before installing 86.
 
 Build 70 is the only accepted recovery build. `schemaVersion` is still 49, as in build 70, so
 rollback works today. Build 86 will likely add tables (schema 50) and a new backup format

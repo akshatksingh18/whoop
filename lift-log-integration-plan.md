@@ -1,7 +1,9 @@
 # Lift Log Inside WHOOP
 
-**State:** Approved for implementation in Build 86; in progress, with no change of data
-ownership. Build 85 still runs lifts as timed WHOOP sessions;
+**State:** Implemented in build-86 source `0.9.53`/`86` (not built or phone-tested), with no
+change of data ownership. Code: `lib/data/lift_log.dart`, `lib/data/lift_reminders.dart`,
+`lib/ui2/activity/lift_log_ui.dart`. Not built: reviewed linking of an imported AkshatOS workout
+to an existing WHOOP session, and set markers on the HR timeline. Build 85 still runs lifts as timed WHOOP sessions;
 AkshatOS still owns its installed Lift Log. No module removal, migration, new entitlement or
 calorie-model change is authorized. `todo.md` owns combined build approval;
 `../akshatos/hub-plan.md` owns the cross-project boundary.

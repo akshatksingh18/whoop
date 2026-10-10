@@ -16,6 +16,7 @@ import '../../data/nutrition_store.dart';
 import '../../data/off_lookup.dart';
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
+import 'food_diary.dart' show askText;
 import 'log_food.dart';
 
 const _mealNames = {
@@ -493,7 +494,10 @@ List<Map<String, Object?>> foodsIn(
   String? category,
 ) => category == null
     ? foods
-    : [for (final f in foods) if (foodCategory(f) == category) f];
+    : [
+        for (final f in foods)
+          if (labelKey(foodCategory(f)) == labelKey(category)) f,
+      ];
 
 class FoodEditor extends StatefulWidget {
   const FoodEditor({super.key, this.existing, this.reviewBarcode = false});
@@ -597,9 +601,55 @@ class _FoodEditorState extends State<FoodEditor> {
     return u.isNotEmpty && u != 'g' && u != 'ml';
   }
 
+  /// The user's labels across My foods, loaded once; suggestions fill in
+  /// only while there are fewer than a few of their own.
+  List<String> _labels = const [];
+
+  List<String> get _labelChoices {
+    final out = <String, String>{
+      for (final l in _labels) labelKey(l): l,
+      if (_category.trim().isNotEmpty) labelKey(_category): _category.trim(),
+    };
+    if (out.length < 4) {
+      for (final l in kFoodCategories) {
+        out.putIfAbsent(labelKey(l), () => l);
+      }
+    }
+    return out.values.toList();
+  }
+
+  Future<void> _loadLabels() async {
+    try {
+      final labels = foodLabelsIn(await MyFoods.all(await LocalDb.instance));
+      if (mounted) setState(() => _labels = labels);
+    } catch (_) {
+      /* the suggestions still work */
+    }
+  }
+
+  Future<void> _newLabel() async {
+    final name = await askText(
+      context,
+      'New label',
+      'Label',
+      '',
+      validate: (v) => v.trim().isEmpty
+          ? 'Type a name.'
+          : v.trim().length > 30
+          ? 'Use 30 characters or fewer.'
+          : null,
+    );
+    if (name == null || !mounted) return;
+    final t = name.trim();
+    // An existing label typed in another case is that label, not a new one.
+    final same = _labelChoices.where((l) => labelKey(l) == labelKey(t));
+    setState(() => _category = same.isEmpty ? t : same.first);
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadLabels();
     _unit.addListener(() => setState(() {}));
     final e = widget.existing;
     if (e != null) {
@@ -836,22 +886,33 @@ class _FoodEditorState extends State<FoodEditor> {
       if (widget.reviewBarcode) offCredit(),
       OsTextField(controller: _label, label: 'Description', hint: 'Oats'),
       const SizedBox(height: S.x4),
-      Text('CATEGORY', style: F.over.copyWith(color: p.ink3)),
+      Text('LABEL', style: F.over.copyWith(color: p.ink3)),
       const SizedBox(height: S.x2),
       Wrap(
         spacing: S.x2,
         runSpacing: S.x2,
         children: [
-          for (final cat in kFoodCategories)
+          for (final cat in _labelChoices)
             Pressable(
-              semanticLabel: _category == cat
-                  ? 'Category $cat, selected'
-                  : 'Category $cat',
-              // Tap again to clear: a food may have no category.
-              onTap: () =>
-                  setState(() => _category = _category == cat ? '' : cat),
-              child: Pill(cat, _category == cat ? C.domFood : C.n400),
+              semanticLabel: labelKey(_category) == labelKey(cat)
+                  ? 'Label $cat, selected'
+                  : 'Label $cat',
+              // Tap again to clear: a food may have no label.
+              onTap: () => setState(
+                () => _category = labelKey(_category) == labelKey(cat)
+                    ? ''
+                    : cat,
+              ),
+              child: Pill(
+                cat,
+                labelKey(_category) == labelKey(cat) ? C.domFood : C.n400,
+              ),
             ),
+          Pressable(
+            semanticLabel: 'New label',
+            onTap: _newLabel,
+            child: Pill('+ New label', C.n400),
+          ),
         ],
       ),
       const SizedBox(height: S.x4),

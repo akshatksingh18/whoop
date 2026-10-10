@@ -106,6 +106,17 @@ Future<void> createNutritionTables(Database db) async {
       /* another opener added it first */
     }
   }
+  // The serving conversions an entry was logged with (build 86). Added in
+  // place like `grp`; '' means "read the food's current definition".
+  if (!cols.contains('conv')) {
+    try {
+      await db.execute(
+        "ALTER TABLE food_entry ADD COLUMN conv TEXT NOT NULL DEFAULT ''",
+      );
+    } catch (_) {
+      /* another opener added it first */
+    }
+  }
   final foodCols = {
     for (final r in await db.rawQuery('PRAGMA table_info(food_def)')) r['name'],
   };
@@ -297,9 +308,16 @@ class FoodEntry {
     this.confirmed = false,
     this.note = '',
     this.group = '',
+    this.conv = '',
   });
 
   final String id;
+
+  /// The food's unit and serving conversions as they were when this entry
+  /// was logged (`{"u": unit, "m": measures_json}`), or '' for entries logged
+  /// before build 86 and quick adds. A later edit or deletion of the food
+  /// must not change what an old portion says it was (B86-07).
+  final String conv;
 
   /// The sub-heading inside its meal ('' for none), e.g. "Omelette".
   final String group;
@@ -354,6 +372,7 @@ class FoodEntry {
           source: source,
           note: note,
           group: group,
+          conv: conv,
         )
       : this;
 
@@ -408,6 +427,7 @@ class FoodEntry {
       confirmed: confirmed,
       note: note,
       group: newGroup ?? group,
+      conv: conv,
     );
   }
 
@@ -440,6 +460,7 @@ class FoodEntry {
       confirmed: confirmed,
       note: note,
       group: group,
+      conv: conv,
     );
   }
 
@@ -469,6 +490,7 @@ class FoodEntry {
     'confirmed': confirmed ? 1 : 0,
     'note': note,
     'grp': group,
+    'conv': conv,
     'created_at': nowMs,
     'updated_at': nowMs,
   };
@@ -498,6 +520,7 @@ class FoodEntry {
       confirmed: ((r['confirmed'] as num?)?.toInt() ?? 0) == 1,
       note: (r['note'] as String?) ?? '',
       group: (r['grp'] as String?) ?? '',
+      conv: (r['conv'] as String?) ?? '',
     );
   }
 }
@@ -752,6 +775,30 @@ class NutritionDb {
     changed();
   }
 
+  /// One drag, saved as one transaction: the regrouped rows and the new
+  /// order commit together or not at all, so a failure never leaves half a
+  /// rearrangement behind a "not saved" message (B86-05).
+  static Future<void> arrangeEntries(
+    Database db,
+    List<FoodEntry> regrouped,
+    List<String> ids,
+  ) async {
+    await db.transaction((tx) async {
+      for (final e in regrouped) {
+        await put(tx, e, notify: false);
+      }
+      for (var i = 0; i < ids.length; i++) {
+        await tx.update(
+          'food_entry',
+          {'pos': i},
+          where: 'id = ?',
+          whereArgs: [ids[i]],
+        );
+      }
+    });
+    changed();
+  }
+
   static Future<void> delete(Database db, String id) async {
     await db.delete('food_entry', where: 'id = ?', whereArgs: [id]);
     changed();
@@ -802,6 +849,22 @@ class NutritionDb {
 
   /// Search the dictionary, VERIFIED entries first. Ranking is provenance then
   /// alphabetical — never popularity.
+  /// Rename every food filed under [from] (ignoring case) to [to]. Renaming
+  /// to a label that already exists merges the two; an empty [to] clears the
+  /// label. Diary entries are untouched: a label belongs to the food.
+  static Future<int> renameFoodLabel(
+    Database db,
+    String from,
+    String to,
+  ) async {
+    final n = await db.rawUpdate(
+      'UPDATE food_def SET category = ? WHERE lower(trim(category)) = ?',
+      [to.trim(), labelKey(from)],
+    );
+    changed();
+    return n;
+  }
+
   static Future<List<Map<String, Object?>>> searchFoods(
     Database db,
     String query, {
@@ -1106,8 +1169,9 @@ Map<String, Object?> myFoodDef({
   };
 }
 
-/// The categories a food can be filed under (build 85). Plain names, one per
-/// food; a food with none is "Uncategorised".
+/// Suggested labels, offered alongside the user's own (build 86 makes labels
+/// personal: any name can be created, reused, renamed, merged or cleared).
+/// One per food; a food with none is "Uncategorised".
 const List<String> kFoodCategories = [
   'Fruits',
   'Vegetables',
@@ -1129,18 +1193,27 @@ String foodCategory(Map<String, Object?> def) {
   return c.isEmpty ? kUncategorised : c;
 }
 
-/// The categories present among [defs], in [kFoodCategories] order, with
-/// uncategorised last. The filter shows only these.
-List<String> foodCategoriesIn(Iterable<Map<String, Object?>> defs) {
-  final present = {for (final d in defs) foodCategory(d)};
-  return [
-    for (final c in kFoodCategories)
-      if (present.contains(c)) c,
-    for (final c in present)
-      if (!kFoodCategories.contains(c) && c != kUncategorised) c,
-    if (present.contains(kUncategorised)) kUncategorised,
-  ];
+/// Labels match ignoring case and surrounding space; the first spelling seen
+/// is the one shown.
+String labelKey(String label) => label.trim().toLowerCase();
+
+/// The user's own labels among [defs], deduped ignoring case, A to Z.
+List<String> foodLabelsIn(Iterable<Map<String, Object?>> defs) {
+  final seen = <String, String>{};
+  for (final d in defs) {
+    final c = (d['category'] ?? '').toString().trim();
+    if (c.isNotEmpty) seen.putIfAbsent(labelKey(c), () => c);
+  }
+  return seen.values.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 }
+
+/// The categories present among [defs], with uncategorised last. The filter
+/// shows only these.
+List<String> foodCategoriesIn(Iterable<Map<String, Object?>> defs) => [
+  ...foodLabelsIn(defs),
+  if (defs.any((d) => foodCategory(d) == kUncategorised)) kUncategorised,
+];
 
 /// A named household measure of a food and what it weighs: "scoop = 29 g".
 /// For understanding only — portions are still entered and scaled in the
@@ -1220,9 +1293,26 @@ String portionWithWeight(
 ) {
   final shown = portionText(amount, unit);
   final u = unit.toLowerCase();
-  if (def == null || u == 'g' || u == 'ml') return shown;
+  if (def == null) return shown;
   final base = toBase(def, amount.toDouble(), unit);
   if (base == null) return shown;
+  if (u == 'g' || u == 'ml') {
+    // The other way round (B86-07): "45 g · 1.5 scoop", from the food's own
+    // named serving only. No density is assumed between g and ml.
+    for (final m in foodMeasures(def)) {
+      final l = m.label.toLowerCase();
+      if (l == 'g' || l == 'ml' || m.amount <= 0) continue;
+      final n = (base / m.amount * 10).round() / 10;
+      return n <= 0 ? shown : '$shown · ${portionText(n, m.label)}';
+    }
+    final named = foodUnit(def);
+    final perBase = unitInBase(def, u);
+    if (named.toLowerCase() != u && perBase != null && perBase > 0) {
+      final n = (base * 10).round() / 10;
+      return n <= 0 ? shown : '$shown · ${portionText(n, named)}';
+    }
+    return shown;
+  }
   for (final w in const ['g', 'ml']) {
     final per = unitInBase(def, w);
     if (per != null && per > 0) {
@@ -1320,7 +1410,33 @@ FoodEntry entryFromFood(
     fibreG: n.fibre,
     source: FoodSource.repeat,
     confirmed: true,
+    conv: conversionSnapshot(def),
   );
+}
+
+/// [def]'s unit and serving conversions, frozen for one diary entry.
+String conversionSnapshot(Map<String, Object?> def) => jsonEncode({
+  'u': foodUnit(def),
+  'm': (def['measures_json'] as String?) ?? '',
+});
+
+/// The definition a diary entry's portion should be read against: its own
+/// snapshot when it has one, otherwise the food's current [def] (legacy).
+Map<String, Object?>? conversionDef(FoodEntry e, Map<String, Object?>? def) {
+  if (e.conv.isEmpty) return def;
+  try {
+    final m = jsonDecode(e.conv);
+    if (m is Map) {
+      return {
+        ...?def,
+        'unit': m['u'] as String? ?? 'g',
+        'measures_json': m['m'] as String? ?? '',
+      };
+    }
+  } catch (_) {
+    /* a damaged snapshot falls back to the current food */
+  }
+  return def;
 }
 
 class MealTemplate {

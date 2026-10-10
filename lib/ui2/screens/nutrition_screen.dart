@@ -674,6 +674,21 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             selected: _foodCat,
             onSelect: (cat) => setState(() => _foodCat = cat),
           ),
+          if (foodLabelsIn(_foods).isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Pressable(
+                semanticLabel: 'Manage labels',
+                onTap: () => edit(() => _manageLabels(c)),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: S.x2),
+                  child: Text(
+                    'Manage labels',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+              ),
+            ),
         ],
         // Saved meals carry no category, so a category filter shows foods only.
         if (_foodCat == null)
@@ -801,6 +816,65 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       await MyFoods.deleteFood(await LocalDb.instance, f['key'] as String);
     }
   }
+
+  /// Rename, merge (rename onto an existing label) or clear a label across
+  /// every food carrying it (B86-08).
+  Future<void> _manageLabels(BuildContext c) async {
+    final labels = foodLabelsIn(_foods);
+    final pick = await showModalBottomSheet<String>(
+      context: c,
+      useSafeArea: true,
+      sheetAnimationStyle: sheetMotion(c),
+      backgroundColor: P.of(c).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Labels', style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x2),
+              Text(
+                "Rename one, give it another label's name to merge them, or "
+                'clear the name to remove it from its foods.',
+                style: F.cap.copyWith(color: P.of(s).ink3),
+              ),
+              const SizedBox(height: S.x3),
+              for (final l in labels)
+                PickRow(
+                  l,
+                  () {
+                    final n = foodsIn(_foods, l).length;
+                    return '$n ${n == 1 ? 'food' : 'foods'}';
+                  }(),
+                  trailing: LucideIcons.pencil,
+                  onTap: () => Navigator.of(s).pop(l),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (pick == null || !c.mounted) return;
+    final to = await askText(
+      c,
+      'Rename $pick',
+      'Label (empty removes it)',
+      pick,
+      validate: (v) =>
+          v.trim().length > 30 ? 'Use 30 characters or fewer.' : null,
+    );
+    if (to == null) return;
+    // Merging keeps the existing label's spelling.
+    final target = labels.firstWhere(
+      (l) => labelKey(l) == labelKey(to) && labelKey(l) != labelKey(pick),
+      orElse: () => to.trim(),
+    );
+    await NutritionDb.renameFoodLabel(await LocalDb.instance, pick, target);
+  }
 }
 
 // ══════════════════ ONE DAY ══════════════════
@@ -906,6 +980,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
         CalorieCard(
           eaten: d.kcal.value,
           goal: _targetOf(profile, 'kcal_target'),
+          maintenance: _upkeep?.parts?.total.toDouble(),
           onTap: () async {
             await Navigator.of(c).push(
               MaterialPageRoute<void>(
@@ -938,16 +1013,35 @@ class _NutritionDayViewState extends State<NutritionDayView>
   }
 }
 
+/// How a day's intake reads against estimated maintenance — kept apart from
+/// the diet goal (B86-09). Red means above the Budget maintenance estimate,
+/// not a missed diet target; an unknown estimate is neutral, never green.
+enum IntakeStatus { unknown, withinMaintenance, aboveMaintenance }
+
+IntakeStatus intakeStatus(double? eaten, double? maintenance) {
+  if (eaten == null || maintenance == null || maintenance <= 0) {
+    return IntakeStatus.unknown;
+  }
+  return eaten.round() > maintenance.round()
+      ? IntakeStatus.aboveMaintenance
+      : IntakeStatus.withinMaintenance;
+}
+
 /// Goal, food, and what is left. Exercise never adds to the goal.
 class CalorieCard extends StatelessWidget {
   const CalorieCard({
     super.key,
     required this.eaten,
     required this.goal,
+    this.maintenance,
     this.onTap,
   });
 
   final double? eaten, goal;
+
+  /// The day's Budget maintenance estimate, or null when it is unknown. It
+  /// decides the warning colour; the goal only decides "left" or "over".
+  final double? maintenance;
   final VoidCallback? onTap;
 
   @override
@@ -957,6 +1051,14 @@ class CalorieCard extends StatelessWidget {
     final g = goal;
     final left = g == null ? null : g - food;
     final over = left != null && left < 0;
+    final status = intakeStatus(eaten, maintenance);
+    final warn = status == IntakeStatus.aboveMaintenance;
+    // Over the goal with maintenance unknown: neither red nor the food colour.
+    final ringColor = warn
+        ? C.red
+        : over && status == IntakeStatus.unknown
+        ? C.n500
+        : C.domFood;
     final hasGoal = g != null && g > 0;
     // Build 85: what is left is the headline, inside a ring that fills as
     // the day is eaten; eaten and the goal sit beside it.
@@ -995,7 +1097,7 @@ class CalorieCard extends StatelessWidget {
                         size: Size.infinite,
                         painter: Ring(
                           (food / g).clamp(0.0, 1.0).toDouble(),
-                          over ? C.red : C.domFood,
+                          ringColor,
                           p.track,
                           stroke: 9,
                           t: animate(c, 1),
@@ -1023,13 +1125,17 @@ class CalorieCard extends StatelessWidget {
                           Text(
                             thousands(left.abs()),
                             style: F.n34.copyWith(
-                              color: over ? p.on(C.red) : p.ink,
+                              color: warn ? p.on(C.red) : p.ink,
                             ),
                           ),
                           Padding(
                             padding: const EdgeInsets.only(bottom: S.x1),
                             child: Text(
-                              over ? 'over' : 'left',
+                              over
+                                  ? (status == IntakeStatus.withinMaintenance
+                                        ? 'over goal · within maintenance'
+                                        : 'over goal')
+                                  : 'left',
                               style: F.cap.copyWith(color: p.ink3),
                             ),
                           ),
@@ -1431,7 +1537,6 @@ class _HistoryRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final kcal = day.kcal.value;
-    final g = goal;
     final protein = day.protein.value;
     return Pressable(
       onTap: onTap,
@@ -1449,7 +1554,10 @@ class _HistoryRow extends StatelessWidget {
                 Text(
                   kcal == null ? '–' : '${kcal.round()} kcal',
                   style: F.body.copyWith(
-                    color: g != null && kcal != null && kcal > g
+                    color:
+                        day.countsTowardAverages &&
+                            intakeStatus(kcal, maintenance) ==
+                                IntakeStatus.aboveMaintenance
                         ? p.on(C.red)
                         : p.ink,
                     fontWeight: FontWeight.w600,

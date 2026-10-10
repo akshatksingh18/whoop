@@ -1022,15 +1022,10 @@ class _HistoryRow extends StatelessWidget {
                   ),
                 ),
               ],
-              if (onToggle != null) ...[
-                const SizedBox(width: S.x2),
-                Icon(
-                  expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                  size: 18,
-                  color: p.ink3,
-                ),
-              ],
-              if (onDelete != null && expanded) ...[
+              // Delete sits BEFORE the chevron and is drawn whether or not the
+              // row is open, so opening a row never slides the chevron and
+              // puts the trash under the next tap (B86-06). It still asks.
+              if (onDelete != null) ...[
                 const SizedBox(width: S.x2),
                 Pressable(
                   semanticLabel:
@@ -1040,6 +1035,14 @@ class _HistoryRow extends StatelessWidget {
                     padding: const EdgeInsets.all(S.x1),
                     child: Icon(LucideIcons.trash2, size: 17, color: p.ink3),
                   ),
+                ),
+              ],
+              if (onToggle != null) ...[
+                const SizedBox(width: S.x2),
+                Icon(
+                  expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 18,
+                  color: p.ink3,
                 ),
               ],
             ],

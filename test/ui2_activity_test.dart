@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/gps/gps_source.dart';
 import 'package:openstrap_edge/state/prefs.dart';
@@ -167,6 +168,14 @@ class _StrainRepo extends LocalRepository {
     'worn_min': 600,
     'coverage_pct': 42,
   };
+
+  /// The persisted daily strain series the day list is built from.
+  @override
+  Future<Map<String, dynamic>> getChart(
+    String metric, {
+    int? from,
+    int? to,
+  }) async => {'points': curve};
 }
 
 /// The golden PNGs are NOT in the repo. They are machine-specific — two Flutter
@@ -666,6 +675,19 @@ void main() {
       );
       expect(d.wornMin, 600);
       expect(d.coveragePct, 42);
+    });
+
+    test('the day list is newest first, as the day arrows walk it', () async {
+      final d = await DayStrainData.load(
+        _StrainRepo([
+          {'t': at(7, 0), 'v': 1.0},
+          {'t': at(7, 0) - 86400, 'v': 2.0},
+          {'t': at(7, 0) - 2 * 86400, 'v': 3.0},
+        ]),
+      );
+      final sorted = [...d.days]..sort((a, b) => b.compareTo(a));
+      expect(d.days, sorted, reason: 'DayNav takes index + 1 as the older day');
+      expect(d.days.first, todayLabel());
     });
 
     test('no curve is no day and no chart', () async {

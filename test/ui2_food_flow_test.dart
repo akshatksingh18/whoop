@@ -693,7 +693,20 @@ void main() {
       // Let the read started by closing the editor finish before interacting.
       await t.runAsync(() => NutritionDb.entriesForDay(db, day));
       await t.pumpAndSettle();
+      // A swipe asks first (B86-05); keeping it leaves the entry saved.
       await t.drag(find.byType(Dismissible), const Offset(-500, 0));
+      await t.pumpAndSettle();
+      expect(find.text('Delete Dinner shake?'), findsOneWidget);
+      await t.tap(find.text('Keep it'));
+      await t.pumpAndSettle();
+      expect(
+        (await t.runAsync(() => NutritionDb.entriesForDay(db, day)))!.length,
+        1,
+      );
+      expect(find.text('Dinner shake'), findsOneWidget);
+      await t.drag(find.byType(Dismissible), const Offset(-500, 0));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Delete'));
       await t.pumpAndSettle();
       await _until(t, () => find.text('Undo').evaluate().isNotEmpty);
       await t.pump(const Duration(milliseconds: 500));
@@ -708,6 +721,8 @@ void main() {
       await _until(t, () => find.byType(Dismissible).evaluate().isNotEmpty);
       await t.pumpAndSettle();
       await t.drag(find.byType(Dismissible), const Offset(-500, 0));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Delete'));
       await t.pumpAndSettle();
       await _until(t, () => find.text('Undo').evaluate().isNotEmpty);
       await t.pump(const Duration(milliseconds: 500));

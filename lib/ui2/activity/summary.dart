@@ -1193,10 +1193,22 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 // hit box (grammar.dart's accessibility floor, not optional) —
                 // S.tap * 2 alone is 12 pt short of that plus the gap between
                 // them, which is exactly the RenderFlex overflow this fixed.
-                trailingWidth: canChangeType ? S.tap : 0,
+                trailingWidth: canChangeType ? S.tap * 2 + S.x2 : 0,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (canChangeType && !unsaved) ...[
+                      Pressable(
+                        semanticLabel: 'Delete this workout',
+                        onTap: _deleting ? null : () => _delete(c),
+                        child: Icon(
+                          LucideIcons.trash2,
+                          size: 18,
+                          color: p.ink2,
+                        ),
+                      ),
+                      const SizedBox(width: S.x2),
+                    ],
                     if (canChangeType) ...[
                       Pressable(
                         semanticLabel:
@@ -1248,6 +1260,43 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ),
       ),
     );
+  }
+
+  bool _deleting = false;
+
+  /// Delete this saved session from its own summary, just-finished or
+  /// reopened (B86-06). Asks first with its date, leaves only after the
+  /// delete is durable, and keeps the screen if the write fails.
+  Future<void> _delete(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null || _deleting) return;
+    final ok = await confirmRemove(
+      c,
+      title: 'Delete this ${a.name.toLowerCase()}?',
+      body:
+          '${_shortDate(r.start)}. Its route, splits and logged sets go with '
+          'it. Band heart-rate history for that time stays.',
+      remove: 'Delete',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _deleting = true);
+    try {
+      await LocalDb.deleteSession(id);
+      forgetRun(id);
+      if (!c.mounted) return;
+      bumpInsights(c);
+      await Navigator.of(c).maybePop();
+    } catch (_) {
+      if (c.mounted) {
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          const SnackBar(
+            content: Text('The workout was not deleted. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
   }
 
   // ─────────────────── OVERVIEW ───────────────────

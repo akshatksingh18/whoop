@@ -95,6 +95,10 @@ class WeekNumbers {
       if (!withFood || !inWeek(d.date)) continue;
       final eaten = d.kcal.value;
       if (!d.countsTowardAverages || eaten == null) continue;
+      // Protein has its own denominator: a complete protein total counts
+      // whether or not that day's maintenance is known, and a partial floor
+      // never passes as a complete day (B86-11).
+      if (d.protein.complete) proteins.add(d.protein.value!);
       final upkeep = await DayUpkeep.read(
         repo,
         d.date,
@@ -111,7 +115,6 @@ class WeekNumbers {
         acsmLogged++;
       }
       logged++;
-      if (d.protein.value != null) proteins.add(d.protein.value!);
     }
 
     var km = 0.0;
@@ -158,7 +161,14 @@ class WeekNumbers {
       deficit: deficit,
       acsmDeficit: logged > 0 && acsmLogged == logged ? acsmDeficit : null,
       daysLogged: logged,
-      daysExcluded: win.daysExcluded,
+      // Only the displayed week's exclusions, not the whole read window's.
+      daysExcluded: withFood
+          ? win.days
+                .where(
+                  (d) => inWeek(d.date) && d.logged && !d.countsTowardAverages,
+                )
+                .length
+          : 0,
       proteinDays: proteins.length,
       avgProtein: proteins.isEmpty
           ? null

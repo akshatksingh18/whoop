@@ -505,10 +505,44 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   // `wipeAll` deletes rows and cannot touch files, so up to [kBackupsKept]
   // gzipped whole-database copies survived in a folder the user can browse and
   // Import a file can read straight back.
-  try {
-    await pruneBackups(await backupDirectory(), keep: 0);
-  } catch (_) {
-    // No backup folder is the normal case — nothing to delete.
+  // `pruneBackups` swallows per-file failures, so check what is left rather
+  // than assume the folder is empty: a permission/storage error must not be
+  // reported as "no copy remains" (B86-12).
+  while (true) {
+    var left = 0;
+    try {
+      final dir = await backupDirectory();
+      await pruneBackups(dir, keep: 0);
+      left = sortBackupsNewestFirst(dir.listSync()).length;
+    } catch (_) {
+      left = -1;
+    }
+    if (left == 0 || !c.mounted) break;
+    final retry = await showDialog<bool>(
+      context: c,
+      builder: (d) => AlertDialog(
+        title: const Text('Backup copies not deleted'),
+        content: Text(
+          left > 0
+              ? 'Your data was deleted, but $left automatic backup '
+                    '${left == 1 ? 'copy' : 'copies'} could not be removed '
+                    'from OpenStrap Backups.'
+              : 'Your data was deleted, but the automatic backup folder '
+                    'could not be checked, so a copy may remain.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(d).pop(false),
+            child: const Text('Leave them'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(d).pop(true),
+            child: const Text('Try again'),
+          ),
+        ],
+      ),
+    );
+    if (retry != true) break;
   }
   // resetAllData swaps the gate to Welcome, which is UNDER this screen —
   // without this the user stays on Settings, reading a profile that has been

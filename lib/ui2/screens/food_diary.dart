@@ -808,9 +808,30 @@ class _MealPageState extends State<MealPage> with RevisionReload {
     }
   }
 
+  /// Entries with a delete already in flight, so a second swipe or tap on
+  /// the same row cannot submit it twice.
+  final _deleting = <String>{};
+
+  /// The one diary delete, for both the swipe and the menu: it asks first,
+  /// naming the entry, and keeps the row on Cancel or a failed write (B86-05).
   Future<void> _delete(FoodEntry e) async {
-    // Remove the dismissed widget immediately, before the async DB write.
-    beginRead(#mealDay); // An older read must not resurrect the dismissed row.
+    if (_deleting.contains(e.id)) return;
+    final amount = e.quantity == null
+        ? ''
+        : ' (${portionText(e.quantity!, e.unit)})';
+    final ok = await confirmRemove(
+      context,
+      title: 'Delete ${e.label}?',
+      body:
+          'Remove it$amount from ${mealName(widget.meal)} on '
+          '${prettyDay(e.date)}? You can undo it right after.',
+      remove: 'Delete',
+      keep: 'Keep it',
+    );
+    if (!ok || !mounted || _deleting.contains(e.id)) return;
+    _deleting.add(e.id);
+    // Remove the row now; an older read must not resurrect it.
+    beginRead(#mealDay);
     setState(() => _entries = _entries?.where((x) => x.id != e.id).toList());
     try {
       await NutritionDb.delete(await LocalDb.instance, e.id);
@@ -843,6 +864,8 @@ class _MealPageState extends State<MealPage> with RevisionReload {
       );
     } catch (_) {
       if (mounted) _say(context, 'Food was not deleted. Please try again.');
+    } finally {
+      _deleting.remove(e.id);
     }
     if (mounted) await _load();
   }
@@ -855,11 +878,14 @@ class _MealPageState extends State<MealPage> with RevisionReload {
       () => _entries = [for (final (g, e) in arranged) e.inGroup(g)],
     );
     try {
-      final db = await LocalDb.instance;
-      for (final (g, e) in arranged) {
-        if (e.group != g) await NutritionDb.put(db, e.inGroup(g));
-      }
-      await NutritionDb.reorderEntries(db, [for (final (_, e) in arranged) e.id]);
+      await NutritionDb.arrangeEntries(
+        await LocalDb.instance,
+        [
+          for (final (g, e) in arranged)
+            if (e.group != g) e.inGroup(g),
+        ],
+        [for (final (_, e) in arranged) e.id],
+      );
     } catch (_) {
       if (mounted) {
         _say(context, 'The change was not saved. Please try again.');
@@ -961,7 +987,8 @@ class _MealPageState extends State<MealPage> with RevisionReload {
           if (g == null) return;
           await NutritionDb.put(db, e.inGroup(g));
         case 'delete':
-          await NutritionDb.delete(db, e.id);
+          await _delete(e);
+          return;
       }
       if (mounted) await _load();
     } catch (_) {
@@ -1133,7 +1160,8 @@ class _EntryRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final detail = [
-      if (e.quantity != null) portionWithWeight(e.quantity!, e.unit, def),
+      if (e.quantity != null)
+        portionWithWeight(e.quantity!, e.unit, conversionDef(e, def)),
       if (e.proteinG != null) 'P ${e.proteinG!.round()}',
       if (e.carbsG != null) 'C ${e.carbsG!.round()}',
       if (e.fatG != null) 'F ${e.fatG!.round()}',

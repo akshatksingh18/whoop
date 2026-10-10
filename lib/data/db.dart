@@ -153,6 +153,87 @@ class LocalDb {
   /// indistinguishable from data vanishing.
   static DbRebuild? lastRebuild;
 
+  // Order: independent tables; all use INSERT OR REPLACE so re-import is safe.
+  static const _importTables = [
+    // Hand-entered rows first. Nothing regenerates these, so if a merge is
+    // ever cut short (an OOM, a damaged source) they are the ones already
+    // banked. They were also simply MISSING here until now — nutrition,
+    // medication, strength sets, symptoms and routes did not survive a
+    // backup/restore round trip at all, the same omission `wipeAll` documents.
+    'journal',
+    'journal_metric',
+    'journal_field_def',
+    'lab_result',
+    'lab_marker_def',
+    'strength_set',
+    'exercise_def',
+    'food_entry',
+    'food_def',
+    'meal_template',
+    'body_weight',
+    'live_coverage',
+    'med_def',
+    'med_dose',
+    'cycle_log',
+    'cycle_symptom',
+    'breathing_session',
+    // Vendor-computed, typed-in and imported scalars. In the hand-entered
+    // block because a third of it IS hand-entered and nothing regenerates
+    // any of it — a `reports` band trims its own history, and the app whose
+    // export the imported rows came from may be uninstalled by now.
+    'observation',
+    'workout_route',
+    'workout_split',
+    // The user's sleep corrections. These are the ONLY copy of them — the
+    // detector's output is deliberately not baked in, so a restore that
+    // skipped these would silently reinstate every nap the user had deleted
+    // and lose every one they logged.
+    'sleep_override',
+    'sleep_nap',
+    'samples',
+    'events',
+    'decoded_onehz',
+    'decoded_rr',
+    // The only copy of what a paired sensor measured during a session — the
+    // band cannot re-deliver it, so a restore that skipped it loses it.
+    'external_hr',
+    // Re-readable from the health store, but only for as long as that app is
+    // installed and that permission is granted — cheaper to carry.
+    'imported_measurement',
+    // Same reasoning, and more so: a route is thousands of points that the
+    // source app may have deleted since. `workout_route` is already in this
+    // list above and carries the imported routes too.
+    'imported_workout',
+    // The never-pruned archive of frames we could not decode. exportCopy()
+    // is a whole-database VACUUM INTO, so these rows DO leave the device —
+    // leaving the table out here meant a backup/restore round trip silently
+    // dropped them, in the one table whose entire purpose is that a frame is
+    // never lost. Keyed by `hex`, so two same-counter frames from different
+    // boots both survive the merge.
+    'raw_archive',
+    'band_events',
+    'band_battery',
+    'day_result',
+    'metric_series',
+    'metric_series_version',
+    'sessions',
+    'notifications',
+    'baselines',
+    // The devices this phone knows about — so a SECONDARY device's identity
+    // survives a backup/restore round trip rather than leaving its rows in
+    // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
+    // row is deliberately skipped on the way in; see the guard below.
+    'device',
+    'sync_cursor',
+  ];
+
+  /// Every table [_mergeFromDbFile] carries, and the subset a damaged-file
+  /// salvage carries; `test/table_coverage_test.dart` keeps them complete.
+  @visibleForTesting
+  static List<String> get salvageTablesForTest => _salvageTables;
+  @visibleForTesting
+  static List<String> get importTablesForTest => _importTables;
+
   /// What a rebuild tries to save, in the order it tries — most irreplaceable
   /// first, so a salvage that gets cut short (a genuinely corrupt file gives up
   /// partway) has already banked the rows nothing can regenerate.
@@ -174,6 +255,9 @@ class LocalDb {
     'exercise_def',
     'food_entry',
     'food_def',
+    'meal_template',
+    'body_weight',
+    'live_coverage',
     'med_def',
     'med_dose',
     'cycle_log',
@@ -184,6 +268,12 @@ class LocalDb {
     'sessions',
     'workout_route',
     'workout_split',
+    // Imported or paired-sensor rows: the source app or sensor cannot
+    // re-deliver them, so they are as irreplaceable as typed ones.
+    'observation',
+    'external_hr',
+    'imported_measurement',
+    'imported_workout',
     // Derived once, from raw that no longer exists.
     'day_result',
     'metric_series',
@@ -7073,79 +7163,7 @@ class LocalDb {
   }) async {
     final src = await openDatabase(path, readOnly: true);
     final db = await instance;
-    // Order: independent tables; all use INSERT OR REPLACE so re-import is safe.
-    const tables = [
-      // Hand-entered rows first. Nothing regenerates these, so if a merge is
-      // ever cut short (an OOM, a damaged source) they are the ones already
-      // banked. They were also simply MISSING here until now — nutrition,
-      // medication, strength sets, symptoms and routes did not survive a
-      // backup/restore round trip at all, the same omission `wipeAll` documents.
-      'journal',
-      'journal_metric',
-      'journal_field_def',
-      'lab_result',
-      'lab_marker_def',
-      'strength_set',
-      'exercise_def',
-      'food_entry',
-      'food_def',
-      'meal_template',
-      'body_weight',
-      'live_coverage',
-      'med_def',
-      'med_dose',
-      'cycle_log',
-      'cycle_symptom',
-      'breathing_session',
-      // Vendor-computed, typed-in and imported scalars. In the hand-entered
-      // block because a third of it IS hand-entered and nothing regenerates
-      // any of it — a `reports` band trims its own history, and the app whose
-      // export the imported rows came from may be uninstalled by now.
-      'observation',
-      'workout_route',
-      'workout_split',
-      // The user's sleep corrections. These are the ONLY copy of them — the
-      // detector's output is deliberately not baked in, so a restore that
-      // skipped these would silently reinstate every nap the user had deleted
-      // and lose every one they logged.
-      'sleep_override',
-      'sleep_nap',
-      'samples',
-      'events',
-      'decoded_onehz',
-      'decoded_rr',
-      // The only copy of what a paired sensor measured during a session — the
-      // band cannot re-deliver it, so a restore that skipped it loses it.
-      'external_hr',
-      // Re-readable from the health store, but only for as long as that app is
-      // installed and that permission is granted — cheaper to carry.
-      'imported_measurement',
-      // Same reasoning, and more so: a route is thousands of points that the
-      // source app may have deleted since. `workout_route` is already in this
-      // list above and carries the imported routes too.
-      'imported_workout',
-      // The never-pruned archive of frames we could not decode. exportCopy()
-      // is a whole-database VACUUM INTO, so these rows DO leave the device —
-      // leaving the table out here meant a backup/restore round trip silently
-      // dropped them, in the one table whose entire purpose is that a frame is
-      // never lost. Keyed by `hex`, so two same-counter frames from different
-      // boots both survive the merge.
-      'raw_archive',
-      'band_events',
-      'band_battery',
-      'day_result',
-      'metric_series',
-      'metric_series_version',
-      'sessions',
-      'notifications',
-      'baselines',
-      // The devices this phone knows about — so a SECONDARY device's identity
-      // survives a backup/restore round trip rather than leaving its rows in
-      // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
-      // row is deliberately skipped on the way in; see the guard below.
-      'device',
-      'sync_cursor',
-    ];
+    const tables = _importTables;
     // Columns this app's schema actually has, per table — so a row from a NEWER
     // export carrying extra columns this build doesn't know about is filtered
     // down (dropped) instead of throwing "no such column". A column the source
@@ -9067,6 +9085,12 @@ class LocalDb {
 
   static Future<void> deleteSession(String id) async {
     final db = await instance;
+    // One transaction: a failure part-way must not leave a route, splits or
+    // sets behind a session that is gone, or the reverse (B86-06).
+    await db.transaction((txn) => _deleteSessionRows(txn, id));
+  }
+
+  static Future<void> _deleteSessionRows(Transaction db, String id) async {
     await db.delete('sessions', where: 'id = ?', whereArgs: [id]);
     // Cascade: a route belongs to its session (on-device only, no FK enforced).
     await db.delete('workout_route', where: 'session_id = ?', whereArgs: [id]);

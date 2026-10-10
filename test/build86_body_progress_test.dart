@@ -42,10 +42,10 @@ void main() {
       final today = todayLabel();
       final t = DateTime.parse(today);
       final lastWeek = dayLabelOf(DateTime(t.year, t.month, t.day - 7));
-      await BodyLogDb.putWeight(lastWeek, 176.4, 'lb');
+      await BodyLogDb.putWeight(lastWeek, 181.6, 'lb');
       final row = (await BodyLogDb.weightOn(lastWeek))!;
       expect(row.historyOnly, isTrue);
-      expect(row.entered, 176.4);
+      expect(row.entered, 181.6);
       expect(row.unit, 'lb');
       // The day's calculation weight is still the profile's, not the import.
       final priced = await ProfileHistory.on(lastWeek, const Profile(weightKg: 82));

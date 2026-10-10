@@ -62,7 +62,7 @@ The Swift changes (BG tasks, expiration, native log, camera bridge) compile only
 Not built: Pushups (exploration), reviewed linking of imported lifts to existing WHOOP workouts,
 HR-timeline set markers, Body measurement-week average blocks, a numeric intake-adjustment rule
 and the wider Today/Food re-layout. Private MyFitnessPal import generated and validated locally
-(`../../health/fitness/data/whoop-body-history-import.json`, 43 weights). Next gates, in order:
+(`../../health/fitness/data/whoop-body-history-import.json`). Next gates, in order:
 promote build 85 (or keep 70) as rollback and take a rollback-readable export; Akshat's approval
 to push and run the personal macOS build; IPA validation; install; phone acceptance.
 

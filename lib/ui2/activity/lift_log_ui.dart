@@ -16,9 +16,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/lift_log.dart';
+import '../../data/lift_progress.dart';
 import '../../data/lift_reminders.dart';
 export '../../data/lift_reminders.dart';
 import '../../gps/workout_clock.dart';
+import '../charts.dart' show LineChart;
 import '../grammar.dart';
 import '../theme.dart';
 import '../screens/journal_compose.dart' show OsTextField;
@@ -145,6 +147,9 @@ class LiftLogController extends ChangeNotifier {
   List<LiftSplit> splits = const [];
   final Map<String, LiftPerformance?> last = {};
   List<LiftExercise> recent = const [];
+
+  /// Every finished log, newest first, for the in-workout progress views.
+  List<LiftWorkout> history = const [];
   String? message;
   bool loaded = false;
   Future<void> _tail = Future.value();
@@ -162,6 +167,7 @@ class LiftLogController extends ChangeNotifier {
       workout = await LiftLogDb.forSession(sessionId);
       splits = await LiftLogDb.splits();
       recent = await LiftLogDb.recentExercises();
+      history = await LiftLogDb.finished();
       await _refreshLast();
     } catch (e) {
       message = 'Your sets could not be read: $e';
@@ -186,6 +192,10 @@ class LiftLogController extends ChangeNotifier {
 
   LiftPerformance? lastFor(LiftExercise e) =>
       last['${liftNameKey(e.name)}|${e.loadMode.name}'];
+
+  /// Earlier sessions of [e] on the same setup, newest first.
+  List<ExerciseSession> historyFor(LiftExercise e) =>
+      exerciseHistory(e, history, excludingId: workout?.id);
 
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -873,7 +883,67 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                 'Last time ${_md(lastP.date)}: ${[for (var i = 0; i < lastP.exercise.sets.length; i++) 'S${i + 1} ${lastP.exercise.setText(lastP.exercise.sets[i])}'].join(' · ')}',
                 style: F.cap.copyWith(color: p.ink3),
               ),
+              // As you log: ahead, level or behind last time, set by set.
+              if (versusLast(e, lastP.exercise) case final v?)
+                Padding(
+                  padding: const EdgeInsets.only(top: S.x1),
+                  child: Row(
+                    children: [
+                      Icon(
+                        switch (v.verdict) {
+                          SetVerdict.better => LucideIcons.trendingUp,
+                          SetVerdict.worse => LucideIcons.trendingDown,
+                          SetVerdict.same => LucideIcons.equal,
+                        },
+                        size: 14,
+                        color: switch (v.verdict) {
+                          SetVerdict.better => p.on(C.green),
+                          SetVerdict.worse => p.on(C.orange),
+                          SetVerdict.same => p.ink3,
+                        },
+                      ),
+                      const SizedBox(width: S.x1),
+                      Expanded(
+                        child: Text(
+                          v.text,
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (open)
+                if (nextToBeat(e, lastP.exercise) case final t?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x1),
+                    child: Text(
+                      t,
+                      style: F.cap.copyWith(color: p.on(C.purple)),
+                    ),
+                  ),
             ],
+            if (ctl.historyFor(e).isNotEmpty)
+              Pressable(
+                semanticLabel: 'Progress for ${e.name}',
+                onTap: () => _progressSheet(c, e),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: S.x2),
+                  child: Row(
+                    children: [
+                      Icon(LucideIcons.chartLine, size: 14, color: p.ink3),
+                      const SizedBox(width: S.x1),
+                      Expanded(
+                        child: Text(
+                          liftTrend(ctl.historyFor(e)).text,
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ),
+                      Text('Progress', style: F.cap.copyWith(color: p.ink2)),
+                      Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                    ],
+                  ),
+                ),
+              ),
             if (e.sets.isNotEmpty) ...[
               const SizedBox(height: S.x3),
               Wrap(
@@ -959,6 +1029,107 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
         ),
       ),
     );
+  }
+
+  /// The exercise over time, without leaving the workout: the best set of
+  /// each earlier session as a line, today's best against them, the
+  /// sessions, and the heaviest load at each rep count.
+  Future<void> _progressSheet(BuildContext c, LiftExercise e) async {
+    final h = ctl.historyFor(e);
+    final useScore = h.every((s) => s.score != null);
+    final today = e.sets.isEmpty ? null : bestSet(e.sets);
+    final series = <double?>[
+      for (final s in h.reversed) useScore ? s.score : s.best.reps.toDouble(),
+      if (today != null) useScore ? setScore(today) : today.reps.toDouble(),
+    ];
+    final records = repRecords(h);
+    await _sheet<void>(c, (sc) {
+      final p = P.of(sc);
+      return [
+        Text(e.name, style: F.head.copyWith(color: p.ink)),
+        Text(
+          [
+            e.loadMode.title,
+            if (e.equipmentNote.isNotEmpty) e.equipmentNote,
+          ].join(' · '),
+          style: F.cap.copyWith(color: p.ink3),
+        ),
+        const SizedBox(height: S.x3),
+        Text(liftTrend(h).text, style: F.body.copyWith(color: p.ink)),
+        if (series.whereType<double>().length >= 2) ...[
+          const SizedBox(height: S.x3),
+          Text(
+            useScore
+                ? 'Best set, as an estimated one-rep load on this setup'
+                : 'Best set, reps',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          const SizedBox(height: S.x2),
+          SizedBox(
+            height: 96,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(
+                series,
+                p.on(C.purple),
+                fill: false,
+                dots: true,
+              ),
+            ),
+          ),
+          if (today != null)
+            Text(
+              'The last point is today so far.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+        ],
+        const SizedBox(height: S.x3),
+        Text('Sessions', style: F.over.copyWith(color: p.ink3)),
+        for (final s in h.take(8))
+          Padding(
+            padding: const EdgeInsets.only(top: S.x1),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _md(s.date),
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+                Text(
+                  '${s.exercise.sets.length} sets · best ${e.setText(s.best)}',
+                  style: F.cap.copyWith(color: p.ink),
+                ),
+              ],
+            ),
+          ),
+        if (records.isNotEmpty) ...[
+          const SizedBox(height: S.x3),
+          Text(
+            'Heaviest at each rep count',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          Wrap(
+            spacing: S.x2,
+            runSpacing: S.x1,
+            children: [
+              for (final r in records.take(10))
+                Text(
+                  '${r.reps} × ${liftWeightText(r.load)}',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: S.x3),
+        Text(
+          'Only sessions of this exercise with the same load meaning and '
+          'equipment note are compared. The estimate is for ranking your '
+          'own sets, not your true one-rep max.',
+          style: F.over.copyWith(color: p.ink3),
+        ),
+      ];
+    });
   }
 
   Future<void> _editSet(BuildContext c, LiftExercise e, LiftSet s) async {

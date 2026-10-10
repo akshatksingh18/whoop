@@ -1722,14 +1722,17 @@ class BodyWeight {
     NutritionDb.changed();
   }
 
-  /// Every reading on or after [sinceDate], oldest first.
+  /// Every reading on or after [sinceDate], oldest first. [calculation]
+  /// keeps only calculation inputs — the food/weight maintenance estimate
+  /// must not move because history was imported (build 86).
   static Future<List<({String date, double kg})>> since(
     Database db,
-    String sinceDate,
-  ) async {
+    String sinceDate, {
+    bool calculation = false,
+  }) async {
     final rows = await db.query(
       'body_weight',
-      where: 'date >= ?',
+      where: calculation ? 'date >= ? AND history_only = 0' : 'date >= ?',
       whereArgs: [sinceDate],
       orderBy: 'date ASC',
     );

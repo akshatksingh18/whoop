@@ -30,8 +30,18 @@ String _hm(DateTime t) =>
 
 String _md(DateTime t) {
   const m = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   return '${m[t.month - 1]} ${t.day}';
 }
@@ -183,7 +193,8 @@ class RestTimer {
     }
   }
 
-  static Future<int> defaultSec() async => (await _p())?.getInt(_defaultKey) ?? 0;
+  static Future<int> defaultSec() async =>
+      (await _p())?.getInt(_defaultKey) ?? 0;
 
   static Future<void> setDefault(int sec) async =>
       (await _p())?.setInt(_defaultKey, sec);
@@ -346,12 +357,21 @@ class LiftLogController extends ChangeNotifier {
         if (activity) await LiftReminders.update(next);
       });
 
-  Future<void> logSet(String exerciseId, {required int reps, required double load}) async {
-    await mutate((w) => w.addSet(exerciseId, reps: reps, load: load, at: DateTime.now()));
+  Future<void> logSet(
+    String exerciseId, {
+    required int reps,
+    required double load,
+  }) async {
+    await mutate(
+      (w) => w.addSet(exerciseId, reps: reps, load: load, at: DateTime.now()),
+    );
     if (message != null) return;
     final e = workout?.exercises.where((x) => x.id == exerciseId).firstOrNull;
     if (e == null) return;
-    await RestTimer.start(await RestTimer.forExercise(e.name), sessionId: sessionId);
+    await RestTimer.start(
+      await RestTimer.forExercise(e.name),
+      sessionId: sessionId,
+    );
     _notify();
   }
 
@@ -380,11 +400,17 @@ class LiftLogController extends ChangeNotifier {
         String? link;
         final s = split?.copy();
         if (s != null) {
-          final existing = s.exercises.where((e) => sameLiftName(e.name, name)).firstOrNull;
+          final existing = s.exercises
+              .where((e) => sameLiftName(e.name, name))
+              .firstOrNull;
           if (existing != null) {
             link = existing.id;
           } else if (s.exercises.length < LiftSplit.maxExercises) {
-            final added = LiftSplitExercise(name: name.trim(), loadMode: mode, equipmentNote: note);
+            final added = LiftSplitExercise(
+              name: name.trim(),
+              loadMode: mode,
+              equipmentNote: note,
+            );
             s.exercises.add(added);
             final all = [for (final x in splits) x.id == s.id ? s : x];
             await LiftLogDb.saveSplits(all);
@@ -394,7 +420,12 @@ class LiftLogController extends ChangeNotifier {
         }
         final next = cur.copy();
         if (link != null) next.skipped.remove(link);
-        next.addExercise(name: name, loadMode: mode, equipmentNote: note, splitExerciseId: link);
+        next.addExercise(
+          name: name,
+          loadMode: mode,
+          equipmentNote: note,
+          splitExerciseId: link,
+        );
         await LiftLogDb.save(next);
         workout = next;
         await _refreshLast();
@@ -520,7 +551,11 @@ class _LiftChoicePickerState extends State<LiftChoicePicker> {
                           (s.exercises.length > 3 ? '…' : ''),
               ),
             option('empty', 'Empty workout', 'Add exercises as you go'),
-            option('track', 'Time only', 'No sets; you can start logging later'),
+            option(
+              'track',
+              'Time only',
+              'No sets; you can start logging later',
+            ),
           ],
         ),
       ),
@@ -597,13 +632,17 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
     super.dispose();
   }
 
-  TextEditingController _load(String id) => _loadText[id] ??= TextEditingController();
-  TextEditingController _reps(String id) => _repsText[id] ??= TextEditingController();
+  TextEditingController _load(String id) =>
+      _loadText[id] ??= TextEditingController();
+  TextEditingController _reps(String id) =>
+      _repsText[id] ??= TextEditingController();
 
   /// Fill the entry from the set before (today) or the first set last time.
   /// Only a suggestion: nothing is logged until Log set is pressed.
   void _repeat(LiftExercise e) {
-    final s = e.sets.isNotEmpty ? e.sets.last : ctl.lastFor(e)?.exercise.sets.firstOrNull;
+    final s = e.sets.isNotEmpty
+        ? e.sets.last
+        : ctl.lastFor(e)?.exercise.sets.firstOrNull;
     if (s == null) return;
     _load(e.id).text = liftWeightText(s.load);
     _reps(e.id).text = '${s.reps}';
@@ -643,7 +682,13 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Sets', style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+              Text(
+                'Sets',
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: S.x1),
               Text(
                 'This workout records time and heart rate only.',
@@ -675,7 +720,9 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                   !w.exercises.any((e) => sameLiftName(e.name, r.name)))
                 r,
           ];
-    final idle = DateTime.now().difference(w.lastActivity) >= LiftWorkout.inactivityDelay;
+    final idle =
+        DateTime.now().difference(w.lastActivity) >=
+        LiftWorkout.inactivityDelay;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -687,11 +734,16 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
             Expanded(
               child: Text(
                 w.splitName ?? 'Empty workout',
-                style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-            Text('${w.setCount} ${w.setCount == 1 ? 'set' : 'sets'}',
-                style: F.cap.copyWith(color: p.ink3)),
+            Text(
+              '${w.setCount} ${w.setCount == 1 ? 'set' : 'sets'}',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
             const SizedBox(width: S.x3),
             Pressable(
               semanticLabel: 'Rest timer',
@@ -702,40 +754,59 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
             Pressable(
               semanticLabel: 'Splits',
               onTap: () async {
-                await Navigator.of(c).push(MaterialPageRoute<void>(
-                  builder: (_) => LiftSplitsScreen(controller: ctl),
-                ));
+                await Navigator.of(c).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => LiftSplitsScreen(controller: ctl),
+                  ),
+                );
               },
               child: Icon(LucideIcons.listOrdered, size: 20, color: p.ink2),
             ),
           ],
         ),
-        if (_restUntil != null) ...[
-          const SizedBox(height: S.x3),
-          _restBar(p),
-        ],
+        if (_restUntil != null) ...[const SizedBox(height: S.x3), _restBar(p)],
         const SizedBox(height: S.x3),
-        OsTextField(controller: _search, label: 'Find or add an exercise', hint: 'Bench, row…'),
+        OsTextField(
+          controller: _search,
+          label: 'Find or add an exercise',
+          hint: 'Bench, row…',
+        ),
         const SizedBox(height: S.x3),
         for (final e in shown) _card(c, p, w, e),
         for (final r in extra)
-          _addRow(p, r.name, '${r.loadMode.title} · logged before',
-              () => ctl.addExercise(r.name, r.loadMode, r.equipmentNote).then((_) => _search.clear())),
-        if (q.isNotEmpty && !w.exercises.any((e) => sameLiftName(e.name, q)) &&
+          _addRow(
+            p,
+            r.name,
+            '${r.loadMode.title} · logged before',
+            () => ctl
+                .addExercise(r.name, r.loadMode, r.equipmentNote)
+                .then((_) => _search.clear()),
+          ),
+        if (q.isNotEmpty &&
+            !w.exercises.any((e) => sameLiftName(e.name, q)) &&
             !extra.any((r) => sameLiftName(r.name, q)))
-          _addRow(p, 'Add "${_search.text.trim()}"', 'New exercise',
-              () => _addSheet(c, name: _search.text.trim())),
+          _addRow(
+            p,
+            'Add "${_search.text.trim()}"',
+            'New exercise',
+            () => _addSheet(c, name: _search.text.trim()),
+          ),
         if (q.isEmpty)
           Pressable(
             semanticLabel: 'Add exercise',
             onTap: () => _addSheet(c),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: S.x3),
-              child: Row(children: [
-                Icon(LucideIcons.plus, size: 18, color: p.on(C.purple)),
-                const SizedBox(width: S.x2),
-                Text('Add exercise', style: F.body.copyWith(color: p.on(C.purple))),
-              ]),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.plus, size: 18, color: p.on(C.purple)),
+                  const SizedBox(width: S.x2),
+                  Text(
+                    'Add exercise',
+                    style: F.body.copyWith(color: p.on(C.purple)),
+                  ),
+                ],
+              ),
             ),
           ),
         if (ctl.message != null)
@@ -752,7 +823,10 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Still working out?', style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+            Text(
+              'Still working out?',
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: S.x1),
             Text(
               'Nothing logged since ${_hm(last)}. Finishing at your last set '
@@ -760,11 +834,25 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
               style: F.cap.copyWith(color: p.ink3),
             ),
             const SizedBox(height: S.x3),
-            BigButton('Finish at ${_hm(last)}', color: C.purple, onTap: () => widget.onFinishAt!(last)),
+            BigButton(
+              'Finish at ${_hm(last)}',
+              color: C.purple,
+              onTap: () => widget.onFinishAt!(last),
+            ),
             const SizedBox(height: S.x2),
-            BigButton('Finish now', color: C.purple, soft: true, onTap: () => widget.onFinishAt!(null)),
+            BigButton(
+              'Finish now',
+              color: C.purple,
+              soft: true,
+              onTap: () => widget.onFinishAt!(null),
+            ),
             const SizedBox(height: S.x2),
-            BigButton('Keep going', soft: true, color: C.n500, onTap: () => setState(() => _keepGoing = true)),
+            BigButton(
+              'Keep going',
+              soft: true,
+              color: C.n500,
+              onTap: () => setState(() => _keepGoing = true),
+            ),
           ],
         ),
       ),
@@ -791,7 +879,10 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           Pressable(
             semanticLabel: 'Add 30 seconds',
             onTap: () async {
-              await RestTimer.add(const Duration(seconds: 30), sessionId: widget.sessionId);
+              await RestTimer.add(
+                const Duration(seconds: 30),
+                sessionId: widget.sessionId,
+              );
               await _readRest();
             },
             child: Text('+30 s', style: F.cap.copyWith(color: p.ink2)),
@@ -810,23 +901,29 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
     );
   }
 
-  Widget _addRow(P p, String title, String sub, VoidCallback onTap) => Pressable(
-    semanticLabel: title,
-    onTap: onTap,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(children: [
-        Icon(LucideIcons.plus, size: 18, color: p.on(C.purple)),
-        const SizedBox(width: S.x2),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: F.body.copyWith(color: p.ink)),
-            Text(sub, style: F.over.copyWith(color: p.ink3)),
-          ]),
+  Widget _addRow(P p, String title, String sub, VoidCallback onTap) =>
+      Pressable(
+        semanticLabel: title,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: S.x3),
+          child: Row(
+            children: [
+              Icon(LucideIcons.plus, size: 18, color: p.on(C.purple)),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: F.body.copyWith(color: p.ink)),
+                    Text(sub, style: F.over.copyWith(color: p.ink3)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ]),
-    ),
-  );
+      );
 
   Widget _card(BuildContext c, P p, LiftWorkout w, LiftExercise e) {
     final idx = w.exercises.indexOf(e);
@@ -843,15 +940,26 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                 Expanded(
                   child: Pressable(
                     semanticLabel: e.name,
-                    onTap: () => setState(() => open && e.sets.isEmpty
-                        ? _expanded.remove(e.id)
-                        : _expanded.add(e.id)),
+                    onTap: () => setState(
+                      () => open && e.sets.isEmpty
+                          ? _expanded.remove(e.id)
+                          : _expanded.add(e.id),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(e.name, style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
                         Text(
-                          [e.loadMode.title, if (e.equipmentNote.isNotEmpty) e.equipmentNote].join(' · '),
+                          e.name,
+                          style: F.body.copyWith(
+                            color: p.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          [
+                            e.loadMode.title,
+                            if (e.equipmentNote.isNotEmpty) e.equipmentNote,
+                          ].join(' · '),
                           style: F.over.copyWith(color: p.ink3),
                         ),
                       ],
@@ -861,7 +969,10 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                 if (idx > 0)
                   Pressable(
                     semanticLabel: 'Move ${e.name} up',
-                    onTap: () => ctl.mutate((x) => x.moveExercise(idx, idx - 1), activity: false),
+                    onTap: () => ctl.mutate(
+                      (x) => x.moveExercise(idx, idx - 1),
+                      activity: false,
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(S.x1),
                       child: Icon(LucideIcons.arrowUp, size: 17, color: p.ink3),
@@ -880,10 +991,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
             if (lastP != null) ...[
               const SizedBox(height: S.x2),
               Text(
-                'Last time ${_md(lastP.date)}: ${[
-                  for (var i = 0; i < lastP.exercise.sets.length; i++)
-                    'S${i + 1} ${lastP.exercise.setText(lastP.exercise.sets[i])}',
-                ].join(' · ')}',
+                'Last time ${_md(lastP.date)}: ${[for (var i = 0; i < lastP.exercise.sets.length; i++) 'S${i + 1} ${lastP.exercise.setText(lastP.exercise.sets[i])}'].join(' · ')}',
                 style: F.cap.copyWith(color: p.ink3),
               ),
             ],
@@ -895,9 +1003,13 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                 children: [
                   for (var i = 0; i < e.sets.length; i++)
                     Pressable(
-                      semanticLabel: 'Set ${i + 1}: ${e.setText(e.sets[i])}. Edit',
+                      semanticLabel:
+                          'Set ${i + 1}: ${e.setText(e.sets[i])}. Edit',
                       onTap: () => _editSet(c, e, e.sets[i]),
-                      child: Pill('S${i + 1} ${e.setText(e.sets[i])}', C.purple),
+                      child: Pill(
+                        'S${i + 1} ${e.setText(e.sets[i])}',
+                        C.purple,
+                      ),
                     ),
                 ],
               ),
@@ -911,7 +1023,9 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                     child: OsTextField(
                       controller: _load(e.id),
                       label: e.loadMode.shortUnit,
-                      keyboard: const TextInputType.numberWithOptions(decimal: true),
+                      keyboard: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                     ),
                   ),
                   const SizedBox(width: S.x2),
@@ -928,8 +1042,12 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
               Row(
                 children: [
                   Expanded(
-                    child: BigButton('Log set', icon: LucideIcons.check, color: C.purple,
-                        onTap: () => _log(e)),
+                    child: BigButton(
+                      'Log set',
+                      icon: LucideIcons.check,
+                      color: C.purple,
+                      onTap: () => _log(e),
+                    ),
                   ),
                   if (e.sets.isNotEmpty || lastP != null) ...[
                     const SizedBox(width: S.x2),
@@ -938,7 +1056,11 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                       onTap: () => _repeat(e),
                       child: Padding(
                         padding: const EdgeInsets.all(S.x3),
-                        child: Icon(LucideIcons.repeat, size: 20, color: p.ink2),
+                        child: Icon(
+                          LucideIcons.repeat,
+                          size: 20,
+                          color: p.ink2,
+                        ),
                       ),
                     ),
                   ],
@@ -963,22 +1085,43 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
   Future<void> _editSet(BuildContext c, LiftExercise e, LiftSet s) async {
     final load = TextEditingController(text: liftWeightText(s.load));
     final reps = TextEditingController(text: '${s.reps}');
-    final r = await _sheet<String>(c, (sc) => [
-      Text('Edit set', style: F.head.copyWith(color: P.of(sc).ink)),
-      const SizedBox(height: S.x1),
-      Text('${e.name} · logged ${_hm(s.completedAt)}',
-          style: F.cap.copyWith(color: P.of(sc).ink3)),
-      const SizedBox(height: S.x4),
-      OsTextField(controller: load, label: e.loadMode.shortUnit,
-          keyboard: const TextInputType.numberWithOptions(decimal: true)),
-      const SizedBox(height: S.x3),
-      OsTextField(controller: reps, label: 'Reps', keyboard: TextInputType.number),
-      const SizedBox(height: S.x4),
-      BigButton('Save', color: C.purple, onTap: () => Navigator.of(sc).pop('save')),
-      const SizedBox(height: S.x2),
-      BigButton('Delete set', icon: LucideIcons.trash2, color: C.red, soft: true,
-          onTap: () => Navigator.of(sc).pop('delete')),
-    ]);
+    final r = await _sheet<String>(
+      c,
+      (sc) => [
+        Text('Edit set', style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x1),
+        Text(
+          '${e.name} · logged ${_hm(s.completedAt)}',
+          style: F.cap.copyWith(color: P.of(sc).ink3),
+        ),
+        const SizedBox(height: S.x4),
+        OsTextField(
+          controller: load,
+          label: e.loadMode.shortUnit,
+          keyboard: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        const SizedBox(height: S.x3),
+        OsTextField(
+          controller: reps,
+          label: 'Reps',
+          keyboard: TextInputType.number,
+        ),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Save',
+          color: C.purple,
+          onTap: () => Navigator.of(sc).pop('save'),
+        ),
+        const SizedBox(height: S.x2),
+        BigButton(
+          'Delete set',
+          icon: LucideIcons.trash2,
+          color: C.red,
+          soft: true,
+          onTap: () => Navigator.of(sc).pop('delete'),
+        ),
+      ],
+    );
     if (r == 'save') {
       final l = double.tryParse(load.text.trim().replaceAll(',', '.'));
       final n = int.tryParse(reps.text.trim());
@@ -990,27 +1133,48 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
     if (ctl.message != null) _say(ctl.message!);
   }
 
-  Future<void> _removeSheet(BuildContext c, LiftWorkout w, LiftExercise e) async {
+  Future<void> _removeSheet(
+    BuildContext c,
+    LiftWorkout w,
+    LiftExercise e,
+  ) async {
     final split = ctl.split;
     final inSplit = split != null && e.splitExerciseId != null;
-    final r = await _sheet<String>(c, (sc) => [
-      Text('Remove ${e.name}?', style: F.head.copyWith(color: P.of(sc).ink)),
-      if (e.sets.isNotEmpty) ...[
-        const SizedBox(height: S.x1),
-        Text('Its ${e.sets.length} logged ${e.sets.length == 1 ? 'set goes' : 'sets go'} with it.',
-            style: F.cap.copyWith(color: P.of(sc).on(C.red))),
-      ],
-      const SizedBox(height: S.x4),
-      BigButton('Remove from today', color: C.red, soft: true,
-          onTap: () => Navigator.of(sc).pop('today')),
-      if (inSplit) ...[
+    final r = await _sheet<String>(
+      c,
+      (sc) => [
+        Text('Remove ${e.name}?', style: F.head.copyWith(color: P.of(sc).ink)),
+        if (e.sets.isNotEmpty) ...[
+          const SizedBox(height: S.x1),
+          Text(
+            'Its ${e.sets.length} logged ${e.sets.length == 1 ? 'set goes' : 'sets go'} with it.',
+            style: F.cap.copyWith(color: P.of(sc).on(C.red)),
+          ),
+        ],
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Remove from today',
+          color: C.red,
+          soft: true,
+          onTap: () => Navigator.of(sc).pop('today'),
+        ),
+        if (inSplit) ...[
+          const SizedBox(height: S.x2),
+          BigButton(
+            'Remove from today and ${split.name}',
+            color: C.red,
+            onTap: () => Navigator.of(sc).pop('split'),
+          ),
+        ],
         const SizedBox(height: S.x2),
-        BigButton('Remove from today and ${split.name}', color: C.red,
-            onTap: () => Navigator.of(sc).pop('split')),
+        BigButton(
+          'Keep it',
+          soft: true,
+          color: C.n500,
+          onTap: () => Navigator.of(sc).pop(),
+        ),
       ],
-      const SizedBox(height: S.x2),
-      BigButton('Keep it', soft: true, color: C.n500, onTap: () => Navigator.of(sc).pop()),
-    ]);
+    );
     if (r == null) return;
     await ctl.removeExercise(e.id, fromSplit: r == 'split');
     if (ctl.message != null) _say(ctl.message!);
@@ -1027,54 +1191,70 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
   Future<void> _restSheet(BuildContext c) async {
     final cur = await RestTimer.defaultSec();
     if (!c.mounted) return;
-    final r = await _sheet<int>(c, (sc) => [
-      Text('Rest timer', style: F.head.copyWith(color: P.of(sc).ink)),
-      const SizedBox(height: S.x1),
-      Text('Starts after each logged set. It does not pause the workout.',
-          style: F.cap.copyWith(color: P.of(sc).ink3)),
-      const SizedBox(height: S.x4),
-      for (final s in RestTimer.choices)
-        Pressable(
-          semanticLabel: s == 0 ? 'Off' : '$s seconds',
-          onTap: () => Navigator.of(sc).pop(s),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: S.x3),
-            child: Row(children: [
-              Icon(s == cur ? LucideIcons.circleDot : LucideIcons.circle, size: 18,
-                  color: P.of(sc).ink2),
-              const SizedBox(width: S.x3),
-              Text(s == 0 ? 'Off' : '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}',
-                  style: F.body.copyWith(color: P.of(sc).ink)),
-            ]),
-          ),
+    final r = await _sheet<int>(
+      c,
+      (sc) => [
+        Text('Rest timer', style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x1),
+        Text(
+          'Starts after each logged set. It does not pause the workout.',
+          style: F.cap.copyWith(color: P.of(sc).ink3),
         ),
-    ]);
+        const SizedBox(height: S.x4),
+        for (final s in RestTimer.choices)
+          Pressable(
+            semanticLabel: s == 0 ? 'Off' : '$s seconds',
+            onTap: () => Navigator.of(sc).pop(s),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x3),
+              child: Row(
+                children: [
+                  Icon(
+                    s == cur ? LucideIcons.circleDot : LucideIcons.circle,
+                    size: 18,
+                    color: P.of(sc).ink2,
+                  ),
+                  const SizedBox(width: S.x3),
+                  Text(
+                    s == 0
+                        ? 'Off'
+                        : '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}',
+                    style: F.body.copyWith(color: P.of(sc).ink),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
     if (r != null) await RestTimer.setDefault(r);
   }
 }
 
-Future<T?> _sheet<T>(BuildContext c, List<Widget> Function(BuildContext) body) =>
-    showModalBottomSheet<T>(
-      context: c,
-      isScrollControlled: true,
-      useSafeArea: true,
-      sheetAnimationStyle: sheetMotion(c),
-      backgroundColor: P.of(c).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+Future<T?> _sheet<T>(
+  BuildContext c,
+  List<Widget> Function(BuildContext) body,
+) => showModalBottomSheet<T>(
+  context: c,
+  isScrollControlled: true,
+  useSafeArea: true,
+  sheetAnimationStyle: sheetMotion(c),
+  backgroundColor: P.of(c).card,
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+  ),
+  builder: (sc) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.of(sc).viewInsets.bottom),
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(S.x5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: body(sc),
       ),
-      builder: (sc) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(sc).viewInsets.bottom),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(S.x5),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: body(sc),
-          ),
-        ),
-      ),
-    );
+    ),
+  ),
+);
 
 /// Name, load meaning (with its guidance) and an optional equipment note.
 Future<LiftSplitExercise?> editLiftExercise(
@@ -1104,12 +1284,21 @@ Future<LiftSplitExercise?> editLiftExercise(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(existing == null ? 'Add exercise' : 'Edit exercise',
-                    style: F.head.copyWith(color: p.ink)),
+                Text(
+                  existing == null ? 'Add exercise' : 'Edit exercise',
+                  style: F.head.copyWith(color: p.ink),
+                ),
                 const SizedBox(height: S.x4),
-                OsTextField(controller: n, label: 'Name', hint: 'Dumbbell bench press'),
+                OsTextField(
+                  controller: n,
+                  label: 'Name',
+                  hint: 'Dumbbell bench press',
+                ),
                 const SizedBox(height: S.x4),
-                Text('HOW THE WEIGHT IS ENTERED', style: F.over.copyWith(color: p.ink3)),
+                Text(
+                  'HOW THE WEIGHT IS ENTERED',
+                  style: F.over.copyWith(color: p.ink3),
+                ),
                 const SizedBox(height: S.x2),
                 for (final m in LiftLoadMode.values)
                   Pressable(
@@ -1120,16 +1309,27 @@ Future<LiftSplitExercise?> editLiftExercise(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(m == mode ? LucideIcons.circleDot : LucideIcons.circle,
-                              size: 18, color: m == mode ? p.on(C.purple) : p.ink3),
+                          Icon(
+                            m == mode
+                                ? LucideIcons.circleDot
+                                : LucideIcons.circle,
+                            size: 18,
+                            color: m == mode ? p.on(C.purple) : p.ink3,
+                          ),
                           const SizedBox(width: S.x3),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(m.title, style: F.body.copyWith(color: p.ink)),
+                                Text(
+                                  m.title,
+                                  style: F.body.copyWith(color: p.ink),
+                                ),
                                 if (m == mode)
-                                  Text(m.guidance, style: F.over.copyWith(color: p.ink3)),
+                                  Text(
+                                    m.guidance,
+                                    style: F.over.copyWith(color: p.ink3),
+                                  ),
                               ],
                             ),
                           ),
@@ -1138,13 +1338,20 @@ Future<LiftSplitExercise?> editLiftExercise(
                     ),
                   ),
                 const SizedBox(height: S.x3),
-                OsTextField(controller: note, label: 'Equipment note (optional)',
-                    hint: 'Which machine, or base resistance unknown'),
+                OsTextField(
+                  controller: note,
+                  label: 'Equipment note (optional)',
+                  hint: 'Which machine, or base resistance unknown',
+                ),
                 const SizedBox(height: S.x5),
-                BigButton('Save', color: C.purple, onTap: () {
-                  if (n.text.trim().isEmpty) return;
-                  Navigator.of(sc).pop(true);
-                }),
+                BigButton(
+                  'Save',
+                  color: C.purple,
+                  onTap: () {
+                    if (n.text.trim().isEmpty) return;
+                    Navigator.of(sc).pop(true);
+                  },
+                ),
               ],
             ),
           ),
@@ -1183,7 +1390,9 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
   Future<void> _load() async {
     try {
       final w = await LiftLogDb.forSession(widget.sessionId);
-      final records = w == null ? const <LiftRecord>[] : liftRecords(w, await LiftLogDb.finished());
+      final records = w == null
+          ? const <LiftRecord>[]
+          : liftRecords(w, await LiftLogDb.finished());
       if (mounted) setState(() => (_w = w, _records = records));
     } catch (_) {}
   }
@@ -1199,20 +1408,31 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(children: [
-              Expanded(
-                child: Text(w.splitName ?? 'Sets',
-                    style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-              ),
-              Text('${w.setCount} ${w.setCount == 1 ? 'set' : 'sets'}',
-                  style: F.cap.copyWith(color: p.ink3)),
-            ]),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    w.splitName ?? 'Sets',
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${w.setCount} ${w.setCount == 1 ? 'set' : 'sets'}',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
             for (final e in w.exercises) ...[
               const SizedBox(height: S.x3),
               Text(e.name, style: F.body.copyWith(color: p.ink)),
               Text(
-                [for (var i = 0; i < e.sets.length; i++) 'S${i + 1} ${e.setText(e.sets[i])}']
-                    .join(' · '),
+                [
+                  for (var i = 0; i < e.sets.length; i++)
+                    'S${i + 1} ${e.setText(e.sets[i])}',
+                ].join(' · '),
                 style: F.cap.copyWith(color: p.ink3),
               ),
             ],
@@ -1220,7 +1440,10 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
               const SizedBox(height: S.x4),
               Text('NEW BESTS', style: F.over.copyWith(color: p.ink3)),
               for (final r in _records)
-                Text('${r.exercise}: ${r.text}', style: F.cap.copyWith(color: p.ink2)),
+                Text(
+                  '${r.exercise}: ${r.text}',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
             ],
           ],
         ),
@@ -1273,13 +1496,20 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
 
   Future<String?> _name(String title, String initial) async {
     final t = TextEditingController(text: initial);
-    final ok = await _sheet<bool>(context, (sc) => [
-      Text(title, style: F.head.copyWith(color: P.of(sc).ink)),
-      const SizedBox(height: S.x4),
-      OsTextField(controller: t, label: 'Name', hint: 'Chest day'),
-      const SizedBox(height: S.x4),
-      BigButton('Save', color: C.purple, onTap: () => Navigator.of(sc).pop(true)),
-    ]);
+    final ok = await _sheet<bool>(
+      context,
+      (sc) => [
+        Text(title, style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x4),
+        OsTextField(controller: t, label: 'Name', hint: 'Chest day'),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Save',
+          color: C.purple,
+          onTap: () => Navigator.of(sc).pop(true),
+        ),
+      ],
+    );
     return ok == true ? t.text.trim() : null;
   }
 
@@ -1302,69 +1532,105 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: S.x3),
-                      child: Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
+                      child: Text(
+                        _error!,
+                        style: F.cap.copyWith(color: p.on(C.red)),
+                      ),
                     ),
                   for (var i = 0; i < _splits.length; i++)
                     Padding(
                       padding: const EdgeInsets.only(bottom: S.x3),
                       child: Surface(
                         onTap: () async {
-                          await Navigator.of(c).push(MaterialPageRoute<void>(
-                            builder: (_) => _SplitEditor(
-                              split: _splits[i],
-                              onSave: (s) => _save([for (final x in _splits) x.id == s.id ? s : x]),
+                          await Navigator.of(c).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => _SplitEditor(
+                                split: _splits[i],
+                                onSave: (s) => _save([
+                                  for (final x in _splits) x.id == s.id ? s : x,
+                                ]),
+                              ),
                             ),
-                          ));
+                          );
                           _load();
                         },
                         semanticLabel: _splits[i].name,
-                        child: Row(children: [
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(_splits[i].name, style: F.body.copyWith(color: p.ink)),
-                              Text('${_splits[i].exercises.length} exercises',
-                                  style: F.over.copyWith(color: p.ink3)),
-                            ]),
-                          ),
-                          if (i > 0)
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _splits[i].name,
+                                    style: F.body.copyWith(color: p.ink),
+                                  ),
+                                  Text(
+                                    '${_splits[i].exercises.length} exercises',
+                                    style: F.over.copyWith(color: p.ink3),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (i > 0)
+                              Pressable(
+                                semanticLabel: 'Move ${_splits[i].name} up',
+                                onTap: () {
+                                  final n = [..._splits];
+                                  n.insert(i - 1, n.removeAt(i));
+                                  _save(n);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(S.x2),
+                                  child: Icon(
+                                    LucideIcons.arrowUp,
+                                    size: 17,
+                                    color: p.ink3,
+                                  ),
+                                ),
+                              ),
                             Pressable(
-                              semanticLabel: 'Move ${_splits[i].name} up',
-                              onTap: () {
-                                final n = [..._splits];
-                                n.insert(i - 1, n.removeAt(i));
-                                _save(n);
+                              semanticLabel: 'Delete ${_splits[i].name}',
+                              onTap: () async {
+                                final s = _splits[i];
+                                if (await confirmRemove(
+                                  c,
+                                  title: 'Delete ${s.name}?',
+                                  body:
+                                      'Past workouts keep their sets and its name.',
+                                  remove: 'Delete',
+                                )) {
+                                  await _save([
+                                    for (final x in _splits)
+                                      if (x.id != s.id) x,
+                                  ]);
+                                }
                               },
                               child: Padding(
                                 padding: const EdgeInsets.all(S.x2),
-                                child: Icon(LucideIcons.arrowUp, size: 17, color: p.ink3),
+                                child: Icon(
+                                  LucideIcons.trash2,
+                                  size: 17,
+                                  color: p.ink3,
+                                ),
                               ),
                             ),
-                          Pressable(
-                            semanticLabel: 'Delete ${_splits[i].name}',
-                            onTap: () async {
-                              final s = _splits[i];
-                              if (await confirmRemove(c,
-                                  title: 'Delete ${s.name}?',
-                                  body: 'Past workouts keep their sets and its name.',
-                                  remove: 'Delete')) {
-                                await _save([for (final x in _splits) if (x.id != s.id) x]);
-                              }
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(S.x2),
-                              child: Icon(LucideIcons.trash2, size: 17, color: p.ink3),
-                            ),
-                          ),
-                        ]),
+                          ],
+                        ),
                       ),
                     ),
                   if (_splits.length < LiftSplit.maxSplits)
-                    BigButton('New split', icon: LucideIcons.plus, color: C.purple, soft: true,
-                        onTap: () async {
-                          final n = await _name('New split', '');
-                          if (n == null || n.isEmpty) return;
-                          await _save([..._splits, LiftSplit(name: n)]);
-                        }),
+                    BigButton(
+                      'New split',
+                      icon: LucideIcons.plus,
+                      color: C.purple,
+                      soft: true,
+                      onTap: () async {
+                        final n = await _name('New split', '');
+                        if (n == null || n.isEmpty) return;
+                        await _save([..._splits, LiftSplit(name: n)]);
+                      },
+                    ),
                 ],
               ),
             ),
@@ -1394,93 +1660,139 @@ class _SplitEditorState extends State<_SplitEditor> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(s.name),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                Pressable(
-                  semanticLabel: 'Rename split',
-                  onTap: () async {
-                    final t = TextEditingController(text: s.name);
-                    final ok = await _sheet<bool>(c, (sc) => [
-                      Text('Rename split', style: F.head.copyWith(color: P.of(sc).ink)),
-                      const SizedBox(height: S.x4),
-                      OsTextField(controller: t, label: 'Name'),
-                      const SizedBox(height: S.x4),
-                      BigButton('Save', color: C.purple, onTap: () => Navigator.of(sc).pop(true)),
-                    ]);
-                    if (ok == true && t.text.trim().isNotEmpty) {
-                      setState(() => s.name = t.text.trim());
-                      await _commit();
-                    }
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: S.x3),
-                    child: Text('Rename', style: F.cap.copyWith(color: p.ink2)),
-                  ),
-                ),
-                for (var i = 0; i < s.exercises.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: S.x2),
-                    child: Surface(
-                      semanticLabel: s.exercises[i].name,
-                      onTap: () async {
-                        final e = await editLiftExercise(c, existing: s.exercises[i]);
-                        if (e == null) return;
-                        setState(() => s.exercises[i] = e);
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(s.name),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  Pressable(
+                    semanticLabel: 'Rename split',
+                    onTap: () async {
+                      final t = TextEditingController(text: s.name);
+                      final ok = await _sheet<bool>(
+                        c,
+                        (sc) => [
+                          Text(
+                            'Rename split',
+                            style: F.head.copyWith(color: P.of(sc).ink),
+                          ),
+                          const SizedBox(height: S.x4),
+                          OsTextField(controller: t, label: 'Name'),
+                          const SizedBox(height: S.x4),
+                          BigButton(
+                            'Save',
+                            color: C.purple,
+                            onTap: () => Navigator.of(sc).pop(true),
+                          ),
+                        ],
+                      );
+                      if (ok == true && t.text.trim().isNotEmpty) {
+                        setState(() => s.name = t.text.trim());
                         await _commit();
-                      },
-                      child: Row(children: [
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(s.exercises[i].name, style: F.body.copyWith(color: p.ink)),
-                            Text(s.exercises[i].loadMode.title,
-                                style: F.over.copyWith(color: p.ink3)),
-                          ]),
-                        ),
-                        if (i > 0)
-                          Pressable(
-                            semanticLabel: 'Move ${s.exercises[i].name} up',
-                            onTap: () async {
-                              setState(() => s.exercises.insert(i - 1, s.exercises.removeAt(i)));
-                              await _commit();
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(S.x2),
-                              child: Icon(LucideIcons.arrowUp, size: 17, color: p.ink3),
-                            ),
-                          ),
-                        Pressable(
-                          semanticLabel: 'Remove ${s.exercises[i].name}',
-                          onTap: () async {
-                            setState(() => s.exercises.removeAt(i));
-                            await _commit();
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(S.x2),
-                            child: Icon(LucideIcons.x, size: 17, color: p.ink3),
-                          ),
-                        ),
-                      ]),
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: S.x3),
+                      child: Text(
+                        'Rename',
+                        style: F.cap.copyWith(color: p.ink2),
+                      ),
                     ),
                   ),
-                if (s.exercises.length < LiftSplit.maxExercises)
-                  BigButton('Add exercise', icon: LucideIcons.plus, color: C.purple, soft: true,
+                  for (var i = 0; i < s.exercises.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: S.x2),
+                      child: Surface(
+                        semanticLabel: s.exercises[i].name,
+                        onTap: () async {
+                          final e = await editLiftExercise(
+                            c,
+                            existing: s.exercises[i],
+                          );
+                          if (e == null) return;
+                          setState(() => s.exercises[i] = e);
+                          await _commit();
+                        },
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    s.exercises[i].name,
+                                    style: F.body.copyWith(color: p.ink),
+                                  ),
+                                  Text(
+                                    s.exercises[i].loadMode.title,
+                                    style: F.over.copyWith(color: p.ink3),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (i > 0)
+                              Pressable(
+                                semanticLabel: 'Move ${s.exercises[i].name} up',
+                                onTap: () async {
+                                  setState(
+                                    () => s.exercises.insert(
+                                      i - 1,
+                                      s.exercises.removeAt(i),
+                                    ),
+                                  );
+                                  await _commit();
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(S.x2),
+                                  child: Icon(
+                                    LucideIcons.arrowUp,
+                                    size: 17,
+                                    color: p.ink3,
+                                  ),
+                                ),
+                              ),
+                            Pressable(
+                              semanticLabel: 'Remove ${s.exercises[i].name}',
+                              onTap: () async {
+                                setState(() => s.exercises.removeAt(i));
+                                await _commit();
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(S.x2),
+                                child: Icon(
+                                  LucideIcons.x,
+                                  size: 17,
+                                  color: p.ink3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (s.exercises.length < LiftSplit.maxExercises)
+                    BigButton(
+                      'Add exercise',
+                      icon: LucideIcons.plus,
+                      color: C.purple,
+                      soft: true,
                       onTap: () async {
                         final e = await editLiftExercise(c);
                         if (e == null) return;
                         setState(() => s.exercises.add(e));
                         await _commit();
-                      }),
-              ],
+                      },
+                    ),
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }

@@ -34,6 +34,7 @@ import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/log_workout.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/workout_screen.dart';
+import 'ui2/screens/progress_screen.dart';
 import 'ui2/screens/training_review.dart';
 import 'ui2/ui2.dart';
 
@@ -591,6 +592,7 @@ class _ShellState extends State<_Shell> {
         ShellDomain.health => const HealthScreen(),
         ShellDomain.nutrition => const NutritionScreen(),
         ShellDomain.workout => const WorkoutScreen(),
+        ShellDomain.progress => const ProgressScreen(),
       },
     );
   }

@@ -57,7 +57,9 @@ class ProfileHistory {
     final db = await LocalDb.instance;
     final weights = await db.query(
       'body_weight',
-      where: 'date <= ?',
+      // History-only rows (backdated or imported, build 86) never price a
+      // past day: Akshat's decision that past calorie numbers do not move.
+      where: 'date <= ? AND history_only = 0',
       whereArgs: [day],
       orderBy: 'date DESC',
       limit: 1,

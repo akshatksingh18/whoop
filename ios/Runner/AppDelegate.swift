@@ -113,6 +113,10 @@ import MapKit
       PedometerBridge.register(messenger: registrar.messenger())
       PhoneCadenceBridge.register(messenger: registrar.messenger())
     }
+    // Body progress photos taken with the camera (build 86). See CameraBridge.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "CameraBridge") {
+      CameraBridge.register(messenger: registrar.messenger())
+    }
     // A dark Apple Maps picture under a recorded route. See lib/gps/map_snapshot.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MapSnapshotBridge") {
       MapSnapshotBridge.register(messenger: registrar.messenger())
@@ -140,6 +144,88 @@ import MapKit
       // (processing + light refresh).
       BackgroundTaskManager.schedule()
       BackgroundTaskManager.scheduleRefresh()
+    }
+  }
+}
+
+/// A progress photo from the camera (build 86, Body). The system camera UI,
+/// scaled to at most 2048 px and re-drawn upright, returned as JPEG bytes
+/// with no metadata; Dart re-encodes it once more before keeping it. Nothing
+/// is saved to the photo library. Cancel returns nil.
+enum CameraBridge {
+  private static let channelName = "openstrap/camera"
+  private static var delegate: CameraDelegate?
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "capture" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      DispatchQueue.main.async {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera),
+              let top = topViewController() else {
+          result(FlutterError(code: "unavailable", message: "The camera is not available.", details: nil))
+          return
+        }
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.allowsEditing = false
+        let d = CameraDelegate(result: result)
+        delegate = d
+        picker.delegate = d
+        top.present(picker, animated: true)
+      }
+    }
+  }
+
+  static func finished() { delegate = nil }
+
+  static func topViewController() -> UIViewController? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let windows = scenes.flatMap { $0.windows }
+    var top = (windows.first { $0.isKeyWindow } ?? windows.first)?.rootViewController
+    while let presented = top?.presentedViewController { top = presented }
+    return top
+  }
+}
+
+final class CameraDelegate: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+  private var result: FlutterResult?
+
+  init(result: @escaping FlutterResult) {
+    self.result = result
+  }
+
+  func imagePickerController(
+    _ picker: UIImagePickerController,
+    didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+  ) {
+    let image = info[.originalImage] as? UIImage
+    picker.dismiss(animated: true) {
+      var data: Data?
+      if let image = image, image.size.width > 0, image.size.height > 0 {
+        let scale = min(1, 2048 / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let upright = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+          image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        data = upright.jpegData(compressionQuality: 0.9)
+      }
+      self.result?(data.map { FlutterStandardTypedData(bytes: $0) })
+      self.result = nil
+      CameraBridge.finished()
+    }
+  }
+
+  func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+    picker.dismiss(animated: true) {
+      self.result?(nil)
+      self.result = nil
+      CameraBridge.finished()
     }
   }
 }

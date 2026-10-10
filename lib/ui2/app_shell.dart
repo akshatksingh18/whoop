@@ -22,7 +22,10 @@ enum ShellDomain {
   home('Today', LucideIcons.house, C.domHome),
   health('Trends', LucideIcons.chartLine, C.domHealth),
   nutrition('Food', LucideIcons.utensils, C.domFood),
-  workout('Train', LucideIcons.dumbbell, C.domMove);
+  workout('Train', LucideIcons.dumbbell, C.domMove),
+  // Build 86: the one recomposition page, with Body inside it. Last, so the
+  // saved tab index of the first four is unchanged.
+  progress('Progress', LucideIcons.trendingUp, C.teal);
 
   const ShellDomain(this.label, this.icon, this.accent);
 

@@ -402,6 +402,10 @@ dependencies:
 
   # File picker for data imports (NOOP raw CSV, Edge .db backup, WHOOP export CSV).
   file_picker: ^8.1.6
+  # Build 86 Body photos: decode, bake orientation, resize to 2048 px and
+  # re-encode without metadata (no location), on a worker isolate. Already
+  # resolved in pubspec.lock as a transitive dependency; now used directly.
+  image: ^4.9.2
 
   # Apple Health (HealthKit, iOS) + Google Health Connect (Android) — export each
   # day's derived metrics to the platform health store.

@@ -886,10 +886,45 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// Runs before this one, for PR badges and the 5K pace; null while loading.
   List<RunSummary>? _earlier;
 
+  /// The session's SAVED end, read from its row (build 86 workout times):
+  /// never start + active duration, which pauses would shorten.
+  DateTime? _savedEnd;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadEarlier());
+    _loadEnd();
+  }
+
+  Future<void> _loadEnd() async {
+    final id = r.sessionId;
+    if (id == null) return;
+    try {
+      final row = await LocalDb.session(id);
+      final te = (row?['end_ts'] as num?)?.toInt();
+      if (row?['status'] == 'live' || te == null || !mounted) return;
+      setState(() => _savedEnd = DateTime.fromMillisecondsSinceEpoch(te * 1000));
+    } catch (_) {}
+  }
+
+  /// "OCT 10, 2026 AT 7:04 AM – 7:58 AM"; an end after midnight carries its
+  /// own date.
+  String _when(BuildContext c) {
+    String t(DateTime d) => MaterialLocalizations.of(c).formatTimeOfDay(
+      TimeOfDay.fromDateTime(d),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(c),
+    );
+    final end = _savedEnd;
+    // `_shortDate` already carries the start time.
+    final started = _shortDate(r.start).toUpperCase();
+    if (end == null) return started;
+    final sameDay = end.year == r.start.year &&
+        end.month == r.start.month &&
+        end.day == r.start.day;
+    return sameDay
+        ? '$started – ${t(end)}'
+        : '$started – ${_shortDate(end).toUpperCase()}';
   }
 
   Future<void> _loadEarlier() async {
@@ -1189,7 +1224,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
               child: NavBar(
                 a.name,
-                sub: _shortDate(r.start).toUpperCase(),
+                sub: _when(c),
                 // Two icons, each a Pressable with S.tap's own 44 pt minimum
                 // hit box (grammar.dart's accessibility floor, not optional) —
                 // S.tap * 2 alone is 12 pt short of that plus the gap between

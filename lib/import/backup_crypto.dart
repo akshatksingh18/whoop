@@ -64,6 +64,10 @@ const List<int> kBackupMagic = [0x4f, 0x53, 0x42, 0x4b]; // "OSBK"
 /// [BackupHeader.parse] refuses anything it does not know rather than guessing.
 const int kBackupFormatVersion = 1;
 
+/// Build 86: the encrypted payload is a ZIP of the database and the Body
+/// progress photos (`media_backup.dart`). Older builds refuse it by version.
+const int kBackupFormatVersionMedia = 2;
+
 /// KDF id. One value today; the byte exists so a future migration to a memory-
 /// hard KDF can be read by a build that also still opens today's files.
 const int kKdfPbkdf2HmacSha256 = 1;
@@ -135,7 +139,7 @@ class BackupHeader {
       }
     }
     final version = bytes[4];
-    if (version != kBackupFormatVersion) {
+    if (version != kBackupFormatVersion && version != kBackupFormatVersionMedia) {
       throw BackupFormatException(
         'this backup was written by a newer version of the app (format '
         '$version)',
@@ -212,12 +216,13 @@ Future<void> encryptBackupFile(
   String passphrase, {
   int iterations = kDefaultIterations,
   Random? rng,
+  int version = kBackupFormatVersion,
 }) async {
   if (passphrase.isEmpty) {
     throw const BackupFormatException('a backup needs a passphrase');
   }
   final header = BackupHeader(
-    version: kBackupFormatVersion,
+    version: version,
     kdf: kKdfPbkdf2HmacSha256,
     iterations: iterations,
     salt: randomBytes(kSaltBytes, rng: rng),
@@ -250,7 +255,8 @@ Future<void> encryptBackupFile(
 ///
 /// [dest] is DELETED on failure. A half-written plaintext file that fails
 /// authentication must never be left behind looking like a restore candidate.
-Future<void> decryptBackupFile(File src, File dest, String passphrase) async {
+/// Returns the format version: 1 is a database, 2 a database-plus-photos ZIP.
+Future<int> decryptBackupFile(File src, File dest, String passphrase) async {
   final raf = await src.open();
   Uint8List headerBytes;
   try {
@@ -286,6 +292,7 @@ Future<void> decryptBackupFile(File src, File dest, String passphrase) async {
       await dest.delete();
     }
   }
+  return header.version;
 }
 
 /// Stream [src] through [cipher] into [out], dropping the first [skip] bytes.

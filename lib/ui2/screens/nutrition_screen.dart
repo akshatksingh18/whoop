@@ -123,6 +123,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       final weights = await BodyWeight.since(
         db,
         dayLabelOf(DateTime(now.year, now.month, now.day - 60)),
+        calculation: true,
       );
       final foods = await MyFoods.all(db);
       final meals = await MyFoods.meals(db);

@@ -18,6 +18,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/body_log.dart' show BodyLogDb;
+import '../../data/media_backup.dart';
 import '../../import/backup_crypto.dart';
 import '../../import/import_container.dart';
 import '../../import/journal_csv_import.dart';
@@ -492,10 +494,24 @@ bool _sameBytes(List<int> a, List<int> b) {
 /// crashed. Nothing here touches a plugin, which is what makes that legal.
 Future<String> decryptToTemp(String path, String passphrase) async {
   final tmp = await getTemporaryDirectory();
-  final dest =
-      '${tmp.path}/restore-${DateTime.now().millisecondsSinceEpoch}.db';
-  await Isolate.run(
-      () => decryptBackupFile(File(path), File(dest), passphrase));
+  final stamp = DateTime.now().millisecondsSinceEpoch;
+  final dest = '${tmp.path}/restore-$stamp.db';
+  final payload = '${tmp.path}/restore-$stamp.payload';
+  final version = await Isolate.run(
+      () => decryptBackupFile(File(path), File(payload), passphrase));
+  if (version == kBackupFormatVersionMedia) {
+    // Database to [dest]; progress photos straight into the photo folder
+    // (existing files kept). Their rows arrive with the database merge.
+    try {
+      await unpackMediaBackup(payload, dest, (await BodyLogDb.photoDir()).path);
+    } finally {
+      try {
+        await File(payload).delete();
+      } catch (_) {}
+    }
+  } else {
+    await File(payload).rename(dest);
+  }
   return dest;
 }
 

@@ -142,6 +142,9 @@ class NotificationService {
   static const int idLiftInactivity = 2420;
   static const int idRestTimer = 2421;
 
+  /// Body's optional weekly measurement-day reminder (build 86).
+  static const int idBodyReminder = 2422;
+
   /// Slot band [idMedsBase .. idMedsBase + maxMedSlots) — one ONE-SHOT per
   /// scheduled dose that is still upcoming, armed by
   /// [NotificationCenter.scheduleStandingReminders] from the user's own
@@ -210,6 +213,7 @@ class NotificationService {
     idSigningExpiry24,
     idLiftInactivity,
     idRestTimer,
+    idBodyReminder,
     idWeeklyRecap,
     idEveningBrief,
     idMorningBrief,

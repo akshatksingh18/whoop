@@ -33,6 +33,7 @@ import 'calculation_store.dart';
 import '../gps/workout_clock.dart';
 import 'journal_fields.dart';
 import 'lift_log.dart' show LiftLogDb;
+import 'body_log.dart' show BodyLogDb;
 import 'live_coverage_policy.dart';
 import 'med_store.dart';
 import 'models.dart';
@@ -162,6 +163,8 @@ class LocalDb {
     // medication, strength sets, symptoms and routes did not survive a
     // backup/restore round trip at all, the same omission `wipeAll` documents.
     'lift_log',
+    'body_measure',
+    'body_photo',
     'journal',
     'journal_metric',
     'journal_field_def',
@@ -249,6 +252,8 @@ class LocalDb {
   static const _salvageTables = [
     // Hand-entered. The only copy that exists anywhere.
     'lift_log',
+    'body_measure',
+    'body_photo',
     'journal',
     'journal_metric',
     'journal_field_def',
@@ -3196,6 +3201,9 @@ class LocalDb {
     // Lift Log inside the WHOOP workout (build 86): one JSON row per workout.
     // Added in place on the open path, like body_weight: no schema version.
     await LiftLogDb.createTables(db);
+    // Body (build 86): tape sessions, photo records, and the in-place
+    // body_weight columns that keep imported/backdated weights history only.
+    await BodyLogDb.createTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (

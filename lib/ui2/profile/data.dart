@@ -26,6 +26,9 @@ import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
 import '../../data/lift_log.dart';
+import '../../data/body_log.dart';
+import '../../data/photo_encode.dart';
+import '../../data/media_backup.dart';
 import '../../import/backup_crypto.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -169,6 +172,78 @@ class _DataScreenState extends State<DataScreen> {
     return ('$n workouts imported.', false);
   }
 
+  Future<_Note> _importBody() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: true,
+    );
+    final files = {
+      for (final f in picked?.files ?? const <PlatformFile>[])
+        if (f.path != null) f.name: f.path!,
+    };
+    final manifestName = files.keys
+        .where((n) => n.toLowerCase().endsWith('.json'))
+        .firstOrNull;
+    if (manifestName == null) {
+      return files.isEmpty
+          ? ('', false)
+          : ('Select body-log.json (or the body-history file) with the photos.', true);
+    }
+    final plan = await planBodyImport(
+      await File(files[manifestName]!).readAsString(),
+      files: files,
+    );
+    if (!mounted) return ('', false);
+    if (plan.isEmpty) {
+      return (
+        'Nothing new: ${plan.alreadyHere} already here'
+            '${plan.sameDayConflicts.isEmpty ? '' : ', ${plan.sameDayConflicts.length} days hold a different weight and were left alone'}.',
+        false,
+      );
+    }
+    final lines = [
+      if (plan.weights.isNotEmpty)
+        '${plan.weights.length} weights (${plan.weights.first.date} to ${plan.weights.last.date}) as history only.',
+      if (plan.measures.isNotEmpty) '${plan.measures.length} tape sessions.',
+      if (plan.photos.isNotEmpty) '${plan.photos.length} photos.',
+      if (plan.missingPhotoFiles.isNotEmpty)
+        '${plan.missingPhotoFiles.length} photos listed but not selected: they will be missing.',
+      if (plan.sameDayConflicts.isNotEmpty)
+        '${plan.sameDayConflicts.length} days already hold a different weight; those stay as they are.',
+      if (plan.alreadyHere > 0) '${plan.alreadyHere} already here.',
+    ];
+    final ok = await confirmRemove(
+      context,
+      title: 'Import from ${plan.source == 'akshatos' ? 'AkshatOS Body' : plan.source}?',
+      body: lines.join(' '),
+      remove: 'Import',
+      keep: 'Cancel',
+    );
+    if (!ok) return ('', false);
+    final app = context.read<AppState>();
+    final n = await applyBodyImport(
+      plan,
+      encode: encodeProgressPhotoFile,
+      applyWeekday: true,
+    );
+    app.bumpInsights();
+    return (
+      '$n records imported.'
+          '${plan.missingPhotoFiles.isEmpty ? '' : ' ${plan.missingPhotoFiles.length} photos were not in the selection.'}',
+      plan.missingPhotoFiles.isNotEmpty,
+    );
+  }
+
+  Future<_Note> _exportBody() async {
+    final origin = shareOrigin(context);
+    final dir = await Directory.systemTemp.createTemp('body');
+    final f = File('${dir.path}/body-log.csv')
+      ..writeAsStringSync(await BodyLogDb.csv());
+    await Share.shareXFiles([XFile(f.path)],
+        subject: '$kAppName Body', sharePositionOrigin: origin);
+    return ('Body CSV shared.', false);
+  }
+
   Future<_Note> _exportLiftLog() async {
     final origin = shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('liftlog');
@@ -208,16 +283,27 @@ class _DataScreenState extends State<DataScreen> {
     final origin = shareOrigin(context);
     final plain = await LocalDb.exportCopy();
     final dest = '$plain.osbk';
+    // Build 86: with progress photos to carry, the sealed payload is the
+    // database plus photos (format 2); otherwise the database alone (1).
+    final photos = await BodyLogDb.photos();
+    final photoDir = (await BodyLogDb.photoDir()).path;
+    String? zip;
     try {
+      if (photos.isNotEmpty) zip = await packMediaBackup(plain, photoDir);
+      final src = zip ?? plain;
+      final version =
+          zip == null ? kBackupFormatVersion : kBackupFormatVersionMedia;
       // 210 000 PBKDF2 rounds is seconds of solid CPU. On the UI isolate that
       // is a frozen app; nothing in the crypto path touches a plugin, which is
       // what makes the worker legal.
-      await Isolate.run(
-          () => encryptBackupFile(File(plain), File(dest), pass));
+      await Isolate.run(() => encryptBackupFile(File(src), File(dest), pass,
+          version: version));
     } finally {
-      try {
-        await File(plain).delete();
-      } catch (_) {}
+      for (final f in [plain, ?zip]) {
+        try {
+          await File(f).delete();
+        } catch (_) {}
+      }
     }
     await Share.shareXFiles([XFile(dest)],
         subject: '$kAppName encrypted backup', sharePositionOrigin: origin);
@@ -451,12 +537,22 @@ class _DataScreenState extends State<DataScreen> {
                 ]),
                 const SizedBox(height: S.x5),
                 // Build 86: the set log that now lives in the Lift workout.
-                settingsGroup(c, 'Lift Log', [
+                settingsGroup(c, 'Lift Log and Body', [
                   SetRow(LucideIcons.dumbbell, C.purple, 'Import from AkshatOS',
                       sub: 'A lift-log.json from Lift Log or its full backup. '
                           'Previewed first; workouts already here are skipped, '
                           'and imported history has no strain or calories',
                       onTap: _busy ? null : () => _run(_importLiftLog)),
+                  SetRow(LucideIcons.scale, C.teal, 'Import body history',
+                      sub: 'AkshatOS Body: select body-log.json and its photos '
+                          'together. Or a body-history file. Weights become '
+                          'history only, so past calories never change; a day '
+                          'that already has a weight is never overwritten',
+                      onTap: _busy ? null : () => _run(_importBody)),
+                  SetRow(LucideIcons.fileSpreadsheet, C.teal, 'Export Body CSV',
+                      sub: 'One row per day: weight in pounds and each tape site '
+                          'in inches, as AkshatOS Body writes it',
+                      onTap: _busy ? null : () => _run(_exportBody)),
                   SetRow(LucideIcons.fileSpreadsheet, C.purple, 'Export Lift Log',
                       sub: 'A JSON backup AkshatOS can read, and a CSV with one '
                           'row per set and its load meaning',

@@ -101,9 +101,8 @@ class LiftLogError implements Exception {
 
 String _id() {
   final r = math.Random.secure();
-  String h(int n) => [
-    for (var i = 0; i < n; i++) r.nextInt(16).toRadixString(16),
-  ].join();
+  String h(int n) =>
+      [for (var i = 0; i < n; i++) r.nextInt(16).toRadixString(16)].join();
   return '${h(8)}-${h(4)}-4${h(3)}-${'89ab'[r.nextInt(4)]}${h(3)}-${h(12)}'
       .toUpperCase();
 }
@@ -161,9 +160,12 @@ class LiftSplitExercise {
 }
 
 class LiftSplit {
-  LiftSplit({String? id, required this.name, List<LiftSplitExercise>? exercises})
-    : id = id ?? _id(),
-      exercises = exercises ?? [];
+  LiftSplit({
+    String? id,
+    required this.name,
+    List<LiftSplitExercise>? exercises,
+  }) : id = id ?? _id(),
+       exercises = exercises ?? [];
 
   static const maxNameLength = 40;
   static const maxExercises = 40;
@@ -376,7 +378,8 @@ class LiftExercise {
     loadMode: LiftLoadMode.parse(m['loadMode']) ?? LiftLoadMode.platesPerSide,
     equipmentNote: (m['equipmentNote'] as String?) ?? '',
     sets: [
-      for (final s in (m['sets'] as List? ?? const [])) LiftSet.fromJson(s as Map),
+      for (final s in (m['sets'] as List? ?? const []))
+        LiftSet.fromJson(s as Map),
     ],
     splitExerciseId: m['splitExerciseID'] as String?,
   );
@@ -565,7 +568,9 @@ class LiftWorkout {
       for (final e in exercises)
         if (e.splitExerciseId == null)
           e
-        else if (split.exercises.where((s) => s.id == e.splitExerciseId).firstOrNull
+        else if (split.exercises
+                .where((s) => s.id == e.splitExerciseId)
+                .firstOrNull
             case final src?)
           (e.sets.isEmpty
               ? (e
@@ -599,7 +604,8 @@ class LiftWorkout {
     ];
     final arranged = [for (final i in slots) exercises[i]]
       ..sort(
-        (a, b) => order[a.splitExerciseId]!.compareTo(order[b.splitExerciseId]!),
+        (a, b) =>
+            order[a.splitExerciseId]!.compareTo(order[b.splitExerciseId]!),
       );
     for (var k = 0; k < slots.length; k++) {
       exercises[slots[k]] = arranged[k];
@@ -935,7 +941,8 @@ Future<LiftImportPlan> planLiftImport(String json) async {
     for (final e in (w['exercises'] as List? ?? const [])) {
       final ex = e as Map;
       final mode = LiftLoadMode.parse(ex['loadMode']);
-      if (mode == null) throw FormatException('Unknown load mode ${ex['loadMode']}');
+      if (mode == null)
+        throw FormatException('Unknown load mode ${ex['loadMode']}');
       final sets = <LiftSet>[];
       for (final s in (ex['sets'] as List? ?? const [])) {
         final st = s as Map;
@@ -967,7 +974,8 @@ Future<LiftImportPlan> planLiftImport(String json) async {
     }
     final started = _appleDate(w['startedAt']);
     final ended = _appleDate(w['endedAt']);
-    if (ended.isBefore(started)) throw const FormatException('A workout ends before it starts.');
+    if (ended.isBefore(started))
+      throw const FormatException('A workout ends before it starts.');
     workouts.add(
       LiftWorkout(
         id: w['id'] as String,
@@ -1018,7 +1026,10 @@ Future<LiftImportPlan> planLiftImport(String json) async {
 
 /// Apply a previewed plan: imported workouts land as lift history only (no
 /// WHOOP session, no strain, no calories), all in one transaction.
-Future<int> applyLiftImport(LiftImportPlan plan, {bool replaceSplits = false}) async {
+Future<int> applyLiftImport(
+  LiftImportPlan plan, {
+  bool replaceSplits = false,
+}) async {
   final db = await LocalDb.instance;
   final now = DateTime.now().millisecondsSinceEpoch;
   await db.transaction((tx) async {

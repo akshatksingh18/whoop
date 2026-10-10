@@ -47,7 +47,7 @@ import '../ui2.dart';
 import '../profile/settings.dart' show MoreSettings;
 import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
-import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard, showMaintenance;
+import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard;
 import 'today_plan.dart' show TodayPlanCard;
 import '../profile/status.dart' show StatusScreen;
 import 'week_card.dart' show WeekCard;
@@ -1197,21 +1197,17 @@ _RingState _gap(
   );
 }
 
-/// One of Today's three answers: label, the number (inside a small ring for
-/// recovery), a bar for how far along it is, and one short line. An absent
-/// metric keeps its cell and says why in that line; calibration draws its
-/// beads muted.
+/// Sleep or strain under Today's recovery hero: label, the number, a bar for
+/// how far along it is, and one short line. An absent metric keeps its cell
+/// and says why in that line.
 class _StatusCell extends StatelessWidget {
   final _RingState r;
-
-  /// Recovery draws its score inside a ring; sleep and strain use a bar.
-  final bool ring;
 
   /// Replaces the ring state's own caption when the screen has a better one.
   final String? sub;
   final VoidCallback? onTap;
 
-  const _StatusCell(this.r, {this.ring = false, this.sub, this.onTap});
+  const _StatusCell(this.r, {this.sub, this.onTap});
 
   @override
   Widget build(BuildContext c) {
@@ -1247,81 +1243,34 @@ class _StatusCell extends StatelessWidget {
               ],
             ),
             const SizedBox(height: S.x3),
-            if (ring)
-              SizedBox(
-                width: 64,
-                height: 64,
+            SizedBox(
+              height: 40,
+              child: Align(alignment: Alignment.centerLeft, child: value),
+            ),
+            const SizedBox(height: S.x2),
+            ClipRRect(
+              borderRadius: R.rPill,
+              child: SizedBox(
+                height: 6,
                 child: Stack(
-                  alignment: Alignment.center,
                   children: [
-                    CustomPaint(
-                      size: Size.infinite,
-                      painter: r.calibrating
-                          ? DashedRing(
-                              r.frac ?? 0,
-                              r.arc(p),
-                              p.track,
-                              stroke: 6,
-                              segments: r.need ?? 24,
-                            )
-                          : Ring(
-                              r.frac ?? 0,
-                              r.arc(p),
-                              p.track,
-                              stroke: 6,
-                              t: animate(c, 1),
-                              solid: r.measured,
-                            ),
+                    Positioned.fill(child: ColoredBox(color: p.track)),
+                    FractionallySizedBox(
+                      widthFactor: (r.frac ?? 0).clamp(0.0, 1.0),
+                      child: ColoredBox(
+                        color: r.arc(p),
+                        child: const SizedBox.expand(),
+                      ),
                     ),
-                    if (r.measured)
-                      Padding(
-                        padding: const EdgeInsets.all(S.x3),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            r.value,
-                            style: F.n24.copyWith(color: p.ink),
-                          ),
-                        ),
-                      )
-                    else
-                      Icon(r.icon, size: 20, color: p.ink3),
                   ],
                 ),
-              )
-            else ...[
-              SizedBox(
-                height: 40,
-                child: Align(alignment: Alignment.centerLeft, child: value),
               ),
-              const SizedBox(height: S.x2),
-              ClipRRect(
-                borderRadius: R.rPill,
-                child: SizedBox(
-                  height: 6,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(child: ColoredBox(color: p.track)),
-                      FractionallySizedBox(
-                        widthFactor: (r.frac ?? 0).clamp(0.0, 1.0),
-                        child: ColoredBox(
-                          color: r.arc(p),
-                          child: const SizedBox.expand(),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            if (ring && !r.measured) ...[const SizedBox(height: S.x2), value],
+            ),
             if (caption.isNotEmpty) ...[
               const SizedBox(height: S.x2),
               Text(
                 caption,
-                style: (ring && r.measured ? F.cap : F.over).copyWith(
-                  color: ring && r.measured ? r.ink(p) : p.ink3,
-                ),
+                style: F.over.copyWith(color: p.ink3),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),

@@ -175,8 +175,33 @@ class _DataScreenState extends State<DataScreen> {
         keep: 'Keep mine',
       );
     }
-    final n = await applyLiftImport(plan, replaceSplits: useSplits);
-    return ('$n workouts imported.', false);
+    // Workouts that overlap a WHOOP lift you recorded: offer to attach the
+    // sets to that session instead of keeping a second, sensor-less entry.
+    var links = await proposeLiftLinks(plan.add);
+    if (links.isNotEmpty && mounted) {
+      final link = await confirmRemove(
+        context,
+        title: 'Link ${links.length} to your WHOOP workouts?',
+        body:
+            '${links.length} imported ${links.length == 1 ? 'workout overlaps a lift' : 'workouts overlap lifts'} '
+            'you recorded with the band. Linking puts the sets on that '
+            'session; its strain and calories stay as measured. The rest '
+            'are kept as history only.',
+        remove: 'Link them',
+        keep: 'Keep separate',
+      );
+      if (!link) links = const {};
+    }
+    final n = await applyLiftImport(
+      plan,
+      replaceSplits: useSplits,
+      links: links,
+    );
+    return (
+      '$n workouts imported'
+          '${links.isEmpty ? '' : ', ${links.length} linked to WHOOP sessions'}.',
+      false,
+    );
   }
 
   Future<_Note> _importBody() async {

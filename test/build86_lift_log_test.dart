@@ -236,6 +236,49 @@ void main() {
     },
   );
 
+  test(
+    'an import overlapping a WHOOP lift is proposed for linking, once',
+    () async {
+      final db = await LocalDb.instance;
+      int sec(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
+      Future<void> session(String id, String type, DateTime s, int min) =>
+          db.insert('sessions', {
+            'id': id,
+            'type': type,
+            'status': 'done',
+            'start_ts': sec(s),
+            'end_ts': sec(s.add(Duration(minutes: min))),
+          'created_at': sec(s),
+          });
+      final day = DateTime(2026, 8, 20, 18);
+      await session('link-lift', 'Weight training', day, 60);
+      await session('link-run', 'Running', day, 60);
+      await session(
+        'link-other-day',
+        'Weight training',
+        day.add(const Duration(days: 2)),
+        60,
+      );
+      LiftWorkout w(String id, DateTime s) => LiftWorkout(
+        id: id,
+        startedAt: s,
+        endedAt: s.add(const Duration(minutes: 50)),
+        exercises: [],
+      );
+      final links = await proposeLiftLinks([
+        w('imp-a', day.add(const Duration(minutes: 5))),
+        // Overlaps the same session less: it stays history only.
+        w('imp-b', day.add(const Duration(minutes: 40))),
+        w('imp-c', day.add(const Duration(days: 5))),
+      ]);
+      expect(
+        links,
+        {'imp-a': 'link-lift'},
+        reason: 'lift sessions only, one import per session, largest overlap',
+      );
+    },
+  );
+
   group('AkshatOS import', () {
     // Swift's default JSON date is seconds since 2001-01-01.
     double apple(DateTime d) => d.millisecondsSinceEpoch / 1000 - 978307200;

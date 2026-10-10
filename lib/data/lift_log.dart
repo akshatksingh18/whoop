@@ -18,6 +18,7 @@ import 'dart:math' as math;
 
 import 'package:sqflite/sqflite.dart';
 
+import '../compute/profile.dart' show isLiftType;
 import 'calculation_store.dart';
 import 'db.dart';
 
@@ -1046,9 +1047,63 @@ Future<LiftImportPlan> planLiftImport(String json) async {
 
 /// Apply a previewed plan: imported workouts land as lift history only (no
 /// WHOOP session, no strain, no calories), all in one transaction.
+/// Imported workouts that overlap a finished WHOOP lift session in time,
+/// as AkshatOS id → WHOOP session id, for the user to review before
+/// linking. A session that already carries a set log is never offered, each
+/// session takes at most one import (the largest overlap wins), and an
+/// import overlapping nothing stays history only. Linking attaches the
+/// sets; the session's own strain and calories are unchanged and nothing is
+/// counted twice.
+Future<Map<String, String>> proposeLiftLinks(List<LiftWorkout> imported) async {
+  if (imported.isEmpty) return const {};
+  int sec(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
+  final from = imported
+      .map((w) => w.startedAt)
+      .reduce((a, b) => a.isBefore(b) ? a : b);
+  final to = imported
+      .map((w) => w.endedAt ?? w.startedAt)
+      .reduce((a, b) => a.isAfter(b) ? a : b);
+  final rows = await LocalDb.sessionsInRange(sec(from) - 6 * 3600, sec(to));
+  final db = await LocalDb.instance;
+  final taken = {
+    for (final r in await db.query(
+      'lift_log',
+      columns: ['session_id'],
+      where: 'session_id IS NOT NULL',
+    ))
+      r['session_id'] as String,
+  };
+  final candidates = <({String importId, String sessionId, int overlap})>[];
+  for (final w in imported) {
+    final ws = sec(w.startedAt), we = sec(w.endedAt ?? w.startedAt);
+    for (final r in rows) {
+      final id = r['id'] as String?;
+      final s = (r['start_ts'] as num?)?.toInt();
+      final e = (r['end_ts'] as num?)?.toInt();
+      if (id == null || s == null || e == null) continue;
+      if (r['status'] == 'live' || taken.contains(id)) continue;
+      if (!isLiftType(r['type'] as String?)) continue;
+      final overlap = (we < e ? we : e) - (ws > s ? ws : s);
+      if (overlap > 0) {
+        candidates.add((importId: w.id, sessionId: id, overlap: overlap));
+      }
+    }
+  }
+  candidates.sort((a, b) => b.overlap.compareTo(a.overlap));
+  final out = <String, String>{};
+  final used = <String>{};
+  for (final c in candidates) {
+    if (out.containsKey(c.importId) || used.contains(c.sessionId)) continue;
+    out[c.importId] = c.sessionId;
+    used.add(c.sessionId);
+  }
+  return out;
+}
+
 Future<int> applyLiftImport(
   LiftImportPlan plan, {
   bool replaceSplits = false,
+  Map<String, String> links = const {},
 }) async {
   final db = await LocalDb.instance;
   final now = DateTime.now().millisecondsSinceEpoch;
@@ -1056,7 +1111,8 @@ Future<int> applyLiftImport(
     for (final w in plan.add) {
       await tx.insert('lift_log', {
         'id': w.id,
-        'session_id': null,
+        // Linked only where the user accepted the proposed match.
+        'session_id': links[w.id],
         'started_at': w.startedAt.millisecondsSinceEpoch,
         'ended_at': w.endedAt?.millisecondsSinceEpoch,
         'origin': 'akshatos',

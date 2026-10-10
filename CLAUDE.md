@@ -216,6 +216,8 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 - `fitness-app-plan.md` — accepted planned all-in-one recomposition experience: Body parity, unified
   weight/profile data, HR/set timing, the consolidated Progress page, local import/media recovery
   and scope/acceptance gates; read before changing body tracking, progress or navigation.
+- `fitness-goal-research.md` — the goal phases, weekly bands, data gate, step sizes and floors the
+  Progress goal review uses, with the evidence behind each; read before changing a goal rule.
 - `../akshatos/sidestore-evaluation.md` (sibling repository) — SideStore research and the proposed
   signing pilot for both apps; `todo.md` section 10 tracks its WHOOP-side checks. Sideloadly stays
   active until that pilot passes.

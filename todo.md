@@ -59,7 +59,9 @@ Progress tab, and the additions Akshat asked for after the plan (listed below); 
 carry `[x]` when done in source and a note when partly done. A first build-86 push (`70adc902`,
 Akshat's approval) passed Linux CI `38065480698` and personal macOS build `38065492927`; that IPA
 was **held, not downloaded or installed**, because the structural redesign had been left out.
-Everything since is local commits on `main`, not pushed. Akshat will review the redesign on the
+Everything since is committed on `main`; local validation: full suite 3,534 passed, 404
+intentional skips, 0 failed; analysis has no errors or warnings; personal-iOS contract tests and
+`personal_ios.py check` pass. Akshat will review the redesign on the
 phone after the rebuilt IPA. The Swift changes (Home region bridge, notification registrant and
 delegate) compile only on the macOS CI. Private MyFitnessPal import generated and validated
 locally (`../../health/fitness/data/whoop-body-history-import.json`).

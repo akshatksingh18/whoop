@@ -124,4 +124,95 @@ void main() {
     expect(a.verdict, GoalVerdict.onTrack);
     expect(a.next, contains('Protein'));
   });
+
+  test('two weeks on a new goal before any judgement', () {
+    final a = goalAdvice(
+      plan: const GoalPlan(phase: GoalPhase.fatLoss),
+      weeklyPct: 0.3,
+      weighIns: 7,
+      foodDays: 7,
+      kg: 80,
+      currentGoal: 2300,
+      restingKcal: 1800,
+      liftsBetter: 1,
+      liftsWorse: 0,
+      proteinPerKg: 2.0,
+      daysOnGoal: 5,
+    );
+    expect(a.verdict, GoalVerdict.needMore);
+  });
+
+  test('protein comes before a calorie cut', () {
+    final a = advise(
+      const GoalPlan(phase: GoalPhase.fatLoss),
+      weekly: 0.2,
+      protein: 1.2,
+    );
+    expect(a.verdict, GoalVerdict.adjust);
+    expect(a.kcalChange, isNull);
+    expect(a.headline, contains('protein'));
+  });
+
+  test('keep it off is judged against the weight you hold', () {
+    GoalAdvice hold(double kg) => goalAdvice(
+      plan: const GoalPlan(phase: GoalPhase.maintain, holdKg: 80),
+      weeklyPct: 0.2,
+      weighIns: 6,
+      foodDays: 6,
+      kg: kg,
+      currentGoal: 2400,
+      restingKcal: 1800,
+      liftsBetter: 1,
+      liftsWorse: 0,
+      proteinPerKg: 1.8,
+    );
+    expect(
+      hold(80.8).verdict,
+      GoalVerdict.onTrack,
+      reason: '+1% is inside ±1.5%',
+    );
+    final over = hold(82.4);
+    expect(over.verdict, GoalVerdict.adjust);
+    expect(over.kcalChange, lessThan(0));
+  });
+
+  test('a waist rising faster than weight explains flags fat gain', () {
+    final a = goalAdvice(
+      plan: const GoalPlan(phase: GoalPhase.leanGain),
+      weeklyPct: 0.3,
+      weighIns: 6,
+      foodDays: 6,
+      kg: 80,
+      currentGoal: 2900,
+      restingKcal: 1800,
+      liftsBetter: 1,
+      liftsWorse: 0,
+      proteinPerKg: 1.8,
+      waistChange: 0.5,
+      kgChange: 0.6,
+    );
+    expect(a.verdict, GoalVerdict.adjust);
+    expect(a.kcalChange, lessThan(0));
+  });
+
+  test('the minimum-intake floor applies when resting energy is lower', () {
+    final a = goalAdvice(
+      plan: const GoalPlan(phase: GoalPhase.fatLoss),
+      weeklyPct: 0.3,
+      weighIns: 6,
+      foodDays: 6,
+      kg: 60,
+      currentGoal: 1300,
+      restingKcal: 1250,
+      liftsBetter: 1,
+      liftsWorse: 0,
+      proteinPerKg: 2.0,
+      female: true,
+    );
+    expect(
+      a.kcalChange,
+      -50,
+      reason: 'down to 1,250 resting energy, above 1,200',
+    );
+  });
 }

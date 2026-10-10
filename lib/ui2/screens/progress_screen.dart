@@ -737,23 +737,53 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   /// a suggestion only; the calorie goal is yours to change.
   Widget _goalCard(BuildContext c, P p, ProgressData d, String today) {
     final g = d.goal;
-    final (last, before) = closedWeeks(today);
+    // The goal's window: one closed week against the one before for fast
+    // phases, two against two for slow ones (goal_plan.dart).
+    final n = g.windowWeeks;
+    final t = DateTime.parse(today);
+    final monday = DateTime(t.year, t.month, t.day - (t.weekday - 1));
+    DayWindow week(int back) {
+      final m = DateTime(monday.year, monday.month, monday.day - 7 * back);
+      return (
+        from: dayLabelOf(m),
+        to: dayLabelOf(DateTime(m.year, m.month, m.day + 6)),
+        days: 7,
+        partial: false,
+      );
+    }
+
+    final weeks = [for (var i = 1; i <= 2 * n; i++) week(i)];
+    final last = (
+      from: weeks[n - 1].from,
+      to: weeks[0].to,
+      days: 7 * n,
+      partial: false,
+    );
+    final before = (
+      from: weeks[2 * n - 1].from,
+      to: weeks[n].to,
+      days: 7 * n,
+      partial: false,
+    );
     final ws = weightSeries(d.weights, unit: 'kg');
     final a = weightWindow(ws, last), b = weightWindow(ws, before);
     final weekly = a.mean == null || b.mean == null || b.mean == 0
         ? null
-        : (a.mean! - b.mean!) / b.mean! * 100;
-    final fl = foodWindow(d.food, last), fb = foodWindow(d.food, before);
+        : (a.mean! - b.mean!) / b.mean! * 100 / n;
+    final fl = foodWindow(d.food, last);
     final kg = BodyLogDb.sevenDayMean(d.weights, today)?.kg;
     final lifts = liftComparisons(d.lifts, before, last);
     final waist = siteSeries(d.measures, BodySite.waistNavel);
     final wb = inRange(waist, '0000-00-00', before.to).lastOrNull;
     final wa = inRange(waist, last.from, last.to).lastOrNull;
+    final since = g.since == null ? null : DateTime.tryParse(g.since!);
     final advice = goalAdvice(
       plan: g,
       weeklyPct: weekly,
-      weighIns: math.min(a.count, b.count),
-      foodDays: math.min(fl.kcalDays, fb.kcalDays),
+      weighIns: weeks.map((w) => weightWindow(ws, w).count).reduce(math.min),
+      foodDays: weeks
+          .map((w) => foodWindow(d.food, w).kcalDays)
+          .reduce(math.min),
       kg: kg,
       currentGoal: (d.user['kcal_target'] as num?)?.toDouble(),
       restingKcal: bmrMifflin(Profile.fromMap(d.user)),
@@ -761,6 +791,9 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       liftsWorse: lifts.where((x) => x.direction < 0).length,
       proteinPerKg: fl.protein == null || kg == null ? null : fl.protein! / kg,
       waistChange: wa == null || wb == null ? null : wa.value - wb.value,
+      kgChange: a.mean == null || b.mean == null ? null : a.mean! - b.mean!,
+      daysOnGoal: since == null ? null : t.difference(since).inDays,
+      female: d.user['sex'] == 'f',
     );
     final band = g.band;
     String pct(double v) =>
@@ -849,8 +882,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
               ],
               const SizedBox(height: S.x2),
               Text(
-                'A suggestion from your last two closed weeks. The app never '
-                'changes your goals.',
+                'A suggestion from your last closed weeks. The app never changes '
+                'your goals.',
                 style: F.over.copyWith(color: p.ink3),
               ),
             ],
@@ -2504,10 +2537,15 @@ class _GoalScreenState extends State<GoalScreen> {
             ),
             const SizedBox(height: S.x2),
             Text(
-              'It waits for two closed weeks with four weigh-ins and five full '
-              'food days in each, suggests calorie changes of 100 to 250 kcal, '
-              'and never suggests going below your resting energy. Water, salt '
-              'and glycogen move the scale day to day; the trend is what counts.',
+              'It waits two weeks after a goal change, then needs five weigh-ins '
+              'and five full food days in each week it looks at (one week '
+              'against the one before for losing fat or building muscle, four '
+              'weeks for the others). It suggests changes of 100 to 250 kcal, '
+              'raises protein before cutting calories, and never suggests '
+              'going below your resting energy or 1,500 kcal (1,200 for '
+              'women). Water, salt and glycogen move the scale day to day; the '
+              'trend is what counts. With a medical condition or a history of '
+              'disordered eating, set goals with a clinician instead.',
               style: F.over.copyWith(color: p.ink3),
             ),
           ],

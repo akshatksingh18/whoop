@@ -410,10 +410,15 @@ Map<String, Widget> goldenCases() => {
     action: 'History',
   ),
   'calorie_pair': const Surface(child: CaloriePair(budget: 1234, acsm: 1456)),
-  'calorie_pair_missing': const Surface(child: CaloriePair(budget: 1234, acsm: null)),
+  'calorie_pair_missing': const Surface(
+    child: CaloriePair(budget: 1234, acsm: null),
+  ),
   // Build 85 scannable pieces.
   'tag': const Tag('Distance: GPS route', icon: LucideIcons.mapPin),
-  'updated_stamp': UpdatedStamp(DateTime(2026, 10, 8, 7, 5), now: DateTime(2026, 10, 8, 9)),
+  'updated_stamp': UpdatedStamp(
+    DateTime(2026, 10, 8, 7, 5),
+    now: DateTime(2026, 10, 8, 9),
+  ),
   'stat_tile': const StatTile(
     label: 'Steps',
     value: '8,642',
@@ -612,13 +617,17 @@ Map<String, Widget> _nutritionAndWellnessCases() {
     'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
     'calorie_card_over': const CalorieCard(eaten: 2210, goal: 2000),
     'calorie_card_no_goal': const CalorieCard(eaten: 820, goal: null),
-    'macro_card': MacroCard(
+    'calorie_card_day': CalorieCard(
+      eaten: 1540,
+      goal: 2000,
       day: rollupDay('2026-08-14', const [known, bare], today: '2026-08-15'),
       profile: const {
         'protein_target': 150,
         'carbs_target': 220,
         'fat_target': 60,
       },
+      addLabel: 'Add to Lunch',
+      onAdd: () {},
     ),
     'meal_section': Column(
       children: [
@@ -1663,7 +1672,10 @@ final _sessions = <String, ActivityResult>{
 /// assembled from; the screens themselves are `Scaffold`s and belong on a
 /// device, not in a scroll.
 Map<String, Widget> _liveCases() => {
-  'workout_context': WorkoutContextSelector(tags: const ['flat'], onChanged: (_) {}),
+  'workout_context': WorkoutContextSelector(
+    tags: const ['flat'],
+    onChanged: (_) {},
+  ),
   'live_heart': const LiveHeart(
     LiveFeed(
       hr: 148,

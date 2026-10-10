@@ -236,7 +236,7 @@ const _notComponents = {
   // Reads the installed signing profile, AppState and the keychain on open.
   'StatusScreen',
   // Nutrition logging sheets and the per-day log: each reads or writes the
-  // food tables on open. Their rows (PickRow, CalorieCard, MacroCard,
+  // food tables on open. Their rows (PickRow, CalorieCard,
   // MealSection) ARE in the gallery.
   'AddFoodSheet', 'GramsSheet', 'FoodEditor', 'MealEditor', 'NutritionDayView',
   'MealGroupPicker', // Reads meal/date headings; covered by ui2_food_flow_test.

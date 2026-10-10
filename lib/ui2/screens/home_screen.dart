@@ -840,43 +840,86 @@ class RingTrio extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final p = P.of(c);
     final l = AppLocalizations.of(c);
     final rec = _ringOf(HomeRingKind.recovery, d, l);
     final strain = _ringOf(HomeRingKind.strain, d, l);
     final sleep = _ringOf(HomeRingKind.sleep, d, l);
     final aim = d.strainTarget?['value'];
-    return Column(
-      children: [
-        _RecoveryCard(
-          rec,
-          hrv: d.hrv.value,
-          rhr: d.rhr.value,
-          onTap: _open(HomeRingKind.recovery),
-        ),
-        const SizedBox(height: S.x3),
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _MiniCard(sleep, onTap: _open(HomeRingKind.sleep)),
+    final hrv = d.hrv.value, rhr = d.rhr.value;
+    Widget rule() => Container(width: 1, color: p.edge);
+    // At large text sizes three columns cannot hold a label, so the cells
+    // stack, each still its own door.
+    final stacked = MediaQuery.textScalerOf(c).scale(10) > 14;
+    final cells = [
+      _StatusCell(rec, ring: true, onTap: _open(HomeRingKind.recovery)),
+      _StatusCell(sleep, onTap: _open(HomeRingKind.sleep)),
+      _StatusCell(
+        strain,
+        sub: strain.measured && aim is num
+            ? ((d.strain.value ?? 0) >= aim
+                  ? 'Target ${aim.toStringAsFixed(1)} reached'
+                  : 'Aim about ${aim.round()}')
+            : null,
+        onTap: _open(HomeRingKind.strain),
+      ),
+    ];
+    // Build 86 redesign: the three answers side by side in one card, so the
+    // day's status reads at a glance and the heart-rate canvas stays above
+    // the fold. Each cell is still the door into its own screen.
+    return Surface(
+      pad: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (stacked)
+            for (var i = 0; i < cells.length; i++) ...[
+              if (i > 0) Container(height: 1, color: p.edge),
+              cells[i],
+            ]
+          else
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < cells.length; i++) ...[
+                    if (i > 0) rule(),
+                    Expanded(child: cells[i]),
+                  ],
+                ],
               ),
-              const SizedBox(width: S.x3),
-              Expanded(
-                child: _MiniCard(
-                  strain,
-                  sub: strain.measured && aim is num
-                      ? ((d.strain.value ?? 0) >= aim
-                            ? 'Target ${aim.toStringAsFixed(1)} · reached'
-                            : 'Aim for about ${aim.round()} today')
-                      : null,
-                  onTap: _open(HomeRingKind.strain),
+            ),
+          if (hrv != null || rhr != null) ...[
+            Container(height: 1, color: p.edge),
+            Pressable(
+              onTap: _open(HomeRingKind.recovery),
+              semanticLabel: [
+                if (hrv != null) 'HRV ${hrv.round()} milliseconds',
+                if (rhr != null) 'resting heart rate ${rhr.round()} bpm',
+              ].join(', '),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: S.x4,
+                  vertical: S.x3,
+                ),
+                child: Wrap(
+                  spacing: S.x2,
+                  runSpacing: S.x2,
+                  children: [
+                    if (hrv != null)
+                      Tag('HRV ${hrv.round()} ms', icon: LucideIcons.activity),
+                    if (rhr != null)
+                      Tag(
+                        'Resting ${rhr.round()} bpm',
+                        icon: LucideIcons.heartPulse,
+                      ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1071,226 +1114,137 @@ _RingState _gap(
   );
 }
 
-/// The hero: recovery as a ring with the score inside it, the verdict beside
-/// it, and the two readings it is mostly made of under the verdict. When
-/// recovery is absent the ring is an empty track and the reason takes the
-/// place of the verdict.
-class _RecoveryCard extends StatelessWidget {
+/// One of Today's three answers: label, the number (inside a small ring for
+/// recovery), a bar for how far along it is, and one short line. An absent
+/// metric keeps its cell and says why in that line; calibration draws its
+/// beads muted.
+class _StatusCell extends StatelessWidget {
   final _RingState r;
-  final num? hrv, rhr;
-  final VoidCallback? onTap;
 
-  const _RecoveryCard(this.r, {this.hrv, this.rhr, this.onTap});
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    // Build 85: the day's headline as a centred hero, lit from the top in the
-    // recovery band's own colour, with its two inputs as chips under it.
-    return Pressable(
-      onTap: onTap,
-      semanticLabel: r.spoken,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x5),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color.alphaBlend(
-                p.wash(r.measured ? r.color : C.n400),
-                p.cardHi,
-              ),
-              p.card,
-            ],
-          ),
-          borderRadius: R.rXl,
-          border: Border.all(color: p.edge),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Icon(r.icon, size: 16, color: r.ink(p)),
-                const SizedBox(width: S.x2),
-                Expanded(
-                  child: Text(
-                    r.label,
-                    style: F.section.copyWith(color: p.ink2),
-                  ),
-                ),
-                if (r.measured && r.sub.isNotEmpty) Pill(r.sub, r.color),
-              ],
-            ),
-            const SizedBox(height: S.x4),
-            SizedBox(
-              width: 148,
-              height: 148,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CustomPaint(
-                    size: Size.infinite,
-                    painter: r.calibrating
-                        ? DashedRing(
-                            r.frac ?? 0,
-                            r.arc(p),
-                            p.track,
-                            stroke: 12,
-                            segments: r.need ?? 24,
-                          )
-                        : Ring(
-                            r.frac ?? 0,
-                            r.arc(p),
-                            p.track,
-                            stroke: 12,
-                            t: animate(c, 1),
-                            solid: r.measured,
-                          ),
-                  ),
-                  if (r.measured)
-                    Padding(
-                      padding: const EdgeInsets.all(S.x6),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          r.value,
-                          style: F.n48.copyWith(color: p.ink),
-                        ),
-                      ),
-                    )
-                  else
-                    Icon(r.icon, size: 30, color: p.ink3),
-                ],
-              ),
-            ),
-            if (!r.measured) ...[
-              const SizedBox(height: S.x3),
-              Text(
-                r.value,
-                textAlign: TextAlign.center,
-                style: F.head.copyWith(color: p.ink2),
-              ),
-              if (r.sub.isNotEmpty)
-                Text(
-                  r.sub,
-                  textAlign: TextAlign.center,
-                  style: F.cap.copyWith(color: p.ink3),
-                ),
-              if (r.why != null)
-                Text(
-                  r.why!,
-                  textAlign: TextAlign.center,
-                  style: F.cap.copyWith(color: p.ink3),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-            ],
-            if (hrv != null || rhr != null) ...[
-              const SizedBox(height: S.x4),
-              Wrap(
-                spacing: S.x2,
-                runSpacing: S.x2,
-                alignment: WrapAlignment.center,
-                children: [
-                  if (hrv != null)
-                    Tag('HRV ${hrv!.round()} ms', icon: LucideIcons.activity),
-                  if (rhr != null)
-                    Tag(
-                      'Resting ${rhr!.round()} bpm',
-                      icon: LucideIcons.heartPulse,
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Sleep and strain: one number, a bar for how far along it is, and one short
-/// line under it. An absent metric keeps its card and says why in that line.
-class _MiniCard extends StatelessWidget {
-  final _RingState r;
+  /// Recovery draws its score inside a ring; sleep and strain use a bar.
+  final bool ring;
 
   /// Replaces the ring state's own caption when the screen has a better one.
   final String? sub;
   final VoidCallback? onTap;
 
-  const _MiniCard(this.r, {this.sub, this.onTap});
+  const _StatusCell(this.r, {this.ring = false, this.sub, this.onTap});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final caption = r.why ?? sub ?? r.sub;
-    return Surface(
+    final value = r.measured
+        ? FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(r.value, style: F.n24.copyWith(color: p.ink)),
+          )
+        : Text(r.value, style: F.cap.copyWith(color: p.ink2));
+    return Pressable(
       onTap: onTap,
       semanticLabel: r.spoken,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: p.wash(r.measured ? r.color : C.n400),
-                  borderRadius: R.rSm,
+      child: Padding(
+        padding: const EdgeInsets.all(S.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(r.icon, size: 14, color: r.ink(p)),
+                const SizedBox(width: S.x1),
+                Expanded(
+                  child: Text(
+                    r.label,
+                    style: F.cap.copyWith(color: p.ink2),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                child: Icon(r.icon, size: 14, color: r.ink(p)),
+              ],
+            ),
+            const SizedBox(height: S.x3),
+            if (ring)
+              SizedBox(
+                width: 64,
+                height: 64,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      size: Size.infinite,
+                      painter: r.calibrating
+                          ? DashedRing(
+                              r.frac ?? 0,
+                              r.arc(p),
+                              p.track,
+                              stroke: 6,
+                              segments: r.need ?? 24,
+                            )
+                          : Ring(
+                              r.frac ?? 0,
+                              r.arc(p),
+                              p.track,
+                              stroke: 6,
+                              t: animate(c, 1),
+                              solid: r.measured,
+                            ),
+                    ),
+                    if (r.measured)
+                      Padding(
+                        padding: const EdgeInsets.all(S.x3),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            r.value,
+                            style: F.n24.copyWith(color: p.ink),
+                          ),
+                        ),
+                      )
+                    else
+                      Icon(r.icon, size: 20, color: p.ink3),
+                  ],
+                ),
+              )
+            else ...[
+              SizedBox(
+                height: 40,
+                child: Align(alignment: Alignment.centerLeft, child: value),
               ),
-              const SizedBox(width: S.x2),
-              Expanded(
-                child: Text(
-                  r.label,
-                  style: F.cap.copyWith(color: p.ink2),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              const SizedBox(height: S.x2),
+              ClipRRect(
+                borderRadius: R.rPill,
+                child: SizedBox(
+                  height: 6,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: ColoredBox(color: p.track)),
+                      FractionallySizedBox(
+                        widthFactor: (r.frac ?? 0).clamp(0.0, 1.0),
+                        child: ColoredBox(
+                          color: r.arc(p),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: S.x3),
-          Text(
-            r.value,
-            style: r.measured
-                ? F.n34.copyWith(color: p.ink)
-                : F.body.copyWith(color: p.ink2),
-          ),
-          const SizedBox(height: S.x3),
-          ClipRRect(
-            borderRadius: R.rPill,
-            child: SizedBox(
-              height: 8,
-              child: Stack(
-                children: [
-                  Positioned.fill(child: ColoredBox(color: p.track)),
-                  FractionallySizedBox(
-                    widthFactor: (r.frac ?? 0).clamp(0.0, 1.0),
-                    child: ColoredBox(
-                      color: r.arc(p),
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ],
+            if (ring && !r.measured) ...[const SizedBox(height: S.x2), value],
+            if (caption.isNotEmpty) ...[
+              const SizedBox(height: S.x2),
+              Text(
+                caption,
+                style: (ring && r.measured ? F.cap : F.over).copyWith(
+                  color: ring && r.measured ? r.ink(p) : p.ink3,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ),
-          if (caption.isNotEmpty) ...[
-            const SizedBox(height: S.x2),
-            Text(
-              caption,
-              style: F.over.copyWith(color: p.ink3),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1491,7 +1445,9 @@ class HomeData {
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
       caloriesTotal: metricOf(d('calories_total')),
-      walkingKcal: upkeep.parts?.steps ?? stepCalories(upkeep.walkedSteps, upkeep.profile.weightKg),
+      walkingKcal:
+          upkeep.parts?.steps ??
+          stepCalories(upkeep.walkedSteps, upkeep.profile.weightKg),
       upkeep: upkeep,
       stepGoal: (today['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
       // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
@@ -1806,14 +1762,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           ...?_bodyWatch(c, d),
           // ── header ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x4),
+            padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x3),
             child: Row(
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Today', style: F.display.copyWith(color: p.ink)),
+                      Text('Today', style: F.t1.copyWith(color: p.ink)),
                       const SizedBox(height: S.x1),
                       // When these numbers were calculated, beside the date,
                       // so an old number never passes for a current one.
@@ -1827,6 +1783,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                             style: F.cap.copyWith(color: p.ink3),
                           ),
                           if (widget.data == null) UpdatedStamp(d.updatedAt),
+                          // What is happening right now, beside when the
+                          // numbers were last worked out.
+                          const _WorkLine(),
                         ],
                       ),
                     ],
@@ -1836,7 +1795,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                 // opening Settings. The last reading the band reported.
                 if (bandBatteryOf(c) case (final pct, final charging)) ...[
                   Semantics(
-                    label: 'Band battery ${pct.round()} percent'
+                    label:
+                        'Band battery ${pct.round()} percent'
                         '${charging ? ', charging' : ''}',
                     excludeSemantics: true,
                     child: Row(
@@ -1942,6 +1902,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               const SizedBox(height: S.x3),
               // Build 86: today's weigh-in in one tap, and the way to Progress.
               const TodayBodyRow(),
+            ],
+            // Maintenance so far: the same card Food shows, both methods, the
+            // Budget day as a bar and eaten against it. Lifting is a sheet line.
+            if (d.upkeep case final upkeep? when upkeep.parts != null) ...[
+              const SizedBox(height: S.x3),
+              MaintenanceCard(upkeep, today: true),
+            ],
+            if (widget.data == null) ...[
               const SizedBox(height: S.x3),
               const WeekCard(),
             ],
@@ -2031,12 +1999,19 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: S.x2,
+            runSpacing: S.x1,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.heart)),
-              const SizedBox(width: S.x2),
-              Expanded(
-                child: Text('Heart rate', style: F.cap.copyWith(color: p.ink2)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.heart)),
+                  const SizedBox(width: S.x2),
+                  Text('Heart rate', style: F.cap.copyWith(color: p.ink2)),
+                ],
               ),
               if (range != null)
                 Text(range, style: F.cap.copyWith(color: p.ink3)),
@@ -2048,7 +2023,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           if (vals.length > 1) ...[
             const SizedBox(height: S.x3),
             SizedBox(
-              height: 64,
+              height: 112,
               child: CustomPaint(
                 size: Size.infinite,
                 painter: LineChart(g.hr, p.on(C.heart), t: animate(c, 1)),
@@ -2058,7 +2033,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                for (final t in const ['12 am', 'Noon', '12 am'])
+                for (final t in const [
+                  '12 am',
+                  '6 am',
+                  'Noon',
+                  '6 pm',
+                  '12 am',
+                ])
                   Text(t, style: F.over.copyWith(color: p.ink3)),
               ],
             ),
@@ -2115,30 +2096,46 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             sub: 'Budget ${thousands(up.total)} so far',
             onTap: () => showMaintenance(c, upkeep, today: true),
           );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // IntrinsicHeight: `stretch` inside a ListView asks for an infinite
-        // height, and two tiles side by side must match.
-        if (eatenTile == null)
-          stepsTile
-        else
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: stepsTile),
-                const SizedBox(width: S.x3),
-                Expanded(child: eatenTile),
-              ],
-            ),
-          ),
-        // Maintenance so far: the same card Food shows, both methods, the
-        // Budget day as a bar and eaten against it. Lifting is a sheet line.
-        if (upkeep != null && up != null) ...[
-          const SizedBox(height: S.x3),
-          MaintenanceCard(upkeep, today: true),
+    // IntrinsicHeight: `stretch` inside a ListView asks for an infinite
+    // height, and two tiles side by side must match.
+    if (eatenTile == null) return stepsTile;
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: stepsTile),
+          const SizedBox(width: S.x3),
+          Expanded(child: eatenTile),
         ],
+      ),
+    );
+  }
+}
+
+/// "Syncing the band" or "Calculating" beside Today's date while either is
+/// running, and nothing otherwise. Selects only those two flags.
+class _WorkLine extends StatelessWidget {
+  const _WorkLine();
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final word = syncingNowOf(c)
+        ? 'Syncing the band'
+        : derivingOf(c)
+        ? 'Calculating'
+        : null;
+    if (word == null) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 10,
+          height: 10,
+          child: CircularProgressIndicator(strokeWidth: 1.5, color: p.ink3),
+        ),
+        const SizedBox(width: S.x1),
+        Text(word, style: F.cap.copyWith(color: p.ink3)),
       ],
     );
   }

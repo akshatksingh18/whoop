@@ -976,19 +976,22 @@ class _NutritionDayViewState extends State<NutritionDayView>
       );
     }
     if (d == null) return const Center(child: CircularProgressIndicator());
+    final addTo = mealForHour(DateTime.now().hour);
+    // Build 86 redesign, diary first: what was eaten against the goal with
+    // all four macros in one card, the meals straight under it, and the
+    // maintenance estimate below the diary as context, never as the goal.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Maintenance first, then what was eaten: calories and macros
-        // together. The Calories card opens the whole day's food.
-        if (_upkeep != null) ...[
-          MaintenanceCard(_upkeep!, today: widget.date == todayLabel()),
-          const SizedBox(height: S.x3),
-        ],
         CalorieCard(
           eaten: d.kcal.value,
           goal: _targetOf(profile, 'kcal_target'),
           maintenance: _upkeep?.parts?.total.toDouble(),
+          day: d,
+          profile: profile,
+          note: _proteinLeft(d, profile),
+          addLabel: 'Add to ${mealName(addTo)}',
+          onAdd: () => openLog(c, widget.date, addTo, _changed),
           onTap: () async {
             await Navigator.of(c).push(
               MaterialPageRoute<void>(
@@ -998,16 +1001,6 @@ class _NutritionDayViewState extends State<NutritionDayView>
             if (mounted) await _changed();
           },
         ),
-        const SizedBox(height: S.x3),
-        MacroCard(day: d, profile: profile),
-        if (_proteinLeft(d, profile) case final line?) ...[
-          const SizedBox(height: S.x2),
-          Text(
-            line,
-            textAlign: TextAlign.center,
-            style: F.cap.copyWith(color: P.of(c).on(C.red)),
-          ),
-        ],
         const SizedBox(height: S.x2),
         for (final m in kMeals)
           MealCard(
@@ -1016,6 +1009,10 @@ class _NutritionDayViewState extends State<NutritionDayView>
             entries: d.mealEntries(m),
             onChanged: _changed,
           ),
+        if (_upkeep != null) ...[
+          const SizedBox(height: S.x3),
+          MaintenanceCard(_upkeep!, today: widget.date == todayLabel()),
+        ],
       ],
     );
   }
@@ -1035,7 +1032,19 @@ IntakeStatus intakeStatus(double? eaten, double? maintenance) {
       : IntakeStatus.withinMaintenance;
 }
 
-/// Goal, food, and what is left. Exercise never adds to the goal.
+/// The meal a one-tap Add lands in at this hour of the day.
+String mealForHour(int hour) => hour < 11
+    ? 'breakfast'
+    : hour < 15
+    ? 'lunch'
+    : hour < 18
+    ? 'snack'
+    : hour < 22
+    ? 'dinner'
+    : 'snack';
+
+/// Goal, food, and what is left; with [day], the four macros under it in the
+/// same card. Exercise never adds to the goal.
 class CalorieCard extends StatelessWidget {
   const CalorieCard({
     super.key,
@@ -1043,6 +1052,11 @@ class CalorieCard extends StatelessWidget {
     required this.goal,
     this.maintenance,
     this.onTap,
+    this.day,
+    this.profile = const {},
+    this.note,
+    this.addLabel,
+    this.onAdd,
   });
 
   final double? eaten, goal;
@@ -1051,6 +1065,17 @@ class CalorieCard extends StatelessWidget {
   /// decides the warning colour; the goal only decides "left" or "over".
   final double? maintenance;
   final VoidCallback? onTap;
+
+  /// The day whose protein, carbs, fat and fibre show under the calories.
+  final NutritionDay? day;
+  final Map<String, dynamic> profile;
+
+  /// One line under the macros, such as the evening protein still to eat.
+  final String? note;
+
+  /// A fixed Add in the card's header, so logging is always one tap away.
+  final String? addLabel;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext c) {
@@ -1087,7 +1112,13 @@ class CalorieCard extends StatelessWidget {
                   ),
                 ),
               ),
-              if (onTap != null)
+              if (onAdd != null)
+                Pressable(
+                  semanticLabel: addLabel ?? 'Add food',
+                  onTap: onAdd,
+                  child: Pill(addLabel ?? 'Add food', C.domFood),
+                )
+              else if (onTap != null)
                 Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
             ],
           ),
@@ -1096,8 +1127,8 @@ class CalorieCard extends StatelessWidget {
             children: [
               if (hasGoal) ...[
                 SizedBox(
-                  width: 92,
-                  height: 92,
+                  width: 72,
+                  height: 72,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
@@ -1107,14 +1138,17 @@ class CalorieCard extends StatelessWidget {
                           (food / g).clamp(0.0, 1.0).toDouble(),
                           ringColor,
                           p.track,
-                          stroke: 9,
+                          stroke: 7,
                           t: animate(c, 1),
                           solid: true,
                         ),
                       ),
                       Text(
                         '${(food / g * 100).clamp(0, 999).round()}%',
-                        style: F.n17.copyWith(color: p.ink),
+                        style: F.cap.copyWith(
+                          color: p.ink,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -1180,16 +1214,26 @@ class CalorieCard extends StatelessWidget {
               style: F.cap.copyWith(color: p.ink3),
             ),
           ],
+          if (day case final d?) ...[
+            const SizedBox(height: S.x4),
+            Container(height: 1, color: p.edge),
+            const SizedBox(height: S.x3),
+            _Macros(day: d, profile: profile),
+          ],
+          if (note case final line?) ...[
+            const SizedBox(height: S.x2),
+            Text(line, style: F.cap.copyWith(color: p.on(C.red))),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Protein, carbs, fat and fibre eaten against their targets: four tiles,
-/// two by two, each its own colour and bar (build 85).
-class MacroCard extends StatelessWidget {
-  const MacroCard({super.key, required this.day, required this.profile});
+/// Protein, carbs, fat and fibre against their targets, four columns with a
+/// thin bar each. Always all four, fibre included.
+class _Macros extends StatelessWidget {
+  const _Macros({required this.day, required this.profile});
 
   final NutritionDay day;
   final Map<String, dynamic> profile;
@@ -1208,58 +1252,35 @@ class MacroCard extends StatelessWidget {
       ('Fat', day.fat.value, _targetOf(profile, 'fat_target'), C.yellow),
       ('Fibre', day.fibre.value, _targetOf(profile, 'fibre_target'), C.green),
     ];
-    Widget tile((String, double?, double?, Color) r) {
+    Widget column((String, double?, double?, Color) r) {
       final (name, v, target, color) = r;
       final frac = target == null || target <= 0
           ? 0.0
           : ((v ?? 0) / target).clamp(0.0, 1.0).toDouble();
-      return Container(
-        padding: const EdgeInsets.all(S.x3),
-        decoration: BoxDecoration(
-          color: p.card2,
-          borderRadius: R.rLg,
-          border: Border.all(color: p.edge),
-        ),
+      return Semantics(
+        label:
+            '$name ${(v ?? 0).round()} grams'
+            '${target == null ? '' : ' of ${target.round()}'}',
+        excludeSemantics: true,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: p.on(color),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: S.x1),
-                Expanded(
-                  child: Text(name, style: F.cap.copyWith(color: p.ink2)),
-                ),
-              ],
+            Text(name, style: F.over.copyWith(color: p.ink3)),
+            const SizedBox(height: S.x1),
+            Text(
+              v == null ? '–' : '${v.round()} g',
+              style: F.n17.copyWith(color: p.ink),
             ),
-            const SizedBox(height: S.x2),
-            Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${(v ?? 0).round()} g',
-                    style: F.n17.copyWith(color: p.ink),
-                  ),
-                  if (target != null)
-                    TextSpan(
-                      text: '  of ${target.round()} g',
-                      style: F.over.copyWith(color: p.ink3),
-                    ),
-                ],
+            if (target != null)
+              Text(
+                'of ${target.round()}',
+                style: F.over.copyWith(color: p.ink3),
               ),
-            ),
             const SizedBox(height: S.x2),
             ClipRRect(
               borderRadius: R.rPill,
               child: SizedBox(
-                height: 6,
+                height: 4,
                 child: Stack(
                   children: [
                     Positioned.fill(child: ColoredBox(color: p.track)),
@@ -1279,30 +1300,24 @@ class MacroCard extends StatelessWidget {
       );
     }
 
-    Widget pair(int i) => IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: tile(rows[i])),
-          const SizedBox(width: S.x2),
-          Expanded(child: tile(rows[i + 1])),
-        ],
-      ),
-    );
-    return Surface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          pair(0),
-          const SizedBox(height: S.x2),
-          pair(2),
-          const SizedBox(height: S.x3),
-          Text(
-            'Logged macros only · blank values are not tracked',
-            style: F.over.copyWith(color: p.ink3),
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(width: S.x3),
+              Expanded(child: column(rows[i])),
+            ],
+          ],
+        ),
+        const SizedBox(height: S.x3),
+        Text(
+          'Logged macros only · blank values are not tracked',
+          style: F.over.copyWith(color: p.ink3),
+        ),
+      ],
     );
   }
 }
@@ -1782,18 +1797,28 @@ class MaintenanceCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // A Wrap, so at large text the distance tag drops under the title
+          // instead of squeezing it to one letter per line.
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  'Daily maintenance',
-                  style: F.body.copyWith(
-                    color: p.ink,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Wrap(
+                  spacing: S.x2,
+                  runSpacing: S.x2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Daily maintenance',
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Tag(upkeep.distanceTag, icon: LucideIcons.ruler),
+                  ],
                 ),
               ),
-              Tag(upkeep.distanceTag, icon: LucideIcons.ruler),
               const SizedBox(width: S.x2),
               Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
             ],

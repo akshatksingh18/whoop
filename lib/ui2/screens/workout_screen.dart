@@ -48,7 +48,7 @@ import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import 'home_screen.dart' show calendarDaysBetween, pad, pullToRefresh;
-import 'food_picker.dart' show SwipeDelete;
+import 'food_picker.dart' show PickRow, SwipeDelete;
 import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
 import 'log_workout.dart';
@@ -308,54 +308,54 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         ),
         const SizedBox(height: S.x3),
       ],
-      Row(
-        children: [
-          Expanded(
-            child: _QuickTile(
-              LucideIcons.footprints,
-              C.run,
-              'Run',
-              () => start(act('Running')),
+      if (_live(c) case final live?)
+        _ResumeCard(live, onTap: () => _push(c, const SessionDestination(null)))
+      else
+        Row(
+          children: [
+            Expanded(
+              child: _QuickTile(
+                LucideIcons.footprints,
+                C.run,
+                'Run',
+                () => start(act('Running')),
+              ),
             ),
-          ),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: _QuickTile(
-              LucideIcons.personStanding,
-              C.steps,
-              'Walk',
-              () => start(act('Walking')),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: _QuickTile(
+                LucideIcons.personStanding,
+                C.steps,
+                'Walk',
+                () => start(act('Walking')),
+              ),
             ),
-          ),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: _QuickTile(
-              LucideIcons.dumbbell,
-              C.purple,
-              'Lift',
-              () => start(act('Weight training')),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: _QuickTile(
+                LucideIcons.dumbbell,
+                C.purple,
+                'Lift',
+                () => start(act('Weight training')),
+              ),
             ),
-          ),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: _QuickTile(
-              LucideIcons.ellipsis,
-              C.n500,
-              'Other',
-              () => _openPicker(c, d),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: _QuickTile(
+                LucideIcons.ellipsis,
+                C.n500,
+                'Other',
+                () => _openPicker(c, d),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       const SizedBox(height: S.x3),
       if (d.streak != null) ...[
         _streakCard(c, p, d.streak!),
         const SizedBox(height: S.x3),
       ],
       ..._suggestionCards(c, d),
-      if (d.strain7.any((v) => v != null)) _strainWeek(c, p, d),
-      if (d.runs.isNotEmpty) _running(c, p, d.runs),
-      ..._importCard(c, d),
       Section(
         'Recent',
         d.workouts.isEmpty
@@ -386,7 +386,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         action: 'Add a past one',
         onAction: () => _push(c, const LogWorkout()),
       ),
+      if (d.strain7.any((v) => v != null)) ...[
+        const SizedBox(height: S.x3),
+        _strainWeek(c, p, d),
+      ],
+      if (d.runs.isNotEmpty) _running(c, p, d.runs),
+      ..._importCard(c, d),
     ];
+  }
+
+  /// The session running now, if any. Read off AppState; null without one.
+  LiveWorkoutState? _live(BuildContext c) {
+    try {
+      return c.select<AppState, LiveWorkoutState?>((a) => a.activeWorkout);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// One collapsible session row: swipe either way to delete, tap to open.
@@ -396,9 +411,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         w,
         weightKg: d.weightKg,
         expanded: _openId == _rowKey(w),
-        onToggle: () => setState(
-          () => _openId = _openId == _rowKey(w) ? null : _rowKey(w),
-        ),
+        onToggle: () =>
+            setState(() => _openId = _openId == _rowKey(w) ? null : _rowKey(w)),
         onChanged: reload,
       );
 
@@ -673,7 +687,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       final why = await f();
       if (!c.mounted) return;
       if (why != null) {
-        ScaffoldMessenger.maybeOf(c)?.showSnackBar(SnackBar(content: Text(why)));
+        ScaffoldMessenger.maybeOf(
+          c,
+        )?.showSnackBar(SnackBar(content: Text(why)));
       }
       reload();
     }
@@ -696,10 +712,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           () => act(() => StreakProtection.protect(today, Protection.rest)),
         ),
       if (todayKept)
-        link('Undo rest', () => act(() async {
-          await StreakProtection.clear(today);
-          return null;
-        })),
+        link(
+          'Undo rest',
+          () => act(() async {
+            await StreakProtection.clear(today);
+            return null;
+          }),
+        ),
       // Only worth offering when it would join two real activity runs.
       if (yesterdayMissed && s.last7[4] != MoveDay.none)
         link(
@@ -908,6 +927,65 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 }
 
+/// The session running now, in place of the Start row: what it is, when it
+/// started and one Resume. Starting a second session is not offered while
+/// one is open.
+class _ResumeCard extends StatelessWidget {
+  const _ResumeCard(this.w, {required this.onTap});
+  final LiveWorkoutState w;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final a = activityByName(w.type);
+    final color = a?.color ?? C.purple;
+    final t = w.startTime;
+    String two(int v) => v.toString().padLeft(2, '0');
+    return Surface(
+      onTap: onTap,
+      semanticLabel: 'Resume ${a?.name ?? w.type}',
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: p.wash(color),
+              borderRadius: R.rMd,
+            ),
+            child: Icon(
+              a?.icon ?? LucideIcons.activity,
+              size: 19,
+              color: p.on(color),
+            ),
+          ),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  a?.name ?? w.type,
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  'In progress · started ${two(t.hour)}:${two(t.minute)}',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
+          ),
+          Pill('Resume', color),
+        ],
+      ),
+    );
+  }
+}
+
 class _QuickTile extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -1088,18 +1166,22 @@ class _HistoryRow extends StatelessWidget {
                   ),
                 ),
               ],
-              // Delete sits BEFORE the chevron and is drawn whether or not the
-              // row is open, so opening a row never slides the chevron and
-              // puts the trash under the next tap (B86-06). It still asks.
-              if (onDelete != null) ...[
-                const SizedBox(width: S.x2),
+              // One ⋯ menu BEFORE the chevron, drawn whether or not the row
+              // is open, so opening a row never slides a control under the
+              // next tap (B86-06). Delete inside it still asks.
+              if (onDelete != null || onRetime != null) ...[
+                const SizedBox(width: S.x1),
                 Pressable(
-                  semanticLabel:
-                      loc?.workoutDeleteSessionLabel ?? 'Delete this session',
-                  onTap: onDelete,
+                  semanticLabel: 'Session options',
+                  onTap: () => _sessionMenu(
+                    c,
+                    w.importedTitle ?? a.name,
+                    onRetime: onRetime,
+                    onDelete: onDelete,
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(S.x1),
-                    child: Icon(LucideIcons.trash2, size: 17, color: p.ink3),
+                    child: Icon(LucideIcons.ellipsis, size: 18, color: p.ink3),
                   ),
                 ),
               ],
@@ -1430,11 +1512,7 @@ Future<bool> _startSession(AppState app, Activity a) async {
     dayLabelOf(DateTime.now()),
     Profile.fromMap(app.user),
   );
-  app.startWorkout(
-    type: a.typeKey,
-    calculationProfile: profile,
-    met: a.met,
-  );
+  app.startWorkout(type: a.typeKey, calculationProfile: profile, met: a.met);
   return app.activeWorkout != null;
 }
 
@@ -2173,7 +2251,9 @@ Future<List<_PastWorkout>> _pastWorkouts(
                         start,
                         end: DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
                       ).activeSeconds()
-                : Motion.tick * 60 * ((r['duration_min'] as num?)?.toInt() ?? 0),
+                : Motion.tick *
+                      60 *
+                      ((r['duration_min'] as num?)?.toInt() ?? 0),
             strain: (r['strain'] as num?)?.toDouble(),
             // Every band session shows active (net) energy by a conservative
             // method: distance/steps for runs and walks, MET only for lifting,
@@ -2383,7 +2463,6 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
   );
 }
 
-
 /// Confirm, then delete [w]. Returns whether it was deleted. An imported
 /// row's health-store uuid goes onto the tombstone list first, or the next
 /// import would bring the removed row straight back. A copy in Apple Health /
@@ -2412,6 +2491,53 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
     await LocalDb.deleteSession(w.id);
   }
   return true;
+}
+
+/// A saved session's options: fix its times, or delete it (which asks).
+Future<void> _sessionMenu(
+  BuildContext c,
+  String title, {
+  VoidCallback? onRetime,
+  VoidCallback? onDelete,
+}) async {
+  final choice = await showModalBottomSheet<String>(
+    context: c,
+    isScrollControlled: true,
+    useSafeArea: true,
+    enableDrag: false,
+    sheetAnimationStyle: sheetMotion(c),
+    backgroundColor: P.of(c).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) => InputSheet(
+      children: [
+        Text(title, style: F.head.copyWith(color: P.of(s).ink)),
+        const SizedBox(height: S.x3),
+        if (onRetime != null)
+          PickRow(
+            'Fix the times',
+            'Change when it started or ended',
+            trailing: LucideIcons.clock,
+            onTap: () => Navigator.of(s).pop('retime'),
+          ),
+        if (onDelete != null)
+          PickRow(
+            'Delete',
+            'Asks before removing it',
+            trailing: LucideIcons.trash2,
+            onTap: () => Navigator.of(s).pop('delete'),
+          ),
+      ],
+    ),
+  );
+  if (!c.mounted) return;
+  switch (choice) {
+    case 'retime':
+      onRetime?.call();
+    case 'delete':
+      onDelete?.call();
+  }
 }
 
 String _rowKey(_PastWorkout w) =>
@@ -2512,8 +2638,18 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
   }
 
   static const _months = [
-    'January', 'February', 'March', 'April', 'May', 'June', 'July',
-    'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   @override

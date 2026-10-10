@@ -6,7 +6,7 @@ currently installed. Source `3c141b7a` passes recorded local validation, Linux C
 and downloaded artifact checks, with no app extension (removed in build 81).
 The single testing candidate is now build `0.9.53`/`86`,
 `../../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7` (Linux CI `38090036814`, macOS
-build `38090037024`, downloaded checks pass; not yet installed). Complete phone acceptance,
+build `38090037024`, downloaded checks pass; installed, per Akshat's screenshots). Complete phone acceptance,
 data/pairing continuity, background behavior and current-version automatic-refresh enrollment
 remain open in `../todo.md`; installation alone does not authorize cache promotion.
 

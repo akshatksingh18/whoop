@@ -502,8 +502,9 @@ Always description and no app extension. Its manifest's `backgroundProcessing: f
 hand-written label that was never updated; `personal_ios.py` now derives the capability fields
 from the packaged Info.plist for later builds. It is the sole testing candidate in
 `../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7`, replacing build 85's folder (build 85
-stays installed). Not yet installed. Before installing: an encrypted export from build 85 copied
-to the PC, because format-2 exports from 86 are refused by 85 and 70.
+was the one before it). Akshat's screenshots show build 86 installed; phone checks, acceptance
+and current-version refresh enrollment are open. Format-2 exports from 86 are refused by 85 and 70,
+so a return to either needs the export taken from 85 before the install.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol
 package's fixture tests fail there only because they open fixtures by a path relative to their

@@ -1,6 +1,7 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat reports build `0.9.52`/`85` currently installed. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, not yet installed.
+**State:** Akshat's screenshots show build `0.9.53`/`86` installed (Food Today with Log again, the
+day-complete mark and the Progress tab); build 85 was the one before it. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, now installed.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and

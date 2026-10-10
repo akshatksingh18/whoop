@@ -14,9 +14,9 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification with build `0.9.52`/`85` installed on Akshat's iPhone 17
-(iOS `26.6.2`), as reported by Akshat; its phone acceptance and current-version refresh enrollment
-remain open. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, not yet installed. It brings bounded background sync with real calculation
+**Status:** Active iPhone verification: Akshat's screenshots show build `0.9.53`/`86` installed on
+his iPhone 17 (iOS `26.6.2`); its phone checks, acceptance and current-version refresh enrollment
+remain open. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, now installed. It brings bounded background sync with real calculation
 cancellation and personal `fetch`/`processing` tasks, Lift Log inside the Lift workout, Body and a
 fifth Progress tab, the B86-01..16 repairs and the structural redesign. `todo.md` owns its
 decisions, implemented/open items, phone checks and gates; `build-86-audit.md`,

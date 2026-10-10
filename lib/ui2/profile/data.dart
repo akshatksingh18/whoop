@@ -25,6 +25,7 @@ import '../../build_profile.dart';
 import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
+import '../../data/lift_log.dart';
 import '../../import/backup_crypto.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -124,6 +125,60 @@ class _DataScreenState extends State<DataScreen> {
       (l?.dataFilesShared(n) ?? '$n file${n == 1 ? '' : 's'} shared.') + failed,
       res.hasFailures
     );
+  }
+
+  Future<_Note> _importLiftLog() async {
+    final picked = await FilePicker.platform.pickFiles(type: FileType.any);
+    final path = picked?.files.single.path;
+    if (path == null) return ('', false);
+    final plan = await planLiftImport(await File(path).readAsString());
+    if (!mounted) return ('', false);
+    if (plan.add.isEmpty) {
+      return (
+        'Nothing new: ${plan.unchanged} already here'
+            '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and were left alone'}.',
+        false,
+      );
+    }
+    final sets = plan.add.fold<int>(0, (n, w) => n + w.setCount);
+    final ok = await confirmRemove(
+      context,
+      title: 'Import ${plan.add.length} workouts?',
+      body:
+          '$sets sets from ${_stamp(plan.add.last.startedAt)} to '
+          '${_stamp(plan.add.first.startedAt)}. ${plan.unchanged} already here'
+          '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and stay as they are'}. '
+          'They join your lift history for last-time and records only.',
+      remove: 'Import',
+      keep: 'Cancel',
+    );
+    if (!ok) return ('', false);
+    var useSplits = false;
+    if (plan.splits != null && mounted) {
+      useSplits = await confirmRemove(
+        context,
+        title: 'Use its splits too?',
+        body:
+            'Replaces your WHOOP splits with the ${plan.splits!.length} in the '
+            'backup. Past workouts keep their split names either way.',
+        remove: 'Use them',
+        keep: 'Keep mine',
+      );
+    }
+    final n = await applyLiftImport(plan, replaceSplits: useSplits);
+    return ('$n workouts imported.', false);
+  }
+
+  Future<_Note> _exportLiftLog() async {
+    final origin = shareOrigin(context);
+    final dir = await Directory.systemTemp.createTemp('liftlog');
+    final json = File('${dir.path}/lift-log.json')
+      ..writeAsStringSync(await exportLiftLogBackup());
+    final csv = File('${dir.path}/lift-log.csv')
+      ..writeAsStringSync(await LiftLogDb.csv());
+    await Share.shareXFiles([XFile(json.path), XFile(csv.path)],
+        subject: '$kAppName Lift Log', sharePositionOrigin: origin);
+    return ('Lift Log shared.', false);
   }
 
   Future<_Note> _exportDb() async {
@@ -393,6 +448,19 @@ class _DataScreenState extends State<DataScreen> {
                                 'body temperature',
                         onTap:
                             _busy ? null : () => goto(c, const PhoneImport())),
+                ]),
+                const SizedBox(height: S.x5),
+                // Build 86: the set log that now lives in the Lift workout.
+                settingsGroup(c, 'Lift Log', [
+                  SetRow(LucideIcons.dumbbell, C.purple, 'Import from AkshatOS',
+                      sub: 'A lift-log.json from Lift Log or its full backup. '
+                          'Previewed first; workouts already here are skipped, '
+                          'and imported history has no strain or calories',
+                      onTap: _busy ? null : () => _run(_importLiftLog)),
+                  SetRow(LucideIcons.fileSpreadsheet, C.purple, 'Export Lift Log',
+                      sub: 'A JSON backup AkshatOS can read, and a CSV with one '
+                          'row per set and its load meaning',
+                      onTap: _busy ? null : () => _run(_exportLiftLog)),
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, l?.dataRebuildGroup ?? 'Rebuild', [

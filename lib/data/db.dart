@@ -32,6 +32,7 @@ import 'day_label.dart';
 import 'calculation_store.dart';
 import '../gps/workout_clock.dart';
 import 'journal_fields.dart';
+import 'lift_log.dart' show LiftLogDb;
 import 'live_coverage_policy.dart';
 import 'med_store.dart';
 import 'models.dart';
@@ -160,6 +161,7 @@ class LocalDb {
     // banked. They were also simply MISSING here until now — nutrition,
     // medication, strength sets, symptoms and routes did not survive a
     // backup/restore round trip at all, the same omission `wipeAll` documents.
+    'lift_log',
     'journal',
     'journal_metric',
     'journal_field_def',
@@ -246,6 +248,7 @@ class LocalDb {
   /// flash as we ACK, so in practice this is the only copy of those days too.
   static const _salvageTables = [
     // Hand-entered. The only copy that exists anywhere.
+    'lift_log',
     'journal',
     'journal_metric',
     'journal_field_def',
@@ -3190,6 +3193,9 @@ class LocalDb {
     // DDL belongs next to the code that reads it, not two thousand lines away.
     await createNutritionTables(db);
     await createMedTables(db);
+    // Lift Log inside the WHOOP workout (build 86): one JSON row per workout.
+    // Added in place on the open path, like body_weight: no schema version.
+    await LiftLogDb.createTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -9125,6 +9131,9 @@ class LocalDb {
     // and "best" on the strength screen (recentSetsFor reads strength_set with
     // no session-existence filter) and kept exporting under a dead session_id.
     await db.delete('strength_set', where: 'session_id = ?', whereArgs: [id]);
+    // …and the session's Lift Log (build 86). An imported, unlinked log has
+    // no session and is untouched.
+    await db.delete('lift_log', where: 'session_id = ?', whereArgs: [id]);
   }
 
   // ── workout GPS routes (run/ride/walk) I/O ─────────────────────────────────

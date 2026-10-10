@@ -44,6 +44,7 @@ import '../../compute/profile.dart'
 import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
+import 'lift_log_ui.dart' show LiftSummaryCard;
 import 'picker.dart';
 import 'run_detail.dart';
 // The share card and this screen describe the same session, so they draw its
@@ -1250,7 +1251,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 // By NAME: the tab list is shorter for the archetypes that have
                 // no splits, so index 1 is not always the same tab.
                 children: switch (_tabs[tab]) {
-                  'Overview' => _overview(c, p),
+                  'Overview' => [
+                    ..._overview(c, p),
+                    // The set log of this same workout (build 86): one
+                    // history entry carrying both sensor context and sets.
+                    if (r.sessionId != null && isLiftType(a.typeKey))
+                      LiftSummaryCard(
+                        key: ValueKey('lift-${r.sessionId}'),
+                        sessionId: r.sessionId!,
+                      ),
+                  ],
                   'Splits' => _splits(c, p),
                   _ => _graphs(c, p),
                 },

@@ -136,6 +136,12 @@ class NotificationService {
   static const int idSigningExpiry48 = 2410;
   static const int idSigningExpiry24 = 2411;
 
+  /// Lift Log inside the workout (build 86): the one-hour "Still working
+  /// out?" for a session with a set log, re-armed on every entry, and the
+  /// optional rest timer's alert. One-shots the user started by logging.
+  static const int idLiftInactivity = 2420;
+  static const int idRestTimer = 2421;
+
   /// Slot band [idMedsBase .. idMedsBase + maxMedSlots) — one ONE-SHOT per
   /// scheduled dose that is still upcoming, armed by
   /// [NotificationCenter.scheduleStandingReminders] from the user's own
@@ -202,6 +208,8 @@ class NotificationService {
     // from the expiry of the profile actually installed.
     idSigningExpiry48,
     idSigningExpiry24,
+    idLiftInactivity,
+    idRestTimer,
     idWeeklyRecap,
     idEveningBrief,
     idMorningBrief,

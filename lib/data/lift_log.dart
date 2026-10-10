@@ -689,7 +689,9 @@ List<LiftRecord> liftRecords(LiftWorkout w, List<LiftWorkout> earlier) {
           (bestReps == null || s.reps > bestReps.reps)) {
         bestReps = s;
       }
-      final atReps = past.where((p) => p.reps >= s.reps);
+      // The same rep count only: 45 lb for 6 after 40 lb for 8 is a
+      // different result, not a superior one.
+      final atReps = past.where((p) => p.reps == s.reps);
       if (atReps.isNotEmpty &&
           s.load > atReps.map((p) => p.load).reduce(math.max) &&
           (bestLoad == null || s.load > bestLoad.load)) {
@@ -1036,4 +1038,45 @@ Future<int> applyLiftImport(LiftImportPlan plan, {bool replaceSplits = false}) a
     await LiftLogDb.saveSplits(plan.splits!);
   }
   return plan.add.length;
+}
+
+/// Every finished workout and the splits, in AkshatOS Lift Log's own backup
+/// shape (version 1, Swift reference-date seconds), so the history can go
+/// back into AkshatOS or any tool that reads that file.
+Future<String> exportLiftLogBackup() async {
+  double apple(DateTime d) =>
+      d.millisecondsSinceEpoch / 1000 - _appleEpochOffsetSec;
+  Map<String, Object?> w(LiftWorkout x) => {
+    'id': x.id,
+    'startedAt': apple(x.startedAt),
+    if (x.endedAt != null) 'endedAt': apple(x.endedAt!),
+    'notes': x.notes,
+    if (x.splitName != null) 'splitName': x.splitName,
+    if (x.splitId != null) 'splitID': x.splitId,
+    'exercises': [
+      for (final e in x.exercises)
+        {
+          'id': e.id,
+          'name': e.name,
+          'loadMode': e.loadMode.name,
+          'equipmentNote': e.equipmentNote,
+          if (e.splitExerciseId != null) 'splitExerciseID': e.splitExerciseId,
+          'sets': [
+            for (final s in e.sets)
+              {
+                'id': s.id,
+                'reps': s.reps,
+                'load': s.load,
+                'completedAt': apple(s.completedAt),
+              },
+          ],
+        },
+    ],
+  };
+  return const JsonEncoder.withIndent('  ').convert({
+    'version': 1,
+    'exportedAt': apple(DateTime.now()),
+    'workouts': [for (final x in await LiftLogDb.finished()) w(x)],
+    'splits': [for (final s in await LiftLogDb.splits()) s.toJson()],
+  });
 }

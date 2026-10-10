@@ -44,6 +44,8 @@ class CalculationStore {
               (k) =>
                   k == 'steps.goal_history' ||
                   k == 'profile.calculation_history' ||
+                  k == 'streak.protection' ||
+                  k.startsWith('lift.') ||
                   k.startsWith('workout.clock.') ||
                   k.startsWith('motion.') ||
                   k.startsWith('training.review.') ||

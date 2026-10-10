@@ -28,6 +28,7 @@ import '../../gps/run_history.dart' show isRunType, isWalkType;
 import 'live.dart';
 import '../../gps/workout_clock.dart';
 import 'workout_context.dart';
+import 'lift_log_ui.dart';
 
 /// The window the calorie estimate is quoted over — the same one
 /// [ActivityRow] uses in the picker, so a row and this screen agree.
@@ -57,6 +58,10 @@ class _ActivitySetupState extends State<ActivitySetup> {
 
   List<String> _contextTags = [];
   bool _starting = false;
+
+  /// For a lift: a saved split, an empty workout or time only (build 86).
+  LiftChoice _lift = LiftChoice.empty;
+  bool get _logsSets => isLiftType(widget.a.typeKey);
   bool _refused = false;
 
   /// Open the session in the app FIRST, then the screen. The screen used to
@@ -81,6 +86,13 @@ class _ActivitySetupState extends State<ActivitySetup> {
       if (clock != null) {
         clock.results['context'] = _contextTags;
         clock.save();
+        // The set log belongs to this same session id and clock. A failure
+        // here leaves a time-only workout, never a second session.
+        if (_logsSets) {
+          try {
+            await beginLiftLog(_lift, sessionId: clock.id, startedAt: clock.start);
+          } catch (_) {}
+        }
       }
       LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
     }
@@ -250,6 +262,10 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       ],
                     ),
                   ),
+                  if (_logsSets) ...[
+                    const SizedBox(height: S.x4),
+                    LiftChoicePicker(onChanged: (v) => _lift = v),
+                  ],
                   if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
                     const SizedBox(height: S.x4),
                     WorkoutContextSelector(

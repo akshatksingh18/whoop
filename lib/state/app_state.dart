@@ -68,6 +68,7 @@ import '../data/backup_passphrase.dart';
 import '../platform/signing_profile.dart';
 import 'prefs.dart';
 import '../data/db.dart';
+import '../data/lift_log.dart' show LiftLogDb;
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
 import '../gps/gps_source.dart';
@@ -6830,6 +6831,13 @@ class AppState extends ChangeNotifier {
   Future<void> _nudgeIdleWorkout(LiveWorkoutState w) async {
     try {
       final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
+      // A session with a set log has Lift Log's one-hour ask instead (build
+      // 86): rest between sets is quiet heart rate, and two asks for one
+      // workout is one too many.
+      if (await LiftLogDb.forSession(id) case final log? when log.isActive) {
+        w.idleWatch.confirmFired();
+        return;
+      }
       final fired = await NotificationCenter.instance.emit(
         NotificationEvent(
           dedupeKey: '$id:workout_idle',

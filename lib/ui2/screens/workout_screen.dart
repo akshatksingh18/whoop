@@ -38,6 +38,7 @@ import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
+import '../activity/lift_log_ui.dart' show finishLiftLogFor, reconcileLiftLogs;
 import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
@@ -1489,6 +1490,13 @@ Future<ActivityResult> _finishSession(
   // database keeps a null id and is never offered the prompt.
   draft = draft.copyWith(sessionId: id);
 
+  // The set log ends with the session, at its SAVED end (build 86). A failed
+  // write leaves the log open; [reconcileLiftLogs] finishes it later at the
+  // same end, so neither record is lost.
+  try {
+    await finishLiftLogFor(id, await _sessionEnd(id) ?? DateTime.now());
+  } catch (_) {}
+
   // The privacy toggle, finally landing somewhere. `putSession` is
   // INSERT-OR-REPLACE over the whole row and does not carry the flag, so this
   // is its own narrow UPDATE and it has to run AFTER stopWorkout, not before.
@@ -1514,6 +1522,14 @@ Future<ActivityResult> _finishSession(
     // A missing map is a missing map; the session itself is already banked.
   }
   return _withCalculation(await _withMotion(draft), app);
+}
+
+/// A finished session's saved end, or null while it is still live.
+Future<DateTime?> _sessionEnd(String id) async {
+  final row = await LocalDb.session(id);
+  if (row == null || row['status'] == 'live') return null;
+  final te = (row['end_ts'] as num?)?.toInt();
+  return te == null ? null : DateTime.fromMillisecondsSinceEpoch(te * 1000);
 }
 
 /// Previous and best per lift, from this user's own log. One indexed query
@@ -2266,6 +2282,10 @@ Future<List<_PastWorkout>> _pastWorkouts(
 /// a device that has never synced, and a throw in any one of them must not
 /// take the whole tab down.
 Future<_WorkoutData> _loadWorkoutData(AppState app) async {
+  // A set log left open by a kill between the two finish writes.
+  try {
+    await reconcileLiftLogs(_sessionEnd);
+  } catch (_) {}
   final repo = app.repo;
   if (repo == null) throw StateError('Training repository unavailable');
 

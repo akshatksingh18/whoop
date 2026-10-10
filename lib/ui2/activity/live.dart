@@ -42,7 +42,9 @@ import '../grammar.dart';
 import '../paint_activity.dart';
 import '../theme.dart';
 import 'catalogue.dart';
+import 'lift_log_ui.dart' show LiftLivePanel;
 import 'summary.dart';
+import '../../compute/profile.dart' show isLiftType;
 
 /// What the band and the phone know right now. Read once per tick.
 ///
@@ -525,6 +527,19 @@ class LiveShellState extends State<LiveShell> {
 
   bool _finishing = false;
 
+  /// The saved start of the session this screen draws, from its clock —
+  /// never reset by pausing, minimising or reopening (build 86 workout times).
+  String get _subtitle {
+    final start = LiveDraft.current == null ? null : WorkoutClock.current?.start;
+    final started = start == null
+        ? ''
+        : 'Started ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(start), alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context))}';
+    return [
+      if (widget.subtitle.isNotEmpty) widget.subtitle,
+      if (started.isNotEmpty) started,
+    ].join(' · ');
+  }
+
   Future<void> finish() async {
     // Stopping twice would stop the app's session twice and save the strength
     // log twice; the second tap must do nothing at all.
@@ -607,9 +622,9 @@ class LiveShellState extends State<LiveShell> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        if (widget.subtitle.isNotEmpty)
+                        if (_subtitle.isNotEmpty)
                           Text(
-                            widget.subtitle,
+                            _subtitle,
                             style: F.over.copyWith(color: p.ink3),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1301,6 +1316,21 @@ class LiveMeasured extends StatelessWidget {
                 ),
               ),
             ],
+            // The set log of this same session (build 86): exercises and
+            // sets under the one clock, never a second workout.
+            if (isLiftType(a.typeKey))
+              if (WorkoutClock.current case final clock?)
+                LiftLivePanel(
+                  key: ValueKey('lift-${clock.id}'),
+                  sessionId: clock.id,
+                  onFinishAt: (end) async {
+                    final shell = ctx.findAncestorStateOfType<LiveShellState>();
+                    // A reviewed last-set end is the clock's end; stopping
+                    // the session then reads it (never active duration).
+                    if (end != null) WorkoutClock.current?.finish(end);
+                    await shell?.finish();
+                  },
+                ),
             const SizedBox(height: S.x8),
             LiveHeart(f),
             if (f.route.length > 1) ...[

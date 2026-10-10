@@ -3,8 +3,11 @@ import UIKit
 import AudioToolbox
 import AVFoundation
 import BackgroundTasks
+import CoreLocation
 import CoreMotion
 import MapKit
+import UserNotifications
+import flutter_local_notifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -16,6 +19,17 @@ import MapKit
     // us with willRestoreState when the band reappears. Wakes the app → headless sync.
     NativeLog.launch(launchOptions: launchOptions)
     BleRestoreManager.shared.start(launchOptions: launchOptions)
+
+    // Pushups (build 86): a Done/Pause tapped on a locked-screen reminder runs
+    // Dart in a background engine, which needs the plugins registered there
+    // too; and this delegate lets the plugin receive those responses.
+    FlutterLocalNotificationsPlugin.setPluginRegistrantCallback { registry in
+      GeneratedPluginRegistrant.register(with: registry)
+    }
+    UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
+    // Home auto-pause: the location manager must exist at launch so a region
+    // event that relaunched the app is delivered to it.
+    HomeRegionBridge.shared.start()
 
     // BGTaskScheduler registration MUST happen before didFinishLaunching returns.
     // Build 86 enables both tasks in the personal build too (bounded work,
@@ -113,6 +127,10 @@ import MapKit
       PedometerBridge.register(messenger: registrar.messenger())
       PhoneCadenceBridge.register(messenger: registrar.messenger())
     }
+    // Pushups Home auto-pause (build 86). See HomeRegionBridge.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HomeRegionBridge") {
+      HomeRegionBridge.shared.attach(messenger: registrar.messenger())
+    }
     // Body progress photos taken with the camera (build 86). See CameraBridge.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "CameraBridge") {
       CameraBridge.register(messenger: registrar.messenger())
@@ -145,6 +163,192 @@ import MapKit
       BackgroundTaskManager.schedule()
       BackgroundTaskManager.scheduleRefresh()
     }
+  }
+}
+
+/// Pushups Home auto-pause (build 86): one system-monitored circular region
+/// around Home. Region monitoring, never continuous location, and no trail of
+/// places. Boundary events are kept in a small inbox in UserDefaults until
+/// Dart drains them, because an event can relaunch the app before Dart runs.
+/// The Home point itself is kept by Dart (preferences), not here.
+final class HomeRegionBridge: NSObject, CLLocationManagerDelegate {
+  static let shared = HomeRegionBridge()
+  static let regionId = "whoop.pushups.home"
+  private static let inboxKey = "whoop.pushups.home.inbox"
+
+  private let manager = CLLocationManager()
+  private var channel: FlutterMethodChannel?
+  private var locationResults: [FlutterResult] = []
+  private var authResults: [FlutterResult] = []
+
+  func start() {
+    manager.delegate = self
+  }
+
+  func attach(messenger: FlutterBinaryMessenger) {
+    let ch = FlutterMethodChannel(name: "openstrap/home_region", binaryMessenger: messenger)
+    channel = ch
+    ch.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(nil)
+        return
+      }
+      self.handle(call, result)
+    }
+  }
+
+  private func authName() -> String {
+    switch manager.authorizationStatus {
+    case .notDetermined: return "notDetermined"
+    case .authorizedWhenInUse: return "whenInUse"
+    case .authorizedAlways: return "always"
+    case .denied: return "denied"
+    case .restricted: return "restricted"
+    @unknown default: return "denied"
+    }
+  }
+
+  private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+    switch call.method {
+    case "status":
+      let refresh: String
+      switch UIApplication.shared.backgroundRefreshStatus {
+      case .available: refresh = "available"
+      case .denied: refresh = "denied"
+      case .restricted: refresh = "restricted"
+      @unknown default: refresh = "denied"
+      }
+      result([
+        "authorization": authName(),
+        "monitoring": CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self),
+        "backgroundRefresh": refresh,
+        "monitored": manager.monitoredRegions.contains { $0.identifier == HomeRegionBridge.regionId },
+      ])
+    case "currentLocation":
+      locationResults.append(result)
+      if manager.authorizationStatus == .notDetermined {
+        manager.requestWhenInUseAuthorization()
+      } else if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
+        failLocation()
+      } else {
+        manager.requestLocation()
+      }
+    case "requestAlways":
+      if manager.authorizationStatus == .authorizedAlways {
+        result("always")
+        return
+      }
+      authResults.append(result)
+      manager.requestAlwaysAuthorization()
+      // iOS shows nothing when it has already decided; answer anyway.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+        self?.finishAuth()
+      }
+    case "monitor":
+      guard let a = call.arguments as? [String: Any],
+            let lat = a["lat"] as? Double,
+            let lon = a["lon"] as? Double,
+            let radius = a["radius"] as? Double else {
+        result(FlutterError(code: "args", message: "Home needs a place and a radius.", details: nil))
+        return
+      }
+      guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
+        result(FlutterError(code: "unavailable", message: "This phone cannot watch a Home area.", details: nil))
+        return
+      }
+      stopAll()
+      let region = CLCircularRegion(
+        center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+        radius: min(radius, manager.maximumRegionMonitoringDistance),
+        identifier: HomeRegionBridge.regionId)
+      region.notifyOnEntry = true
+      region.notifyOnExit = true
+      manager.startMonitoring(for: region)
+      manager.requestState(for: region)
+      result(nil)
+    case "stop":
+      stopAll()
+      UserDefaults.standard.removeObject(forKey: HomeRegionBridge.inboxKey)
+      result(nil)
+    case "drain":
+      let list = UserDefaults.standard.array(forKey: HomeRegionBridge.inboxKey) ?? []
+      UserDefaults.standard.removeObject(forKey: HomeRegionBridge.inboxKey)
+      result(list)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func stopAll() {
+    for r in manager.monitoredRegions where r.identifier == HomeRegionBridge.regionId {
+      manager.stopMonitoring(for: r)
+    }
+  }
+
+  private func record(_ kind: String) {
+    var list = UserDefaults.standard.array(forKey: HomeRegionBridge.inboxKey) ?? []
+    list.append(["kind": kind, "at": Date().timeIntervalSince1970])
+    if list.count > 50 { list.removeFirst(list.count - 50) }
+    UserDefaults.standard.set(list, forKey: HomeRegionBridge.inboxKey)
+    NativeLog.note("home region \(kind)")
+    channel?.invokeMethod("event", arguments: nil)
+  }
+
+  func locationManager(_ m: CLLocationManager, didEnterRegion region: CLRegion) {
+    if region.identifier == HomeRegionBridge.regionId { record("enter") }
+  }
+
+  func locationManager(_ m: CLLocationManager, didExitRegion region: CLRegion) {
+    if region.identifier == HomeRegionBridge.regionId { record("exit") }
+  }
+
+  func locationManager(_ m: CLLocationManager, didDetermineState state: CLRegionState, for region: CLRegion) {
+    guard region.identifier == HomeRegionBridge.regionId else { return }
+    switch state {
+    case .inside: record("inside")
+    case .outside: record("outside")
+    default: break
+    }
+  }
+
+  func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
+    if !locationResults.isEmpty && m.authorizationStatus != .notDetermined {
+      if m.authorizationStatus == .authorizedWhenInUse || m.authorizationStatus == .authorizedAlways {
+        m.requestLocation()
+      } else {
+        failLocation()
+      }
+    }
+    if m.authorizationStatus != .notDetermined { finishAuth() }
+  }
+
+  private func finishAuth() {
+    let rs = authResults
+    authResults = []
+    for r in rs { r(authName()) }
+  }
+
+  func locationManager(_ m: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    guard let l = locations.last else { return }
+    let rs = locationResults
+    locationResults = []
+    for r in rs {
+      r(["lat": l.coordinate.latitude, "lon": l.coordinate.longitude, "accuracy": l.horizontalAccuracy])
+    }
+  }
+
+  func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+    failLocation()
+  }
+
+  func locationManager(_ m: CLLocationManager, monitoringDidFailFor region: CLRegion?, withError error: Error) {
+    NativeLog.note("home region monitoring failed: \(error.localizedDescription)")
+  }
+
+  private func failLocation() {
+    let rs = locationResults
+    locationResults = []
+    for r in rs { r(nil) }
   }
 }
 

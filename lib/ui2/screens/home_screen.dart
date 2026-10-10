@@ -49,6 +49,7 @@ import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard, showMaintenance;
 import 'progress_screen.dart' show TodayBodyRow;
+import 'pushups_screen.dart' show TodayPushupRow;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -1902,6 +1903,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               const SizedBox(height: S.x3),
               // Build 86: today's weigh-in in one tap, and the way to Progress.
               const TodayBodyRow(),
+              // Pushups: sets and the next reminder, Done in one tap. Shown
+              // once Pushups has been used.
+              const TodayPushupRow(),
             ],
             // Maintenance so far: the same card Food shows, both methods, the
             // Budget day as a bar and eaten against it. Lifting is a sheet line.

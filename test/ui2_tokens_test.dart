@@ -195,6 +195,10 @@ void main() {
 /// this list fails the test above, so the choice has to be made rather than
 /// drifted into.
 const _notComponents = {
+  // Pushups (build 86): each reads the Pushups store or the Home bridge;
+  // `build86_pushups_test` covers the domain and the screen.
+  'PushupsScreen', 'PushupDayScreen', 'PushupHistoryScreen',
+  'PushupSettingsScreen', 'HomeSetupScreen', 'TodayPushupRow',
   // The run screen and the maintenance card: each needs a recorded track or a
   // profile; `ui2_run_detail_test` renders the run screen at 1x and 2x.
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',

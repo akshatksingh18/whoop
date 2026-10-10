@@ -80,17 +80,34 @@ String? routeId(String route) => Uri.tryParse(route)?.queryParameters['id'];
 String? routeDay(String route) {
   final day = Uri.tryParse(route)?.queryParameters['day'];
   final d = DateTime.tryParse(day ?? '');
-  return day != null && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(day) && d != null &&
-    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' == day ? day : null;
+  return day != null &&
+          RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(day) &&
+          d != null &&
+          '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}' ==
+              day
+      ? day
+      : null;
 }
 
 String datedRoute(String route, String? day, {String? id}) {
   final uri = Uri.tryParse(route);
   if (uri == null) return route;
-  return uri.replace(queryParameters: {...uri.queryParameters,
-    if (day != null) 'day': day, if (id != null) 'id': id}).toString();
+  return uri
+      .replace(
+        queryParameters: {
+          ...uri.queryParameters,
+          if (day != null) 'day': day,
+          if (id != null) 'id': id,
+        },
+      )
+      .toString();
 }
+
 const kRouteTrainingReview = '/workouts/review';
+
+/// Pushups reminders and the 9:00 invitation (build 86). Lands on Train with
+/// the Pushups screen on top; Done and Pause on the notification never open it.
+const String kRoutePushups = '/workouts/pushups';
 
 /// The medication reminder. Lands on Wellness, where the Medication tab's
 /// checklist is the thing that records the dose.
@@ -174,6 +191,7 @@ const Map<String, int> _screenRoutes = {
   kRouteSteps: 0,
   kRouteWorkoutIdle: 4,
   kRouteTrainingReview: 4,
+  kRoutePushups: 4,
   '/sleep': 0,
   '/heart': 1,
 };

@@ -27,6 +27,7 @@ import '../../data/csv_export.dart';
 import '../../data/db.dart';
 import '../../data/lift_log.dart';
 import '../../data/body_log.dart';
+import '../../data/pushups.dart';
 import '../../data/photo_encode.dart';
 import '../../data/media_backup.dart';
 import '../../import/backup_crypto.dart';
@@ -314,6 +315,58 @@ class _DataScreenState extends State<DataScreen> {
       sharePositionOrigin: origin,
     );
     return ('Body CSV shared.', false);
+  }
+
+  Future<_Note> _importPushups() async {
+    final picked = await FilePicker.platform.pickFiles(type: FileType.any);
+    final path = picked?.files.single.path;
+    if (path == null) return ('', false);
+    final plan = await planPushupImport(await File(path).readAsString());
+    if (!mounted) return ('', false);
+    if (plan.add.isEmpty) {
+      return (
+        'Nothing new: ${plan.unchanged} days already here'
+            '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and were left alone'}.',
+        false,
+      );
+    }
+    final sets = plan.add.fold<int>(0, (n, s) => n + s.count);
+    final ok = await confirmRemove(
+      context,
+      title: 'Import ${plan.add.length} Pushups days?',
+      body:
+          '$sets sets from ${plan.add.last.day} to ${plan.add.first.day}. '
+          '${plan.unchanged} already here'
+          '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and stay as they are'}. '
+          'No reminders are started; AkshatOS keeps its own copy.',
+      remove: 'Import',
+      keep: 'Cancel',
+    );
+    if (!ok || !mounted) return ('', false);
+    final useSettings = await confirmRemove(
+      context,
+      title: 'Use its settings too?',
+      body:
+          'Every ${plan.interval} min and ${plan.goal == 0 ? 'no daily goal' : '${plan.goal} sets a day'}. '
+          'Days already logged keep their own goal either way.',
+      remove: 'Use them',
+      keep: 'Keep mine',
+    );
+    final n = await applyPushupImport(plan, useSettings: useSettings);
+    return ('$n Pushups days imported.', false);
+  }
+
+  Future<_Note> _exportPushups() async {
+    final origin = shareOrigin(context);
+    final dir = await Directory.systemTemp.createTemp('pushups');
+    final f = File('${dir.path}/pushup-reminder.json')
+      ..writeAsStringSync(await exportPushupBackup());
+    await Share.shareXFiles(
+      [XFile(f.path)],
+      subject: '$kAppName Pushups',
+      sharePositionOrigin: origin,
+    );
+    return ('Pushups history shared.', false);
   }
 
   Future<_Note> _exportLiftLog() async {
@@ -675,7 +728,7 @@ class _DataScreenState extends State<DataScreen> {
                   ]),
                   const SizedBox(height: S.x5),
                   // Build 86: the set log that now lives in the Lift workout.
-                  settingsGroup(c, 'Lift Log and Body', [
+                  settingsGroup(c, 'Lift Log, Body and Pushups', [
                     SetRow(
                       LucideIcons.dumbbell,
                       C.purple,
@@ -714,6 +767,25 @@ class _DataScreenState extends State<DataScreen> {
                           'A JSON backup AkshatOS can read, and a CSV with one '
                           'row per set and its load meaning',
                       onTap: _busy ? null : () => _run(_exportLiftLog),
+                    ),
+                    SetRow(
+                      LucideIcons.alarmClock,
+                      C.orange,
+                      'Import Pushups from AkshatOS',
+                      sub:
+                          'A Pushup Reminder backup. Previewed first; days '
+                          'already here are skipped and no reminders start. '
+                          'End an open day in AkshatOS before backing it up',
+                      onTap: _busy ? null : () => _run(_importPushups),
+                    ),
+                    SetRow(
+                      LucideIcons.fileJson,
+                      C.orange,
+                      'Export Pushups',
+                      sub:
+                          'Finished days and settings, in the backup shape '
+                          'AkshatOS reads',
+                      onTap: _busy ? null : () => _run(_exportPushups),
                     ),
                   ]),
                   const SizedBox(height: S.x5),

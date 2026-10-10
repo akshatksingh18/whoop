@@ -10,6 +10,8 @@ import 'coach/coach_config.dart';
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
+import 'data/home_region.dart';
+import 'data/pushup_reminders.dart' show Pushups;
 import 'state/app_state.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
@@ -35,6 +37,7 @@ import 'ui2/screens/log_workout.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/workout_screen.dart';
 import 'ui2/screens/progress_screen.dart';
+import 'ui2/screens/pushups_screen.dart';
 import 'ui2/screens/training_review.dart';
 import 'ui2/ui2.dart';
 
@@ -57,6 +60,12 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
 
       final app = context.read<AppState>();
+      // Pushups: merge Done/Pause taken while closed and apply Home boundary
+      // events. Runs on a background relaunch too, which is how leaving Home
+      // reaches a closed app.
+      HomeRegion.onEvent = () => unawaited(Pushups.reconcile());
+      HomeRegion.listen();
+      unawaited(Pushups.reconcile());
       // A Bluetooth/background-task relaunch draws a first frame too; only a
       // real open starts the foreground session. `resumed` opens it later.
       unawaited(() async {
@@ -114,6 +123,9 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       // The installed signing profile may have been refreshed while the app
       // was away; re-read it and move the 48 h / 24 h warnings with it.
       unawaited(app.refreshSigningStatus());
+      // Pushups actions taken from the lock screen, Home events, and a
+      // topped-up reminder batch from the saved anchor.
+      unawaited(Pushups.reconcile());
       // A run whose route was blocked by a location setting: the user may be
       // back from Settings having fixed it. No-op without a blocked live route.
       if (app.routeLocationIssue != null) unawaited(app.retryRouteTracking());
@@ -392,7 +404,9 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
   // The forgotten-workout nudge. The Workouts tab is the destination
   // itself — the live session bar with its finish control is pinned to
   // the shell there — so screenForRoute stays null for it.
-  kRouteWorkoutIdle || kRouteTrainingReview => ShellDomain.workout,
+  kRouteWorkoutIdle ||
+  kRouteTrainingReview ||
+  kRoutePushups => ShellDomain.workout,
   // Emitted by the battery forecast (`app_state.dart`) and the weekly
   // recap (`notification_center.dart`), and declared in `tap_router`
   // alongside every other deep link — see the note below.
@@ -459,6 +473,7 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
   kRouteWorkoutIdle => SessionDestination(routeId(route)),
   kRouteTrainingReview => TrainingReviewScreen(day: routeDay(route)),
   kRouteStatus => const StatusScreen(),
+  kRoutePushups => const PushupsScreen(),
   _ => null,
 };
 

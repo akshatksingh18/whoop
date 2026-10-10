@@ -31,6 +31,13 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../data/pushup_reminders.dart'
+    show
+        kPushupCategory,
+        kPushupDoneAction,
+        kPushupPauseAction,
+        pushupNotificationBackground,
+        PushupReminders;
 import 'notification_event.dart';
 import 'tap_router.dart';
 import 'notification_ids.dart';
@@ -91,32 +98,32 @@ class NotificationService {
   // ── Channels (one per category — keep them disjoint) ────────────────────────
   static const AndroidNotificationChannel _deviceChannel =
       AndroidNotificationChannel(
-    'device_alerts',
-    'Device alerts',
-    description: 'Band battery and charging',
-    importance: Importance.high,
-  );
+        'device_alerts',
+        'Device alerts',
+        description: 'Band battery and charging',
+        importance: Importance.high,
+      );
   static const AndroidNotificationChannel _healthChannel =
       AndroidNotificationChannel(
-    'health',
-    'Health alerts',
-    description: 'Illness, unusual physiology and temperature signals',
-    importance: Importance.max,
-  );
+        'health',
+        'Health alerts',
+        description: 'Illness, unusual physiology and temperature signals',
+        importance: Importance.max,
+      );
   static const AndroidNotificationChannel _recoveryChannel =
       AndroidNotificationChannel(
-    'recovery',
-    'Recovery',
-    description: 'Daily recovery readiness from your own data',
-    importance: Importance.defaultImportance,
-  );
+        'recovery',
+        'Recovery',
+        description: 'Daily recovery readiness from your own data',
+        importance: Importance.defaultImportance,
+      );
   static const AndroidNotificationChannel _remindersChannel =
       AndroidNotificationChannel(
-    'reminders',
-    'Reminders',
-    description: 'Wind-down, movement nudges, goals and weekly recaps',
-    importance: Importance.defaultImportance,
-  );
+        'reminders',
+        'Reminders',
+        description: 'Wind-down, movement nudges, goals and weekly recaps',
+        importance: Importance.defaultImportance,
+      );
 
   // ── Fixed ids: device alerts + scheduled reminders (disjoint low band) ───────
   static const int idLowBattery = 1001;
@@ -124,9 +131,11 @@ class NotificationService {
   static const int idWindDown = 2002; // scheduled daily ("time to sleep")
   static const int idWeeklyRecap = 2003; // scheduled weekly
   static const int idJournalLog = 2004; // scheduled daily ("log your day")
-  static const int idMorningBrief = 2005; // scheduled daily (AI morning briefing)
+  static const int idMorningBrief =
+      2005; // scheduled daily (AI morning briefing)
   static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
-  static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
+  static const int idStillness =
+      2200; // provisional one-shot ("time to move", issue #123)
   static const int idCheckIn = 2201; // daily ("how was today?" → the journal)
 
   /// The personal sideload's signing-expiry warnings, 48 h and 24 h before the
@@ -144,6 +153,16 @@ class NotificationService {
 
   /// Body's optional weekly measurement-day reminder (build 86).
   static const int idBodyReminder = 2422;
+
+  /// Pushups (build 86): the ordinary reminder, its band of ten-minute nudges
+  /// and the idle 9:00 AM start invitation. iOS keeps at most 64 pending
+  /// requests for the whole app, so the batch is bounded at
+  /// [maxPushupNudges] and topped up on every foreground pass; everything
+  /// else this app schedules fits in the remainder.
+  static const int idPushupRegular = 2500;
+  static const int idPushupNudgeBase = 2501;
+  static const int maxPushupNudges = 29;
+  static const int idPushupDailyStart = 2540;
 
   /// Slot band [idMedsBase .. idMedsBase + maxMedSlots) — one ONE-SHOT per
   /// scheduled dose that is still upcoming, armed by
@@ -214,6 +233,8 @@ class NotificationService {
     idLiftInactivity,
     idRestTimer,
     idBodyReminder,
+    idPushupRegular,
+    idPushupDailyStart,
     idWeeklyRecap,
     idEveningBrief,
     idMorningBrief,
@@ -236,14 +257,21 @@ class NotificationService {
   /// [NotificationCenter.scheduleAiReminders] filters its plan through it
   /// rather than arming a slot and having it refused one line later.
   static bool maySchedule(int id) =>
-      schedulableIds.contains(id) || isWaterSlot(id) || isMedSlot(id);
+      schedulableIds.contains(id) ||
+      isWaterSlot(id) ||
+      isMedSlot(id) ||
+      isPushupNudge(id);
+
+  /// Whether [id] is one of the Pushups nudges — a band, like the others.
+  static bool isPushupNudge(int id) =>
+      id >= idPushupNudgeBase && id < idPushupNudgeBase + maxPushupNudges;
 
   AndroidNotificationChannel _channelFor(NotifCategory c) => switch (c) {
-        NotifCategory.health => _healthChannel,
-        NotifCategory.recovery => _recoveryChannel,
-        NotifCategory.reminders => _remindersChannel,
-        NotifCategory.device => _deviceChannel,
-      };
+    NotifCategory.health => _healthChannel,
+    NotifCategory.recovery => _recoveryChannel,
+    NotifCategory.reminders => _remindersChannel,
+    NotifCategory.device => _deviceChannel,
+  };
 
   Importance _importanceFor(NotifCategory c) =>
       c == NotifCategory.health ? Importance.max : Importance.defaultImportance;
@@ -268,7 +296,9 @@ class NotificationService {
       }
       final name = await FlutterTimezone.getLocalTimezone();
       if (name != tz.local.name) tz.setLocalLocation(tz.getLocation(name));
-    } catch (_) {/* tz stays as-is (UTC on a cold failure); we retry next arm */}
+    } catch (_) {
+      /* tz stays as-is (UTC on a cold failure); we retry next arm */
+    }
   }
 
   /// Set up the plugin, channels, timezone db and the tap handler. Idempotent.
@@ -277,19 +307,35 @@ class NotificationService {
     if (_inited) return;
     await ensureTimezone();
 
-    const AndroidInitializationSettings android =
-        AndroidInitializationSettings('@mipmap/launcher_icon');
-    const DarwinInitializationSettings darwin = DarwinInitializationSettings(
+    const AndroidInitializationSettings android = AndroidInitializationSettings(
+      '@mipmap/launcher_icon',
+    );
+    // Pushups reminders carry Done and Pause. Neither opens the app: both
+    // run in the background handler, which records the action and moves the
+    // reminders (pushup_reminders.dart).
+    final darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
+      notificationCategories: [
+        DarwinNotificationCategory(
+          kPushupCategory,
+          actions: [
+            DarwinNotificationAction.plain(kPushupDoneAction, 'Done'),
+            DarwinNotificationAction.plain(kPushupPauseAction, 'Pause'),
+          ],
+        ),
+      ],
     );
     await _plugin.initialize(
-      const InitializationSettings(android: android, iOS: darwin),
+      InitializationSettings(android: android, iOS: darwin),
       onDidReceiveNotificationResponse: _onTap,
+      onDidReceiveBackgroundNotificationResponse: pushupNotificationBackground,
     );
-    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidImpl?.createNotificationChannel(_deviceChannel);
     await androidImpl?.createNotificationChannel(_healthChannel);
     await androidImpl?.createNotificationChannel(_recoveryChannel);
@@ -298,6 +344,10 @@ class NotificationService {
   }
 
   void _onTap(NotificationResponse r) {
+    if (r.actionId == kPushupDoneAction || r.actionId == kPushupPauseAction) {
+      PushupReminders.onAction(r, background: false);
+      return;
+    }
     final route = r.payload;
     if (route != null && route.isNotEmpty) _taps.add(route);
   }
@@ -359,15 +409,23 @@ class NotificationService {
       granted = await request();
     } else {
       granted = true;
-      final ios = _plugin.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
       if (ios != null) {
-        granted = await ios.requestPermissions(
-                alert: true, badge: true, sound: true) ??
+        granted =
+            await ios.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            ) ??
             false;
       }
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       if (android != null) {
         granted = await android.requestNotificationsPermission() ?? false;
       }
@@ -400,11 +458,16 @@ class NotificationService {
       final probe = debugProbePermission;
       if (probe != null) return await probe();
       await init();
-      final ios = _plugin.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
-      if (ios != null) return (await ios.checkPermissions())?.isEnabled ?? false;
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      if (ios != null)
+        return (await ios.checkPermissions())?.isEnabled ?? false;
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       if (android != null) {
         return await android.areNotificationsEnabled() ?? false;
       }
@@ -476,8 +539,12 @@ class NotificationService {
   // ── Scheduling (wall-clock, OS-fired with no Dart running) ──────────────────
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute, {int? weekday}) =>
-      nextInstanceOf(tz.TZDateTime.now(tz.local), hour, minute,
-          weekday: weekday);
+      nextInstanceOf(
+        tz.TZDateTime.now(tz.local),
+        hour,
+        minute,
+        weekday: weekday,
+      );
 
   /// The next [weekday] at [hour]:[minute] in local wall-clock time. For
   /// arming the lookback as a ONE-SHOT: a `dayOfWeekAndTime` repeat would go on
@@ -495,8 +562,10 @@ class NotificationService {
   /// Shared gate for every scheduled slot — see [schedulableIds].
   bool _maySchedule(int id) {
     if (maySchedule(id)) return true;
-    debugPrint('[notify] schedule refused for id $id — not an allow-listed '
-        'scheduled slot');
+    debugPrint(
+      '[notify] schedule refused for id $id — not an allow-listed '
+      'scheduled slot',
+    );
     return false;
   }
 
@@ -602,6 +671,53 @@ class NotificationService {
         payload: route,
       );
     } catch (_) {}
+  }
+
+  /// A Pushups reminder at [at], in the Done/Pause category. Same gate as
+  /// [scheduleOnce].
+  Future<bool> schedulePushup({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime at,
+    required String payload,
+  }) async {
+    try {
+      if (!_maySchedule(id)) return false;
+      if (!await ensurePermission(allowPrompt: false)) return false;
+      await ensureTimezone();
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        tz.TZDateTime.from(at, tz.local),
+        NotificationDetails(
+          android: _details(NotifCategory.reminders).android,
+          iOS: const DarwinNotificationDetails(
+            categoryIdentifier: kPushupCategory,
+            threadIdentifier: 'pushups',
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Ids of the requests iOS still holds; null when it cannot say.
+  Future<Set<int>?> pendingIds() async {
+    try {
+      return {
+        for (final r in await _plugin.pendingNotificationRequests()) r.id,
+      };
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> cancel(int id) async {

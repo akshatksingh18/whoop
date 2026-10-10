@@ -68,12 +68,9 @@ PERSONAL_BACKGROUND_MODES = ["bluetooth-central", "location", "audio", "fetch", 
 _FORBIDDEN_INFO_KEYS = {
     "NSHealthShareUsageDescription",
     "NSHealthUpdateUsageDescription",
-    # Always is deliberately never requested - lib/gps/gps_source.dart's own design keeps
-    # authorization at While-In-Use and relies on the location background mode below to keep a
-    # workout tracked with the screen off. Reopened per CLAUDE.md's stated GPS-experiment
-    # conditions; NSLocationWhenInUseUsageDescription is no longer forbidden - see the required
-    # keys below and route_math.dart/route_tracker.dart for what actually uses it.
-    "NSLocationAlwaysAndWhenInUseUsageDescription",
+    # NSLocationAlwaysAndWhenInUseUsageDescription is REQUIRED from build 86 (Akshat's
+    # approval): Pushups Home auto-pause asks for Always so region events arrive while WHOOP is
+    # closed. Route recording still asks for While-In-Use only (lib/gps/gps_source.dart).
     "NSSupportsLiveActivities",
     "OpenStrapAppGroupIdentifier",
     "OpenStrapWorkoutLiveActivity",
@@ -235,8 +232,8 @@ def personal_info(source: dict[str, object]) -> dict[str, object]:
     out["FlutterDeepLinkingEnabled"] = False
     out["CFBundleURLTypes"] = [{"CFBundleURLName": BUNDLE_ID, "CFBundleURLSchemes": ["whoop"]}]
     # "location" added alongside the existing bluetooth-central mode: this plus While-In-Use
-    # authorization (never Always - see _FORBIDDEN_INFO_KEYS) is what lets a run stay tracked
-    # with the screen locked, per gps_source.dart's own comment on the same tradeoff.
+    # authorization is what lets a run stay tracked with the screen locked, per gps_source.dart.
+    # Always is asked for only by Pushups Home auto-pause (region monitoring, build 86).
     out["UIBackgroundModes"] = list(PERSONAL_BACKGROUND_MODES)
     out["BGTaskSchedulerPermittedIdentifiers"] = list(PERSONAL_BG_TASK_IDS)
     validate_info(out, resolved_bundle_id=None)
@@ -267,6 +264,7 @@ def validate_info(info: dict[str, object], resolved_bundle_id: str | None = BUND
         "NSAccessorySetupBluetoothServices",
         "NSBluetoothAlwaysUsageDescription",
         "NSLocationWhenInUseUsageDescription",
+        "NSLocationAlwaysAndWhenInUseUsageDescription",
         "NSMotionUsageDescription",
         "UIFileSharingEnabled",
     ):

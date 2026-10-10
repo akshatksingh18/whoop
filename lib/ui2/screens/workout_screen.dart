@@ -53,6 +53,7 @@ import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
 import 'log_workout.dart';
 import 'training_review.dart';
+import 'pushups_screen.dart' show PushupsScreen;
 
 /// Shared destination for a notification, lock-screen tap or saved session.
 class SessionDestination extends StatefulWidget {
@@ -350,6 +351,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             ),
           ],
         ),
+      const SizedBox(height: S.x3),
+      // Movement breaks through the day (build 86): its own reminders, goal
+      // and streak; never a workout clock and never counted as exercise.
+      detailLinkRow(
+        c,
+        LucideIcons.alarmClock,
+        'Pushups',
+        'Reminders through the day, a daily set goal and its streak',
+        () => _push(c, const PushupsScreen()),
+      ),
       const SizedBox(height: S.x3),
       if (d.streak != null) ...[
         _streakCard(c, p, d.streak!),

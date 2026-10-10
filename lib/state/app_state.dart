@@ -50,6 +50,7 @@ import '../compute/streak.dart' show StepGoals;
 import '../data/profile_history.dart';
 import '../data/calculation_store.dart';
 import '../data/lift_reminders.dart' show LiftReminders;
+import '../data/pushup_reminders.dart' show Pushups;
 import '../gps/workout_clock.dart';
 import '../gps/workout_measurements.dart';
 import '../gps/run_analysis.dart' show runMix;
@@ -1281,6 +1282,8 @@ class AppState extends ChangeNotifier {
     await WidgetService.clear();
     // The set log's in-memory owner of the forgotten-workout ask.
     LiftReminders.loggingSessions.clear();
+    // Pushups' Home watch, its Home point and its action inbox.
+    await Pushups.reset();
     try {
       await coachConfig?.save(apiKey: ''); // deletes the keychain entry
     } catch (e) {

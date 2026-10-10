@@ -34,6 +34,7 @@ import '../gps/workout_clock.dart';
 import 'journal_fields.dart';
 import 'lift_log.dart' show LiftLogDb;
 import 'body_log.dart' show BodyLogDb;
+import 'pushups.dart' show PushupDb;
 import 'live_coverage_policy.dart';
 import 'med_store.dart';
 import 'models.dart';
@@ -163,6 +164,7 @@ class LocalDb {
     // medication, strength sets, symptoms and routes did not survive a
     // backup/restore round trip at all, the same omission `wipeAll` documents.
     'lift_log',
+    'pushup_session',
     'body_measure',
     'body_photo',
     'journal',
@@ -252,6 +254,7 @@ class LocalDb {
   static const _salvageTables = [
     // Hand-entered. The only copy that exists anywhere.
     'lift_log',
+    'pushup_session',
     'body_measure',
     'body_photo',
     'journal',
@@ -3204,6 +3207,8 @@ class LocalDb {
     // Body (build 86): tape sessions, photo records, and the in-place
     // body_weight columns that keep imported/backdated weights history only.
     await BodyLogDb.createTables(db);
+    // Pushups (build 86): one JSON row per movement-break day.
+    await PushupDb.createTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -9073,7 +9078,10 @@ class LocalDb {
     return [
       for (final r in rows)
         if (((r['n'] as num?) ?? 0) >= minSamples)
-          {'t': (r['t'] as num).toInt(), 'v': ((r['v'] as num) * 10).round() / 10},
+          {
+            't': (r['t'] as num).toInt(),
+            'v': ((r['v'] as num) * 10).round() / 10,
+          },
     ];
   }
 

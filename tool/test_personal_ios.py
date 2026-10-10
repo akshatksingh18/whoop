@@ -70,14 +70,19 @@ class PersonalIosContractTest(unittest.TestCase):
         self.assertNotIn("NSSupportsLiveActivities", info)
         self.assertNotIn("OpenStrapWorkoutLiveActivity", info)
 
-    def test_personal_info_gps_stays_while_in_use_only(self) -> None:
-        # The GPS-experiment reopening's one hard constraint: permission stays at While-In-Use,
-        # matching lib/gps/gps_source.dart's own design. A future change that widens this to
-        # Always must not slip through this contract test unnoticed.
+    def test_personal_info_location_keys(self) -> None:
+        # Route recording uses While-In-Use; Pushups Home auto-pause (build 86, Akshat's
+        # approval) asks for Always, so both descriptions ship and say what each is for.
         source = plistlib.loads(SOURCE_INFO.read_bytes())
         info = personal_info(source)
         self.assertIn("NSLocationWhenInUseUsageDescription", info)
-        self.assertNotIn("NSLocationAlwaysAndWhenInUseUsageDescription", info)
+        always = info["NSLocationAlwaysAndWhenInUseUsageDescription"]
+        self.assertIn("Home", always)
+        self.assertIn("never uploaded", always)
+        missing = dict(info)
+        del missing["NSLocationAlwaysAndWhenInUseUsageDescription"]
+        with self.assertRaises(ContractError):
+            validate_info(missing, resolved_bundle_id=None)
 
     def test_background_task_contract_is_exact(self) -> None:
         # Build 86: the two task identifiers and modes, nothing wider.

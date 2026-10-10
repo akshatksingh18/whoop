@@ -113,6 +113,21 @@ class DayHeader extends StatelessWidget {
             color: atToday ? p.line : p.ink2,
           ),
         ),
+        if (!atToday)
+          Pressable(
+            semanticLabel: 'Jump to today',
+            onTap: () => onDay(todayLabel()),
+            child: Padding(
+              padding: const EdgeInsets.only(left: S.x2),
+              child: Text(
+                'Today',
+                style: F.cap.copyWith(
+                  color: p.on(C.domFood),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

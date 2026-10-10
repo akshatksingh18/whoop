@@ -50,6 +50,7 @@ import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard, showMaintenance;
 import 'progress_screen.dart' show TodayBodyRow;
 import 'pushups_screen.dart' show TodayPushupRow;
+import '../profile/status.dart' show StatusScreen;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
@@ -2123,8 +2124,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 class _WorkLine extends StatelessWidget {
   const _WorkLine();
 
+  /// The line opens Status: newest band data, backups and signing.
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) => Pressable(
+    semanticLabel: 'Sync status. Opens Status',
+    onTap: () => go(c, const StatusScreen()),
+    child: _line(c),
+  );
+
+  Widget _line(BuildContext c) {
     final p = P.of(c);
     final word = syncingNowOf(c)
         ? 'Syncing the band'

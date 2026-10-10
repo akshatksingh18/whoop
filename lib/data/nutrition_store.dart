@@ -23,6 +23,16 @@ import 'day_label.dart';
 /// schemaVersion 35. Two tables: a per-entry log, and a dictionary so a
 /// repeat entry costs one row instead of re-typing the macros.
 Future<void> createNutritionTables(Database db) async {
+  // A day the user marked complete or incomplete themselves (build 86). It
+  // overrides the evening-entry guess either way; it never makes a day with
+  // an unknown calorie value complete.
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS food_day_mark (
+      date        TEXT PRIMARY KEY,
+      mark        TEXT NOT NULL,
+      updated_at  INTEGER NOT NULL
+    )
+  ''');
   await db.execute('''
     CREATE TABLE IF NOT EXISTS food_entry (
       id            TEXT PRIMARY KEY,
@@ -615,9 +625,16 @@ NutritionDay rollupDay(
   String date,
   List<FoodEntry> entries, {
   required String today,
+  String? mark,
 }) {
   final kcal = _sum(entries, (e) => e.kcal);
-  final state = dayLogState(date, entries, today: today, kcal: kcal);
+  final state = dayLogState(
+    date,
+    entries,
+    today: today,
+    kcal: kcal,
+    mark: mark,
+  );
   return NutritionDay(
     date: date,
     entries: entries,
@@ -630,17 +647,22 @@ NutritionDay rollupDay(
   );
 }
 
-/// Partial-day detection. Automatic and never a checkbox — a user who has to
-/// tick "I didn't log everything" will not, and every average silently rots.
+/// Partial-day detection. Automatic by default; from build 86 the user can
+/// also mark a day ([mark] `complete` or `incomplete`), which wins over the
+/// evening-entry guess — today included — but never over an unknown calorie
+/// value.
 DayLogState dayLogState(
   String date,
   List<FoodEntry> entries, {
   required String today,
   NutrientTotal? kcal,
+  String? mark,
 }) {
   if (entries.isEmpty) return DayLogState.none;
-  if (date == today) return DayLogState.inProgress;
+  if (mark == 'incomplete') return DayLogState.partial;
   final energy = kcal ?? _sum(entries, (e) => e.kcal);
+  if (mark == 'complete' && energy.complete) return DayLogState.complete;
+  if (date == today) return DayLogState.inProgress;
   if (!energy.complete) return DayLogState.partial;
   final spanned = entries.any((e) {
     final ts = e.atTs;
@@ -919,8 +941,7 @@ class NutritionDb {
           def['measures_json'] ??
           (old.isEmpty ? '' : old.first['measures_json'] ?? ''),
       'category':
-          def['category'] ??
-          (old.isEmpty ? '' : old.first['category'] ?? ''),
+          def['category'] ?? (old.isEmpty ? '' : old.first['category'] ?? ''),
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     changed();
@@ -961,6 +982,7 @@ class NutritionDb {
       final e = FoodEntry.fromRow(row);
       (byDay[e.date] ??= []).add(e);
     }
+    final marks = await dayMarks(db, dayLabelOf(start));
     return NutritionWindow([
       for (
         var d = start;
@@ -971,6 +993,7 @@ class NutritionDb {
           dayLabelOf(d),
           byDay[dayLabelOf(d)] ?? const [],
           today: today,
+          mark: marks[dayLabelOf(d)],
         ),
     ]);
   }
@@ -1019,10 +1042,13 @@ class NutritionDb {
       'JOIN food_def d ON d.key = o.food_key WHERE a.food_key = ?',
       [foodKey],
     );
-    final by = <String, ({Map<String, Object?> def, int n, List<double> base})>{};
+    final by =
+        <String, ({Map<String, Object?> def, int n, List<double> base})>{};
     for (final r in rows) {
       final key = r['key'] as String;
-      final def = {...r}..remove('q')..remove('u');
+      final def = {...r}
+        ..remove('q')
+        ..remove('u');
       final q = (r['q'] as num?)?.toDouble();
       final b = q == null ? null : toBase(def, q, (r['u'] as String?) ?? 'g');
       final prev = by[key];
@@ -1035,9 +1061,7 @@ class NutritionDb {
     final out = by.values.toList()
       ..sort((a, b) {
         final c = b.n.compareTo(a.n);
-        return c != 0
-            ? c
-            : '${a.def['label']}'.compareTo('${b.def['label']}');
+        return c != 0 ? c : '${a.def['label']}'.compareTo('${b.def['label']}');
       });
     return [
       for (final e in out.take(limit))
@@ -1094,9 +1118,52 @@ class NutritionDb {
         dayLabelOf(DateTime(end.year, end.month, end.day - i)),
     ];
     final byDay = await entriesSince(db, labels.first);
+    final marks = await dayMarks(db, labels.first);
     return NutritionWindow([
-      for (final l in labels) rollupDay(l, byDay[l] ?? const [], today: today),
+      for (final l in labels)
+        rollupDay(l, byDay[l] ?? const [], today: today, mark: marks[l]),
     ]);
+  }
+
+  /// The user's own complete/incomplete marks from [from] on.
+  static Future<Map<String, String>> dayMarks(
+    DatabaseExecutor db,
+    String from,
+  ) async {
+    try {
+      return {
+        for (final r in await db.query(
+          'food_day_mark',
+          where: 'date >= ?',
+          whereArgs: [from],
+        ))
+          r['date'] as String: r['mark'] as String,
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Mark [date] `complete` or `incomplete`; null goes back to the
+  /// automatic rule.
+  static Future<void> setDayMark(
+    DatabaseExecutor db,
+    String date,
+    String? mark,
+  ) async {
+    if (mark == null) {
+      await db.delete('food_day_mark', where: 'date = ?', whereArgs: [date]);
+    } else {
+      if (mark != 'complete' && mark != 'incomplete') {
+        throw ArgumentError('A day is complete or incomplete.');
+      }
+      await db.insert('food_day_mark', {
+        'date': date,
+        'mark': mark,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    changed();
   }
 }
 
@@ -1286,11 +1353,7 @@ double? toBase(Map<String, Object?> def, double amount, String unit) {
 
 /// "3 links · 213 g": the logged portion with its weight when the food knows
 /// one and the portion was not already logged by weight.
-String portionWithWeight(
-  num amount,
-  String unit,
-  Map<String, Object?>? def,
-) {
+String portionWithWeight(num amount, String unit, Map<String, Object?>? def) {
   final shown = portionText(amount, unit);
   final u = unit.toLowerCase();
   if (def == null) return shown;
@@ -1886,6 +1949,7 @@ String foodUnit(Map<String, Object?> def) =>
     (def['unit'] as String?)?.trim().isNotEmpty == true
     ? (def['unit'] as String).trim()
     : 'g';
+
 /// A stored number as an edit field shows it: at most three decimals, no
 /// trailing zeros. Nutrition is kept per 100 units, so converting back to a
 /// 29 g serving gives 20.000000000000004 for 20 g; the field shows 20.

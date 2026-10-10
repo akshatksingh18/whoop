@@ -905,6 +905,9 @@ class _NutritionDayViewState extends State<NutritionDayView>
   DayUpkeep? _upkeep;
   bool _failed = false;
 
+  /// The user's own complete/incomplete mark for this day; null is automatic.
+  String? _mark;
+
   @override
   void reload() => _load();
 
@@ -931,7 +934,8 @@ class _NutritionDayViewState extends State<NutritionDayView>
     try {
       final db = await LocalDb.instance;
       final es = await NutritionDb.entriesForDay(db, date);
-      final d = rollupDay(date, es, today: todayLabel());
+      final mark = (await NutritionDb.dayMarks(db, date))[date];
+      final d = rollupDay(date, es, today: todayLabel(), mark: mark);
       final upkeep = repo == null
           ? null
           : await DayUpkeep.read(repo, date, pr, eaten: d.kcal.value ?? 0);
@@ -940,6 +944,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
           _day = d;
           _upkeep = upkeep;
           _failed = false;
+          _mark = mark;
         });
       }
     } catch (_) {
@@ -950,6 +955,74 @@ class _NutritionDayViewState extends State<NutritionDayView>
   Future<void> _changed() async {
     await _load();
     widget.onChanged?.call();
+  }
+
+  /// Whether this day counts in the weekly averages, and the one tap that
+  /// says so yourself (build 86): mark it complete when everything is in,
+  /// or incomplete when it is not, instead of the evening-entry guess.
+  Widget _completeLine(BuildContext c, NutritionDay d) {
+    final p = P.of(c);
+    final say = switch (d.state) {
+      DayLogState.complete =>
+        _mark == 'complete'
+            ? 'Marked complete · counts in averages'
+            : 'Counts in averages',
+      DayLogState.inProgress => 'Counts in averages once the day is complete',
+      _ =>
+        _mark == 'incomplete'
+            ? 'Marked incomplete · left out of averages'
+            : d.kcal.complete
+            ? 'Left out of averages: nothing logged after 5 pm'
+            : 'Left out of averages: a food has no calories',
+    };
+    Future<void> set(String? m) async {
+      await NutritionDb.setDayMark(await LocalDb.instance, widget.date, m);
+      await _changed();
+    }
+
+    final action = _mark != null
+        ? ('Automatic', () => set(null))
+        : d.state == DayLogState.complete
+        ? ('Mark incomplete', () => set('incomplete'))
+        : d.kcal.complete
+        ? ('Mark complete', () => set('complete'))
+        : null;
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x2),
+      child: Row(
+        children: [
+          Icon(
+            d.countsTowardAverages
+                ? LucideIcons.circleCheck
+                : LucideIcons.circleDashed,
+            size: 14,
+            color: d.countsTowardAverages ? p.on(C.green) : p.ink3,
+          ),
+          const SizedBox(width: S.x1),
+          Expanded(
+            child: Text(say, style: F.cap.copyWith(color: p.ink3)),
+          ),
+          if (action != null)
+            Pressable(
+              semanticLabel: action.$1,
+              onTap: action.$2,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: S.x2,
+                  vertical: S.x1,
+                ),
+                child: Text(
+                  action.$1,
+                  style: F.cap.copyWith(
+                    color: p.on(C.domFood),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   /// In the evening, how much protein is still to eat against the target.
@@ -1001,6 +1074,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
             if (mounted) await _changed();
           },
         ),
+        if (d.logged) _completeLine(c, d),
         const SizedBox(height: S.x2),
         for (final m in kMeals)
           MealCard(

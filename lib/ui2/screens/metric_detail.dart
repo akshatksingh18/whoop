@@ -18,7 +18,8 @@ import '../../compute/profile.dart' show Profile, stepCalories, acsmActiveKcal;
 import '../../gps/run_history.dart' show loadRuns;
 import '../activity/day_strain.dart';
 import '../../data/day_label.dart';
-import '../../data/recovery_movers.dart' show kMoverOutcomes, loadRecoveryMovers;
+import '../../data/recovery_movers.dart'
+    show kMoverOutcomes, loadRecoveryMovers;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -2082,26 +2083,26 @@ Widget detailScaffold(
           ),
         ),
         SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(
-              title,
-              sub: sub,
-              trailing: trailing,
-              onBack: () => Navigator.of(c).maybePop(),
-            ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: NavBar(
+                  title,
+                  sub: sub,
+                  trailing: trailing,
+                  onBack: () => Navigator.of(c).maybePop(),
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x12),
+                  children: body,
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x12),
-              children: body,
-            ),
-          ),
-        ],
-      ),
-    ),
+        ),
       ],
     ),
   );
@@ -2241,6 +2242,23 @@ class DayNav extends StatelessWidget {
             l?.metricDetailNextDay ?? 'Next day',
             newer,
           ),
+          // Back to the newest day in one tap, however far back this is.
+          if (newer != null) ...[
+            Pressable(
+              semanticLabel: 'Jump to today',
+              onTap: () => onDay(days.first),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x2),
+                child: Text(
+                  'Today',
+                  style: F.cap.copyWith(
+                    color: p.on(C.blue),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

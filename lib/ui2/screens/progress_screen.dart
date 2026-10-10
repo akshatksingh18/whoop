@@ -1061,6 +1061,9 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
   bool _today = false;
   String _unit = 'kg';
 
+  /// Today is the measurement weekday and no tape is logged yet.
+  bool _tapeDue = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -1076,11 +1079,14 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
           (await SharedPreferences.getInstance()).getString('body.unit') ??
           'kg';
       final today = todayLabel();
+      final wd = await BodyLogDb.measureWeekday();
+      final measured = (await BodyLogDb.measures()).any((m) => m.date == today);
       if (!stillNewest(#todayBody, t)) return;
       setState(() {
         _mean = BodyLogDb.sevenDayMean(ws, today);
         _today = ws.any((w) => w.date == today);
         _unit = u;
+        _tapeDue = DateTime.now().weekday == wd && !measured;
       });
     } catch (_) {}
   }
@@ -1112,9 +1118,27 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
                             '${m.count} ${m.count == 1 ? 'reading' : 'readings'}',
                   style: F.cap.copyWith(color: p.ink3),
                 ),
+                if (_tapeDue)
+                  Text(
+                    'Measurement day: take your tape today',
+                    style: F.cap.copyWith(color: p.on(C.teal)),
+                  ),
               ],
             ),
           ),
+          if (_tapeDue && _today)
+            Pressable(
+              semanticLabel: 'Take measurements',
+              onTap: () async {
+                final changed = await Navigator.of(c).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => BodyEntryScreen(unit: _unit),
+                  ),
+                );
+                if (changed == true) reload();
+              },
+              child: Pill('Measure', C.teal, icon: LucideIcons.ruler),
+            ),
           if (!_today)
             Pressable(
               semanticLabel: 'Log weigh-in',
@@ -1949,6 +1973,7 @@ class BodySettingsScreen extends StatefulWidget {
 class _BodySettingsScreenState extends State<BodySettingsScreen> {
   int _weekday = DateTime.saturday;
   bool _reminder = false;
+  int _hour = 8;
   String? _baseline;
 
   static const _names = [
@@ -1975,6 +2000,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
     setState(() {
       _weekday = wd;
       _reminder = p.getBool('body.reminder') ?? false;
+      _hour = p.getInt('body.reminder.hour') ?? 8;
       _baseline = b;
     });
   }
@@ -1989,7 +2015,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
         title: 'Measurement day',
         body: 'Weigh in and take your tape measurements in Progress.',
         weekday: _weekday,
-        hour: 8,
+        hour: _hour,
         minute: 0,
       );
     } else {
@@ -2073,7 +2099,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                                 style: F.body.copyWith(color: p.ink),
                               ),
                               Text(
-                                '8:00 on ${_names[_weekday - 1]}',
+                                '$_hour:00 on ${_names[_weekday - 1]}',
                                 style: F.over.copyWith(color: p.ink3),
                               ),
                             ],
@@ -2086,6 +2112,26 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                       ],
                     ),
                   ),
+                  if (_reminder) ...[
+                    const SizedBox(height: S.x2),
+                    Wrap(
+                      spacing: S.x2,
+                      runSpacing: S.x2,
+                      children: [
+                        for (final h in const [6, 7, 8, 9, 10])
+                          Pressable(
+                            semanticLabel: 'Remind at $h:00',
+                            onTap: () async {
+                              final pr = await SharedPreferences.getInstance();
+                              await pr.setInt('body.reminder.hour', h);
+                              setState(() => _hour = h);
+                              await _setReminder(true);
+                            },
+                            child: Pill('$h:00', _hour == h ? C.teal : C.n400),
+                          ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: S.x4),
                   Surface(
                     onTap: () async {

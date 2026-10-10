@@ -107,6 +107,71 @@ void main() {
     });
   });
 
+  group('a day you mark yourself', () {
+    FoodEntry e(String date, int hour, {double? kcal = 500}) => FoodEntry(
+      id: '$date-$hour',
+      date: date,
+      meal: 'lunch',
+      label: 'x',
+      kcal: kcal,
+      atTs:
+          DateTime.parse(
+            date,
+          ).add(Duration(hours: hour)).millisecondsSinceEpoch ~/
+          1000,
+      confirmed: true,
+    );
+    test('complete wins over the evening guess, today included', () {
+      final noEvening = [e('2026-10-08', 12)];
+      expect(
+        dayLogState('2026-10-08', noEvening, today: '2026-10-10'),
+        DayLogState.partial,
+      );
+      expect(
+        dayLogState(
+          '2026-10-08',
+          noEvening,
+          today: '2026-10-10',
+          mark: 'complete',
+        ),
+        DayLogState.complete,
+      );
+      expect(
+        dayLogState(
+          '2026-10-10',
+          [e('2026-10-10', 9)],
+          today: '2026-10-10',
+          mark: 'complete',
+        ),
+        DayLogState.complete,
+      );
+    });
+    test(
+      'incomplete leaves a day out; unknown calories are never complete',
+      () {
+        final evening = [e('2026-10-08', 19)];
+        expect(
+          dayLogState(
+            '2026-10-08',
+            evening,
+            today: '2026-10-10',
+            mark: 'incomplete',
+          ),
+          DayLogState.partial,
+        );
+        expect(
+          dayLogState(
+            '2026-10-08',
+            [e('2026-10-08', 19, kcal: null)],
+            today: '2026-10-10',
+            mark: 'complete',
+          ),
+          DayLogState.partial,
+        );
+      },
+    );
+  });
+
   group('intake colour follows maintenance, not the goal', () {
     test('over goal but within maintenance is not a warning', () {
       expect(intakeStatus(2300, 2600), IntakeStatus.withinMaintenance);

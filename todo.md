@@ -372,10 +372,10 @@ point was removed.
 ### 10. SideStore signing pilot (alongside build 86, not part of its code)
 
 **Approved; `../akshatos/sidestore-evaluation.md` owns the pilot steps.** Akshat performs them on
-the PC and phone. Sideloadly stays the active refresher until the pilot passes. Run it on the
-current, unchanged installed IPAs (WHOOP 85, AkshatOS 34) before Build 86 is installed, so a
-signing failure and a Build 86 regression are never tested at the same time. AkshatOS moves
-first; LocalDevVPN is allowed on the phone as SideStore's installer helper, never inside WHOOP.
+the PC and phone. Sideloadly stays the active refresher until the pilot passes. Akshat wants it
+run alongside Build 86: SideStore set up and AkshatOS moved first, WHOOP Build 86 installed with
+Sideloadly, then WHOOP's refresh moved to SideStore after 86 has worked for a day or two, so a
+signing failure and a Build 86 regression stay distinguishable. AkshatOS moves first; LocalDevVPN is allowed on the phone as SideStore's installer helper, never inside WHOOP.
 - [ ] Before the pilot: verified WHOOP encrypted export copied to Windows and an AkshatOS full
   backup with photo count checked; record each app's signed identity and expiry.
 - [ ] After the first SideStore re-sign of WHOOP: same final bundle ID, data intact, band still

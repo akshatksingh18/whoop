@@ -16,13 +16,15 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification with build `0.9.52`/`85` installed on Akshat's iPhone 17
 (iOS `26.6.2`), as reported by Akshat; its phone acceptance and current-version refresh enrollment
-remain open. Build-86 source `0.9.53`/`86` is implemented locally (commits on `main`, not pushed,
-not built, not phone-tested): bounded background sync with real calculation cancellation and
-personal `fetch`/`processing` tasks, Lift Log inside the Lift workout, Body and a fifth Progress
-tab, and the B86-01..16 repairs. `todo.md` owns its decisions, implemented/open items and gates;
-`build-86-audit.md`, `background-sync-plan.md`, `lift-log-integration-plan.md` and
-`fitness-app-plan.md` own their contracts. Publishing the source and building the IPA need
-Akshat's separate approval. AkshatOS keeps its modules and entry ownership until import and
+remain open. Build-86 source `0.9.53`/`86` (not phone-tested): bounded background sync with real
+calculation cancellation and personal `fetch`/`processing` tasks, Lift Log inside the Lift
+workout, Body and a fifth Progress tab, the B86-01..16 repairs and the structural Today/Food/Train
+redesign. A first push (`70adc902`) passed Linux CI `38065480698` and macOS build `38065492927`,
+but that IPA was held, not downloaded or installed, because the redesign was missing; the
+redesign and the remaining buildable items are local commits on `main`, not pushed. `todo.md`
+owns its decisions, implemented/open items and gates; `build-86-audit.md`,
+`background-sync-plan.md`, `lift-log-integration-plan.md` and `fitness-app-plan.md` own their
+contracts. Akshat approves the rendered redesign, then pushing and rebuilding 86. AkshatOS keeps its modules and entry ownership until import and
 combined phone acceptance. Pushups stays exploration. A SideStore signing pilot is approved
 (`../akshatos/sidestore-evaluation.md`); Sideloadly remains the refresher until it passes.
 
@@ -318,8 +320,9 @@ evidence below.
 - Run/walk Budget/ACSM estimates and separate net HR analysis share active windows and recorded profile inputs.
   The equations remain conservative budgeting estimates, not guaranteed physiological minima.
   Unknown movement/HR stays absent or labelled partial; no lifting calories enter maintenance.
-- All macro rows remain visible. Nullable omitted values display zero logged; no nutrition is
-  inferred. Decimal profile inputs preserve precision and refresh dated calculation dependencies.
+- All macro rows remain visible; no nutrition is inferred. Compact macro lines (build-86 source)
+  always print `P · C · F · Fb` once any macro was logged, a missing one as `–`, and the Food day
+  card's four totals read `–` when none was logged; build 85 shows omitted totals as zero. Decimal profile inputs preserve precision and refresh dated calculation dependencies.
 - Nap edits update lists, Sleep periods and the timeline from one durable ledger before the
   independent retained-history coaching rebuild finishes. Empty days retain Naps; manual reports
   and detector proposals remain distinct. Build-75 source shares Today · 7 days · 30 days ·

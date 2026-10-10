@@ -120,7 +120,12 @@ These are still stored but no longer entered in the personal build:
 ## Where each core metric appears now
 
 Four tabs on installed build 85: **Today · Trends · Food · Train**. Build-86 source adds a fifth,
-**Progress** (Body inside it), and a compact Body row on Today.
+**Progress** (Body inside it), and a compact Body row on Today. It also restructures Today
+(recovery, sleep and strain side by side in one card with HRV and resting HR under them, then a
+taller heart-rate canvas, steps/food, Body and maintenance), Food (one day card with calories and
+all four macros plus a fixed Add, then meals, then maintenance) and Train (Resume while live,
+history before charts, one options menu per row). The table below describes build 85; no metric
+moves off its screen in 86.
 
 | Metric | Today | Trends row | Detail screen |
 |---|---|---|---|

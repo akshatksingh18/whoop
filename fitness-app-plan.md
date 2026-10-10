@@ -4,8 +4,9 @@
 Body (`lib/data/body_log.dart`), photos (camera bridge, `photo_encode.dart`), the Progress tab
 (`progress_screen.dart`, `progress_review.dart`), imports and format-2 media backups. The review
 offers gather evidence / continue / review together; a numeric intake adjustment is not built
-until Akshat approves its rule. Measurement-week average blocks and HR-timeline set markers are
-not built. Akshat accepted the integrated workout, Body and one Progress page, selecting repeat
+until Akshat approves its rule. Weekly weight blocks start on the measurement weekday (Progress
+and Body history), reviews include Since start, an imported Body height is offered through the
+dated profile, and the lift HR trace marks logged sets. Akshat accepted the integrated workout, Body and one Progress page, selecting repeat
 last set, rest timer, comparable records and photo comparisons, plus workout times and historical
 body/photo entry. Imported/backdated weights are history-only and never change past calorie
 numbers. Publication, AkshatOS removal and entry-ownership cutover still need separate approval.
@@ -418,7 +419,7 @@ order within one approved release; do not assume separate releases or shrink acc
 
 ### Selected Extras And Deferred Ideas
 
-Selected items are accepted feature choices, with implementation deferred. Other items are
+Selected items are accepted feature choices, implemented in build-86 source. Other items are
 explicitly deferred, not removed from existing stored data. Illustrations below are synthetic, not
 Akshat's training or body records. Prefer optional controls that reduce entry work; do not make
 every set require effort, equipment, timing and scheduling fields before it can be logged.

@@ -475,19 +475,17 @@ Build 70 stays accepted recovery until the promotion gates pass.
 Current phone logs show intermittent background-transfer stalls and report CPU-limit exits for
 MetricKit's 8 Oct window. `bugs.md` owns the evidence and attribution limits; installation and
 successful transfers in other periods do not close background acceptance.
-`background-sync-plan.md` proposes a repair for two-to-three-minute daily app visits, including
-optional personal-profile background tasks. It is queued in the build-86 TODO while Akshat adds
-other items; no code, capability, source/build version or artifact has changed. The combined
-scope-review, implementation and capability approval gates are in `todo.md`.
-
-`lift-log-integration-plan.md` and `fitness-app-plan.md` record accepted planned direction for a
-combined Lift workout, Body parity, recomposition Progress and the selected four extras, times,
-historical entry and screenshot-based import. Implementation/import-file generation remain
-explicitly deferred while scope is collected. No navigation, data ownership,
-privacy description, entitlement or backup format is changed. Current encrypted database snapshots
-do not include external progress JPEGs; validated media-inclusive recovery and camera/picker
-description/validator reconciliation are required before the proposed Body cutover. AkshatOS and
-private coaching sources stay intact until separately approved migration and phone acceptance.
+Build `0.9.53`/`86` (`todo.md`, "Build 86"; `build-86-audit.md`): a first source push
+`70adc902538fc313b479ad48f2fa439fd44a3ce5`, published with Akshat's approval, passed Linux CI
+`38065480698` and personal macOS build `38065492927` (it adds the personal `fetch`/`processing`
+modes, BG task identifiers, camera description and native camera bridge). Its IPA was held, not
+downloaded, cached or installed: the structural redesign had been left out, and Akshat chose to
+hold 86 and add it. The replacement source is local commits on `main`, not pushed; its push,
+macOS build, download and validation need Akshat's approval after he reviews the rendered pages.
+Installed build 85 stays in `testing\` and build 70 stays accepted recovery until then. Format-2
+encrypted exports from 86 carry progress photos and are refused by 70 and 85, so take a
+rollback-readable export from 85 before installing 86. AkshatOS and private coaching sources stay
+intact until separately approved migration and phone acceptance.
 
 `build-86-audit.md` expands the requested plan with source-reviewed navigation, current-speed,
 sleep-window, destructive-action, food-label/portion/warning and insight-coverage repairs, plus

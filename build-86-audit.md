@@ -294,6 +294,9 @@ build 70 explicitly; take a database-only export that the rollback build can rea
 
 ## Whole-App Redesign And Convenience Review
 
+**Build-86 source:** Today, Food and Train are restructured as described in `todo.md` section 8;
+rendered pages await Akshat's approval and route/back-gesture checks need the phone.
+
 The requested makeover is structural, not a new accent on the same ring/card layout. Keep
 Today / Trends / Food / Train reachable and add the planned Progress destination. Prototype
 complete flows before code: brief Today review, Food logging/editing, one Lift/Walk session,

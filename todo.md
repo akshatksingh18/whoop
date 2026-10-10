@@ -54,21 +54,34 @@ installed until a build-86 IPA is published (separate authorization) and install
   a Now / Last set review; AkshatOS stays intact; Monday-Sunday closed-week reviews with Body's
   measurement weekday kept for its own blocks; same-day weight conflicts need explicit review.
 
-**Implemented in source (`0.9.53`/`86`, local commits on `main`, not pushed or built):** sections 1–3,
-5, 6 and 9 below, the B86-01..16 repairs, the Progress tab and Today's Body row; checklist items
-carry `[x]` when done in source and a note when partly done. Local validation: full suite 3,480 passed, 400 intentional skips, 0 failed;
-analysis has no errors or warnings; personal-iOS contract tests (9) and `personal_ios.py check` pass.
-The Swift changes (BG tasks, expiration, native log, camera bridge) compile only on the macOS CI.
-Not built: Pushups (exploration), reviewed linking of imported lifts to existing WHOOP workouts,
-HR-timeline set markers, Body measurement-week average blocks, a numeric intake-adjustment rule
-and the wider Today/Food re-layout. Private MyFitnessPal import generated and validated locally
-(`../../health/fitness/data/whoop-body-history-import.json`). Next gates, in order:
-promote build 85 (or keep 70) as rollback and take a rollback-readable export; Akshat's approval
-to push and run the personal macOS build; IPA validation; install; phone acceptance.
+**Implemented in source (`0.9.53`/`86`):** sections 1–6, 8 and 9 below, the B86-01..16 repairs,
+the Progress tab and Today's Body row; checklist items carry `[x]` when done in source and a note
+when partly done. A first build-86 push (`70adc902`, Akshat's approval) passed Linux CI
+`38065480698` and personal macOS build `38065492927`; that IPA was **held, not downloaded or
+installed**, because the structural redesign (section 8) had been left out. Akshat chose to hold
+86 and add it. The redesign and the remaining buildable items are now local commits on `main`
+(not pushed): Today/Food/Train redesign, fibre on every macro line, set marks on the lift HR
+trace, weekly Body blocks, since-start review, Body height offer on import, reviewed lift
+linking, streak edge-case tests, band-data age on Today and the reset fix. Local validation: full
+suite 3,499 passed, 400 intentional skips, 0 failed; analysis has no errors or warnings.
+Rendered Today/Food/Train pages (`test/build86_redesign_render_test.dart`, synthetic data) were
+sent to Akshat for approval. The Swift changes compile only on the macOS CI.
+Not built: Pushups (exploration, needs the Home auto-pause decision), a numeric intake-adjustment
+rule (needs Akshat's rule), the optional conveniences (proposals) and per-input calculation
+invalidation (left unchanged: it is derivation-engine work that the plan gates on measuring
+short-wake compute on the phone first). Private MyFitnessPal import generated and validated
+locally (`../../health/fitness/data/whoop-body-history-import.json`). Next gates, in order:
+Akshat approves the rendered redesign; his approval to push and rebuild 86; IPA validation;
+promote build 85 (or keep 70) as rollback and take a rollback-readable export; install; phone
+acceptance.
 
-Also in build-86 source, at Akshat's request: every search field (Foods, the food log, the
-saved-meal picker, the activity picker and the Lift exercise search) has a × that clears it in
-one tap, shown only while it holds text (`OsTextField.clearable`).
+Also in build-86 source, at Akshat's request:
+- Every search field (Foods, the food log, the saved-meal picker, the activity picker and the Lift
+  exercise search) has a × that clears it in one tap, shown only while it holds text
+  (`OsTextField.clearable`).
+- Fibre is never left off: every compact macro line (meal cards, the meal page, the log-food list,
+  pickers, Food history) prints `P · C · F · Fb` once any macro was logged, and a missing one reads
+  `–` (`macroParts` in `food_picker.dart`). The day card's four totals do the same.
 
 ### 1. Background sync and fresh insights during brief daily use
 
@@ -90,7 +103,7 @@ Implementation checklist:
    the high-rate path; no silent HR-only switch, sparse-step reconstruction or metric deletion. *Source: background UI notifications coalesce; high-rate-path CPU profiling still needs the phone.*
 - [ ] Reuse unaffected calculation, prioritize today/new sleep, and keep raw-data freshness
    separate from the input revision covered by an insight. Short-wake compute must be measured
-   and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first and BLE wakes queue work; per-input invalidation is not changed.*
+   and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first, BLE wakes queue work, and Today shows band-data age apart from the calculation time; per-input invalidation is not changed (measure short-wake compute on the phone first).*
 - [ ] Make cold foreground open/resume automatically coalesce catch-up, durable input publication
    and bounded recent-HR/today refresh. The latest ten minutes of recorded HR must not depend on
    pull-to-refresh or a whole historical derive; preserve gaps and separate Live from Recorded.
@@ -136,9 +149,9 @@ Proposed implementation checklist, conditional on approval:
   No fabricated total load, strength-volume calorie formula or added maintenance expenditure.
 - [x] Coordinate the existing WHOOP quiet-HR nudge with Lift Log's one-hour no-entry reminder;
   resolve explicit Now versus Last set finish semantics before adding a background action.
-- [ ] Add validated/previewed local AkshatOS JSON import, origin-ID dedupe, reviewed linking to
+- [x] Add validated/previewed local AkshatOS JSON import, origin-ID dedupe, reviewed linking to
   existing WHOOP workouts and load-mode-preserving JSON/CSV plus encrypted WHOOP recovery.
-  Imported set-only history must not fabricate or double-count wearable metrics/calories. *Source: validated/previewed/idempotent import, AkshatOS-readable JSON and CSV export, DB recovery; reviewed linking to an existing WHOOP workout is not built.*
+  Imported set-only history must not fabricate or double-count wearable metrics/calories. *Source: linking proposes the overlapping finished WHOOP lift session (one import per session, never one with sets) and asks; linked sets sit on the session, its strain/calories unchanged.*
 - [ ] Cover feature parity, migration, delete-last-set, failures, relaunch/lock and notification
   races; verify an actual gym session without regressing the background-sync acceptance gates. *Source: domain, store, import and live-panel tests; the gym session and lock/relaunch checks need the phone.*
 
@@ -161,8 +174,8 @@ One `body_weight` path feeds Body, Food and Progress. One
 Lift workout owns both sensor context and sets; no duplicate starts, calories or stores.
 
 Proposed implementation checklist, conditional on approval:
-- [ ] Preserve Body's daily weight, seven-calendar-day trends, measurement-week blocks, eight
-  tape sites, edit/history, labelled estimates, front/side photos, reminder and exports. *Source: weight, 7-day mean, eight sites, edit/history, estimates, photos, reminder, CSV; measurement-week average blocks are not shown separately.*
+- [x] Preserve Body's daily weight, seven-calendar-day trends, measurement-week blocks, eight
+  tape sites, edit/history, labelled estimates, front/side photos, reminder and exports. *Source: weekly blocks start on the measurement weekday with their change, on Progress and by month in Body history.*
 - [x] Add/edit weight, tape and photos at a chosen past date; distinguish effective day from
   creation/import time, support multiple photos/day and keep photo deletion separate from weight.
 - [x] Add measurement selector (Steps, Weight, Neck, Waist, Hips and remaining Body sites) and
@@ -171,19 +184,19 @@ Proposed implementation checklist, conditional on approval:
 - [x] Provide two independent photo panels: select the active side and scrub a bottom dated
   thumbnail strip to choose its image without changing the other. Allow any two saved photos,
   optional same-pose filtering, date labels and swap; not only first/latest or an overlay slider.
-- [ ] Unify weight/height entry with WHOOP's dated profile rules; retain input units, original
+- [x] Unify weight/height entry with WHOOP's dated profile rules; retain input units, original
   timestamps and IDs. Preview same-day/height conflicts; historical import must not become a
-  current weigh-in or reprice captured workouts. Keep unknown/missing site data honest. *Source: one body_weight path, entered unit/value kept, history-only past/imported rows, profile height; an imported Body height is not applied.*
-- [ ] Show logged-set markers on the same workout's HR timeline, retaining gaps/clock uncertainty
-  and late backfill. Set completion time is not measured set duration or per-exercise calories. *Not built.*
+  current weigh-in or reprice captured workouts. Keep unknown/missing site data honest. *Source: an imported Body height that differs is offered (Use it / Keep mine) and saved through the dated profile, from today only.*
+- [x] Show logged-set markers on the same workout's HR timeline, retaining gaps/clock uncertainty
+  and late backfill. Set completion time is not measured set duration or per-exercise calories. *Source: a tick per logged minute on the summary HR trace (sets outside the trace are dropped), with a note that ticks are log times.*
 - [x] Build one range/baseline Progress page: weight and waist, exercise-level comparable records, eligible
   food/protein, recorded activity and sleep/recovery, plus weekly and since-start observations.
   Show real dates/counts/coverage, partial-week labels and late revisions; no invented muscle
   gain, cross-mode tonnage, opaque score, automatic food targets or added lift maintenance.
-- [ ] Include explicit seven-calendar-day weight averages with observed-day counts, daily intake
+- [x] Include explicit seven-calendar-day weight averages with observed-day counts, daily intake
   history, closed-week/calendar-month/since-start reviews, prior comparable periods and actual
   measurement dates. Align intake/estimated deficit with observed trends; compare waist/other
-  tape sites and same-context strength without claiming proven muscle/fat change or causation. *Source: 7-day means with counts, closed-week and calendar-month reviews; since-start uses the range menu.*
+  tape sites and same-context strength without claiming proven muscle/fat change or causation. *Source: 7-day means with counts; Last week, Last month and Since start (first week against the last closed week) reviews.*
 - [x] Add local evidence-based goal reviews (continue, insufficient data, review fueling/training/
   recovery, consider adjustment) with source windows/coverage and explicit user approval of any
   target edit. Keep calorie, protein and paired-maintenance denominators independent; unknown
@@ -244,9 +257,9 @@ Private coaching ownership and existing calorie calculations remain unchanged.
 - [x] Separate calorie goal progress from maintenance status across card/history/detail/reviews:
   above goal but at/below known Budget maintenance stays non-warning/green; red only above
   estimated maintenance. Preserve ACSM and mark absent/stale/partial estimates neutrally.
-- [ ] Audit reset/export/restore outcomes, including failure to delete backup files. New Body
+- [x] Audit reset/export/restore outcomes, including failure to delete backup files. New Body
   media, Pushups receipts, protection ledger and timers need complete recovery/reset coverage;
-  never claim every copy/file was erased or restored when an operation failed. *Source: reset reports leftover backup and photo files with a retry; exported encrypted backups carry photos (format 2).*
+  never claim every copy/file was erased or restored when an operation failed. *Source: reset reports leftover backup and photo files with a retry, cancels every notification (lift, rest, Body), clears all prefs and tables and the in-memory set-log owner; the protection ledger, splits and Body weekday live in the database, so backups carry them; an active rest timer and reminders are deliberately not restored. Pushups receipts do not exist yet.*
 
 ### 6. General activity streak and sustainable rest
 
@@ -259,9 +272,9 @@ Private coaching ownership and existing calorie calculations remain unchanged.
 - [ ] Review exact allowance, retroactive use, qualification thresholds and Pushups contribution
   before implementing. Candidate: one unplanned protected day per rolling week, no consecutive
   protections; this is a proposal, not an accepted rule. Offer weekly consistency as a candidate. *Implemented the proposed rule (at most 2 protected days per rolling 7, at most 1 Life happens, none consecutive); Akshat can change it.*
-- [ ] Avoid all-history/per-day query growth when adding sources; test overlap, edits/deletes,
+- [x] Avoid all-history/per-day query growth when adding sources; test overlap, edits/deletes,
   imports, timezone/DST, today-at-risk, exhausted protection and restored history. Pending sync
-  is not proof of inactivity; reconcile late activity/protection without duplicate awards.
+  is not proof of inactivity; reconcile late activity/protection without duplicate awards. *Source: one indexed sessions query per load; tests cover overlap, delete, late activity on a protected day, step-goal plus protection, month end/clock change, today open and the allowance.*
 
 ### 7. Pushup Reminder exploration inside WHOOP
 
@@ -284,18 +297,18 @@ Private coaching ownership and existing calorie calculations remain unchanged.
 
 ### 8. Structural UI redesign and whole-app convenience audit
 
-**Requested redesign and audit, implementation deferred.** The audit describes proposed flows,
-confirmed defects, failure risks and optional conveniences rather than calling build 85 fixed.
-- [ ] Prototype brief Today review, diary/editing, Start/Resume Lift/Walk, Body historical/photo
+**Implemented in build-86 source; rendered pages await Akshat's approval.** No metric or entry
+point was removed.
+- [x] Prototype brief Today review, diary/editing, Start/Resume Lift/Walk, Body historical/photo
   flow and one combined Progress review. Change hierarchy/composition and interaction, not only
   card colour/ring styling; retain every unique reachable metric and existing entry point unless
-  Akshat approves its removal individually. *Source: Progress tab, Today Body row, stable workout controls and summary deletes; a full Today/Food re-layout is not done.*
-- [ ] Use compact date/freshness/status and a useful HR canvas on Today, stable session controls
+  Akshat approves its removal individually. *Source: rendered at phone width, 1x and 2x text, by `test/build86_redesign_render_test.dart`.*
+- [x] Use compact date/freshness/status and a useful HR canvas on Today, stable session controls
   and safe history on Train, diary-first Food with portions/maintenance context, and body/strength
-  summary with integrated weekly/monthly review on Progress. No separate app-in-app shell. *Partly (see above).*
+  summary with integrated weekly/monthly review on Progress. No separate app-in-app shell. *Source: Today has a compact header with band-data age or Syncing/Calculating, recovery/sleep/strain in one card (stacked at large text), HRV and resting HR, a 112 pt HR canvas with hour marks, then steps/food, Body and maintenance. Food opens on one day card (calories, all four macros, fixed Add to <meal by time of day>), then the meals, then maintenance. Train shows Resume instead of Start while a session runs, history before the charts and one fixed options menu (Fix the times / Delete) per row.*
 - [ ] Audit all routes/back gestures/day arrows, stable controls, hit targets, large text/small
   screens, safe areas, tab changes, selected day/filter/scroll state, permission/error/retry and
-  loading/empty/stale/partial/offline states; compare screenshot/hit-target QA before release. *Partly: new screens pass 360 px / 2x render tests; full route/back-gesture QA open.*
+  loading/empty/stale/partial/offline states; compare screenshot/hit-target QA before release. *Partly: Today/Food/Train render without overflow at 1x and 2x, the 44 pt tap sweep passes on the gallery, large-text wrapping fixed in the maintenance and HR headers; back gestures and saved scroll/filter state need the phone.*
 - [x] Repair weekly protein completeness/denominators and selected-window excluded-day counts
   (B86-11) before reusing the existing Week card for the combined insight engine.
 - [ ] Review optional conveniences: Jump to Today/calendar, pending-work drawer using existing

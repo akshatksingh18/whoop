@@ -6,7 +6,9 @@ expiration (isolates killed, no day marked skipped, job requeued); BLE wakes que
 instead of deriving; launch kind is settled before the scheduler arms and native `ready` waits for
 the band owner; personal `fetch`/`processing` tasks run bounded calculation with single
 completion; native breadcrumbs go to `openstrap_native.log`; background UI notifications
-coalesce; open shows recorded HR past the last calculation. Still open: per-input invalidation,
+coalesce; open shows recorded HR past the last calculation, and Today shows band-data age apart
+from the calculation time. Still open: per-input invalidation (gated on measuring short-wake
+compute on the phone),
 high-rate-path CPU profiling, and every device gate below. Build
 `0.9.52`/`85` remains installed. Akshat reports an iPhone 17 on iOS `26.6.2`, normally
 opening WHOOP for only two or three minutes a day to read insights. He is unsure whether

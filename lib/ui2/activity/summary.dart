@@ -40,10 +40,17 @@ import '../paint_activity.dart';
 import '../profile/profile.dart';
 import '../screens/home_screen.dart' show profileOf, repoOf, unitsOf;
 import '../../compute/profile.dart'
-    show Profile, stepCalories, runFloorKcal, acsmActiveKcal, conservativeMet, isLiftType;
+    show
+        Profile,
+        stepCalories,
+        runFloorKcal,
+        acsmActiveKcal,
+        conservativeMet,
+        isLiftType;
 import '../screens/log_workout.dart' show bumpInsights;
 import '../theme.dart';
 import 'catalogue.dart';
+import '../../data/lift_log.dart' show LiftLogDb, setMarkMinutes;
 import 'lift_log_ui.dart' show LiftSummaryCard;
 import 'picker.dart';
 import 'run_detail.dart';
@@ -895,7 +902,44 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadEarlier());
     _loadEnd();
+    _loadSetMarks();
   }
+
+  /// Minutes of the heart-rate trace in which a set was logged (build 86).
+  List<int> _setMarks = const [];
+
+  Future<void> _loadSetMarks() async {
+    final id = r.sessionId;
+    if (id == null || !isLiftType(a.typeKey)) return;
+    try {
+      final w = await LiftLogDb.forSession(id);
+      if (w == null || !mounted) return;
+      final marks = setMarkMinutes(r.start, [
+        for (final e in w.exercises)
+          for (final s in e.sets) s.completedAt,
+      ], r.hr.length);
+      if (marks.isNotEmpty) setState(() => _setMarks = marks);
+    } catch (_) {
+      // No marks is the honest fallback; the trace still draws.
+    }
+  }
+
+  /// The heart-rate painter with a tick under each minute a set was logged.
+  CustomPainter _hrPainter(P p, AxisSpec? axis, {int? cursor}) {
+    final line = LineChart(
+      r.hr,
+      p.on(C.red),
+      cursor: cursor,
+      axis: axis,
+      t: animate(context, 1),
+    );
+    if (_setMarks.isEmpty) return line;
+    return _SetMarks(line, _setMarks, r.hr.length, p.on(C.purple));
+  }
+
+  String? get _setMarkNote => _setMarks.isEmpty
+      ? null
+      : 'Ticks mark when each set was logged, not how long it took.';
 
   Future<void> _loadEnd() async {
     final id = r.sessionId;
@@ -904,7 +948,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       final row = await LocalDb.session(id);
       final te = (row?['end_ts'] as num?)?.toInt();
       if (row?['status'] == 'live' || te == null || !mounted) return;
-      setState(() => _savedEnd = DateTime.fromMillisecondsSinceEpoch(te * 1000));
+      setState(
+        () => _savedEnd = DateTime.fromMillisecondsSinceEpoch(te * 1000),
+      );
     } catch (_) {}
   }
 
@@ -919,7 +965,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // `_shortDate` already carries the start time.
     final started = _shortDate(r.start).toUpperCase();
     if (end == null) return started;
-    final sameDay = end.year == r.start.year &&
+    final sameDay =
+        end.year == r.start.year &&
         end.month == r.start.month &&
         end.day == r.start.day;
     return sameDay
@@ -2132,6 +2179,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             '${hard.round()} min above 80% of your maximum.',
       ?_traceNote,
       ?extra,
+      ?_setMarkNote,
     ];
     return ChartFrame(
       title: l?.activitySummaryHeartRateTitle ?? 'HEART RATE',
@@ -2158,13 +2206,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         label: 'Heart rate through the session',
         child: CustomPaint(
           size: Size.infinite,
-          painter: LineChart(
-            r.hr,
-            p.on(C.red),
-            cursor: _hrPick,
-            axis: axis,
-            t: animate(context, 1),
-          ),
+          painter: _hrPainter(p, axis, cursor: _hrPick),
         ),
       ),
     );
@@ -2807,16 +2849,20 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   xLabels: ['Start', hms(r.duration)],
                   // The gap belongs to the heart-rate trace, not to the altitude
                   // the phone recorded alongside it.
-                  footnote: g.$1 == 'Heart rate' ? _traceNote : null,
+                  footnote: g.$1 == 'Heart rate'
+                      ? [?_traceNote, ?_setMarkNote].join(' ')
+                      : null,
                   series: g.$4,
                   child: CustomPaint(
                     size: Size.infinite,
-                    painter: LineChart(
-                      g.$4,
-                      p.on(g.$3),
-                      axis: axis,
-                      t: animate(context, 1),
-                    ),
+                    painter: g.$1 == 'Heart rate'
+                        ? _hrPainter(p, axis)
+                        : LineChart(
+                            g.$4,
+                            p.on(g.$3),
+                            axis: axis,
+                            t: animate(context, 1),
+                          ),
                   ),
                 );
               },
@@ -2825,4 +2871,32 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ),
     ];
   }
+}
+
+/// A chart with short ticks along its foot at the given slots: where a set
+/// was logged on a lift's heart-rate trace.
+class _SetMarks extends CustomPainter {
+  _SetMarks(this.chart, this.slots, this.length, this.color);
+  final CustomPainter chart;
+  final List<int> slots;
+  final int length;
+  final Color color;
+
+  @override
+  void paint(Canvas cv, Size s) {
+    chart.paint(cv, s);
+    if (length < 2) return;
+    final ink = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    for (final m in slots) {
+      final x = s.width * m / (length - 1);
+      cv.drawLine(Offset(x, s.height - 6), Offset(x, s.height), ink);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SetMarks old) =>
+      old.slots != slots || chart.shouldRepaint(old.chart);
 }

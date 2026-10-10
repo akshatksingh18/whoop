@@ -74,7 +74,11 @@ class ProgressData {
     required this.sessions,
     required this.baseline,
     required this.heightCm,
+    this.measureWeekday = DateTime.saturday,
   });
+
+  /// Body's measurement weekday: weekly weight blocks start on it.
+  final int measureWeekday;
 
   final List<BodyWeightRow> weights;
   final List<BodyMeasure> measures;
@@ -163,6 +167,7 @@ class ProgressData {
       ],
       baseline: await CalculationStore.read(baselineKey),
       heightCm: (user['height_cm'] as num?)?.toDouble(),
+      measureWeekday: await BodyLogDb.measureWeekday(),
     );
   }
 }
@@ -492,6 +497,9 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                       style: F.cap.copyWith(color: p.ink3),
                     ),
                   ),
+              if (m is WeightMetric)
+                if (_blockLine(d, today) case final line?)
+                  Text(line, style: F.cap.copyWith(color: p.ink3)),
               if (m is SiteMetric && m.site == BodySite.waistNavel)
                 ..._estimates(p, d),
             ],
@@ -501,6 +509,22 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       const SizedBox(height: S.x3),
       ..._entries(c, p, d, m, from, today),
     ];
+  }
+
+  /// "This week (from Oct 4) 80.2 kg from 3 readings · −0.4 vs last week",
+  /// for the block holding [today]; null when it has no reading.
+  String? _blockLine(ProgressData d, String today) {
+    final blocks = BodyLogDb.weekBlocks(d.weights, d.measureWeekday);
+    final now = BodyLogDb.blockStart(today, d.measureWeekday);
+    final b = blocks.where((x) => x.from == now).firstOrNull;
+    if (b == null) return null;
+    double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
+    return [
+      'This week (from ${_md(b.from)}) ${_num(u(b.kg))} $_unit from '
+          '${b.count} ${b.count == 1 ? 'reading' : 'readings'}',
+      if (b.change case final ch?)
+        '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))} vs the previous week',
+    ].join(' · ');
   }
 
   List<Widget> _estimates(P p, ProgressData d) {
@@ -758,6 +782,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
 
     final (lastWeek, weekBefore) = closedWeeks(today);
     final (lastMonth, monthBefore) = closedMonths(today);
+    final start = d.baseline ?? d.earliest;
+    final since = start == null ? null : sinceStartWindows(start, today);
     return [
       Section(
         'Review',
@@ -765,6 +791,9 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
           children: [
             card('Last week', weekBefore, lastWeek),
             card('Last month', monthBefore, lastMonth),
+            // Your first week against the last closed one.
+            if (since case (final first, final last))
+              card('Since start', first, last),
             Text(
               'Observations from what was recorded, not a diagnosis. Change your goals yourself; '
               'this never changes them.',
@@ -1043,7 +1072,9 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
     final t = beginRead(#todayBody);
     try {
       final ws = await BodyLogDb.weights();
-      final u = (await SharedPreferences.getInstance()).getString('body.unit') ?? 'kg';
+      final u =
+          (await SharedPreferences.getInstance()).getString('body.unit') ??
+          'kg';
       final today = todayLabel();
       if (!stillNewest(#todayBody, t)) return;
       setState(() {
@@ -1061,33 +1092,46 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
     return Surface(
       onTap: () => c.read<AppState>().navRequest.value = 5,
       semanticLabel: 'Body. Opens Progress',
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Body', style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-            Text(
-              m == null
-                  ? 'No weigh-ins this week'
-                  : '7-day ${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit · '
-                        '${m.count} ${m.count == 1 ? 'reading' : 'readings'}',
-              style: F.cap.copyWith(color: p.ink3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Body',
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  m == null
+                      ? 'No weigh-ins this week'
+                      : '7-day ${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit · '
+                            '${m.count} ${m.count == 1 ? 'reading' : 'readings'}',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ],
             ),
-          ]),
-        ),
-        if (!_today)
-          Pressable(
-            semanticLabel: 'Log weigh-in',
-            onTap: () async {
-              final changed = await Navigator.of(c).push<bool>(
-                MaterialPageRoute(builder: (_) => BodyEntryScreen(unit: _unit)),
-              );
-              if (changed == true) reload();
-            },
-            child: Pill('Weigh in', C.teal, icon: LucideIcons.plus),
           ),
-        const SizedBox(width: S.x2),
-        Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
-      ]),
+          if (!_today)
+            Pressable(
+              semanticLabel: 'Log weigh-in',
+              onTap: () async {
+                final changed = await Navigator.of(c).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => BodyEntryScreen(unit: _unit),
+                  ),
+                );
+                if (changed == true) reload();
+              },
+              child: Pill('Weigh in', C.teal, icon: LucideIcons.plus),
+            ),
+          const SizedBox(width: S.x2),
+          Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+        ],
+      ),
     );
   }
 }
@@ -1677,6 +1721,8 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
     }.toList()..sort((a, b) => b.compareTo(a));
     String? month;
     final rows = <Widget>[];
+    final blocks = BodyLogDb.weekBlocks(d.weights, d.measureWeekday);
+    double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
     for (final day in days) {
       final mo = day.substring(0, 7);
       if (mo != month) {
@@ -1690,6 +1736,48 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
             ),
           ),
         );
+        // Weekly weight blocks, by the month they start in (Body parity).
+        final inMonth = [
+          for (final b in blocks)
+            if (b.from.startsWith(mo)) b,
+        ];
+        if (inMonth.isNotEmpty) {
+          rows.add(
+            Surface(
+              pad: const EdgeInsets.all(S.x3),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Weekly averages', style: F.cap.copyWith(color: p.ink2)),
+                  for (final b in inMonth)
+                    Padding(
+                      padding: const EdgeInsets.only(top: S.x1),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${_md(b.from)} – ${_md(b.to)} · '
+                              '${b.count} ${b.count == 1 ? 'reading' : 'readings'}',
+                              style: F.cap.copyWith(color: p.ink3),
+                            ),
+                          ),
+                          Text(
+                            [
+                              '${_num(u(b.kg))} $_unit',
+                              if (b.change case final ch?)
+                                '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))}',
+                            ].join('  '),
+                            style: F.cap.copyWith(color: p.ink),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+          rows.add(const SizedBox(height: S.x2));
+        }
       }
       final w = d.weights.where((x) => x.date == day).firstOrNull;
       final ms = d.measures.where((x) => x.date == day).toList();

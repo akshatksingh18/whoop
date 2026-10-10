@@ -297,6 +297,26 @@ class LiftSplit {
   ];
 }
 
+/// Which minute of a session's per-minute heart-rate trace each logged set
+/// falls in, for marks on that trace. Minute 0 is the session's first
+/// minute. A set logged outside the trace (clock drift, a late edit) is left
+/// out rather than pinned to an edge. The mark is when the set was LOGGED;
+/// it is not a measured set duration, and nothing is priced from it.
+List<int> setMarkMinutes(
+  DateTime start,
+  Iterable<DateTime> completed,
+  int minutes,
+) {
+  final out = <int>{};
+  for (final t in completed) {
+    final secs = t.difference(start).inSeconds;
+    if (secs < 0) continue;
+    final m = secs ~/ 60;
+    if (m < minutes) out.add(m);
+  }
+  return out.toList()..sort();
+}
+
 class LiftSet {
   LiftSet({
     String? id,

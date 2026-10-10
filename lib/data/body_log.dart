@@ -294,6 +294,45 @@ class BodyLogDb {
     return (kg: vs.reduce((a, b) => a + b) / vs.length, count: vs.length);
   }
 
+  /// The first day of the weekly block holding [date]: blocks start on the
+  /// measurement [weekday] (DateTime.monday…sunday), so a week's average and
+  /// its tape session line up, as in AkshatOS Body.
+  static String blockStart(String date, int weekday) {
+    final d = DateTime.parse(date);
+    final back = (d.weekday - weekday) % 7;
+    return dayLabelOf(DateTime(d.year, d.month, d.day - back));
+  }
+
+  /// Weekly weight blocks, newest first: each block's mean over the readings
+  /// actually in it (never forward-filled), how many there were, and the
+  /// change from the previous block that had readings. A block with no
+  /// reading is absent, not zero.
+  static List<({String from, String to, double kg, int count, double? change})>
+  weekBlocks(List<BodyWeightRow> all, int weekday) {
+    final byBlock = <String, List<double>>{};
+    for (final w in all) {
+      (byBlock[blockStart(w.date, weekday)] ??= []).add(w.kg);
+    }
+    final starts = byBlock.keys.toList()..sort();
+    final out =
+        <({String from, String to, double kg, int count, double? change})>[];
+    double? prev;
+    for (final s in starts) {
+      final vs = byBlock[s]!;
+      final mean = vs.reduce((a, b) => a + b) / vs.length;
+      final d = DateTime.parse(s);
+      out.add((
+        from: s,
+        to: dayLabelOf(DateTime(d.year, d.month, d.day + 6)),
+        kg: mean,
+        count: vs.length,
+        change: prev == null ? null : mean - prev,
+      ));
+      prev = mean;
+    }
+    return out.reversed.toList();
+  }
+
   // ── tape ──
 
   static BodyMeasure _m(Map<String, Object?> r) {
@@ -759,7 +798,8 @@ Future<int> applyBodyImport(
     await BodyLogDb.setMeasureWeekday(plan.measureWeekday!);
   }
   final base = plan.baselineDate;
-  if (base != null && await CalculationStore.read(progressBaselineKey) == null) {
+  if (base != null &&
+      await CalculationStore.read(progressBaselineKey) == null) {
     await CalculationStore.write(progressBaselineKey, base);
   }
   return n;

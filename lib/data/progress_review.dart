@@ -147,6 +147,22 @@ typedef DayWindow = ({String from, String to, int days, bool partial});
   return (week(1), week(2));
 }
 
+/// The first week from [start] and the last closed week, for the
+/// since-start review. Null until the two no longer overlap, so a short
+/// history never compares a week with itself.
+(DayWindow, DayWindow)? sinceStartWindows(String start, String today) {
+  final (last, _) = closedWeeks(today);
+  final s = DateTime.parse(start);
+  final first = (
+    from: start,
+    to: dayLabelOf(DateTime(s.year, s.month, s.day + 6)),
+    days: 7,
+    partial: false,
+  );
+  if (first.to.compareTo(last.from) >= 0) return null;
+  return (first, last);
+}
+
 /// The current week so far (partial) and the matching elapsed days of the
 /// week before, for a like-for-like partial comparison.
 (DayWindow, DayWindow) currentWeekSoFar(String today) {

@@ -29,7 +29,7 @@ comparability/coverage and weekly/monthly/since-start diet/body/strength reviews
 parity contract, MET-only calories or approval gates, and does not automatically restore old
 strength-volume charts or RPE/programming features. Akshat selected repeat last set, an optional
 rest timer and context-qualified records, plus persisted live Started and summary start/end times;
-those additions are implemented in WHOOP Build 86 and retained in local Build 87, not changes to AkshatOS.
+those additions are implemented in WHOOP Build 86 and retained in Build 87, not changes to AkshatOS.
 
 ## Current Source Boundaries
 

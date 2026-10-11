@@ -1,12 +1,13 @@
 # Build 87 UI Audit And Implementation
 
-**Status:** Implemented as `0.9.54`/`87`; local regression/layout checks pass, including the approved shortcuts, protein summaries and latest sync repairs. Build `0.9.53`/`86` is installed, but Akshat
-rejects its visual/structural design. Build 87 includes the structural UI replacements and queued
-sync repairs. Akshat approved publication to `akshatksingh18/whoop`, its CI/macOS build and placement of the validated IPA in testing; phone-sized design review and physical
-background acceptance remain separate gates.
+**Status:** Published and built as `0.9.54`/`87`, source `b0eee377`, with Akshat's approval.
+Local checks, Linux CI `38156660026` and personal macOS build `38156663594` pass. The downloaded
+IPA passes source/version, checksum, ZIP and personal payload checks and is the single candidate
+in `../final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377`. Build 86 remains installed with
+its rejected UI. Structural design and physical background acceptance remain separate gates.
 `todo.md` owns release scope and gates; this file owns the implemented UX and verification.
 Akshat approved source implementation and requested a pretty, peaceful warm palette. Existing
-Build 86 remains installed; no Build 87 IPA is claimed.
+Build 86 remains installed; Build 87 is a validated testing IPA, not an installed or accepted replacement.
 
 ## Evidence And Boundary
 
@@ -318,7 +319,10 @@ paired calorie methods remain paired where currently shown.
 - Preserve current notification and return/back entry points. An old shortcut can remain compact
   even when its data has a better primary home. Removal still requires Akshat's approval per item.
 
-## Acceptance Before Another IPA
+## Design And Phone Acceptance
+
+Artifact production was explicitly approved before phone design acceptance. The validated IPA
+is a testing candidate, not a design approval or permission to promote recovery/refresh ownership.
 
 ### Design Review Gate
 
@@ -373,7 +377,7 @@ Review algorithm-version requirements if a later implementation changes computed
 ## Approved Convenience Improvements
 
 Akshat requested further convenience proposals with approval before changes. These three are
-approved additions to Build 87. Source implementation and local checks are complete; publication/artifact work is approved, and phone acceptance remains open:
+approved additions to Build 87. Implementation, publication and local/cloud/artifact checks are complete; phone acceptance remains open:
 
 - **Recent HR on Today:** 10-minute / 1-hour / Day selection using recorded timestamps and
   existing chart data. Preserve the full-day view, real gaps and Live/Recorded freshness;
@@ -431,7 +435,9 @@ shortcuts are not new feature proposals. Akshat approved all three; `todo.md` re
   extended suite compiled its fixture; the full standard run also includes that repair.
   Static analysis has no errors/warnings and 133 informational lints. Personal-iOS contracts
   (9), profile check, package-pin guard and `git diff --check` pass locally. These are Windows
-  checks, not native iOS compilation; macOS/IPA verification is the next approved gate.
+  checks. Separately, Linux CI passes 3,616 tests (399 intentional skips), and the personal macOS
+  compilation, downloaded source/version/checksum, ZIP CRC and payload contract all pass.
+  `setup.md` owns the exact source, workflow and artifact evidence.
 - Optional upstream golden references are not committed in this checkout. The standard suite
   intentionally skips them; generated capture previews are retained under ignored `build/`,
   separate from `test/goldens/`. Captures are visual review material, not approved golden baselines.

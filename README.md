@@ -4,8 +4,8 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the build-86 candidate
-> (0.9.53), now installed.
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 87 candidate
+> (0.9.54), not yet installed. Build 86 (0.9.53) remains on the phone.
 > `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes
@@ -68,14 +68,17 @@
 > bounded background work, integrated Lift/Body/Progress/Pushups and the structural redesign.
 > Akshat rejects that installed UI's cosmetic-only composition and noisy Progress copy.
 > [`build-87-ui-plan.md`](build-87-ui-plan.md) documents the source/screenshot audit and a
-> feature-preserving structural replacement, implemented locally as `0.9.54`/`87` on Akshat's
+> feature-preserving structural replacement, published and built as `0.9.54`/`87` on Akshat's
 > go-ahead. Warm graphite with richer emerald/turquoise/coral accents, flat navigation, numeric Today,
 > a real Food ledger and chart-first Progress replace the old ring/card composition. Pure-input
 > reuse and wear-aware silence recovery preserve analytics output and BLE durability. Local
 > full regression/layout/profile checks pass, including the approved recent-HR view, direct portion
 > editing, workout filters, protein summaries and latest freshness/connect repairs.
 > Akshat approved publication to this repo, CI/macOS build and the validated testing IPA.
-> No Build 87 IPA exists yet; artifact work and physical/design acceptance remain open.
+> Source `b0eee377` passes Linux CI `38156660026` and personal macOS build `38156663594`.
+> The downloaded IPA passes source/version/checksum/ZIP/payload checks and is the sole candidate
+> in `final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377`. Build 86 remains installed;
+> Build 87 installation and physical/design acceptance remain open.
 > Sideloadly corroborates current-version enrollment with no error; feature/background phone
 > acceptance remains pending. SideStore laptop setup is reported, not verified app handover.
 > `todo.md` owns device gates.

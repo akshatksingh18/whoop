@@ -15,7 +15,7 @@ and `paint_activity.dart` (painters), `app_shell.dart` (Today, Trends, Food, Tra
 
 **Current UX state:** installed Build 86 uses the existing warm/rounded surface grammar but failed
 Akshat's structural design acceptance. [`build-87-ui-plan.md`](../../build-87-ui-plan.md) owns the
-implemented local Build 87 replacement and its real-phone preview gates. Build 87 uses warm
+published/built Build 87 replacement and its real-phone preview gates. Build 87 uses warm
 graphite, richer emerald/turquoise/coral accents, flat navigation, 8-point framed tools and unframed
 numeric/diary/metric sections. Progress opens on its dated chart, not eligibility paragraphs.
 Today retains Day HR alongside recorded 10-minute/1-hour views; diary rows directly edit portions;

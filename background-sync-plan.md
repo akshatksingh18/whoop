@@ -7,14 +7,14 @@ instead of deriving; launch kind is settled before the scheduler arms and native
 the band owner; personal `fetch`/`processing` tasks run bounded calculation with single
 completion; native breadcrumbs go to `openstrap_native.log`; background UI notifications
 coalesce. Build 86 exposes recent recorded HR through the repository, but Today's chart still
-read only its calculated timeline and Status used a launch-only sample. Local Build 87 connects
+read only its calculated timeline and Status used a launch-only sample. Build 87 connects
 Today to the raw-extended chart plus recorded 10-minute/hour windows and makes Status/Today read
 the advancing durable record frontier, separately from calculation time. Queued calculation is
 labelled separately from a running pass. Today's activity payload and calculation timestamp now
 come from the same committed, served-version result; a later-day cancellation cannot leave that
 result hidden behind stale end-of-pass freshness. A bounded adapter-state probe precedes cold connect;
 burst continuation stops if no new history records arrive, rather than trusting cumulative
-connection totals. Synthetic regressions for these repairs pass locally; physical cold-wake/short-visit checks remain open. Local Build 87 adds exact-input/version-stamped reuse of pure RR/HR
+connection totals. Synthetic regressions pass locally and in CI; physical cold-wake/short-visit checks remain open. Build 87's validated testing IPA includes exact-input/version-stamped reuse of pure RR/HR
 night calculations (process-local, bounded to three days). Profile, baselines, temperature, day
 HR/strain/steps and remaining cross-day preparation still recompute; any RR/timestamp/window/
 stage change invalidates its corresponding cached work. Forced runs clear reuse. Worker
@@ -96,7 +96,7 @@ app; the observed CPU-limit exits and the app's execution paths are the stronger
 
 These findings describe the Build 85 audit baseline, not the current repaired implementation.
 They are not proof that any particular path caused an individual logged gap. Build 86 implements
-bounded ownership/cancellation and personal tasks; local Build 87 adds reuse and wear-aware recovery.
+bounded ownership/cancellation and personal tasks; Build 87 adds reuse and wear-aware recovery.
 
 1. `lib/main.dart` already calls `FlutterBluePlus.setOptions(restoreState: true)` before
    other plugin work. The pinned Darwin plugin implements `willRestoreState`, including

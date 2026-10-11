@@ -18,7 +18,7 @@ chart/action repairs and a structural UI redesign. Pushup Reminder and approved 
 ship in 86, but ownership cutover and phone acceptance remain open; `build-86-audit.md` owns findings.
 Akshat's confirmed goal is **recomposition: leaner while getting stronger**.
 The installed Build 86 UI is rejected for its cosmetic-only composition and noisy Progress copy.
-`build-87-ui-plan.md` owns the source/screenshot audit and implemented local data-first
+`build-87-ui-plan.md` owns the source/screenshot audit and built data-first
 replacement; `todo.md` owns verification, publication and visual acceptance gates. Akshat approved
 Build 87 implementation and warm palette changes. Feature/data contracts below remain unchanged.
 Build 86 is installed with Today / Trends / Food / Train / Progress; AkshatOS retains Lift
@@ -230,7 +230,7 @@ translate them into "X kg muscle gained" or a precise body-composition verdict.
 
 ### Seven-Day Weight, Diet And Whole-Body Reviews
 
-Implemented in Build 86 and retained in local Build 87: one local review
+Implemented in Build 86 and retained in Build 87: one local review
 model joins dated source records without duplicating them. Every observation links to its inputs
 and shows its own coverage; missing data in one family must not hide all the others.
 
@@ -316,7 +316,7 @@ Pushups-goal contribution is not selected by this redesign. One day is counted o
 Keep Pushups' own daily-goal streak distinct from the general activity continuity display.
 Rest or Life happens protection preserves continuity visibly without recording a nonexistent
 workout, steps, calories or Pushups goal. Build 86's exact exercise/protection rules are in
-`lib/compute/streak.dart`; the local Build 87 UI preserves them. A different allowance or
+`lib/compute/streak.dart`; the Build 87 UI preserves them. A different allowance or
 retroactive policy still needs approval; a weekly-consistency view is not forced daily exercise.
 Distinguish pending activity data from a confirmed inactive day; reconcile late backfill against
 that day's protection ledger without fabricated activity, duplicate awards or a false break.
@@ -425,7 +425,7 @@ unified weight entry, import/media recovery, Progress weekly/monthly/since-start
 seven-day weight context, approved goal-review safeguards, general activity protection and
 Pushups. The four selected extras, workout times, backdated body/photo entry, all measurement/
 range controls and private MyFitnessPal import are included. Build 86's visual design was
-rejected; local Build 87 replaces its composition and adds the deferred input reuse/off-wrist
+rejected; Build 87 replaces its composition and adds the deferred input reuse/off-wrist
 repairs. `todo.md` owns verification and pending optional additions. AkshatOS ownership remains
 unchanged until explicit cutover and phone acceptance; no parity reduction is authorized.
 

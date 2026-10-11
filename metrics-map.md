@@ -2,14 +2,15 @@
 
 Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the installed `0.9.53`/`86` feature contracts plus the local `0.9.54`/`87` presentation repairs;
+the installed `0.9.53`/`86` feature contracts plus the built `0.9.54`/`87` presentation repairs;
 complete physical-device acceptance is pending.
 
 **Status:** Build 86 source `651345e7` passes recorded Linux CI, macOS compilation and downloaded
 artifact checks and is installed. Feature phone acceptance remains open; structural UI acceptance
-failed. `build-87-ui-plan.md` owns the implemented local replacement, verification and open visual
-acceptance. Build 87 is not yet published, built into an IPA or installed.
-Build 70 remains accepted recovery, and Build 86 is the installed testing candidate. `build-85-audit.md` owns its earlier approved changes;
+failed. `build-87-ui-plan.md` owns the replacement and open visual acceptance. Build 87 source
+`b0eee377` passes local checks, Linux CI/macOS compilation and downloaded artifact validation;
+its IPA is the single testing candidate, not yet installed or phone-accepted.
+Build 70 remains accepted recovery, and Build 86 remains installed. `build-85-audit.md` owns its earlier approved changes;
 `build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
 are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.

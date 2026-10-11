@@ -4,13 +4,13 @@
 personal-sideload profile and public manual macOS workflow. Build 85 is superseded by installed
 build `0.9.53`/`86`, with no app extension (removed in build 81).
 The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7` (Linux CI `38090036814`, macOS
-build `38090037024`, downloaded checks pass; installed, per Akshat's screenshots). Complete phone acceptance,
-data/pairing continuity and background behavior remain open in `../todo.md`; current-version
-Sideloadly enrollment is corroborated, but a future unattended renewal is not. Installation alone
-does not authorize cache promotion. The installed UI is rejected; `../build-87-ui-plan.md` is a
-local implemented `0.9.54`/`87` replacement, not a new built or signed artifact. Build 87
-publication/build is approved; macOS/IPA validation and structural/physical acceptance remain open.
+`../../final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377` (Linux CI `38156660026`, personal
+macOS build `38156663594`; source/version/checksum/ZIP/payload checks pass). It replaces the
+Build 86 cache, not the phone install. `../build-87-ui-plan.md` owns its structural replacement
+and open design acceptance. Install it over the same signed identity; verify data/pairing,
+foreground/background behavior and current-version refresh enrollment before promotion.
+Build 86's current Sideloadly enrollment is corroborated; no future unattended renewal or
+Build 87 installation is claimed. `../todo.md` owns phone gates.
 
 Build `0.9.37`/`70` remains accepted recovery: its feature phone check and current-version
 automatic-refresh registration at the existing signed identity were confirmed with no error.

@@ -6,14 +6,17 @@ source/version/checksum/ZIP/payload checks. The personal IPA has no app extensio
 Current-version Sideloadly enrollment is corroborated with no error; complete phone acceptance
 and overwrite/data continuity remain open. SideStore setup is reported on the laptop, but app
 handover and on-phone renewal are unconfirmed; `../todo.md` owns the checks. Build `0.9.54`/`87`
-is implemented locally, not published or packaged. No signing, refresh ownership or installed
-app identity changed. Wait for publication/IPA checks and phone design approval before promotion.
+source `b0eee377` is published with passing Linux CI `38156660026`, personal macOS build
+`38156663594` and downloaded source/version/checksum/ZIP/payload checks. Its unsigned IPA is
+ready in testing, not installed. No signing, refresh ownership or installed app identity changed;
+phone design/feature/background acceptance and current-version enrollment are promotion gates.
 
 Build `0.9.37`/`70` remains the accepted recovery build: its phone check and completed
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.53-build86-651345e7` holds the installed build-86 candidate. Its original
+`testing\WHOOP-0.9.54-build87-b0eee377` holds Build 87. Build 86's former folder was replaced;
+its original
 artifact is from run `38090037024`, subject to retention, and is rebuildable from its commit;
 `../setup.md` owns current and superseded source/hash/workflow records. `../build-85-audit.md`
 owns its approved changes, and the earlier audits retain their findings and repair contracts.

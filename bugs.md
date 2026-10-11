@@ -166,7 +166,7 @@ backup-deletion error handling. Sleep-window/freshness paths are confirmed risks
 the exact recorded gap. They were not fixed by build 85's earlier UI/refresh work; Build 86's
 implementation/CI evidence and remaining device checks are in `todo.md`.
 
-**Build 86 UI/presentation findings, repaired in local Build 87 source:** `build-87-ui-plan.md` owns
+**Build 86 UI/presentation findings, repaired in the Build 87 testing IPA:** `build-87-ui-plan.md` owns
 the rejected first-viewport/card-heavy design and source-confirmed compressed Progress date axes,
 limited food/workout history under All, suppressed partial reviews, mixed comparison windows,
 omitted Other subtype, profile-only weight ambiguity, stale completion help and masked read errors.
@@ -407,7 +407,7 @@ detection, staging or recorded data: the analytics package is unchanged since bu
 `kAlgoVersion` (91) since build 81. The lost hours cannot be recovered. Sleep → Fix sleep times
 (10:00 PM–5:00 AM) sets the duration, and the naps can be removed under Naps → Edit.
 
-Repaired in local Build 87 source, pending phone verification: while the band reported off-wrist,
+Repaired in the validated Build 87 testing IPA, pending phone verification: while the band reported off-wrist,
 the app treated its silence as a
 dead link and bounced the connection 23 times ("No data for >120s — bouncing the link"), costing
 battery on both devices. After a `WRIST_OFF` with no `WRIST_ON`, silence should not trigger a

@@ -34,19 +34,28 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 87 Local Candidate
+## Build 87 Candidate
 
-Source version is `0.9.54+87`; implementation is approved and local. `build-87-ui-plan.md` and
-`todo.md` own the UI/sync scope and checks. App source and excluded Widget/Watch/test metadata
-are aligned; algorithm 91, schema, personal capabilities, signing identity and recovery format
-are unchanged. Akshat approved publication to `akshatksingh18/whoop`, CI/macOS build and the
-validated testing IPA; artifact work is pending.
-Build 86 remains installed/testing, Build 70 accepted recovery. Local render fixtures are synthetic,
-not Akshat's records or photos. Local regression/layout/static/profile checks pass; exact counts
-and their scope are recorded in the owning Build 87 plan, not proof of a native iOS build or
-physical-device acceptance. Akshat approved all three convenience additions; their local source and
-latest freshness/cold-connect/empty-burst repairs, calorie/protein group summaries and shared
-large-text/button refinements pass extended local validation.
+Source `b0eee377c63c9f2da44c00dbbd274954266176f6`, version `0.9.54+87`, is published to
+`akshatksingh18/whoop` with Akshat's approval. `build-87-ui-plan.md` and `todo.md` own scope
+and acceptance. Algorithm 91, schema 49, personal capabilities, signing identity and recovery
+format are unchanged; source/excluded Widget/Watch/test metadata is aligned.
+Local standard regression passes 3,611 tests (404 intentional skips); personal-profile checks
+pass 310, plus two final focused button/date-range checks. Analysis has 133 informational lints
+and no errors/warnings; personal-iOS contracts (9), profile and package-pin guard pass.
+Synthetic render fixtures contain no private records or photos.
+
+Personal macOS run `38156663594` passes. Downloaded
+`whoop-personal-b0eee377c63c-unsigned.ipa` (19,040,547 bytes), SHA-256
+`2440a52d5ebb8fa5ce32fe82f4108996569417e2b50041c77e0c931d5afb9b22`, matches its source/version
+manifest and checksum. Full ZIP CRC and personal payload validation pass: one app, no extension,
+exact BLE/location/audio/fetch/processing modes, and no private databases/media/credentials.
+Linux CI `38156660026` passes 3,616 tests (399 intentional skips); analysis has 133 infos and
+no errors/warnings. The single testing candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377`, replacing Build 86's folder after
+validation. Build 86 remains installed, and Build 70
+remains accepted recovery. Build 87 structural design, gym/locked workout, automatic foreground
+freshness, cold/background/overnight collection, CPU and 72-hour soak acceptance remain open.
 
 ## Local Windows toolchain and build validation
 
@@ -270,7 +279,7 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-it remains the accepted backup while installed build 86 occupies `testing\`. The checksum, manifest and
+it remains the accepted backup while Build 87 occupies `testing\` and Build 86 remains installed. The checksum, manifest and
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
@@ -513,8 +522,8 @@ manifest (`0.9.53`/`86`); the ZIP is intact; the payload validator passes, with 
 exactly bluetooth-central, location, audio, fetch and processing, the two task identifiers, the
 Always description and no app extension. Its manifest's `backgroundProcessing: false` is a
 hand-written label that was never updated; `personal_ios.py` now derives the capability fields
-from the packaged Info.plist for later builds. It is the sole testing candidate in
-`../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7`, replacing build 85's folder (build 85
+from the packaged Info.plist for later builds. It was the testing candidate in
+`../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7`, now superseded by Build 87's folder, replacing build 85's folder (build 85
 was the one before it). Akshat's screenshots show build 86 installed; phone checks and
 acceptance remain open. The local Sideloadly record corroborates version `0.9.53`, completed
 automatic-refresh enrollment, automatic bundle-ID mode at the existing final identity, no error,

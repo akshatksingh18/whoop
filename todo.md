@@ -1,7 +1,7 @@
 # WHOOP Build Plan And Verification
 
 **State:** Akshat's screenshots show build `0.9.53`/`86` installed (Food Today with Log again, the
-day-complete mark and the Progress tab); build 85 was the one before it. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It is the testing candidate in `final-ipas\whoop\testing\WHOOP-0.9.53-build86-651345e7`, now installed.
+day-complete mark and the Progress tab); build 85 was the one before it. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It remains installed; its former testing folder is superseded by the validated Build 87 candidate below.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -31,13 +31,13 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 87 (`0.9.54`/`87`): local checks pass, publication/build approved
+## Build 87 (`0.9.54`/`87`): testing IPA ready, phone acceptance open
 
 **State:** Akshat requested an audit of installed Build 86 and a genuinely different,
 user-friendly Build 87 without losing required features/data. `build-87-ui-plan.md` owns the
 source/screenshot findings, detailed compositions, feature-preservation routes and acceptance
 criteria. Akshat approved implementation of the full UI and queued sync scope. Local source,
-full regression checks and real-height previews pass, including approved shortcuts, protein summaries and log-driven sync repairs. Akshat approved publication to `akshatksingh18/whoop`, CI/macOS build and the validated testing IPA.
+full regression checks and real-height previews pass, including approved shortcuts, protein summaries and log-driven sync repairs. Published source `b0eee377` passes Linux CI `38156660026` (3,616 tests, 399 intentional skips) and personal macOS build `38156663594`. Downloaded source/version/checksum/ZIP/payload checks pass; the single testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.54-build87-b0eee377`. `setup.md` owns the artifact evidence.
 Physical background and structural design acceptance remain open.
 
 - [x] Audit the 13 supplied phone screens against the five-tab UI and related source/data paths.
@@ -67,13 +67,15 @@ Physical background and structural design acceptance remain open.
   the latest custom-date repair. Analysis: no errors/warnings, 133 informational lints;
   personal-iOS contracts (9), profile, package-pin guard and `git diff --check` pass.
 - [x] Obtain Build 87-specific publication/CI/macOS/testing-IPA approval.
-- [ ] Publish reviewed source, pass CI/macOS compilation and validate/cache the testing IPA.
+- [x] Publish reviewed source, pass CI/macOS compilation and validate/cache the testing IPA.
+- [ ] Install Build 87 over the existing signed identity; verify data/pairing continuity and
+  current-version refresh enrollment. Do not delete the app or promote the cache on installation alone.
 - [ ] Complete real gym/background/soak tests before candidate acceptance.
   Installation/CI alone cannot pass structural design acceptance.
 
 No feature removals, relaxed intake/signal gates, new permissions/network services, AkshatOS
-cutover or signing-identity/recovery changes are selected. Keep Build 86 as the installed testing
-candidate and Build 70 as accepted recovery until the existing acceptance/recovery gates pass.
+cutover or signing-identity/recovery changes are selected. Build 86 remains installed until
+Akshat upgrades; Build 87 occupies testing, and Build 70 remains accepted recovery.
 
 **Approved convenience additions, implemented and locally verified:**
 - [x] Today HR 10-minute / 1-hour / Day views from actual recorded timestamps, preserving the
@@ -130,14 +132,14 @@ was **held, not downloaded or installed**, because the structural redesign had b
 Everything since is committed on `main`; local validation: full suite 3,534 passed, 404
 intentional skips, 0 failed; analysis has no errors or warnings; personal-iOS contract tests and
 `personal_ios.py check` pass. Akshat reviewed the installed redesign and rejected its cosmetic-only
-composition and Progress copy; the implemented local replacement is in the Build 87 section above.
+composition and Progress copy; the built replacement is in the Build 87 section above.
 The Swift changes (Home region bridge, notification registrant and
 delegate) compile only on the macOS CI. Private MyFitnessPal import generated and validated
 locally (`../../health/fitness/data/whoop-body-history-import.json`).
 
 **Moved to build 87 (Akshat's decision):** per-input calculation reuse in the background sync
 (section 1), so build 86 can serve as the fallback if that change breaks sync.
-Implemented locally in Build 87: do not bounce the Bluetooth link for silence while its current-
+Implemented in the Build 87 testing IPA: do not bounce the Bluetooth link for silence while its current-
 connection wear evidence is `WRIST_OFF` (`bugs.md`, night of 9–10 Oct: 23 needless reconnects).
 
 **Next gates:** publication, artifact validation and installation are complete; current-version
@@ -203,7 +205,7 @@ Implementation checklist:
    the high-rate path; no silent HR-only switch, sparse-step reconstruction or metric deletion. *Source: background UI notifications coalesce; high-rate-path CPU profiling still needs the phone.*
 - [ ] Reuse unaffected calculation, prioritize today/new sleep, and keep raw-data freshness
    separate from the input revision covered by an insight. Short-wake compute must be measured
-   and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first, BLE wakes queue work, and Today shows band-data age apart from the calculation time; per-input reuse is now implemented locally in Build 87, not yet in an IPA; cold preparation/staging and short-wake CPU still need measurement on the phone.*
+   and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first, BLE wakes queue work, and Today shows band-data age apart from the calculation time; per-input reuse ships in the validated Build 87 testing IPA; cold preparation/staging and short-wake CPU still need measurement on the phone.*
 - [ ] Make cold foreground open/resume automatically coalesce catch-up, durable input publication
    and bounded recent-HR/today refresh. The latest ten minutes of recorded HR must not depend on
    pull-to-refresh or a whole historical derive; preserve gaps and separate Live from Recorded.
@@ -413,7 +415,7 @@ screenshots and feedback reject the cosmetic-only feel and Progress's excessive 
 Rendering without overflow is technical evidence, not design acceptance. No metric or entry point
 was removed; the implementation checkmarks below do not mean the design is accepted.
 
-- [x] Implement the approved genuinely different composition in local Build 87:
+- [x] Implement the approved genuinely different composition in Build 87:
   data-first Progress with dated trends, comparable strength and one selected-period review,
   compact goal/status, contextual Add and visible measurement/range selectors. Criteria and
   methodology remain in details; independent partial evidence no longer triggers repeated
@@ -483,7 +485,7 @@ signing failure and a Build 86 regression stay distinguishable. AkshatOS moves f
 
 ## Build 85 (`0.9.52`/`85`): previously installed, superseded by 86
 
-Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. It was installed but not phone-accepted. Build 86 now replaces its installed version and testing folder; build 70 stays accepted recovery.
+Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. It was installed but not phone-accepted. Build 86 replaced its phone install and cache; Build 87 now occupies testing, and Build 70 stays accepted recovery.
 
 Implemented as planned below; `build-85-audit.md` ("Implemented in build 85") lists every change.
 Two deliberate deviations: the day timeline keeps carrying last night over into today (a test
@@ -734,7 +736,7 @@ before deciding whether to implement it.
 
 ## Build 83 (`0.9.50`/`83`): installed (Akshat's 7-8 Oct log came from it)
 
-Build-83 source `0.9.50`/`83` (commit `cbaf93cd`) is published with Akshat's approval; Linux CI `37717941508` (3,408 tests, 371 intentional skips) and personal macOS build `37717959148` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. The sole testing candidate is `../final-ipas/whoop/testing/WHOOP-0.9.50-build83-cbaf93cd`.
+Build-83 source `0.9.50`/`83` (commit `cbaf93cd`) is published with Akshat's approval; Linux CI `37717941508` (3,408 tests, 371 intentional skips) and personal macOS build `37717959148` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Its former testing candidate was `../final-ipas/whoop/testing/WHOOP-0.9.50-build83-cbaf93cd`.
 
 Approved by Akshat after the first build-82 phone log (`bugs.md`, "Background sync and slow
 pull-to-refresh"); he has no other fixes for it. Implemented:
@@ -824,7 +826,7 @@ Phone checks: a new food per `6` `piece` · `85` g at 140 kcal logs 3 pieces as 
 
 Akshat installed build 77 and approved build 78: two-unit portions, the one-press drag fix,
 hiding the Training review, compact Train workouts with a monthly history, and conservative
-calories for treadmill/other workouts. Build-78 source `0.9.45`/`78` (commit `1eae1fbc`) is published with Akshat's approval; Linux CI `37558355571` (3,380 tests, 371 intentional skips) and personal macOS build `37558356341` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is
+calories for treadmill/other workouts. Build-78 source `0.9.45`/`78` (commit `1eae1fbc`) is published with Akshat's approval; Linux CI `37558355571` (3,380 tests, 371 intentional skips) and personal macOS build `37558356341` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Its former testing candidate was
 the build-78 testing folder until build 79 replaced it. `build-75-audit.md` ("Build-78 audit and
 implementation") owns the decisions, research and implemented list.
 Phone checks: log the sausage as 3 links (reads "3 Links · 213 g", macros scale) and in grams;
@@ -836,7 +838,7 @@ distance-method calories.
 ## Build 77: build-76 follow-up, published and built
 
 Akshat installed build 76; his follow-ups are recorded at the end of `build-75-audit.md`.
-Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. The sole testing candidate is
+Build-77 source `0.9.44`/`77` (commit `2602cacf`) is published with Akshat's approval; Linux CI `37539992141` (3,375 tests, 371 intentional skips) and personal macOS build `37539992599` pass; downloaded source/version, checksum, ZIP and payload/extension checks pass. Its former testing candidate was
 It was the testing candidate until build 78 replaced it.
 Phone checks: Calories "left" at the far right; no OpenStrap at launch; "No sub-heading" only
 appears while dragging; pull an edit sheet down from mid-content and it closes.
@@ -902,7 +904,7 @@ contract. Current validation is recorded in `setup.md`. Akshat approved public p
 CI and the personal IPA build to the testing cache. Corrected source `ba5bb29f` is published to
 `akshatksingh18/whoop`; Linux CI `37397127258` passes. The corrected packaging guard passes eight
 contract checks. Personal macOS build `37395690305` passes; downloaded source/version, checksum,
-ZIP and payload validation pass. The sole candidate is
+ZIP and payload validation pass. Its former candidate was
 `../final-ipas/whoop/testing/WHOOP-0.9.41-build74-ba5bb29f` until build 75 replaced it; Akshat
 reports build 74 installed.
 

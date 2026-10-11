@@ -302,12 +302,23 @@ class LocalRepositoryImpl extends LocalRepository {
       todayFresh = await _freshness('today');
     }
     final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
-    final todayBundle = await _bundle(todayDay);
+    // A day commits before the whole derive pass finishes. Read its payload and
+    // timestamp together: a later background cancellation can leave the
+    // aggregate freshness row behind this already-durable result.
+    final todayRow = await LocalDb.dayResult(todayDay);
+    final todayPayload = _decode(todayRow?['payload_json']);
+    final todayBundle =
+        todayRow?['skipped'] == 1 || todayPayload?['skipped'] == true
+        ? null
+        : todayPayload == null
+        ? null
+        : {...todayPayload, 'date': todayDay};
     final overnightBundle = await _latestBundle();
     final overnightState =
         todayFresh?['overnight_state']?.toString() ?? 'missing';
-    final activityState =
-        todayFresh?['activity_state']?.toString() ?? 'missing';
+    final activityState = todayBundle != null
+        ? 'ready'
+        : todayFresh?['activity_state']?.toString() ?? 'missing';
     final showingPriorOvernight =
         todayFresh?['showing_prior_overnight'] == true;
     final showOvernight = overnightState == 'ready' || showingPriorOvernight;
@@ -527,8 +538,12 @@ class LocalRepositoryImpl extends LocalRepository {
       'status': {
         'today_day': todayDay,
         'activity_state': activityState,
-        'activity_day': todayFresh?['activity_day'],
-        'activity_computed_at': todayFresh?['activity_computed_at'],
+        'activity_day': todayBundle != null
+            ? todayDay
+            : todayFresh?['activity_day'],
+        'activity_computed_at': todayBundle != null
+            ? (todayRow?['computed_at'])
+            : todayFresh?['activity_computed_at'],
         'overnight_state': overnightState,
         'overnight_day': todayFresh?['overnight_day'],
         'overnight_computed_at': todayFresh?['overnight_computed_at'],
@@ -1643,6 +1658,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'flags': const {},
     };
   }
+
+  @override
+  Future<List<Map<String, num>>> getRecordedHr(int fromSec, int toSec) =>
+      LocalDb.recordedHrPerMinute(fromSec, toSec);
 
   @override
   Future<Map<String, dynamic>> getDayTimeline(String date) async {

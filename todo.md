@@ -11,7 +11,8 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   gaps recover on foreground launch, although background offloads work in other periods.
   MetricKit confirms background CPU-limit exits for its 8 Oct reporting window, without
   timestamps tying them to individual gaps. Research/source tracing is complete in
-  `background-sync-plan.md`; implementation and personal background-mode approval remain open.
+  `background-sync-plan.md`; bounded repair and personal background modes ship in installed
+  build 86, but physical background acceptance remains open.
 - Previously installed build `0.9.40`/`73` initially looked good, but its Strain cursor selected
   future times. Build 74 implemented the repair; `build-74-audit.md` records the wider
   graph/navigation/notification findings and calorie-model research. Outstanding phone checks
@@ -30,7 +31,72 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 86: implementation approved, in progress
+## Build 87 (`0.9.54`/`87`): local checks pass, publication/build approved
+
+**State:** Akshat requested an audit of installed Build 86 and a genuinely different,
+user-friendly Build 87 without losing required features/data. `build-87-ui-plan.md` owns the
+source/screenshot findings, detailed compositions, feature-preservation routes and acceptance
+criteria. Akshat approved implementation of the full UI and queued sync scope. Local source,
+full regression checks and real-height previews pass, including approved shortcuts, protein summaries and log-driven sync repairs. Akshat approved publication to `akshatksingh18/whoop`, CI/macOS build and the validated testing IPA.
+Physical background and structural design acceptance remain open.
+
+- [x] Audit the 13 supplied phone screens against the five-tab UI and related source/data paths.
+  Static findings are not a completed interactive/physical-device audit.
+- [x] Document structural replacements for Today, Trends, Food, Train, Progress and live/detail
+  flows, retaining every currently reachable unique metric and entry point.
+- [x] Produce actual-height, real-shell populated/new-user/failed-family previews and core
+  Walk/Lift/summary/body/photo flow renders with synthetic data.
+- [ ] Obtain Akshat's approval of hierarchy and flows, not just colours; complete the phone
+  Food add/edit, keyboard, accessibility and active-session return walkthrough.
+- [x] Repair Progress's compressed date axis, mismatched long-history coverage,
+  hidden partial-review evidence, incomplete workout breakdown and ambiguous period/read states.
+  Weekly-block changes name their real earlier block; future readings/measurements stay out of
+  current context, and separately dated neck inputs are identified on estimates.
+  Clarify profile-only weight and diary versus macro completeness. Keep existing safety gates.
+- [x] Implement flat/task-specific compositions, stable controls and concise copy, including the
+  peaceful warm-graphite direction with richer emerald/turquoise/coral accents. Akshat rejected
+  the initially muted colours as dull; palette acceptance remains open. Main metrics,
+  all five tabs and existing entry/detail routes remain; large-text/first-viewport/source QA runs
+  locally. Physical keyboard/VoiceOver/gestures and final design acceptance remain open.
+- [x] Implement separately tested exact-input pure-calculation reuse (process-local, three-day
+  bound, force/version invalidation, no cancelled worker publication) and current-link WRIST_OFF
+  silence recovery (`background-sync-plan.md`, `bugs.md`). No formula, step ownership, durability
+  or scheduling guarantee changes. CPU/freshness and off-wrist phone checks remain open.
+- [x] Final local regression: 3,611 passed, 404 intentional skips; personal-profile layout/data/
+  sync/token/contrast suite: 310 passed, plus two focused final checks for button contrast and
+  the latest custom-date repair. Analysis: no errors/warnings, 133 informational lints;
+  personal-iOS contracts (9), profile, package-pin guard and `git diff --check` pass.
+- [x] Obtain Build 87-specific publication/CI/macOS/testing-IPA approval.
+- [ ] Publish reviewed source, pass CI/macOS compilation and validate/cache the testing IPA.
+- [ ] Complete real gym/background/soak tests before candidate acceptance.
+  Installation/CI alone cannot pass structural design acceptance.
+
+No feature removals, relaxed intake/signal gates, new permissions/network services, AkshatOS
+cutover or signing-identity/recovery changes are selected. Keep Build 86 as the installed testing
+candidate and Build 70 as accepted recovery until the existing acceptance/recovery gates pass.
+
+**Approved convenience additions, implemented and locally verified:**
+- [x] Today HR 10-minute / 1-hour / Day views from actual recorded timestamps, preserving the
+  full-day trace, gaps and freshness labels.
+- [x] Direct portion editing from a Food diary row through the existing amount/save path;
+  retain meal/group controls, missing-definition fallback and destructive confirmations.
+- [x] Activity/date filters in All workouts, with clear reset and complete All/history access;
+  filters must not alter saved data, streaks or calculation totals.
+- [x] Repair Status/Today band-data age to use the advancing durable record frontier, not the
+  launch-only sample. Distinguish queued from running calculation; read recent HR before derive.
+- [x] Prime the bounded adapter-state read before cold connect and stop burst continuation when
+  no new history records arrive, despite earlier cumulative connection totals. Preserve ACK order.
+- [x] Show protein beside calories in diary meal/group totals, copy summaries and saved-meal
+  rows, qualifying partial/missing nutrition without imputing zero. Shared historical date headers
+  wrap at large text; primary action fills retain accent saturation with contrast-checked labels.
+- [x] Read Today's served result and committed calculation time together, even if the later
+  derive pass is cancelled before its aggregate freshness refresh.
+- [x] Finish regression/render/static checks for the added shortcuts, protein and sync repairs.
+
+`build-87-ui-plan.md` owns the boundaries. Akshat explicitly approved all three. Extended
+regression and actual-height shortcut previews pass; phone verification remains required. Existing tab reselect-to-top and Status/freshness shortcuts are already present.
+
+## Build 86: installed, awaiting phone acceptance
 
 **State:** Akshat approved implementation of the whole build-86 scope below as **one build**.
 Selected extras: repeat last set, rest timer, comparable records and independent photo
@@ -39,8 +105,10 @@ screenshot-based MyFitnessPal import. The scope also covers weekly/monthly diet/
 insights, navigation/speed/sleep/freshness repairs, safe deletion, custom food labels, both-way
 serving equivalents, maintenance-based calorie warnings, general activity/rest protection and a
 structural UI redesign. `build-86-audit.md` owns confirmed findings, additional risks and tests.
-The confirmed fitness goal is recomposition: leaner while getting stronger. Build 85 remains
-installed until a build-86 IPA is published (separate authorization) and installed.
+The confirmed fitness goal is recomposition: leaner while getting stronger. Build 86 is installed,
+as confirmed by Akshat; build 85 is superseded. Sideloadly records version `0.9.53`, completed
+current-version automatic-refresh enrollment, no error, and expiry 2026-10-17 at 17:51 local.
+This is installer evidence, not proof of a future unattended renewal or SideStore adoption.
 
 **Akshat's decisions:**
 - One build, not split releases.
@@ -61,20 +129,21 @@ Akshat's approval) passed Linux CI `38065480698` and personal macOS build `38065
 was **held, not downloaded or installed**, because the structural redesign had been left out.
 Everything since is committed on `main`; local validation: full suite 3,534 passed, 404
 intentional skips, 0 failed; analysis has no errors or warnings; personal-iOS contract tests and
-`personal_ios.py check` pass. Akshat will review the redesign on the
-phone after the rebuilt IPA. The Swift changes (Home region bridge, notification registrant and
+`personal_ios.py check` pass. Akshat reviewed the installed redesign and rejected its cosmetic-only
+composition and Progress copy; the implemented local replacement is in the Build 87 section above.
+The Swift changes (Home region bridge, notification registrant and
 delegate) compile only on the macOS CI. Private MyFitnessPal import generated and validated
 locally (`../../health/fitness/data/whoop-body-history-import.json`).
 
 **Moved to build 87 (Akshat's decision):** per-input calculation reuse in the background sync
 (section 1), so build 86 can serve as the fallback if that change breaks sync.
-Also for build 87: do not bounce the Bluetooth link for silence while the band's latest wear
-event is `WRIST_OFF` (`bugs.md`, night of 9–10 Oct: 23 needless reconnects).
+Implemented locally in Build 87: do not bounce the Bluetooth link for silence while its current-
+connection wear evidence is `WRIST_OFF` (`bugs.md`, night of 9–10 Oct: 23 needless reconnects).
 
-**Next gates, in order:** done — pushed, rebuilt and validated (above). Remaining: choose
-the rollback (build 85 did not change sleep calculations — see `bugs.md` — so it is a sound
-fallback once Akshat accepts it, otherwise build 70) and take a rollback-readable export from 85;
-install; the phone checks below; phone acceptance.
+**Next gates:** publication, artifact validation and installation are complete; current-version
+Sideloadly enrollment is corroborated. Confirm that a rollback-readable export was taken before
+86 (format-2 exports are not readable by 85/70), then complete the phone checks below and phone
+acceptance. Build 70 remains accepted recovery; do not promote 86 from installation alone.
 
 **Phone checks after installing 86** (they cannot be tested on Windows):
 - Back gesture: a left-edge swipe goes back on every pushed screen without fighting the Food day
@@ -116,7 +185,7 @@ Also in build-86 source, at Akshat's request (after the plan):
 
 ### 1. Background sync and fresh insights during brief daily use
 
-**Approved for build 86; in progress.** Target: Akshat's iPhone 17 /
+**Implemented in build 86; physical acceptance open.** Target: Akshat's iPhone 17 /
 iOS `26.6.2`, with only two or three minutes of app viewing per day. Keeping WHOOP visible,
 continually refreshing or charging all day must not be required. The supplied gap's force-quit
 state is unknown. `background-sync-plan.md` owns the public Apple sources, source findings,
@@ -134,7 +203,7 @@ Implementation checklist:
    the high-rate path; no silent HR-only switch, sparse-step reconstruction or metric deletion. *Source: background UI notifications coalesce; high-rate-path CPU profiling still needs the phone.*
 - [ ] Reuse unaffected calculation, prioritize today/new sleep, and keep raw-data freshness
    separate from the input revision covered by an insight. Short-wake compute must be measured
-   and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first, BLE wakes queue work, and Today shows band-data age apart from the calculation time; per-input invalidation is not changed (measure short-wake compute on the phone first).*
+   and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first, BLE wakes queue work, and Today shows band-data age apart from the calculation time; per-input reuse is now implemented locally in Build 87, not yet in an IPA; cold preparation/staging and short-wake CPU still need measurement on the phone.*
 - [ ] Make cold foreground open/resume automatically coalesce catch-up, durable input publication
    and bounded recent-HR/today refresh. The latest ten minutes of recorded HR must not depend on
    pull-to-refresh or a whole historical derive; preserve gaps and separate Live from Recorded.
@@ -154,7 +223,7 @@ decision before changing its policy.
 
 ### 2. Lift Log inside the existing WHOOP workout
 
-**Approved for build 86; in progress.** Akshat wants
+**Implemented in build 86; physical acceptance open.** Akshat wants
 to explore one workout that behaves as WHOOP does now and also offers AkshatOS Lift Log's
 features. `lift-log-integration-plan.md` owns the current-source findings, recommended flow,
 parity inventory, timing conflicts, data import/recovery and tests. AkshatOS remains unchanged
@@ -166,7 +235,7 @@ workout. Tracking without set logging remains possible; runs/walks retain their 
 existing Flutter strength/session foundation, but do not merely enable the old sets UI: it lacks
 Lift Log's split/load-mode contract, and its row replacement does not delete omitted sets.
 
-Proposed implementation checklist, conditional on approval:
+Implemented scope and remaining verification:
 - [x] Preserve Lift Log's editable/flexible splits, all six load meanings and pounds, set edit/
   delete/Undo, complete same-mode previous performance, search/order/skips, history and recovery.
 - [x] Make session-linked log writes awaitable, serialized and retryable across start, edits,
@@ -194,17 +263,18 @@ cross-mode tonnage charts, cloud sync, module removal and coaching-CSV activatio
 
 ### 3. Body and one recomposition Progress page
 
-**Approved for build 86; in progress.** Akshat wants
+**Implemented in build 86; physical acceptance open.** Akshat wants
 WHOOP to become his all-in-one body/fitness app, including AkshatOS Body's weight, measurements
 and photos alongside lifting, food and wearable context. `fitness-app-plan.md` owns the whole-app
 flow, evidence/comparison rules, current source gaps, import/recovery and optional future ideas.
 
-Accepted overall direction: keep Today / Trends / Food / Train and add a planned Progress tab,
-with Body entry/history inside it; no navigation has shipped. Preserve all reachable metrics.
+Accepted overall direction, now in installed Build 86: Today / Trends / Food / Train / Progress,
+with Body entry/history inside Progress. Feature phone acceptance remains open; the layout itself
+was rejected. Local Build 87 preserves all reachable metrics in its replacement composition.
 One `body_weight` path feeds Body, Food and Progress. One
 Lift workout owns both sensor context and sets; no duplicate starts, calories or stores.
 
-Proposed implementation checklist, conditional on approval:
+Implemented scope and remaining verification:
 - [x] Preserve Body's daily weight, seven-calendar-day trends, measurement-week blocks, eight
   tape sites, edit/history, labelled estimates, front/side photos, reminder and exports. *Source: weekly blocks start on the measurement weekday with their change, on Progress and by month in Body history.*
 - [x] Add/edit weight, tape and photos at a chosen past date; distinguish effective day from
@@ -338,12 +408,27 @@ two apps do not sync. Code: `lib/data/pushups.dart`, `lib/data/pushup_reminders.
 
 ### 8. Structural UI redesign and whole-app convenience audit
 
-**Implemented in build-86 source; rendered pages await Akshat's approval.** No metric or entry
-point was removed.
-- [x] Prototype brief Today review, diary/editing, Start/Resume Lift/Walk, Body historical/photo
-  flow and one combined Progress review. Change hierarchy/composition and interaction, not only
-  card colour/ring styling; retain every unique reachable metric and existing entry point unless
-  Akshat approves its removal individually. *Source: rendered at phone width, 1x and 2x text, by `test/build86_redesign_render_test.dart`.*
+**Implemented in installed build 86, but visual/structural acceptance failed.** Akshat's phone
+screenshots and feedback reject the cosmetic-only feel and Progress's excessive sentences/noise.
+Rendering without overflow is technical evidence, not design acceptance. No metric or entry point
+was removed; the implementation checkmarks below do not mean the design is accepted.
+
+- [x] Implement the approved genuinely different composition in local Build 87:
+  data-first Progress with dated trends, comparable strength and one selected-period review,
+  compact goal/status, contextual Add and visible measurement/range selectors. Criteria and
+  methodology remain in details; independent partial evidence no longer triggers repeated
+  global insufficient-data panels. Safeguards and calculation gates are unchanged.
+  `build-87-ui-plan.md` owns the replacement; structural acceptance remains open above.
+- [x] Recompose Today/Food/Train around brief review, diary logging and Start/Resume in local
+  Build 87. Preserve unique metrics, Budget/ACSM and existing entry points; no feature deletion
+  is authorized. The installed Build 86 still has its rejected layout.
+- [ ] Review with populated, partial and new-user examples plus real phone-sized first viewports,
+  including Progress and the app shell; oversized full-page synthetic renders alone are insufficient.
+  See `build-87-ui-plan.md` for the source/screenshot findings and limits of the current evidence.
+- [x] Render the Build 87 hierarchy with the real five-tab shell, phone-height first viewports,
+  scrolled content, diary/editing, Walk/Lift, Body entry and photo comparison. Synthetic
+  fixtures cover populated/partial/new-user states and large text; physical flows and Akshat's
+  design acceptance remain open. Build 86's oversized render was insufficient for that gate.
 - [x] Use compact date/freshness/status and a useful HR canvas on Today, stable session controls
   and safe history on Train, diary-first Food with portions/maintenance context, and body/strength
   summary with integrated weekly/monthly review on Progress. No separate app-in-app shell. *Source: Today has a compact header with band-data age or Syncing/Calculating, recovery/sleep/strain in one card (stacked at large text), HRV and resting HR, a 112 pt HR canvas with hour marks, then steps/food, Body and maintenance. Food opens on one day card (calories, all four macros, fixed Add to <meal by time of day>), then the meals, then maintenance. Train shows Resume instead of Start while a session runs, history before the charts and one fixed options menu (Fix the times / Delete) per row.*
@@ -389,16 +474,16 @@ signing failure and a Build 86 regression stay distinguishable. AkshatOS moves f
 
 - [x] Plan reviewed; implementation approved as one build, with the decisions listed at the top
   of this section. Pushups and its Always location were approved afterwards.
-- [ ] Implement the approved scope together; run focused regressions, the full suite and
+- [x] Implement the approved build-86 scope together; run focused regressions, the full suite and
   personal-iOS payload/capability checks, and synchronize affected documentation.
-- [ ] Obtain separate publication/build authorization, then validate the replacement IPA's
+- [x] Obtain separate publication/build authorization, then validate the replacement IPA's
   source, version, manifest, checksum and payload before installation.
 - [ ] Complete feature and background phone acceptance before cache promotion; build 70
-  stays recovery and build 85 remains the installed candidate until a replacement is installed.
+  stays recovery; build 86 is installed, not yet phone-accepted.
 
-## Build 85 (`0.9.52`/`85`): installed (Akshat), awaiting phone acceptance
+## Build 85 (`0.9.52`/`85`): previously installed, superseded by 86
 
-Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Akshat reports it currently installed. The sole testing candidate remains `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a` until its phone pass and current-version refresh enrollment are confirmed; build 70 stays accepted recovery.
+Build-85 source `0.9.52`/`85` (commit `3c141b7a`) is published with Akshat's approval; Linux CI `37816259505` (3,430 tests, 395 intentional skips) and personal macOS build `37816260577` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. It was installed but not phone-accepted. Build 86 now replaces its installed version and testing folder; build 70 stays accepted recovery.
 
 Implemented as planned below; `build-85-audit.md` ("Implemented in build 85") lists every change.
 Two deliberate deviations: the day timeline keeps carrying last night over into today (a test
@@ -842,7 +927,7 @@ HR energy remains analysis only. Missing comparison inputs stay unavailable, not
 - Linux CI, personal macOS build and downloaded version/source/checksum, ZIP integrity and the
   single version-matched workout extension checks pass. Build 74 replaces the build-73 testing
   folder; `setup.md` owns the exact artifact and workflow evidence.
-- Build 85 is installed (Akshat); confirm the same signed identity, encrypted history, decimals,
+- Build 86 is installed (Akshat); confirm the same signed identity, encrypted history, decimals,
   saved foods/meals, band pairing and current-version automatic-refresh enrollment intact.
   The personal IPA has no extension from build 81; no Live Activity acceptance gate applies.
 - Drag Today/Trends/Train daily Strain, heart-rate, Steps/calories and Wear to the right before
@@ -920,7 +1005,7 @@ pushed; Linux CI `37173914511` passes (3,279 tests, 363 intentional skips).
 macOS workflow `37174063547` passes. The downloaded IPA matches its manifest/checksum and
 passes local payload validation. `setup.md` owns its source, hash and artifact evidence.
 Akshat confirmed build 72 was installed; it was not phone-accepted. Build 73 superseded its
-testing IPA after validation; subsequent candidates superseded it, with build 85 now installed.
+testing IPA after validation; subsequent candidates superseded it, with build 86 now installed.
 The superseded build-71 artifact lacks the refresh fix; keep one install candidate.
 
 ## Build 73: approved combined repair

@@ -1161,8 +1161,9 @@ class NutritionDb {
   /// The user's own complete/incomplete marks from [from] on.
   static Future<Map<String, String>> dayMarks(
     DatabaseExecutor db,
-    String from,
-  ) async {
+    String from, {
+    bool strict = false,
+  }) async {
     try {
       return {
         for (final r in await db.query(
@@ -1173,6 +1174,7 @@ class NutritionDb {
           r['date'] as String: r['mark'] as String,
       };
     } catch (_) {
+      if (strict) rethrow;
       return const {};
     }
   }

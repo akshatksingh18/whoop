@@ -68,7 +68,7 @@ void main() {
       final app = AppState.forTesting();
       addTearDown(app.dispose);
       await t.pumpWidget(_app(app, scale));
-      await _until(t, () => find.text('Add entry').evaluate().isNotEmpty);
+      await _until(t, () => find.byTooltip('Add body entry').evaluate().isNotEmpty);
       expect(t.takeException(), isNull);
       expect(find.textContaining('Nothing recorded'), findsWidgets);
 
@@ -87,10 +87,14 @@ void main() {
       app.bumpInsights();
       await _until(t, () => find.text('LATEST').evaluate().isNotEmpty);
       expect(t.takeException(), isNull);
-      await t.tap(find.text('Waist (navel)'));
-      await t.pump();
-      await t.tap(find.text('1 month'));
-      await t.pump();
+      await t.tap(find.byTooltip('Select Measurement'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Waist (navel)').last);
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Select Range'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('1 month').last);
+      await t.pumpAndSettle();
       expect(t.takeException(), isNull);
     });
   }

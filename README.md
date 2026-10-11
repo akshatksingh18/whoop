@@ -13,8 +13,8 @@
 > enabling **This phone → Steps**; the earlier roughly-200 count was the band fallback. Keep phone
 > steps enabled for normal iPhone-carried use: WHOOP 4 band-only historical data is too low-rate for
 > honest all-day step reconstruction. The personal profile
-> excludes Watch, general/home/breathing widgets, App Groups, and HealthKit, and scheduled
-> processing/fetch, while retaining the phone app and CoreBluetooth restoration. Build 63 excludes
+> excludes Watch, general/home/breathing widgets, App Groups and HealthKit, while retaining
+> the phone app and CoreBluetooth restoration. Build 86 enables bounded processing/fetch. Build 63 excludes
 > GPS. The uninstalled `0.9.31` build `64` artifact is superseded. Build `65`
 > reopens GPS, hides the unsupported Oura row, and adds confirmed-phone-stillness filtering for
 > wrist step noise. Its macOS build, local artifact validation, clean installation, encrypted
@@ -63,9 +63,22 @@
 > battery on Today and Live Activity diagnostics (`build-75-audit.md`). Its Linux CI and personal
 > macOS build pass. Build 75 is installed; build `0.9.43`/`76` (`3f8ada60`) adds its food
 > follow-ups (clean edit numbers, ±1 hold-to-repeat steppers, drag between sub-headings, eaten /
-> goal Calories card); build `0.9.44`/`77` (`2602cacf`) adds its polish; build `0.9.45`/`78` (`1eae1fbc`) adds two-unit portions, compact Train history and conservative workout calories; build `0.9.46`/`79` (`4b7f5918`) adds pack-printed servings ("6 piece · 85 g"); build `0.9.47`/`80` (`6dd75b2b`) gives the food editor one aligned serving line; build `0.9.48`/`81` (`d44c989f`) adds sleep to recovery, Quick add weight, patterns from logged data and bedtime consistency, and drops the Live Activity; build `0.9.49`/`82` (`4b53abbe`) adds page-scrolling drag, a discard guard, Foods search, saved-meal flow fixes and the iPhone app log; build `0.9.50`/`83` (`cbaf93cd`) time-stamps that log and makes the history sync ask the band; build `0.9.51`/`84` (`37241c1e`) keeps Today fresh, keeps background wakes light, quickens pull-to-refresh, prices digestion by macro and adds a Lifting line; build `0.9.52`/`85` (`3c141b7a`) is a full UI makeover with one MET-only lifting number, food categories and walks in km/h. Its CI and macOS build pass; the downloaded IPA is the sole candidate in
-> `final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`. Akshat reports build 85 currently installed;
-> complete phone acceptance and current-version refresh enrollment remain pending. `todo.md` owns device gates.
+> goal Calories card); build `0.9.44`/`77` (`2602cacf`) adds its polish; build `0.9.45`/`78` (`1eae1fbc`) adds two-unit portions, compact Train history and conservative workout calories; build `0.9.46`/`79` (`4b7f5918`) adds pack-printed servings ("6 piece · 85 g"); build `0.9.47`/`80` (`6dd75b2b`) gives the food editor one aligned serving line; build `0.9.48`/`81` (`d44c989f`) adds sleep to recovery, Quick add weight, patterns from logged data and bedtime consistency, and drops the Live Activity; build `0.9.49`/`82` (`4b53abbe`) adds page-scrolling drag, a discard guard, Foods search, saved-meal flow fixes and the iPhone app log; build `0.9.50`/`83` (`cbaf93cd`) time-stamps that log and makes the history sync ask the band; build `0.9.51`/`84` (`37241c1e`) keeps Today fresh, keeps background wakes light, quickens pull-to-refresh, prices digestion by macro and adds a Lifting line; build `0.9.52`/`85` (`3c141b7a`) is a full UI makeover with one MET-only lifting number, food categories and walks in km/h. Its CI and macOS build pass; its downloaded IPA folder was superseded by `final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7`.
+> Build 86 is installed (Akshat), with recorded passing CI/macOS build and validated IPA. It adds
+> bounded background work, integrated Lift/Body/Progress/Pushups and the structural redesign.
+> Akshat rejects that installed UI's cosmetic-only composition and noisy Progress copy.
+> [`build-87-ui-plan.md`](build-87-ui-plan.md) documents the source/screenshot audit and a
+> feature-preserving structural replacement, implemented locally as `0.9.54`/`87` on Akshat's
+> go-ahead. Warm graphite with richer emerald/turquoise/coral accents, flat navigation, numeric Today,
+> a real Food ledger and chart-first Progress replace the old ring/card composition. Pure-input
+> reuse and wear-aware silence recovery preserve analytics output and BLE durability. Local
+> full regression/layout/profile checks pass, including the approved recent-HR view, direct portion
+> editing, workout filters, protein summaries and latest freshness/connect repairs.
+> Akshat approved publication to this repo, CI/macOS build and the validated testing IPA.
+> No Build 87 IPA exists yet; artifact work and physical/design acceptance remain open.
+> Sideloadly corroborates current-version enrollment with no error; feature/background phone
+> acceptance remains pending. SideStore laptop setup is reported, not verified app handover.
+> `todo.md` owns device gates.
 > Build 70 remains
 > the accepted recovery build (`todo.md`, `setup.md`).
 > Superseded `0.9.36`/`69` adds run calories by distance and by heart rate, a Running row in
@@ -97,20 +110,18 @@
 > The accepted personal portfolio is standalone WHOOP plus the native AkshatOS hub: two
 > free-signing slots. WHOOP is not embedded in that hub, and the hub does not change WHOOP's minimal
 > capability profile. `../akshatos/hub-plan.md` owns that packaging.
-> Adding Lift Log's features to one existing WHOOP workout is accepted Build 86 direction in
-> [`lift-log-integration-plan.md`](lift-log-integration-plan.md), not implemented or approved
-> for migration. AkshatOS Lift Log and build 85's timed lifting flow remain intact.
-> Body and a consolidated Progress page are accepted planned direction in
-> [`fitness-app-plan.md`](fitness-app-plan.md), centered on recomposition: leaner while getting
-> stronger. Selected extras are repeat last set, rest timer, comparable records and independent
-> photo comparison; workout times, historical entry and screenshot-based local import are also
-> planned. Implementation/import-file creation remain deferred. Shared weight and photo-inclusive
-> recovery are gates; navigation/ownership are unchanged and `todo.md` collects remaining scope.
+> Session-linked Lift Log is implemented in installed Build 86
+> ([`lift-log-integration-plan.md`](lift-log-integration-plan.md)); AkshatOS remains intact until
+> separately approved import/cutover and phone acceptance. Body and the fifth Progress tab are
+> also implemented ([`fitness-app-plan.md`](fitness-app-plan.md)), centered on recomposition.
+> Repeat last set, rest timer, comparable records, independent photo comparison, workout times,
+> historical entry and local import are implemented. Personal import payloads remain local and
+> outside this public repo. Photo-inclusive recovery and feature phone acceptance remain gates.
 > The expanded [Build 86 audit](build-86-audit.md) adds seven-day weight/diet and weekly/monthly
 > reviews, safe food/workout actions, navigation/speed/night-signal/freshness repairs, personal
-> food labels, activity/rest planning and a structural redesign. Pushup Reminder is exploration
-> only; numeric intake guidance, protection rules and its capabilities need review. All remain
-> planning, not implemented or phone-verified fixes.
+> food labels, activity/rest protection and a structural redesign. Pushups/Home and guarded,
+> never-applied goal suggestions are implemented in 86, not yet phone-accepted. Local
+> Build 87 UI does not change those safety rules, capabilities or cross-project ownership.
 
 An app that makes your wearable useful without its subscription. Pairs over Bluetooth, computes everything on your phone, iOS and Android. WHOOP 4/5/MG get full support today; see [Supports](#supports) for what else it talks to.
 
@@ -264,10 +275,11 @@ CompanionDeviceManager. The full iOS source includes processing/refresh tasks an
 Bluetooth central. Akshat's personal profile keeps `bluetooth-central` and CoreBluetooth restoration
 while removing processing/fetch from the initial artifact; they are never a correctness requirement.
 Build 85 has observed long background-transfer stalls and CPU-limit exits (`bugs.md`).
-The iPhone 17/iOS 26.6.2 repair proposal in `background-sync-plan.md`, queued in the build-86
-TODO while other items are collected, targets brief daily viewing
-and distinct raw/derived freshness; adding bounded processing/refresh opportunities is proposed,
-not implemented. Background reliability is not yet accepted on this phone.
+The installed Build 86 repair in `background-sync-plan.md` provides cancellable bounded
+processing/refresh opportunities and distinct raw/derived freshness. Local Build 87 reuses exact
+unchanged calculation inputs and suppresses silence bounces on a known off-wrist connection.
+This does not guarantee iOS execution or recover absent sensor recordings. Background reliability
+is not yet accepted on this phone.
 
 **Everything else in the full source** — trends/history, a journal with on-device correlation insights
 ("what actually moves your numbers"), cycle tracking, a deterministic coach, a shareable

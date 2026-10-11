@@ -1,6 +1,6 @@
 # WHOOP As An All-In-One Fitness App
 
-**State:** Implemented in build-86 source `0.9.53`/`86` (one build; not built or phone-tested):
+**State:** Implemented in built and installed `0.9.53`/`86`, awaiting feature phone acceptance:
 Body (`lib/data/body_log.dart`), photos (camera bridge, `photo_encode.dart`), the Progress tab
 (`progress_screen.dart`, `progress_review.dart`), imports and format-2 media backups. The review
 offers gather evidence / continue / review together, and a Goal card judges the goal Akshat
@@ -10,13 +10,18 @@ and Body history), reviews include Since start, an imported Body height is offer
 dated profile, and the lift HR trace marks logged sets. Akshat accepted the integrated workout, Body and one Progress page, selecting repeat
 last set, rest timer, comparable records and photo comparisons, plus workout times and historical
 body/photo entry. Imported/backdated weights are history-only and never change past calorie
-numbers. Publication, AkshatOS removal and entry-ownership cutover still need separate approval.
+numbers. Publication and installation are complete; AkshatOS removal and entry-ownership cutover
+still need separate approval and acceptance.
 The expanded requested plan includes explicit seven-day weight/diet correlations, weekly/monthly
 whole-body reviews, goal-aware intake reviews, general activity/rest protection, food/navigation/
-chart/action repairs and a structural UI redesign. Pushup Reminder is requested exploration,
-with parity/capability/ownership choices open; `build-86-audit.md` owns source findings.
+chart/action repairs and a structural UI redesign. Pushup Reminder and approved Home capability
+ship in 86, but ownership cutover and phone acceptance remain open; `build-86-audit.md` owns findings.
 Akshat's confirmed goal is **recomposition: leaner while getting stronger**.
-Build 85 remains installed with Today / Trends / Food / Train; AkshatOS retains Lift
+The installed Build 86 UI is rejected for its cosmetic-only composition and noisy Progress copy.
+`build-87-ui-plan.md` owns the source/screenshot audit and implemented local data-first
+replacement; `todo.md` owns verification, publication and visual acceptance gates. Akshat approved
+Build 87 implementation and warm palette changes. Feature/data contracts below remain unchanged.
+Build 86 is installed with Today / Trends / Food / Train / Progress; AkshatOS retains Lift
 Log and Body. `todo.md` owns combined approval, `lift-log-integration-plan.md` owns exact lifting
 parity, and `../akshatos/hub-plan.md` owns the unchanged cross-project boundary.
 
@@ -34,11 +39,11 @@ Accepted overall direction (details remain subject to final scope review):
 - **Food:** retain foods, diary, macros and Budget/ACSM maintenance. Its weight entry uses the
   same record as Body; keep the existing entry point unless Akshat approves removing it.
 - **Train:** retain Run / Walk / Lift / Other and existing history. Lift includes the set logger.
-- **Progress:** planned fifth tab, one consolidated recomposition page with Body entry/history
+- **Progress:** installed fifth tab, one consolidated recomposition page with Body entry/history
   and drill-downs. Body is not a sixth tab or a separate app inside the app.
 
 A Progress destination reachable from Today remains a possible later layout revision, not an
-instruction to change the accepted overall direction. No navigation has shipped. No existing
+instruction to change the accepted overall direction. Five-tab navigation ships in Build 86. No existing
 metric or removed journal/AI coach is silently removed or restored by this plan. Retain shared
 accessible control conventions but redesign hierarchy, composition and flow, not just colours/
 rings. Use compact unframed sections, stable chart dimensions and familiar icon controls;
@@ -49,8 +54,8 @@ no marketing screen or explanatory wall.
 1. Open Train, choose Lift, and choose a saved split, Empty workout or tracking only. Split choice
    does not change the selected activity's calorie assumptions.
 2. Tap Start once. Create one durable WHOOP session and its optional lift draft. Show existing
-   elapsed time, HR, strain, calories and Pause/Finish above the exercises and set-entry controls.
-   Show the saved local **Started** time as well, without replacing the elapsed timer.
+   shared clock and saved local **Started** time. Build 87 puts the exercises and set-entry
+   controls directly below them; HR, strain, calories and the stable Pause/Finish remain accessible.
 3. Log load/reps, see all sets from the last same-mode performance, and add/search/reorder/remove
    exercises using Lift Log's current rules. Each edit/delete/Undo saves before success is shown.
 4. Leave the screen or lock the phone; resume the same workout and saved sets. Set entry works
@@ -225,28 +230,30 @@ translate them into "X kg muscle gained" or a precise body-composition verdict.
 
 ### Seven-Day Weight, Diet And Whole-Body Reviews
 
-This is explicit requested scope, not a promise that build 85 already does it. One local review
+Implemented in Build 86 and retained in local Build 87: one local review
 model joins dated source records without duplicating them. Every observation links to its inputs
 and shows its own coverage; missing data in one family must not hide all the others.
 
 - **Daily intake:** show recorded kcal/protein and the chosen dated goal, alongside Budget and
   ACSM maintenance estimates, eligibility and estimated balance. Keep a per-day drill-down and
   a trend overlay with separate scales/units. A late evening food entry is only the existing
-  completeness heuristic, not proof that every meal was logged. A user-marked Complete/
-  Incomplete day is a proposed safeguard to review, not an implemented requirement.
+  completeness heuristic, not proof that every meal was logged. Build 86 implements user-marked
+  Complete/Incomplete overrides; calorie-day eligibility and nutrient completeness remain separate.
 - **Seven-calendar-day weight mean:** average actual daily weigh-ins in the trailing window,
   show the reading count/date span and never forward-fill missing days. Preserve raw readings
   and raw start/latest change alongside smoothing. Historical weekly-only imports can yield
   one observed reading in a window, not seven new measurements or a confident weekly slope.
   Compare explicitly labelled endpoint windows, not the first/last raw value relabelled Average.
-- **Weekly:** recommend the last closed Monday-Sunday against the prior closed week, selectable
-  on any day. Current week remains available with a partial label and matched elapsed-day
-  comparison. Combine weight means/raw readings, waist/site changes at actual dates, same-
+- **Weekly:** the last closed Monday-Sunday against the prior closed week is selectable
+  on any day. A current-week matched elapsed-day combined review remains a future extension,
+  not a Build 86/87 review mode; current measurements and dated raw ranges remain available.
+  Combine weight means/raw readings, waist/site changes at actual dates, same-
   context lift comparisons, completed sessions/activity, eligible calories/protein and measured
   sleep/recovery. Do not hide recorded protein because maintenance is missing.
 - **Monthly:** calendar month against the preceding complete month, with day-count and coverage
-  context rather than treating 28 and 31 days as identical training totals. Current month is
-  partial; compare matching elapsed periods. Measurements report real paired dates and elapsed
+  context rather than treating 28 and 31 days as identical training totals. A current-month
+  matched elapsed-period combined review remains a future extension; the implemented monthly
+  mode compares closed months. Measurements report real paired dates and elapsed
   days, even if they fall outside the reporting boundary; no fabricated month-end reading.
 - **Since start/ranges:** retain the chosen journey baseline and the existing 1 week, 1/2/3/6
   months, 1 year, Since start and All controls. A future goal-phase baseline is separate from
@@ -304,15 +311,17 @@ should answer "what does our evidence suggest?" while allowing "not enough evide
 ### Activity, Rest Protection And Pushups
 
 General activity includes completed purposeful physical sessions (including lifting) and dated
-step-goal achievements, with a reviewed Pushups-goal contribution. One day is counted once.
+step-goal achievements. Build 86 keeps Pushups out of the general activity streak; a future
+Pushups-goal contribution is not selected by this redesign. One day is counted once.
 Keep Pushups' own daily-goal streak distinct from the general activity continuity display.
 Rest or Life happens protection preserves continuity visibly without recording a nonexistent
-workout, steps, calories or Pushups goal. Exact threshold/allowance/retroactive rules remain for
-approval; a weekly-consistency view is an optional companion, not forced daily hard exercise.
+workout, steps, calories or Pushups goal. Build 86's exact exercise/protection rules are in
+`lib/compute/streak.dart`; the local Build 87 UI preserves them. A different allowance or
+retroactive policy still needs approval; a weekly-consistency view is not forced daily exercise.
 Distinguish pending activity data from a confirmed inactive day; reconcile late backfill against
 that day's protection ledger without fabricated activity, duplicate awards or a false break.
 
-Proposed Pushups location: Train -> Movement breaks / Pushups, with compact Today Start/Done
+Implemented Pushups location: Train -> Pushups, with compact Today Start/Done
 access. Reuse its existing Start/Pause/End, interval, automatic nudges, daily goal/history and
 protected action receipt semantics; preserve the `Squat*` source identifiers when importing.
 Done records a completed set event, not measured reps/duration/HR or strength-log tonnage.
@@ -327,18 +336,22 @@ user away from another tab. A finite queue cannot promise indefinite ignored nud
 infrequent visits. Prioritize existing critical alerts; review Pushups' current 60-request
 batch alongside rest/Body reminders with actual pending-request tests.
 
-Home auto-pause is optional in AkshatOS and uses Always location; WHOOP currently excludes this
-personal permission. Preserve that boundary until an explicit parity/capability decision, rather
-than silently dropping Home or adding Always for a walk. Local JSON import must preview IDs,
+Home auto-pause is implemented in WHOOP Build 86 with Akshat's approved Always location for its
+single Home region. Walk/run recording still asks for While-In-Use; the proposed UI adds no new
+capability. Local JSON import must preview IDs,
 goal snapshots and history, keep active-reminder restoration opt-in, and require stopping the
 old batch before enabling the new one. No AkshatOS feature/store is removed and no two-app
 background synchronization is promised. `../akshatos/hub-plan.md` owns the cross-project gate.
 
 ### Structural UI And Safety Requirements
 
+The current replacement compositions and feature-preservation/first-viewport checklist are in
+`build-87-ui-plan.md`. Build 86 implemented revised surfaces but failed Akshat's structural design
+acceptance; do not treat these requirements or existing render checks as approved visual results.
+
 Prototype new full flows, not isolated recoloured controls: compact Today status/freshness with
 usable HR history, stable workout controls with integrated sets, diary-first Food, and Progress
-opening on body/strength evidence then a combined review. Keep the proposed five destinations
+opening on body/strength evidence then a combined review. Keep the existing five destinations
 and all existing unique metrics available; ask before deleting any metric/entry point. No sixth
 Body/Pushups tab, marketing hero, explanatory wall or nested cards.
 
@@ -364,15 +377,16 @@ requires it. Use synthetic parity fixtures, not private health records in tests 
 
 ### Screenshot-Based MyFitnessPal Import
 
-Akshat cannot export his MyFitnessPal history and supplied screenshots for a later generated
-import. He requested documentation now, not app code or an import file. The private canonical
+Akshat cannot export his MyFitnessPal history and supplied screenshots. The initial request was
+planning-only; approved Build 86 implementation generated and locally validated the import.
+The private canonical
 inventory is `../../health/fitness/docs/myfitnesspal-import-source.md`, with weights in that
 project's existing `data/weight-log.csv`. Follow its `CLAUDE.md` before reading/generating data.
 Do not copy personal readings, screenshots, photo dates or generated payloads into either public
 app repo or hosted CI. Public tests use synthetic fixtures only.
 
-During approved implementation, generate a versioned local body-history import from that private
-source and validate it against the implemented importer. Include source attribution, original
+The versioned local body-history import stays in the private health source area and is validated
+against the implemented importer. Preserve source attribution, original
 unit/value, day precision, deterministic generated IDs and a baseline reference. Original
 MyFitnessPal timestamps/UUIDs are unknown; generated IDs and import timestamps must not masquerade
 as them. Preview count/date/unit interpretation, duplicates and existing same-day conflicts;
@@ -382,21 +396,21 @@ These screenshots provide weight only, not numeric tape/steps/food/HR data. Impo
 actually supplied, with other data absent. Small photo thumbnails are association evidence, not
 full images to harvest. Akshat will manually add screenshots of the original photos to their
 chosen historical days; attaching them does not require rerunning or replacing the weight import.
-The future generated payload stays in the private health source area, not the app repository.
+The generated payload stays in the private health source area, not the app repository.
 
-Current gaps to resolve before authoritative use:
-- WHOOP automatic `.osbk` recovery seals a compressed SQLite snapshot, not external JPEG files.
-  Design and verify a versioned encrypted database-plus-media payload before photos become
-  authoritative. Keep old encrypted/database backups readable and unsupported new formats
-  explicitly rejected by older readers. Stage files/database with rollback, bounded memory and
-  corruption/path/low-disk validation. Final payload design remains an implementation decision.
+Current recovery contract and remaining cutover gates:
+- Build 86 implements format-2 encrypted `.osbk` recovery containing the database and referenced
+  photo media. Old database-only backups remain readable by the new app; older builds cannot
+  read format 2, so a rollback-readable export remains a separate requirement. Staging/rollback,
+  bounded processing and corruption/path validation are implemented; a genuinely changed photo
+  library, low-disk/failure recovery and physical restore still need device acceptance.
 - AkshatOS Body's current `stageBackup` omits photos whose files cannot be copied; restore skips
   unavailable photo files. Its standalone screen reports the count, but the full-hub adapter
   currently returns success without forwarding that warning. A successful manifest import is not
   proof every original photo survived. WHOOP migration must preview missing media and either
   block or obtain an explicit partial-import choice. Never silently delete the original library.
-- Extend encrypted recovery, explicit exports, salvage and deletion paths for all new records
-  and photos. Backup/delete/restore acceptance must cover a genuinely changed library.
+- New record/media export, recovery and deletion paths are implemented in Build 86; complete
+  backup/delete/restore acceptance with a genuinely changed library before ownership cutover.
 
 Back up both apps and retain AkshatOS modules until validated import, combined phone acceptance
 and explicit entry-ownership approval. Private coaching records remain authoritative under their
@@ -406,17 +420,14 @@ There is no ongoing two-app/cloud synchronization promised by a one-time import.
 
 ## Candidate Scope And Optional Extras
 
-**Accepted feature direction; final implementation go-ahead still pending:** the queued sync
-repair, full existing Lift Log parity, Body parity and unified weight entry, safe import/media
-recovery, and the basic
-Progress page with source-grounded weekly/monthly/since-start comparisons and seven-day diet/
-weight/body/strength reviews. Include the requested reliability/food/activity/redesign work,
-with Pushups still exploration and numeric guidance/protection policy awaiting review.
-Include the four selected
-extras below, live/summary workout times, backdated body/photo entry, measurement/range controls
-and the privately generated MyFitnessPal import during implementation. Build 86 scope collection
-remains open; this is plan acceptance, not permission to start code. Implement dependencies in
-order within one approved release; do not assume separate releases or shrink accepted parity without asking.
+**Implemented in Build 86, physical acceptance open:** bounded sync, Lift Log parity, Body and
+unified weight entry, import/media recovery, Progress weekly/monthly/since-start reviews,
+seven-day weight context, approved goal-review safeguards, general activity protection and
+Pushups. The four selected extras, workout times, backdated body/photo entry, all measurement/
+range controls and private MyFitnessPal import are included. Build 86's visual design was
+rejected; local Build 87 replaces its composition and adds the deferred input reuse/off-wrist
+repairs. `todo.md` owns verification and pending optional additions. AkshatOS ownership remains
+unchanged until explicit cutover and phone acceptance; no parity reduction is authorized.
 
 ### Selected Extras And Deferred Ideas
 
@@ -487,10 +498,9 @@ assessment is proposed. Evidence-qualified user-reviewed suggestions are request
 
 ## Implementation And Acceptance Gates
 
-- Keep the accepted core/four extras/times/history controls in the combined Build 86 plan; obtain
-  a separate implementation go-ahead after scope collection. Resolve background modes, exact
-  report-week/baseline behavior, intake-review safeguards, activity/rest rules, Pushups parity/
-  capabilities, structural design, forgotten finish and import conflicts/entry ownership before code.
+- Preserve the implemented core/four extras/times/history controls and approved background,
+  goal-review, activity/rest, Pushups and import rules. Build 87 source implementation is approved;
+  optional additions require their own selection, and structural/physical acceptance remains open.
 - Repair bounded background collection first. Preserve one BLE owner and commit-before-ACK;
   short wakes must not run full fitness reports, imports, image processing or media encryption.
 - Reuse current session, weight, profile, nutrition and UI helpers; add only necessary durable

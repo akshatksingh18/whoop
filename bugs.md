@@ -5,7 +5,8 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Akshat reports build `0.9.52`/`85` installed. Supplied logs confirm
+**Current verification:** Akshat confirms build `0.9.53`/`86` installed; its background phone
+acceptance remains open. Earlier supplied logs confirm
 background transfers can succeed, but long transfer gaps, foreground-only recovery and background
 CPU-limit exits remain. Build 70 remains accepted recovery; `todo.md` owns current acceptance
 gates. The background-sync section below owns the current evidence and source findings.
@@ -154,15 +155,24 @@ prevents AccessorySetupKit from presenting the primary-WHOOP picker for the rest
 
 ## UI and food reliability
 
-**Open build-85 follow-ups, queued for Build 86:** `build-86-audit.md` owns current source evidence
+**Build-85 follow-ups implemented in installed Build 86, pending phone acceptance:**
+`build-86-audit.md` owns source evidence
 and repair/test contracts for reversed Strain day arrows, average rather than current walking
 speed, incomplete cross-midnight sleep signals, automatic open-to-recorded-HR freshness, diary
 delete without confirmation, shifting workout trash/chevron and missing summary Delete,
 non-atomic session deletion, one-way portion equivalents, fixed-only food categories, typed-
 goal calorie warnings, limited activity streaks, weekly protein/coverage denominators and reset
 backup-deletion error handling. Sleep-window/freshness paths are confirmed risks, not proof of
-the exact recorded gap. These are not fixed by build 85's earlier UI/refresh work. Implementation
-remains deferred in `todo.md`; focused tests could not execute with the current Windows launcher.
+the exact recorded gap. They were not fixed by build 85's earlier UI/refresh work; Build 86's
+implementation/CI evidence and remaining device checks are in `todo.md`.
+
+**Build 86 UI/presentation findings, repaired in local Build 87 source:** `build-87-ui-plan.md` owns
+the rejected first-viewport/card-heavy design and source-confirmed compressed Progress date axes,
+limited food/workout history under All, suppressed partial reviews, mixed comparison windows,
+omitted Other subtype, profile-only weight ambiguity, stale completion help and masked read errors.
+This is a static source/screenshot audit, not reproduced phone data loss. Repairs and visual
+approval are separate: source repairs are implemented, visual/phone acceptance is open;
+`todo.md` owns verification and publication gates.
 
 Source `0.9.39`/`72` fixes clipped chart readouts, inconsistent Deep colouring, restored launch
 tabs, the indirect Scan flow and unbounded food history. It adds Quick add fibre/editing, optional
@@ -397,14 +407,42 @@ detection, staging or recorded data: the analytics package is unchanged since bu
 `kAlgoVersion` (91) since build 81. The lost hours cannot be recovered. Sleep → Fix sleep times
 (10:00 PM–5:00 AM) sets the duration, and the naps can be removed under Naps → Edit.
 
-Open app defect (build 87): while the band reported off-wrist, the app treated its silence as a
+Repaired in local Build 87 source, pending phone verification: while the band reported off-wrist,
+the app treated its silence as a
 dead link and bounced the connection 23 times ("No data for >120s — bouncing the link"), costing
 battery on both devices. After a `WRIST_OFF` with no `WRIST_ON`, silence should not trigger a
-reconnect.
+reconnect. Current-connection wear evidence now gates silence reconnect/re-arm/fast polls;
+unknown/on-wrist silence and real disconnection/write failures retain recovery. Older history
+cannot overwrite newer evidence. Normal polling and history catch-up remain active.
 
 Separate display bug, fixed in build-86 source: the chart's scrub line printed the raw skin-
 temperature count relative to the day as "Temp Δ −31.3 °C". That number is not degrees; the
 readout no longer shows temperature (the Skin temp row and its chart remain).
+
+## Stale Band-Data Age And Repeated Empty Catch-Up
+
+Installed Build 86's later logs show successful durable commits during a window where Status
+still displayed a launch-time sample several hours old. This is a confirmed display defect,
+not evidence that the entire displayed interval was unsynced. Status and Today's idle freshness
+line read `lastSynced`, which was assigned only at initialization/deletion; the advancing durable
+frontier already existed separately. Local Build 87 uses that frontier for both readers.
+Ephemeral live frames cannot advance it, and the single-record fallback notifies only after storage.
+
+The same diagnostics show cold background connect attempts rejected while CoreBluetooth was
+still unknown, repeated empty catch-up rounds, and calculations cancelled/requeued on
+backgrounding. Local Build 87 primes the existing bounded adapter-state probe before connect,
+stops an unproductive burst even when earlier connection totals are nonzero, connects Today's
+HR chart to recent committed samples, and distinguishes queued calculation from running.
+A second confirmed display problem was the aggregate calculation timestamp: Today's row commits
+and triggers its UI revision before the complete derive pass refreshes aggregate freshness. A
+later-day cancellation therefore leaves "Updated" behind the already-committed Today result.
+Local Build 87 reads that payload and timestamp together, preserving the served-version ceiling
+and separate overnight qualification rather than doing a heavy refresh during cancellation.
+
+New synthetic regressions cover the stale boot sample, empty versus productive stale-timestamp
+rounds, recorded-minute gaps and calendar boundaries. Phone cold-wake and short-visit tests
+remain open; neither these logs nor source tests guarantee iOS execution or identify why every
+process restarted. The supplied MetricKit exit windows do not cover this later incident.
 
 ## Workout Live Activity never drew (builds 74–80): resolved by removal in build 81
 

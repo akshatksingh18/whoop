@@ -51,6 +51,7 @@ import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
+import 'input_reuse.dart';
 import 'step_cadence.dart';
 import 'profile.dart';
 import 'substrate.dart';
@@ -2180,6 +2181,7 @@ class DerivationEngine {
   /// are decided before the write transaction, so the slower one's PARTIAL row
   /// could land on top of the faster one's complete row.
   static bool _running = false;
+  static final _inputReuse = <String, InputReuse>{};
   bool get running => _running;
 
   /// Run [body] under the process-wide derivation lock, returning [busy]
@@ -2234,6 +2236,7 @@ class DerivationEngine {
     void Function(String day, int index, int total)? onDayDone,
   }) async {
     if (_running) return 0;
+    if (force) _inputReuse.clear();
     _running = true;
     final stopGen = DeriveStop.generation;
     var cancelled = false;
@@ -2529,6 +2532,7 @@ class DerivationEngine {
   }) async {
     if (days.isEmpty) return 0;
     if (_running) return 0;
+    if (force) _inputReuse.clear();
     _running = true;
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
@@ -3726,6 +3730,7 @@ class DerivationEngine {
     _BaselineHistoryCache history, {
     bool forceFinalize = false,
   }) async {
+    final stopGen = DeriveStop.generation;
     final daySub = day.daySub;
     final sleepSub = day.sleepSub;
     // Per-second 4-class stage labels (the single source): 'wake'|'light'|
@@ -3774,11 +3779,30 @@ class DerivationEngine {
 
     // Cancellable: on timeout the isolate is KILLED, not merely abandoned to
     // keep burning a core behind the worker pool's back.
-    final bundle = await _runIsolateCancellable(
-      () => deriveDayBundle(withHistory),
+    final previous = _inputReuse[day.date];
+    final cache = previous?.version == kAlgoVersion
+        ? previous!
+        : InputReuse(kAlgoVersion);
+    final hitsBefore = cache.hits, missesBefore = cache.misses;
+    final workerTime = Stopwatch()..start();
+    final reused = await _runIsolateCancellable(
+      () => (bundle: deriveDayBundle(withHistory, reuse: cache), cache: cache),
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
+    DeriveStop.check(stopGen);
+    workerTime.stop();
+    _log(
+      'day-bundle ${day.date}: ${workerTime.elapsedMilliseconds}ms, '
+      '${reused.cache.hits - hitsBefore} reused, '
+      '${reused.cache.misses - missesBefore} recalculated pure inputs',
+    );
+    _inputReuse.remove(day.date);
+    _inputReuse[day.date] = reused.cache;
+    while (_inputReuse.length > 3) {
+      _inputReuse.remove(_inputReuse.keys.first);
+    }
+    final bundle = reused.bundle;
     // Readiness came back absent for TODAY specifically (not a historical
     // backfill day, which would just be noise) — log why. This ran inside
     // Isolate.run so it couldn't call Firebase itself; it just returned the

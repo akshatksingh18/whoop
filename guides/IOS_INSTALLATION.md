@@ -1,20 +1,23 @@
 # WHOOP iOS build and installation profiles
 
 **State:** The repository contains full upstream-capable iOS targets plus an implemented minimal
-personal-sideload profile and public manual macOS workflow. Akshat reports build `0.9.52`/`85`
-currently installed. Source `3c141b7a` passes recorded local validation, Linux CI, macOS compilation
-and downloaded artifact checks, with no app extension (removed in build 81).
-The single testing candidate is now build `0.9.53`/`86`,
+personal-sideload profile and public manual macOS workflow. Build 85 is superseded by installed
+build `0.9.53`/`86`, with no app extension (removed in build 81).
+The single testing candidate is
 `../../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7` (Linux CI `38090036814`, macOS
 build `38090037024`, downloaded checks pass; installed, per Akshat's screenshots). Complete phone acceptance,
-data/pairing continuity, background behavior and current-version automatic-refresh enrollment
-remain open in `../todo.md`; installation alone does not authorize cache promotion.
+data/pairing continuity and background behavior remain open in `../todo.md`; current-version
+Sideloadly enrollment is corroborated, but a future unattended renewal is not. Installation alone
+does not authorize cache promotion. The installed UI is rejected; `../build-87-ui-plan.md` is a
+local implemented `0.9.54`/`87` replacement, not a new built or signed artifact. Build 87
+publication/build is approved; macOS/IPA validation and structural/physical acceptance remain open.
 
 Build `0.9.37`/`70` remains accepted recovery: its feature phone check and current-version
 automatic-refresh registration at the existing signed identity were confirmed with no error.
 It is cached in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`.
 `../setup.md` owns current and superseded source/hash/workflow evidence; `../build-85-audit.md`
-owns the latest approved changes, and earlier audits retain their findings and repair contracts.
+owns the earlier calorie/UI changes; `../build-86-audit.md` owns the installed candidate's repair
+contracts. Build 87 implementation is approved; design/physical acceptance remains a separate gate.
 
 The personal profile excludes HealthKit and reads the direct iPhone pedometer when **This phone →
 Steps** is enabled. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID
@@ -79,7 +82,7 @@ than editing the full target ad hoc or expecting Sideloadly to repair entitlemen
   contract-tested, not yet device-verified — `CLAUDE.md` owns the outstanding evidence gate;
 - hide the unsupported Oura pairing row in the personal flavor while retaining its direct-BLE
   implementation in the full upstream-capable source;
-- `fetch` and `processing`: absent from installed build 85; build-86 source (Akshat's approval)
+- `fetch` and `processing`: absent from previous build 85; installed build 86 (Akshat's approval)
   keeps exactly `bluetooth-central`, `location`, `audio`, `fetch`, `processing` and the two task
   identifiers `wtf.openstrap.edge.bgsync` / `wtf.openstrap.edge.refresh`, with native
   registration in the personal build. `tool/personal_ios.py` and its tests enforce that exact set.
@@ -176,7 +179,7 @@ Use Profile/Release for standalone relaunch testing.
 Runner derives `CFBundleShortVersionString` and `CFBundleVersion` from Flutter's build name/number.
 The Widget and Watch targets have separate hardcoded `MARKETING_VERSION`/
 `CURRENT_PROJECT_VERSION` values in the Xcode project and must be aligned manually when those
-targets ship. Runner and Widget/Watch metadata are aligned to `0.9.41+74` in source.
+targets ship. Runner and the excluded Widget/Watch/test metadata are aligned to `0.9.54+87` in source.
 The personal artifact carries no app extension (build 81) and excludes Watch/general widgets.
 Runner versions and the source manifest change for every new binary;
 the accepted-build ledger prevents reuse and bundle identity does not change.

@@ -4,7 +4,7 @@
 issues, incorporated into Build 86, which Akshat approved for implementation as one build. Findings
 below are the build's repair contracts; implemented state is tracked in `todo.md`. `todo.md` owns combined approval;
 `fitness-app-plan.md` owns the integrated product design; `background-sync-plan.md` owns BLE/
-calculation repair; `lift-log-integration-plan.md` owns lifting parity. Build 85 remains installed
+calculation repair; `lift-log-integration-plan.md` owns lifting parity. Build 86 is installed
 and build 70 remains accepted recovery. Findings are current work items, not a session diary.
 
 ## Audit Boundary
@@ -294,11 +294,35 @@ build 70 explicitly; take a database-only export that the rollback build can rea
 
 ## Whole-App Redesign And Convenience Review
 
+**Installed-screen design feedback:** Akshat rejects build 86's cosmetic-only feel and excessive
+Progress copy. The submitted phone screens retain a dominant stacked rounded-card composition;
+Progress leads with a large goal/eligibility explanation and repeats insufficient-data messages
+across chart, entries, weekly/monthly review and strength. Important records sit below this noise.
+This is a failed visual/structural acceptance check, not evidence that all underlying features
+are unchanged. `build-87-ui-plan.md` now owns the replacement-composition audit/proposal;
+`todo.md` owns its implementation, design and publication gates.
+
+Implemented locally on Akshat's Build 87 go-ahead: compact goal status; weight/measurement trend and dated
+changes first; compact comparable-strength view; one Week/Month review with independent input
+coverage; contextual add/history/photos; eligibility reasons available through a details action.
+Keep uncertainty near conclusions without repeating paragraphs on every panel. Empty/partial
+data must not fabricate trends or disable unrelated summaries with valid coverage.
+
+The Build 87 source trace resolves adjacent screenshot questions: Food and Progress share
+`body_weight`, but Food can display profile weight without a dated weigh-in; calorie-day completion
+and protein completeness have independent denominators; Progress counts all sessions while omitting
+Other from its printed subtype breakdown. The new audit also identifies compressed date axes,
+bounded food/workout reads under All, mixed comparison periods and masked read errors. These are
+presentation contracts, not proof of lost records. A sparse chart alone does not establish sync
+failure. Do not copy personal screenshot values into public documentation or loosen evidence gates.
+
 **Build-86 source:** Today, Food and Train are restructured as described in `todo.md` section 8;
-rendered pages await Akshat's approval and route/back-gesture checks need the phone.
+the installed design is rejected. Route/back-gesture checks still need the phone. The following
+original design requirements remain feature contracts; `build-87-ui-plan.md` owns their proposed
+implemented local replacement composition, with design and physical acceptance still open.
 
 The requested makeover is structural, not a new accent on the same ring/card layout. Keep
-Today / Trends / Food / Train reachable and add the planned Progress destination. Prototype
+Today / Trends / Food / Train / Progress reachable. Prototype
 complete flows before code: brief Today review, Food logging/editing, one Lift/Walk session,
 Body backdated entry/photo comparison, combined Progress and failure/recovery states.
 

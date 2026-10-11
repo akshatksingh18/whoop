@@ -848,161 +848,66 @@ class RingTrio extends StatelessWidget {
     final sleep = _ringOf(HomeRingKind.sleep, d, l);
     final aim = d.strainTarget?['value'];
     final hrv = d.hrv.value, rhr = d.rhr.value;
-    // At large text sizes the hero stacks and the two cells sit one above
-    // the other; each stays its own door.
-    final stacked = MediaQuery.textScalerOf(c).scale(10) > 14;
-    final strainSub = strain.measured && aim is num
-        ? ((d.strain.value ?? 0) >= aim
-              ? 'Target ${aim.toStringAsFixed(1)} reached'
-              : 'Aim about ${aim.round()} today')
-        : null;
-    final ring = SizedBox(
-      width: 104,
-      height: 104,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(
-            size: Size.infinite,
-            painter: rec.calibrating
-                ? DashedRing(
-                    rec.frac ?? 0,
-                    rec.arc(p),
-                    p.track,
-                    stroke: 9,
-                    segments: rec.need ?? 24,
-                  )
-                : Ring(
-                    rec.frac ?? 0,
-                    rec.arc(p),
-                    p.track,
-                    stroke: 9,
-                    t: animate(c, 1),
-                    solid: rec.measured,
-                  ),
-          ),
-          if (rec.measured)
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(rec.value, style: F.n34.copyWith(color: p.ink)),
-                ),
-              ],
-            )
-          else
-            Icon(rec.icon, size: 26, color: p.ink3),
-        ],
-      ),
-    );
-    final words = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    Widget cell(_RingState metric, HomeRingKind kind) => Pressable(
+      onTap: _open(kind),
+      semanticLabel: metric.spoken,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3, horizontal: S.x1),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(rec.icon, size: 14, color: rec.ink(p)),
-            const SizedBox(width: S.x1),
-            Text(rec.label, style: F.cap.copyWith(color: p.ink2)),
+            Text(metric.label, style: F.cap.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x2),
+            Text(metric.value, style: F.n24.copyWith(color: metric.ink(p))),
+            const SizedBox(height: S.x1),
+            Text(
+              metric.measured ? metric.sub : 'See details',
+              style: F.over.copyWith(color: p.ink3),
+            ),
           ],
         ),
-        const SizedBox(height: S.x1),
-        Text(
-          rec.measured ? rec.sub : rec.value,
-          style: F.t2.copyWith(color: rec.measured ? rec.ink(p) : p.ink2),
-        ),
-        if (!rec.measured && (rec.why ?? rec.sub).isNotEmpty)
-          Text(
-            rec.why ?? rec.sub,
-            style: F.cap.copyWith(color: p.ink3),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-        if (rec.measured && strainSub != null)
-          Text(strainSub, style: F.cap.copyWith(color: p.ink2)),
-        if (hrv != null || rhr != null) ...[
-          const SizedBox(height: S.x2),
-          Wrap(
-            spacing: S.x2,
-            runSpacing: S.x2,
-            children: [
-              if (hrv != null)
-                Tag('HRV ${hrv.round()} ms', icon: LucideIcons.activity),
-              if (rhr != null)
-                Tag('Resting ${rhr.round()} bpm', icon: LucideIcons.heartPulse),
-            ],
-          ),
-        ],
-      ],
+      ),
     );
+    final stacked = MediaQuery.textScalerOf(c).scale(10) > 15;
     final cells = [
-      _StatusCell(sleep, onTap: _open(HomeRingKind.sleep)),
-      _StatusCell(strain, sub: strainSub, onTap: _open(HomeRingKind.strain)),
+      cell(rec, HomeRingKind.recovery),
+      cell(sleep, HomeRingKind.sleep),
+      cell(strain, HomeRingKind.strain),
     ];
-    // Build 86 redesign: one focal point. Recovery leads, lit in its own
-    // band colour; sleep and strain sit under it as the two things that made
-    // and will spend it. Every part is still the door into its own screen.
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: R.rXl,
-        border: Border.all(color: p.edge),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(
-              p.wash(rec.measured ? rec.color : C.n400, strength: .9),
-              p.cardHi,
-            ),
-            p.card,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (stacked)
+          ...cells
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [for (final cell in cells) Expanded(child: cell)],
+          ),
+        Wrap(
+          spacing: S.x4,
+          runSpacing: S.x1,
+          children: [
+            if (hrv != null)
+              Text(
+                'HRV ${hrv.round()} ms',
+                style: F.cap.copyWith(color: p.ink2),
+              ),
+            if (rhr != null)
+              Text(
+                'Resting ${rhr.round()} bpm',
+                style: F.cap.copyWith(color: p.ink2),
+              ),
+            if (strain.measured && aim is num)
+              Text(
+                'Strain target ${aim.toStringAsFixed(1)}',
+                style: F.cap.copyWith(color: p.ink2),
+              ),
           ],
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Pressable(
-            onTap: _open(HomeRingKind.recovery),
-            semanticLabel: rec.spoken,
-            child: Padding(
-              padding: const EdgeInsets.all(S.x4),
-              child: stacked
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ring,
-                        const SizedBox(height: S.x3),
-                        words,
-                      ],
-                    )
-                  : Row(
-                      children: [
-                        ring,
-                        const SizedBox(width: S.x4),
-                        Expanded(child: words),
-                      ],
-                    ),
-            ),
-          ),
-          Container(height: 1, color: p.edge),
-          if (stacked)
-            for (var i = 0; i < cells.length; i++) ...[
-              if (i > 0) Container(height: 1, color: p.edge),
-              cells[i],
-            ]
-          else
-            IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: cells[0]),
-                  Container(width: 1, color: p.edge),
-                  Expanded(child: cells[1]),
-                ],
-              ),
-            ),
-        ],
-      ),
+        const SizedBox(height: S.x3),
+        Divider(color: p.line, height: 1),
+      ],
     );
   }
 
@@ -1197,91 +1102,6 @@ _RingState _gap(
   );
 }
 
-/// Sleep or strain under Today's recovery hero: label, the number, a bar for
-/// how far along it is, and one short line. An absent metric keeps its cell
-/// and says why in that line.
-class _StatusCell extends StatelessWidget {
-  final _RingState r;
-
-  /// Replaces the ring state's own caption when the screen has a better one.
-  final String? sub;
-  final VoidCallback? onTap;
-
-  const _StatusCell(this.r, {this.sub, this.onTap});
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final caption = r.why ?? sub ?? r.sub;
-    final value = r.measured
-        ? FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(r.value, style: F.n24.copyWith(color: p.ink)),
-          )
-        : Text(r.value, style: F.cap.copyWith(color: p.ink2));
-    return Pressable(
-      onTap: onTap,
-      semanticLabel: r.spoken,
-      child: Padding(
-        padding: const EdgeInsets.all(S.x3),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(r.icon, size: 14, color: r.ink(p)),
-                const SizedBox(width: S.x1),
-                Expanded(
-                  child: Text(
-                    r.label,
-                    style: F.cap.copyWith(color: p.ink2),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: S.x3),
-            SizedBox(
-              height: 40,
-              child: Align(alignment: Alignment.centerLeft, child: value),
-            ),
-            const SizedBox(height: S.x2),
-            ClipRRect(
-              borderRadius: R.rPill,
-              child: SizedBox(
-                height: 6,
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: ColoredBox(color: p.track)),
-                    FractionallySizedBox(
-                      widthFactor: (r.frac ?? 0).clamp(0.0, 1.0),
-                      child: ColoredBox(
-                        color: r.arc(p),
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (caption.isNotEmpty) ...[
-              const SizedBox(height: S.x2),
-              Text(
-                caption,
-                style: F.over.copyWith(color: p.ink3),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ═══════════════════ the screen ═══════════════════
 
 class HomeData {
@@ -1293,6 +1113,9 @@ class HomeData {
 
   /// Today's heart rate, one slot per minute, for the card on this screen.
   final DayGraph graph;
+  final List<Map<String, num>> recentHr;
+  final bool recentHrFailed;
+  final bool graphFailed;
 
   /// Estimated kcal spent walking today, from steps, height and weight. Shown
   /// beside the steps and NEVER added to the calorie totals. Null when the
@@ -1353,6 +1176,9 @@ class HomeData {
     this.rhr = Metric.empty,
     this.hrv = Metric.empty,
     this.graph = const DayGraph(),
+    this.recentHr = const [],
+    this.recentHrFailed = false,
+    this.graphFailed = false,
     this.steps = Metric.empty,
     this.calories = Metric.empty,
     this.caloriesTotal = Metric.empty,
@@ -1383,6 +1209,9 @@ class HomeData {
     rhr: rhr,
     hrv: hrv,
     graph: graph,
+    recentHr: recentHr,
+    recentHrFailed: recentHrFailed,
+    graphFailed: graphFailed,
     steps: steps,
     calories: calories,
     caloriesTotal: caloriesTotal,
@@ -1404,6 +1233,7 @@ class HomeData {
   static Future<HomeData> load(
     LocalRepository repo, [
     AppLocalizations? l,
+    HomeData? previous,
   ]) async {
     final today = await repo.getToday();
     final cd = await repo.getInsights();
@@ -1439,16 +1269,40 @@ class HomeData {
     final hrvBlock = today['hrv'];
     final dayId = (today['status'] as Map?)?['today_day']?.toString();
     var graph = const DayGraph();
-    if (dayId != null) {
-      try {
-        graph = dayGraph(await repo.getDayTimeline(dayId));
-      } catch (_) {
-        // The card is optional; the rest of the screen is not.
+    var recentHr = const <Map<String, num>>[];
+    var recentHrFailed = false;
+    var graphFailed = false;
+    final now = DateTime.now();
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+    try {
+      final points = (await repo.getChart('hr'))['points'];
+      graph = dayGraph({
+        'date': todayLabel(),
+        'day_start':
+            DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/
+            1000,
+        'hr': points,
+      });
+    } catch (_) {
+      graphFailed = true;
+      if (previous?.graph.dayStartSec ==
+          DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/
+              1000) {
+        graph = previous!.graph;
       }
+    }
+    try {
+      recentHr = await repo.getRecordedHr((nowSec ~/ 60 - 60) * 60, nowSec + 1);
+    } catch (_) {
+      recentHrFailed = true;
+      recentHr = previous?.recentHr ?? const [];
     }
 
     return HomeData(
       graph: graph,
+      recentHr: recentHr,
+      recentHrFailed: recentHrFailed,
+      graphFailed: graphFailed,
       hrv: overnightMetric(
         today,
         hrvBlock is Map
@@ -1588,7 +1442,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     }
     final t = beginRead(#home);
     try {
-      final d = await HomeData.load(repo, AppLocalizations.of(context));
+      final d = await HomeData.load(repo, AppLocalizations.of(context), _d);
       if (stillNewest(#home, t)) {
         setState(() => (_d = d, _loading = false, _failed = false));
       }
@@ -1924,7 +1778,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             // ── the rollup was withheld, not absent ──
             if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
-            // ── what the day still asks of you ──
+            // Latest recorded heart-rate trace before daily actions.
+            const SizedBox(height: S.x3),
+            _HeartCard(
+              graph: d.graph,
+              recorded: d.recentHr,
+              failed: d.recentHrFailed,
+              graphFailed: d.graphFailed,
+              onRetry: _load,
+            ),
             const SizedBox(height: S.x3),
             TodayPlanCard(
               steps: d.steps.value?.round(),
@@ -1934,14 +1796,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               full: widget.data == null,
             ),
 
-            // ── heart rate, all day ──
-            const SizedBox(height: S.x3),
-            _heartCard(c, p, d.graph),
             // Maintenance so far: the same card Food shows, both methods, the
             // Budget day as a bar and eaten against it. Lifting is a sheet line.
             if (d.upkeep case final upkeep? when upkeep.parts != null) ...[
               const SizedBox(height: S.x3),
-              MaintenanceCard(upkeep, today: true),
+              MaintenanceCard(upkeep, today: true, compact: true),
             ],
             if (widget.data == null) ...[
               const SizedBox(height: S.x3),
@@ -2018,15 +1877,102 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     onRefresh: () => pullToRefresh(context, _load),
     child: list,
   );
+}
 
-  /// The whole day's heart rate as one line. Tap for the minute-by-minute
-  /// chart you can drag a finger across.
-  Widget _heartCard(BuildContext c, P p, DayGraph g) {
-    final vals = [for (final v in g.hr) ?v];
+({int startSec, int endSec, List<double?> values}) recentHeartSlots(
+  List<Map<String, num>> recorded,
+  DateTime now, {
+  required int minutes,
+}) {
+  if (minutes < 1 || minutes > 60) throw ArgumentError.value(minutes);
+  final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+  final endSec = nowSec ~/ 60 * 60;
+  final startSec = endSec - minutes * 60;
+  final values = List<double?>.filled(minutes + 1, null);
+  for (final row in recorded) {
+    final ts = row['t']?.toInt(), v = row['v']?.toDouble();
+    if (ts == null ||
+        v == null ||
+        !v.isFinite ||
+        v <= 0 ||
+        ts < startSec ||
+        ts > nowSec)
+      continue;
+    final slot = (ts - startSec) ~/ 60;
+    if (slot < values.length) values[slot] = v;
+  }
+  return (startSec: startSec, endSec: endSec, values: values);
+}
+
+class _HeartCard extends StatefulWidget {
+  const _HeartCard({
+    required this.graph,
+    required this.recorded,
+    required this.failed,
+    required this.graphFailed,
+    required this.onRetry,
+  });
+  final DayGraph graph;
+  final List<Map<String, num>> recorded;
+  final bool failed;
+  final bool graphFailed;
+  final VoidCallback onRetry;
+  @override
+  State<_HeartCard> createState() => _HeartCardState();
+}
+
+class _HeartCardState extends State<_HeartCard> {
+  int _window = 2;
+  Timer? _clock;
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted &&
+          TickerMode.of(context) &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c), g = widget.graph;
+    final now = DateTime.now();
+    final recent = recentHeartSlots(
+      widget.recorded,
+      now,
+      minutes: _window == 0 ? 10 : 60,
+    );
+    final points = _window == 2 ? g.hr : recent.values;
+    final vals = [
+      for (final v in points)
+        if (v != null && v.isFinite) v,
+    ];
     final range = vals.isEmpty
         ? null
         : '${vals.reduce((a, b) => a < b ? a : b).round()} – '
-              '${vals.reduce((a, b) => a > b ? a : b).round()} bpm today';
+              '${vals.reduce((a, b) => a > b ? a : b).round()} bpm';
+    String time(int sec) {
+      final t = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
+      return '${t.hour.toString().padLeft(2, '0')}:'
+          '${t.minute.toString().padLeft(2, '0')}';
+    }
+
+    final start = _window == 2 ? g.dayStartSec : recent.startSec;
+    final end = _window == 2 && start != null
+        ? start + g.hr.length * 60
+        : recent.endSec;
+    final labels = start == null
+        ? const ['12 am', 'Noon', '12 am']
+        : [time(start), time(start + (end - start) ~/ 2), time(end)];
     return Surface(
       onTap: () => go(c, const DayTimelineScreen()),
       semanticLabel: 'Heart rate${range == null ? '' : ', $range'}',
@@ -2036,47 +1982,80 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           Wrap(
             spacing: S.x2,
             runSpacing: S.x1,
-            alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.heart)),
-                  const SizedBox(width: S.x2),
-                  Text('Heart rate', style: F.cap.copyWith(color: p.ink2)),
-                ],
-              ),
+              Icon(LucideIcons.heartPulse, size: 16, color: p.on(C.heart)),
+              Text('Heart rate', style: F.cap.copyWith(color: p.ink2)),
               if (range != null)
                 Text(range, style: F.cap.copyWith(color: p.ink3)),
             ],
           ),
           const SizedBox(height: S.x2),
-          // The reading arriving now, repainting on its own.
           const _LiveNow(),
-          if (vals.length > 1) ...[
+          const SizedBox(height: S.x2),
+          SubTabs(
+            const ['10 min', '1 hour', 'Day'],
+            _window,
+            (i) => setState(() => _window = i),
+            color: C.heart,
+          ),
+          if (_window == 2 ? widget.graphFailed : widget.failed)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Heart rate could not refresh',
+                    style: F.cap.copyWith(color: p.ink3),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Retry heart rate',
+                  onPressed: widget.onRetry,
+                  icon: const Icon(LucideIcons.refreshCw),
+                ),
+              ],
+            ),
+          if (vals.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x3),
+              child: Text(
+                _window == 2
+                    ? 'No recorded HR today'
+                    : 'No recorded HR in the last ${_window == 0 ? '10 minutes' : 'hour'}',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+            )
+          else ...[
             const SizedBox(height: S.x3),
-            SizedBox(
-              height: 112,
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: LineChart(g.hr, p.on(C.heart), t: animate(c, 1)),
+            Semantics(
+              label:
+                  '${_window == 2
+                      ? 'Day'
+                      : _window == 0
+                      ? 'Last 10 minutes'
+                      : 'Last hour'}: '
+                  '$range, ${vals.length} recorded minutes. Missing minutes are gaps.',
+              child: SizedBox(
+                height: 100,
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: LineChart(points, p.on(C.heart), t: animate(c, 1)),
+                ),
               ),
             ),
             const SizedBox(height: S.x2),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                for (final t in const [
-                  '12 am',
-                  '6 am',
-                  'Noon',
-                  '6 pm',
-                  '12 am',
-                ])
-                  Text(t, style: F.over.copyWith(color: p.ink3)),
+                for (final label in labels)
+                  Text(label, style: F.over.copyWith(color: p.ink3)),
               ],
             ),
+            if (_window != 2)
+              Text(
+                'Recorded minute averages',
+                style: F.over.copyWith(color: p.ink3),
+              ),
           ],
         ],
       ),
@@ -2101,20 +2080,28 @@ class _WorkLine extends StatelessWidget {
 
   Widget _line(BuildContext c) {
     final p = P.of(c);
+    bool running = false;
+    try {
+      running = c.select<AppState, bool>((a) => a.deriving);
+    } catch (_) {}
     final word = syncingNowOf(c)
         ? 'Syncing the band'
-        : derivingOf(c)
+        : running
         ? 'Calculating'
+        : derivingOf(c)
+        ? 'Calculations queued'
         : null;
     if (word == null) {
       int? ts;
       try {
-        ts = c.select<AppState, int?>((a) => a.lastSynced?.tsEpoch);
+        ts = c.select<AppState, int?>(
+          (a) => a.lastRecordAt?.millisecondsSinceEpoch,
+        );
       } catch (_) {
         ts = null; // no AppState above us, as in a golden
       }
       if (ts == null) return const SizedBox.shrink();
-      final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+      final at = DateTime.fromMillisecondsSinceEpoch(ts);
       final now = DateTime.now();
       String two(int v) => v.toString().padLeft(2, '0');
       final same =

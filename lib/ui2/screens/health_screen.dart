@@ -55,11 +55,11 @@ const _rows = <_Row>[
     C.heart,
     Rising.bad,
   ),
+  _Row('resp_rate', 'Breathing rate', 'br/min', LucideIcons.wind, C.teal),
   _Row('strain', 'Strain', '', LucideIcons.zap, C.strain),
   _Row('steps', 'Steps', 'steps', LucideIcons.footprints, C.steps),
   // Same dated walking contribution as maintenance, after run-step accounting.
   _Row('step_kcal', 'Step calories', 'kcal', LucideIcons.flame, C.green),
-  _Row('resp_rate', 'Breathing rate', 'br/min', LucideIcons.wind, C.teal),
   _Row(
     'skin_temp',
     'Skin temperature',
@@ -279,23 +279,44 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               padding: EdgeInsets.only(top: S.x8),
               child: Center(child: CircularProgressIndicator()),
             )
-          else if (_failed && _d == null)
+          else if (_failed)
             StatusCard(
               'Trends could not be read',
-              'Nothing was deleted. The read went wrong.',
+              _d == null
+                  ? 'Try again to load your records.'
+                  : 'Previous readings are still shown below.',
               fix: l?.healthTryAgain ?? 'Try again',
               icon: LucideIcons.databaseZap,
               onFix: () {
                 setState(() => (_loading = true, _failed = false));
                 _load();
               },
-            )
-          else ...[
+            ),
+          if (_d != null) ...[
+            Text(
+              win == 1 ? 'Today' : 'Daily averages · measured days only',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+            const SizedBox(height: S.x2),
             Surface(
-              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              framed: false,
+              pad: EdgeInsets.zero,
               child: Column(
                 children: [
                   for (var i = 0; i < rows.length; i++) ...[
+                    if (rows[i].key == 'hrv' || rows[i].key == 'strain')
+                      Padding(
+                        padding: const EdgeInsets.only(top: S.x4, bottom: S.x1),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            rows[i].key == 'hrv'
+                                ? 'Heart and breathing'
+                                : 'Activity and wear',
+                            style: F.over.copyWith(color: p.ink3),
+                          ),
+                        ),
+                      ),
                     if (i > 0) Divider(color: p.line, height: 1),
                     _trendRow(
                       c,
@@ -401,9 +422,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // average over the measured days in the range. It used to be the newest
     // reading in every range, so switching ranges changed nothing.
     final mean = vals.reduce((a, b) => a + b) / vals.length;
-    final sub = win == 1
-        ? 'Today'
-        : 'Daily average · ${vals.length} of $win days';
+    final sub = win == 1 ? 'Today' : '${vals.length}/$win days';
     return Pressable(
       onTap: open,
       semanticLabel: '${r.label}, ${_fmt(r, mean)} $unit, $sub',
@@ -417,12 +436,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    r.label,
-                    style: F.body.copyWith(color: p.ink),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(r.label, style: F.body.copyWith(color: p.ink)),
                   Text(sub, style: F.over.copyWith(color: p.ink3)),
                 ],
               ),

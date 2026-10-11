@@ -1,7 +1,7 @@
-// Progress (build 86): the one recomposition page — leaner while getting
+// Progress (build 87): the one recomposition page — leaner while getting
 // stronger — with Body inside it. Body progress first (weight and tape with
 // a measurement and a range menu, dated Start / Latest / Change, entries and
-// two-panel photo comparison), then strength, food, activity and recovery,
+// two-panel photo comparison), with dated strength, food, activity and recovery,
 // and one weekly / monthly review drawn from recorded evidence only.
 //
 // Nothing here is a score. Every number shows its dates and counts, a family
@@ -82,6 +82,7 @@ class ProgressData {
     this.goal = const GoalPlan(phase: GoalPhase.recomp),
     this.goalChosen = false,
     this.user = const {},
+    this.readErrors = const [],
   });
 
   /// The goal you chose (recomposition until you choose), and the profile
@@ -89,6 +90,7 @@ class ProgressData {
   final GoalPlan goal;
   final bool goalChosen;
   final Map<String, dynamic> user;
+  final List<String> readErrors;
 
   /// Body's measurement weekday: weekly weight blocks start on it.
   final int measureWeekday;
@@ -114,16 +116,25 @@ class ProgressData {
 
   String? get earliest {
     final ds = [
-      if (weights.isNotEmpty) weights.first.date,
-      if (measures.isNotEmpty) measures.last.date,
-      if (photos.isNotEmpty) photos.first.date,
+      ...weights.map((x) => x.date),
+      ...measures.map((x) => x.date),
+      ...photos.map((x) => x.date),
+      ...food.map((x) => x.date),
+      ...sessions.map((x) => x.date),
+      ...lifts.map((x) => dayLabelOf(x.startedAt)),
+      ...steps.map((x) => x.date),
+      ...sleepMin.map((x) => x.date),
+      ...recovery.map((x) => x.date),
     ]..sort();
     return ds.isEmpty ? null : ds.first;
   }
 
   static const baselineKey = progressBaselineKey;
 
-  static Future<ProgressData> load(BuildContext c) async {
+  static Future<ProgressData> load(
+    BuildContext c, {
+    ProgressData? previous,
+  }) async {
     final repo = repoOf(c);
     final user = c.read<AppState>().user ?? const {};
     final db = await LocalDb.instance;
@@ -134,62 +145,128 @@ class ProgressData {
           value: p.v,
         ),
     ];
-    Future<Map<String, dynamic>?> get(String k) async {
+    final errors = <String>[];
+    Future<T> read<T>(String label, Future<T> future, T fallback) async {
       try {
-        return await repo?.getChart(k);
+        return await future;
       } catch (_) {
-        return null;
+        errors.add(label);
+        return fallback;
       }
     }
 
-    final win = await NutritionDb.window(db, days: 400);
+    Future<Map<String, dynamic>?> get(String k) => read(
+      k,
+      repo?.getChart(k) ?? Future.error(StateError('No repository')),
+      null,
+    );
+    // ponytail: retained history is materialized here; multi-year diaries need
+    // SQL day aggregates and paged details before memory becomes a constraint.
+    final byDay = await read(
+      'Food',
+      NutritionDb.entriesSince(db, '0000-00-00'),
+      <String, List<FoodEntry>>{},
+    );
+    final marks = await read(
+      'Food',
+      NutritionDb.dayMarks(db, '0000-00-00', strict: true),
+      <String, String>{},
+    );
+    final win = NutritionWindow([
+      for (final date in byDay.keys.toList()..sort())
+        rollupDay(date, byDay[date]!, today: todayLabel(), mark: marks[date]),
+    ]);
     final now = DateTime.now();
-    final sessions = await LocalDb.sessionsInRange(
-      DateTime(now.year - 1, now.month, now.day).millisecondsSinceEpoch ~/ 1000,
-      now.millisecondsSinceEpoch ~/ 1000,
+    Future<List<DatedValue>> dated(String key, List<DatedValue>? saved) async {
+      final value = await get(key);
+      return errors.contains(key) ? saved ?? const [] : chart(value);
+    }
+
+    final sessions = await read(
+      'Workouts',
+      LocalDb.sessionsInRange(0, now.millisecondsSinceEpoch ~/ 1000),
+      <Map<String, dynamic>>[],
     );
     return ProgressData(
-      weights: await BodyLogDb.weights(),
-      measures: await BodyLogDb.measures(),
-      photos: await BodyLogDb.photos(),
-      lifts: await LiftLogDb.finished(),
-      food: [
-        for (final d in win.days)
-          (
-            date: d.date,
-            kcal: d.kcal.value,
-            counts: d.countsTowardAverages,
-            protein: d.protein.value,
-            proteinComplete: d.protein.complete,
-          ),
-      ],
-      steps: chart(await get('steps')),
-      sleepMin: chart(await get('sleep')),
-      recovery: chart(await get('recovery')),
-      sessions: [
-        for (final r in sessions)
-          if (r['status'] != 'live' && r['start_ts'] is num)
-            (
-              date: dayLabelOf(
-                DateTime.fromMillisecondsSinceEpoch(
-                  (r['start_ts'] as num).toInt() * 1000,
+      weights: await read(
+        'Weight',
+        BodyLogDb.weights(),
+        previous?.weights ?? <BodyWeightRow>[],
+      ),
+      measures: await read(
+        'Measurements',
+        BodyLogDb.measures(),
+        previous?.measures ?? <BodyMeasure>[],
+      ),
+      photos: await read(
+        'Photos',
+        BodyLogDb.photos(),
+        previous?.photos ?? <BodyPhoto>[],
+      ),
+      lifts: await read(
+        'Lifts',
+        LiftLogDb.finished(),
+        previous?.lifts ?? <LiftWorkout>[],
+      ),
+      food: errors.contains('Food') && previous != null
+          ? previous.food
+          : [
+              for (final d in win.days)
+                (
+                  date: d.date,
+                  kcal: d.kcal.value,
+                  counts: d.countsTowardAverages,
+                  protein: d.protein.value,
+                  proteinComplete: d.protein.complete,
                 ),
-              ),
-              type: (r['type'] as String?) ?? '',
-            ),
-      ],
-      baseline: await CalculationStore.read(baselineKey),
+            ],
+      steps: await dated('steps', previous?.steps),
+      sleepMin: await dated('sleep', previous?.sleepMin),
+      recovery: await dated('recovery', previous?.recovery),
+      sessions: errors.contains('Workouts') && previous != null
+          ? previous.sessions
+          : [
+              for (final r in sessions)
+                if (r['status'] != 'live' && r['start_ts'] is num)
+                  (
+                    date: dayLabelOf(
+                      DateTime.fromMillisecondsSinceEpoch(
+                        (r['start_ts'] as num).toInt() * 1000,
+                      ),
+                    ),
+                    type: (r['type'] as String?) ?? '',
+                  ),
+            ],
+      baseline: await read<String?>(
+        'Baseline',
+        CalculationStore.read(baselineKey),
+        previous?.baseline,
+      ),
       heightCm: (user['height_cm'] as num?)?.toDouble(),
-      measureWeekday: await BodyLogDb.measureWeekday(),
-      goal: await GoalPlan.read(),
-      goalChosen: await GoalPlan.isChosen(),
+      measureWeekday: await read(
+        'Measurement day',
+        BodyLogDb.measureWeekday(),
+        previous?.measureWeekday ?? DateTime.saturday,
+      ),
+      goal: await read(
+        'Goal',
+        GoalPlan.read(strict: true),
+        previous?.goal ?? const GoalPlan(phase: GoalPhase.recomp),
+      ),
+      goalChosen: await read(
+        'Goal selection',
+        GoalPlan.isChosen(),
+        previous?.goalChosen ?? false,
+      ),
+      readErrors: errors.toSet().toList(),
       user: user,
     );
   }
 }
 
 class ProgressScreen extends StatefulWidget {
-  const ProgressScreen({super.key});
+  const ProgressScreen({super.key, this.data});
+  final ProgressData? data;
   @override
   State<ProgressScreen> createState() => _ProgressScreenState();
 }
@@ -200,25 +277,34 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   ProgressRange _range = ProgressRange.threeMonths;
   String _metricKey = 'weight';
   String _unit = 'kg';
-  bool _trend = false;
+  bool _trend = true;
+  int _review = 0;
+  int? _cursor;
 
   @override
   void initState() {
     super.initState();
+    _d = widget.data;
     _prefs();
   }
 
   Future<void> _prefs() async {
     try {
       final p = await SharedPreferences.getInstance();
+      if (!mounted) return;
       setState(() {
-        _unit = p.getString('body.unit') ?? 'kg';
+        _unit = p.getString('body.unit') == 'lb' ? 'lb' : 'kg';
         _range =
             ProgressRange.values
                 .where((r) => r.name == p.getString('progress.range'))
                 .firstOrNull ??
             _range;
-        _metricKey = p.getString('progress.metric') ?? _metricKey;
+        final metric = p.getString('progress.metric');
+        if (metric == 'weight' ||
+            metric == 'steps' ||
+            BodySite.parse(metric ?? '') != null) {
+          _metricKey = metric!;
+        }
       });
     } catch (_) {}
   }
@@ -236,10 +322,11 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   }
 
   @override
-  void reload() async {
+  Future<void> reload() async {
+    if (widget.data != null) return;
     final t = beginRead(#progress);
     try {
-      final d = await ProgressData.load(context);
+      final d = await ProgressData.load(context, previous: _d);
       if (stillNewest(#progress, t)) setState(() => (_d = d, _failed = false));
     } catch (_) {
       if (stillNewest(#progress, t)) setState(() => _failed = true);
@@ -256,7 +343,7 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   Widget build(BuildContext c) {
     final d = _d;
     return RefreshIndicator(
-      onRefresh: () => pullToRefresh(c, () async => reload()),
+      onRefresh: () => pullToRefresh(c, reload),
       child: ListView(
         padding: pad,
         children: [
@@ -267,11 +354,24 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
               'Your saved records are intact.',
               fix: 'Retry',
               onFix: reload,
-            )
-          else if (d == null)
-            const Center(child: CircularProgressIndicator())
-          else
+            ),
+          if (d == null && !_failed)
+            const Center(child: CircularProgressIndicator()),
+          if (d != null) ...[
+            if (d.readErrors.isNotEmpty)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${d.readErrors.join(', ')} could not refresh. Saved view retained where available.',
+                      style: F.cap.copyWith(color: P.of(c).on(C.orange)),
+                    ),
+                  ),
+                  TextButton(onPressed: reload, child: const Text('Retry')),
+                ],
+              ),
             ..._page(c, d),
+          ],
         ],
       ),
     );
@@ -281,84 +381,111 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final p = P.of(c);
     final today = todayLabel();
     final from = _range.from(today, baseline: d.baseline, earliest: d.earliest);
+    final hasEvidence = [
+      ...d.weights.map((x) => x.date),
+      ...d.measures.map((x) => x.date),
+      ...d.lifts.map((x) => dayLabelOf(x.startedAt)),
+      ...d.food.map((x) => x.date),
+      ...d.sessions.map((x) => x.date),
+      ...d.steps.map((x) => x.date),
+      ...d.sleepMin.map((x) => x.date),
+      ...d.recovery.map((x) => x.date),
+    ].any((date) => date.compareTo(from) >= 0 && date.compareTo(today) <= 0);
     return [
-      _goalCard(c, p, d, today),
-      const SizedBox(height: S.x3),
       Row(
         children: [
-          Expanded(
-            child: BigButton(
-              'Add entry',
-              icon: LucideIcons.plus,
-              color: C.teal,
-              onTap: () => _addEntry(c, d),
-            ),
+          Expanded(child: _goalCard(c, p, d, today)),
+          IconButton(
+            tooltip: 'Add body entry',
+            onPressed: () => _addEntry(c, d),
+            icon: Icon(LucideIcons.plus, color: p.on(C.teal)),
           ),
-          const SizedBox(width: S.x2),
-          Pressable(
-            semanticLabel: 'Body settings',
-            onTap: () => _settings(c, d),
-            child: Padding(
-              padding: const EdgeInsets.all(S.x3),
-              child: Icon(LucideIcons.settings2, size: 20, color: p.ink2),
-            ),
+          IconButton(
+            tooltip: 'Body settings',
+            onPressed: () => _settings(c, d),
+            icon: const Icon(LucideIcons.settings2),
           ),
         ],
       ),
-      const SizedBox(height: S.x4),
+      const SizedBox(height: S.x3),
       _menus(c, p),
       const SizedBox(height: S.x3),
       ..._bodySection(c, p, d, from, today),
-      const SizedBox(height: S.x5),
+      const SizedBox(height: S.x3),
+      if (hasEvidence) ...[
+        ..._reviewSection(c, p, d, today),
+        const SizedBox(height: S.x5),
+        ..._strengthSection(c, p, d, from, today),
+        const SizedBox(height: S.x5),
+        ..._foodSection(c, p, d, from, today),
+        const SizedBox(height: S.x5),
+        ..._activitySection(c, p, d, from, today),
+      ],
+      const SizedBox(height: S.x3),
+      ..._entries(c, p, d, _metric, from, today),
+      const SizedBox(height: S.x3),
       _photoCard(c, p, d),
-      const SizedBox(height: S.x5),
-      ..._reviewSection(c, p, d, today),
-      const SizedBox(height: S.x5),
-      ..._strengthSection(c, p, d, from, today),
-      const SizedBox(height: S.x5),
-      ..._foodSection(c, p, d, from, today),
-      const SizedBox(height: S.x5),
-      ..._activitySection(c, p, d, from, today),
     ];
   }
 
   Widget _menus(BuildContext c, P p) {
-    Widget chip(String label, bool on, VoidCallback tap) => Padding(
-      padding: const EdgeInsets.only(right: S.x2, bottom: S.x2),
-      child: Pressable(
-        semanticLabel: on ? '$label, selected' : label,
-        onTap: tap,
-        child: Pill(label, on ? C.teal : C.n400),
+    Widget menu<T>(
+      String label,
+      String value,
+      List<PopupMenuEntry<T>> items,
+      ValueChanged<T> select,
+    ) => PopupMenuButton<T>(
+      tooltip: 'Select $label',
+      onSelected: select,
+      itemBuilder: (_) => items,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: F.over.copyWith(color: p.ink3)),
+            const SizedBox(height: S.x1),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(value, style: F.body.copyWith(color: p.ink)),
+                ),
+                Icon(LucideIcons.chevronDown, size: 18, color: p.ink3),
+              ],
+            ),
+            const SizedBox(height: S.x2),
+            Divider(height: 1, color: p.line),
+          ],
+        ),
       ),
     );
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              chip(
-                'Weight',
-                _metricKey == 'weight',
-                () => _setMetric('weight'),
-              ),
-              chip('Steps', _metricKey == 'steps', () => _setMetric('steps')),
-              for (final s in BodySite.values)
-                chip(s.title, _metricKey == s.name, () => _setMetric(s.name)),
-            ],
-          ),
+        Expanded(
+          child: menu<String>('Measurement', _metric.label, [
+            const PopupMenuItem(value: 'weight', child: Text('Weight')),
+            const PopupMenuItem(value: 'steps', child: Text('Steps')),
+            for (final s in BodySite.values)
+              PopupMenuItem(value: s.name, child: Text(s.title)),
+          ], _setMetric),
         ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
+        const SizedBox(width: S.x4),
+        Expanded(
+          child: menu<ProgressRange>(
+            'Range',
+            _range.label,
+            [
               for (final r in ProgressRange.values)
-                chip(r.label, _range == r, () {
-                  setState(() => _range = r);
-                  _save('progress.range', r.name);
-                }),
+                PopupMenuItem(value: r, child: Text(r.label)),
             ],
+            (v) {
+              setState(() {
+                _range = v;
+                _cursor = null;
+              });
+              _save('progress.range', v.name);
+            },
           ),
         ),
       ],
@@ -366,7 +493,10 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   }
 
   void _setMetric(String k) {
-    setState(() => _metricKey = k);
+    setState(() {
+      _metricKey = k;
+      _cursor = null;
+    });
     _save('progress.metric', k);
   }
 
@@ -380,6 +510,11 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     String today,
   ) {
     final m = _metric;
+    final family = m is WeightMetric
+        ? 'Weight'
+        : m is StepsMetric
+        ? 'steps'
+        : 'Measurements';
     final List<DatedValue> series = switch (m) {
       WeightMetric() => weightSeries(d.weights, unit: _unit),
       StepsMetric() => d.steps,
@@ -388,74 +523,99 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final r = inRange(series, from, today);
     final summary = m is StepsMetric ? null : bodySummary(r);
     final steps = m is StepsMetric ? stepsSummary(r) : null;
-    final points = m is WeightMetric && _trend
-        ? [
-            for (final day in daysBetween(from, today))
-              if (BodyLogDb.sevenDayMean(d.weights, day) case final mean?)
-                _unit == 'lb' ? mean.kg * kLbPerKg : mean.kg,
-          ]
-        : [for (final x in r) x.value];
+    final labels = daysBetween(from, today);
+    final readings = {for (final x in r) x.date: x.value};
+    final List<double?> points = [
+      for (final day in labels)
+        if (m is WeightMetric && _trend)
+          switch (BodyLogDb.sevenDayMean(d.weights, day)) {
+            final mean? => _unit == 'lb' ? mean.kg * kLbPerKg : mean.kg,
+            _ => null,
+          }
+        else
+          readings[day],
+    ];
+    final axis = AxisSpec.of(
+      points.whereType<double>(),
+      format: axisFixedOrInt,
+    );
+    final cursor = _cursor == null || labels.isEmpty
+        ? null
+        : _cursor!.clamp(0, labels.length - 1);
+    String describe(int i) =>
+        '${_md(labels[i])} · ${points[i] == null ? 'Not recorded' : '${_num(points[i]!)} ${m.unit}'}';
     return [
       Surface(
+        framed: false,
+        pad: const EdgeInsets.symmetric(vertical: S.x3),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    m.label,
-                    style: F.body.copyWith(
-                      color: p.ink,
-                      fontWeight: FontWeight.w600,
+            if (m is WeightMetric)
+              Row(
+                children: [
+                  Expanded(
+                    child: SubTabs(
+                      const ['Readings', '7-day mean'],
+                      _trend ? 1 : 0,
+                      (i) => setState(() {
+                        _trend = i == 1;
+                        _cursor = null;
+                      }),
+                      color: C.teal,
                     ),
                   ),
-                ),
-                if (m is WeightMetric) ...[
-                  Pressable(
-                    semanticLabel: _trend
-                        ? 'Show readings'
-                        : 'Show 7-day trend',
-                    onTap: () => setState(() => _trend = !_trend),
-                    child: Text(
-                      _trend ? '7-day trend' : 'Readings',
-                      style: F.cap.copyWith(color: p.ink2),
-                    ),
-                  ),
-                  const SizedBox(width: S.x3),
-                  Pressable(
-                    semanticLabel:
-                        'Switch to ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
-                    onTap: () {
+                  const SizedBox(width: S.x2),
+                  TextButton(
+                    onPressed: () {
                       final u = _unit == 'kg' ? 'lb' : 'kg';
                       setState(() => _unit = u);
                       _save('body.unit', u);
                     },
-                    child: Text(_unit, style: F.cap.copyWith(color: p.ink2)),
+                    child: Text(_unit),
                   ),
                 ],
-              ],
-            ),
+              ),
             const SizedBox(height: S.x3),
             if (r.isEmpty)
               Text(
-                'Nothing recorded in ${_range.label.toLowerCase()}.',
+                d.readErrors.contains(family)
+                    ? 'Records unavailable. Retry above.'
+                    : 'Nothing recorded in ${_range.label.toLowerCase()}.',
                 style: F.cap.copyWith(color: p.ink3),
               )
             else ...[
-              if (points.length >= 2)
-                SizedBox(
-                  height: 140,
+              ChartFrame(
+                title: m is WeightMetric && _trend ? '7-day average' : m.label,
+                unit: m.unit,
+                height: 160,
+                yAxis: axis,
+                xLabels: [_md(from), _md(today)],
+                series: points,
+                readout: cursor == null ? null : describe(cursor),
+                child: Scrubber(
+                  value: cursor == null || labels.length < 2
+                      ? null
+                      : cursor / (labels.length - 1),
+                  label: 'Dated ${m.label} chart',
+                  step: labels.length < 2 ? 1 : 1 / (labels.length - 1),
+                  describe: (v) => describe((v * (labels.length - 1)).round()),
+                  onChanged: (v) => setState(
+                    () => _cursor = (v * (labels.length - 1)).round(),
+                  ),
                   child: CustomPaint(
                     size: Size.infinite,
                     painter: LineChart(
                       points,
                       p.on(C.teal),
+                      axis: axis,
+                      cursor: cursor,
                       fill: false,
                       dots: true,
                     ),
                   ),
                 ),
+              ),
               const SizedBox(height: S.x2),
               if (summary != null)
                 Row(
@@ -513,50 +673,59 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                 if (_blockLine(d, today) case final line?)
                   Text(line, style: F.cap.copyWith(color: p.ink3)),
               if (m is SiteMetric && m.site == BodySite.waistNavel)
-                ..._estimates(p, d),
+                ..._estimates(p, d, today),
             ],
           ],
         ),
       ),
-      const SizedBox(height: S.x3),
-      ..._entries(c, p, d, m, from, today),
     ];
   }
 
-  /// "This week (from Oct 4) 80.2 kg from 3 readings · −0.4 vs last week",
+  /// Current block's observed mean and the actual earlier recorded block date,
   /// for the block holding [today]; null when it has no reading.
   String? _blockLine(ProgressData d, String today) {
-    final blocks = BodyLogDb.weekBlocks(d.weights, d.measureWeekday);
+    final blocks = BodyLogDb.weekBlocks([
+      for (final w in d.weights)
+        if (w.date.compareTo(today) <= 0) w,
+    ], d.measureWeekday);
     final now = BodyLogDb.blockStart(today, d.measureWeekday);
     final b = blocks.where((x) => x.from == now).firstOrNull;
     if (b == null) return null;
+    final previous = blocks
+        .where((x) => x.from.compareTo(b.from) < 0)
+        .firstOrNull;
     double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
     return [
       'This week (from ${_md(b.from)}) ${_num(u(b.kg))} $_unit from '
           '${b.count} ${b.count == 1 ? 'reading' : 'readings'}',
-      if (b.change case final ch?)
-        '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))} vs the previous week',
+      if (b.change case final ch? when previous != null)
+        '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))} vs ${_md(previous.from)}',
     ].join(' · ');
   }
 
-  List<Widget> _estimates(P p, ProgressData d) {
+  List<Widget> _estimates(P p, ProgressData d, String today) {
     final latest = d.measures
-        .where((x) => x.value(BodySite.waistNavel) != null)
+        .where(
+          (x) =>
+              x.date.compareTo(today) <= 0 &&
+              x.value(BodySite.waistNavel) != null,
+        )
         .firstOrNull;
     final h = d.heightCm == null ? null : d.heightCm! / 2.54;
-    if (latest == null || h == null) return const [];
+    if (latest == null || h == null || !h.isFinite || h <= 0) return const [];
     final waist = latest.value(BodySite.waistNavel)!;
     final neck = d.measures
-        .where((x) => x.value(BodySite.neck) != null)
-        .firstOrNull
-        ?.value(BodySite.neck);
-    final bf = BodyLogDb.navyBodyFat(waist, neck, h);
+        .where(
+          (x) => x.date.compareTo(today) <= 0 && x.value(BodySite.neck) != null,
+        )
+        .firstOrNull;
+    final bf = BodyLogDb.navyBodyFat(waist, neck?.value(BodySite.neck), h);
     return [
       Padding(
         padding: const EdgeInsets.only(top: S.x2),
         child: Text(
           'Estimates from ${_md(latest.date)}: waist-to-height ${(waist / h).toStringAsFixed(2)}'
-          '${bf == null ? '' : ' · US Navy body fat about ${bf.toStringAsFixed(0)}%'}. '
+          '${bf == null ? '' : ' · US Navy body fat about ${bf.toStringAsFixed(0)}%${neck!.date == latest.date ? '' : ' (neck ${_md(neck.date)})'}'}. '
           'The trend matters, not the exact number.',
           style: F.cap.copyWith(color: p.ink3),
         ),
@@ -588,9 +757,9 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     if (m is WeightMetric) {
       final ws = [
         for (final w in d.weights.reversed)
-          if (w.date.compareTo(from) >= 0) w,
+          if (w.date.compareTo(from) >= 0 && w.date.compareTo(today) <= 0) w,
       ];
-      for (final w in ws.take(5)) {
+      for (final w in ws.take(3)) {
         rows.add(
           _entryRow(
             c,
@@ -607,9 +776,12 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     } else if (m is SiteMetric) {
       final ms = [
         for (final x in d.measures)
-          if (x.date.compareTo(from) >= 0 && x.value(m.site) != null) x,
+          if (x.date.compareTo(from) >= 0 &&
+              x.date.compareTo(today) <= 0 &&
+              x.value(m.site) != null)
+            x,
       ];
-      for (final x in ms.take(5)) {
+      for (final x in ms.take(3)) {
         final ch = BodyLogDb.changeSince(d.measures, x, m.site);
         rows.add(
           _entryRow(
@@ -629,15 +801,10 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       Section(
         'Entries',
         Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          framed: false,
+          pad: EdgeInsets.zero,
           child: rows.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(vertical: S.x4),
-                  child: Text(
-                    'No entries in this range.',
-                    style: F.cap.copyWith(color: p.ink3),
-                  ),
-                )
+              ? const SizedBox.shrink()
               : Column(children: rows),
         ),
         action: 'All history',
@@ -718,8 +885,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
               ),
               Text(
                 d.photos.isEmpty
-                    ? 'Add front and side photos from Add entry.'
-                    : '${d.photos.length} photos · latest ${_md(d.photos.last.date)}. Compare any two.',
+                    ? 'No photos yet'
+                    : '${d.photos.length} photos · ${_md(d.photos.last.date)}',
                 style: F.cap.copyWith(color: p.ink3),
               ),
             ],
@@ -736,6 +903,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   /// Your goal, its aim, and what the last two closed weeks say about it —
   /// a suggestion only; the calorie goal is yours to change.
   Widget _goalCard(BuildContext c, P p, ProgressData d, String today) {
+    if (d.readErrors.contains('Goal'))
+      return Text('Goal unavailable', style: F.cap.copyWith(color: p.ink3));
     final g = d.goal;
     // The goal's window: one closed week against the one before for fast
     // phases, two against two for slow ones (goal_plan.dart).
@@ -798,97 +967,98 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final band = g.band;
     String pct(double v) =>
         '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
-    final color = switch (advice.verdict) {
-      GoalVerdict.onTrack => C.green,
-      GoalVerdict.adjust => C.orange,
-      GoalVerdict.reviewRecovery => C.yellow,
-      GoalVerdict.needMore => C.n500,
-    };
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: R.rXl,
-        border: Border.all(color: p.edge),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(p.wash(C.teal, strength: .8), p.cardHi),
-            p.card,
-          ],
-        ),
-      ),
-      child: Pressable(
-        semanticLabel: 'Goal: ${g.phase.title}. Change goal',
-        onTap: () async {
-          final changed = await Navigator.of(c).push<bool>(
-            MaterialPageRoute(
-              builder: (_) => GoalScreen(plan: g, kg: kg),
-            ),
-          );
-          if (changed == true) reload();
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(S.x4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    final unavailable = d.readErrors.isNotEmpty;
+    final color = unavailable
+        ? C.n500
+        : switch (advice.verdict) {
+            GoalVerdict.onTrack => C.green,
+            GoalVerdict.adjust => C.orange,
+            GoalVerdict.reviewRecovery => C.yellow,
+            GoalVerdict.needMore => C.n500,
+          };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Pressable(
+          semanticLabel: 'Change goal: ${g.phase.title}',
+          onTap: () async {
+            final changed = await Navigator.of(c).push<bool>(
+              MaterialPageRoute(
+                builder: (_) => GoalScreen(plan: g, kg: kg),
+              ),
+            );
+            if (changed == true) reload();
+          },
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'GOAL',
-                      style: F.section.copyWith(color: p.ink3),
-                    ),
+              Flexible(
+                child: Text(
+                  g.phase.title,
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
                   ),
-                  Flexible(
-                    child: Text(
-                      d.goalChosen ? 'Change' : 'Choose your goal',
-                      textAlign: TextAlign.end,
-                      style: F.cap.copyWith(color: p.on(C.teal)),
-                    ),
-                  ),
-                  Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
-                ],
+                ),
               ),
-              const SizedBox(height: S.x1),
-              Text(g.phase.title, style: F.t2.copyWith(color: p.ink)),
-              Text(
-                'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein '
-                '${band.proteinLow}–${band.proteinHigh} g/kg'
-                '${g.since == null ? '' : ' · since ${_md(g.since!)}'}',
-                style: F.cap.copyWith(color: p.ink3),
-              ),
-              const SizedBox(height: S.x3),
-              Wrap(
-                spacing: S.x2,
-                runSpacing: S.x1,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Pill(switch (advice.verdict) {
-                    GoalVerdict.onTrack => 'On track',
-                    GoalVerdict.adjust => 'Adjust',
-                    GoalVerdict.reviewRecovery => 'Check recovery',
-                    GoalVerdict.needMore => 'Needs data',
-                  }, color),
-                  Text(advice.headline, style: F.body.copyWith(color: p.ink)),
-                ],
-              ),
-              const SizedBox(height: S.x2),
-              for (final line in advice.because)
-                Text(line, style: F.cap.copyWith(color: p.ink2)),
-              if (advice.next != null) ...[
-                const SizedBox(height: S.x2),
-                Text(advice.next!, style: F.cap.copyWith(color: p.ink)),
-              ],
-              const SizedBox(height: S.x2),
-              Text(
-                'A suggestion from your last closed weeks. The app never changes '
-                'your goals.',
-                style: F.over.copyWith(color: p.ink3),
-              ),
+              const SizedBox(width: S.x1),
+              Icon(LucideIcons.chevronDown, size: 16, color: p.ink3),
             ],
           ),
         ),
+        Pressable(
+          semanticLabel: 'Goal review details',
+          onTap: () => _details(c, 'Goal review', [
+            'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein ${band.proteinLow}–${band.proteinHigh} g/kg',
+            if (g.since != null) 'Since ${_md(g.since!)}',
+            if (unavailable)
+              'Review unavailable until the records refresh.'
+            else ...[
+              advice.headline,
+              ...advice.because,
+              if (advice.next != null) advice.next!,
+            ],
+            'Suggestions only. Your goals are never changed automatically.',
+          ]),
+          child: Text(
+            unavailable
+                ? 'Review unavailable · Details'
+                : advice.verdict == GoalVerdict.needMore
+                ? 'Gathering evidence · Details'
+                : '${advice.headline} · Details',
+            style: F.over.copyWith(color: p.on(color)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _details(BuildContext c, String title, List<String> lines) {
+    showDialog<void>(
+      context: c,
+      builder: (c) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final line in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: S.x3),
+                  child: Text(
+                    line,
+                    style: F.body.copyWith(color: P.of(c).ink2),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -901,77 +1071,144 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     ProgressData d,
     String today,
   ) {
-    final ws = weightSeries(d.weights, unit: _unit);
-    Widget card(String title, DayWindow before, DayWindow after) {
-      final wb = weightWindow(ws, before), wa = weightWindow(ws, after);
-      final waist = siteSeries(d.measures, BodySite.waistNavel);
-      final wBefore = inRange(waist, '0000-00-00', before.to).lastOrNull;
-      final wAfter = inRange(waist, after.from, after.to).lastOrNull;
-      final rv = review(
-        weightBefore: wb,
-        weightAfter: wa,
-        waistChange: wBefore == null || wAfter == null
-            ? null
-            : wAfter.value - wBefore.value,
-        food: foodWindow(d.food, after),
-        lifts: liftComparisons(d.lifts, before, after),
-        sessionsAfter: d.sessions
-            .where(
-              (s) =>
-                  s.date.compareTo(after.from) >= 0 &&
-                  s.date.compareTo(after.to) <= 0,
-            )
-            .length,
-      );
-      return Padding(
-        padding: const EdgeInsets.only(bottom: S.x3),
-        child: Surface(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(title.toUpperCase(), style: F.over.copyWith(color: p.ink3)),
-              Text(
-                '${_md(after.from)} – ${_md(after.to)} vs ${_md(before.from)} – ${_md(before.to)}',
-                style: F.over.copyWith(color: p.ink3),
-              ),
-              const SizedBox(height: S.x2),
-              Text(
-                rv.headline,
-                style: F.body.copyWith(
-                  color: p.ink,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              for (final b in rv.because)
-                Text(b, style: F.cap.copyWith(color: p.ink2)),
-              if (rv.next != null) ...[
-                const SizedBox(height: S.x2),
-                Text(rv.next!, style: F.cap.copyWith(color: p.ink)),
-              ],
-            ],
-          ),
-        ),
-      );
-    }
-
-    final (lastWeek, weekBefore) = closedWeeks(today);
-    final (lastMonth, monthBefore) = closedMonths(today);
+    final (week, weekBefore) = closedWeeks(today);
+    final (month, monthBefore) = closedMonths(today);
     final start = d.baseline ?? d.earliest;
     final since = start == null ? null : sinceStartWindows(start, today);
+    final (before, after) = switch (_review) {
+      1 => (monthBefore, month),
+      2 when since != null => since,
+      _ => (weekBefore, week),
+    };
+    final ws = weightSeries(d.weights, unit: _unit);
+    final wb = weightWindow(ws, before), wa = weightWindow(ws, after);
+    final f = foodWindow(d.food, after);
+    final cmp = liftComparisons(d.lifts, before, after);
+    final tapeChanges = <String>[];
+    double? waistChange;
+    for (final site in BodySite.values) {
+      final series = siteSeries(d.measures, site);
+      final b = inRange(series, '0000-00-00', before.to).lastOrNull;
+      final a = inRange(series, after.from, after.to).lastOrNull;
+      if (a == null || b == null) continue;
+      final change = a.value - b.value;
+      tapeChanges.add(
+        '${site.title}: ${_num(b.value)} → ${_num(a.value)} in (${_md(b.date)} → ${_md(a.date)})',
+      );
+      if (site == BodySite.waistNavel) waistChange = change;
+    }
+    final count = d.sessions
+        .where(
+          (s) =>
+              s.date.compareTo(after.from) >= 0 &&
+              s.date.compareTo(after.to) <= 0,
+        )
+        .length;
+    final rv = review(
+      weightBefore: wb,
+      weightAfter: wa,
+      waistChange: waistChange,
+      food: f,
+      lifts: cmp,
+      sessionsAfter: count,
+    );
+    final change = wb.mean == null || wa.mean == null
+        ? null
+        : wa.mean! - wb.mean!;
+    String signed(double? n, String unit) =>
+        n == null ? '—' : '${n >= 0 ? '+' : '−'}${_num(n.abs())} $unit';
     return [
       Section(
         'Review',
         Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            card('Last week', weekBefore, lastWeek),
-            card('Last month', monthBefore, lastMonth),
-            // Your first week against the last closed one.
-            if (since case (final first, final last))
-              card('Since start', first, last),
+            SubTabs(
+              const ['Week', 'Month', 'Since start'],
+              _review,
+              (i) => setState(() => _review = i),
+              color: C.teal,
+            ),
+            const SizedBox(height: S.x3),
             Text(
-              'Observations from what was recorded, not a diagnosis. Change your goals yourself; '
-              'this never changes them.',
+              _review == 2 && since == null
+                  ? 'Add a starting entry to compare'
+                  : '${_md(after.from)} – ${_md(after.to)}',
+              style: F.cap.copyWith(color: p.ink),
+            ),
+            Text(
+              'vs ${_md(before.from)} – ${_md(before.to)}',
               style: F.over.copyWith(color: p.ink3),
+            ),
+            const SizedBox(height: S.x3),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _stat(
+                  p,
+                  'Weight average',
+                  signed(change, _unit),
+                  '${wb.count} → ${wa.count} weigh-ins',
+                ),
+                _stat(
+                  p,
+                  'Waist',
+                  signed(waistChange, 'in'),
+                  waistChange == null
+                      ? 'No paired measurements'
+                      : 'Dated measurements',
+                ),
+              ],
+            ),
+            const SizedBox(height: S.x3),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _stat(
+                  p,
+                  'Calories / day',
+                  f.kcal == null ? '—' : thousands(f.kcal!),
+                  '${f.kcalDays} complete days',
+                ),
+                _stat(
+                  p,
+                  'Strength',
+                  '${cmp.where((x) => x.direction > 0).length} ↑ · ${cmp.where((x) => x.direction < 0).length} ↓',
+                  '${cmp.length} comparable lifts',
+                ),
+              ],
+            ),
+            const SizedBox(height: S.x3),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    d.readErrors.isNotEmpty
+                        ? 'Review unavailable until refresh'
+                        : rv.state == ReviewState.gatherEvidence
+                        ? 'Partial evidence'
+                        : rv.headline,
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _details(c, 'Review details', [
+                    '${_md(after.from)} – ${_md(after.to)} vs ${_md(before.from)} – ${_md(before.to)}',
+                    if (d.readErrors.isNotEmpty)
+                      'Review unavailable until the records refresh.'
+                    else ...[
+                      rv.headline,
+                      ...rv.because,
+                      if (rv.next != null) rv.next!,
+                    ],
+                    'Protein: ${f.protein == null ? 'Not recorded' : '${f.protein!.round()} g/day'} · ${f.proteinDays} macro-complete days',
+                    '$count workouts in the later period',
+                    ...tapeChanges,
+                    'Measurements and lifting performance cannot establish muscle gained or what caused a change.',
+                  ]),
+                  child: const Text('Details'),
+                ),
+              ],
             ),
           ],
         ),
@@ -990,11 +1227,12 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   ) {
     final lifts = [
       for (final w in d.lifts)
-        if (dayLabelOf(w.startedAt).compareTo(from) >= 0) w,
+        if (dayLabelOf(w.startedAt).compareTo(from) >= 0 &&
+            dayLabelOf(w.startedAt).compareTo(today) <= 0)
+          w,
     ];
-    final mid = DateTime.parse(
-      from,
-    ).add(DateTime.parse(today).difference(DateTime.parse(from)) ~/ 2);
+    final dates = daysBetween(from, today);
+    final mid = DateTime.parse(dates[(dates.length - 1) ~/ 2]);
     final first = (from: from, to: dayLabelOf(mid), days: 0, partial: false);
     final second = (
       from: dayLabelOf(DateTime(mid.year, mid.month, mid.day + 1)),
@@ -1002,7 +1240,9 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       days: 0,
       partial: false,
     );
-    final cmp = liftComparisons(d.lifts, first, second);
+    final cmp = dates.length < 2
+        ? <LiftComparison>[]
+        : liftComparisons(d.lifts, first, second);
     final sets = lifts.fold<int>(0, (n, w) => n + w.setCount);
     String setText(LiftComparison x, LiftSet s) =>
         '${liftWeightText(s.load)} ${x.mode.shortUnit} × ${s.reps}';
@@ -1010,12 +1250,20 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       Section(
         'Strength',
         Surface(
+          framed: false,
+          pad: const EdgeInsets.symmetric(vertical: S.x2),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${lifts.length} logged workouts · $sets logged sets',
+                '${lifts.length} workouts · $sets sets',
                 style: F.cap.copyWith(color: p.ink3),
+              ),
+              Text(
+                dates.length < 2
+                    ? 'No earlier period to compare'
+                    : '${_md(first.from)} – ${_md(first.to)} vs ${_md(second.from)} – ${_md(second.to)}',
+                style: F.over.copyWith(color: p.ink3),
               ),
               if (cmp.isEmpty)
                 Padding(
@@ -1023,7 +1271,7 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                   child: Text(
                     lifts.isEmpty
                         ? 'No sets logged in this range.'
-                        : 'Comparisons appear once the same lift, load meaning and equipment is logged in both halves of the range.',
+                        : 'No comparable lifts in these periods.',
                     style: F.cap.copyWith(color: p.ink3),
                   ),
                 ),
@@ -1080,6 +1328,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       Section(
         'Food',
         Surface(
+          framed: false,
+          pad: const EdgeInsets.symmetric(vertical: S.x2),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1099,11 +1349,6 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                   ),
                 ],
               ),
-              const SizedBox(height: S.x2),
-              Text(
-                'Averages over days that count; a day without food logged is unknown, not zero.',
-                style: F.over.copyWith(color: p.ink3),
-              ),
             ],
           ),
         ),
@@ -1122,7 +1367,7 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   ) {
     final ss = [
       for (final s in d.sessions)
-        if (s.date.compareTo(from) >= 0) s,
+        if (s.date.compareTo(from) >= 0 && s.date.compareTo(today) <= 0) s,
     ];
     final lifts = ss.where((s) => isLiftType(s.type)).length;
     final runs = ss.where((s) => isRunType(s.type)).length;
@@ -1137,6 +1382,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       Section(
         'Activity and recovery',
         Surface(
+          framed: false,
+          pad: const EdgeInsets.symmetric(vertical: S.x2),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1146,7 +1393,7 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                     p,
                     'Workouts',
                     '${ss.length}',
-                    '$lifts lift · $runs run · $walks walk',
+                    '$lifts lift · $runs run · $walks walk · ${ss.length - lifts - runs - walks} other',
                   ),
                   _stat(
                     p,
@@ -1172,11 +1419,6 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                     '${rec.length} days',
                   ),
                 ],
-              ),
-              const SizedBox(height: S.x2),
-              Text(
-                'Side by side for context; it does not show what caused what.',
-                style: F.over.copyWith(color: p.ink3),
               ),
             ],
           ),
@@ -1631,7 +1873,10 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                   const SizedBox(height: S.x2),
                   if (_photos.isNotEmpty)
                     SizedBox(
-                      height: 96,
+                      height:
+                          96 +
+                          MediaQuery.textScalerOf(c).scale(F.over.fontSize!) *
+                              2,
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         children: [
@@ -1777,6 +2022,19 @@ class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    if (widget.photos.isEmpty) {
+      return Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: ListView(
+            children: [
+              const NavBar('Compare photos'),
+              Text('No photos yet', style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+        ),
+      );
+    }
     Widget panel(int side, BodyPhoto ph) => Expanded(
       child: Pressable(
         semanticLabel:
@@ -1826,7 +2084,7 @@ class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(
+        child: ListView(
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -1860,22 +2118,21 @@ class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
             const SizedBox(height: S.x3),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: Row(
+              child: Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   for (final (k, label) in const [
                     (null, 'All'),
                     ('front', 'Front'),
                     ('side', 'Side'),
                   ])
-                    Padding(
-                      padding: const EdgeInsets.only(right: S.x2),
-                      child: Pressable(
-                        semanticLabel: 'Show $label',
-                        onTap: () => setState(() => _pose = k),
-                        child: Pill(label, _pose == k ? C.teal : C.n400),
-                      ),
+                    Pressable(
+                      semanticLabel: 'Show $label',
+                      onTap: () => setState(() => _pose = k),
+                      child: Pill(label, _pose == k ? C.teal : C.n400),
                     ),
-                  const Spacer(),
                   Text(
                     'Picking for the ${_active == 0 ? 'left' : 'right'}',
                     style: F.over.copyWith(color: p.ink3),
@@ -1885,7 +2142,8 @@ class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
             ),
             const SizedBox(height: S.x2),
             SizedBox(
-              height: 112,
+              height:
+                  96 + MediaQuery.textScalerOf(c).scale(F.over.fontSize!) * 2,
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: S.x4),
                 scrollDirection: Axis.horizontal,

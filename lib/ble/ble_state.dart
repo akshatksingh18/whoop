@@ -17,6 +17,35 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
 
 import '../sync/sync_policy.dart' show isPlausibleUnix, kMinPlausibleUnix;
 
+/// Current-link evidence only. Replayed older wear events cannot replace a
+/// newer HELLO or wear transition. A new connection starts unknown. Refuse
+/// pre-link replay and far-future stamps; allow 60 seconds of RTC clock slop.
+class LinkWearEvidence {
+  final int sinceSec;
+  bool? onWrist;
+  int? atSec;
+
+  LinkWearEvidence({required this.sinceSec});
+
+  bool absorb(bool wearing, int epochSec, {required int nowSec}) {
+    if (!isPlausibleUnix(epochSec, nowSec) ||
+        epochSec < sinceSec - 60 ||
+        epochSec > nowSec + 60 ||
+        (atSec != null && epochSec < atSec!)) {
+      return false;
+    }
+    onWrist = wearing;
+    atSec = epochSec;
+    return true;
+  }
+}
+
+bool shouldReconnectForSilence({
+  required Duration silence,
+  required int fuseSeconds,
+  required bool? onWrist,
+}) => onWrist != false && silence.inSeconds > fuseSeconds;
+
 /// The explicit connection state machine. The flutter_blue_plus connection-state
 /// stream is the SOURCE OF TRUTH for connected/disconnected; this enum layers the
 /// app's intent + sub-phases (scan/discover/subscribe) on top of it.

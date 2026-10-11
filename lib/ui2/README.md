@@ -11,7 +11,20 @@ contrast tests. One colour per pillar: `C.strain`, `C.sleep`, `C.heart`, `C.run`
 recovery takes green, amber or red from `readinessBand`.
 
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
-and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs: Today, Trends, Food, Train).
+and `paint_activity.dart` (painters), `app_shell.dart` (Today, Trends, Food, Train, Progress).
+
+**Current UX state:** installed Build 86 uses the existing warm/rounded surface grammar but failed
+Akshat's structural design acceptance. [`build-87-ui-plan.md`](../../build-87-ui-plan.md) owns the
+implemented local Build 87 replacement and its real-phone preview gates. Build 87 uses warm
+graphite, richer emerald/turquoise/coral accents, flat navigation, 8-point framed tools and unframed
+numeric/diary/metric sections. Progress opens on its dated chart, not eligibility paragraphs.
+Today retains Day HR alongside recorded 10-minute/1-hour views; diary rows directly edit portions;
+All workouts has view-only activity/date filters. Meal/group and saved-meal summaries pair energy
+with protein, naming missing values and qualifying partial totals. Current-day activity and its
+"Updated" time read the same durable result, independent of a later background cancellation.
+Actual-height synthetic previews and interaction checks live in `build87_redesign_render_test.dart`;
+Akshat's structural acceptance and physical iPhone checks remain open. Token/contrast, accessibility, date honesty and gesture rules remain
+binding. Grammar changes must update the owning tokens/components/tests together.
 
 ---
 
@@ -80,6 +93,10 @@ Raw pigment is **not** legible as text — `C.green` on white is 2.28:1. Convert
 | `p.wash(accent)` | a tint for a card background or an active chip — never carries its own text; pair with `p.on` |
 | `p.inkOnFill` | the ink that goes on top of `p.fill` |
 
+Primary `BigButton` actions are the measured exception: dark-mode fills retain the pigment
+(composited over the card), with black or white text chosen to clear 4.5:1. Soft actions still
+use `wash/on`. Do not use raw accent as unmeasured text.
+
 `P.contrast(a, b)` is public if you need to measure.
 
 ### Type — 7 steps, 3 weights
@@ -135,7 +152,7 @@ reach it without a pointer, and `describe` is what those steps say out loud.
 ```dart
 Surface({required Widget child, EdgeInsets pad = EdgeInsets.all(S.x4),
          VoidCallback? onTap, Color? color, int elevation = 1,  // no shadow in dark
-         String? semanticLabel})
+         String? semanticLabel, bool framed = true})
 
 Section(String title, Widget child, {String? action, VoidCallback? onAction})
 ```
@@ -409,17 +426,19 @@ AppShell({required Widget Function(BuildContext, ShellDomain) builder,
           ShellDomain initial = ShellDomain.home,
           void Function(ShellDomain)? onSelect})
 
-enum ShellDomain { home, health, nutrition, workout }
+enum ShellDomain { home, health, nutrition, workout, progress }
   // .label · .icon · .accent
 ```
 
-Tabs build lazily and are kept alive after first visit. The bar is a floating
-pill on the page colour. **There is no fifth tab.**
+Tabs build lazily and are kept alive after first visit. Build 87 has a flat full-width bar,
+stable icon/label targets and safe-area padding, with no coloured page wash. Progress is the
+fifth tab; Body lives inside it and Pushups lives inside Train. Large text can grow/wrap labels.
 
 ### One page per tab
 
-Today, Trends, Food and Train are each one scrolling page. Trends lists the core metrics as rows
-(average, small line, newest reading) with a Week / Month / 3 months switch; a row opens
+Today, Trends, Food, Train and Progress each have a main scrolling page. Trends lists core metrics
+with Today / 7 days / 30 days / 3 months (7 days by default); Today shows the dated value and other
+ranges show the covered-day average plus a small line. A row opens
 `MetricDetail` (or `ReadinessDetail` for recovery). There is no metric catalogue: a metric that is
 computed but not listed on Trends has no screen, and `metrics-map.md` lists those.
 

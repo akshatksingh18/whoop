@@ -53,7 +53,7 @@ import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
 import 'log_workout.dart';
 import 'training_review.dart';
-import 'pushups_screen.dart' show PushupsScreen;
+import 'pushups_screen.dart' show TodayPushupRow;
 
 /// Shared destination for a notification, lock-screen tap or saved session.
 class SessionDestination extends StatefulWidget {
@@ -360,13 +360,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       ],
       // Movement breaks through the day (build 86): its own reminders, goal
       // and streak; never a workout clock and never counted as exercise.
-      detailLinkRow(
-        c,
-        LucideIcons.alarmClock,
-        'Pushups',
-        'Reminders through the day, a daily set goal and its streak',
-        () => _push(c, const PushupsScreen()),
-      ),
+      const TodayPushupRow(embedded: true, showWhenEmpty: true),
       const SizedBox(height: S.x3),
       ..._suggestionCards(c, d),
       Section(
@@ -382,8 +376,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   // The last five as one-line rows; a tap opens one in place.
                   // Everything older lives on the history page, so this
                   // section never grows with the month.
-                  for (final w in d.workouts.take(5)) ...[
-                    _sessionRow(c, d, w),
+                  for (var i = 0; i < d.workouts.length.clamp(0, 5); i++) ...[
+                    if (i == 0 ||
+                        dayLabelOf(d.workouts[i].start) !=
+                            dayLabelOf(d.workouts[i - 1].start))
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: S.x2),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            dayNavLabel(dayLabelOf(d.workouts[i].start)),
+                            style: F.over.copyWith(color: p.ink3),
+                          ),
+                        ),
+                      ),
+                    _sessionRow(c, d, d.workouts[i]),
                     const SizedBox(height: S.x2),
                   ],
                   const SizedBox(height: S.x1),
@@ -603,40 +610,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   Widget _streakCard(BuildContext c, P p, MoveStreak s, _WorkoutData d) {
     final now = DateTime.now();
     return Container(
-      padding: const EdgeInsets.all(S.x4),
-      decoration: BoxDecoration(
-        borderRadius: R.rXl,
-        border: Border.all(color: p.edge),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(p.wash(C.orange, strength: .8), p.cardHi),
-            p.card,
-          ],
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text('YOUR WEEK', style: F.section.copyWith(color: p.ink3)),
           const SizedBox(height: S.x2),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Wrap(
+            spacing: S.x3,
+            runSpacing: S.x2,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.end,
             children: [
-              Text('${s.current}', style: F.n34.copyWith(color: p.ink)),
-              const SizedBox(width: S.x2),
-              Padding(
-                padding: const EdgeInsets.only(bottom: S.x1),
-                child: Text('day streak', style: F.cap.copyWith(color: p.ink2)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('${s.current}', style: F.n24.copyWith(color: p.ink)),
+                  const SizedBox(width: S.x2),
+                  Text('day streak', style: F.cap.copyWith(color: p.ink2)),
+                ],
               ),
-              const Spacer(),
-              Padding(
-                padding: const EdgeInsets.only(bottom: S.x1),
-                child: Text(
-                  'Longest ${s.longest}',
-                  style: F.cap.copyWith(color: p.ink3),
-                ),
+              Text(
+                'Longest ${s.longest}',
+                style: F.cap.copyWith(color: p.ink3),
               ),
             ],
           ),
@@ -693,16 +690,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               style: F.cap.copyWith(color: p.ink2),
             ),
           ],
-          const SizedBox(height: S.x3),
+          const SizedBox(height: S.x2),
           Text(
             [
               s.todayDone
-                  ? 'Today counts.'
+                  ? 'Active today.'
                   : s.last7.last == MoveDay.rest
-                  ? 'Rest day planned. It keeps the streak; it is not counted.'
+                  ? 'Rest day · streak protected'
                   : s.current > 0
-                  ? 'Your step goal or 10 minutes of exercise keeps it going.'
-                  : 'Complete your step goal or record 10 minutes of exercise.',
+                  ? 'Step goal or 10 min exercise'
+                  : 'Step goal or 10 min exercise',
               if (s.protectedInStreak > 0)
                 '${s.protectedInStreak} protected '
                     '${s.protectedInStreak == 1 ? 'day' : 'days'} in this streak.',
@@ -1036,24 +1033,14 @@ class _QuickTile extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     return Surface(
-      pad: const EdgeInsets.symmetric(vertical: S.x5, horizontal: S.x2),
+      framed: false,
+      pad: const EdgeInsets.symmetric(vertical: S.x3, horizontal: S.x1),
       onTap: onTap,
       semanticLabel: 'Start $label',
       child: Column(
         children: [
-          // A coloured disc per activity (build 85): the start buttons read
-          // as four doors, not four icons on a card.
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: p.wash(color),
-              shape: BoxShape.circle,
-              border: Border.all(color: p.on(color).withValues(alpha: .35)),
-            ),
-            child: Icon(icon, size: 22, color: p.on(color)),
-          ),
+          // Stable, compact targets keep recent sessions close to Start.
+          Icon(icon, size: 24, color: p.on(color)),
           const SizedBox(height: S.x2),
           Text(
             label,
@@ -1145,66 +1132,56 @@ class _HistoryRow extends StatelessWidget {
               ),
               const SizedBox(width: S.x3),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          // The store's own word for it when it is not ours: the
-                          // catalogue knows the ~40 types this app can start, and
-                          // "Workout" over a surf loses the one thing we were told.
-                          child: Text(
-                            w.importedTitle ?? a.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: F.body.copyWith(
-                              color: p.ink,
-                              fontWeight: FontWeight.w600,
+                child: Pressable(
+                  semanticLabel: 'Open ${w.importedTitle ?? a.name} session',
+                  onTap: w.importedFrom == null ? () => _open(c) : onToggle,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            // The store's own word for it when it is not ours: the
+                            // catalogue knows the ~40 types this app can start, and
+                            // "Workout" over a surf loses the one thing we were told.
+                            child: Text(
+                              w.importedTitle ?? a.name,
+                              style: F.body.copyWith(
+                                color: p.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                        // The flag the setup screen promised, visible on the one
-                        // list this session shows up in.
-                        if (w.private) ...[
-                          const SizedBox(width: S.x2),
-                          Icon(LucideIcons.lock, size: 13, color: p.ink3),
+                          // The flag the setup screen promised, visible on the one
+                          // list this session shows up in.
+                          if (w.private) ...[
+                            const SizedBox(width: S.x2),
+                            Icon(LucideIcons.lock, size: 13, color: p.ink3),
+                          ],
                         ],
-                      ],
-                    ),
-                    // "Apple Watch · Today, 07:12". The source is not decoration
-                    // and it is not the word "imported": a band-measured session
-                    // and an Apple Watch session are different measurements, and
-                    // the name of the thing that took it is the difference.
-                    Text(
-                      [
-                        if (w.importedFrom != null) w.importedFrom!,
-                        w.when(loc),
-                        if (w.duration.inMinutes > 0)
-                          '${w.duration.inMinutes} min',
-                      ].join(' · '),
-                      style: F.over.copyWith(color: p.ink3),
-                    ),
-                  ],
-                ),
-              ),
-              if (w.strain != null) ...[
-                Text(
-                  w.strain!.toStringAsFixed(1),
-                  style: F.n17.copyWith(color: p.ink),
-                ),
-                const SizedBox(width: S.x1),
-                Padding(
-                  padding: const EdgeInsets.only(top: S.x1),
-                  // "strain", not "load". Training load is CTL/ATL over weeks;
-                  // this is one session's 0–21 strain, and the two were being
-                  // shown under the same word on the same screen.
-                  child: Text(
-                    loc?.workoutStrainLabel ?? 'strain',
-                    style: F.over.copyWith(color: p.ink3),
+                      ),
+                      // "Apple Watch · Today, 07:12". The source is not decoration
+                      // and it is not the word "imported": a band-measured session
+                      // and an Apple Watch session are different measurements, and
+                      // the name of the thing that took it is the difference.
+                      Text(
+                        [
+                          if (w.importedFrom != null) w.importedFrom!,
+                          w.when(loc),
+                          if (w.duration.inMinutes > 0)
+                            '${w.duration.inMinutes} min',
+                        ].join(' · '),
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                      if (w.strain != null)
+                        Text(
+                          '${w.strain!.toStringAsFixed(1)} strain',
+                          style: F.over.copyWith(color: p.ink2),
+                        ),
+                    ],
                   ),
                 ),
-              ],
+              ),
               // One ⋯ menu BEFORE the chevron, drawn whether or not the row
               // is open, so opening a row never slides a control under the
               // next tap (B86-06). Delete inside it still asks.
@@ -2635,6 +2612,37 @@ Widget historyRow(
 
 /// Every session, grouped by calendar month: this month open, older months
 /// folded to one line each ("September · 14 sessions · 9 h 20 min").
+enum WorkoutActivityFilter {
+  all('All activities'),
+  run('Running'),
+  walk('Walking'),
+  lift('Lifting'),
+  other('Other');
+
+  const WorkoutActivityFilter(this.label);
+  final String label;
+}
+
+bool workoutMatchesFilters(
+  String type,
+  DateTime start, {
+  WorkoutActivityFilter activity = WorkoutActivityFilter.all,
+  DateTimeRange? dates,
+}) {
+  final kind = isRunType(type)
+      ? WorkoutActivityFilter.run
+      : isWalkType(type)
+      ? WorkoutActivityFilter.walk
+      : isLiftType(type)
+      ? WorkoutActivityFilter.lift
+      : WorkoutActivityFilter.other;
+  if (activity != WorkoutActivityFilter.all && activity != kind) return false;
+  if (dates == null) return true;
+  final from = DateTime(dates.start.year, dates.start.month, dates.start.day);
+  final until = DateTime(dates.end.year, dates.end.month, dates.end.day + 1);
+  return !start.isBefore(from) && start.isBefore(until);
+}
+
 class WorkoutHistoryScreen extends StatefulWidget {
   const WorkoutHistoryScreen({super.key, this.weightKg});
   final double? weightKg;
@@ -2649,6 +2657,173 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
   bool _failed = false;
   final _openMonths = <String>{};
   String? _openId;
+  WorkoutActivityFilter _activity = WorkoutActivityFilter.all;
+  int _days = 0;
+  DateTimeRange? _customDates;
+
+  DateTimeRange? get _dates {
+    if (_days == -1) return _customDates;
+    if (_days == 0) return null;
+    final n = DateTime.now();
+    return DateTimeRange(
+      start: DateTime(n.year, n.month, n.day - (_days - 1)),
+      end: DateTime(n.year, n.month, n.day),
+    );
+  }
+
+  bool _matches(_PastWorkout w) => workoutMatchesFilters(
+    w.activity.typeKey,
+    w.start,
+    activity: _activity,
+    dates: _dates,
+  );
+
+  void _applyFilters() {
+    _openId = null;
+    final matches = (_all ?? []).where(_matches);
+    if (matches.isNotEmpty) {
+      final latest = matches.first.start;
+      _openMonths.add('${latest.year}-${latest.month}');
+    }
+  }
+
+  Future<void> _selectDates(int days) async {
+    if (days != -1) {
+      setState(() {
+        _days = days;
+        _applyFilters();
+      });
+      return;
+    }
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var first = today;
+    for (final w in _all ?? const <_PastWorkout>[]) {
+      final d = DateTime(w.start.year, w.start.month, w.start.day);
+      if (d.isBefore(first)) first = d;
+    }
+    final previous = _customDates;
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: first,
+      lastDate: today,
+      initialDateRange: previous == null
+          ? null
+          : DateTimeRange(
+              start: previous.start.isAfter(today)
+                  ? today
+                  : previous.start.isBefore(first)
+                  ? first
+                  : previous.start,
+              end: previous.end.isBefore(first)
+                  ? first
+                  : previous.end.isAfter(today)
+                  ? today
+                  : previous.end,
+            ),
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      _days = -1;
+      _customDates = picked;
+      _applyFilters();
+    });
+  }
+
+  Widget _filters(BuildContext c, P p, int count, int total) {
+    Widget menu<T>(
+      String label,
+      String value,
+      List<PopupMenuEntry<T>> items,
+      ValueChanged<T> select,
+    ) => PopupMenuButton<T>(
+      tooltip: 'Select $label',
+      onSelected: select,
+      itemBuilder: (_) => items,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: F.over.copyWith(color: p.ink3)),
+            const SizedBox(height: S.x1),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(value, style: F.body.copyWith(color: p.ink)),
+                ),
+                Icon(LucideIcons.chevronDown, size: 18, color: p.ink3),
+              ],
+            ),
+            const SizedBox(height: S.x2),
+            Divider(height: 1, color: p.line),
+          ],
+        ),
+      ),
+    );
+    final local = MaterialLocalizations.of(c);
+    final range = _days == 0
+        ? 'All dates'
+        : _days == 1
+        ? 'Today'
+        : _days == -1
+        ? '${local.formatCompactDate(_customDates!.start)} – '
+              '${local.formatCompactDate(_customDates!.end)}'
+        : 'Last $_days days';
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: menu<WorkoutActivityFilter>(
+                'Activity',
+                _activity.label,
+                [
+                  for (final a in WorkoutActivityFilter.values)
+                    PopupMenuItem(value: a, child: Text(a.label)),
+                ],
+                (a) => setState(() {
+                  _activity = a;
+                  _applyFilters();
+                }),
+              ),
+            ),
+            const SizedBox(width: S.x4),
+            Expanded(
+              child: menu<int>('Dates', range, const [
+                PopupMenuItem(value: 0, child: Text('All dates')),
+                PopupMenuItem(value: 1, child: Text('Today')),
+                PopupMenuItem(value: 7, child: Text('Last 7 days')),
+                PopupMenuItem(value: 30, child: Text('Last 30 days')),
+                PopupMenuItem(value: -1, child: Text('Choose dates')),
+              ], _selectDates),
+            ),
+          ],
+        ),
+        if (_activity != WorkoutActivityFilter.all || _days != 0)
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$count of $total sessions',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Clear workout filters',
+                icon: const Icon(LucideIcons.rotateCcw, size: 18),
+                onPressed: () => setState(() {
+                  _activity = WorkoutActivityFilter.all;
+                  _days = 0;
+                  _applyFilters();
+                }),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -2696,24 +2871,34 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
     final p = P.of(c);
     final all = _all;
     final byMonth = <String, List<_PastWorkout>>{};
-    for (final w in all ?? const <_PastWorkout>[]) {
+    final filtered = (all ?? const <_PastWorkout>[]).where(_matches).toList();
+    for (final w in filtered) {
       (byMonth['${w.start.year}-${w.start.month}'] ??= []).add(w);
     }
     return detailScaffold(c, 'All workouts', [
+      _filters(c, p, filtered.length, all?.length ?? 0),
       if (_failed)
         StatusCard(
           'Workouts could not load',
           'Your saved sessions are intact.',
           fix: 'Retry',
           onFix: _read,
-        )
-      else if (all == null)
+        ),
+      if (all == null && !_failed)
         const Center(child: CircularProgressIndicator())
-      else if (all.isEmpty)
+      else if (all != null && all.isEmpty)
         const StatusCard(
           'No sessions recorded yet',
           'Start one from Train.',
           icon: LucideIcons.dumbbell,
+        )
+      else if (all != null && filtered.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: S.x5),
+          child: Text(
+            'No matching sessions',
+            style: F.body.copyWith(color: p.ink3),
+          ),
         )
       else
         for (final e in byMonth.entries) ...[

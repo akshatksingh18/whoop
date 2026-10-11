@@ -34,6 +34,20 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 87 Local Candidate
+
+Source version is `0.9.54+87`; implementation is approved and local. `build-87-ui-plan.md` and
+`todo.md` own the UI/sync scope and checks. App source and excluded Widget/Watch/test metadata
+are aligned; algorithm 91, schema, personal capabilities, signing identity and recovery format
+are unchanged. Akshat approved publication to `akshatksingh18/whoop`, CI/macOS build and the
+validated testing IPA; artifact work is pending.
+Build 86 remains installed/testing, Build 70 accepted recovery. Local render fixtures are synthetic,
+not Akshat's records or photos. Local regression/layout/static/profile checks pass; exact counts
+and their scope are recorded in the owning Build 87 plan, not proof of a native iOS build or
+physical-device acceptance. Akshat approved all three convenience additions; their local source and
+latest freshness/cold-connect/empty-burst repairs, calorie/protein group summaries and shared
+large-text/button refinements pass extended local validation.
+
 ## Local Windows toolchain and build validation
 
 The local Android toolchain is installed and `flutter doctor -v` reports no issues:
@@ -256,7 +270,7 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-it remains the accepted backup while installed build 85 occupies `testing\`. The checksum, manifest and
+it remains the accepted backup while installed build 86 occupies `testing\`. The checksum, manifest and
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in
@@ -466,9 +480,9 @@ Linux CI `37816259505` ran the full suite (3,430 tests, 395 intentional skips) a
 macOS build `37816260577` passes. Artifact `whoop-personal-3c141b7ab902-unsigned.ipa` (18,091,060
 bytes), SHA-256 `71ad6b0b6efa4070f954da8f92ca1665f3885a3e3bd2a31687fd32a9748982a8`, matches its
 checksum and manifest (`0.9.52`/`85`); ZIP and payload contract pass with no app extension. It is
-the sole testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`.
-Akshat reports build 85 currently installed on iPhone 17 / iOS `26.6.2`; complete phone acceptance, data/pairing continuity
-and current-version automatic-refresh enrollment are not newly confirmed by that report.
+the former testing candidate in `../final-ipas/whoop/testing/WHOOP-0.9.52-build85-3c141b7a`,
+now replaced by 86. Akshat previously reported 85 installed on iPhone 17 / iOS `26.6.2`;
+that report did not establish complete phone acceptance or data/pairing continuity.
 Preserve final ID `com.akshat.personal.whoop.5564K8D4SV` for upgrades and refresh.
 Build 70 stays accepted recovery until the promotion gates pass.
 
@@ -480,9 +494,8 @@ Build `0.9.53`/`86` (`todo.md`, "Build 86"; `build-86-audit.md`): a first source
 `38065480698` and personal macOS build `38065492927` (it adds the personal `fetch`/`processing`
 modes, BG task identifiers, camera description and native camera bridge). Its IPA was held, not
 downloaded, cached or installed: the structural redesign had been left out, and Akshat chose to
-hold 86 and add it. The replacement source is local commits on `main`, not pushed; its push,
-macOS build, download and validation need Akshat's approval after he reviews the rendered pages.
-Installed build 85 stays in `testing\` and build 70 stays accepted recovery until then. Format-2
+hold 86 and add it. The final replacement was subsequently published, validated and installed
+(the final-source record below owns its evidence); build 70 stays accepted recovery. Format-2
 encrypted exports from 86 carry progress photos and are refused by 70 and 85, so take a
 rollback-readable export from 85 before installing 86. AkshatOS and private coaching sources stay
 intact until separately approved migration and phone acceptance.
@@ -502,8 +515,11 @@ Always description and no app extension. Its manifest's `backgroundProcessing: f
 hand-written label that was never updated; `personal_ios.py` now derives the capability fields
 from the packaged Info.plist for later builds. It is the sole testing candidate in
 `../final-ipas/whoop/testing/WHOOP-0.9.53-build86-651345e7`, replacing build 85's folder (build 85
-was the one before it). Akshat's screenshots show build 86 installed; phone checks, acceptance
-and current-version refresh enrollment are open. Format-2 exports from 86 are refused by 85 and 70,
+was the one before it). Akshat's screenshots show build 86 installed; phone checks and
+acceptance remain open. The local Sideloadly record corroborates version `0.9.53`, completed
+automatic-refresh enrollment, automatic bundle-ID mode at the existing final identity, no error,
+and expiry 2026-10-17 at 17:51 local. No future unattended renewal is proved by that install.
+Format-2 exports from 86 are refused by 85 and 70,
 so a return to either needs the export taken from 85 before the install.
 
 Local note: the analytics package's own tests pass when run from the repo root; the protocol

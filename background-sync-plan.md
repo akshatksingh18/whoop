@@ -1,16 +1,31 @@
 # Background Sync And Insight Freshness
 
-**Status:** Implemented in build-86 source `0.9.53`/`86` (not built or phone-verified): one
+**Status:** Implemented in built and installed `0.9.53`/`86`, awaiting background phone acceptance: one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation
 instead of deriving; launch kind is settled before the scheduler arms and native `ready` waits for
 the band owner; personal `fetch`/`processing` tasks run bounded calculation with single
 completion; native breadcrumbs go to `openstrap_native.log`; background UI notifications
-coalesce; open shows recorded HR past the last calculation, and Today shows band-data age apart
-from the calculation time. Still open: per-input invalidation (gated on measuring short-wake
-compute on the phone),
-high-rate-path CPU profiling, and every device gate below. Build
-`0.9.52`/`85` remains installed. Akshat reports an iPhone 17 on iOS `26.6.2`, normally
+coalesce. Build 86 exposes recent recorded HR through the repository, but Today's chart still
+read only its calculated timeline and Status used a launch-only sample. Local Build 87 connects
+Today to the raw-extended chart plus recorded 10-minute/hour windows and makes Status/Today read
+the advancing durable record frontier, separately from calculation time. Queued calculation is
+labelled separately from a running pass. Today's activity payload and calculation timestamp now
+come from the same committed, served-version result; a later-day cancellation cannot leave that
+result hidden behind stale end-of-pass freshness. A bounded adapter-state probe precedes cold connect;
+burst continuation stops if no new history records arrive, rather than trusting cumulative
+connection totals. Synthetic regressions for these repairs pass locally; physical cold-wake/short-visit checks remain open. Local Build 87 adds exact-input/version-stamped reuse of pure RR/HR
+night calculations (process-local, bounded to three days). Profile, baselines, temperature, day
+HR/strain/steps and remaining cross-day preparation still recompute; any RR/timestamp/window/
+stage change invalidates its corresponding cached work. Forced runs clear reuse. Worker
+cancellation cannot publish new cache state or finalize/prune a partial day. Completed worker
+elapsed time and reuse counts are logged, not asserted as CPU savings. Build 87 also scopes
+wear evidence to the current connection: known off-wrist silence suppresses the liveness bounce,
+stream re-arm and fast battery polling; actual disconnects/write failures still recover, and
+normal RTC/battery/offload polling stays active. Pre-link replay and far-future wear stamps are
+refused (60-second RTC slop); older events cannot override newer current-link evidence. These source repairs do not recover unrecorded data or guarantee iOS wake scheduling.
+Still open: phone CPU/freshness profiling, high-rate-path costs and every device gate below. Build
+`0.9.53`/`86` is installed. Akshat reports an iPhone 17 on iOS `26.6.2`, normally
 opening WHOOP for only two or three minutes a day to read insights. He is unsure whether
 the supplied afternoon gap included swiping the app away. `todo.md` owns approval and
 release gates; `bugs.md` owns the private-log findings and their attribution limits.
@@ -79,8 +94,9 @@ app; the observed CPU-limit exits and the app's execution paths are the stronger
 
 ## Confirmed Source Findings
 
-These are execution-path findings, not proof that any particular one caused an individual
-logged gap. Existing build-84 fixes remain present in build 85.
+These findings describe the Build 85 audit baseline, not the current repaired implementation.
+They are not proof that any particular path caused an individual logged gap. Build 86 implements
+bounded ownership/cancellation and personal tasks; local Build 87 adds reuse and wear-aware recovery.
 
 1. `lib/main.dart` already calls `FlutterBluePlus.setOptions(restoreState: true)` before
    other plugin work. The pinned Darwin plugin implements `willRestoreState`, including
@@ -112,10 +128,10 @@ logged gap. Existing build-84 fixes remain present in build 85.
    The ingest path also emits UI notifications each second while backgrounded. Profile
    these costs; do not assume the motion stream alone caused the CPU exits.
 
-## Recommended Repair
+## Repair Contract
 
-One coordinated candidate after approval, reusing existing schedulers, leases, isolate
-helpers and database jobs. No cloud service, push backend, silent audio, fake GPS usage,
+The approved repair reuses existing schedulers, leases, isolate helpers and database jobs.
+The status above separates implemented Build 86/87 work from remaining phone measurement. No cloud service, push backend, silent audio, fake GPS usage,
 new library, or wholesale native rewrite is proposed.
 
 1. **Make lifecycle and bootstrap authoritative.** Resolve UIKit state before starting
@@ -168,13 +184,12 @@ new library, or wholesale native rewrite is proposed.
 
 ### Automatic Foreground Freshness And Workout GPS
 
-`refreshForeground` queues derive, while pull-to-refresh performs an ordered catch-up and
-wait for Today. `_onDataStored` publishes neither an immediate recorded-curve revision nor a
-new derived curve; the repository currently serves historical HR from `hr_curve`. Automatic
-catch-up already exists, but it must produce visible durable progress without a manual gesture.
-Coalesce cold foreground open, resume, reconnect and pull around the existing single owner;
-await/observe today's committed input/result and retire stale loads. Use bounded durable-record
-downsampling or incremental Today work for recent HR, preserving the existing formula and gaps.
+`refreshForeground` queues derivation, while pull-to-refresh performs ordered catch-up and
+waits for Today. Build 86 publishes durable-commit revisions and serves recent recorded HR beyond
+`hr_curve` through bounded six-hour durable-record downsampling; recorded gaps stay gaps and the
+next calculation replaces provisional points. Cold open/resume/reconnect/pull share existing
+ownership. Build 87 reuses unchanged pure calculation inputs and distinguishes known off-wrist
+silence from a failed link. Automatic foreground freshness still requires timed phone verification.
 Heavy backlog/fitness reports/media work must not block this fast path or run in short BLE wakes.
 
 GPS is a separate route-workout capability, not a band-sync workaround. An explicitly started
@@ -189,9 +204,9 @@ window; repairing sync alone does not repair a calendar-day/night-window mismatc
 
 ## Decisions And Verification Gates
 
-- Approval is needed for implementation and for adding `fetch`/`processing` to the personal
-  profile. Recommendation: include both with bounded work, preserve passive wrist steps,
-  and keep charging-only processing optional. The existing build/profile is unchanged.
+- Akshat approved implementation and personal `fetch`/`processing` modes; both ship in installed
+  Build 86 with bounded work and preserved passive wrist steps. Charging-only processing is an
+  extra opportunity, not required for freshness. Local Build 87 changes no capability/profile.
 - No feature removal is proposed. HR-only passive background capture would lose wrist-only
   step measurement when the phone is absent; it requires a separate explicit decision if
   profiling shows the preserved stream cannot meet the budget. Sleep, HRV, recovery, strain,

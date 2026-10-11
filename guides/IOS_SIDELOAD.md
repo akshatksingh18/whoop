@@ -1,17 +1,20 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Akshat reports build `0.9.52`/`85` currently installed. Source `3c141b7a` passes
-recorded local validation, Linux CI `37816259505`, macOS build `37816260577` and downloaded
+**State:** Akshat confirms build `0.9.53`/`86` installed. Source `651345e7` passes
+recorded local validation, Linux CI `38090036814`, macOS build `38090037024` and downloaded
 source/version/checksum/ZIP/payload checks. The personal IPA has no app extension from build 81.
-Complete phone acceptance, overwrite/data continuity and current-version automatic-refresh
-enrollment remain open; `../todo.md` owns the checks.
+Current-version Sideloadly enrollment is corroborated with no error; complete phone acceptance
+and overwrite/data continuity remain open. SideStore setup is reported on the laptop, but app
+handover and on-phone renewal are unconfirmed; `../todo.md` owns the checks. Build `0.9.54`/`87`
+is implemented locally, not published or packaged. No signing, refresh ownership or installed
+app identity changed. Wait for publication/IPA checks and phone design approval before promotion.
 
 Build `0.9.37`/`70` remains the accepted recovery build: its phone check and completed
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.53-build86-651345e7` holds the build-86 candidate, now installed (Akshat's screenshots); and its IPA is re-downloadable from run `37816260577` until
-22 Oct 2026, then rebuildable from its commit;
+`testing\WHOOP-0.9.53-build86-651345e7` holds the installed build-86 candidate. Its original
+artifact is from run `38090037024`, subject to retention, and is rebuildable from its commit;
 `../setup.md` owns current and superseded source/hash/workflow records. `../build-85-audit.md`
 owns its approved changes, and the earlier audits retain their findings and repair contracts.
 

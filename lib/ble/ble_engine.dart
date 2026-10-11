@@ -625,6 +625,10 @@ class _Session {
   /// before the current task's first HISTORY_START (diagnostics; first logs).
   int preStartHistoryEndsDropped = 0;
 
+  final wear = LinkWearEvidence(
+    sinceSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+  );
+
   _Session(this.device);
 
   Future<void> teardown() async {
@@ -2331,6 +2335,14 @@ class BleEngine {
   }
 
   Future<bool> _doConnect(BluetoothDevice device, {String? generationHint}) async {
+    // Initialize the adapter stream before connect checks CoreBluetooth's
+    // cold-launch state synchronously. Unknown is bounded, never called off.
+    final blocker = await _detectBlocker();
+    if (blocker != null) {
+      _noteBlocker(blocker);
+      await _failConnect();
+      return false;
+    }
     state.address = device.remoteId.str;
     _setPhase(BleConnState.connecting);
     final session = _Session(device);
@@ -3453,7 +3465,11 @@ class BleEngine {
     // Liveness watchdog: iOS can resume us with the peripheral flagged connected
     // while its GATT notifications silently died. If no frame has arrived for
     // longer than the fuse, bounce the link so the caller's reconnect loop runs.
-    if (sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+    if (shouldReconnectForSilence(
+      silence: sinceLastRx,
+      fuseSeconds: kLivenessFuseSeconds,
+      onWrist: linkWristOn,
+    )) {
       _log('No data for >${kLivenessFuseSeconds}s — bouncing the link.');
       unawaited(
         _teardownSession(intentional: false).then((_) {
@@ -3480,7 +3496,7 @@ class BleEngine {
       _log('[SYNC] Periodic RTC re-verify (long-lived connection).');
       unawaited(getClock());
     }
-    if (_liveEnabled) {
+    if (_liveEnabled && linkWristOn != false) {
       // Re-arm ONLY what the current live mode wants: re-sending the high-rate
       // R10/R11 toggle while in HR-only mode (background downgrade) or under the
       // marginal-radio fallback would silently undo the downgrade every 30 s.
@@ -3528,7 +3544,8 @@ class BleEngine {
         // kLinkFreshnessNoStreamSeconds — so force the poll well under that
         // bar (~every other 30 s tick ⇒ sinceLastRx stays ≤ ~65 s). With a
         // stream armed, the original fuse/2 threshold stands.
-        force: sinceLastRx.inSeconds >
+        force: linkWristOn != false &&
+            sinceLastRx.inSeconds >
             (_liveEnabled
                 ? kLivenessFuseSeconds ~/ 2
                 : kNoStreamPollSilenceSeconds),
@@ -3537,6 +3554,20 @@ class BleEngine {
     // Cheap retry hook for a priority request that failed earlier: a no-op
     // whenever the link already sits at the wanted interval.
     unawaited(_applyLinkPriority());
+  }
+
+  bool? get linkWristOn => _session?.wear.onWrist;
+
+  void _absorbWear(bool wearing, [int? eventSec]) {
+    final wear = _session?.wear;
+    if (wear != null &&
+        wear.absorb(
+          wearing,
+          eventSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        )) {
+      state.wristOn = wearing;
+    }
   }
 
   DateTime? _lastBatteryPollAt;
@@ -5000,7 +5031,7 @@ class BleEngine {
       onState(state);
     }
     if (f.containsKey('on_wrist')) {
-      state.wristOn = f['on_wrist'] as bool;
+      _absorbWear(f['on_wrist'] as bool, (f['ts_epoch'] as num?)?.toInt());
       onState(state);
     }
     if (f.containsKey('clock_epoch')) {
@@ -5087,7 +5118,7 @@ class BleEngine {
       // the UI (the "?*" symptom).
       state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
       state.batteryPct = h.batteryPct ?? state.batteryPct;
-      state.wristOn = h.wristOn ?? state.wristOn;
+      if (h.wristOn != null) _absorbWear(h.wristOn!);
       onState(state);
     }
     // gen5's GET_HELLO (opcode 145) has its own layout, now decoded in full
@@ -5117,7 +5148,7 @@ class BleEngine {
         state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
         if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
         state.charging = h.charging;
-        state.wristOn = h.wristOn;
+        _absorbWear(h.wristOn);
         onState(state);
         _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '
             'battery=${h.batteryPct}% charging=${h.charging} '
@@ -5140,7 +5171,7 @@ class BleEngine {
       if (hr > 0) {
         state.liveHr = hr;
         state.liveHrAt = DateTime.now().millisecondsSinceEpoch;
-        state.wristOn = (f['wearing'] as bool?) ?? state.wristOn;
+        if (f['wearing'] is bool) _absorbWear(f['wearing'] as bool);
         onState(state);
       }
     }
@@ -6612,6 +6643,9 @@ class BleEngine {
     );
     await _triggerBackfill(BackfillTrigger.manual);
   }
+
+  /// Accepted history records this connection, not token-only ACKs.
+  int get historyRecordCount => _drain?.records ?? 0;
 
   /// Await the CURRENT historical offload reaching HISTORY_COMPLETE (or link-down /
   /// the safety timeout). Does NOT change the connection phase and NEVER aborts —

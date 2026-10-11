@@ -9074,7 +9074,8 @@ class LocalDb {
     final rows = await db.rawQuery(
       'SELECT (rec_ts / 60) * 60 AS t, AVG(hr) AS v, COUNT(hr) AS n '
       'FROM decoded_onehz WHERE rec_ts >= ? AND rec_ts < ? '
-      'AND hr IS NOT NULL AND hr > 0 GROUP BY rec_ts / 60 ORDER BY t',
+      'AND hr IS NOT NULL AND hr > 0 AND $kPrimaryBandSourceSql '
+      'GROUP BY rec_ts / 60 ORDER BY t',
       [fromSec, toSec],
     );
     return [

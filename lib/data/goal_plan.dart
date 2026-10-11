@@ -198,14 +198,17 @@ class GoalPlan {
 
   /// The saved goal; recomposition (the goal Akshat started with) until one
   /// is chosen.
-  static Future<GoalPlan> read() async {
+  static Future<GoalPlan> read({bool strict = false}) async {
     try {
       final raw = await CalculationStore.read(key);
       if (raw != null) {
         final g = fromJson(jsonDecode(raw) as Map);
         if (g != null) return g;
+        if (strict) throw const FormatException('Saved goal could not be read');
       }
-    } catch (_) {}
+    } catch (_) {
+      if (strict) rethrow;
+    }
     return const GoalPlan(phase: GoalPhase.recomp);
   }
 

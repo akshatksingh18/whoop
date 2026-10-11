@@ -35,18 +35,18 @@ import 'package:flutter/material.dart';
 /// [P.fill] (accent as a filled surface under [P.inkOnFill]) first.
 class C {
   // primary
-  static const green = Color(0xFF2DD881);
-  static const greenD = Color(0xFF1FB86A);
-  static const blue = Color(0xFF3D8BFF);
-  static const purple = Color(0xFF8B7CFF);
+  static const green = Color(0xFF58D6A0);
+  static const greenD = Color(0xFF35B982);
+  static const blue = Color(0xFF7BAEF4);
+  static const purple = Color(0xFFB49AF4);
 
   // secondary
-  static const orange = Color(0xFFFF7A1A);
-  static const red = Color(0xFFFF4D4F);
-  static const teal = Color(0xFF22D3EE);
-  static const yellow = Color(0xFFFFC53D);
-  static const pink = Color(0xFFEC4899);
-  static const indigo = Color(0xFF6366F1);
+  static const orange = Color(0xFFF7B17A);
+  static const red = Color(0xFFF47B79);
+  static const teal = Color(0xFF5DD5D0);
+  static const yellow = Color(0xFFF2CB74);
+  static const pink = Color(0xFFF299B8);
+  static const indigo = Color(0xFF9CA5F3);
 
   /// Two light blues the ramps need and nothing else does: the light-sleep
   /// lane sits between REM and deep, and zone 1 sits below `blue`. They live
@@ -102,6 +102,7 @@ class C {
   static const n50 = Color(0xFFF8FAFC);
 
   static const white = Color(0xFFFFFFFF);
+  static const black = Color(0xFF000000);
 
   /// Each domain owns an accent — the mental map is colour-coded, and the map
   /// is the point. These five are the five tabs, in order, forever.
@@ -110,7 +111,7 @@ class C {
   /// from its own band (see `readinessBand`).
   static const strain = blue;
   static const sleep = purple;
-  static const heart = Color(0xFFFF5A6E);
+  static const heart = Color(0xFFFF8794);
   static const run = orange;
   static const steps = teal;
 
@@ -157,20 +158,18 @@ class P {
 
   static P of(BuildContext c) => P(Theme.of(c).brightness == Brightness.dark);
 
-  // Build 86 redesign: warm stone neutrals in place of cool zinc, so the dark
-  // page reads warm rather than grey. Every ink below is re-solved for them.
-  Color get bg => dark ? const Color(0xFF0C0A09) : C.n50;
-  Color get card => dark ? const Color(0xFF171412) : C.white;
-  Color get card2 => dark ? const Color(0xFF201C19) : C.n100;
-  Color get line => dark ? const Color(0xFF2B2622) : C.n200;
+  Color get bg => dark ? const Color(0xFF1B1C19) : C.n50;
+  Color get card => dark ? const Color(0xFF262922) : C.white;
+  Color get card2 => dark ? const Color(0xFF30352C) : C.n100;
+  Color get line => dark ? const Color(0xFF424A3B) : C.n200;
 
   /// The hairline round every card (build 85): a card is lifted by its edge
   /// and a soft top light, not by a shadow the dark page cannot show.
-  Color get edge => dark ? const Color(0xFF2A2420) : C.n200;
+  Color get edge => line;
 
   /// The top of a card's light. Never lighter than [card2] in the dark theme,
   /// so the muted ink solved against [card2] still clears AA on every card.
-  Color get cardHi => dark ? const Color(0xFF1F1A17) : C.white;
+  Color get cardHi => card;
 
   /// A card's surface: [cardHi] at the top falling to [card].
   LinearGradient get cardFace => LinearGradient(
@@ -182,16 +181,16 @@ class P {
   /// The page's top light in a tab's own colour: the first thing that says
   /// which pillar a page belongs to. Behind content only, never under text.
   Color glow(Color accent) => accent.withValues(alpha: dark ? .16 : .10);
-  Color get track => dark ? const Color(0xFF2B2622) : C.n200;
+  Color get track => line;
 
-  Color get ink => dark ? const Color(0xFFFBF8F4) : C.n900;
-  Color get ink2 => dark ? const Color(0xFFADA59E) : C.n600;
+  Color get ink => dark ? const Color(0xFFF8F8F3) : C.n900;
+  Color get ink2 => dark ? const Color(0xFFCED2C5) : C.n600;
 
   /// The muted caption ink. Hand-solved to clear 4.5:1 on [card2], the darkest
   /// (light theme) / lightest (dark theme) surface it can sit on — so it is
   /// legible on every surface, not just the one it was eyeballed against.
   /// The values it replaces measured 4.34:1 and 3.21:1 respectively.
-  Color get ink3 => dark ? const Color(0xFF948C85) : const Color(0xFF627188);
+  Color get ink3 => dark ? const Color(0xFFBFC7B4) : const Color(0xFF627188);
 
   /// The ink that goes on top of a [fill]. White by construction — [fill]
   /// darkens the accent until white clears AA on it.
@@ -310,7 +309,7 @@ class F {
     fontSize: 34,
     height: 40 / 34,
     fontWeight: FontWeight.w700,
-    letterSpacing: -.8,
+    letterSpacing: 0,
   );
   static const t1 = TextStyle(
     fontFamily: _f,
@@ -318,7 +317,7 @@ class F {
     fontSize: 28,
     height: 34 / 28,
     fontWeight: FontWeight.w700,
-    letterSpacing: -.5,
+    letterSpacing: 0,
   );
   static const t2 = TextStyle(
     fontFamily: _f,
@@ -326,7 +325,7 @@ class F {
     fontSize: 22,
     height: 28 / 22,
     fontWeight: FontWeight.w600,
-    letterSpacing: -.4,
+    letterSpacing: 0,
   );
   static const head = TextStyle(
     fontFamily: _f,
@@ -334,14 +333,14 @@ class F {
     fontSize: 17,
     height: 24 / 17,
     fontWeight: FontWeight.w600,
-    letterSpacing: -.2,
+    letterSpacing: 0,
   );
   static const body = TextStyle(
     fontFamily: _f,
     fontFamilyFallback: _fb,
     fontSize: 15,
     height: 22 / 15,
-    letterSpacing: -.1,
+    letterSpacing: 0,
   );
   static const cap = TextStyle(
     fontFamily: _f,
@@ -355,10 +354,10 @@ class F {
     fontSize: 11,
     height: 14 / 11,
     fontWeight: FontWeight.w600,
-    letterSpacing: .5,
+    letterSpacing: 0,
   );
 
-  /// A section's heading (build 85): smaller and wider-set than [head], so
+  /// A section's heading: smaller than [head], so
   /// sections read as chapters and card titles as content.
   static const section = TextStyle(
     fontFamily: _f,
@@ -366,7 +365,7 @@ class F {
     fontSize: 13,
     height: 18 / 13,
     fontWeight: FontWeight.w700,
-    letterSpacing: .9,
+    letterSpacing: 0,
   );
 
   // Numerals — a parallel display ramp. Tabular, so a live value never jitters
@@ -377,7 +376,7 @@ class F {
     fontSize: 48,
     height: 1,
     fontWeight: FontWeight.w700,
-    letterSpacing: -1.8,
+    letterSpacing: 0,
     fontFeatures: _tab,
   );
   static const n34 = TextStyle(
@@ -386,7 +385,7 @@ class F {
     fontSize: 34,
     height: 1,
     fontWeight: FontWeight.w700,
-    letterSpacing: -1.2,
+    letterSpacing: 0,
     fontFeatures: _tab,
   );
   static const n24 = TextStyle(
@@ -395,7 +394,7 @@ class F {
     fontSize: 24,
     height: 1,
     fontWeight: FontWeight.w700,
-    letterSpacing: -.7,
+    letterSpacing: 0,
     fontFeatures: _tab,
   );
   static const n17 = TextStyle(
@@ -404,7 +403,7 @@ class F {
     fontSize: 17,
     height: 1,
     fontWeight: FontWeight.w600,
-    letterSpacing: -.3,
+    letterSpacing: 0,
     fontFeatures: _tab,
   );
 }

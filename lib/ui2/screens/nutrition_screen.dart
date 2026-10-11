@@ -459,8 +459,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           ),
         const SizedBox(height: S.x2),
         Text(
-          'Completed = a past day with calories on every entry and an entry after 5 pm. '
-          'Food you forget to log cannot be detected.',
+          'Complete: your manual mark, or a past day with calories on every entry and an evening log. Macro coverage is separate.',
           style: F.over.copyWith(color: p.ink3),
         ),
       ],
@@ -497,7 +496,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Weight', style: F.over.copyWith(color: p.ink3)),
+                    Text(
+                      w.isEmpty
+                          ? 'Profile weight · not a weigh-in'
+                          : 'Weight · ${prettyDay(w.last.date)}',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
                     Text(
                       w.isEmpty
                           ? (pr.weightKg == null
@@ -1198,7 +1202,11 @@ class _NutritionDayViewState extends State<NutritionDayView>
           ),
         if (_upkeep != null) ...[
           const SizedBox(height: S.x3),
-          MaintenanceCard(_upkeep!, today: widget.date == todayLabel()),
+          MaintenanceCard(
+            _upkeep!,
+            today: widget.date == todayLabel(),
+            compact: true,
+          ),
         ],
       ],
     );
@@ -1267,150 +1275,83 @@ class CalorieCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final food = eaten ?? 0;
+    final food = eaten;
     final g = goal;
-    final left = g == null ? null : g - food;
-    final over = left != null && left < 0;
-    final status = intakeStatus(eaten, maintenance);
-    final warn = status == IntakeStatus.aboveMaintenance;
-    // Over the goal with maintenance unknown: neither red nor the food colour.
-    final ringColor = warn
+    final status = intakeStatus(food, maintenance);
+    final balance = food == null || maintenance == null
+        ? null
+        : maintenance! - food;
+    final color = status == IntakeStatus.aboveMaintenance
         ? C.red
-        : over && status == IntakeStatus.unknown
-        ? C.n500
-        : C.domFood;
-    final hasGoal = g != null && g > 0;
-    // Build 85: what is left is the headline, inside a ring that fills as
-    // the day is eaten; eaten and the goal sit beside it.
+        : status == IntakeStatus.withinMaintenance
+        ? C.green
+        : C.n500;
     return Surface(
-      onTap: onTap,
-      semanticLabel: onTap == null ? null : 'Calories. Opens the whole day',
+      framed: false,
+      pad: const EdgeInsets.symmetric(vertical: S.x3),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
               Expanded(
-                child: Text(
-                  'Calories',
-                  style: F.body.copyWith(
-                    color: p.ink,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (onAdd != null)
-                Pressable(
-                  semanticLabel: addLabel ?? 'Add food',
-                  onTap: onAdd,
-                  child: Pill(addLabel ?? 'Add food', C.domFood),
-                )
-              else if (onTap != null)
-                Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
-            ],
-          ),
-          const SizedBox(height: S.x3),
-          Row(
-            children: [
-              if (hasGoal) ...[
-                SizedBox(
-                  width: 72,
-                  height: 72,
-                  child: Stack(
-                    alignment: Alignment.center,
+                child: Pressable(
+                  onTap: onTap,
+                  semanticLabel: 'Daily food totals',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CustomPaint(
-                        size: Size.infinite,
-                        painter: Ring(
-                          (food / g).clamp(0.0, 1.0).toDouble(),
-                          ringColor,
-                          p.track,
-                          stroke: 7,
-                          t: animate(c, 1),
-                          solid: true,
-                        ),
+                      Text('Eaten', style: F.cap.copyWith(color: p.ink3)),
+                      Wrap(
+                        spacing: S.x2,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            food == null ? '—' : thousands(food),
+                            style: F.n34.copyWith(color: p.ink),
+                          ),
+                          Text('kcal', style: F.cap.copyWith(color: p.ink2)),
+                        ],
                       ),
                       Text(
-                        '${(food / g * 100).clamp(0, 999).round()}%',
-                        style: F.cap.copyWith(
-                          color: p.ink,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        g == null || g <= 0
+                            ? 'No intake goal'
+                            : food == null
+                            ? 'Goal ${thousands(g)} · intake not recorded'
+                            : 'Goal ${thousands(g)} · ${thousands((g - food).abs())} ${food > g ? 'over' : 'left'}',
+                        style: F.cap.copyWith(color: p.ink3),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: S.x5),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (left != null)
-                      Wrap(
-                        spacing: S.x1,
-                        crossAxisAlignment: WrapCrossAlignment.end,
-                        children: [
-                          Text(
-                            thousands(left.abs()),
-                            style: F.n34.copyWith(
-                              color: warn ? p.on(C.red) : p.ink,
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: S.x1),
-                            child: Text(
-                              over
-                                  ? (status == IntakeStatus.withinMaintenance
-                                        ? 'over goal · within maintenance'
-                                        : 'over goal')
-                                  : 'left',
-                              style: F.cap.copyWith(color: p.ink3),
-                            ),
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: S.x2),
-                    Wrap(
-                      spacing: S.x1,
-                      crossAxisAlignment: WrapCrossAlignment.end,
-                      children: [
-                        Text(
-                          thousands(food),
-                          style: (left == null ? F.n34 : F.n17).copyWith(
-                            color: p.ink,
-                          ),
-                        ),
-                        Text(
-                          g == null || g <= 0
-                              ? 'kcal eaten'
-                              : 'kcal / ${thousands(g)}',
-                          style: F.cap.copyWith(color: p.ink3),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
               ),
+              if (onAdd != null)
+                IconButton(
+                  tooltip: addLabel ?? 'Add food',
+                  onPressed: onAdd,
+                  icon: Icon(LucideIcons.plus, color: p.on(C.domFood)),
+                ),
             ],
           ),
-          if (!hasGoal) ...[
-            const SizedBox(height: S.x2),
-            Text(
-              'Set a calorie goal with the target button above.',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-          ],
+          const SizedBox(height: S.x2),
+          Text(
+            food == null
+                ? 'Intake not recorded'
+                : balance == null
+                ? 'Maintenance not available'
+                : '${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance',
+            style: F.cap.copyWith(color: p.on(color)),
+          ),
           if (day case final d?) ...[
-            const SizedBox(height: S.x4),
-            Container(height: 1, color: p.edge),
             const SizedBox(height: S.x3),
             _Macros(day: d, profile: profile),
           ],
           if (note case final line?) ...[
             const SizedBox(height: S.x2),
-            Text(line, style: F.cap.copyWith(color: p.on(C.red))),
+            Text(line, style: F.cap.copyWith(color: p.ink2)),
           ],
+          const SizedBox(height: S.x3),
+          Divider(color: p.line, height: 1),
         ],
       ),
     );
@@ -1959,7 +1900,13 @@ Future<List<RunSummary>> _allRuns(LocalRepository? repo) async =>
 /// Build 85: the two methods side by side, the Budget day as one stacked bar,
 /// and eaten-against-Budget as the card's own row instead of a grey caption.
 class MaintenanceCard extends StatelessWidget {
-  const MaintenanceCard(this.upkeep, {super.key, this.today = false});
+  const MaintenanceCard(
+    this.upkeep, {
+    super.key,
+    this.today = false,
+    this.compact = false,
+  });
+  final bool compact;
 
   final DayUpkeep upkeep;
   final bool today;
@@ -1976,6 +1923,36 @@ class MaintenanceCard extends StatelessWidget {
       );
     }
     final eaten = upkeep.eaten;
+    if (compact)
+      return Surface(
+        framed: false,
+        pad: const EdgeInsets.symmetric(vertical: S.x3),
+        semanticLabel: 'Daily maintenance breakdown',
+        onTap: () => showMaintenance(c, upkeep, today: today),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Estimated maintenance',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+                Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+              ],
+            ),
+            const SizedBox(height: S.x2),
+            CaloriePair(
+              budget: m.total,
+              acsm: upkeep.acsmParts?.total,
+              compact: true,
+              note: '',
+            ),
+          ],
+        ),
+      );
     return Surface(
       onTap: () => showMaintenance(c, upkeep, today: today),
       semanticLabel:

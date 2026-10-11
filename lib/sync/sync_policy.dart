@@ -114,9 +114,16 @@ const int kNoStreamPollSilenceSeconds = 45;
 /// live stream is armed (≥1 Hz expected), [kLinkFreshnessNoStreamSeconds] when
 /// nothing is armed and only poll replies arrive. Pure — callers own the
 /// actual teardown/reconnect.
-bool isLinkStale(Duration sinceLastRx, {bool liveStreamArmed = true}) =>
+bool isLinkStale(
+  Duration sinceLastRx, {
+  bool liveStreamArmed = true,
+  bool? onWrist,
+}) =>
+    onWrist != false &&
     sinceLastRx.inSeconds >=
-    (liveStreamArmed ? kLinkFreshnessSeconds : kLinkFreshnessNoStreamSeconds);
+        (liveStreamArmed
+            ? kLinkFreshnessSeconds
+            : kLinkFreshnessNoStreamSeconds);
 
 // ── plausibility gates (unix seconds) ────────────────────────────────────────
 /// ASSUMES: every source stamps records with an ABSOLUTE wall-clock epoch, so a

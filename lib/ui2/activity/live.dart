@@ -530,7 +530,9 @@ class LiveShellState extends State<LiveShell> {
   /// The saved start of the session this screen draws, from its clock —
   /// never reset by pausing, minimising or reopening (build 86 workout times).
   String get _subtitle {
-    final start = LiveDraft.current == null ? null : WorkoutClock.current?.start;
+    final start = LiveDraft.current == null
+        ? null
+        : WorkoutClock.current?.start;
     final started = start == null
         ? ''
         : 'Started ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(start), alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context))}';
@@ -619,15 +621,11 @@ class LiveShellState extends State<LiveShell> {
                         Text(
                           a.name.toUpperCase(),
                           style: F.over.copyWith(color: p.on(a.color)),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         if (_subtitle.isNotEmpty)
                           Text(
                             _subtitle,
                             style: F.over.copyWith(color: p.ink3),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                       ],
                     ),
@@ -670,11 +668,6 @@ class LiveShellState extends State<LiveShell> {
               padding: const EdgeInsets.fromLTRB(S.x5, S.x4, S.x5, S.x5),
               child: Row(
                 children: [
-                  // A control with no callback is announced as content and does
-                  // nothing when activated. Locking the screen is not implemented,
-                  // so the affordance is not drawn.
-                  const SizedBox(width: 54),
-                  const SizedBox(width: S.x4),
                   Expanded(
                     child: Pressable(
                       semanticLabel: paused
@@ -689,7 +682,7 @@ class LiveShellState extends State<LiveShell> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: p.fill(a.color),
-                          borderRadius: R.rLg,
+                          borderRadius: R.rSm,
                         ),
                         child: Icon(
                           paused ? LucideIcons.play : LucideIcons.pause,
@@ -1243,13 +1236,31 @@ class LiveMeasured extends StatelessWidget {
         final f = feed?.call() ?? LiveFeed.none;
         return Column(
           children: [
-            const SizedBox(height: S.x6),
+            const SizedBox(height: S.x3),
             Text(
               l?.activityLiveDurationHeader ?? 'DURATION',
               style: F.over.copyWith(color: p.ink3),
             ),
             const SizedBox(height: S.x3),
-            bigNum(p, clock(elapsed), ''),
+            if (isLiftType(a.typeKey))
+              Text(clock(elapsed), style: F.n24.copyWith(color: p.ink))
+            else
+              bigNum(p, clock(elapsed), ''),
+            // The set log of this same session (build 86): exercises and
+            // sets under the one clock, never a second workout.
+            if (isLiftType(a.typeKey))
+              if (WorkoutClock.current case final clock?)
+                LiftLivePanel(
+                  key: ValueKey('lift-${clock.id}'),
+                  sessionId: clock.id,
+                  onFinishAt: (end) async {
+                    final shell = ctx.findAncestorStateOfType<LiveShellState>();
+                    // A reviewed last-set end is the clock's end; stopping
+                    // the session then reads it (never active duration).
+                    if (end != null) WorkoutClock.current?.finish(end);
+                    await shell?.finish();
+                  },
+                ),
             // Only once fixes are actually arriving. The catalogue's `gps` flag
             // says a route is WORTH recording, not that one is being recorded —
             // it claimed "GPS ACTIVE" with location denied.
@@ -1282,7 +1293,7 @@ class LiveMeasured extends StatelessWidget {
                 elapsed: elapsed,
               ),
             ],
-            const SizedBox(height: S.x8),
+            const SizedBox(height: S.x4),
             // The user's own unit system, not km hardcoded. `unitsOf` is null in
             // a golden, and the metric fallback there is what the store holds.
             ..._distanceStats(ctx, p, f, a, weightKg, elapsed),
@@ -1316,21 +1327,6 @@ class LiveMeasured extends StatelessWidget {
                 ),
               ),
             ],
-            // The set log of this same session (build 86): exercises and
-            // sets under the one clock, never a second workout.
-            if (isLiftType(a.typeKey))
-              if (WorkoutClock.current case final clock?)
-                LiftLivePanel(
-                  key: ValueKey('lift-${clock.id}'),
-                  sessionId: clock.id,
-                  onFinishAt: (end) async {
-                    final shell = ctx.findAncestorStateOfType<LiveShellState>();
-                    // A reviewed last-set end is the clock's end; stopping
-                    // the session then reads it (never active duration).
-                    if (end != null) WorkoutClock.current?.finish(end);
-                    await shell?.finish();
-                  },
-                ),
             const SizedBox(height: S.x8),
             LiveHeart(f),
             if (f.route.length > 1) ...[

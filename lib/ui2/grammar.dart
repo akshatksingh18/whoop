@@ -270,58 +270,58 @@ class _InputSheetState extends State<InputSheet> {
         if (!didPop) _guardedClose();
       },
       child: SafeArea(
-      top: false,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onVerticalDragEnd: (d) {
-                if ((d.primaryVelocity ?? 0) > 250) {
-                  FocusScope.of(c).unfocus();
-                  Navigator.of(c).maybePop();
-                }
-              },
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, 0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: S.x3),
-                      decoration: BoxDecoration(
-                        color: p.line,
-                        borderRadius: R.rPill,
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragEnd: (d) {
+                  if ((d.primaryVelocity ?? 0) > 250) {
+                    FocusScope.of(c).unfocus();
+                    Navigator.of(c).maybePop();
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, 0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: S.x3),
+                        decoration: BoxDecoration(
+                          color: p.line,
+                          borderRadius: R.rPill,
+                        ),
                       ),
+                      header,
+                    ],
+                  ),
+                ),
+              ),
+              Flexible(
+                fit: FlexFit.loose,
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _onScroll,
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x5),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: children.skip(1).toList(),
                     ),
-                    header,
-                  ],
+                  ),
                 ),
               ),
-            ),
-            Flexible(
-              fit: FlexFit.loose,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _onScroll,
-                child: SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x5),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: children.skip(1).toList(),
-                ),
-              ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -483,7 +483,11 @@ class Surface extends StatelessWidget {
     this.color,
     this.elevation = 1,
     this.semanticLabel,
+    this.framed = true,
   });
+
+  /// Page bands share spacing, not a decorative card boundary.
+  final bool framed;
 
   @override
   Widget build(BuildContext c) {
@@ -494,14 +498,11 @@ class Surface extends StatelessWidget {
       child: Container(
         width: double.infinity,
         padding: pad,
-        // Build 85: a lit face and a hairline edge. A tinted [color] stays
-        // flat, so a status card reads as a note rather than a card.
+        // Frame individual tools/items; page bands stay unframed.
         decoration: BoxDecoration(
-          color: color,
-          gradient: color == null ? p.cardFace : null,
-          borderRadius: R.rXl,
-          border: Border.all(color: p.edge),
-          boxShadow: p.el(elevation),
+          color: framed ? color ?? p.card : null,
+          borderRadius: framed ? R.rSm : null,
+          border: framed ? Border.all(color: p.edge) : null,
         ),
         child: child,
       ),
@@ -2217,12 +2218,11 @@ class SubTabs extends StatelessWidget {
     return Container(
       // The track's padding and edge sit OUTSIDE the 44 pt tap height.
       height: MediaQuery.textScalerOf(c).scale(S.tap) + 8,
-      // Build 85: the options sit in one track, so they read as a single
-      // control rather than loose words on the page.
+      // One segmented control, with a stable touch height.
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: p.card,
-        borderRadius: R.rPill,
+        borderRadius: R.rSm,
         border: Border.all(color: p.edge),
       ),
       // The fifth tab is off the edge on every phone we ship to — at 360 pt
@@ -2245,9 +2245,11 @@ class SubTabs extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: on ? p.wash(color) : const Color(0x00000000),
-                  borderRadius: R.rPill,
+                  borderRadius: R.rSm,
                   border: Border.all(
-                    color: on ? p.on(color).withValues(alpha: .35) : const Color(0x00000000),
+                    color: on
+                        ? p.on(color).withValues(alpha: .35)
+                        : const Color(0x00000000),
                   ),
                 ),
                 child: Text(
@@ -2352,7 +2354,12 @@ class BigButton extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final ink = soft ? p.on(color) : p.inkOnFill;
+    final fill = p.dark ? Color.alphaBlend(color, p.card) : p.fill(color);
+    final ink = soft
+        ? p.on(color)
+        : P.contrast(fill, C.black) >= 4.5
+        ? C.black
+        : C.white;
     return Pressable(
       onTap: onTap,
       semanticLabel: label,
@@ -2364,7 +2371,7 @@ class BigButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: soft ? p.wash(color) : p.fill(color),
+          color: soft ? p.wash(color) : fill,
           borderRadius: R.rMd,
           boxShadow: soft ? null : p.el(2),
         ),
@@ -3094,10 +3101,7 @@ class StackedBar extends StatelessWidget {
                     children: [
                       for (var i = 0; i < shown.length; i++) ...[
                         if (i > 0)
-                          SizedBox(
-                            width: 2,
-                            child: ColoredBox(color: p.card),
-                          ),
+                          SizedBox(width: 2, child: ColoredBox(color: p.card)),
                         Expanded(
                           // Thousandths keep a small part visible as a sliver.
                           flex: math.max(

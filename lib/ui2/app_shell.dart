@@ -1,15 +1,5 @@
-// The four-tab shell.
-//
-// Today · Trends · Food · Train. Each is one scrolling page with no sub-tabs.
-// Stable: the contents
-// personalise, the mental map does not. Each domain owns an accent, so colour
-// tells you where you are before the label does.
-//
-// There is no fifth tab, and the type system is what says so — [ShellDomain]
-// is a closed enum and [AppShell] takes a builder keyed by it, so "just add a
-// tab for X" is a change to this file with a reviewer attached, not something
-// a screen can do on its own. Anything that feels like a fifth destination is
-// a `SubTabs` inside the domain that owns it.
+// The stable five-tab shell: Today, Trends, Food, Train and Progress.
+// Each domain owns its contextual controls; the bottom navigation stays fixed.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -17,7 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'grammar.dart';
 import 'theme.dart';
 
-/// The four primary destinations, in bar order.
+/// The five primary destinations, in bar order.
 enum ShellDomain {
   home('Today', LucideIcons.house, C.domHome),
   health('Trends', LucideIcons.chartLine, C.domHealth),
@@ -121,33 +111,6 @@ class _AppShellState extends State<AppShell> {
       backgroundColor: p.bg,
       body: Stack(
         children: [
-          // Build 85: the page's top light in the tab's own colour, behind
-          // everything — the first sign of which pillar a page belongs to.
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            height: 320,
-            child: IgnorePointer(
-              child: AnimatedContainer(
-                duration: motion(c, Motion.slow),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    // The tab's own colour over a faint warm light (build 86).
-                    colors: [
-                      Color.alphaBlend(
-                        p.glow(_current.accent),
-                        C.orange.withValues(alpha: .07),
-                      ),
-                      p.bg.withValues(alpha: 0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
           SafeArea(
             bottom: false,
             child: Column(
@@ -189,18 +152,32 @@ class _TabBar extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    // A floating pill on the page colour, not a bar with a rule over it.
+    final labelHeight = ShellDomain.values.fold<double>(0, (height, d) {
+      final text =
+          TextPainter(
+            text: TextSpan(
+              text: d.label,
+              style: F.over.copyWith(fontWeight: FontWeight.w600),
+            ),
+            textDirection: Directionality.of(c),
+            textScaler: MediaQuery.textScalerOf(c),
+          )..layout(
+            maxWidth: MediaQuery.sizeOf(c).width / ShellDomain.values.length,
+          );
+      final measured = text.height;
+      text.dispose();
+      return measured > height ? measured : height;
+    });
     return ColoredBox(
       color: p.bg,
       child: SafeArea(
         top: false,
-        minimum: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x2),
+        minimum: const EdgeInsets.only(bottom: S.x1),
         child: Container(
-          height: 62,
+          height: (labelHeight + 38).clamp(62, double.infinity),
           decoration: BoxDecoration(
-            gradient: p.cardFace,
-            borderRadius: R.rXl,
-            border: Border.all(color: p.edge),
+            color: p.bg,
+            border: Border(top: BorderSide(color: p.line)),
           ),
           child: Row(
             children: [
@@ -239,7 +216,7 @@ class _Tab extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // The current tab sits in a capsule of its own colour.
+            // Stable icon target; labels can wrap at accessibility sizes.
             AnimatedContainer(
               duration: motion(c, Motion.base),
               padding: const EdgeInsets.symmetric(
@@ -248,7 +225,7 @@ class _Tab extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 color: on ? p.wash(domain.accent) : const Color(0x00000000),
-                borderRadius: R.rPill,
+                borderRadius: R.rSm,
               ),
               child: Icon(
                 domain.icon,
@@ -259,8 +236,7 @@ class _Tab extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               domain.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style: F.over.copyWith(
                 color: ink,
                 fontWeight: on ? FontWeight.w600 : FontWeight.w500,

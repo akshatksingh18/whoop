@@ -73,6 +73,18 @@ String macroLine({
   return parts.isEmpty ? 'No nutrition numbers' : parts.join(' · ');
 }
 
+/// Compact energy/protein totals. Partial logs are floors, never full totals.
+String energyProteinSummary(NutrientTotal kcal, NutrientTotal protein) {
+  String amount(NutrientTotal total) =>
+      '${total.isFloor ? 'at least ' : ''}${total.value!.round()}';
+  return [
+    kcal.value == null ? 'Calories not tracked' : '${amount(kcal)} kcal',
+    protein.value == null
+        ? 'Protein not tracked'
+        : '${amount(protein)} g protein',
+  ].join(' · ');
+}
+
 /// A saved meal's calories at its saved amounts, from [defs] (key → food).
 /// Null when no item has a calorie figure; foods no longer saved are skipped.
 double? mealKcal(MealTemplate m, Map<String, Map<String, Object?>> defs) {
@@ -87,12 +99,32 @@ double? mealKcal(MealTemplate m, Map<String, Map<String, Object?>> defs) {
   return sum;
 }
 
-/// One line for a saved meal's row: calories, food count and usual slot.
+/// One line for a saved meal: qualified energy/protein, food count and slot.
 String mealSummary(MealTemplate m, Map<String, Map<String, Object?>> defs) {
-  final kcal = mealKcal(m, defs);
+  NutrientTotal total(String field) {
+    double value = 0;
+    var known = 0;
+    for (final (key, amount) in m.items) {
+      final def = defs[key];
+      final per100 = (def?[field] as num?)?.toDouble();
+      final base = def == null
+          ? null
+          : toBase(def, amount, m.units[key] ?? foodUnit(def));
+      if (per100 != null && base != null) {
+        value += per100 * base / 100;
+        known++;
+      }
+    }
+    return NutrientTotal(
+      known == 0 ? null : value,
+      known,
+      m.items.length - known,
+    );
+  }
+
   final n = m.items.length;
   return [
-    if (kcal != null) '${kcal.round()} kcal',
+    energyProteinSummary(total('kcal_100'), total('protein_g_100')),
     '$n food${n == 1 ? '' : 's'}',
     mealName(m.meal),
   ].join(' · ');

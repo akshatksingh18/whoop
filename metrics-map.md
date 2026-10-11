@@ -2,12 +2,14 @@
 
 Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the installed personal source `0.9.52`/`85` (algorithm 91); complete physical-device acceptance is pending.
+the installed `0.9.53`/`86` feature contracts plus the local `0.9.54`/`87` presentation repairs;
+complete physical-device acceptance is pending.
 
-**Status:** Build 85 source `3c141b7a` passes recorded local validation, Linux CI, macOS
-compilation and downloaded artifact checks. Akshat reports it currently installed; complete
-phone acceptance and current-version refresh enrollment remain open. Build 70 remains accepted
-recovery, and build 85 stays in the testing cache. `build-85-audit.md` owns its approved changes;
+**Status:** Build 86 source `651345e7` passes recorded Linux CI, macOS compilation and downloaded
+artifact checks and is installed. Feature phone acceptance remains open; structural UI acceptance
+failed. `build-87-ui-plan.md` owns the implemented local replacement, verification and open visual
+acceptance. Build 87 is not yet published, built into an IPA or installed.
+Build 70 remains accepted recovery, and Build 86 is the installed testing candidate. `build-85-audit.md` owns its earlier approved changes;
 `build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
 are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
@@ -110,7 +112,7 @@ These are still stored but no longer entered in the personal build:
 | `food_def` | your foods, stored per 100 units (grams by default, or links/slices/cups/ml/custom units): typed from a label ("50 g oats = 200 kcal…") or cached from a barcode scan |
 | `meal_template` | saved meals: a name, a usual meal slot, and foods at fixed quantities and units |
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
-| `food_def.category` | the food's category (Fruits, Vegetables, Protein, Dairy & eggs, Grains & bread, Snacks & sweets, Drinks, Supplements, Meals & dishes; '' = Uncategorised), build 85; one field read by the Foods, log-screen and saved-meal-picker filters |
+| `food_def.category` | the user's own category label (custom labels in Build 86; '' = Uncategorised); existing labels are preserved, and the same field feeds Foods, log-screen and saved-meal-picker filters |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
 | `body_weight` | one weight per day (latest wins); today's sets profile `weight_kg`. Build-86 source adds `unit`, `entered`, `source`, `origin_id` and `history_only`: backdated/imported rows are history only and never price a day |
 | `body_measure` | build-86 source: one tape session, inches by AkshatOS site key (unknown keys kept) |
@@ -119,17 +121,19 @@ These are still stored but no longer entered in the personal build:
 
 ## Where each core metric appears now
 
-Four tabs on installed build 85: **Today · Trends · Food · Train**. Build-86 source adds a fifth,
-**Progress** (Body inside it), and a compact Body row on Today. It also restructures Today
+Five tabs on installed build 86: **Today · Trends · Food · Train · Progress**, with Body inside
+Progress and a compact Body row on Today. Build 86 restructures Today
 (recovery, sleep and strain side by side in one card with HRV and resting HR under them, then a
 taller heart-rate canvas, steps/food, Body and maintenance), Food (one day card with calories and
 all four macros plus a fixed Add, then meals, then maintenance) and Train (Resume while live,
-history before charts, one options menu per row). The table below describes build 85; no metric
-moves off its screen in 86.
+history before charts, one options menu per row). The table below is the retained wearable/food
+entry inventory from build 85, supplemented by the Build 86 contracts below; no core metric became
+unreachable in 86. Build 87 preserves that inventory while replacing its composition; current
+local destinations and acceptance gates are documented in `build-87-ui-plan.md`.
 
 | Metric | Today | Trends row | Detail screen |
 |---|---|---|---|
-| Recovery | ring with the score, verdict, HRV and resting HR | yes | Readiness: drivers and 90-day history |
+| Recovery | numeric score/verdict, HRV and resting HR | yes | Readiness: drivers and 90-day history |
 | Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals, naps |
 | Strain | card with a bar and today's target | yes | Day strain: any day (arrows), draggable curve, zones, three-line method |
 | Heart rate, all day | live bpm, then the day's line and range | — | Scrubbable minute-by-minute chart (stops at the current time) |
@@ -195,7 +199,7 @@ connected, subject to device battery/background acceptance. Source provenance st
 WHOOP 4 recorded history cannot accurately reconstruct offline steps beyond Bluetooth range.
 `resolveDaySteps` in `lib/data/live_coverage_policy.dart` is the common counter.
 
-**Charts:** every trend chart takes a finger: a line and a ring mark the point, and the date and
+**Wearable/running charts:** a line and a ring mark the finger-selected point, and the date and
 value show in the chart's header (metric detail at every range, Readiness history, Train's strain
 and weekly distance, day strain, hourly steps). Titles and selected values have their own
 full-width rows; selected text wraps without ellipsis. Every tab refreshes on a pull: today's phone
@@ -207,18 +211,31 @@ enqueue is awaited, and read failures, holds and the 15-second today-calculation
 Today/food cards also reread after committed food writes, derived changes, foreground return,
 and the five-minute foreground refresh (including local day rollover and fresh phone counts). No pull is needed and
 workout voice also enables the approved iOS audio background mode. A fresh launch opens Today; warm resume retains position.
+Build 87 repairs Progress's separate plot: a dense local-calendar axis keeps missing days as
+gaps, with dated scrub readouts and Readings/7-day mean for weight. All/Since start use retained
+food/session history rather than fixed 400-day/year caps; failed families retain the previous
+view when available, display Retry and withhold combined advice. Algorithm 91 is unchanged.
+
+Local Build 87 shows protein alongside calories in diary meal/group totals, saved-meal rows and
+copy previews. Partial totals are explicitly floors; absent protein remains untracked.
+Today has recorded 10-minute/1-hour/Day HR views, direct diary portion editing and All-workout
+activity/date filters. These change presentation/access, not metric formulas or history.
 
 **Food coverage:** calories/protein are primary. Optional omitted macros remain null/untracked;
-explicit zero is retained. Weekly energy summaries exclude today, unknown-calorie entries and
-past days without an evening entry on that local date. Missing optional macros do not exclude a
-day. Logged protein is averaged only over qualifying days with protein values. Coverage/exclusions
-are shown; this heuristic cannot detect every forgotten food or prove a complete diary.
-All four macro rows/icons remain visible, with zero logged when nothing supplied that nutrient;
-null is preserved internally. Run/walk streaks accept ten active recorded minutes OR reaching the
+explicit zero is retained. Automatic completion uses calorie-complete past days with an evening
+entry; Build 86 adds explicit Complete/Incomplete overrides. Missing optional macros do not
+exclude a calorie day. Protein averages require eligible days with complete protein coverage,
+not merely a displayed protein total or completed calorie diary. Counts/exclusions are separate
+by nutrient; the app cannot detect every forgotten food or prove a complete diary.
+All four macro rows/icons remain visible; in Build 86 an unlogged nutrient displays as unknown,
+not zero. Activity streaks accept ten active recorded purposeful-exercise minutes (including lifts
+and Other exercise) OR reaching the
 dated measured step goal. Displayed targets change immediately; raising an earned goal
 cannot revoke that day's saved qualification threshold. Overlapping recorded run/walk windows
 count only once toward ten minutes. A measured count correction can revoke unsupported
-completion. No historical step-only days are invented before dated goals were recorded.
+completion. No historical step-only days are invented before dated goals were recorded. Limited
+Rest/Life happens protection keeps continuity without inventing activity; Pushups has its own
+streak and does not earn the general activity streak. `lib/compute/streak.dart` owns exact rules.
 
 ### Computed and stored, but shown on no screen
 
@@ -385,55 +402,56 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout decisions (installed source `0.9.52`/`85`)
+## Layout Decisions (Local Build 87; Build 86 Still Installed)
 
-| Item | Decision |
-|---|---|
-| Tabs | Today · Trends · Food · Train; no sub-tabs except Food's Today/History/Foods |
-| Look | Build 85 makeover: cards with a lit face and hairline edge; each tab's page lit from the top in its own colour; sections marked by a short bar; status as chips (Updated hh:mm, Distance: GPS route); stat tiles with icon wells; maintenance as a two-column Budget (Method 1) / ACSM block with per-method breakdowns, a stacked Budget bar and an Eaten vs Budget row; explanations folded under "How it's worked out"; a centred Recovery hero with HRV/resting chips; Calories as a ring with what is left; macros as a 2×2 grid; walks show speed in km/h, runs pace |
-| Health → Explore, Beats, Body clock, Stress row, Consistency cards | Removed (data still stored) |
-| Home greeting and "Today's plan" | Removed; the strain target moved into the Today cards |
-| Bedtime / sleep need | Removed from Today and Sleep (Tonight section) at Akshat's request; still computed |
-| Steps screen | The per-stretch list is removed; the hourly bars are draggable and the totals line stays |
-| Metric detail (personal build) | No algorithm-version dotted lines, no locked-range line, no Worn bars under the chart |
-| Today | Weekly card: deficit at the floor, logged protein vs target, km run, streak, average sleep; completed-day coverage and exclusions |
-| AI coach, AI briefings, language picker, paced breathing | Removed |
-| Train | One page. Removed the activity library tab, mascot card, fitness/fatigue/form, kg-lifted chart, morning-after and overreach cards, and the share poster button |
-| Lifting sets | Entry removed; sets are logged in AkshatOS. A Lift is timed; calories use MET and active time, with heart rate shown as context |
-| Settings | One list (band, profile, alarm, steps, notifications, units, data, privacy, status). Removed Tasker/Shortcuts, double-tap, app icon, add-a-sensor, phone import |
-| Notifications | Personal movement nudge, wind-down and step-goal alerts stay hidden/off. In the upstream-capable profile the step-goal action uses the measured total and configured target; earning the streak does not require alerts |
-| Band alarm, barcode scanning, Sleep screen, Nutrition | Kept |
-
-**Accepted plan, not implemented:** `lift-log-integration-plan.md` describes session-linked Lift Log
-inside WHOOP for the Build 86 discussion. The installed layout above remains unchanged. Explicit
-load modes, one shared workout clock, unchanged MET-only calories and local history migration
-are review gates; no kg-lifted chart or other removed metric is automatically restored.
-
-`fitness-app-plan.md` additionally records accepted Body parity and one recomposition Progress page:
-shared weight/profile data, weight/waist and comparable strength changes, eligible food logging,
-activity and recovery context, weekly/since-start comparisons and local photo-inclusive recovery.
-The fifth Progress tab and Body are implemented in build-86 source (not installed); the installed
-build still shows Today / Trends / Food / Train.
-Repeat last set, rest timer, comparable records and independent two-panel photo selection are
-selected, alongside live Started/summary start-end, backdated body/photo entry, measurement/range
-selectors and a privately generated MyFitnessPal import during implementation. Numeric source
-data/media stay outside public app repos; other extras remain deferred.
-All comparisons need actual dates, load meaning and coverage; no measured muscle-gain claim,
-cross-mode tonnage, automatic target change or new lift expenditure is implied.
-
-Expanded Build 86 scope (`build-86-audit.md`, `fitness-app-plan.md`, `todo.md`) explicitly adds
-seven-calendar-day weight means with observation counts; daily intake/estimated balance; weekly,
-monthly and since-start weight/tape/comparable-strength/activity/recovery reviews; and guarded
-user-reviewed intake suggestions. No muscle/fat amount can be inferred from circumference/photos/
-performance. These are plans, not shipped metrics. The existing Week card's raw weight delta,
-protein completeness and period/maintenance denominators require reconciliation before reuse.
-Current build-85 walking speed is elapsed-session average, Strain's day order conflicts with the
-shared control, Sleep's signals use a calendar-day read, diary deletes lack confirmation, and
-calorie warnings compare to the typed goal. Their replacements, both-way historical serving
-equivalents, personal food labels and general-activity/rest policy are planned, not implemented.
-Pushups (build-86 source) counts completed sets only and is never a sensor-measured
-workout/calorie source; it feeds neither strain, maintenance nor the activity streak. The redesign
-changes hierarchy/flow while retaining all unique reachable metrics.
+- **Tabs:** Today / Trends / Food / Train / Progress; Food keeps Today / History / Foods. Body
+  lives in Progress, Pushups in Train with a compact Today shortcut. No sixth destination.
+- **Look:** flat warm charcoal, soft sage/cyan/coral accents and readable neutral ink; no
+  tab-coloured page wash or decorative bottom pill. Sections are unframed; framed items/tools
+  use small radii. The rejected Build 86 ring/card hierarchy is replaced, not recoloured.
+  Akshat approved implementation; structural phone acceptance remains open.
+- **Today:** compact numeric recovery/sleep/strain and HRV/resting HR, then live/all-day HR;
+  daily action rows; compact paired Budget/ACSM with full breakdowns; weekly report/coverage.
+  A compact goal-based action section is back in 86; the greeting remains removed.
+- **Trends:** core metrics with shared ranges, paired step calories and findings. Explore,
+  Beats, Body clock, Stress row and Consistency cards remain removed; their data remains stored.
+- **Food:** compact eaten/goal/maintenance and all four macros, Log again, actual meal/food
+  ledger rows and compact paired maintenance;
+  month history, shared dated weight and separate food/weight maintenance estimate; food/meal
+  library, scans, custom labels and two-way equivalents. Complete/incomplete and safe-delete
+  repairs are implemented, with device checks still open.
+- **Train:** Run / Walk / Lift / Other, Resume, activity/protection streak, Pushups, recent/full
+  history, strain and running trends. Removed activity-library tab, mascot, fitness/fatigue/form,
+  cross-mode kg-lifted chart, morning-after/overreach cards and share poster stay removed.
+- **Lift:** session-linked Lift Log with all six load meanings, splits, tracking-only, sets,
+  previous performance, repeat last set, rest timer and qualified records; one shared clock,
+  MET-only calories and unchanged maintenance. See `lift-log-integration-plan.md`; AkshatOS
+  ownership/cutover is not complete.
+- **Progress:** goal/review, raw/seven-calendar-day weight, measurement-week blocks, all eight
+  tape sites, Steps, range/baseline controls, dated history/photos, strength, eligible food and
+  activity/recovery. Independent two-panel photo selection, start/end times, backdated entry,
+  local import and photo-inclusive recovery are implemented; phone acceptance remains open.
+  Build 87 puts its dated chart first, uses named Measurement/Range menus and one Week/Month/
+  Since start review with independently useful evidence; full guidance/criteria live in Details.
+  `build-87-ui-plan.md` owns the remaining phone/acceptance gates.
+- **Insights:** weekly/monthly/since-start comparisons and guarded, never-applied goal suggestions
+  are implemented. Coverage/load meaning/dates still constrain interpretation; no measured muscle
+  gain, cross-mode tonnage, automatic food target change or new lifting expenditure is implied.
+  Personal source data/media/import files stay outside public app repositories.
+- **Live/detail repairs:** fresh-GPS walking speed versus labelled average fallback, consistent
+  day arrows, cross-midnight sleep signals, recorded-HR freshness, safe session/diary deletion,
+  both-way historical portions and maintenance-based warnings ship in 86. Device verification
+  is distinct from source implementation; the new UI must not regress these paths.
+- **Sleep/Steps/metric detail:** naps remain available on empty days; sleep correction is folded;
+  Tonight/target-bedtime surfaces remain removed. Hourly Steps bars/totals stay, the per-stretch
+  list stays removed. Personal metric charts still omit algorithm dotted/locked lines and Worn bars.
+- **Settings:** band, profile, alarm, This phone steps, notifications, units, data, privacy and
+  Status stay. Tasker/Shortcuts, double-tap, app icon, add-a-sensor, HealthKit import, AI coach/
+  briefings, language picker and paced breathing stay hidden/removed in the personal build.
+  Personal movement-nudge/wind-down/step-goal alerts stay off; earning a streak needs no alert.
+- **Pushups:** completed-set events, separate goal/streak/history and optional Home auto-pause;
+  never sensor-measured reps, strain, maintenance calories or general activity-streak credit.
+  Always permission is approved for Home only, not a new walking requirement.
 
 Built build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
 Scanning reviews serving/nutrition before Save to My foods, without a meal or diary entry.

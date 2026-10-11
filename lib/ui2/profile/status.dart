@@ -80,10 +80,7 @@ class _StatusScreenState extends State<StatusScreen> {
     final now = DateTime.now();
     final expiry = app.signingExpiry;
     final left = expiry?.difference(now);
-    final newest = app.lastSynced?.tsEpoch;
-    final newestAt = newest == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(newest * 1000);
+    final newestAt = app.lastRecordAt;
     final backupErr = app.lastBackupError;
     final backupOn = app.backupCadence != BackupCadence.off;
 

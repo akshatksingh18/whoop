@@ -1271,7 +1271,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
               child: NavBar(
                 a.name,
-                sub: _when(c),
+                sub: _shortDate(r.start),
                 // Two icons, each a Pressable with S.tap's own 44 pt minimum
                 // hit box (grammar.dart's accessibility floor, not optional) —
                 // S.tap * 2 alone is 12 pt short of that plus the gap between
@@ -1399,6 +1399,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (v != null && !unsaved) {
       final verdict = _verdict;
       return [
+        _timing(c, p),
+        const SizedBox(height: S.x3),
         RunMapCard(v, cursor: _cursor, medals: runMedals(v, _earlier)),
         const SizedBox(height: S.x4),
         // Scales down rather than overflowing at large text sizes.
@@ -1409,7 +1411,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(hero.$1, style: F.n48.copyWith(color: p.ink)),
+              Text(hero.$1, style: F.n34.copyWith(color: p.ink)),
               if (hero.$2.isNotEmpty) ...[
                 const SizedBox(width: S.x2),
                 Text(hero.$2, style: F.body.copyWith(color: p.ink3)),
@@ -1449,6 +1451,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         ),
         const SizedBox(height: S.x5),
       ],
+      _timing(c, p),
+      const SizedBox(height: S.x3),
       // ONE flexible child. A `Flexible` hero next to a `Spacer` split the row
       // by flex, so the headline got half the width whatever it said, and a
       // 1,500 m swim printed '1,…' at 2x text. The privacy pill keeps its
@@ -1535,6 +1539,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       _basisNote(p),
     ];
   }
+
+  Widget _timing(BuildContext c, P p) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(_when(c), style: F.cap.copyWith(color: p.ink2)),
+      Text('${hms(r.duration)} active', style: F.n17.copyWith(color: p.ink)),
+    ],
+  );
 
   Widget _driftCard(P p) {
     final clock = r.sessionId == null

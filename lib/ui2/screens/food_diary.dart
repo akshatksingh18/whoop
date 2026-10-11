@@ -91,11 +91,14 @@ class DayHeader extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  dayTitle(date),
-                  style: F.body.copyWith(
-                    color: p.ink,
-                    fontWeight: FontWeight.w600,
+                Flexible(
+                  child: Text(
+                    dayTitle(date),
+                    textAlign: TextAlign.center,
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(width: S.x1),
@@ -144,6 +147,11 @@ IconData mealIcon(String meal) => switch (meal) {
 
 double _kcalOf(List<FoodEntry> es) => es.fold(0.0, (a, e) => a + (e.kcal ?? 0));
 
+String _energyProteinOf(List<FoodEntry> entries) {
+  final totals = rollupDay('', entries, today: '');
+  return energyProteinSummary(totals.kcal, totals.protein);
+}
+
 /// One meal on the day: what is in it, its calories, Log, and the ⋯ menu.
 class MealCard extends StatelessWidget {
   const MealCard({
@@ -161,59 +169,69 @@ class MealCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final summary = entries.isEmpty
-        ? 'Nothing logged'
-        : entries.length == 1
-        ? entries.first.label
-        : '${entries.first.label} and ${entries.length - 1} more';
-    return Padding(
-      padding: const EdgeInsets.only(top: S.x3),
-      child: Surface(
-        onTap: () => openMeal(c, date, meal, onChanged),
-        semanticLabel: '${mealName(meal)}, $summary',
-        child: Row(
+    final summary = _energyProteinOf(entries);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: S.x3),
+        Row(
           children: [
-            Icon(mealIcon(meal), size: 20, color: p.on(C.domFood)),
-            const SizedBox(width: S.x3),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    mealName(meal),
-                    style: F.body.copyWith(
-                      color: p.ink,
-                      fontWeight: FontWeight.w600,
+              child: Pressable(
+                semanticLabel: 'Open ${mealName(meal)}',
+                onTap: () => openMeal(c, date, meal, onChanged),
+                child: Row(
+                  children: [
+                    Icon(mealIcon(meal), size: 18, color: p.on(C.domFood)),
+                    const SizedBox(width: S.x2),
+                    Flexible(
+                      child: Text(
+                        mealName(meal),
+                        style: F.body.copyWith(
+                          color: p.ink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  ),
-                  Text(
-                    summary,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: F.cap.copyWith(color: p.ink2),
-                  ),
-                  if (entries.isNotEmpty)
-                    Text(
-                      _mealTotals(entries),
-                      style: F.over.copyWith(color: p.ink3),
+                    const SizedBox(width: S.x2),
+                    Flexible(
+                      child: Text(
+                        entries.isEmpty ? '' : summary,
+                        textAlign: TextAlign.end,
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
                     ),
-                ],
+                  ],
+                ),
               ),
             ),
-            Pressable(
-              semanticLabel: '${mealName(meal)} options',
-              onTap: () => mealMenu(c, date, meal, entries, onChanged),
-              child: Icon(LucideIcons.ellipsis, size: 20, color: p.ink3),
+            IconButton(
+              tooltip: '${mealName(meal)} options',
+              onPressed: () => mealMenu(c, date, meal, entries, onChanged),
+              icon: const Icon(LucideIcons.ellipsis),
             ),
-            const SizedBox(width: S.x1),
-            Pressable(
-              semanticLabel: 'Log ${mealName(meal)}',
-              onTap: () => openLog(c, date, meal, onChanged),
-              child: Pill('Log', C.domFood),
+            IconButton(
+              tooltip: 'Log ${mealName(meal)}',
+              onPressed: () => openLog(c, date, meal, onChanged),
+              icon: Icon(LucideIcons.plus, color: p.on(C.domFood)),
             ),
           ],
         ),
-      ),
+        if (entries.isEmpty)
+          Text('Nothing logged', style: F.cap.copyWith(color: p.ink3))
+        else ...[
+          for (final e in entries)
+            _EntryRow(
+              e,
+              onTap: () async {
+                if (await editDiaryEntry(c, e) && c.mounted) onChanged();
+              },
+            ),
+          Text(_mealTotals(entries), style: F.over.copyWith(color: p.ink3)),
+        ],
+        const SizedBox(height: S.x2),
+        Divider(color: p.line, height: 1),
+      ],
     );
   }
 }
@@ -267,6 +285,75 @@ Future<void> openLog(
     ),
   );
   if (c.mounted) onChanged();
+}
+
+// ponytail: one phone navigator; scope this guard per navigator if multi-window editing is added.
+bool _diaryEditorOpen = false;
+
+/// One amount/save path for the diary shortcut and the meal's action menu.
+Future<bool> editDiaryEntry(
+  BuildContext c,
+  FoodEntry e, {
+  Map<String, Object?>? definition,
+}) async {
+  if (_diaryEditorOpen) return false;
+  _diaryEditorOpen = true;
+  try {
+    final db = await LocalDb.instance;
+    final def =
+        definition ??
+        (e.foodKey == null ? null : await NutritionDb.foodDef(db, e.foodKey!));
+    if (!c.mounted) return false;
+    if (def == null || e.quantity == null) {
+      return await QuickAddSheet.show(
+            c,
+            date: e.date,
+            meal: e.meal,
+            from: e,
+            editing: true,
+          ) ==
+          true;
+    }
+    if (unitInBase(def, e.unit) == null) {
+      // Preserve the logged nutrition ratio when its original unit is gone.
+      final portion = await GramsSheet.show(
+        c,
+        {...def, 'unit': e.unit, 'measures_json': ''},
+        initial: e.quantity,
+        action: 'Save',
+      );
+      if (portion == null) return false;
+      await NutritionDb.put(db, e.atQuantity(portion.amount));
+    } else {
+      final portion = await GramsSheet.show(
+        c,
+        def,
+        initial: e.quantity,
+        initialUnit: e.unit,
+        action: 'Save',
+      );
+      if (portion == null) return false;
+      await NutritionDb.put(
+        db,
+        entryFromFood(
+          def,
+          portion.base,
+          id: e.id,
+          date: e.date,
+          meal: e.meal,
+          atTs: e.atTs,
+          amount: portion.amount,
+          unit: portion.unit,
+        ).inGroup(e.group),
+      );
+    }
+    return true;
+  } catch (_) {
+    if (c.mounted) _say(c, 'Could not change this entry. Please try again.');
+    return false;
+  } finally {
+    _diaryEditorOpen = false;
+  }
 }
 
 Future<T?> _sheet<T>(BuildContext c, WidgetBuilder b) =>
@@ -602,7 +689,7 @@ class _DayMealSheetState extends State<_DayMealSheet> with RevisionReload {
             inMeal.isEmpty
                 ? 'Nothing in ${mealName(_meal)} that day'
                 : '${inMeal.length} item${inMeal.length == 1 ? '' : 's'} · '
-                      '${thousands(_kcalOf(inMeal))} kcal',
+                      '${_energyProteinOf(inMeal)}',
             style: F.cap.copyWith(color: p.ink3),
           ),
       ],
@@ -960,46 +1047,8 @@ class _MealPageState extends State<MealPage> with RevisionReload {
       if (!mounted || choice == null) return;
       switch (choice) {
         case 'edit':
-          await QuickAddSheet.show(
-            context,
-            date: e.date,
-            meal: e.meal,
-            from: e,
-            editing: true,
-          );
         case 'grams':
-          if (unitInBase(def!, e.unit) == null) {
-            // A unit the food no longer knows: scale the entry as logged.
-            final g = await GramsSheet.show(context, {
-              ...def,
-              'unit': e.unit,
-              'measures_json': '',
-            }, initial: e.quantity);
-            if (g == null) return;
-            await NutritionDb.put(db, e.atQuantity(g.amount));
-          } else {
-            final g = await GramsSheet.show(
-              context,
-              def,
-              initial: e.quantity,
-              initialUnit: e.unit,
-              action: 'Save',
-            );
-            if (g == null) return;
-            await NutritionDb.put(
-              db,
-              entryFromFood(
-                def,
-                g.base,
-                id: e.id,
-                date: e.date,
-                meal: e.meal,
-                atTs: e.atTs,
-                amount: g.amount,
-                unit: g.unit,
-              ).inGroup(e.group),
-            );
-          }
+          await editDiaryEntry(context, e, definition: def);
         case 'group':
           if (!mounted) return;
           final g = await pickFoodGroup(context, groups, e.group);
@@ -1123,11 +1172,16 @@ class _MealPageState extends State<MealPage> with RevisionReload {
                         ),
                       ),
                     ),
-                    if (items.isNotEmpty)
-                      Text(
-                        '${thousands(_kcalOf(items))} kcal',
-                        style: F.cap.copyWith(color: p.ink3),
+                    if (items.isNotEmpty) ...[
+                      const SizedBox(width: S.x2),
+                      Flexible(
+                        child: Text(
+                          _energyProteinOf(items),
+                          textAlign: TextAlign.end,
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
                       ),
+                    ],
                   ],
                 ),
               ),
@@ -1161,13 +1215,6 @@ class _MealPageState extends State<MealPage> with RevisionReload {
             onTap: () => mealMenu(c, _date, widget.meal, es, _load),
           ),
         ],
-        const SizedBox(height: S.x3),
-        Text(
-          'Tap an item to change it. Hold and drag to reorder or move it under '
-          'another sub-heading. Swipe either way to delete.',
-          textAlign: TextAlign.center,
-          style: F.over.copyWith(color: p.ink3),
-        ),
       ],
     ]);
   }

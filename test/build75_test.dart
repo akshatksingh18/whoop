@@ -433,9 +433,8 @@ void main() {
         ),
       );
       expect(find.text('1,475'), findsOneWidget);
-      expect(find.text('kcal / 2,202'), findsOneWidget);
-      expect(find.text('727'), findsOneWidget);
-      expect(find.text('left'), findsOneWidget);
+      expect(find.text('Goal 2,202 · 727 left'), findsOneWidget);
+      expect(find.text('Maintenance not available'), findsOneWidget);
     });
   });
 

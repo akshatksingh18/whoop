@@ -1035,7 +1035,12 @@ class _HomeSetupScreenState extends State<HomeSetupScreen> {
 /// a set while a day is open and Start when it is not. Hidden until Pushups
 /// has been used once.
 class TodayPushupRow extends StatefulWidget {
-  const TodayPushupRow({super.key, this.embedded = false});
+  const TodayPushupRow({
+    super.key,
+    this.embedded = false,
+    this.showWhenEmpty = false,
+  });
+  final bool showWhenEmpty;
 
   /// Drawn as one row of Today's plan card rather than its own card.
   final bool embedded;
@@ -1069,7 +1074,18 @@ class _TodayPushupRowState extends State<TodayPushupRow> {
   @override
   Widget build(BuildContext c) {
     final s = _s;
-    if (s == null || (s.sessions.isEmpty && s.active == null)) {
+    if (s == null) {
+      return widget.showWhenEmpty
+          ? PlanRow(
+              icon: LucideIcons.alarmClock,
+              color: C.orange,
+              title: 'Pushups',
+              sub: 'Open day and reminders',
+              onTap: () => _push(c, const PushupsScreen()),
+            )
+          : const SizedBox.shrink();
+    }
+    if (!widget.showWhenEmpty && s.sessions.isEmpty && s.active == null) {
       return const SizedBox.shrink();
     }
     final p = P.of(c);

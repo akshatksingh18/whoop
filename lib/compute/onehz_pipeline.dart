@@ -23,6 +23,7 @@
 
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'input_reuse.dart';
 
 import 'package:openstrap_analytics/onehz.dart';
 
@@ -333,8 +334,26 @@ class DayBundleInput {
 /// Pure: takes the serialized [DayBundleInput] map, returns a plain JSON map (the
 /// full derived bundle). Call directly + synchronously in tests, or via
 /// `Isolate.run(() => deriveDayBundle(input))` in production.
-Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
+Map<String, dynamic> deriveDayBundle(
+  Map<String, dynamic> inputJson, {
+  InputReuse? reuse,
+}) {
   final d = DayBundleInput.fromJson(inputJson);
+  final cache = reuse;
+  final rrStamp = cache?.stamp([
+    d.sleepRrMs,
+    d.sleepRrTsMs,
+    d.sleepOnsetSec,
+    d.sleepOffsetSec,
+    d.hypnoStages,
+  ]);
+  final hrStamp = cache?.stamp([
+    d.sleepHr,
+    d.sleepTsSec,
+    d.sleepJson['tst_sec'],
+  ]);
+  T night<T>(String key, T Function() calculate) =>
+      cache == null ? calculate() : cache.get(key, rrStamp!, calculate);
 
   // ── HR over the DAY (for the curve, strain zones, dip day-side) ───────────
   final dayHr = [for (final h in d.dayHr) h.toDouble()];
@@ -365,7 +384,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // HRV/RHR are rest/sleep-only per the catalog. Running correctRr+hrvTime over
   // the SLEEP RR (not the whole day) is what brings RMSSD back to physiological
   // tens-of-ms instead of the whole-day ~166 ms inflated value.
-  final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
+  final corrected = night(
+    'rr-clean',
+    () => correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs),
+  );
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
@@ -398,22 +420,31 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // Whole-window time-domain HRV is kept for SDNN / detail rows only. The
   // nightly headline HRV is the mean of 5-min cleaned-window RMSSDs across the
   // detected sleep session, not one RMSSD over the whole night's NN stream.
-  final hrvT = hrvTime(nn, nnTimesMs: nnTimes);
+  final hrvT = night('hrv-time', () => hrvTime(nn, nnTimesMs: nnTimes));
   // Keep the robust estimator as a secondary detail only; the canonical nightly
   // RMSSD follows the sleep-session windowed formulation.
   final nremMask = _nremMaskAlignedToNn(d, nnTimes, d.sleepRrTsMs);
-  final robustRmssd = nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask);
-  final sleepSessionRmssdMetric = sleepSessionWindowedRmssd(
-    d.sleepRrMs,
-    d.sleepRrTsMs,
-    startSec: d.sleepOnsetSec,
-    endSec: d.sleepOffsetSec,
+  final robustRmssd = night(
+    'rmssd-robust',
+    () => nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask),
+  );
+  final sleepSessionRmssdMetric = night(
+    'rmssd-session',
+    () => sleepSessionWindowedRmssd(
+      d.sleepRrMs,
+      d.sleepRrTsMs,
+      startSec: d.sleepOnsetSec,
+      endSec: d.sleepOffsetSec,
+    ),
   );
   final sleepSessionRmssd = sleepSessionRmssdMetric.present
       ? sleepSessionRmssdMetric.value
       : null;
   final hrvF = nn.length >= 20
-      ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
+      ? night(
+          'hrv-freq',
+          () => hrvFreq(nn, nnTimes, artifactFraction: artifactFraction),
+        )
       : Metric<HrvFreq>.absent(
           tier: Tier.high,
           inputs_used: const ['rr_cleaned'],
@@ -444,32 +475,46 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // with no measurable cadence yields ABSENCE rather than a guess. The
   // no-sleep-no-RHR branch above is untouched by any of that.
   final rhr = (hasSleep && sleepHr.isNotEmpty)
-      ? nocturnalRhr(sleepHr, tsSec: sleepTs)
+      ? (cache == null
+            ? nocturnalRhr(sleepHr, tsSec: sleepTs)
+            : cache.get(
+                'rhr',
+                hrStamp!,
+                () => nocturnalRhr(sleepHr, tsSec: sleepTs),
+              ))
       : const Metric<NocturnalRhr>.absent(
           tier: Tier.high,
           inputs_used: ['hr_1hz', 'sleep_window'],
-          note: 'no sleep was scored for this day — resting HR is only ever '
+          note:
+              'no sleep was scored for this day — resting HR is only ever '
               'measured over a sleep window, never over waking hours',
         );
   // HR dip: day-side = waking HR outside the sleep window; night-side = sleep HR.
   final dayOnly = _dayHrOutsideSleep(d);
   final dip = hrDip(dayOnly, sleepHr);
-  final dc = decelerationCapacity(nn);
-  final ac = accelerationCapacity(nn);
+  final dc = night('dc', () => decelerationCapacity(nn));
+  final ac = night('ac', () => accelerationCapacity(nn));
   // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
   // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
-  final stress = baevskyStressIndex(nn);
+  final stress = night('stress', () => baevskyStressIndex(nn));
 
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
-      ? rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction)
+      ? night(
+          'resp',
+          () => rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction),
+        )
       : Metric<RespEstimate>.absent(
           tier: Tier.estimate,
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 30),
         );
   final cvhr = nn.length >= 60
-      ? cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction)
+      ? night(
+          'cvhr',
+          () =>
+              cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction),
+        )
       : Metric<CvhrResult>.absent(
           tier: Tier.estimate,
           inputs_used: const ['rr_cleaned'],
@@ -479,8 +524,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
   // isn't limited to the sleep window. Hard-gated on beat count + artifact inside
   // irregularBeatScreen; returns absent on a thin/noisy day.
-  final dayCorrected = correctRr(d.dayRrMs,
-      rrTsMs: d.dayRrTsMs.isEmpty ? null : d.dayRrTsMs);
+  final dayCorrected = cache == null
+      ? correctRr(d.dayRrMs, rrTsMs: d.dayRrTsMs.isEmpty ? null : d.dayRrTsMs)
+      : cache.get(
+          'day-rr-clean',
+          cache.stamp([d.dayRrMs, d.dayRrTsMs]),
+          () => correctRr(
+            d.dayRrMs,
+            rrTsMs: d.dayRrTsMs.isEmpty ? null : d.dayRrTsMs,
+          ),
+        );
   final irregular24h = irregularBeatScreen(
     dayCorrected.nn,
     // Require sustained irregularity in independent short windows, not just
@@ -494,7 +547,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── BREATHING-RATE VARIABILITY (per-window RSA over the sleep NN) ──────────
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
-  final respWindows = _respPerWindow(nn, nnTimes);
+  final respWindows = night('resp-windows', () => _respPerWindow(nn, nnTimes));
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
       : Metric<BrvResult>.absent(

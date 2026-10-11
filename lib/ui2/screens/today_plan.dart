@@ -47,19 +47,10 @@ class PlanRow extends StatelessWidget {
       onTap: onTap,
       semanticLabel: '$title. $sub',
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        padding: const EdgeInsets.symmetric(vertical: S.x2),
         child: Row(
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: p.wash(color),
-                borderRadius: R.rMd,
-              ),
-              child: Icon(icon, size: 18, color: p.on(color)),
-            ),
+            Icon(icon, size: 20, color: p.on(color)),
             const SizedBox(width: S.x3),
             Expanded(
               child: Column(
@@ -103,13 +94,7 @@ class PlanRow extends StatelessWidget {
                 semanticLabel: action!,
                 onTap: onAction,
                 // A full 44 pt target round the smaller pill.
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minHeight: S.tap,
-                    minWidth: S.tap,
-                  ),
-                  child: Center(child: Pill(action!, color)),
-                ),
+                child: Text(action!, style: F.cap.copyWith(color: p.on(color))),
               ),
             ],
           ],
@@ -215,7 +200,8 @@ class TodayPlanCard extends StatelessWidget {
       ],
     ];
     return Surface(
-      pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x1),
+      framed: false,
+      pad: const EdgeInsets.symmetric(vertical: S.x1),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

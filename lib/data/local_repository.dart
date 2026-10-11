@@ -97,6 +97,11 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> getDayTimeline(String date) =>
       throw UnimplementedError('re-layer: getDayTimeline');
 
+  /// Durable per-minute HR means, with thin/empty minutes omitted. No derive
+  /// and no RAM live samples; absolute bounds can cross a local midnight.
+  Future<List<Map<String, num>>> getRecordedHr(int fromSec, int toSec) =>
+      throw UnimplementedError('re-layer: getRecordedHr');
+
   /// HR, HRV, respiration and skin temperature over one night's absolute
   /// onset-to-wake window, read across every local day it touches (B86-03).
   /// Empty where unsupported; callers keep their day timeline then.

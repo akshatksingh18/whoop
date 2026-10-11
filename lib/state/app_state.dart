@@ -229,7 +229,7 @@ class AppState extends ChangeNotifier {
   // own clock, NOT when the BLE frame arrived. During a flash backfill, frames
   // land "just now" but carry hours-old records; THIS is the timestamp the
   // "last data: …" indicator must show. Seeded from the DB at init, advanced as
-  // records (drained + live) flow in.
+  // durable historical records flow in; ephemeral live frames never advance it.
   int? _lastRecTs;
   final List<String> logLines = [];
   bool busy = false;
@@ -1709,6 +1709,9 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugTickWorkout() => _tickWorkout();
 
+  @visibleForTesting
+  Future<SyncReport> debugRunSyncBurst() => _runSyncBurst(kickFirst: true);
+
   /// Feed a strap alarm-lifecycle event (56 set / 57–58 fired / 59 cleared)
   /// without going through the BLE event path. Tests only.
   @visibleForTesting
@@ -2552,6 +2555,7 @@ class AppState extends ChangeNotifier {
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
       }
+      if (_disposed) return;
       notifyListeners();
       _deriveScheduler.markStoredData();
       _publishRecorded();
@@ -3243,9 +3247,12 @@ class AppState extends ChangeNotifier {
   // Historical singles only now (live frames go through _onLiveFrame and are
   // never persisted). Just write the raw record (+ optional decoded sample).
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
-    final ts = raw.recTs ?? sample?.tsEpoch;
-    if (ts != null && ts > 0 && ts > (_lastRecTs ?? 0)) _lastRecTs = ts;
     await LocalDb.insertRecord(raw, sample);
+    final ts = raw.recTs ?? sample?.tsEpoch;
+    if (ts != null && ts > 0 && ts > (_lastRecTs ?? 0)) {
+      _lastRecTs = ts;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   // Ephemeral live high-rate frame (0x28/0x2B/0x33) — NOT persisted. The
@@ -4401,6 +4408,7 @@ class AppState extends ChangeNotifier {
       // not mistake that for a stuck drain (spin-guard/backlogRemains below
       // read frontierAfter too).
       final frontierBefore = await LocalDb.getCursorInt('rec_ts_hw');
+      final recordsBefore = engine.historyRecordCount;
       final kicked = kickFirst || i > 0 || !engine.offloadActive;
       if (kicked) {
         await engine.requestHistorySync();
@@ -4466,6 +4474,13 @@ class AppState extends ChangeNotifier {
         _log(
           'Backfill stop — frontier did not advance and no backlog remains '
           '(strap newest=$strapNewest, frontier=$frontierAfter).',
+        );
+        break;
+      }
+      if (!frontierAdvanced && engine.historyRecordCount <= recordsBefore) {
+        _log(
+          'Backfill stop — no new history records; earlier connection totals '
+          'are not progress in this attempt.',
         );
         break;
       }
@@ -4916,6 +4931,7 @@ class AppState extends ChangeNotifier {
       if (!isLinkStale(
         engine.sinceLastRx,
         liveStreamArmed: engine.liveEnabled,
+        onWrist: engine.linkWristOn,
       )) {
         // Healthy link → fast reclaim. But the fast path skips the band polls the full
         // connect path runs, so the cached battery %/charging/strap-name go stale.
@@ -5281,7 +5297,11 @@ class AppState extends ChangeNotifier {
   /// tries to reconnect").
   Future<void> foregroundCatchUp() async {
     if (!engine.isConnected) return;
-    if (isLinkStale(engine.sinceLastRx, liveStreamArmed: engine.liveEnabled)) {
+    if (isLinkStale(
+      engine.sinceLastRx,
+      liveStreamArmed: engine.liveEnabled,
+      onWrist: engine.linkWristOn,
+    )) {
       _log(
         'Foreground catch-up: no BLE data for ${engine.sinceLastRx.inSeconds}s '
         '— zombie link, forcing reconnect instead of a stale-link pull.',

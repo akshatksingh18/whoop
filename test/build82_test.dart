@@ -141,7 +141,7 @@ void main() {
         units: const {'my:eggs': 'egg', 'my:oats': 'g'},
       );
       final defs = {'my:eggs': eggs, 'my:oats': oats};
-      expect(mealSummary(m, defs), '510 kcal · 2 foods · Breakfast');
+      expect(mealSummary(m, defs), '510 kcal · 28 g protein · 2 foods · Breakfast');
       expect(nameMatches('Chicken Sausage', 'sausage'), isTrue);
       expect(nameMatches(null, 'x'), isFalse);
     });

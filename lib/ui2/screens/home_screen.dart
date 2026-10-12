@@ -274,6 +274,9 @@ String? heldOverNightOf(Map<String, dynamic> today) {
 String? staleOvernightNote(Map<String, dynamic> today, [AppLocalizations? l]) {
   if (heldOverNightOf(today) == null) return null;
   final st = today['status'];
+  if (st is Map && st['overnight_no_sleep_today'] == true) {
+    return 'No sleep was recorded last night.';
+  }
   return (st is Map ? st['overnight_state']?.toString() : null) == 'building'
       ? l?.homeOvernightBuilding ?? 'Last night is still being worked out.'
       : l?.homeOvernightNothingYet ??

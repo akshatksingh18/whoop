@@ -24,6 +24,7 @@ import 'band_ownership.dart';
 import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
+import 'file_log.dart';
 
 /// One headless LOCAL drain pass. Safe to call from a background isolate. Never
 /// throws. Connects-by-id if reachable, drains whatever the band buffered to
@@ -33,20 +34,20 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
   WidgetsFlutterBinding.ensureInitialized();
   final ownedLease = lease ?? BandOwnership.tryAcquireHeadless();
   if (ownedLease == null) {
-    debugPrint(
+    _bgLog(
       '[bgsync] skipped — foreground or another headless session owns the band '
       '(${BandOwnership.debugState}).',
     );
     return true;
   }
-  debugPrint(
+  _bgLog(
     '[bgsync] acquired headless lease=${ownedLease.token} '
     '(${BandOwnership.debugState})',
   );
   try {
     final paired = await PairedDevice.load();
     if (paired == null) {
-      debugPrint('[bgsync] not paired — nothing to do.');
+      _bgLog('[bgsync] not paired — nothing to do.');
       return true;
     }
 
@@ -55,14 +56,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       onRecord: (sample, raw) => LocalDb.insertRecord(raw, sample),
       onState: (_) {},
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
-      log: (l) => debugPrint('[bgsync] $l'),
+      log: (l) => _bgLog('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
           LocalDb.commitSyncBatch(raws, samples,
               trimToken: trimTokenHex,
               archives: archives,
               deviceFamily: deviceFamily,
-              onCheckpoint: (msg) => debugPrint('[bgsync][COMMIT] $msg')),
+              onCheckpoint: (msg) => _bgLog('[bgsync][COMMIT] $msg')),
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
       // Mark this as the background drainer: if the foreground app engine already
@@ -77,7 +78,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     final connected = await engine.connectToRemoteId(paired.remoteId,
         generationHint: paired.generation);
     if (!connected) {
-      debugPrint(
+      _bgLog(
         '[bgsync] strap not reachable this cycle — will catch up next time.',
       );
       await checkSyncStaleness();
@@ -100,7 +101,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 
         reason: plan.source,
       );
-      debugPrint(
+      _bgLog(
         '[bgsync] HighFreq wake window: source=${plan.source} '
         'samples=${plan.sampleCount} enabled=${plan.shouldEnable} '
         'target=${plan.targetWake?.toIso8601String()}',
@@ -122,16 +123,16 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     try {
       await LocalDb.enqueueDeriveJob(type: 'derive_light', reason: 'headless_sync');
     } catch (e) {
-      debugPrint('[bgsync] derive queue skipped: $e');
+      _bgLog('[bgsync] derive queue skipped: $e');
     }
-    debugPrint('[bgsync] done (local drain; calculation queued).');
+    _bgLog('[bgsync] done (local drain; calculation queued).');
     await checkSyncStaleness();
     return true;
   } catch (e) {
-    debugPrint('[bgsync] error (ignored): $e');
+    _bgLog('[bgsync] error (ignored): $e');
     return true;
   } finally {
-    debugPrint(
+    _bgLog(
       '[bgsync] releasing headless lease=${ownedLease.token} '
       '(${BandOwnership.debugState})',
     );
@@ -145,7 +146,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     try {
       await OuraLink.instance.sync();
     } catch (e) {
-      debugPrint('[bgsync] oura sync skipped: $e');
+      _bgLog('[bgsync] oura sync skipped: $e');
     }
   }
 }
@@ -204,14 +205,22 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
       // The gate refused it (quiet hours on an overnight wake is the common
       // case). Burning the cooldown here silenced the backstop for another 48
       // hours over a notification nobody ever saw.
-      debugPrint('[bgsync] staleness notification dropped by the gate.');
+      _bgLog('[bgsync] staleness notification dropped by the gate.');
       return;
     }
     await prefs.setInt(_kLastStalenessNotifiedMs, now.millisecondsSinceEpoch);
-    debugPrint(
+    _bgLog(
       '[bgsync] staleness notification fired (hours_stale=$hoursStale).',
     );
   } catch (e) {
-    debugPrint('[bgsync] staleness check skipped: $e');
+    _bgLog('[bgsync] staleness check skipped: $e');
   }
+}
+
+/// Background/headless diagnostics reach the shared file log too (B88-05):
+/// these lines used to go to `debugPrint` only, so the sync log was blind for
+/// exactly the wakes the reliability work needs to measure.
+void _bgLog(String line) {
+  debugPrint(line);
+  FileLog.write(line);
 }

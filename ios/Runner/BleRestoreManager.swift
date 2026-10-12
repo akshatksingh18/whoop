@@ -458,6 +458,13 @@ final class ExitReasonLog: NSObject, MXMetricManagerSubscriber {
     guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
           let data = line.data(using: .utf8) else { return }
     let url = dir.appendingPathComponent("openstrap_exits.log")
+    // B88-05: bounded like openstrap_native.log — cut to the newest half past
+    // 256 KB, so a long-lived install cannot grow it without limit.
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+       let size = attrs[.size] as? Int, size > 256 * 1024,
+       let old = try? Data(contentsOf: url) {
+      try? old.suffix(old.count / 2).write(to: url)
+    }
     if let h = try? FileHandle(forWritingTo: url) {
       defer { try? h.close() }
       _ = try? h.seekToEnd()

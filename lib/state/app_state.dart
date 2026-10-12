@@ -180,6 +180,7 @@ class AppState extends ChangeNotifier {
   late final DeriveScheduler _deriveScheduler = DeriveScheduler(
     run: ({required DeriveJobKind kind}) =>
         _afterDrain(heavy: kind == DeriveJobKind.heavy),
+    engineBusy: () => _derive.running,
     log: _log,
     onChanged: notifyListeners,
   );
@@ -1745,6 +1746,12 @@ class AppState extends ChangeNotifier {
   Future<void> _afterDrain({bool heavy = false}) async {
     final mode = heavy ? 'heavy' : 'light';
     try {
+      // B88-05: another pass (rescan / reanalyze / sleep override / nap
+      // rebuild / BG task) holds the engine. `DerivationEngine.run` would
+      // return 0 and the scheduler would mark this job COMPLETE, leaving the
+      // new data uncalculated. Hand it back instead; the scheduler requeues it
+      // and retries after its settle delay.
+      if (_derive.running) throw const DeriveCancelled('engine busy');
       // Context for whatever crash/ANR report comes next — the derivation
       // engine's heavy per-day compute is isolate-offloaded, but the
       // assembly/UI-refresh wiring around it still runs on the main isolate,
@@ -1766,6 +1773,11 @@ class AppState extends ChangeNotifier {
               // four days, up to a minute), so Today kept the morning's 0.0
               // strain while Day strain, read on open, showed the new value.
               _todayDerivedAt = DateTime.now();
+              // B88-05: refresh the overnight freshness the moment today's
+              // row lands, not only when the whole pass ends — a cancelled
+              // background pass skipped it and Today kept saying "still being
+              // worked out" about a night that had already committed.
+              await LocalDb.refreshComputeFreshness();
               bumpInsights();
             } else if (index == total || index == 1 || index % 3 == 0) {
               notifyListeners();
@@ -2412,6 +2424,8 @@ class AppState extends ChangeNotifier {
 
   /// Force-derive after a sleep-override change so the affected day restages from
   /// the user's window (the engine force-includes override days even if locked).
+  bool _overrideRederivePending = false;
+
   Future<void> _reanalyzeForOverride() async {
     if (reanalyzing) return;
     reanalyzing = true;
@@ -2422,6 +2436,11 @@ class AppState extends ChangeNotifier {
       // The day_result rows just changed — without this no RevisionReload screen
       // re-reads, so an override/nap edit only showed up after a restart.
       bumpInsights();
+    } on DeriveCancelled catch (e) {
+      // Backgrounded mid-pass (B88-05): the correction is durable, so redo the
+      // recalculation on the next foreground instead of losing it.
+      _overrideRederivePending = true;
+      _log('[derive] sleep-override re-derive deferred: $e');
     } catch (e) {
       _log('[derive] sleep-override re-derive failed: $e');
     } finally {
@@ -4897,22 +4916,30 @@ class AppState extends ChangeNotifier {
 
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
+    // B88-05: the app IS in the foreground now, whatever the link is doing.
+    // These resets used to sit below the busy/unpaired early return — the only
+    // place they ran — so switching away and back during a slow connect left
+    // calculation held as "background" for the whole visit.
+    final wasBackground = _background;
+    _background = false;
+    engine.setBackground(false);
+    // Back in the foreground with an OS CPU/memory budget again — let the
+    // scheduler drain any derive jobs that queued (durably) while backgrounded.
+    _deriveScheduler.setBackground(false);
+    if (_overrideRederivePending) {
+      _overrideRederivePending = false;
+      unawaited(_reanalyzeForOverride());
+    }
     if (busy || paired == null) return;
     BandOwnership.markForegroundIntent(true);
     _log('[OWNERSHIP] foreground intent on (${BandOwnership.debugState})');
     // Returning to the foreground with the connection still alive (kept during
     // background): don't tear it down and reconnect — just reclaim ownership.
-    final wasBackground = _background;
-    _background = false;
-    engine.setBackground(false);
     // Coming back after hours (or days) suspended: re-read the phone's steps
     // for whatever day it is NOW.
     if (phoneStepsEnabled) {
       unawaited(syncPhoneSteps());
     }
-    // Back in the foreground with an OS CPU/memory budget again — let the
-    // scheduler drain any derive jobs that queued (durably) while backgrounded.
-    _deriveScheduler.setBackground(false);
     // A background live downgrade may still be writing (its flags clear only on
     // completion). Let it finish before any reclaim path below re-arms live, so
     // the re-arm sees settled flags and its ON writes can't interleave with the

@@ -28,6 +28,7 @@ import 'headless_gate.dart';
 import '../sync/background_sync.dart';
 import '../sync/edge_tracking.dart';
 import '../sync/paired_device.dart';
+import 'file_log.dart';
 
 /// The [HeadlessSyncGate] owner name for the Android post-boot wake.
 const String kBootWakeGateOwner = 'android_boot_wake';
@@ -95,13 +96,13 @@ Future<void> maybeHeadlessBoot() async {
 
   final lease = BandOwnership.tryAcquireHeadless();
   if (lease == null) {
-    debugPrint(
+    _bgLog(
       '[headless-boot] boot wake skipped — ${BandOwnership.debugState}',
     );
     return;
   }
 
-  debugPrint(
+  _bgLog(
     '[headless-boot] boot wake confirmed — lease=${lease.token} '
     '${BandOwnership.debugState}',
   );
@@ -112,12 +113,12 @@ Future<void> maybeHeadlessBoot() async {
   // Run a single headless drain pass (connect → flash offload → local store →
   // disconnect). This catches up the offline backlog accumulated while the phone
   // was powered off. Errors are swallowed inside runHeadlessSync.
-  debugPrint('[headless-boot] starting headless sync for ${paired.remoteId}');
+  _bgLog('[headless-boot] starting headless sync for ${paired.remoteId}');
   // Fire-and-forget (see the doc above) but SERIALISED through the shared
   // headless gate, so `HeadlessSyncGate.busy` is true for the whole boot drain.
   unawaited(
     runBootSyncThroughGate(lease).then((ran) {
-      debugPrint(
+      _bgLog(
         ran == null
             ? '[headless-boot] boot wake skipped — another headless sync '
                 'holds the gate; lease released.'
@@ -125,4 +126,12 @@ Future<void> maybeHeadlessBoot() async {
       );
     }),
   );
+}
+
+/// Background/headless diagnostics reach the shared file log too (B88-05):
+/// these lines used to go to `debugPrint` only, so the sync log was blind for
+/// exactly the wakes the reliability work needs to measure.
+void _bgLog(String line) {
+  debugPrint(line);
+  FileLog.write(line);
 }

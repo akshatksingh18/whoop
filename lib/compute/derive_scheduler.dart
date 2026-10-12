@@ -14,6 +14,7 @@ enum DeriveJobKind { light, heavy }
 class DeriveScheduler {
   DeriveScheduler({
     required this.run,
+    this.engineBusy = _never,
     required this.log,
     required this.onChanged,
     this.lightSettle = const Duration(seconds: 8),
@@ -22,6 +23,11 @@ class DeriveScheduler {
   });
 
   final Future<void> Function({required DeriveJobKind kind}) run;
+
+  /// Whether ANY derive pass holds the engine, including ones started outside
+  /// this scheduler.
+  final bool Function() engineBusy;
+  static bool _never() => false;
   final void Function(String) log;
   final void Function() onChanged;
   final Duration lightSettle;
@@ -166,7 +172,9 @@ class DeriveScheduler {
       // Cancelling the timer only stopped QUEUED work; a pass already running
       // kept calculating for up to a minute into the background and drew iOS
       // CPU-limit kills. Stop it: committed days stay, the job is requeued.
-      if (_running) DeriveStop.request('backgrounded');
+      // B88-05: detached passes (rescan / reanalyze / override / nap / BG
+      // task) hold the same engine outside this scheduler; stop them too.
+      if (_running || engineBusy()) DeriveStop.request('backgrounded');
       log('[derive-scheduler] backgrounded — deferring derive to foreground');
       onChanged();
       return;

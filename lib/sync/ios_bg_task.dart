@@ -46,6 +46,7 @@ import '../data/local_repository_impl.dart';
 import '../widget/widget_service.dart';
 import 'background_sync.dart';
 import 'headless_gate.dart';
+import 'file_log.dart';
 
 class IosBgTask {
   static const _ch = MethodChannel('openstrap/bg_task');
@@ -91,18 +92,18 @@ class IosBgTask {
       try {
         // Skip headless BLE if the foreground session already owns the band.
         if (!IosBleRestore.foregroundActive) {
-          debugPrint('[ios-bgtask] running headless sync (syncOnly=$syncOnly)');
+          _bgLog('[ios-bgtask] running headless sync (syncOnly=$syncOnly)');
           await runHeadlessSync();
         } else {
           // The foreground app owns the band: no headless BLE (it would fight
           // flutter_blue_plus for the peripheral) — but still use this OS-granted
           // budget to pull the flash backlog over the app's own live connection.
-          debugPrint(
+          _bgLog(
               '[ios-bgtask] foreground owns the band — catch-up over live link');
           try {
             await foregroundPull?.call();
           } catch (e) {
-            debugPrint('[ios-bgtask] foreground pull failed (ignored): $e');
+            _bgLog('[ios-bgtask] foreground pull failed (ignored): $e');
           }
         }
         // Calculation inside a budget: the light pass (today first) on a
@@ -116,23 +117,23 @@ class IosBgTask {
         try {
           final profile = await _loadProfile();
           final engine = DerivationEngine(
-            log: (l) => debugPrint('[ios-bgtask-derive] $l'),
+            log: (l) => _bgLog('[ios-bgtask-derive] $l'),
             background: true,
           );
           await engine.run(profile, heavy: !syncOnly);
           if (!syncOnly) await engine.rescanRecent(profile);
           await _refreshWidgetSnapshot(profile);
         } on DeriveCancelled catch (e) {
-          debugPrint('[ios-bgtask] calculation stopped: $e');
+          _bgLog('[ios-bgtask] calculation stopped: $e');
         } catch (e) {
-          debugPrint('[ios-bgtask] calculation skipped: $e');
+          _bgLog('[ios-bgtask] calculation skipped: $e');
         } finally {
           budget.cancel();
         }
-        debugPrint('[ios-bgtask] done (syncOnly=$syncOnly)');
+        _bgLog('[ios-bgtask] done (syncOnly=$syncOnly)');
         return true;
       } catch (e) {
-        debugPrint('[ios-bgtask] error (ignored): $e');
+        _bgLog('[ios-bgtask] error (ignored): $e');
         // Return true even on error — the non-destructive cursor means a retry
         // is not harmful, but we don't want to spam the OS with failure signals
         // that could cause iOS to throttle our background budget.
@@ -168,4 +169,12 @@ class IosBgTask {
       LocalRepositoryImpl(getProfileMap: () => profile.toMap()),
     );
   }
+}
+
+/// Background/headless diagnostics reach the shared file log too (B88-05):
+/// these lines used to go to `debugPrint` only, so the sync log was blind for
+/// exactly the wakes the reliability work needs to measure.
+void _bgLog(String line) {
+  debugPrint(line);
+  FileLog.write(line);
 }

@@ -2696,7 +2696,6 @@ class LocalDb {
         }
         for (var i = 0; i < raws.length; i++) {
           final raw = raws[i];
-          final recTs = _recTsFor(raw);
           final sample = samples[i];
           if (sample != null) {
             batch.insert('samples', {
@@ -2718,7 +2717,10 @@ class LocalDb {
             deviceId: deviceId,
           );
           if (raw.counter > maxCounter) maxCounter = raw.counter;
-          if (recTs > maxRecTs) maxRecTs = recTs;
+          final frontierTs = _frontierTsFor(raw);
+          if (frontierTs != null && frontierTs > maxRecTs) {
+            maxRecTs = frontierTs;
+          }
           if (ops >= chunkOps) await flushChunk();
         }
         checkpoint(
@@ -5805,6 +5807,20 @@ class LocalDb {
   /// Resolve the rec_ts (epoch sec) to store: reuse the already-decoded value from
   /// [raw] (ble_engine sets it from the record it parsed) to avoid a double-decode,
   /// else decode the hex here, else fall back to captured_at/1000.
+  /// The timestamp allowed to advance the `rec_ts_hw` "newest band data"
+  /// frontier (B88-05): the record's OWN time only — never the phone-capture
+  /// fallback [_recTsFor] uses for an untimed record — and never more than
+  /// 10 minutes in the future. The frontier is monotone, so one plausible-but-
+  /// wrong stamp used to pin "Band data: just now" and silence staleness.
+  static int? _frontierTsFor(RawRecord raw) {
+    final own = (raw.recTs != null && raw.recTs! > 0)
+        ? raw.recTs!
+        : decodeRecTs(raw.hex, fallbackSec: 0);
+    if (own <= 0) return null;
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return own > nowSec + 600 ? null : own;
+  }
+
   static int _recTsFor(RawRecord raw) {
     if (raw.recTs != null && raw.recTs! > 0) return raw.recTs!;
     return decodeRecTs(raw.hex, fallbackSec: raw.capturedAt ~/ 1000);
@@ -8270,6 +8286,11 @@ class LocalDb {
     String? latestRecoveryDay;
     int? latestRecoveryComputedAt;
     Map<String, dynamic>? todayRow;
+    // B88-05: today's row flagged NO_SLEEP_DETECTED is a decided night with no
+    // sleep, not a scored overnight. It must not mark the overnight "ready"
+    // while the bundle served is an EARLIER night with sleep — that printed a
+    // prior night's readiness/HRV/RHR as today's with no held-over note.
+    var todayNoSleep = false;
     for (final row in recent) {
       final dayId = row['day_id']?.toString();
       if (dayId == null || dayId.isEmpty) continue;
@@ -8286,7 +8307,8 @@ class LocalDb {
         final flags = decoded['flags'];
         final hasSleep = sleep is Map && sleep['tst_sec'] != null;
         final noSleep = flags is List && flags.contains('NO_SLEEP_DETECTED');
-        if (hasSleep || noSleep) {
+        if (noSleep && !hasSleep && dayId == today) todayNoSleep = true;
+        if (hasSleep) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
         }
@@ -8339,6 +8361,7 @@ class LocalDb {
         'recovery_computed_at': latestRecoveryComputedAt,
         'showing_prior_overnight':
             latestOvernightDay != null && latestOvernightDay != today,
+        'overnight_no_sleep_today': todayNoSleep,
       }),
     );
     await putComputeFreshness(

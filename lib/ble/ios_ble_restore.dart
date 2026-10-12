@@ -18,6 +18,7 @@ import '../compute/derivation_engine.dart' show DeriveStop;
 import '../sync/background_sync.dart';
 import '../sync/headless_gate.dart';
 import '../sync/sync_policy.dart' show RestoreWakeOutcome;
+import '../sync/file_log.dart';
 
 class IosBleRestore {
   static const _ch = MethodChannel('openstrap/ble_restore');
@@ -61,7 +62,7 @@ class IosBleRestore {
         try {
           outcome = await handler();
         } catch (e) {
-          debugPrint('[ios-restore] live-app wake handler threw: $e');
+          _bgLog('[ios-restore] live-app wake handler threw: $e');
         }
         if (outcome == RestoreWakeOutcome.connected) {
           await _done();
@@ -79,7 +80,7 @@ class IosBleRestore {
         try {
           await runHeadlessSync();
         } catch (e) {
-          debugPrint('[ios-restore] headless sync threw: $e');
+          _bgLog('[ios-restore] headless sync threw: $e');
         } finally {
           await _done();
         }
@@ -169,4 +170,12 @@ class IosBleRestore {
       await _ch.invokeMethod('syncDone');
     } catch (_) {}
   }
+}
+
+/// Background/headless diagnostics reach the shared file log too (B88-05):
+/// these lines used to go to `debugPrint` only, so the sync log was blind for
+/// exactly the wakes the reliability work needs to measure.
+void _bgLog(String line) {
+  debugPrint(line);
+  FileLog.write(line);
 }

@@ -544,13 +544,18 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           Text(
             measured == null
                 ? (coverage.days == 0
-                      ? 'Needs 14 days of full food logs and 8 morning weigh-ins.'
-                      : '${coverage.complete}/${coverage.days} full food days · needs 14 days and 8 weigh-ins.')
-                : 'Estimated maintenance from food and weight: about ${thousands(measured.kcal)} kcal · '
-                      '${measured.kgPerWeek <= 0 ? 'losing' : 'gaining'} '
-                      '${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week '
+                      ? 'Needs 14 days of food logs marked complete and 8 weigh-ins, 3 in each half.'
+                      : '${coverage.complete}/${coverage.days} complete food days · needs 14 days and 8 weigh-ins, 3 in each half.')
+                : !measured.shown
+                ? 'Weight is too uneven to estimate maintenance yet '
+                      '(±${thousands(measured.halfRange)} kcal). More weigh-ins narrow it.'
+                : 'Estimated maintenance from food and weight: '
+                      '${thousands(measured.low)}–${thousands(measured.high)} kcal · '
+                      '${measured.kgPerWeek.abs() < 0.05 ? 'weight about steady' : '${measured.kgPerWeek < 0 ? 'losing' : 'gaining'} ${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week'} '
                       '(${measured.days} days, ${measured.weighIns} weigh-ins)',
-            style: F.cap.copyWith(color: measured == null ? p.ink3 : p.ink2),
+            style: F.cap.copyWith(
+              color: measured == null || !measured.shown ? p.ink3 : p.ink2,
+            ),
           ),
         ],
       ),
@@ -1148,9 +1153,12 @@ class _NutritionDayViewState extends State<NutritionDayView>
     final target = _targetOf(profile, 'protein_target');
     if (target == null || widget.date != todayLabel()) return null;
     if (DateTime.now().hour < 17) return null;
+    // Unknown protein is unknown, never 0 (B88-06): a day whose entries carry
+    // no protein figure says nothing, and a floor can only bound what is left.
+    if (d.logged && d.protein.known == 0) return null;
     final left = target - (d.protein.value ?? 0);
     if (left < 5) return null;
-    return '${left.round()} g protein left today';
+    return '${d.protein.isFloor ? 'At most ' : ''}${left.round()} g protein left today';
   }
 
   @override
@@ -1278,7 +1286,15 @@ class CalorieCard extends StatelessWidget {
     final p = P.of(c);
     final food = eaten;
     final g = goal;
-    final status = intakeStatus(food, maintenance);
+    // B88-06: the card follows the day's state. Today is "so far"; a total
+    // summed past a food with no calories is a floor, so it can prove "above"
+    // but never "below" maintenance or how much of the goal is left.
+    final floor = day?.kcal.isFloor ?? false;
+    final soFar = day?.state == DayLogState.inProgress;
+    var status = intakeStatus(food, maintenance);
+    if (floor && status == IntakeStatus.withinMaintenance) {
+      status = IntakeStatus.unknown;
+    }
     final balance = food == null || maintenance == null
         ? null
         : maintenance! - food;
@@ -1302,7 +1318,12 @@ class CalorieCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Eaten', style: F.cap.copyWith(color: p.ink3)),
+                      Text(
+                        floor
+                            ? (soFar ? 'At least, so far' : 'Eaten, at least')
+                            : (soFar ? 'Eaten so far' : 'Eaten'),
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
                       Wrap(
                         spacing: S.x2,
                         crossAxisAlignment: WrapCrossAlignment.center,
@@ -1319,6 +1340,8 @@ class CalorieCard extends StatelessWidget {
                             ? 'No intake goal'
                             : food == null
                             ? 'Goal ${thousands(g)} · intake not recorded'
+                            : floor
+                            ? 'Goal ${thousands(g)} · ${food > g ? 'at least ${thousands(food - g)} over' : 'at most ${thousands(g - food)} left'}'
                             : 'Goal ${thousands(g)} · ${thousands((g - food).abs())} ${food > g ? 'over' : 'left'}',
                         style: F.cap.copyWith(color: p.ink3),
                       ),
@@ -1340,7 +1363,9 @@ class CalorieCard extends StatelessWidget {
                 ? 'Intake not recorded'
                 : balance == null
                 ? 'Maintenance not available'
-                : '${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance',
+                : floor && balance >= 0
+                ? 'A food has no calories, so this cannot be compared with maintenance'
+                : '${floor ? 'At least ' : ''}${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance${soFar ? ' so far' : ''}',
             style: F.cap.copyWith(color: p.on(color)),
           ),
           if (day case final d?) ...[

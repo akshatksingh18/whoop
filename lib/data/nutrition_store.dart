@@ -12,6 +12,7 @@
 // testable without a database.
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
@@ -1828,7 +1829,7 @@ class BodyWeight {
   }
 }
 
-/// Dated, completed food coverage between morning weigh-ins [first,last).
+/// Dated, completed food coverage between weigh-ins [first,last).
 ({int complete, int days}) maintenanceFoodCoverage(
   List<({String date, double kg})> weights,
   List<NutritionDay> days,
@@ -1857,7 +1858,7 @@ class BodyWeight {
 
 /// Food and weight estimate, withheld if ANY aligned food day is incomplete.
 /// The fixed tissue-energy conversion remains an approximation, not a measure.
-({double kcal, double kgPerWeek, int days, int weighIns, int loggedDays})?
+MeasuredMaintenance?
 estimatedMaintenance(
   List<({String date, double kg})> weights,
   List<NutritionDay> days,
@@ -1912,16 +1913,46 @@ List<({String date, double kg})> weightTrend(
   return out;
 }
 
+/// The widest food/weight maintenance range shown, in kcal a day either side.
+/// Wider than this the number is a guess; the card says so instead (B88-06).
+const double kMaintenanceMaxHalfRange = 300;
+
+/// A food/weight maintenance estimate with its 95% range. [low]/[high] come
+/// from the slope's rank-based confidence interval, so they widen with
+/// uneven or few weigh-ins rather than pretending one number is measured.
+typedef MeasuredMaintenance = ({
+  double kcal,
+  double low,
+  double high,
+  double kgPerWeek,
+  int days,
+  int weighIns,
+  int loggedDays,
+});
+
+extension MeasuredMaintenanceRange on MeasuredMaintenance {
+  double get halfRange => (high - low) / 2;
+
+  /// Narrow enough to print as a number with a range.
+  bool get shown => halfRange <= kMaintenanceMaxHalfRange;
+}
+
 /// Maintenance MEASURED from the scale: average food eaten minus the energy
 /// the trend weight change accounts for, over a window of at least
 /// [minDays] days with at least [minWeighIns] weigh-ins and [minLoggedDays]
-/// days of food. The weight change is the least-squares slope of all
-/// readings in the window (kg a day), which no single water swing moves much.
+/// days of food.
+///
+/// B88-06: the weight change is the Theil–Sen slope (median of every
+/// pairwise slope, kg a day), so one end-of-window water swing cannot move it
+/// by hundreds of kcal the way least squares did, and at least three
+/// weigh-ins must fall in each half of the span so the ends are not
+/// single readings. [MeasuredMaintenance.low]/[MeasuredMaintenance.high] are
+/// Sen's 95% interval on that slope; callers hide the number when it is
+/// wider than [kMaintenanceMaxHalfRange].
 ///
 /// [eaten] is kcal per COMPLETE logged day in the same window. Null when
 /// there is not enough of either.
-({double kcal, double kgPerWeek, int days, int weighIns, int loggedDays})?
-measuredMaintenance(
+MeasuredMaintenance? measuredMaintenance(
   List<({String date, double kg})> weights,
   List<double> eaten, {
   int minDays = 14,
@@ -1945,21 +1976,35 @@ measuredMaintenance(
   ];
   final span = xs.last - xs.first;
   if (span < minDays - 1) return null;
-  final ys = [for (final w in weights) w.kg];
-  final mx = xs.reduce((a, b) => a + b) / xs.length;
-  final my = ys.reduce((a, b) => a + b) / ys.length;
-  var num = 0.0, den = 0.0;
-  for (var i = 0; i < xs.length; i++) {
-    num += (xs[i] - mx) * (ys[i] - my);
-    den += (xs[i] - mx) * (xs[i] - mx);
+  final mid = xs.first + span / 2;
+  if (xs.where((x) => x < mid).length < 3 ||
+      xs.where((x) => x > mid).length < 3) {
+    return null;
   }
-  if (den <= 0) return null;
-  final slope = num / den; // kg per day
+  final ys = [for (final w in weights) w.kg];
+  final slopes = <double>[
+    for (var i = 0; i < xs.length; i++)
+      for (var j = i + 1; j < xs.length; j++)
+        if (xs[j] != xs[i]) (ys[j] - ys[i]) / (xs[j] - xs[i]),
+  ]..sort();
+  if (slopes.isEmpty) return null;
+  double median(List<double> v) => v.length.isOdd
+      ? v[v.length ~/ 2]
+      : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2;
+  final slope = median(slopes); // kg per day
+  // Sen (1968): the interval's ranks are (N ∓ z·√(n(n−1)(2n+5)/18)) / 2.
+  // Rounded outward, so ties and small n widen it rather than narrow it.
+  final n = xs.length, big = slopes.length;
+  final c = 1.96 * math.sqrt(n * (n - 1) * (2 * n + 5) / 18);
+  final lo = slopes[(((big - c) / 2).floor() - 1).clamp(0, big - 1)];
+  final hi = slopes[((big + c) / 2).ceil().clamp(0, big - 1)];
   final avgEaten = eaten.reduce((a, b) => a + b) / eaten.length;
   final estimate = avgEaten - slope * kKcalPerKg;
   if (!estimate.isFinite || estimate <= 0) return null;
   return (
     kcal: estimate,
+    low: avgEaten - hi * kKcalPerKg,
+    high: avgEaten - lo * kKcalPerKg,
     kgPerWeek: slope * 7,
     days: span.round() + 1,
     weighIns: weights.length,

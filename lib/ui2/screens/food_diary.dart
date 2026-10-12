@@ -145,8 +145,6 @@ IconData mealIcon(String meal) => switch (meal) {
   _ => LucideIcons.cookie,
 };
 
-double _kcalOf(List<FoodEntry> es) => es.fold(0.0, (a, e) => a + (e.kcal ?? 0));
-
 String _energyProteinOf(List<FoodEntry> entries) {
   final totals = rollupDay('', entries, today: '');
   return energyProteinSummary(totals.kcal, totals.protein);
@@ -227,7 +225,7 @@ class MealCard extends StatelessWidget {
                 if (await editDiaryEntry(c, e) && c.mounted) onChanged();
               },
             ),
-          Text(_mealTotals(entries), style: F.over.copyWith(color: p.ink3)),
+          Text(mealTotals(entries), style: F.over.copyWith(color: p.ink3)),
         ],
         const SizedBox(height: S.x2),
         Divider(color: p.line, height: 1),
@@ -237,25 +235,24 @@ class MealCard extends StatelessWidget {
 }
 
 /// "776 kcal · P 77 · C 43 · F 32 · Fb 9" for a meal card: the same rounding
-/// as the meal page, all four macros once any was logged.
-String _mealTotals(List<FoodEntry> es) {
-  double? sum(double? Function(FoodEntry) f) {
-    double? t;
-    for (final e in es) {
-      final v = f(e);
-      if (v != null) t = (t ?? 0) + v;
-    }
-    return t;
-  }
-
+/// as the meal page, all four macros once any was logged. A total summed past
+/// an item without that figure is a floor and says so ("at least 776 kcal",
+/// "P ≥77"); an item with no calories never counts as 0 (B88-06).
+String mealTotals(List<FoodEntry> es) {
+  final t = rollupDay('', es, today: '');
+  String m(String tag, NutrientTotal n) =>
+      '$tag ${n.value == null ? '–' : '${n.isFloor ? '≥' : ''}${n.value!.round()}'}';
+  final anyMacro = [t.protein, t.carbs, t.fat, t.fibre].any((n) => n.known > 0);
   return [
-    '${thousands(_kcalOf(es))} kcal',
-    ...macroParts(
-      protein: sum((e) => e.proteinG),
-      carbs: sum((e) => e.carbsG),
-      fat: sum((e) => e.fatG),
-      fibre: sum((e) => e.fibreG),
-    ),
+    t.kcal.value == null
+        ? 'kcal not tracked'
+        : '${t.kcal.isFloor ? 'at least ' : ''}${thousands(t.kcal.value!)} kcal',
+    if (anyMacro) ...[
+      m('P', t.protein),
+      m('C', t.carbs),
+      m('F', t.fat),
+      m('Fb', t.fibre),
+    ],
   ].join(' · ');
 }
 
@@ -794,7 +791,7 @@ class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
       else ...[
         Surface(
           child: Text(
-            es.isEmpty ? 'Nothing logged this day' : _mealTotals(es),
+            es.isEmpty ? 'Nothing logged this day' : mealTotals(es),
             style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
           ),
         ),
@@ -836,7 +833,7 @@ class _DayFoodPageState extends State<DayFoodPage> with RevisionReload {
               ),
             ),
             Text(
-              es.isEmpty ? 'Nothing logged' : _mealTotals(es),
+              es.isEmpty ? 'Nothing logged' : mealTotals(es),
               style: F.cap.copyWith(color: p.ink3),
             ),
             const SizedBox(width: S.x1),

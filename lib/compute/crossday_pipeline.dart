@@ -348,7 +348,12 @@ Map<String, dynamic> buildCrossDayBundle(
   // allowed to be silent: `strain_bonus_min` below reports what the bonus
   // actually added, and stays NULL (never 0) when today produced no reading —
   // which is the case where up to 45 min of need went missing.
-  final todayStrainNum = _todayNum(days, 'strain');
+  // B88-02: only an OBSERVED day's strain (≥16 h worn) may add to tonight's
+  // need; otherwise it is unknown and `strain_bonus_min` below says so.
+  final todayStrainNum =
+      (_todayNum(days, 'worn_min') ?? 0) >= _minObservedLoadMin
+      ? _todayNum(days, 'strain')
+      : null;
   final todayStrain = todayStrainNum ?? 0.0;
   // TODAY's naps only, and minutes ASLEEP (the analytics detector reports TST
   // and in-bed separately now). No reading means NO credit — that leaves the

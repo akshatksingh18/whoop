@@ -131,6 +131,8 @@ void main() {
         onsetSec: {'2026-09-02': -2 * 3600, '2026-09-03': -5 * 3600},
         kcalTarget: 2200,
         proteinTarget: 140,
+        wornMin: {'2026-09-01': 1200},
+        dayMarks: {'2026-09-01': 'complete'},
       );
       expect(tags['2026-09-02']!['Ate after 22:00'], isTrue);
       expect(tags['2026-09-02']!['Ate over your calorie goal'], isTrue);
@@ -144,6 +146,26 @@ void main() {
       // Nothing logged on 3 September: no food tags for the 4th at all.
       expect(tags['2026-09-04']!.containsKey('Ate after 22:00'), isFalse);
       expect(tags['2026-09-04']!.containsKey('Strain 14 or more'), isFalse);
+      // B88-06/11: an unmarked day cannot prove "under goal" or "missed
+      // protein", so those tags are absent rather than false.
+      expect(
+        tags['2026-09-03']!.containsKey('Ate over your calorie goal'),
+        isFalse,
+      );
+      expect(tags['2026-09-03']!.containsKey('Hit your protein goal'), isFalse);
+    });
+
+    test('B88-02: strain on a day the band did not observe is no tag', () {
+      final tags = moverTags(
+        dates: ['2026-09-02'],
+        food: const {},
+        sessions: const [],
+        strain: {'2026-09-01': 15},
+        steps: const {},
+        onsetSec: const {},
+        wornMin: {'2026-09-01': 600},
+      );
+      expect(tags['2026-09-02']!.containsKey('Strain 14 or more'), isFalse);
     });
   });
 

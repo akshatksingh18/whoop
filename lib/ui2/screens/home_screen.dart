@@ -1258,7 +1258,6 @@ class HomeData {
     final coach = cd['sleep_coach'];
     final needEnv = coach is Map ? coach['need'] : null;
     final bedEnv = coach is Map ? coach['bedtime'] : null;
-    final needSec = (envValue(needEnv)?['need_sec'] as num?);
 
     final strain = today['coach'];
 
@@ -1339,11 +1338,13 @@ class HomeData {
           stepCalories(upkeep.walkedSteps, upkeep.profile.weightKg),
       upkeep: upkeep,
       stepGoal: (today['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
-      // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
-      // 480 and must never be shown as "your sleep need".
+      // B88-04: the need that applied to the night the bar measures (stored
+      // the evening before), never tonight's. `sleep.need_min` is a hardcoded
+      // 480 and must never be shown as "your sleep need". None stored → the
+      // bar has no target, said so, rather than borrowing tonight's.
       sleepNeedMin: envMetric(
         needEnv,
-        needSec == null ? null : needSec / 60,
+        today['sleep_need_night_min'] as num?,
         unit: 'min',
       ),
       bedtime: envMetric(

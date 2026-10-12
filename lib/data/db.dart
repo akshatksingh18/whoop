@@ -7922,6 +7922,19 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// One (date, key) scalar from the series store, or null.
+  static Future<double?> seriesValueOn(String key, String date) async {
+    final db = await instance;
+    final rows = await db.query(
+      'metric_series',
+      columns: ['value'],
+      where: 'key = ? AND date = ?',
+      whereArgs: [key, date],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : (rows.first['value'] as num?)?.toDouble();
+  }
+
   /// A long-format metric series (oldest first) for trends/sparklines.
   ///
   /// [measuredOnly] drops days another vendor's export wrote (see

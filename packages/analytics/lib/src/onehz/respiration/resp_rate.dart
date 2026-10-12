@@ -140,6 +140,8 @@ Metric<RespEstimate> rsaRespRate(
   double tolBrpm = 2.0,
   double minConsensus = 0.5,
   double maxArtifact = 0.30,
+  int minSegments = 3,
+  double minSegCoverage = 0.70,
 }) {
   const inputs = ['rr_cleaned', 'beat_times'];
   if (nnMs.length < 20 || nnTimesMs.length != nnMs.length) {
@@ -167,25 +169,12 @@ Metric<RespEstimate> rsaRespRate(
     );
   }
 
-  // SEARCH CEILING. The window's own beat-rate Nyquist, capped at [respHiHz].
-  // The search used to stop at [rsaHiHz] while the guard below tested against
-  // [respHiHz], so the guard was unreachable and the 24 br/min cap was silent.
-  final meanNnSec = spanSec / (nnMs.length - 1);
+  // SEARCH CEILING, reported in the note only. B88-03: it is the mean BEAT
+  // INTERVAL, not span ÷ beats — a dropout inflated span/beats, so one gap
+  // used to refuse a whole night as "beat rate too low". The alias refusal
+  // itself is per sub-window below, on that sub-window's own beats.
+  final meanNnSec = nnMs.reduce((a, b) => a + b) / nnMs.length / 1000.0;
   final hiHz = rsaCeilingHz(meanNnSec);
-  // The ceiling must at least cover the classic HF band. Below that, a rate
-  // inside the band the literature defines would fold back down into the band
-  // as an alias and be indistinguishable from a genuine slower one — measured:
-  // 26 br/min at NN 1400 ms folds to 16.9 br/min with a full-height peak. No
-  // spectral test can separate the two, so the honest answer is nothing at all.
-  if (hiHz < rsaHiHz) {
-    return Metric<RespEstimate>.absent(
-      tier: Tier.high,
-      inputs_used: inputs,
-      note: 'beat rate ${round6(60 / meanNnSec)} bpm resolves only to '
-          '${round6(hiHz * 60)} br/min — below the HF band, any peak could be '
-          'an alias; rate withheld',
-    );
-  }
 
   // WELCH SEGMENTATION. Sub-windows of [rsaSegmentSec] (or half the input when
   // it is shorter than two of them), overlapping 50%. Each gets its own
@@ -212,20 +201,24 @@ Metric<RespEstimate> rsaRespRate(
     final lo = _lowerBound(tSec, s);
     final hi = _lowerBound(tSec, s + segSec);
     final k = hi - lo;
-    // A sub-window has to be BOTH beat-dense and time-complete: a dropout in
-    // the middle leaves few beats spanning the full 5 minutes, and its
-    // periodogram is a window function, not a spectrum.
-    if (k < 30 || tSec[hi - 1] - tSec[lo] < segSec * 0.8) {
+    // B88-03: a sub-window qualifies when its accepted beats COVER at least
+    // [minSegCoverage] of it (so at most 30% is dropout or removed artifact).
+    // A dropout in the middle leaves a periodogram that is a window function,
+    // not a spectrum.
+    final segNn = nnMs.sublist(lo, hi);
+    final coveredSec = k == 0 ? 0.0 : segNn.reduce((a, b) => a + b) / 1000.0;
+    if (k < 30 || coveredSec < minSegCoverage * segSec) {
       thin++;
       continue;
     }
     final segT = tSec.sublist(lo, hi);
-    final segNn = nnMs.sublist(lo, hi);
     final segSpan = segT.last - segT.first;
-    // Per sub-window Nyquist: heart rate moves through the night, so the
-    // resolvable ceiling does too. A sub-window whose beat rate cannot cover
-    // the HF band is dropped for the SAME alias reason as the whole window.
-    final segHi = rsaCeilingHz(segSpan / (k - 1));
+    // Per sub-window Nyquist from its OWN mean beat interval: heart rate moves
+    // through the night, so the resolvable ceiling does too. Below the HF band
+    // a faster rate folds back as an alias indistinguishable from a genuine
+    // slower one (26 br/min at NN 1400 ms folds to 16.9 br/min with a
+    // full-height peak), so that sub-window is dropped.
+    final segHi = rsaCeilingHz(coveredSec / k);
     if (segHi < rsaHiHz) {
       belowBand++;
       continue;
@@ -252,7 +245,7 @@ Metric<RespEstimate> rsaRespRate(
     peakHz.add(pk);
     peakPwr.add(_powerAt(ls, pk));
   }
-  if (peaks.length < 3) {
+  if (peaks.length < minSegments) {
     final dropped = atCeiling + belowBand + thin;
     final why = dropped == 0
         ? 'only ${peaks.length} usable sub-windows'

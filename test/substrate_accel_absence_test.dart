@@ -343,10 +343,11 @@ void main() {
       final out = DerivationEngine.daytimeHrv(twoHours(family: 'gen4'), 0, 0);
       final timeline = (out['timeline'] as List).cast<Map>();
       expect(timeline, isNotEmpty);
-      // 3600 s of still = twelve 5-min bins (thirteen when the hour straddles a
-      // bin edge), and nothing at all from the moving hour — an ungated pass
-      // produces roughly twice as many.
-      expect(timeline.length, inInclusiveRange(12, 13));
+      // 3600 s of still = twelve 5-min bins, or eleven full ones when the hour
+      // straddles bin edges — B88-03 drops a bin under 60% covered — and
+      // nothing at all from the moving hour; an ungated pass produces roughly
+      // twice as many.
+      expect(timeline.length, inInclusiveRange(11, 12));
       // Every bin sits inside the still hour.
       expect((timeline.last['t'] as num) - 1750000000, lessThan(3600));
       // ~10 ms alternation, not the ~120 ms one.

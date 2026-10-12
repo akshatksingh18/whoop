@@ -922,36 +922,32 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       );
     }
     // B88-04: a corrected window still needs half its time recorded, or no
-    // night is published at all. Say so BEFORE saving, never imply the
-    // correction sets the duration.
+    // night is published at all. Saving is blocked with the reason (approved
+    // rule), and nothing implies the correction sets the duration.
     final startSec = newOnset.millisecondsSinceEpoch ~/ 1000;
     final endSec = newWake.millisecondsSinceEpoch ~/ 1000;
     final recorded = await LocalDb.recordedSecondsBetween(startSec, endSec);
     if (!mounted) return;
     if (recorded != null && recorded < 0.5 * (endSec - startSec)) {
       final pct = (100 * recorded / (endSec - startSec)).round();
-      final go = await showDialog<bool>(
+      await showDialog<void>(
         context: context,
         builder: (c) => AlertDialog(
           title: const Text('Too little of this window was recorded'),
           content: Text(
             'The band recorded about $pct% of this time. A night needs at '
-            'least half of its window recorded, so this correction would show '
-            'no sleep. Sleep totals only count recorded time.',
+            'least half of its window recorded, so this correction cannot be '
+            'saved. Sleep totals only count recorded time.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('Save anyway'),
+              onPressed: () => Navigator.pop(c),
+              child: const Text('OK'),
             ),
           ],
         ),
       );
-      if (go != true || !mounted) return;
+      return;
     }
     await _runOverride(
       () => context.read<AppState>().setSleepOverride(day, newOnset, newWake),
@@ -1476,7 +1472,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final rel = [for (final o in d.onsetHistory) _relMinutes(o, onset)];
       rows.add(
         _Compare(
-          label: l?.sleepDetailFellAsleep ?? 'Fell asleep',
+          // B88-04: `onset_ts` is the IN-BED start, not the first sleep
+          // epoch, so the row says so rather than "Fell asleep".
+          label: 'In bed at',
           value: clockOfTs(onset),
           tonight: 0,
           history: rel,
@@ -1782,7 +1780,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         (
           loc?.sleepDetailHeartRate ?? 'Heart rate',
           '${(avgHr ?? hrMean)!.round()} bpm',
-          minHr == null ? 'average' : 'average · lowest ${minHr.round()}',
+          // B88-03: the first number is the lowest 30-minute average (the
+          // resting HR), the second the 1st percentile — neither an average
+          // of the night nor its single lowest beat.
+          avgHr == null
+              ? 'average'
+              : minHr == null
+              ? 'lowest 30-min average'
+              : 'lowest 30-min average · 1st percentile ${minHr.round()}',
           C.heart,
           hrLine,
           'resting_hr',

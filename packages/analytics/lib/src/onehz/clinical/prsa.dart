@@ -60,20 +60,43 @@ class PrsaResult {
 }
 
 /// PRSA deceleration capacity.
+///
+/// B88-03: with [nnTimesMs] (each interval's end time, ms) an anchor counts
+/// only when every beat in its 2L window is TIME-ADJACENT to the one before —
+/// the reported times differ by the later interval within [adjacencyTolMs] —
+/// so a window never averages across a dropout or a removed beat.
 Metric<PrsaResult> decelerationCapacity(List<double> nnMs,
-        {int l = 2, double anchorRatioCap = 0.05}) =>
-    _prsa(nnMs, l: l, deceleration: true, anchorRatioCap: anchorRatioCap);
+        {int l = 2,
+        double anchorRatioCap = 0.05,
+        List<double>? nnTimesMs,
+        double adjacencyTolMs = 250}) =>
+    _prsa(nnMs,
+        l: l,
+        deceleration: true,
+        anchorRatioCap: anchorRatioCap,
+        nnTimesMs: nnTimesMs,
+        adjacencyTolMs: adjacencyTolMs);
 
-/// PRSA acceleration capacity.
+/// PRSA acceleration capacity. [nnTimesMs] as for [decelerationCapacity].
 Metric<PrsaResult> accelerationCapacity(List<double> nnMs,
-        {int l = 2, double anchorRatioCap = 0.05}) =>
-    _prsa(nnMs, l: l, deceleration: false, anchorRatioCap: anchorRatioCap);
+        {int l = 2,
+        double anchorRatioCap = 0.05,
+        List<double>? nnTimesMs,
+        double adjacencyTolMs = 250}) =>
+    _prsa(nnMs,
+        l: l,
+        deceleration: false,
+        anchorRatioCap: anchorRatioCap,
+        nnTimesMs: nnTimesMs,
+        adjacencyTolMs: adjacencyTolMs);
 
 Metric<PrsaResult> _prsa(
   List<double> nnMs, {
   required int l,
   required bool deceleration,
   required double anchorRatioCap,
+  List<double>? nnTimesMs,
+  double adjacencyTolMs = 250,
 }) {
   final kind = deceleration ? 'DC' : 'AC';
   final inputs = const ['rr_cleaned'];
@@ -99,10 +122,27 @@ Metric<PrsaResult> _prsa(
 
   // Anchor selection with an artifact-suppression ratio cap: |RR(i)/RR(i-1)-1|
   // must be ≤ anchorRatioCap so gross jumps (residual artifacts) don't anchor.
+  final timed = nnTimesMs != null && nnTimesMs.length == n;
+  // brokenBefore[k]: beat k is NOT time-adjacent to beat k-1.
+  final brokenBefore = List<bool>.filled(n, false);
+  if (timed) {
+    for (var k = 1; k < n; k++) {
+      brokenBefore[k] =
+          ((nnTimesMs[k] - nnTimesMs[k - 1]) - nnMs[k]).abs() > adjacencyTolMs;
+    }
+  }
+  bool contiguous(int from, int to) {
+    for (var k = from + 1; k <= to; k++) {
+      if (brokenBefore[k]) return false;
+    }
+    return true;
+  }
+
   final anchors = <int>[];
   for (var i = l; i < n - l; i++) {
     final prev = nnMs[i - 1];
     if (prev <= 0) continue;
+    if (timed && !contiguous(i - l, i + l - 1)) continue;
     final delta = nnMs[i] - prev;
     final isDecel = delta > 0;
     if (isDecel != deceleration) continue;

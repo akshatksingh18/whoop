@@ -92,6 +92,8 @@ Map<String, Map<String, bool>> moverTags({
   required Map<String, double> onsetSec,
   double? kcalTarget,
   double? proteinTarget,
+  Map<String, double> wornMin = const {},
+  Map<String, String> dayMarks = const {},
 }) {
   final eveningWorkout = <String>{};
   for (final s in sessions) {
@@ -112,17 +114,34 @@ Map<String, Map<String, bool>> moverTags({
       t['Ate after 22:00'] = meals.any(
         (e) => e.atTs != null && _localHour(e.atTs!) >= 22,
       );
+      // B88-06/11: an unknown value is never 0. A logged total can PROVE
+      // "over" or "hit" (more food only adds); "not over" and "missed" need a
+      // day marked complete with the value on every entry. Otherwise no tag.
+      final whole = dayMarks[prev] == 'complete';
       final kcal = meals.fold<double>(0, (a, e) => a + (e.kcal ?? 0));
+      final kcalKnown = meals.every((e) => e.kcal != null);
       if (kcalTarget != null && kcalTarget > 0) {
-        t['Ate over your calorie goal'] = kcal > kcalTarget;
+        if (kcal > kcalTarget) {
+          t['Ate over your calorie goal'] = true;
+        } else if (whole && kcalKnown) {
+          t['Ate over your calorie goal'] = false;
+        }
       }
       final protein = meals.fold<double>(0, (a, e) => a + (e.proteinG ?? 0));
+      final proteinKnown = meals.every((e) => e.proteinG != null);
       if (proteinTarget != null && proteinTarget > 0) {
-        t['Hit your protein goal'] = protein >= proteinTarget;
+        if (protein >= proteinTarget) {
+          t['Hit your protein goal'] = true;
+        } else if (whole && proteinKnown) {
+          t['Hit your protein goal'] = false;
+        }
       }
     }
     t['Workout after 19:00'] = eveningWorkout.contains(prev);
-    if (strain[prev] case final s?) t['Strain 14 or more'] = s >= 14;
+    // B88-02: strain counts only on a day the band observed (≥16 h worn).
+    if (strain[prev] case final s? when (wornMin[prev] ?? 0) >= 960) {
+      t['Strain 14 or more'] = s >= 14;
+    }
     if (steps[prev] case final n?) t['10,000+ steps'] = n >= 10000;
     if (onsetSec[date] case final o?) {
       // After 01:00 = later than three hours before 04:00.
@@ -168,11 +187,27 @@ Future<List<Map<String, dynamic>>> loadRecoveryMovers(
     dates: outcome.keys,
     food: food,
     sessions: sessions,
-    strain: _byDate(await LocalDb.metricSeries('strain'), _prev(from)),
-    steps: _byDate(await LocalDb.metricSeries('steps'), _prev(from)),
-    onsetSec: _byDate(await LocalDb.metricSeries('sleep_onset_sec'), from),
+    // B88-11: exposures use the same measured-only filter as the outcome, so
+    // another vendor's imported day can never tag a morning.
+    strain: _byDate(
+      await LocalDb.metricSeries('strain', measuredOnly: true),
+      _prev(from),
+    ),
+    steps: _byDate(
+      await LocalDb.metricSeries('steps', measuredOnly: true),
+      _prev(from),
+    ),
+    onsetSec: _byDate(
+      await LocalDb.metricSeries('sleep_onset_sec', measuredOnly: true),
+      from,
+    ),
     kcalTarget: target('kcal_target'),
     proteinTarget: target('protein_target'),
+    wornMin: _byDate(
+      await LocalDb.metricSeries('worn_min', measuredOnly: true),
+      _prev(from),
+    ),
+    dayMarks: await NutritionDb.dayMarks(db, _prev(from)),
   );
   return moversFrom(outcomeKey: outcomeKey, outcome: outcome, tags: tags);
 }

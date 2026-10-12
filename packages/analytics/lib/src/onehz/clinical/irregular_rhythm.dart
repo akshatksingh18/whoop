@@ -75,6 +75,9 @@ Metric<IrregularRhythm> irregularBeatScreen(
   double windowMinutes = 5,
   int minWindowBeats = 40,
   double sustainedFraction = 0.5,
+  // B88-03: accepted beats must cover at least this much time (seconds) before
+  // a screen result exists; callers pass 3 h. 0 keeps the old behaviour.
+  double minCoveredSec = 0,
 }) {
   const inputs = ['rr_cleaned'];
   // The defensive [300, 2000] filter COMPACTS the series. Keep the mask too, so
@@ -96,6 +99,17 @@ Metric<IrregularRhythm> irregularBeatScreen(
     for (var i = 0; i < rrMs.length; i++)
       if (keep[i]) rrMs[i]
   ];
+  if (minCoveredSec > 0) {
+    final covered = nn.fold<double>(0, (a, v) => a + v) / 1000.0;
+    if (covered < minCoveredSec) {
+      return Metric<IrregularRhythm>.absent(
+        tier: Tier.estimate,
+        inputs_used: inputs,
+        note: 'irregular_not_qualified:covered_sec=${covered.round()},'
+            'need=${minCoveredSec.round()}',
+      );
+    }
+  }
   // Per-element flag, aligned to [nn]: was this beat immediately preceded (no
   // dropped beat in between) by the previous kept beat in the ORIGINAL rrMs?
   // Carried into the window pass below so it can skip diffs across a removed

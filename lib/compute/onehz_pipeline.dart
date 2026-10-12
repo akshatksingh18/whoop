@@ -499,17 +499,28 @@ Map<String, dynamic> deriveDayBundle(
   // HR dip: day-side = waking HR outside the sleep window; night-side = sleep HR.
   final dayOnly = _dayHrOutsideSleep(d);
   final dip = hrDip(dayOnly, sleepHr);
-  final dc = night('dc', () => decelerationCapacity(nn));
-  final ac = night('ac', () => accelerationCapacity(nn));
+  // B88-03: PRSA windows must not span a dropout or a removed beat.
+  final dc = night('dc', () => decelerationCapacity(nn, nnTimesMs: nnTimes));
+  final ac = night('ac', () => accelerationCapacity(nn, nnTimesMs: nnTimes));
   // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
   // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
-  final stress = night('stress', () => baevskyStressIndex(nn));
+  // B88-03: ≥20 min of beats, ≥3 full windows, no window hiding a gap.
+  final stress = night(
+    'stress',
+    () => baevskyStressIndex(nn, nnTimesMs: nnTimes),
+  );
 
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
       ? night(
           'resp',
-          () => rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction),
+          // B88-03: a night needs 6 qualifying 5-min sub-windows.
+          () => rsaRespRate(
+            nn,
+            nnTimes,
+            artifactFraction: artifactFraction,
+            minSegments: 6,
+          ),
         )
       : Metric<RespEstimate>.absent(
           tier: Tier.estimate,
@@ -549,12 +560,19 @@ Map<String, dynamic> deriveDayBundle(
     // firing on effectively every day regardless of actual cardiac health.
     nnTimesMs: dayCorrected.nnTimesMs,
     artifactFraction: (1.0 - dayCorrected.cleanFraction).clamp(0.0, 1.0),
+    // B88-03: at least 3 hours of accepted beats.
+    minCoveredSec: 3 * 3600,
   );
 
   // ── BREATHING-RATE VARIABILITY (per-window RSA over the sleep NN) ──────────
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
-  final respWindows = night('resp-windows', () => _respPerWindow(nn, nnTimes));
+  // B88-03: breathing variability uses the night's real artifact burden, not
+  // 0 — the 30% gate used to be bypassed here.
+  final respWindows = night(
+    'resp-windows',
+    () => _respPerWindow(nn, nnTimes, artifactFraction: artifactFraction),
+  );
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
       : Metric<BrvResult>.absent(
@@ -938,14 +956,13 @@ Map<String, dynamic> deriveDayBundle(
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
   final hypnogram = _hypnogramSegments(d);
   // `nnTimes` is re-based to ~0 by `correctRr` (it sums RR intervals from a
-  // zero clock), so the timeline needs the wall-clock instant that clock starts
-  // at: the START of the first RR interval = its END stamp minus its own
-  // length. Without it the stored `t` was seconds-since-first-beat on a view
-  // (`v_series`) whose contract — and the coach prompt — say epoch seconds.
+  // zero clock), so the night shape needs the wall-clock instant that clock
+  // starts at: the START of the first RR interval = its END stamp minus its
+  // own length. The timeline is placed on the real beat times directly.
   final hrvOriginMs = (d.sleepRrTsMs.isEmpty || d.sleepRrMs.isEmpty)
       ? null
       : d.sleepRrTsMs.first - d.sleepRrMs.first;
-  final hrvTimeline = _hrvTimeline(nn, nnTimes, hrvOriginMs);
+  final hrvTimeline = _hrvTimeline(d.sleepRrMs, d.sleepRrTsMs);
   // CV-06 — the SHAPE of the night: per-bin RMSSD over the same cleaned NN the
   // headline uses, so the curve and the number can never disagree. Bins that
   // fall under the beat floor stay in the series as HOLES on purpose — dropping
@@ -957,8 +974,7 @@ Map<String, dynamic> deriveDayBundle(
   // onset, or nothing, and nothing here can tell those apart.
   //
   // `startSec` is seconds from the FIRST BEAT, not an epoch — `origin_ms` is
-  // the wall-clock instant that clock starts at, the same `hrvOriginMs` the
-  // timeline above is placed on.
+  // the wall-clock instant that clock starts at (`hrvOriginMs` above).
   final nightShape = nightHrvShape(nn, nnTimes);
   final strainCurve = _strainCurve(
     wakeHr,
@@ -993,6 +1009,8 @@ Map<String, dynamic> deriveDayBundle(
     nn,
     nnTimesMs: nnTimes,
     artifactFraction: artifactFraction,
+    // B88-03: at least 3 hours of covered sleep.
+    minCoveredSec: 3 * 3600,
   );
   final irrSleep = irregularSleep.present ? irregularSleep.value : null;
 
@@ -1243,17 +1261,27 @@ Map<String, dynamic> deriveDayBundle(
   //    the rhr history series.
   final nadir = rhr.present ? rhr.value!.p1 : null;
   final wakingHr = dip.present ? dip.value!.dayMean : null;
-  // Nadir INSTANT: epoch-second of the lowest valid sleeping-HR second, so the
-  // nocturnal card can render "@ HH:MM" instead of "@ -". From the sleep-window
-  // HR series (parallel to sleepTsSec); null when no valid sleep HR.
+  // Nadir INSTANT (B88-03): the middle of the lowest 5-minute stretch of valid
+  // sleeping HR — a sustained low, like the 1st-percentile value it sits
+  // beside — not the second of one dropout-like minimum sample. Windows are
+  // 300 valid seconds within 300 s of wall time; null when none exists.
   int? nadirTs;
   {
-    var lo = 1 << 30;
+    final hs = <int>[], ts = <int>[];
     for (var i = 0; i < d.sleepHr.length && i < d.sleepTsSec.length; i++) {
-      final h = d.sleepHr[i];
-      if (h > 0 && h < lo) {
-        lo = h;
-        nadirTs = d.sleepTsSec[i];
+      if (d.sleepHr[i] > 0) {
+        hs.add(d.sleepHr[i]);
+        ts.add(d.sleepTsSec[i]);
+      }
+    }
+    const w = 300;
+    var sum = 0, best = 1 << 40;
+    for (var i = 0; i < hs.length; i++) {
+      sum += hs[i];
+      if (i >= w) sum -= hs[i - w];
+      if (i >= w - 1 && ts[i] - ts[i - w + 1] < w && sum < best) {
+        best = sum;
+        nadirTs = ts[i - w ~/ 2];
       }
     }
   }
@@ -1629,6 +1657,7 @@ List<double> _respPerWindow(
   List<double> nnTimes, {
   double windowMs = 1800000.0,
   int minBeats = 60,
+  double artifactFraction = 0.0,
 }) {
   if (nn.isEmpty || nn.length != nnTimes.length) return const [];
   final t0 = nnTimes.first;
@@ -1644,8 +1673,11 @@ List<double> _respPerWindow(
   for (final idx in idxs) {
     final segNn = binsNn[idx]!;
     if (segNn.length < minBeats) continue;
-    // NN is already artifact-corrected upstream → artifactFraction 0.
-    final r = rsaRespRate(segNn, binsTs[idx]!, artifactFraction: 0.0);
+    final r = rsaRespRate(
+      segNn,
+      binsTs[idx]!,
+      artifactFraction: artifactFraction,
+    );
     final b = r.present ? r.value!.brpm : null;
     if (b != null) out.add(b);
   }
@@ -1852,45 +1884,19 @@ List<Map<String, num>> _downsampleHr(List<int> tsSec, List<int> hr) {
   ];
 }
 
-/// HRV timeline: RMSSD over rolling 5-min windows of cleaned NN, {t, v}.
+/// HRV timeline: RMSSD over rolling 5-min windows, {t, v}, `t` EPOCH SECONDS.
 ///
-/// `t` is EPOCH SECONDS. [originMs] is the wall clock at `nnTimes == 0` (see
-/// the call site); with no origin there is no honest x-axis, so nothing is
-/// emitted rather than a curve stamped in 1970.
-List<Map<String, num>> _hrvTimeline(
-  List<double> nn,
-  List<double> nnTimes,
-  double? originMs,
-) {
-  if (nn.length < 10 || nnTimes.length != nn.length || originMs == null) {
-    return const [];
-  }
-  const winMs = 300000.0; // 5 min
-  final out = <Map<String, num>>[];
-  var lo = 0;
-  for (var i = 0; i < nn.length; i++) {
-    while (nnTimes[i] - nnTimes[lo] > winMs) {
-      lo++;
-    }
-    // A FULL window, or nothing. `lo` cannot move until 5 min have elapsed, so
-    // before that `[lo..i]` is a partial window — the first point used to be an
-    // RMSSD over 10 beats (~8 s) drawn on a line documented as rolling 5-min
-    // windows, with nothing marking it as the outlier-prone sample it is.
-    if (nnTimes[i] - nnTimes[0] < winMs) continue;
-    if (i - lo >= 10) {
-      var ssd = 0.0;
-      for (var k = lo + 1; k <= i; k++) {
-        final diff = nn[k] - nn[k - 1];
-        ssd += diff * diff;
-      }
-      final rmssd = math.sqrt(ssd / (i - lo));
-      final tSec = ((originMs + nnTimes[i]) / 1000).round();
-      if (out.isEmpty || tSec - out.last['t']! > 60) {
-        out.add({'t': tSec, 'v': _round(rmssd, 1)});
-      }
-    }
-  }
-  return out;
+/// B88-03: built by the shared [rollingRmssd] over the raw sleep beats and
+/// their real times, with the headline's cleaning and time-adjacency, so the
+/// curve can never use a pair the headline refuses; a window plots only at
+/// ≥60% beat coverage. Without beat times there is no honest x-axis, so
+/// nothing is emitted rather than a curve stamped in 1970.
+List<Map<String, num>> _hrvTimeline(List<double> rrMs, List<double> rrTsMs) {
+  if (rrMs.length < 10 || rrTsMs.length != rrMs.length) return const [];
+  return [
+    for (final pt in rollingRmssd(rrMs, rrTsMs))
+      {'t': pt.tSec, 'v': _round(pt.rmssd, 1)},
+  ];
 }
 
 /// Hypnogram segments {start,end,stage} (epoch seconds) from the single-source

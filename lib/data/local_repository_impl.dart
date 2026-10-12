@@ -536,6 +536,19 @@ class LocalRepositoryImpl extends LocalRepository {
       'load': cd?['load'],
       'readiness_breakdown': cd?['readiness_glassbox'],
       'regularity': cd?['regularity'],
+      // B88-04: the need that applied to the night shown — stored on the day
+      // before it — so the Home sleep bar never divides by tonight's need.
+      if (sleepBundle?['date'] case final String night)
+        'sleep_need_night_min': await LocalDb.seriesValueOn(
+          'sleep_need_min',
+          dayLabelOf(
+            DateTime(
+              DateTime.parse(night).year,
+              DateTime.parse(night).month,
+              DateTime.parse(night).day - 1,
+            ),
+          ),
+        ),
       'status': {
         'today_day': todayDay,
         'activity_state': activityState,

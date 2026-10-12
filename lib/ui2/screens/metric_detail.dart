@@ -238,9 +238,10 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.brain,
     higherBetter: false,
     method:
-        'Baevsky stress index over a resting window: a histogram measure of '
-        'how tightly beat intervals cluster. There is deliberately no fallback '
-        'when the resting window is missing.',
+        'Baevsky stress index over the sleep window: a histogram measure of '
+        'how tightly beat intervals cluster, the median of 256-beat windows. '
+        'It needs at least 20 minutes of beats and three gap-free windows; '
+        'otherwise there is no score, and deliberately no fallback.',
     citation: 'Baevsky 2008',
   ),
   'dip': MetricSpec(

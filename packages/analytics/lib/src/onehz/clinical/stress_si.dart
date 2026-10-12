@@ -52,10 +52,29 @@ class StressIndex {
 /// QUANTIZATION, not physiology, and 1/MxDMn then explodes (300 beats
 /// alternating 1000/1001 ms → SI ≈ 48 780, reported as 'high'). Windows below
 /// the guard are dropped; if no window survives, the metric is ABSENT.
-Metric<StressIndex> baevskyStressIndex(List<double> nnMs,
-    {double minRangeMs = 20.0}) {
+///
+/// B88-03 qualification (engineering policy, not a clinical constant): the
+/// night needs ≥[minTotalSec] of accepted beats and ≥[minWindows] FULL
+/// 256-beat windows. With [nnTimesMs] (each interval's end time, ms) a window
+/// whose wall-clock span exceeds [maxSpanRatio] × the sum of its intervals
+/// hides a gap and is refused. It used to publish from 30 beats (~30 s).
+Metric<StressIndex> baevskyStressIndex(
+  List<double> nnMs, {
+  double minRangeMs = 20.0,
+  List<double>? nnTimesMs,
+  double minTotalSec = 1200,
+  int minWindows = 3,
+  double maxSpanRatio = 1.3,
+}) {
   const inputs = ['rr_cleaned'];
-  final nn = nnMs.where((v) => v >= 300 && v <= 2000).toList();
+  final timed = nnTimesMs != null && nnTimesMs.length == nnMs.length;
+  final nn = <double>[], ts = <double>[];
+  for (var i = 0; i < nnMs.length; i++) {
+    final v = nnMs[i];
+    if (v < 300 || v > 2000) continue;
+    nn.add(v);
+    if (timed) ts.add(nnTimesMs[i]);
+  }
   if (nn.length < 30) {
     return const Metric<StressIndex>.absent(
       tier: Tier.estimate,
@@ -63,14 +82,31 @@ Metric<StressIndex> baevskyStressIndex(List<double> nnMs,
       note: 'need ≥30 clean beats for a Stress Index histogram',
     );
   }
+  final totalSec = nn.reduce((a, b) => a + b) / 1000.0;
+  if (totalSec < minTotalSec) {
+    return Metric<StressIndex>.absent(
+      tier: Tier.estimate,
+      inputs_used: inputs,
+      note: 'stress_not_qualified:beats_sec=${totalSec.round()},'
+          'need=${minTotalSec.round()}',
+    );
+  }
 
-  // Window ~5 min of beats (256), 50% overlap; compute SI per window.
+  // Window ~5 min of beats (256), 50% overlap; compute SI per FULL window.
   const win = 256, step = 128;
   final sis = <double>[];
   final modes = <double>[], amos = <double>[], ranges = <double>[];
-  for (var start = 0; start + 30 <= nn.length; start += step) {
-    final seg = nn.sublist(start, math.min(start + win, nn.length));
-    if (seg.length < 30) break;
+  var gapped = 0;
+  for (var start = 0; start + win <= nn.length; start += step) {
+    final seg = nn.sublist(start, start + win);
+    if (timed) {
+      final span = ts[start + win - 1] - ts[start] + seg.first;
+      final sum = seg.reduce((a, b) => a + b);
+      if (span > maxSpanRatio * sum) {
+        gapped++;
+        continue;
+      }
+    }
     final r = _siOfSegment(seg, minRangeMs);
     if (r != null) {
       sis.add(r[0]);
@@ -78,13 +114,20 @@ Metric<StressIndex> baevskyStressIndex(List<double> nnMs,
       amos.add(r[2]);
       ranges.add(r[3]);
     }
-    if (start + win >= nn.length) break;
   }
-  if (sis.isEmpty) {
+  if (sis.isEmpty && gapped == 0) {
     return const Metric<StressIndex>.absent(
       tier: Tier.estimate,
       inputs_used: inputs,
       note: 'no valid Stress Index window',
+    );
+  }
+  if (sis.isEmpty || sis.length < minWindows) {
+    return Metric<StressIndex>.absent(
+      tier: Tier.estimate,
+      inputs_used: inputs,
+      note: 'stress_not_qualified:windows=${sis.length},need=$minWindows,'
+          'gapped=$gapped',
     );
   }
   final si = median(sis)!;

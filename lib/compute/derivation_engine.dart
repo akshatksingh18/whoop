@@ -46,7 +46,7 @@ import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
 import 'hr_max.dart'
-    show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
+    show estimatedMaxHr, smoothedMaxHr, smoothedMinHr, trainingZones;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -4091,6 +4091,19 @@ class DerivationEngine {
         // sleep session was detected — exactly the gate readiness uses.
         rhr: (scMap?['rhr_nocturnal'] as num?)?.toDouble(),
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
+        // B88-02: THE zone set the pure pipeline banded `zone_timeline` and
+        // `zone_source` on — same inputs, same function — so the day's zone
+        // bars and the label beside them are one definition.
+        zoneSet: trainingZones(
+          age: profile.ageYears,
+          deviceFamily: daySub.deviceFamily,
+          observedCeilingBpm:
+              (withHistory['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
+          restingHrHistory: [
+            for (final v in (withHistory['rhr_history'] as List?) ?? const [])
+              if (v is num) v.toDouble(),
+          ],
+        ),
         liveStepsReal: liveSteps.total,
         liveStepsFromStrap: liveSteps.strap,
         // The same resolution's credited spans, so the walking-cadence term
@@ -4806,7 +4819,7 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final (bundleJson, dropped) = await _runIsolateCancellable(
+      final (bundleJson, dropped, needSec) = await _runIsolateCancellable(
         () {
           final bundle =
               buildCrossDayBundle(
@@ -4823,12 +4836,26 @@ class DerivationEngine {
           final paths = <String>[];
           final safe = sanitizeForJson(bundle, paths) as Map<String, dynamic>;
           if (paths.isNotEmpty) safe['encode_dropped_fields'] = paths;
-          return (jsonEncode(safe), paths);
+          final coach = safe['sleep_coach'];
+          final needEnv = coach is Map ? coach['need'] : null;
+          final needVal = needEnv is Map ? needEnv['value'] : null;
+          final need = needVal is Map ? needVal['need_sec'] as num? : null;
+          return (jsonEncode(safe), paths, need?.toDouble());
         },
         _crossDayTimeout,
         label: 'crossday',
       );
       await LocalDb.putBaseline('crossday', bundleJson);
+      // B88-04: keep each day's computed need as that day's series point, so
+      // the Home sleep bar can divide last night's sleep by the need that
+      // applied to last night, not by tonight's. Written only when present.
+      if (needSec != null) {
+        await LocalDb.putMetricSeriesValue(
+          builtForDay,
+          'sleep_need_min',
+          (needSec / 60).roundToDouble(),
+        );
+      }
       if (dropped.isNotEmpty) {
         // Loud, not debug-only: a dropped field is a metric the user will see
         // as absent, and the reason lives here and nowhere else.
@@ -5465,8 +5492,9 @@ class DerivationEngine {
     Substrate s,
     int sleepOnsetSec,
     int sleepOffsetSec,
-    double hrMax,
-  ) {
+    double hrMax, {
+    ana.HeartRateZoneSet? zoneSet,
+  }) {
     final samples = <ana.HrSample>[];
     final n = math.min(s.tsSec.length, s.hr.length);
     for (var i = 0; i < n; i++) {
@@ -5479,14 +5507,14 @@ class DerivationEngine {
       }
       samples.add(ana.HrSample(ts * 1000.0, s.hr[i].toDouble()));
     }
-    final zoneSet = ana.HeartRateZones.zonesFromMaxHr(hrMax);
+    final bands = zoneSet ?? ana.HeartRateZones.zonesFromMaxHr(hrMax);
     // Null = the stream has no cadence `sampleCadenceSeconds` will vouch for.
     // An empty map is already this function's "no zones" answer everywhere it
     // is read; a zero-filled one would claim the day was measured and spent at
     // rest. See `HeartRateZones.timeInZone`.
     return ana.HeartRateZones.timeInZone(
           samples,
-          zoneSet,
+          bands,
         )?.toRoundedMinuteMap() ??
         const {};
   }
@@ -5655,6 +5683,11 @@ class DerivationEngine {
     /// zero-coverage credit below. Defaults to none — every existing caller
     /// keeps its old behaviour until it is threaded through.
     List<Map<String, dynamic>> sessions = const [],
+
+    /// B88-02: the pipeline's zone set, so the day's zone minutes use the same
+    /// bands as `zone_timeline`/`zone_source`. Null falls back to the age
+    /// estimate, as before.
+    ana.HeartRateZoneSet? zoneSet,
   }) {
     final wake = _buildWakeDayFeatures(
       daySub,
@@ -5667,6 +5700,7 @@ class DerivationEngine {
       restingHr: restingHr,
       dynFloorG: dynFloorG,
       stepSpans: stepSpans,
+      zoneSet: zoneSet,
     );
     // ACTIVE ENERGY WORKOUT-GAP CREDIT. `wake['calories']` above is built
     // ENTIRELY from `daySub.hr` — the day's own continuous 1 Hz trace — and
@@ -6208,6 +6242,7 @@ class DerivationEngine {
     double? restingHr,
     double? dynFloorG,
     List<List<int>> stepSpans = const [],
+    ana.HeartRateZoneSet? zoneSet,
   }) {
     final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
     final wear = _wearBlock(
@@ -6350,7 +6385,13 @@ class DerivationEngine {
         strainAbsent ??= strain == null ? kUnknownAbsenceNote : null;
       }
       // Zones are pure %HRmax bands — real as soon as HRmax is real.
-      zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
+      zones = _wakeZoneMinutes(
+        daySub,
+        sleepOnsetSec,
+        sleepOffsetSec,
+        hrMax,
+        zoneSet: zoneSet,
+      );
       // Calories are NOT computed here any more. Active and total both come
       // from the single `wakeDayEnergy` pass below, off this same wake series —
       // scoring active separately here, without the basal netting, is exactly
@@ -6728,56 +6769,17 @@ class DerivationEngine {
 
   @visibleForTesting
   static List<Map<String, num>> dayHrvCurve(Substrate s) {
-    final ts = <double>[], rr = <double>[];
-    for (var i = 0; i < s.rrMs.length; i++) {
-      final v = s.rrMs[i];
-      if (v >= 300 && v <= 2000) {
-        ts.add(s.rrTsMs[i]);
-        rr.add(v);
-      }
-    }
-    if (rr.length < 10) return const [];
-    const winMs = 300000.0; // 5 min
-    final out = <Map<String, num>>[];
-    var lo = 0;
-    var lastEmit = -1e18;
-    for (var i = 0; i < rr.length; i++) {
-      while (ts[i] - ts[lo] > winMs) {
-        lo++;
-      }
-      // Cadence gate FIRST: the sum-of-squared-differences below is O(window),
-      // and running it for every beat only to discard the result on the 60 s
-      // check was the whole window's work wasted per sample.
-      if (i - lo >= 10 && ts[i] - lastEmit > 60000) {
-        debugHrvAttempts++;
-        var ssd = 0.0;
-        var nd = 0;
-        for (var k = lo + 1; k <= i; k++) {
-          final d = rr[k] - rr[k - 1];
-          // Malik 20% rule: a real beat-to-beat change is small; a successive
-          // jump >20% (or >200 ms) is an ectopic/missed beat — skip that pair so
-          // one artifact doesn't blow RMSSD up to non-physiological 400+ ms.
-          if (d.abs() > 0.20 * rr[k - 1] || d.abs() > 200) continue;
-          ssd += d * d;
-          nd++;
-        }
-        // Advance on the ATTEMPT, before either quality check. The window holds
-        // ~300-600 beats, and leaving the cursor behind when a stretch is too
-        // artifact-heavy to yield 8 usable pairs re-runs that whole sum on every
-        // subsequent beat until one finally does.
-        lastEmit = ts[i];
-        if (nd >= 8) {
-          final rmssd = math.sqrt(ssd / nd);
-          if (rmssd <= 220) {
-            out.add({
-              't': (ts[i] / 1000).round(),
-              'v': double.parse(rmssd.toStringAsFixed(1)),
-            });
-          }
-        }
-      }
-    }
-    return out;
+    if (s.rrMs.length < 10 || s.rrTsMs.length != s.rrMs.length) return const [];
+    // B88-03: the shared rolling-RMSSD rule — the headline's cleaning and
+    // time-adjacency, ≥60% beat coverage per window — instead of differencing
+    // straight down a filtered list, which paired beats across gaps and
+    // across every dropped beat.
+    debugHrvAttempts++;
+    return [
+      for (final pt in ana.rollingRmssd(s.rrMs, s.rrTsMs))
+        if (pt.rmssd <= 220)
+          {'t': pt.tSec, 'v': double.parse(pt.rmssd.toStringAsFixed(1))},
+    ];
   }
 
   /// The day's RESTING breathing-rate floor (epoch {t,v} br/min) via rolling
@@ -6831,23 +6833,31 @@ class DerivationEngine {
     // thing this item exists to stop publishing.
     final cut = ana.calibrationFor(_quietEnmoCutG, s.deviceFamily);
     if (cut == null) return const [];
-    // Running count of still seconds, over substrate index. Prefix-summed so a
-    // window's stillness is two array reads instead of a rescan.
-    final quietPrefix = List<int>.filled(s.length + 1, 0);
-    // B88-04: stillness is a SMALL CHANGE in the gravity vector between
-    // consecutive samples, not |magnitude − 1 g|. This band's still magnitude
-    // sits anywhere in ~0.93–1.07 g depending on wrist posture (plus a ~4.6 %
-    // scale), so the absolute test rejected most still sleeping windows and
-    // emptied the breathing lane. A posture change still breaks stillness.
+    // B88-04: a second is STILL when its gravity magnitude sits within [cut]
+    // (0.02 g) of THAT WINDOW's own median magnitude — relative, not
+    // |magnitude − 1 g|. This band's still magnitude sits anywhere in
+    // ~0.93–1.07 g depending on wrist posture (plus a ~4.6 % scale), so the
+    // absolute test rejected most still sleeping windows and emptied the
+    // breathing lane. Movement still breaks it; a missing vector is never
+    // still (absence is not stillness).
+    final mag = List<double>.filled(s.length, double.nan);
     for (var i = 0; i < s.length; i++) {
-      var q = 0;
-      if (i > 0 && s.accelPresentAt(i) && s.accelPresentAt(i - 1)) {
-        final dx = s.ax[i] - s.ax[i - 1];
-        final dy = s.ay[i] - s.ay[i - 1];
-        final dz = s.az[i] - s.az[i - 1];
-        if (math.sqrt(dx * dx + dy * dy + dz * dz) <= cut) q = 1;
-      }
-      quietPrefix[i + 1] = quietPrefix[i] + q;
+      if (!s.accelPresentAt(i)) continue;
+      mag[i] = math.sqrt(
+        s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i],
+      );
+    }
+    int stillIn(int from, int to) {
+      final present = [
+        for (var k = from; k < to; k++)
+          if (!mag[k].isNaN) mag[k],
+      ]..sort();
+      if (present.isEmpty) return 0;
+      final m = present.length.isOdd
+          ? present[present.length ~/ 2]
+          : (present[present.length ~/ 2 - 1] + present[present.length ~/ 2]) /
+                2;
+      return present.where((v) => (v - m).abs() <= cut).length;
     }
 
     final ts = <double>[], rr = <double>[];
@@ -6885,7 +6895,7 @@ class DerivationEngine {
           qHi++;
         }
         final spanSec = hiSec - loSec;
-        final stillSec = quietPrefix[qHi] - quietPrefix[qLo];
+        final stillSec = stillIn(qLo, qHi);
         if (spanSec <= 0 || stillSec < _respQuietFraction * spanSec) {
           // Advance the cadence cursor on a rejection too — otherwise a moving
           // stretch re-tests (and re-scans) once per beat, which is the same
@@ -7041,45 +7051,37 @@ class DerivationEngine {
       );
       if ((mag - 1.0).abs() <= cut) quiet.add(s.tsSec[i]);
     }
-    final bins = <int, List<double>>{};
-    double? prev;
-    for (var k = 0; k < s.rrMs.length; k++) {
-      final tSec = s.rrTsMs[k] ~/ 1000;
+    // B88-03: the shared rolling-RMSSD rule over 5-min bins. Only still beats
+    // outside the sleep window may enter; any other beat breaks adjacency, so
+    // a pair can never span movement, the night or a gap.
+    bool include(double tsMs) {
+      final tSec = tsMs ~/ 1000;
       if (offsetSec > onsetSec && tSec >= onsetSec && tSec < offsetSec) {
-        prev = null;
-        continue; // skip the sleep window
+        return false;
       }
-      if (!quiet.contains(tSec)) {
-        prev = null; // moving, or no accel to say otherwise — break the pair
-        continue;
-      }
-      final v = s.rrMs[k];
-      if (v < 300 || v > 2000) {
-        prev = null;
-        continue;
-      }
-      if (prev != null) {
-        final d = v - prev;
-        if (d.abs() <= 200) (bins[tSec ~/ binSec] ??= <double>[]).add(d * d);
-      }
-      prev = v;
+      return quiet.contains(tSec);
     }
+
     final timeline = <Map<String, dynamic>>[];
     final means = <double>[];
-    final keys = bins.keys.toList()..sort();
-    for (final b in keys) {
-      final sq = bins[b]!;
-      if (sq.length < 5) continue;
-      final rmssd = math.sqrt(sq.reduce((a, c) => a + c) / sq.length);
-      // `n` is how many quiet beat-pairs this bin is built from — an hour built
-      // from three of them is not a reading and the card has to be able to say
-      // so (or drop the hour).
-      timeline.add({
-        't': b * binSec,
-        'rmssd': (rmssd * 10).round() / 10.0,
-        'n': sq.length,
-      });
-      means.add(rmssd);
+    if (s.rrMs.length == s.rrTsMs.length) {
+      for (final pt in ana.rollingRmssd(
+        s.rrMs,
+        s.rrTsMs,
+        windowSec: binSec,
+        stepSec: binSec,
+        minPairs: 5,
+        include: include,
+      )) {
+        // `n` is how many quiet adjacent pairs this bin is built from, so the
+        // card can say how thin a reading is.
+        timeline.add({
+          't': pt.tSec - binSec,
+          'rmssd': (pt.rmssd * 10).round() / 10.0,
+          'n': pt.pairs,
+        });
+        means.add(pt.rmssd);
+      }
     }
     final mean = means.isEmpty
         ? null
@@ -7751,6 +7753,7 @@ class DerivationEngine {
       dynHistoryDays: inp.dynHistoryDays,
       stepSpans: inp.stepSpans,
       sessions: inp.savedSessions,
+      zoneSet: inp.zoneSet,
     );
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
@@ -8177,83 +8180,26 @@ class DerivationEngine {
       recoverySec: 60,
       tsSec: tailTs,
     );
+    // B88-03: ONE tau — the analytics library's, fitted in the same call.
+    // The app used to fit its own and discard the library's.
     return (
       hrrBpm: m.present ? m.value!.dropBpm : null,
-      tauSec: _recoveryTau(tail, tailTs, endIdx - lo),
+      tauSec: m.present ? m.value!.tauSec : null,
     );
   }
 
-  /// Recovery time constant (s) from a monoexponential fit of the post-exercise
-  /// HR decay: `hr(t) = C + A*exp(-t/tau)` over 0…180 s after the bout end.
-  ///
-  /// Grid-search tau; A and C fall out of a linear least squares once tau is
-  /// fixed, so there is no optimiser here and no starting point to get wrong.
-  ///
-  /// PUBLISHED ALONGSIDE HRR-60, NEVER INSTEAD OF IT. tau is not
-  /// intensity-invariant — HR recovery is biphasic and the fast-phase constant
-  /// is itself intensity-dependent, so one exponential over 0-180 s conflates
-  /// the two phases. The gate below abstains rather than fit a shape that is not
-  /// there: it needs a clean stop (enough samples, a real fall, no long hole)
-  /// and a residual small against the decay it claims to describe.
+  /// Recovery time constant (s): the analytics library's monoexponential fit
+  /// ([ana.hrRecovery]'s `tauSec`), the one source since B88-03. Published
+  /// alongside HRR-60, never instead of it; null when the fit's gates abstain.
   @visibleForTesting
-  static double? recoveryTau(List<int> hr, List<int> tsSec, int endIdx) =>
-      _recoveryTau(hr, tsSec, endIdx);
-
-  static double? _recoveryTau(List<int> hr, List<int> tsSec, int endIdx) {
-    if (endIdx < 0 || endIdx >= hr.length) return null;
-    final t = <double>[], y = <double>[];
-    final t0 = tsSec[endIdx];
-    var lastTs = t0;
-    for (var i = endIdx; i < hr.length; i++) {
-      if (tsSec[i] - lastTs > 30) break; // hole — the tail stops here
-      lastTs = tsSec[i];
-      if (hr[i] < kHrFloorBpm) continue;
-      t.add((tsSec[i] - t0).toDouble());
-      y.add(hr[i].toDouble());
-    }
-    // Need most of the 180 s and a real fall to fit at all.
-    if (t.length < 60 || t.last < 120) return null;
-    final peak = y.reduce(math.max);
-    final floor = y.reduce(math.min);
-    if (peak - floor < 15) return null; // no fall — not a recovery
-
-    double? bestTau;
-    var bestSse = double.infinity;
-    for (var tau = 15.0; tau <= 240.0; tau += 2.5) {
-      // Linear LS of y ~ C + A*x where x = exp(-t/tau).
-      var sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
-      final n = t.length;
-      for (var i = 0; i < n; i++) {
-        final x = math.exp(-t[i] / tau);
-        sx += x;
-        sy += y[i];
-        sxx += x * x;
-        sxy += x * y[i];
-      }
-      final den = n * sxx - sx * sx;
-      if (den.abs() < 1e-9) continue;
-      final a = (n * sxy - sx * sy) / den;
-      final c = (sy - a * sx) / n;
-      if (a <= 0) continue; // rising, not decaying
-      var sse = 0.0;
-      for (var i = 0; i < n; i++) {
-        final r = y[i] - (c + a * math.exp(-t[i] / tau));
-        sse += r * r;
-      }
-      if (sse < bestSse) {
-        bestSse = sse;
-        bestTau = tau;
-      }
-    }
-    if (bestTau == null) return null;
-    // Residual gate. An RMSE over 3 bpm means the tail is not the single decay
-    // we just claimed it was — abstain rather than loosen it.
-    final rmse = math.sqrt(bestSse / t.length);
-    if (rmse > 3.0) return null;
-    // A tau pinned to either end of the grid is the search running out of room,
-    // not a measurement.
-    if (bestTau <= 15.0 || bestTau >= 240.0) return null;
-    return bestTau;
+  static double? recoveryTau(List<int> hr, List<int> tsSec, int endIdx) {
+    final m = ana.hrRecovery(
+      hr,
+      endIndex: endIdx,
+      recoverySec: 60,
+      tsSec: tsSec,
+    );
+    return m.present ? m.value!.tauSec : null;
   }
 
   /// Low-confidence WRIST ORIENTATION during the sleep window (`positionSeries`).
@@ -8459,6 +8405,10 @@ class _DayBlocksInput {
   /// back to daytime HR for the resting-HR card and is not a TRIMP reference.
   final double? rhr;
   final int? maxHrUsed;
+
+  /// The pipeline's zone set ([trainingZones]), or null to fall back to the
+  /// age estimate. See the construction site.
+  final ana.HeartRateZoneSet? zoneSet;
   final int liveStepsReal;
 
   /// How much of [liveStepsReal] the BAND's own 100 Hz pedometer was credited
@@ -8522,6 +8472,7 @@ class _DayBlocksInput {
     required this.offsetSec,
     required this.rhr,
     required this.maxHrUsed,
+    this.zoneSet,
     required this.liveStepsReal,
     this.liveStepsFromStrap = 0,
     this.stepSpans = const [],

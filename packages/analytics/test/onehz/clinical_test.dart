@@ -1176,7 +1176,7 @@ void main() {
       // ~300 beats around 900 ms with small bounded variation → a well-defined
       // mode and a non-zero MxDMn, so SI is finite (not the degenerate ÷0 case).
       final nn = <double>[
-        for (var i = 0; i < 300; i++) 900.0 + 15.0 * math.sin(i.toDouble())
+        for (var i = 0; i < 1500; i++) 900.0 + 15.0 * math.sin(i.toDouble())
       ];
       final m = baevskyStressIndex(nn);
       expect(m.present, isTrue);
@@ -1194,7 +1194,7 @@ void main() {
         () {
       // MxDMn = 0 makes SI degenerate; the impl must return absent, never ∞/0.
       final m =
-          baevskyStressIndex(<double>[for (var i = 0; i < 300; i++) 900.0]);
+          baevskyStressIndex(<double>[for (var i = 0; i < 1500; i++) 900.0]);
       expect(m.present, isFalse);
       expect(m.value, isNull);
     });
@@ -1207,7 +1207,7 @@ void main() {
       // so MxDMn = 0.001 s blew the 1/MxDMn denominator up to si 48780,
       // level 'high'.
       final nn = <double>[
-        for (var i = 0; i < 300; i++) i.isEven ? 1000.0 : 1001.0
+        for (var i = 0; i < 1500; i++) i.isEven ? 1000.0 : 1001.0
       ];
       final m = baevskyStressIndex(nn);
       expect(m.present, isFalse);
@@ -1215,9 +1215,34 @@ void main() {
       expect(m.confidence, 0);
       // A genuinely varying series of the same length still computes.
       final ok = baevskyStressIndex(<double>[
-        for (var i = 0; i < 300; i++) 900.0 + 15.0 * math.sin(i.toDouble())
+        for (var i = 0; i < 1500; i++) 900.0 + 15.0 * math.sin(i.toDouble())
       ]);
       expect(ok.present, isTrue);
+    });
+
+    test('B88-03: under 20 minutes of beats is absent, not a score', () {
+      final m = baevskyStressIndex(<double>[
+        for (var i = 0; i < 300; i++) 900.0 + 15.0 * math.sin(i.toDouble())
+      ]);
+      expect(m.present, isFalse);
+      expect(m.note, contains('stress_not_qualified'));
+    });
+
+    test('B88-03: windows hiding a gap are refused', () {
+      // 1500 beats at ~900 ms, with a 10-minute hole after every 100 beats:
+      // every 256-beat window spans far more than its beats sum to.
+      final nn = <double>[
+        for (var i = 0; i < 1500; i++) 900.0 + 15.0 * math.sin(i.toDouble())
+      ];
+      final ts = <double>[];
+      var t = 0.0;
+      for (var i = 0; i < nn.length; i++) {
+        t += nn[i] + (i > 0 && i % 100 == 0 ? 600000 : 0);
+        ts.add(t);
+      }
+      final m = baevskyStressIndex(nn, nnTimesMs: ts);
+      expect(m.present, isFalse);
+      expect(m.note, contains('gapped='));
     });
   });
 

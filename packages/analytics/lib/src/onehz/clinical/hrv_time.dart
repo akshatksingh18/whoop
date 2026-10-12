@@ -496,6 +496,94 @@ Metric<double> sleepSessionWindowedRmssd(
   );
 }
 
+/// One point of a rolling-RMSSD curve: window end [tSec] (epoch seconds),
+/// its RMSSD (ms), the valid adjacent pairs behind it and the share of the
+/// window its accepted beats cover.
+typedef RmssdPoint = ({int tSec, double rmssd, int pairs, double coverage});
+
+/// B88-03 shared beat rule for every rolling-RMSSD CURVE (the sleep HRV
+/// timeline, the 24/7 HRV curve, daytime HRV): the same cleaning and
+/// time-adjacency as the nightly headline ([sleepSessionWindowedRmssd]), so a
+/// curve can never be built from pairs the headline refuses.
+///
+/// Windows of [windowSec] end every [stepSec] (aligned to the epoch, so
+/// repeated derives emit the same points). A window plots only when its
+/// accepted beats cover ≥[minCoverage] of it and give ≥[minPairs] adjacent
+/// pairs; otherwise it is skipped, never filled. [include] limits which beats
+/// may enter (for example only still seconds); an excluded beat breaks
+/// adjacency like a gap. [rrTsMs] are beat-end epoch ms, sorted.
+List<RmssdPoint> rollingRmssd(
+  List<double> rrMs,
+  List<double> rrTsMs, {
+  int windowSec = 300,
+  int stepSec = 60,
+  double minCoverage = 0.60,
+  int minPairs = 8,
+  double adjacencyTolMs = 250,
+  bool Function(double tsMs)? include,
+}) {
+  final out = <RmssdPoint>[];
+  if (rrMs.isEmpty || rrMs.length != rrTsMs.length) return out;
+  final winMs = windowSec * 1000.0;
+  final stepMs = stepSec * 1000.0;
+  // First window end: the first step boundary after the first beat plus a
+  // full window, so no point is drawn from a partial window.
+  var end = ((rrTsMs.first + winMs) / stepMs).ceil() * stepMs;
+  var lo = 0, hi = 0;
+  final n = rrMs.length;
+  // The last window ends at or before the last beat: a point is never stamped
+  // after the data it was built from.
+  while (end <= rrTsMs.last) {
+    final start = end - winMs;
+    while (lo < n && rrTsMs[lo] < start) {
+      lo++;
+    }
+    if (hi < lo) hi = lo;
+    while (hi < n && rrTsMs[hi] < end) {
+      hi++;
+    }
+    if (hi - lo > minPairs) {
+      final rr = <double>[], ts = <double>[];
+      for (var i = lo; i < hi; i++) {
+        if (include != null && !include(rrTsMs[i])) {
+          // A zero-length marker beat breaks the run without being a beat:
+          // the range filter drops it, and its position gap splits the run.
+          rr.add(0);
+          ts.add(rrTsMs[i]);
+          continue;
+        }
+        rr.add(rrMs[i]);
+        ts.add(rrTsMs[i]);
+      }
+      final runs =
+          _cleanWindowRuns(rr, tsMs: ts, adjacencyTolMs: adjacencyTolMs);
+      var covered = 0.0, ssd = 0.0;
+      var pairs = 0;
+      for (final r in runs) {
+        for (var i = 0; i < r.length; i++) {
+          covered += r[i];
+          if (i > 0) {
+            final d = r[i] - r[i - 1];
+            ssd += d * d;
+            pairs++;
+          }
+        }
+      }
+      final coverage = covered / winMs;
+      if (pairs >= minPairs && coverage >= minCoverage) {
+        out.add((
+          tSec: (end / 1000).round(),
+          rmssd: math.sqrt(ssd / pairs),
+          pairs: pairs,
+          coverage: coverage,
+        ));
+      }
+    }
+    end += stepMs;
+  }
+  return out;
+}
+
 /// Group NN intervals into consecutive 5-minute (300 000 ms) segments by beat
 /// time. Segments with <2 beats are dropped.
 List<List<double>> _fiveMinSegments(List<double> nn, List<double> times) {

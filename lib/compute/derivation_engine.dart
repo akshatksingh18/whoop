@@ -5210,6 +5210,9 @@ class DerivationEngine {
       'skin_temp_adc': sc('skin_temp_adc'),
       'device_family': payload['device_family'],
       'trimp': sc('trimp'),
+      // B88-02: load uses net TRIMP on days the band recorded ≥16 h.
+      'trimp_net': sc('trimp_net'),
+      'worn_min': sc('worn_min'),
       // Headline 0–21 strain, daily steps, nap minutes — feed Sleep/Strain Coach
       // + VO₂max/Fitness Age in the cross-day rollup.
       'strain': sc('strain'),

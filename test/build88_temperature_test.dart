@@ -135,4 +135,48 @@ void main() {
       expect(flag?['flag'], 'elevated');
     });
   });
+
+  group('B88-02 training load', () {
+    String date(int i) {
+      final d = DateTime(2026, 7, 1 + i);
+      return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+    }
+
+    Map<String, dynamic> loadDay(int i, {num? net, num worn = 1200}) => {
+          'date': date(i),
+          'rhr': 55,
+          'trimp': net,
+          'trimp_net': net,
+          'worn_min': worn,
+        };
+    Map? loadOf(List<Map<String, dynamic>> days) =>
+        buildCrossDayBundle(days, const {'age': 23, 'sex': 'm'})['load'] as Map?;
+
+    test('unknown days are not rest: no history means no load', () {
+      final l = loadOf([for (var i = 0; i < 40; i++) loadDay(i)]);
+      expect(l?['value'], anyOf(isNull, '—'));
+    });
+
+    test('short wear is unknown, not zero', () {
+      // 40 days with load but only 10 h worn each: never observed.
+      final l = loadOf([for (var i = 0; i < 40; i++) loadDay(i, net: 80, worn: 600)]);
+      expect(l?['value'], anyOf(isNull, '—'));
+    });
+
+    test('a 3-day gap restarts the run; observed zeros still count', () {
+      final days = [
+        for (var i = 0; i < 30; i++) loadDay(i, net: 200),
+        // 3 unworn days, then 29 observed days including real rest (0).
+        for (var i = 33; i < 62; i++) loadDay(i, net: i.isEven ? 0 : 60),
+      ];
+      final l = loadOf(days);
+      final v = l?['value'];
+      expect(v, isA<Map>());
+      // The pre-gap 200/day block must not inflate fitness: CTL reflects only
+      // the post-gap run, whose mean is about 30.
+      expect((v as Map)['ctl'] as num, lessThan(60));
+    });
+  });
 }
+

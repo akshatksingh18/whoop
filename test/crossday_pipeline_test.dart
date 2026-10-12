@@ -49,6 +49,9 @@ List<Map<String, dynamic>> _synthDays(
       'resp_rate': resp,
       'skin_temp_z': temp,
       if (withTrimp) 'trimp': trimp,
+      // B88-02: load reads net TRIMP on days worn ≥16 h.
+      if (withTrimp) 'trimp_net': trimp,
+      'worn_min': 1200,
       if (withSleep) 'onset_sec': onsetSec,
       if (withSleep) 'wake_sec': wakeSec,
       if (withSleep) 'tst_min': tstMin,
@@ -282,7 +285,7 @@ void main() {
     // that carry a TRIMP handed it a compressed calendar, so load never decayed
     // across rest gaps and TSB was systematically wrong for anyone who trains
     // sporadically.
-    test('rest days are 0-load impulses, not omitted from the load EWMA', () {
+    test('worn rest days are observed 0-load impulses in the load EWMA', () {
       // 90 days, but only every 9th day carries a TRIMP (10 loaded days).
       final days = <Map<String, dynamic>>[];
       var dt = DateTime(2024, 1, 1);
@@ -292,7 +295,9 @@ void main() {
               '-${dt.day.toString().padLeft(2, '0')}',
           'rhr': 55.0,
           'rmssd': 45.0,
-          if (i % 9 == 0) 'trimp': 150.0,
+          // B88-02: a rest day is an OBSERVED 0 only when the band was worn.
+          'trimp_net': i % 9 == 0 ? 150.0 : 0.0,
+          'worn_min': 1200,
         });
         dt = DateTime(dt.year, dt.month, dt.day + 1);
       }
@@ -386,11 +391,13 @@ void main() {
       expect((bundle['strain_coach'] as Map)['value'], '—');
     });
 
-    test('with the stamp → the target is built from TODAY', () {
+    test('B88-02 / D3: the strain target is withheld until calibrated', () {
       final days = _synthDays(30);
       days.last['is_today'] = true;
       final bundle = buildCrossDayBundle(days, const {});
-      expect((bundle['strain_coach'] as Map)['value'], isA<Map>());
+      expect((bundle['strain_coach'] as Map)['value'], '—');
+      expect((bundle['strain_coach'] as Map)['note'] as String,
+          contains('strain_target_withheld'));
     });
   });
 
@@ -516,6 +523,7 @@ void _wiredFamilies() {
       for (var i = 40; i < 45; i++) {
         days[i]['rhr'] = 70.0;
         days[i]['trimp'] = 600.0;
+        days[i]['trimp_net'] = 600.0;
       }
       final v = ((buildCrossDayBundle(days, const {})['overreaching'] as Map)
           ['value'] as Map);
@@ -527,6 +535,7 @@ void _wiredFamilies() {
       final quiet = _synthDays(45);
       for (var i = 40; i < 45; i++) {
         quiet[i]['trimp'] = 600.0;
+        quiet[i]['trimp_net'] = 600.0;
       }
       final qv = ((buildCrossDayBundle(quiet, const {})['overreaching'] as Map)
           ['value'] as Map);

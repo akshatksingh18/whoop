@@ -919,6 +919,21 @@ Map<String, dynamic> deriveDayBundle(
     female: workoutSex(sex) == 'female',
   );
 
+  // B88-02: load models use NET TRIMP (effort above merely being awake), not
+  // gross TRIMP, which grows with wear minutes alone. Same baseline the
+  // headline strain subtracts; absent whenever TRIMP or the wake window is.
+  final double? trimpNet = (rawTrimp == null || perMin.isEmpty)
+      ? null
+      : math.max(
+          0.0,
+          rawTrimp -
+              baselineTrimp(
+                perMin.length.toDouble(),
+                quietHrr: quietWakingHrr,
+                female: workoutSex(sex) == 'female',
+              ),
+        );
+
   // ── curve series for the UI ────────────────────────────────────────────────
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
   final hypnogram = _hypnogramSegments(d);
@@ -1507,6 +1522,7 @@ Map<String, dynamic> deriveDayBundle(
       'prsa_dc_anchors': dc.present ? dc.value!.anchors.toDouble() : null,
       'dip_pct': dip.present ? dip.value!.dipPct : null,
       'trimp': trimp.present ? trimp.value : null,
+      'trimp_net': trimpNet,
       'odi_per_hour': null,
       // Stress score (0–100) + SI for trends.
       'stress': stressScore,

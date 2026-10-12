@@ -110,18 +110,17 @@ Map<String, dynamic> buildCrossDayBundle(
   ];
   final anomaly = ana.multivariateAnomaly(dates, feats);
 
-  // ── CTL/ATL/TSB training load from the daily-TRIMP series ──────────────────
-  // `ctlAtlTsb` is an EWMA that treats its input as ONE SAMPLE PER CALENDAR DAY
-  // (λ = 1 − e^(−1/τ) per element) and documents "a missing day contributes a
-  // 0-load impulse (rest day) — the EWMA decays". Filtering to only the days
-  // that carry a TRIMP handed it a COMPRESSED calendar instead: a user who
-  // trains sporadically (say 10 loaded days across 90) got 10 consecutive
-  // "days" of load with no decay between them, so fitness/fatigue never fell
-  // across the gaps and TSB was systematically wrong. Build a DENSE per-day
-  // series over the observed date span instead — a day with no TRIMP, and a
-  // calendar day with no derived row at all, are both 0-load impulses.
-  final dailyTrimp = _denseDailyTrimp(dates, [
-    for (final d in days) _numOrNull(d['trimp']),
+  // ── CTL/ATL/TSB training load (B88-02) ─────────────────────────────────────
+  // Unknown is not rest. A day contributes only when it is OBSERVED: net TRIMP
+  // present and the band recorded ≥16 h. 1–2 unknown days inside a run are
+  // skipped (the EWMA holds, no decay toward a fictitious zero); 3+ end the
+  // run; the latest run needs 28 observed days before fitness/fatigue exist.
+  // A real low-effort day with full wear is an observed 0 and still counts.
+  final dailyTrimp = _observedLoadRun(dates, [
+    for (final d in days)
+      (_numOrNull(d['worn_min']) ?? 0) >= _minObservedLoadMin
+          ? _numOrNull(d['trimp_net'])
+          : null,
   ]);
   final load = ana.ctlAtlTsb(dailyTrimp);
 
@@ -453,13 +452,15 @@ Map<String, dynamic> buildCrossDayBundle(
   // is the stamped read this comment already promised; when today has no row,
   // recovery is null and `strainTarget` returns absent, which is the honest
   // outcome and the one the screens already render.
-  final recToday = _todayNum(days, 'readiness');
-  final ls = load.present ? load.value : null;
-  final strainTgt = ana.strainTarget(
-    recovery0to100: recToday,
-    ctl: ls?.ctl,
-    atl: ls?.atl,
-    tsb: ls?.tsb,
+  // B88-02 / D3: WITHHELD until calibrated. Strain uses the population
+  // quiet-waking level (0.20 HRR), which the analytics' own measurement shows
+  // places an inactive day at ~7–12/21, while the target bands assume an
+  // inactive day ≈ 0. A prescriptive aim built on that offset is not shown;
+  // the recorded strain stays, labelled an estimate.
+  const strainTgt = ana.Metric<ana.StrainTarget>.absent(
+    tier: ana.Tier.estimate,
+    inputs_used: ['readiness', 'ctl', 'atl', 'tsb'],
+    note: 'strain_target_withheld:uncalibrated_quiet_baseline',
   );
 
   // VO₂max and Fitness Age used to be computed here. Both are DELETED, not
@@ -731,51 +732,55 @@ List<bool> _lutealFlags(List<String> dates, List<String> cycleStartDates) {
   return out;
 }
 
-/// Guard on how far [_denseDailyTrimp] will densify. Past this the input is not
-/// a plausible recent-history window (a corrupt/absurd date), so we fall back to
-/// the raw per-row series rather than allocating an unbounded list.
-const int _maxDenseTrimpDays = 400;
+/// Minimum recorded minutes for a day's load to count as observed (16 h).
+const int _minObservedLoadMin = 960;
 
-/// A DENSE per-calendar-day TRIMP series (oldest→newest) over the span covered
-/// by [dates], with every unloaded or unobserved day contributing a 0 impulse.
+/// Observed days needed before CTL/ATL/TSB are reported (fitness τ ≈ 28 d).
+const int _minObservedLoadDays = 28;
+
+/// Guard on how many calendar days are walked (corrupt/absurd dates).
+const int _maxLoadSpanDays = 400;
+
+/// The latest run of OBSERVED daily loads, oldest→newest (B88-02).
 ///
-/// [dates] and [trimps] are parallel (one entry per derived day, oldest first);
-/// [dates] may skip calendar days entirely (an underived day has no row).
-/// PURE: `DateTime.parse` / `DateTime(y, m, d + 1)` are deterministic functions
-/// of the input strings, and the day-step normalizes DST-length days correctly.
-List<double> _denseDailyTrimp(List<String> dates, List<double?> trimps) {
-  // NO observed load at all is not "a run of zero-load days" — it is no load
-  // history. Densifying it would hand the EWMA a synthetic all-zero series and
-  // turn "we have never seen a workout" into a confident CTL/ATL/TSB of 0,
-  // which is the fabrication this whole pass exists to remove. Abstain by
-  // handing back an empty series and let the load model decline.
-  if (!trimps.any((t) => t != null)) return const <double>[];
-  final byDate = <String, double>{};
+/// Walks calendar days from [dates]' span (DST-correct `DateTime(y, m, d+1)`
+/// steps). [loads] is parallel to [dates]; null = unknown. Calendar days with
+/// no derived row are unknown too. Starting from the newest day, 1–2
+/// consecutive unknown days are skipped and 3 or more end the run. Fewer than
+/// [_minObservedLoadDays] observed days ⇒ empty, and the load model abstains.
+List<double> _observedLoadRun(List<String> dates, List<double?> loads) {
+  final byDate = <String, double?>{};
   String? first, last;
-  for (var i = 0; i < dates.length && i < trimps.length; i++) {
+  for (var i = 0; i < dates.length && i < loads.length; i++) {
     final date = dates[i];
     if (date.isEmpty || DateTime.tryParse(date) == null) continue;
-    byDate[date] = trimps[i] ?? 0.0;
-    first ??= date;
+    byDate[date] = loads[i];
+    if (first == null || date.compareTo(first) < 0) first = date;
     if (last == null || date.compareTo(last) > 0) last = date;
-    if (date.compareTo(first) < 0) first = date;
   }
   if (first == null || last == null) return const <double>[];
-  final start = DateTime.parse(first);
-  final end = DateTime.parse(last);
-  final out = <double>[];
+  final start = DateTime.parse(first), end = DateTime.parse(last);
+  final calendar = <double?>[];
   var cursor = DateTime(start.year, start.month, start.day);
   final stop = DateTime(end.year, end.month, end.day);
   while (!cursor.isAfter(stop)) {
-    if (out.length >= _maxDenseTrimpDays) {
-      // Implausible span — don't densify; the honest per-row series is better
-      // than an arbitrarily long zero-padded one.
-      return [for (final v in trimps) v ?? 0.0];
-    }
-    out.add(byDate[dayLabelOf(cursor)] ?? 0.0);
+    if (calendar.length >= _maxLoadSpanDays) return const <double>[];
+    calendar.add(byDate[dayLabelOf(cursor)]);
     cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
   }
-  return out;
+  final run = <double>[];
+  var unknownStreak = 0;
+  for (var i = calendar.length - 1; i >= 0; i--) {
+    final v = calendar[i];
+    if (v == null) {
+      if (++unknownStreak >= 3) break;
+      continue;
+    }
+    unknownStreak = 0;
+    run.add(v);
+  }
+  if (run.length < _minObservedLoadDays) return const <double>[];
+  return run.reversed.toList();
 }
 
 /// Absolute value of each present element (used to orient skin-temp by |z|).

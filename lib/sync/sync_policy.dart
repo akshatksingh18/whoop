@@ -114,16 +114,31 @@ const int kNoStreamPollSilenceSeconds = 45;
 /// live stream is armed (≥1 Hz expected), [kLinkFreshnessNoStreamSeconds] when
 /// nothing is armed and only poll replies arrive. Pure — callers own the
 /// actual teardown/reconnect.
+///
+/// Off-wrist the live streams fall silent by design, so the streaming bars do
+/// not apply. Before B88-05 off-wrist meant "never stale", so a link that died
+/// while the band lay on a desk was never bounced. It now has its own, longer
+/// bar, [kLinkFreshnessOffWristSeconds].
 bool isLinkStale(
   Duration sinceLastRx, {
   bool liveStreamArmed = true,
   bool? onWrist,
 }) =>
-    onWrist != false &&
     sinceLastRx.inSeconds >=
-        (liveStreamArmed
-            ? kLinkFreshnessSeconds
-            : kLinkFreshnessNoStreamSeconds);
+    (onWrist == false
+        ? kLinkFreshnessOffWristSeconds
+        : liveStreamArmed
+        ? kLinkFreshnessSeconds
+        : kLinkFreshnessNoStreamSeconds);
+
+/// Silence that marks an OFF-WRIST link dead. Off-wrist the keep-alive polls
+/// battery only on its slow [kBatteryPollIntervalSeconds] cadence (checked on
+/// 30 s ticks), so a healthy link can be quiet for about 330 s. Two missed
+/// polls plus a tick is a dead radio session, not a band resting on a desk.
+// ponytail: a bar derived from the poll cadence, not measured on the phone.
+// Upgrade path = log off-wrist rx gaps and set it from the observed maximum
+// on a healthy link.
+const int kLinkFreshnessOffWristSeconds = 2 * kBatteryPollIntervalSeconds + 60;
 
 // ── plausibility gates (unix seconds) ────────────────────────────────────────
 /// ASSUMES: every source stamps records with an ABSOLUTE wall-clock epoch, so a

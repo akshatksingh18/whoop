@@ -40,11 +40,17 @@ class LinkWearEvidence {
   }
 }
 
+/// Off-wrist the streams are silent by design, so [fuseSeconds] does not
+/// apply; [offWristFuseSeconds] (B88-05) still bounces a link that has gone
+/// completely quiet, where before an off-wrist link was never bounced.
 bool shouldReconnectForSilence({
   required Duration silence,
   required int fuseSeconds,
   required bool? onWrist,
-}) => onWrist != false && silence.inSeconds > fuseSeconds;
+  int? offWristFuseSeconds,
+}) => onWrist == false
+    ? offWristFuseSeconds != null && silence.inSeconds > offWristFuseSeconds
+    : silence.inSeconds > fuseSeconds;
 
 /// The explicit connection state machine. The flutter_blue_plus connection-state
 /// stream is the SOURCE OF TRUTH for connected/disconnected; this enum layers the

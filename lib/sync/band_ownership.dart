@@ -22,6 +22,11 @@ class BandOwnership {
   static bool _foregroundIntent = false;
   static Completer<void>? _released;
 
+  /// How the running headless drain is asked to let go (B88-05). Set by
+  /// that drain for the life of its lease; null when none is running.
+  static void Function(String reason)? _headlessStop;
+  static int? _headlessStopToken;
+
   static BandOwnerKind? get owner => _owner;
   static bool get foregroundIntent => _foregroundIntent;
   static String get debugState =>
@@ -32,12 +37,51 @@ class BandOwnership {
     _foregroundIntent = active;
   }
 
+  /// The running headless drain registers how to stop it. A stop
+  /// disconnects; whatever was committed stays, nothing uncommitted is ACKed,
+  /// and the next connect resumes from the band's cursor.
+  static void registerHeadlessStop(
+    BandLease lease,
+    void Function(String reason) stop,
+  ) {
+    if (lease.kind != BandOwnerKind.headless || _token != lease.token) return;
+    _headlessStop = stop;
+    _headlessStopToken = lease.token;
+  }
+
+  /// Ask the running headless drain, if any, to stop now. Used when the app
+  /// comes to the foreground and when iOS expires a background task.
+  static void requestHeadlessStop(String reason) {
+    final stop = _headlessStop;
+    if (stop == null || _owner != BandOwnerKind.headless) return;
+    if (_token != _headlessStopToken) return;
+    stop(reason);
+  }
+
+  /// B88-05: the foreground no longer waits without limit for a headless
+  /// drain that can run 600 s. It asks the drain to stop, waits at most
+  /// [deadline] for its own release, then force-clears the headless owner
+  /// (the engine's single-owner claim lets the foreground preempt it).
   static Future<BandLease> acquireForeground({
     Duration poll = const Duration(milliseconds: 50),
+    Duration deadline = const Duration(seconds: 20),
   }) async {
     _foregroundIntent = true;
+    if (_owner == BandOwnerKind.headless) {
+      requestHeadlessStop('foreground_acquire');
+    }
+    final until = DateTime.now().add(deadline);
     while (_owner != null && _owner != BandOwnerKind.foreground) {
-      await (_released ??= Completer<void>()).future;
+      final left = until.difference(DateTime.now());
+      if (left <= Duration.zero) {
+        forceReleaseHeadless();
+        break;
+      }
+      try {
+        await (_released ??= Completer<void>()).future.timeout(left);
+      } on TimeoutException {
+        continue;
+      }
       await Future<void>.delayed(poll);
     }
     if (_owner == BandOwnerKind.foreground && _token != null) {
@@ -61,6 +105,8 @@ class BandOwnership {
     if (_token != lease.token || _owner != lease.kind) return;
     _owner = null;
     _token = null;
+    _headlessStop = null;
+    _headlessStopToken = null;
     final released = _released;
     _released = null;
     released?.complete();
@@ -83,6 +129,8 @@ class BandOwnership {
     if (_owner != BandOwnerKind.headless) return;
     _owner = null;
     _token = null;
+    _headlessStop = null;
+    _headlessStopToken = null;
     final released = _released;
     _released = null;
     released?.complete();
@@ -94,5 +142,7 @@ class BandOwnership {
     _nextToken = 1;
     _foregroundIntent = false;
     _released = null;
+    _headlessStop = null;
+    _headlessStopToken = null;
   }
 }

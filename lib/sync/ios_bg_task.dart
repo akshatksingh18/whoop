@@ -45,6 +45,7 @@ import '../ble/ios_ble_restore.dart';
 import '../data/local_repository_impl.dart';
 import '../widget/widget_service.dart';
 import 'background_sync.dart';
+import 'band_ownership.dart';
 import 'headless_gate.dart';
 import 'file_log.dart';
 
@@ -73,6 +74,8 @@ class IosBgTask {
       if (call.method == 'expire') {
         // iOS is ending the task: stop now rather than run into a kill.
         DeriveStop.request('ios_bg_task_expired');
+        // B88-05: the headless BLE drain stops too, not only calculation.
+        BandOwnership.requestHeadlessStop('ios_bg_task_expired');
         return null;
       }
       if (call.method != 'run') return null;

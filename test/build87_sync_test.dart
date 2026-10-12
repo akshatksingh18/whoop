@@ -76,6 +76,19 @@ void main() {
         ),
         isFalse,
       );
+      // B88-05: off-wrist is not "never" — a link quiet past two missed slow
+      // battery polls is dead and is bounced.
+      const dead = Duration(seconds: kLinkFreshnessOffWristSeconds + 1);
+      expect(isLinkStale(dead, onWrist: false), isTrue);
+      expect(
+        shouldReconnectForSilence(
+          silence: dead,
+          fuseSeconds: 120,
+          onWrist: false,
+          offWristFuseSeconds: kLinkFreshnessOffWristSeconds,
+        ),
+        isTrue,
+      );
     },
   );
   test(

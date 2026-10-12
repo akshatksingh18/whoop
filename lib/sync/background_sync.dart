@@ -12,6 +12,8 @@
 // store (lib/data/db.dart), the system of record. A missed run is harmless;
 // the next reconnect catches up from the non-destructive cursor.
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -72,6 +74,12 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // that would double-ACK the same offload and stall the trim cursor.
       isBackgroundDrainer: true,
     );
+    // B88-05: the foreground's arrival or an iOS task expiry stops this drain
+    // instead of letting it run on for up to 600 s.
+    BandOwnership.registerHeadlessStop(ownedLease, (reason) {
+      _bgLog('[bgsync] stop requested ($reason) — disconnecting');
+      unawaited(engine.disconnect());
+    });
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.

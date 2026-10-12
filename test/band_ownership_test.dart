@@ -68,4 +68,35 @@ void main() {
       expect(BandOwnership.owner, isNull);
     },
   );
+
+  test('B88-05: foreground asks the headless drain to stop', () async {
+    final headless = BandOwnership.tryAcquireHeadless()!;
+    final reasons = <String>[];
+    BandOwnership.registerHeadlessStop(headless, (r) {
+      reasons.add(r);
+      BandOwnership.release(headless); // the drain disconnects and lets go
+    });
+    final lease = await BandOwnership.acquireForeground();
+    expect(reasons, ['foreground_acquire']);
+    expect(lease.kind, BandOwnerKind.foreground);
+  });
+
+  test('B88-05: a wedged headless drain cannot hold the foreground forever',
+      () async {
+    final headless = BandOwnership.tryAcquireHeadless()!;
+    BandOwnership.registerHeadlessStop(headless, (_) {}); // never lets go
+    final lease = await BandOwnership.acquireForeground(
+      deadline: const Duration(milliseconds: 100),
+    );
+    expect(lease.kind, BandOwnerKind.foreground);
+    expect(BandOwnership.owner, BandOwnerKind.foreground);
+    // The orphaned drain's own release later is a no-op.
+    BandOwnership.release(headless);
+    expect(BandOwnership.owner, BandOwnerKind.foreground);
+  });
+
+  test('B88-05: a stop request with no headless drain does nothing', () {
+    BandOwnership.requestHeadlessStop('ios_bg_task_expired');
+    expect(BandOwnership.owner, isNull);
+  });
 }

@@ -1837,6 +1837,9 @@ class BleEngine {
   // rather than only as a single overwritten sync_ledger row. Pure
   // observability — does NOT gate or retry anything.
   int _burstMismatchTotal = 0; // across the engine's lifetime
+  // B88-05: summed gen4 advisory shortfall, so real loss can be measured
+  // from the ledger rather than from the last burst alone.
+  int _burstShortfallSum = 0;
   int _burstMismatchStreak = 0; // consecutive mismatched bursts, reset by connect + by a clean burst
   // Per-revision packet accounting for the historical drain (gap detection +
   // honest per-version counts surfaced to the debug screens).
@@ -2015,6 +2018,7 @@ class BleEngine {
     // committed — advisory only (see the comment at the validation site), but
     // a *streak* of mismatches is a real signal worth watching over time.
     'burst_mismatch_total': _burstMismatchTotal,
+    'burst_shortfall_sum': _burstShortfallSum,
     'burst_mismatch_streak': _burstMismatchStreak,
     // Terminal `Stuck` for this connection and how
     // much re-offer/re-trigger traffic the latch has since absorbed.
@@ -3469,8 +3473,12 @@ class BleEngine {
       silence: sinceLastRx,
       fuseSeconds: kLivenessFuseSeconds,
       onWrist: linkWristOn,
+      offWristFuseSeconds: kLinkFreshnessOffWristSeconds,
     )) {
-      _log('No data for >${kLivenessFuseSeconds}s — bouncing the link.');
+      _log(
+        'No data for >${linkWristOn == false ? kLinkFreshnessOffWristSeconds : kLivenessFuseSeconds}s'
+        '${linkWristOn == false ? ' (off wrist)' : ''} — bouncing the link.',
+      );
       unawaited(
         _teardownSession(intentional: false).then((_) {
           _setPhase(
@@ -6036,6 +6044,7 @@ class BleEngine {
         // ACKing exactly as the proven flow always has.
         _burstMismatchTotal++;
         _burstMismatchStreak++;
+        _burstShortfallSum += shortfall;
         _log(
           '[SYNC] burst packet-count mismatch (ADVISORY, gen4): '
           'expected=$expected counted=${d.currentBurstTrafficCount} '
@@ -6050,6 +6059,8 @@ class BleEngine {
                 'dropped_this_burst': droppedThisBurst,
                 'traffic_burst_packets': d.currentBurstTrafficCount,
                 'burst_shortfall': shortfall,
+                'burst_mismatch_total': _burstMismatchTotal,
+                'burst_shortfall_sum': _burstShortfallSum,
               },
             ));
       } else {

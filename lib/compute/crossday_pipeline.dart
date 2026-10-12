@@ -1025,9 +1025,21 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
   final valid = <bool>[];
 
   for (final d in days) {
-    // Fresh blank day grid (all wake, all invalid until covered).
+    // B88-04: Phillips SRI pairs ALL-DAY sleep/wake states 24 h apart, with
+    // unobserved minutes excluded. A day the band recorded for ≥70 % of the
+    // clock (≥1008 min) is observed all day: minutes outside the hypnogram are
+    // wake. Below that the whole day is unobserved (only its daily wear total
+    // is stored, so its wake minutes cannot be told from missing ones). A day
+    // with no detected sleep at all is not evidence of a sleepless day.
+    // ponytail: a ≥70 %-worn day still treats its unrecorded ≤30 % as wake;
+    // a per-minute wear mask would remove that residual error.
+    final hyp0 = d['hypnogram'];
+    final observedDay =
+        ((d['worn_min'] as num?)?.toDouble() ?? 0) >= 0.7 * epochsPerDay &&
+            hyp0 is List &&
+            hyp0.isNotEmpty;
     final asleep = List<bool>.filled(epochsPerDay, false);
-    final cov = List<bool>.filled(epochsPerDay, false);
+    final cov = List<bool>.filled(epochsPerDay, observedDay);
 
     final hyp = d['hypnogram'];
     if (hyp is List) {
@@ -1056,10 +1068,13 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
         final endMin =
             endMinRaw < startMin ? endMinRaw + epochsPerDay : endMinRaw;
         final span = math.min(endMin - startMin, epochsPerDay);
-        final asleepSeg = stage != null && stage != 'wake';
+        // `unobserved` is neither sleep nor wake: it is excluded, never asleep.
+        final unobserved = stage == 'unobserved';
+        final asleepSeg = stage != null && stage != 'wake' && !unobserved;
         for (var k = 0; k < span; k++) {
           final m = (startMin + k) % epochsPerDay;
-          cov[m] = true;
+          if (!observedDay) continue;
+          cov[m] = !unobserved;
           if (asleepSeg) asleep[m] = true;
         }
       }
@@ -1080,6 +1095,7 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
   // out the half-unobserved weekend the floor exists for, and it does NOT move
   // the published SRI: every accepted epoch counts toward the total whether or
   // not its pair is emitted.
+  // A pair needs ≥70 % of the clock observed on both days (B88-04).
   return ana.phillipsSri(sleepWake, epochsPerDay,
-      valid: valid, minPairCases: 240);
+      valid: valid, minPairCases: (0.7 * epochsPerDay).round());
 }

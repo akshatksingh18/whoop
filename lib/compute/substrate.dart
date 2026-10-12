@@ -1125,9 +1125,19 @@ List<PhysioDay> calendarDays(
           // Propose the longest sustained nocturnal HR dip, then STAGE it via the
           // forced-window path. Marked low-confidence for a "is this right?" prompt.
           final tsSlice = [for (var i = loS; i < hiS; i++) sub.tsSec[i]];
-          final cand =
-              ana.hrLedSleepWindow(hrSlice, tsSlice, hrBaseline: hrBaseline);
-          if (cand != null) {
+          // B88-04: the same ≥3 h main-night floor as the auto path, and a
+          // night-time onset (18:00–06:00 local), so a long quiet afternoon
+          // cannot be published as the night.
+          final cand = ana.hrLedSleepWindow(
+            hrSlice,
+            tsSlice,
+            hrBaseline: hrBaseline,
+            minDurationSec: 3 * 3600,
+          );
+          final onsetHour = cand == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(cand.onsetSec * 1000).hour;
+          if (cand != null && (onsetHour! >= 18 || onsetHour < 6)) {
             final s2 = ana.segmentSleep(
               accelSlice,
               hrSlice,

@@ -5821,6 +5821,22 @@ class LocalDb {
     return own > nowSec + 600 ? null : own;
   }
 
+  /// Recorded 1 Hz seconds in [startSec, endSec), or null when that span is
+  /// older than the retained decoded window (B88-04 correction guard).
+  static Future<int?> recordedSecondsBetween(int startSec, int endSec) async {
+    final db = await instance;
+    final oldest = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT MIN(ts_ms) FROM decoded_onehz'),
+    );
+    if (oldest == null || oldest > startSec * 1000) return null;
+    return Sqflite.firstIntValue(
+      await db.rawQuery(
+        'SELECT COUNT(*) FROM decoded_onehz WHERE ts_ms >= ? AND ts_ms < ?',
+        [startSec * 1000, endSec * 1000],
+      ),
+    );
+  }
+
   static int _recTsFor(RawRecord raw) {
     if (raw.recTs != null && raw.recTs! > 0) return raw.recTs!;
     return decodeRecTs(raw.hex, fallbackSec: raw.capturedAt ~/ 1000);

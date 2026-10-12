@@ -178,5 +178,37 @@ void main() {
       expect((v as Map)['ctl'] as num, lessThan(60));
     });
   });
-}
 
+  test('B88-04: a shifting bedtime lowers sleep regularity', () {
+    num? sri({required bool shifted}) {
+      final days = <Map<String, dynamic>>[];
+      for (var i = 0; i < 14; i++) {
+        final base = DateTime(2026, 8, 1 + i, 23);
+        final onset = (shifted && i.isOdd)
+            ? base.add(const Duration(hours: 3))
+            : base;
+        final start = onset.millisecondsSinceEpoch ~/ 1000;
+        final end = start + 7 * 3600;
+        days.add({
+          'date': '2026-08-${(1 + i).toString().padLeft(2, '0')}',
+          'worn_min': 1300,
+          'onset_sec': start,
+          'wake_sec': end,
+          'tst_min': 420,
+          'hypnogram': [
+            {'start': start, 'end': end, 'stage': 'light'},
+          ],
+        });
+      }
+      final r = buildCrossDayBundle(days, const {})['regularity'] as Map;
+      final v = r['value'];
+      return v is Map ? v['sri'] as num? : null;
+    }
+
+    final regular = sri(shifted: false);
+    final irregular = sri(shifted: true);
+    expect(regular, isNotNull);
+    expect(irregular, isNotNull);
+    expect(irregular!, lessThan(regular!));
+  });
+}

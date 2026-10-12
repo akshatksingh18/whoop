@@ -203,6 +203,8 @@ void main() {
                 'onset_sec': onset + i * 86400,
                 'wake_sec': wake + i * 86400,
                 'tst_min': 60,
+                // B88-04: SRI needs the day observed (≥70 % worn).
+                'worn_min': 1200,
                 'hypnogram': [
                   {
                     'start': onset + i * 86400,

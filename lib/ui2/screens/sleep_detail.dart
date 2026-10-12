@@ -20,6 +20,7 @@ import 'package:provider/provider.dart';
 
 import '../../build_profile.dart';
 import '../../data/day_label.dart';
+import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -919,6 +920,38 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         up.hour,
         up.minute,
       );
+    }
+    // B88-04: a corrected window still needs half its time recorded, or no
+    // night is published at all. Say so BEFORE saving, never imply the
+    // correction sets the duration.
+    final startSec = newOnset.millisecondsSinceEpoch ~/ 1000;
+    final endSec = newWake.millisecondsSinceEpoch ~/ 1000;
+    final recorded = await LocalDb.recordedSecondsBetween(startSec, endSec);
+    if (!mounted) return;
+    if (recorded != null && recorded < 0.5 * (endSec - startSec)) {
+      final pct = (100 * recorded / (endSec - startSec)).round();
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Too little of this window was recorded'),
+          content: Text(
+            'The band recorded about $pct% of this time. A night needs at '
+            'least half of its window recorded, so this correction would show '
+            'no sleep. Sleep totals only count recorded time.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Save anyway'),
+            ),
+          ],
+        ),
+      );
+      if (go != true || !mounted) return;
     }
     await _runOverride(
       () => context.read<AppState>().setSleepOverride(day, newOnset, newWake),

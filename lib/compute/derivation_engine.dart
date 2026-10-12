@@ -6834,13 +6834,18 @@ class DerivationEngine {
     // Running count of still seconds, over substrate index. Prefix-summed so a
     // window's stillness is two array reads instead of a rescan.
     final quietPrefix = List<int>.filled(s.length + 1, 0);
+    // B88-04: stillness is a SMALL CHANGE in the gravity vector between
+    // consecutive samples, not |magnitude − 1 g|. This band's still magnitude
+    // sits anywhere in ~0.93–1.07 g depending on wrist posture (plus a ~4.6 %
+    // scale), so the absolute test rejected most still sleeping windows and
+    // emptied the breathing lane. A posture change still breaks stillness.
     for (var i = 0; i < s.length; i++) {
       var q = 0;
-      if (s.accelPresentAt(i)) {
-        final mag = math.sqrt(
-          s.ax[i] * s.ax[i] + s.ay[i] * s.ay[i] + s.az[i] * s.az[i],
-        );
-        if ((mag - 1.0).abs() <= cut) q = 1;
+      if (i > 0 && s.accelPresentAt(i) && s.accelPresentAt(i - 1)) {
+        final dx = s.ax[i] - s.ax[i - 1];
+        final dy = s.ay[i] - s.ay[i - 1];
+        final dz = s.az[i] - s.az[i - 1];
+        if (math.sqrt(dx * dx + dy * dy + dz * dz) <= cut) q = 1;
       }
       quietPrefix[i + 1] = quietPrefix[i] + q;
     }

@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../build_profile.dart';
 import '../../compute/findings.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -132,6 +133,7 @@ class HealthData {
   /// Skin temperature earns a Trends row once 7 of the last 30 nights have a
   /// reading; before that its chart would be a handful of dots.
   bool get skinTempShown {
+    if (!kShowSkinTemp) return false;
     final now = DateTime.now();
     final since =
         DateTime(now.year, now.month, now.day - 29).millisecondsSinceEpoch ~/

@@ -2265,11 +2265,10 @@ class DayNav extends StatelessWidget {
   }
 }
 
-/// Whether [key]'s trend is withheld. The personal build charts skin
-/// temperature (its own band's nights only; see [MetricData.load]) rather than
-/// opening a screen that says it will not.
+/// Whether [key]'s trend is withheld. Skin temperature is withheld in the
+/// personal build (B88-01: the WHOOP 4.0 channel is not a temperature).
 bool metricSuppressed(String key) =>
-    specOf(key).suppress != null && !(kPersonalSideload && key == 'skin_temp');
+    specOf(key).suppress != null && !(kShowSkinTemp && key == 'skin_temp');
 
 /// [DayNav] and the gap under it, spread into a `detailScaffold` body — or
 /// nothing at all when there is only one day to look at.

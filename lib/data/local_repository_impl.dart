@@ -23,7 +23,8 @@ import 'dart:math' as math;
 import '../compute/derivation_engine.dart';
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart';
-import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
+import '../compute/onehz_pipeline.dart'
+    show hasVerifiedSkinTemp, kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
@@ -774,6 +775,10 @@ class LocalRepositoryImpl extends LocalRepository {
   /// a `need_baseline:have=H,need=3` note so the card shows "Need N more nights"
   /// instead of a bare "—" (skin-temp z needs ≥3 nights of ADC baseline).
   Future<Map<String, dynamic>> _skinTempBlock(Map<String, dynamic> b) async {
+    // B88-01: stored WHOOP 4 (and unknown/imported) values are not temperature.
+    if (!hasVerifiedSkinTemp(b['device_family'] as String?)) {
+      return {'value': null, 'note': 'no verified skin-temperature sensor'};
+    }
     final z = _scalar(b, 'skin_temp_z');
     if (z != null) {
       // The ENVELOPE, not a bare `{'value': z}`. `Metric.isEmpty` is

@@ -329,6 +329,13 @@ class DayBundleInput {
   }
 }
 
+/// Whether [deviceFamily]'s stored skin-temperature channel is a verified
+/// temperature measurement (B88-01). Only gen5's v18 sensor is: it decodes to
+/// °C and reads worn ≈ 30.6 °C / off ≈ 22.5 °C. WHOOP 4's `skinTempRaw` is an
+/// unknown optical-block count, and null/other families prove nothing.
+/// ponytail: a one-entry allow-list; a newly verified family is added here.
+bool hasVerifiedSkinTemp(String? deviceFamily) => deviceFamily == 'gen5';
+
 /// THE ISOLATE ENTRY POINT.
 ///
 /// Pure: takes the serialized [DayBundleInput] map, returns a plain JSON map (the
@@ -582,17 +589,23 @@ Map<String, dynamic> deriveDayBundle(
   // there's sleep + temp data; stored EVERY day to build the baseline series so
   // z starts computing once ≥3 prior days exist (honest bootstrap: first ~3 days
   // legitimately read "—", then it works).
-  final tempValid = d.sleepSkinTemp
-      .where((v) => v > 0)
-      .map((v) => v.toDouble())
-      .toList();
+  //
+  // B88-01: only a family whose channel is a verified skin-temperature sensor
+  // contributes. WHOOP 4's `skinTempRaw` is an unknown optical-block count (the
+  // decoder deprecates it), and an unknown family proves nothing, so both yield
+  // no samples here: every downstream temperature output, baseline value and
+  // readiness driver is then absent with its usual reason, never zero.
+  final tempValid = hasVerifiedSkinTemp(d.deviceFamily)
+      ? d.sleepSkinTemp.where((v) => v > 0).map((v) => v.toDouble()).toList()
+      : const <double>[];
   final double? skinTempAdc = tempValid.length >= 60 ? _mean(tempValid) : null;
   // WH-11a — how much of the night that mean is actually made of. The gate above
   // is sixty 1 Hz samples, i.e. one minute; on real hardware the temp channel
   // runs 35-90 samples/hour, so a "last night" skin temperature can be ~1.5% of
   // the window and nothing said so. NO THRESHOLD IS APPLIED and none should be
   // guessed here — emit the number, look at what it reads on real nights first.
-  final double? skinTempCoverage = (inBedSec == null || inBedSec <= 0)
+  final double? skinTempCoverage =
+      (!hasVerifiedSkinTemp(d.deviceFamily) || inBedSec == null || inBedSec <= 0)
       ? null
       : (tempValid.length / inBedSec).clamp(0.0, 1.0);
   // HOW MUCH OF THE NIGHT THE STRAP SPENT AT SKIN TEMPERATURE (#250).

@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../build_profile.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -1761,7 +1762,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           hrvLine,
           'hrv',
         ),
-      if (z != null || tempLine.any((v) => v != null))
+      if (kShowSkinTemp && (z != null || tempLine.any((v) => v != null)))
         (
           loc?.sleepDetailSkinTemp ?? 'Skin temperature',
           z == null

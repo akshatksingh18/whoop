@@ -7,6 +7,13 @@ const bool kPersonalSideload = bool.fromEnvironment(
   defaultValue: false,
 );
 
+/// Whether temperature-labelled rows/charts may appear (B88-01). The personal
+/// build pairs a WHOOP 4.0, whose stored `skin_temp_*` history comes from an
+/// unknown optical count, not a temperature; Akshat chose to hide those rows
+/// while retaining the stored history. The upstream build keeps them (a gen5
+/// strap's channel is verified).
+const bool kShowSkinTemp = !kPersonalSideload;
+
 /// The name a person sees. The personal build is "WHOOP" on the home screen,
 /// so nothing it shows says OpenStrap.
 const String kAppName = kPersonalSideload ? 'WHOOP' : 'OpenStrap';

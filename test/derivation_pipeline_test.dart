@@ -328,13 +328,25 @@ void main() {
     });
 
     // How much of "last night" a nightly skin temperature is actually made of.
+    // B88-01: only a verified family (gen5) has a temperature channel; the
+    // WHOOP 4 count publishes nothing.
     test('the temperature mean carries its coverage fraction', () {
-      final scalars =
-          (bundleFor(stages: List<String>.filled(7200, 'light'), tempEvery: 10)[
-                  'scalars'] as Map)
-              .cast<String, dynamic>();
+      final scalars = (bundleFor(
+        stages: List<String>.filled(7200, 'light'),
+        tempEvery: 10,
+        deviceFamily: 'gen5',
+      )['scalars'] as Map)
+          .cast<String, dynamic>();
       expect(scalars['skin_temp_adc'], isNotNull);
       expect(scalars['skin_temp_coverage_frac'] as num, closeTo(0.1, 0.001));
+      final gen4 = (bundleFor(
+        stages: List<String>.filled(7200, 'light'),
+        tempEvery: 10,
+        deviceFamily: 'gen4',
+      )['scalars'] as Map)
+          .cast<String, dynamic>();
+      expect(gen4['skin_temp_adc'], isNull);
+      expect(gen4['skin_temp_coverage_frac'], isNull);
     });
 
     // One ceiling, dispatched on the strap — and no ceiling at all when we

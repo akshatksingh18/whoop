@@ -5175,6 +5175,10 @@ class DerivationEngine {
       'readiness': col('readiness') ?? sc('readiness'),
       'resp_rate': sc('resp_rate'),
       'skin_temp_z': sc('skin_temp_z'),
+      // B88-01: raw nightly mean + family so the cross-day detectors can refuse
+      // unverified/imported temperature and read the quantity they require.
+      'skin_temp_adc': sc('skin_temp_adc'),
+      'device_family': payload['device_family'],
       'trimp': sc('trimp'),
       // Headline 0–21 strain, daily steps, nap minutes — feed Sleep/Strain Coach
       // + VO₂max/Fitness Age in the cross-day rollup.
@@ -6885,6 +6889,8 @@ class DerivationEngine {
   /// expressed as a delta from the day's median — RELATIVE only, no absolute °C
   /// (the band has no calibrated temperature). A slow context line.
   static List<Map<String, num>> _daySkinTempCurve(Substrate s) {
+    // B88-01: no curve from an unverified channel (WHOOP 4 optical counts).
+    if (!hasVerifiedSkinTemp(s.deviceFamily)) return const [];
     final bins = <int, List<double>>{};
     for (var i = 0; i < s.skinTemp.length && i < s.tsSec.length; i++) {
       final v = s.skinTemp[i];

@@ -24,7 +24,7 @@ import '../data/day_label.dart';
 // IO, no Flutter binding, so importing it does not compromise this file's
 // isolate safety. One grammar for "a required input was missing" across both
 // pipelines rather than a second one here.
-import 'onehz_pipeline.dart' show needInputNote;
+import 'onehz_pipeline.dart' show hasVerifiedSkinTemp, needInputNote;
 
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.
@@ -63,8 +63,18 @@ Map<String, dynamic> buildCrossDayBundle(
   final readyList = <double?>[for (final d in days) _numOrNull(d['readiness'])];
   final respList = <double?>[for (final d in days) _numOrNull(d['resp_rate'])];
   final tstList = <double?>[for (final d in days) _numOrNull(d['tst_min'])];
-  final tempList = <double?>[
-    for (final d in days) _numOrNull(d['skin_temp_z']),
+  // B88-01: temperature only from a verified family (stored WHOOP 4 counts,
+  // unknown-family and imported days carry none). The illness and anomaly
+  // detectors take the RAW nightly mean their contracts require (`tempRaw`);
+  // only the glass-box percentile reads the per-night z (`tempZ`).
+  bool verifiedTemp(Map<String, dynamic> d) =>
+      hasVerifiedSkinTemp(d['device_family'] as String?);
+  final tempRaw = <double?>[
+    for (final d in days)
+      verifiedTemp(d) ? _numOrNull(d['skin_temp_adc']) : null,
+  ];
+  final tempZ = <double?>[
+    for (final d in days) verifiedTemp(d) ? _numOrNull(d['skin_temp_z']) : null,
   ];
 
   // A day flagged `unsettled` (today, still syncing / not finalized) is a
@@ -89,7 +99,7 @@ Map<String, dynamic> buildCrossDayBundle(
       ana.AnomalyFeatures(
         rhr: settled(i, rhrList[i]),
         hrv: settled(i, rmssdList[i]),
-        temp: settled(i, tempList[i]),
+        temp: settled(i, tempRaw[i]),
         resp: settled(i, respList[i]),
       ),
   ];
@@ -119,7 +129,7 @@ Map<String, dynamic> buildCrossDayBundle(
   // is worse than the false alarm.
   final luteal = _lutealFlags(dates, cycleStartDates);
   final tempIllness = ana.tempIllnessFlag(dates, [
-    for (var i = 0; i < n; i++) settled(i, tempList[i]),
+    for (var i = 0; i < n; i++) settled(i, tempRaw[i]),
   ], luteal: luteal);
 
   // ── circadian: mid-sleep, free/work split, jetlag, chronotype, sleep debt ──
@@ -192,7 +202,7 @@ Map<String, dynamic> buildCrossDayBundle(
   // temp: use absolute z so "further from your baseline" is worse.
   final gbTemp = _glassInput(
     'temp',
-    _absList(tempList),
+    _absList(tempZ),
     ana.wTemp,
     lowerIsBetter: true,
   );

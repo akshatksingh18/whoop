@@ -38,6 +38,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart' show kJournalPresetTags;
+import '../../build_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -194,7 +195,8 @@ class RoughNight {
           'your heart rate dropped less overnight than it usually does',
     );
   }
-  final tempMoved = fired(tonight(_kTempZ), history(_kTempZ), 1);
+  final tempMoved =
+      kShowSkinTemp && fired(tonight(_kTempZ), history(_kTempZ), 1);
   if (tempMoved) {
     signs++;
     moved.add(l?.roughNightSignTemp ?? 'your skin ran warmer');

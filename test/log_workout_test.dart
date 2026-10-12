@@ -104,7 +104,7 @@ void main() {
       await t.pumpWidget(MediaQuery(
         data: const MediaQueryData(textScaler: TextScaler.linear(2)),
         child: MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: WorkoutSuggestionScreen(preloaded: [_sug(), _sug(id: 'b')]),
         ),
       ));

@@ -10,7 +10,7 @@ void main() {
   testWidgets('the clear button empties a search and hides again', (t) async {
     final q = TextEditingController();
     await t.pumpWidget(MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       home: Scaffold(
         body: OsTextField(controller: q, label: 'Search', clearable: true),
       ),

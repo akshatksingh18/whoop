@@ -398,14 +398,19 @@ Cause, from Akshat's sync logs: the band's own wear sensor reported it off the w
   recTs=none`), and records resumed at exactly 1791624939 (04:35:39). Nothing was lost in
   transfer: the band never wrote those records.
 - No charging, no boot event, and the app was connected throughout.
-- A second 28 s `WRIST_OFF`/`WRIST_ON` at 05:08 points at a marginal fit, as does the
-  skin-temperature drop at 12:44 in the screenshot.
+- A second 28 s `WRIST_OFF`/`WRIST_ON` at 05:08 is consistent with marginal fit. The
+  temperature-labelled curve is not corroborating evidence: its WHOOP 4 field is unverified
+  as temperature (see the field-integrity issue below).
 
 Sleep detection then did what it is built to do with a four-hour hole: the longest still block
 became the night and the later ones naps. Build 85 is not the cause. Its source changes no sleep
 detection, staging or recorded data: the analytics package is unchanged since build 74 and
-`kAlgoVersion` (91) since build 81. The lost hours cannot be recovered. Sleep → Fix sleep times
-(10:00 PM–5:00 AM) sets the duration, and the naps can be removed under Naps → Edit.
+`kAlgoVersion` (91) since build 81. The lost hours cannot be recovered. **Correction (source
+audit):** Sleep → Fix sleep times sets the in-bed window, not the duration. A forced window still
+needs at least 50% of its span observed (`segment.dart` `kMinObservedFractionForSleep`, no forced
+exemption); 10:00 PM–5:00 AM here is about 11,300 of 25,200 seconds observed (≈45%), so that
+correction would most likely publish no main sleep at all. Even when accepted, total sleep counts
+only observed seconds. The naps can be removed under Naps → Edit.
 
 Repaired in the validated Build 87 testing IPA, pending phone verification: while the band reported off-wrist,
 the app treated its silence as a
@@ -418,6 +423,429 @@ cannot overwrite newer evidence. Normal polling and history catch-up remain acti
 Separate display bug, fixed in build-86 source: the chart's scrub line printed the raw skin-
 temperature count relative to the day as "Temp Δ −31.3 °C". That number is not degrees; the
 readout no longer shows temperature (the Skin temp row and its chart remain).
+
+## WHOOP 4 Temperature Field Integrity (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** temperature outputs, the anomaly/temp-illness inputs, the glass-box term and the Sleep/Trends/rough-night rows are gated to verified families (`hasVerifiedSkinTemp`, `kShowSkinTemp`); stored history is untouched. The text below is the original finding.
+
+Confirmed source mismatch, not a new firmware or phone observation: the protocol's
+`R24.skinTempRaw` (`packages/protocol/lib/src/records.dart`) is explicitly deprecated as
+not temperature. Its u16 at inner offset 68 changes too quickly to support that interpretation;
+the slower candidate fields are also unconfirmed. The emitted bytes are real, but their physical
+meaning is unknown. `derive_prepare.dart` still imports `skin_temp_raw`, and
+`onehz_pipeline.dart` averages it, derives a temperature-labelled z-score and passes it to
+`tempInput` for readiness when its gates qualify. `_daySkinTempCurve` also charts this channel.
+Relative normalization does not make an unknown optical quantity a temperature measurement.
+
+**Reach, confirmed by the second source audit (all active in the personal build):**
+- Readiness: `tempInput` (weight .08) is live for `gen4` nights with 14 baseline values, settled
+  fraction ≥0.80 and baseline SD ≥1 count. It is fed the plain all-sample mean, not the settled
+  mean the v71 changelog promised.
+- Cross-day: `crossday_pipeline.dart` passes `skin_temp_z` into `tempIllnessFlag` and
+  `multivariateAnomaly`, whose own contracts (`temp_health.dart`, `anomaly.dart`) refuse a
+  z-score. That is double standardisation, so their thresholds have no defined meaning even for a
+  real temperature. `glassBoxReadiness` takes |z| at .08; the Sleep rough-night card tests z
+  against an MDC.
+- Alerts: "Skin temperature elevated" is a medical, critical-priority finding that overrides quiet
+  hours by default (see Health Alerts below).
+- Imports: the WHOOP CSV importer writes absolute °C into `skin_temp_z`, and the cloud importer
+  writes its own index there. Cross-day inputs (`recentDayResults(90)`), the Trends row and the
+  Sleep row do not filter imported days. This matters only if an import was ever run.
+- No retroactive repair: decodable WHOOP 4 frame bytes are not retained (`raw_records` is dropped,
+  `rawTail` is never stored). The slower candidates at inner 72/88 were never stored, and inner 88
+  is a synthetic zero pad on 88-byte live frames. A Build 88 bump can re-derive only about three
+  retained days. Older temperature-influenced `day_result`/`metric_series` values stay served, and
+  cross-day reads 90 days of stored `skin_temp_z`, so consumers must refuse WHOOP 4/unknown/imported
+  temperature by family and source, not merely recompute.
+
+This remains in installed Build 86 and the validated Build 87 IPA; no app/package output was
+changed by documenting it. Do not use the WHOOP 4 temperature deviation as physiological evidence.
+Sleep detection/staging uses movement, HR and RR, not this field, so this is separate from stage
+accuracy. The proposed repair must abstain for the unverified WHOOP 4 temperature channel without
+deleting raw bytes or stored history, assess affected readiness/illness consumers, preserve
+independently verified device-family inputs, and make an explicit algorithm-version decision.
+Akshat has queued the repair for Build 88 in `todo.md`; implementation is still deferred.
+Akshat selected hiding unsupported rows in Trends/Sleep while retaining history. Other unique
+removals still require approval. Review the analytics/version/recomputation scope before
+implementing. The requested research brief is
+`metrics-accuracy-research-prompt.md`; the completed desk review and proposal R01 are in
+`metrics-accuracy-research.md`; `build-88-plan.md` consolidates both attached analyses and maps
+this repair to B88-01, including the independent RHR-only CUSUM boundary. No new IPA, silent recovery recalculation or historical
+rewrite is authorized by this planning request.
+
+## Partly Missing Training Load Becomes Zero (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** load uses net TRIMP over runs of observed days (at least 16 h worn); 1-2 unknown days are skipped, 3 end the run; imported days leave the inputs. Deviation: fatigue waits for the same 28 observed days as fitness (approved 7); no screen shows fatigue alone.
+
+Confirmed from current source, not a new phone reproduction:
+`lib/compute/crossday_pipeline.dart::_denseDailyTrimp` returns an empty series when every input
+is null, but once any TRIMP value exists it stores null rows as `0.0` and fills missing calendar
+days with `0.0`. Its excessive-span fallback also converts nulls to zero. Thus partial missing
+history can look like measured rest to `ctlAtlTsb`, potentially affecting downstream load,
+target or overreaching context. An observed zero and an unobserved day are different inputs.
+
+Proposal R02 in `metrics-accuracy-research.md` requires a coverage-qualified zero and an explicit
+gap policy (including minimum eligible history), not arbitrary interpolation. Add mixed
+known/null/skipped-date/genuine-rest and DST regressions, audit all downstream consumers and make
+the algorithm-version decision before implementing. No source/output change or reference
+validation was performed by this audit; Build 88 selection remains open in `todo.md`
+(consolidated work package B88-02). Decaying an EWMA as if a missing input were zero is not
+evidence of an observed rest day.
+
+## HRV Headline And Recovery Method Identity (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** the headline and readiness use the qualified primary only; the secondary estimate is stored separately and labelled; the baseline reads `ln_rmssd_v2` nights only.
+
+Confirmed caller difference in `lib/compute/onehz_pipeline.dart`: `rmssdScalar` can fall back
+from the sleep-session five-minute mean to robust or whole-window RMSSD, while `lnToday`
+is calculated only from the primary sleep-session estimate. Displayed HRV may therefore exist
+while readiness's HRV input is absent; cross-day detail can read the fallback scalar. The
+estimators/windows are not automatically interchangeable. Allowing every fallback into readiness
+would conceal this difference and could mix incompatible baseline histories.
+
+Proposal R04 in `metrics-accuracy-research.md` requires a canonical-method decision, explicit
+secondary method/coverage provenance and compatible baselines. Tests must cover every fallback,
+gaps/artifacts, repeated derive and version/history handling. This is an open semantic/consumer
+consistency issue, not evidence that a particular fallback is more physiologically accurate.
+Akshat selected primary-only headlines: unavailable primary remains absent, with labelled
+secondary estimates offered in details. This presentation decision is not implemented;
+qualification/version/history selection remains open (B88-03 in `build-88-plan.md`).
+The attached analysis's NREM-headline claim does not describe the current
+primary method and is not authorization to replace it.
+
+## Lean-Gain Waist Rule Overstates Tissue Attribution (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** the rule and its copy are an observation (waist rising faster than about 1 cm per 2 kg), never a tissue claim.
+
+`lib/data/goal_plan.dart::waistFast` qualifies weight gain with waist growth greater than
+0.5 cm per kg and can explain this as gaining waist faster than muscle accounts for. The source
+already calls the ratio unvalidated; the statement and suggestion branch still convey more
+tissue certainty than weight/tape/strength observations support. Circumference can track a useful
+trend but does not identify exact fat versus muscle from that ratio.
+
+Proposal R03 in `metrics-accuracy-research.md` preserves qualified waist/strength observations
+while removing unsupported tissue attribution from the decision and wording after approval.
+It also calls for a distinct intake-eligibility/floor-advice review. Do not substitute another
+arbitrary ratio, remove body tracking, or change calorie targets as a documentation repair.
+`fitness-goal-research.md` identifies the current rule as policy; Build 88 changes are unimplemented.
+`build-88-plan.md` consolidates the observation/decision-branch repair as B88-07, not a new
+muscle/fat classifier or automatic calorie-target change.
+
+## Primary HRV Joins Unreported Time And Accepts Sparse Windows (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** pairs must be time-adjacent within 250 ms; windows need 180 s covered, 120 pairs and at most 20% artifacts; nights need 6 windows and 15% of the session. Open: the 250 ms rule is untested on real sub-second beat times (the repo fixture is whole-second), so its qualification rate must be checked on the phone.
+
+Confirmed source behavior with a local synthetic probe, not a personal-data accuracy estimate.
+`packages/analytics/lib/src/onehz/clinical/hrv_time.dart::sleepSessionWindowedRmssd` uses
+timestamps to assign five-minute buckets, then passes only RR values to `_cleanWindowRuns`.
+That helper preserves positions across rejected reported beats but has no timestamps with
+which to split sensor dropouts. Unreported time within a bucket can therefore become an
+apparently successive RR difference. Any bucket with one surviving difference can contribute
+to the nightly mean; no observed-time/beat-coverage minimum is enforced there.
+
+Synthetic inputs `[1000, 1100]` ms inside a 600-second session returned `present=true`,
+RMSSD `100.0` ms and confidence `0.3` both when report times were one second apart and when
+they were 298 seconds apart within the same bucket. This proves admission/continuity behavior,
+not the magnitude of error on the user's nights. The pure-Dart probe ran successfully outside
+the Windows sandbox after sandbox-only path failures; it used no personal records or network.
+
+B88-03 must retain report timestamps, split actual dropouts before differencing, respect
+multiple intervals sharing a report second, and explicitly qualify window/night coverage.
+Do not assume report timestamps are precise ECG beat times. Test rejected runs, sparse windows,
+gaps, repeated report seconds and method-specific baseline enrollment. Keep current cleaning
+semantics separate from any experiment replacing the cleaner. HRV/readiness output changes
+require algorithm/version and compatible-history decisions; the current source is not fixed.
+
+## Strength Review Can Praise Unchanged Or Incomparable Sets (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** one comparator (`compareSet`) for live and Review with an explicit not-comparable state; "stronger" needs at least one lift better.
+
+Confirmed in source and a synthetic local test: `lib/data/progress_review.dart::_compare` returns `0` both for identical
+performance and heavier/fewer-rep or lighter/more-rep pairs that its comment calls not
+comparable. `review` selects "Consistent with getting stronger" when `better >= worse`,
+including `better=0, worse=0` once other data gates qualify. Neutral or incomparable sets
+therefore need not demonstrate any improvement for that headline to appear. Identical `40 x 10`
+records with sufficient synthetic weight/food observations reproduced that stronger headline.
+
+B88-07/B88-08 must distinguish improved, unchanged, declined and not-comparable states;
+only actual qualified improvement may support a getting-stronger statement. Preserve raw
+set records and context. Add identical-set, mixed-load/rep, zero-improvement and mixed-direction
+tests. This is an interpretation/consumer repair, not permission to invent a muscle score.
+
+## High-Rep Lift Trend Ignores Changed Load (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** without the estimate the trend compares reps at the same load only, or says it cannot compare, and names its date span.
+
+Confirmed in source and a synthetic local test: `lib/data/lift_progress.dart::liftTrend`, if any session lacks an eligible Epley
+score, `m` falls back to `best.reps` for every session without requiring a fixed load. A
+heavier/fewer-rep high-rep set can be labelled down solely because its rep count fell, despite
+the load change making that rep-only comparison ambiguous. It can also affect the plateau
+wording and set-to-beat advice. Synthetic `60 x 15` then `65 x 14` reproduced
+"Best set down 1 reps over 2 sessions." Both lift diagnostic tests passed using the existing
+space-free Windows test workflow in `setup.md`; they assert the current defect, not a fix.
+
+B88-07 should use reps-at-the-same-load/context for this fallback, or declare the pair not
+comparable. Keep the existing 1-12-rep score eligibility and do not invent whole-system 1RM
+from per-hand/plate/added-load entries. Test changed load above the limit, bodyweight-only sets,
+mixed eligible/ineligible sessions and plateau/advice paths. No lift source changed in this audit.
+
+## Second-Pass Source Audit Findings (Mostly Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** each subsection below starts with what Build 88 source repaired and what remains open.
+
+These come from read-only source audits against Build 87 source (`kAlgoVersion` 91, schema 49).
+They are verified by reading code, and spot-checked where marked. Additional isolated synthetic
+tests reproduce the prior-night freshness, dinner-only completeness and app quiet-hours cases.
+None was reproduced on the phone or measured on Akshat's nights; magnitudes are unknown unless stated. "Inference" marks a
+source-traced path that still needs a runtime trace. `build-88-plan.md` maps each group to a work
+package. `metrics-accuracy-research.md` (Second-Pass Audit) holds per-family verdicts on earlier
+claims.
+
+### Health Alerts Use Unsettled Inputs, A Different Score And Critical Priority
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: low readiness reads the headline composite; every health finding is normal priority and respects quiet hours; the anomaly flag is one-sided; RHR-shift evidence restarts after a 7-day gap; irregular rhythm is note-only (C1); each kind can be muted (C8).
+
+- Every aggregated health notification is sent as `NotifPriority.critical`
+  (`derivation_engine.dart` `_runNotifications`). That includes "Low readiness", a falling resting
+  HR, anomaly, irregular rhythm and temperature. `criticalOverridesQuiet` defaults to true
+  (`notification_prefs.dart`), so all of them bypass 22:00–07:00 quiet hours. Spot-checked.
+  A synthetic policy test admits an internal critical health event at 23:00. This is the app's
+  gate, not Apple's Critical Alert delivery: `notification_service.dart::_details` uses default
+  `DarwinNotificationDetails`, ordinary authorization and no personal Critical Alerts entitlement.
+  Actual Focus/mute bypass or waking the phone is not established. Akshat selected normal health
+  findings that respect quiet hours, leaving the armed band alarm separate; no fix is implemented.
+- "Low readiness" fires on `glassBoxReadiness` < 34. The glass box is a deprecated percentile model
+  with no minimum input count or weight, needs 7 history values, takes |skin_temp_z| at .08 and is
+  not gated on unsettled days. The ring and findings log use `readinessComposite` instead, so the
+  `findings.dart` claim that they "cannot disagree" is false.
+- Only today's unfinalized row is marked `unsettled`. Yesterday stays unfinalized for 48 h but
+  feeds the illness, anomaly and temperature detectors as settled. Inference: today's own
+  medical/RHR-shift inputs are nulled for the whole calendar day, while ungated Low readiness can
+  still fire from a partial row.
+- `multivariateAnomaly` uses an undirected distance, so an unusually good night can raise the
+  critical "Unusual overnight physiology" alert.
+- The resting-HR shift detector is called without dates (`derivation_engine.dart`,
+  `findings.dart`). Its own docs warn that evidence from before a long wear gap can then fire.
+- The illness finding says "Elevated resting HR + suppressed HRV", but the CUSUM is RHR-only.
+- No cross-day consumer filters imported or foreign-family days: glass box, percentile, CUSUM,
+  anomaly, temperature-illness, RHR shift, findings, load, overreaching, session cost. Movers filter
+  imports on the outcome but not on strain/steps exposures. The headline readiness baseline is
+  clean: past-only, import/family-masked and idempotent.
+- The irregular-rhythm screens difference the compacted NN series positionally, so dropouts and
+  corrector-removed runs inflate SD1/pNN70. They also drive a critical notification. Despite the
+  "opt-in" wording, the health channel defaults on. The pipeline comment claiming gap-aware
+  differencing is wrong.
+
+### Readiness Explanation Comes From A Different Model
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: the Readiness breakdown reads the composite's own drivers. Home stores but never rendered glass-box drivers.
+
+The Readiness screen breakdown, Home drivers and driver-breakdown screen render
+`readiness_glassbox.breakdown`, a parallel ranking from the deprecated model. Source comments call
+it a ranking of "the same four inputs", but the composite now has five. The composite's own
+per-driver contributions are stored but never shown, so the explanation under the ring is not the
+calculation that produced it. Three band schemes coexist (26/37/61 ring, 34 alert, 40/60/80
+elsewhere). "28 nights" is the last 28 stored values with no calendar bound, so after a long wear
+gap the baseline can be months old. The RHR whole-bpm quantum is applied to a continuous
+30-minute mean; its appropriateness is a noise/quality-policy question, not evidence that the
+stored mean is rounded to whole bpm or that a smaller floor is validated.
+
+### Timestamp-Blind Beat Differencing Beyond The Primary HRV
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: one rolling-RMSSD rule (`rollingRmssd`) for the HRV timeline, 24/7 curve and daytime HRV; PRSA needs gap-free windows; RSA window coverage/Nyquist and 6-window nights; BRV uses the real artifact fraction; stress and irregular-rhythm duration gates; labels fixed. Open: the per-night CVHR chart on the breathing screen is still drawn (removing a visible chart needs Akshat's yes); corrected-NN consumers still bridge 250-1000 ms gaps inside `correctRr` (its whole-second fallback needs that bar); Lomb-Scargle power scaling under gaps and the beat-sum clock remain unresolved.
+
+- These also form successive differences without timestamps, so they can join unreported time:
+  - the irregular-rhythm screens (above);
+  - PRSA, which also uses L=2, not the documented 64;
+  - the sleep `hrv_timeline`, the HRV detail's today chart;
+  - the 24/7 `hrv_day` curve, preferred on the Day timeline and Sleep lanes;
+  - daytime HRV.
+- Even gap-aware `correctRr`/`hrvTime` paths bridge up to about one missing beat (1000 ms
+  re-anchor), and Lipponen windows count beats across re-anchored dropouts.
+- If headline `rmssd` is absent, the Sleep HRV row shows the mean of `hrv_day`/`hrv_timeline`
+  points, a fourth estimator. The fallback-mixed `rmssd` also feeds anomaly, percentile, glass box,
+  session cost, the EWMA baseline, rough night, movers and the CSV `hrv` column.
+- RSA respiration refuses whole nights through gaps: its Nyquist gate uses
+  meanNN = span/(n−1) on a gap-keeping clock (`resp_rate.dart`, spot-checked), so coverage below
+  about 80% at HR 60, or sleeping HR under 48, withholds the rate. Readiness then drops the
+  breathing input, and the Trends breathing copy blames window disagreement instead.
+- BRV windows bypass the 30% artifact gate (`artifactFraction: 0.0`).
+- Lomb-Scargle density scales with span/(n−1), so absolute band powers grow with dropouts. If wall
+  time is the right clock, the beat-sum clock's ~3.4% shortfall biases spectral rates up by about
+  0.5 br/min (unresolved).
+- Thin input publishes: stress returns a 0–100 score, level and stored series from ≥30 cleaned
+  beats of any scored sleep, with no duration or coverage gate (`stress_si.dart`, spot-checked).
+  RSA can publish from roughly 2–10 dense minutes.
+- Labels:
+  - The `hrv_cv` method text says "Night-to-night coefficient of variation of RMSSD"
+    (`metric_detail.dart`, spot-checked); the code computes within-night SDNN/meanNN.
+  - Sleep's "Heart rate X average · lowest Y" prints the lowest-30-minute RHR and the 1st
+    percentile.
+  - The nadir time belongs to the single minimum sample.
+  - The stress spec says "resting window" but uses the whole sleep window.
+  - A per-night CVHR is rendered although the library says "never per-night".
+- Two HRR tau implementations exist; the library result is computed and discarded.
+
+### Sleep Regularity, Breathing Lane And Night-Selection Defects
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: relative stillness (within 0.02 g of the window median on 90%); SRI over observed all-day epochs; 3 h night-time fallback; correction save blocked under 50% recorded; Home bar uses last night's stored need; "In bed at" label. Kept: the approved rule lets a later night with more sleep replace the pick (a later, shorter night does not). Open: the restlessness map's |mag - 1| test, stage cutoffs (experiment), debt/wake-count and smaller items.
+
+- **SRI is not the Phillips index.** `_crossDaySri` marks epochs valid only where a hypnogram exists
+  (spot-checked), so it compares only minutes inside both nights' windows and moving bedtime barely
+  changes it. The audit also found unobserved epochs counted as asleep. Hidden from UI, but stored.
+- **Breathing-lane stillness gate.** `dayRespCurve` requires | |a| − 1 g | ≤ 0.02 g on 90% of a
+  3-minute window. This band's still magnitudes run about 0.93–1.07 g by posture (plus the ~4.6%
+  scale), so breathing points survive only in postures that happen to read near 1 g. This is the
+  likely main cause of sparse/early-missing respiration lanes. The restlessness map reuses
+  |mag − 1|.
+- **Stage cutoffs are tuned to normal proportions.** Weights come from 99 DREAMT PSG nights using
+  that dataset's own features. Cutoffs were swept on 11 unlabelled WHOOP captures to land REM
+  20–25% and Deep 13–23%. Held-out four-class κ is 0.132 with wake sensitivity 11%; the one WHOOP
+  "truth" night is an Apple Watch comparison and was also the tuning night.
+- **Fallback nights bypass the 3-hour rule.** The HR-led fallback needs 2 h, has no time-of-day
+  limit, and its daytime HR baseline is always empty in live staging, so its threshold is the
+  window's own 30th percentile.
+- **Night selection and Home ring:** a later, shorter automatic candidate can be blocked by the
+  TST-only richer-night guard even if it represents a different night. Same-night protection
+  against pruned replay is intentional; explicit overrides already bypass that branch. The
+  Home sleep ring divides last night's sleep by tonight's need.
+- **Coaching and accounting:** debt is added back in full every night. Two different wake-up counts
+  exist.
+- **Clock times:** "Fell asleep" and bedtime consistency use the in-bed onset rather than
+  first-sleep time, and clock offsets handle DST but not travel.
+- **Smaller items:** a 5-minute minimum bout erases short REM; missing cycles show as 0; TST-driven
+  consumers (readiness, debt, need, ring) ignore coverage.
+
+### Quiet-Day Strain Inflation And Gross Training Load
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: the strain target is withheld; day zone minutes and the zone label share one `trainingZones` set; strain-dependent sleep need and the strain mover count observed days only. Open (needs a decision, because both change the strain score the approved rules keep unchanged): TRIMP on the age-estimate max HR versus the observed ceiling, and one-sample minutes.
+
+- All five strain callers pass `quietWakingHrr = 0.20`. The constant's own documentation in
+  `load_trimp.dart` (spot-checked) measured that this left a no-activity day at 6.93–12.14 out of
+  21 against a personal quiet level of 0.274; `dailyQuietWakingHrr` has no caller. This is a known
+  directional bias, not only a deferred experiment. It feeds Today's strain target (whose bands
+  assume an inactive day ≈ 0), the "strain 14+" mover tag and the sleep-need strain bonus.
+- CTL/ATL use gross TRIMP, including roughly 176 TRIMP in the source's example profile merely being awake, which scales with
+  wear minutes. Combined with the zero-filled gaps above, wear coverage alone moves load.
+- Strain zones use the observed ceiling while TRIMP stays on the age estimate. Two zone definitions
+  exist for the same day. A minute with one sample counts as a full minute, and strain has no
+  minimum-wear gate. Imported days enter load as zero-TRIMP rest.
+
+### Energy, Steps, Live Speed And Food/Weight Estimate Edge Cases
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: partial run steps stay known; DST-length BMR; fabricated, over-4 h and overlapping lifts; low-HR lifts by MET; live speed over time (tau 5 s), stop detection, "—" without a fresh fix and moving-time average; Theil-Sen food/weight estimate with Sen's range, 3 weigh-ins per half, hidden past +/-300 kcal. Open: step-resolver phone-hour/wrist-density policies unchanged; live-speed constants need an outdoor walk and run.
+
+All documented coefficients, gates and worked examples match source. Climb terms are inert:
+`runMix`/`motionMix` pass `climbM: 0`. These are policy/coverage edges, not arithmetic errors:
+- If a run's step coverage is short by any amount, the day switches to `max(walk, run)`
+  (`day_upkeep.dart`, spot-checked). 15,000 steps plus the 5 km worked-example run then gives
+  2,451 instead of 2,612 kcal, and the run row vanishes.
+- Full-day BMR is not scaled to 23/25-hour DST days (about ±78 kcal).
+- `liftingOn` ignores `end_ts_fabricated`, so a stale reconciled lift can be priced for hours in the
+  separate lifting line. Overlapping lifts are not de-duplicated. A low-HR non-lift session can
+  price at 0, because `min(MET, HR)` lets HR win.
+- Steps: any positive phone hour removes all wrist steps in that window. In phone-uncovered time,
+  wrist steps are credited at any density.
+- Live speed:
+  - With the 5 m distance filter, iOS stops sending fixes at a stop, and the stationary-zero branch
+    (under 4 m) is nearly unreachable. Inference: the last speed lingers 10 s, then the display
+    flips to the labelled workout average.
+  - The EMA is per fix, not per second, a lag of about 33 m of travel.
+  - A rejected platform speed falls back to position-derived speed with up to 50 m position error.
+  - Live average pace uses elapsed rather than moving time.
+- Food/weight estimate: raw unweighted OLS over the last 28 days, with no leverage/spread gate and
+  no displayed uncertainty. One +1 kg end weigh-in among eight over 14 days moves it by about
+  321 kcal/day (OLS arithmetic). Manual weigh-ins dated other than today default to `history_only`
+  and leave the slope; that is the settled ownership policy (plan D6), so only its disclosure on
+  the card is open. The card says "morning weigh-ins", although only dates are stored,
+  and prints "losing 0.00 kg a week" for a flat slope. The estimate is display-only and feeds no
+  target or advice.
+
+### Food Completeness, Body Estimates, Strength Comparisons And Goal Advice
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: explicit completion only (D13); "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
+
+All documented phase bands, protein ranges, review gates, step sizes, floor formula, streak
+constants and per-100/two-way serving scaling match source. No path writes a calorie target.
+Defects and corrections:
+- **Day completeness.**
+  - `foodEntryTime` stamps a past-day dinner at 19:00 by default, past `kEveningLogHour` 17, so a
+    dinner-only past day auto-completes.
+  - A single late 150 kcal entry also completes a day.
+  - An isolated synthetic dinner-only 150 kcal fixture at the default 19:00 reproduces
+    `DayLogState.complete` and inclusion in averages. Akshat selected explicit completion for
+    advice/food-weight TDEE; existing automatic behavior remains until Build 88 implementation.
+  - Quick add stamps the current time even for a past diary date, so `atTs` has two meanings.
+  - Weight "latest of day" is really last saved: `putWeight` replaces the date's row and ignores
+    `at`.
+- **Protein advice** uses a protein mean with no count of protein-complete days, so one
+  macro-complete day can drive "raise protein first" or a low g/kg verdict.
+- **Floors.**
+  - The floor's sex check is exact `user['sex'] == 'f'` (`progress_screen.dart`, spot-checked),
+    while Mifflin accepts 'f'/'female'.
+  - With no calorie target, no floor check runs and "lower by N kcal" can still show.
+  - A goal already below the floor reads "already at its floor".
+  - Steps are sized from the typed goal, not observed intake.
+  - The "more steps" suggestion at the floor has no adequacy check.
+  - The Goal screen copy promises it "never suggests going below your resting energy or 1,500 kcal
+    (1,200 for women)", which holds only when a target exists.
+- **Navy estimate.**
+  - `BodyLogDb.navyBodyFat` is the male inch form with no sex gate (spot-checked) and no hip term.
+    It is shown for female, other and unknown sex.
+  - It has no plausibility clamp, and no age limit on the neck reading.
+  - The screen dates only the waist (neck only if different).
+- **Comparison windows.**
+  - Waist change compares the later window's last reading with any earlier reading, however old,
+    and is set against a weight change over only the window length.
+  - Weekly blocks and tape changes use the nearest earlier reading, often undated.
+  - `daysOnGoal` uses `difference().inDays`, so the 14-day gate can read 13 across spring-forward.
+  - Body weeks start Saturday, while Review weeks run Monday–Sunday.
+- **Strength.**
+  - The Review picks the heaviest set by load while the live workout picks the best Epley score,
+    so the same sessions can read up in one and unchanged in the other (e.g. 105×1 and 100×8,
+    then 100×9).
+  - `liftTrend` compares only newest against oldest, without showing the span, and its plateau
+    rule ignores deloads.
+  - Live set comparison is positional, so extra sets misalign it.
+  - Epley scores one rep at 1.033× load.
+  - Heavier-for-fewer-rep pairs are direction 0, so real regressions never reach the recovery
+    priority.
+  - Legacy or fabricated-end sessions add unsplit `duration_min` to the activity streak at midnight
+    and can double-count with timed sessions.
+- **Recomposition verdict.** "On track" depends on the weight rate alone. Waist and lifts appear
+  only in the 56-day stall line, which counts absent lift or waist data as "no progress". The
+  `waistFast` gap can cut calories even when weight is below the lean-gain band. Red means any
+  intake above maintenance, even in lean gain.
+- **Presentation.**
+  - `CalorieCard` ignores day state, so a partial or in-progress total prints "X left" and a green
+    "below estimated maintenance".
+  - Meal cards and the meal page sum unknown kcal as zero without "at least", and `_proteinLeft`
+    treats unknown protein as 0.
+  - The Review "Weight average" appears at "1 → 1 weigh-ins".
+  - Copy claiming more than the data supports: "Add muscle with as little fat as possible", "Lose
+    fat steadily while keeping your strength", "On track for recomposition", "eight weeks without
+    stronger lifts or a smaller waist", "US Navy body fat about X%".
+- **Correction to B88-08 check 8.** The Review tab already shows independent weight, waist, calorie
+  and strength stats under "Partial evidence" when lifts or food are missing; only `review()`'s
+  conclusion and detail sentences are withheld.
+
+### Input Retention And Wear Accounting Limits
+
+- Green ADC is decoded but never stored, so no historical RIIV/green respiration path can run.
+- Historical R10-lite HR goes only to legacy `samples`, not the substrate (its beats are kept).
+  Prevalence is unknown.
+- Two `worn_min` definitions exist:
+  - `metric_series` counts minutes with any record (Trends/CSV);
+  - the day wear block bridges runs (the day screen).
+- Wear is record presence (a gap over 120 s means off), so off-wrist, charging and undelivered
+  data are one "off" state. WRIST/charging events feed only nap rejection and a sleep-charging
+  flag.
+- The decoder accepts up to 8 historical RR values; counts of 5–8 would read optical bytes as beats
+  (latent, unobserved).
+- Unconfirmed record versions write `skin_temp_raw`/`spo2_*` as 0 instead of NULL. Legacy
+  pre-refusal `odi_per_hour`/`spo2` rows, if present, remain in CSV metric history.
+- Travel uses the phone's current zone for retained re-derives, so day seams can overlap or gap
+  after a zone change.
 
 ## Stale Band-Data Age And Repeated Empty Catch-Up
 
@@ -443,6 +871,62 @@ New synthetic regressions cover the stale boot sample, empty versus productive s
 rounds, recorded-minute gaps and calendar boundaries. Phone cold-wake and short-visit tests
 remain open; neither these logs nor source tests guarantee iOS execution or identify why every
 process restarted. The supplied MetricKit exit windows do not cover this later incident.
+
+## Overnight Freshness And Sync Lifecycle Gaps (Repaired In Build 88 Source)
+
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: no-sleep today holds over and says so; today's overnight state refreshes on commit; a lock-refused pass is not marked done; flags reset on every early return; foreground ownership waits at most 20 s and asks the headless drain to stop; BG expiry stops the drain; off-wrist links are bounced after 660 s of silence; the frontier ignores records over 10 min ahead; burst shortfalls are totalled; background lines reach the file log. Open: a BG refresh task still spends most of its ~30 s on transfer; every item needs the phone lifecycle checks.
+
+From a read-only Build 87 source audit; none is reproduced on the phone yet.
+- **A prior night can show as today's.** If today's `day_result` is flagged `NO_SLEEP_DETECTED`
+  (band unworn overnight, or an early light pass before the backlog lands),
+  `refreshComputeFreshness` sets `overnight_day` to today and `showing_prior_overnight` to false.
+  Meanwhile `_latestBundle` serves the newest earlier night with sleep, up to 14 rows back.
+  `overnightMetric` then prints that night's readiness, HRV, RHR, sleep, breathing and stress as
+  today's with no held-over note, on Today, Readiness and Sleep detail. This bypasses the
+  deliberate held-over refusal.
+  An isolated current-code synthetic DB/repository test stores a previous-night readiness of 66
+  and a no-sleep row today: `getToday` returns 66 with `overnight_day=today` and
+  `showing_prior_overnight=false`. This reproduces the read contract, not phone behavior.
+- **Inference: today's real night can be hidden.** Overnight state comes from the summary freshness
+  row, which refreshes only when a whole pass finishes, and background cancellation skips it.
+  Today can then say "Last night is still being worked out" after the night committed, possibly
+  into the next visit. Build 87 repaired only the activity side.
+- **The derive lock drops jobs.** `DerivationEngine.run` returns 0 when another pass holds `_running`
+  (spot-checked), and `DeriveScheduler` then calls `completeComputeJob`. Work queued while a
+  detached rescan, reanalyze, sleep-override, nap rebuild or BG-task pass runs can be marked done
+  without computing.
+- **Backgrounding does not cancel everything.** It cancels only scheduler-owned passes. Detached
+  rescan/reanalyze/override/nap passes keep running, so Build 86's "cancel in-flight calculation"
+  is only partly true. Native BG expiry cancels calculation, but the headless BLE drain continues;
+  the 15-minute gate timeout force-releases the band while that orphaned run continues.
+- **Latches and ownership:**
+  - `openSession` returns early when busy or unpaired, before it clears the background flags it
+    alone resets. A slow connect during app switching can hold calculation for the whole visit, and
+    pull-to-refresh then waits out its cap.
+  - `BandOwnership.acquireForeground` still has no deadline, yet the app awaits it before the
+    connect that would preempt a headless drain, which can run 600 s. That contradicts the Build 86
+    "bound ownership handoffs" claim.
+  - Known off-wrist makes `isLinkStale` false indefinitely, so a dead link while off-wrist may never
+    be bounced. Plausible; the battery-poll timeout path was not traced.
+- **The newest-data frontier can be pinned.** Records up to 24 h in the future pass `kFutureMargin`
+  and raise the monotone `rec_ts_hw`. A decodable record with timestamp ≤0 is admitted untimed, and
+  `_recTsFor` falls back to phone capture time. Either can make Status say "just now", silence the
+  staleness alert and make the derive debounce treat data as fresh.
+- **Short WHOOP 4 bursts are still ACKed.** WHOOP 4 sets `burstCountGateEnforced: false`, so a burst
+  the band counted as short is still committed and ACKed ("ADVISORY, gen4"). Commit-before-verbatim
+  ACK holds on every drain path, and a failed commit blocks the ACK. "Never ACK a partial chunk" is
+  therefore not enforced by packet count on this band; real loss is unmeasured.
+- **BG tasks rarely reach calculation.** A BG refresh task's ~30 s is usually spent on the
+  600 s-capable transfer. After a headless drain, the native restore central stays idle until the
+  app re-arms it.
+- **Diagnostics are blind in the background.** Only the app's own `_log` reaches
+  `openstrap_sync.log`. Headless, BG-task, restore-gate and background-derive lines, including
+  commit checkpoints, go to `debugPrint` only. `openstrap_exits.log` has no size cap.
+
+Confirmed sound: commit-before-verbatim-ACK on foreground, restore, headless and both BG paths;
+cancellable derive isolates with requeue; the served-version ceiling; immediate Today refresh
+after its row commits; notification dedupe under a lock. Build 88 B88-05 owns the repair and
+diagnostics plan.
 
 ## Workout Live Activity never drew (builds 74–80): resolved by removal in build 81
 

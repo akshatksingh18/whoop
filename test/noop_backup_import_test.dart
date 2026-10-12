@@ -280,7 +280,9 @@ void main() {
     // (The NaN path proper is exercised through the CSV importer, where
     // `double.tryParse('NaN')` genuinely produces one — see
     // noop_schema_drift_test.dart.)
-    const t0 = 1786608000; // 2026-08-13, a day no other fixture here uses
+    // 2026-08-13, a day no other fixture here uses; 09:00 LOCAL so the
+    // 3.5 hours below stay inside one local day in every time zone.
+    final t0 = DateTime(2026, 8, 13, 9).millisecondsSinceEpoch ~/ 1000;
     final path = p.join(tmp.path, 'nan.sqlite');
     if (File(path).existsSync()) File(path).deleteSync();
     final src = await databaseFactory.openDatabase(path);
@@ -289,10 +291,10 @@ void main() {
     await src.execute('CREATE TABLE rrInterval (deviceId TEXT, ts INTEGER, '
         'rrMs REAL, PRIMARY KEY (deviceId, ts, rrMs))');
     final b = src.batch();
-    // 600 beats: the irregular-rhythm screen (the one payload field that
-    // reports how many beats it actually used) needs a real window before it
-    // emits anything, and without it there is nothing to assert on.
-    for (var i = 0; i < 600; i++) {
+    // 12,600 beats (3.5 h): the irregular-rhythm screen (the one payload
+    // field that reports how many beats it actually used) needs 3 hours of
+    // beats from Build 88, and without it there is nothing to assert on.
+    for (var i = 0; i < 12600; i++) {
       b.insert('hrSample', {'deviceId': 'd', 'ts': t0 + i, 'bpm': 65});
       b.insert('rrInterval', {
         'deviceId': 'd',
@@ -321,7 +323,7 @@ void main() {
     for (final r in rows) {
       final n = _beatsUsed(r);
       if (n == null) continue;
-      expect(n, 599, reason: 'the infinite beat is dropped, not counted');
+      expect(n, 12599, reason: 'the infinite beat is dropped, not counted');
       checked++;
     }
     expect(checked, greaterThan(0), reason: 'the assertion must have run');

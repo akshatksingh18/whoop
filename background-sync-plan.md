@@ -32,6 +32,22 @@ release gates; `bugs.md` owns the private-log findings and their attribution lim
 
 ## Required Behavior
 
+An isolated current-code synthetic DB/repository test reproduces the B88-05 overnight mismatch:
+a no-sleep row today sets overnight freshness to today while `getToday` serves the previous
+night's readiness with no held-over flag. This verifies the read contract, not a phone symptom.
+The repair must derive night identity and values from the same committed served result, and
+retain an explicit absence/dated-prior state. `bugs.md` owns the reproduction; implementation
+remains deferred in `build-88-plan.md`.
+
+Build 88's proposed B88-05 package in `build-88-plan.md` starts with physical verification of
+these Build 87 repairs, not another assumed rewrite from Build 86 screenshots. Its bounded
+diagnostics distinguish transfer progress, durable record frontier, derive queue/start/cancel/
+finish, served algorithm version and visible age. Evaluate actual CPU/freshness before tuning
+speed filters or adding collection work. The HRV integrity repair needs compatible versioned
+recomputation but must preserve cancellation, reuse invalidation, commit-before-ACK and pruning
+protection; missing raw history cannot be recreated by sync. No new background permissions or
+constant execution guarantee is selected by the accuracy plan.
+
 Brief daily viewing must be the normal supported workflow. Keeping the screen on,
 leaving WHOOP visible, charging throughout the day, and repeatedly pulling to refresh
 must not be prerequisites for collection. Ordinary backgrounding and screen lock are
@@ -97,6 +113,16 @@ app; the observed CPU-limit exits and the app's execution paths are the stronger
 These findings describe the Build 85 audit baseline, not the current repaired implementation.
 They are not proof that any particular path caused an individual logged gap. Build 86 implements
 bounded ownership/cancellation and personal tasks; Build 87 adds reuse and wear-aware recovery.
+
+**Build 87 source re-audit (read-only):** findings 3 and 5 persist in part. Detached rescan,
+reanalyze, sleep-override and nap passes still escape background cancellation.
+`acquireForeground` still has no deadline. BG expiry cancels calculation, not the headless drain,
+so the gate timeout can release the band while that run continues, which breaks repair contract
+item 3 below. Newly found: the engine's `_running` refusal makes the scheduler mark a queued job
+complete, and `openSession`'s busy early return skips its background-flag reset. The overnight
+freshness row can label a prior night as today's, and short WHOOP 4 bursts are ACKed by design.
+Background log lines also never reach the file log. `bugs.md` "Overnight Freshness And Sync
+Lifecycle Gaps" owns the details; B88-05 owns the repair.
 
 1. `lib/main.dart` already calls `FlutterBluePlus.setOptions(restoreState: true)` before
    other plugin work. The pinned Darwin plugin implements `willRestoreState`, including

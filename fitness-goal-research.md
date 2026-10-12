@@ -4,6 +4,24 @@
 phone-tested. Change a number here and in the code together, with its test
 (`test/build86_goal_plan_test.dart`).
 
+**Open research qualification:** [metrics-accuracy-research.md](metrics-accuracy-research.md)
+reviews the current policy against primary sources. R03 proposes removing unsupported
+waist-to-tissue attribution and reviewing intake-floor advice; R08 proposes separately evaluating
+the existing intake/weight estimator and trend calibration. These are not implemented changes.
+The waist ratio below is a source policy, not validated fat/muscle identification, and the fixed
+intake floor is not a universal safety guarantee. `todo.md` owns selection/implementation gates.
+`build-88-plan.md` consolidates both attached analyses with this evidence: B88-07 covers the
+qualified advice/eligibility repair; B88-06 preserves manual targets and secondary intake/weight
+estimates. No proposed TDEE anchor, tissue classifier or automatic target change is adopted.
+The expanded source audit also reproduces unchanged/incomparable lifts receiving an improvement
+headline and changed-load high-rep sets receiving a reps-only down trend (`bugs.md`). B88-07/08
+must repair comparison states and advice consumers; stronger lifts remain observations, not
+proof of hypertrophy. Current goal constants below are unchanged.
+Akshat selected explicit food-day completion for intake advice and food/weight TDEE in Build 88;
+one evening entry is not enough evidence. Preserve known-nutrient eligibility, historical explicit
+marks and partial logs. This changes the planned admission contract, not the implemented phase
+bands or calorie targets below; implementation/version review remains in `build-88-plan.md`.
+
 The goal is chosen by Akshat in the app, not written into code. The review only suggests; it never
 changes a goal. Labels: **[P]** primary study or position stand, **[R]** narrative review,
 **[PR]** practitioner guidance, **[C]** convention or synthesis with no direct trial behind it.

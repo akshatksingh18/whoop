@@ -218,7 +218,7 @@ Widget app(AppState state, Widget child) => MultiProvider(
   child: RepaintBoundary(
     key: const ValueKey('capture'),
     child: MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       home: Scaffold(body: child),
     ),
   ),

@@ -1,20 +1,46 @@
 # 1 Hz-Native Algorithm Catalog (non-ML)
 
-Synthesized from 6 independent literature reviews (HRV, cardiac, sleep/circadian, respiration/SpO₂, motion, temp/fusion-anomaly). Every method is **deterministic / statistical / signal-processing / clinical — no ML**. Each is tagged by the signal it needs, whether it runs **24/7** (flash 1 Hz substrate) or **FG** (foreground high-rate only), and a confidence tier.
+**Status:** Method/literature reference, not the current app's implemented-feature or validated-
+accuracy inventory. Entries and confidence tags below include candidate/legacy methods; verify
+the decoder, active caller and quality gates before using one. Clinical labels describe the
+original method's research context, not a clinical validation of this optical wrist app.
+The root [metrics map](../../../metrics-map.md) and
+[accuracy research brief](../../../metrics-accuracy-research-prompt.md) own the current input/
+formula inventory; [bugs](../../../bugs.md) and [Build 88 TODO](../../../todo.md) own the open
+WHOOP 4 temperature-field and primary HRV continuity/coverage issues. The primary helper currently
+discards timestamps after bucketing and permits one surviving difference; a five-minute bucket
+is not necessarily five minutes of observed beats. No repair is implemented by correcting this reference.
+The completed [desk research](../../../metrics-accuracy-research.md) evaluates the current
+methods and proposes validation/repairs; it does not certify this catalog or implement changes.
+
+Synthesized from literature reviews across HRV, cardiac, sleep/circadian, respiration/SpO₂,
+motion and temp/fusion-anomaly. The listed approaches are deterministic/statistical/signal-
+processing rather than ML; availability and validity still depend on actual inputs and call sites.
 
 ## The substrate (what feeds these)
-**24/7 @ 1 Hz** (always, incl. overnight): HR; **beat-to-beat RR (0–4/s, ms)**; tri-axial accel (one vector/s); PPG green/red/IR ADC; relative SpO₂ red/IR ADC; relative skin-temp ADC; ambient light; skin-contact quality.
-**Foreground only** (high rate, app streaming): accel ~100 Hz; gyro ~100 Hz (±2000 dps); optical PPG waveform ~419 Hz.
+**Historical WHOOP 4 records:** approximately 1 Hz reported HR/motion, timestamps and up to four
+reported RR values per record when present, with variable/gapped beat coverage. Green/optical-
+block counts are not a saved continuous PPG waveform. Deprecated skin-contact/temperature/
+red-IR labels do not establish physical semantics: the WHOOP 4 temperature field is unverified,
+and the current pipeline refuses SpO₂/ODI. Relative normalization cannot validate an unknown field.
+**Live high-rate streaming:** protocol IMU/optical capabilities require actual connection and
+caller verification; current high-rate frames are RAM-only, not a continuous overnight archive.
 
 ## The structural edge
-**Continuous 24/7 beat-to-beat RR.** Most wearables only get RR in brief spot-checks; we have it all night, every night. This alone unlocks an entire class of Holter-grade methods (24-h SDNN, ULF/VLF spectra, PRSA deceleration capacity, autonomic cosinor) that spot-check devices physically cannot compute.
+Long historical coverage can support eligible nightly PRV windows, but coverage must be measured.
+There is no guaranteed continuous ECG-equivalent RR record, "Holter-grade" accuracy or automatic
+resolution of 24-hour spectral bands. Insufficient span/coverage must remain absent. Research
+methods requiring richer signals remain candidates unless the real pipeline supplies them.
 
 ## The honesty ceilings (carry into UI copy)
 1. **PRV, not ECG-HRV** — pulse-rate variability; validate before any clinical claim.
 2. **1 Hz timing quantization** biases successive-difference metrics (RMSSD, pNNx) and the HF band most → lead with long-window/averaging metrics.
 3. **1 Hz accel can't do steps/cadence/gait/frequency-classification** (Nyquist: gait is 1.4–2.5 Hz > 0.5 Hz limit). Only an amplitude index + static orientation survive 24/7.
-4. **Relative signals**: no absolute SpO₂ %, no absolute °C / fever — only deviations, dips, trends vs personal baseline.
-5. **Sleep staging** from wrist is at best a 3-class autonomic *estimate*, never PSG 4-stage.
+4. **Unverified signals**: no WHOOP 4 temperature inference (even relative) from the deprecated
+   field, and no SpO₂/dip inference from the refused red/IR inputs. Verified signals in other
+   device families require independent evidence and separate provenance.
+5. **Sleep staging**: the current app emits local wake/light/deep/REM estimates, not PSG or
+   official WHOOP labels. In particular, deep/light separation is not established by this catalog.
 6. **ACWR** is descriptive ("load vs your norm") only — not injury prediction (Lolli 2019 / Impellizzeri 2020).
 
 ---

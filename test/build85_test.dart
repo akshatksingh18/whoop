@@ -235,7 +235,7 @@ void main() {
     testWidgets('the filter hides itself with one category', (t) async {
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: FoodCategoryFilter(
               foods: const [
@@ -254,7 +254,7 @@ void main() {
   group('design pieces', () {
     Future<void> host(WidgetTester t, Widget w) => t.pumpWidget(
       MaterialApp(
-        theme: buildTheme(Brightness.dark),
+        theme: buildTheme(Brightness.light),
         home: Scaffold(body: SingleChildScrollView(child: w)),
       ),
     );

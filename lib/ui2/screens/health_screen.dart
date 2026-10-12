@@ -37,6 +37,8 @@ class _Row {
 }
 
 /// The metrics this page follows, in the order a person asks about them.
+/// Colours are the Build 88 families (DESIGN.md): recovery for HRV and heart
+/// rate, sleep for breathing, body for steps, step calories and wear.
 const _rows = <_Row>[
   _Row(
     'recovery',
@@ -47,7 +49,7 @@ const _rows = <_Row>[
     Rising.good,
   ),
   _Row('sleep', 'Sleep', 'min', LucideIcons.moon, C.sleep, Rising.good),
-  _Row('hrv', 'HRV', 'ms', LucideIcons.activity, C.teal, Rising.good),
+  _Row('hrv', 'HRV', 'ms', LucideIcons.activity, C.recovery, Rising.good),
   _Row(
     'resting_hr',
     'Resting heart rate',
@@ -56,11 +58,11 @@ const _rows = <_Row>[
     C.heart,
     Rising.bad,
   ),
-  _Row('resp_rate', 'Breathing rate', 'br/min', LucideIcons.wind, C.teal),
+  _Row('resp_rate', 'Breathing rate', 'br/min', LucideIcons.wind, C.sleep),
   _Row('strain', 'Strain', '', LucideIcons.zap, C.strain),
   _Row('steps', 'Steps', 'steps', LucideIcons.footprints, C.steps),
   // Same dated walking contribution as maintenance, after run-step accounting.
-  _Row('step_kcal', 'Step calories', 'kcal', LucideIcons.flame, C.green),
+  _Row('step_kcal', 'Step calories', 'kcal', LucideIcons.flame, C.body),
   _Row(
     'skin_temp',
     'Skin temperature',
@@ -68,7 +70,7 @@ const _rows = <_Row>[
     LucideIcons.thermometer,
     C.orange,
   ),
-  _Row('wear', 'Wear time', 'min', LucideIcons.watch, C.indigo),
+  _Row('wear', 'Wear time', 'min', LucideIcons.watch, C.body),
 ];
 
 /// True when [resp] has a value on at least half of the nights in [sleep]
@@ -268,7 +270,20 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       child: ListView(
         padding: pad,
         children: [
-          const ScreenTitle('Trends'),
+          // Build 88 header (DESIGN.md): what the numbers are, above the title.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x3),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  win == 1 ? 'Today' : 'Daily averages · measured days only',
+                  style: F.body.copyWith(color: p.onGround),
+                ),
+                Text('Trends', style: F.display.copyWith(color: p.ink)),
+              ],
+            ),
+          ),
           SubTabs(
             _windowLabels,
             _range,
@@ -295,14 +310,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               },
             ),
           if (_d != null) ...[
-            Text(
-              win == 1 ? 'Today' : 'Daily averages · measured days only',
-              style: F.over.copyWith(color: p.ink3),
-            ),
-            const SizedBox(height: S.x2),
             Surface(
-              framed: false,
-              pad: EdgeInsets.zero,
+              pad: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, S.x2),
               child: Column(
                 children: [
                   for (var i = 0; i < rows.length; i++) ...[
@@ -312,10 +321,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            rows[i].key == 'hrv'
-                                ? 'Heart and breathing'
-                                : 'Activity and wear',
-                            style: F.over.copyWith(color: p.ink3),
+                            (rows[i].key == 'hrv'
+                                    ? 'Heart and breathing'
+                                    : 'Activity and wear')
+                                .toUpperCase(),
+                            style: F.label.copyWith(color: p.ink3),
                           ),
                         ),
                       ),
@@ -369,26 +379,18 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       MetricDetail(r.key == 'recovery' ? 'readiness' : r.key, range: range),
     );
 
+    // Build 88: the chart follows the range (DESIGN.md).
+    final style = win <= 7
+        ? RangeStyle.bars
+        : win <= 30
+        ? RangeStyle.lineAvg
+        : RangeStyle.weeklyBand;
     if (vals.isEmpty) {
-      return Pressable(
+      return MetricLine(
+        label: r.label,
+        color: r.color,
+        absentWhy: win == 1 ? 'not yet today' : 'no data in this range',
         onTap: open,
-        semanticLabel: '${r.label}, no data in this range',
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: S.x3),
-          child: Row(
-            children: [
-              Icon(r.icon, size: 18, color: p.ink3),
-              const SizedBox(width: S.x3),
-              Expanded(
-                child: Text(r.label, style: F.body.copyWith(color: p.ink)),
-              ),
-              Text(
-                win == 1 ? 'Not yet today' : 'No data yet',
-                style: F.cap.copyWith(color: p.ink3),
-              ),
-            ],
-          ),
-        ),
       );
     }
 
@@ -424,51 +426,19 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // average over the measured days in the range. It used to be the newest
     // reading in every range, so switching ranges changed nothing.
     final mean = vals.reduce((a, b) => a + b) / vals.length;
-    final sub = win == 1 ? 'Today' : '${vals.length}/$win days';
-    return Pressable(
+    final sub = win == 1
+        ? 'Today'
+        : '${r.key == 'strain' ? 'estimate · ' : ''}${vals.length}/$win days';
+    return MetricLine(
+      label: r.label,
+      // One day is not a chart; the value carries it.
+      values: win == 1 ? const [] : dense,
+      color: r.color,
+      style: style,
+      value: _fmt(r, mean),
+      unit: unit,
+      sub: sub,
       onTap: open,
-      semanticLabel: '${r.label}, ${_fmt(r, mean)} $unit, $sub',
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(
-          children: [
-            Icon(r.icon, size: 18, color: p.on(r.color)),
-            const SizedBox(width: S.x3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(r.label, style: F.body.copyWith(color: p.ink)),
-                  Text(sub, style: F.over.copyWith(color: p.ink3)),
-                ],
-              ),
-            ),
-            // One point is not a line; and at accessibility sizes the reading
-            // gets the width instead.
-            if (vals.length > 1 && !bigText(c)) ...[
-              const SizedBox(width: S.x2),
-              SizedBox(
-                width: 72,
-                height: 26,
-                child: CustomPaint(
-                  painter: LineChart(
-                    dense,
-                    p.on(r.color),
-                    fill: false,
-                    t: animate(c, 1),
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(width: S.x3),
-            Text(_fmt(r, mean), style: F.n17.copyWith(color: p.ink)),
-            if (unit.isNotEmpty) ...[
-              const SizedBox(width: 2),
-              Text(unit, style: F.over.copyWith(color: p.ink3)),
-            ],
-          ],
-        ),
-      ),
     );
   }
 

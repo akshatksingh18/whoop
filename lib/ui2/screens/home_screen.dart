@@ -31,10 +31,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../compute/profile.dart' show Profile, stepCalories;
 import '../../data/day_label.dart' show todayLabel;
-import '../../data/db.dart' show DbRebuild;
+import '../../data/db.dart' show DbRebuild, LocalDb;
+import '../../data/nutrition_store.dart' show NutritionDb;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -53,6 +55,7 @@ import '../profile/status.dart' show StatusScreen;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
+import 'day_steps.dart' show DayStepsDetail;
 
 // ═══════════════════ shared plumbing ═══════════════════
 
@@ -920,6 +923,200 @@ class RingTrio extends StatelessWidget {
   }
 }
 
+/// Build 88 Today panel (DESIGN.md, locked mock `1-today`): one cream panel
+/// holding the recovery hero and the day's rows, each a label, its last seven
+/// days as tiles and the value. Every door the ring trio had stays a tap.
+class _TodayPanel extends StatelessWidget {
+  final HomeData d;
+  final bool fresh;
+  final void Function(HomeRingKind) onOpen;
+  final VoidCallback onSteps;
+
+  const _TodayPanel({
+    required this.d,
+    required this.fresh,
+    required this.onOpen,
+    required this.onSteps,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final rec = _ringOf(HomeRingKind.recovery, d, l);
+    final strain = _ringOf(HomeRingKind.strain, d, l);
+    final sleep = _ringOf(HomeRingKind.sleep, d, l);
+    final v = d.readiness.value;
+    final band = readinessBand(v, l);
+    final hrv = d.hrv.value, rhr = d.rhr.value;
+    List<double?> wk(String k) => d.week[k] ?? const [];
+    final sleepMin = d.sleepMin.value;
+    final eaten = d.upkeep?.eaten;
+    final parts = d.upkeep?.parts, acsm = d.upkeep?.acsmParts;
+    final hero = Pressable(
+      onTap: () => onOpen(HomeRingKind.recovery),
+      semanticLabel: rec.spoken,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: S.x3),
+        child: Flex(
+          // Large text stacks the hero rather than squeezing it.
+          direction: bigText(c) ? Axis.vertical : Axis.horizontal,
+          crossAxisAlignment: bigText(c)
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
+          children: [
+            Flexible(
+              flex: 0,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  v == null ? '—' : '${v.round()}',
+                  // Large text: the pure recovery colour clears 3:1 on paper.
+                  style: F.hero.copyWith(
+                    color: v == null ? p.on(C.alert) : C.recovery,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: S.x4, height: S.x2),
+            Flexible(
+              flex: bigText(c) ? 0 : 1,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        (l?.homeRingRecovery ?? 'Recovery').toUpperCase(),
+                        style: F.label.copyWith(color: p.ink2),
+                      ),
+                      if (fresh && v != null) ...[
+                        const SizedBox(width: S.x2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: S.x2,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: p.fill(C.alert),
+                            borderRadius: R.rSm,
+                          ),
+                          child: Text(
+                            'NEW',
+                            style: F.over.copyWith(color: p.inkOnFill),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: S.x1),
+                  Text(
+                    v == null ? rec.value : band.label,
+                    style: F.t2.copyWith(color: p.ink),
+                  ),
+                  const SizedBox(height: S.x1),
+                  Text(
+                    v == null
+                        ? (rec.why ?? rec.sub)
+                        : [
+                            if (hrv != null) 'HRV ${hrv.round()} ms',
+                            if (rhr != null) 'resting HR ${rhr.round()}',
+                          ].join(' · '),
+                    style: F.cap.copyWith(
+                      color: v == null ? p.on(C.alert) : p.ink2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final rows = <Widget>[
+      MetricLine(
+        label: l?.homeRingSleep ?? 'Sleep',
+        values: wk('sleep'),
+        color: C.sleep,
+        value: sleepMin == null ? null : hm(sleepMin),
+        sub: sleep.measured ? sleep.sub : null,
+        absentWhy: sleepMin == null ? sleep.why : null,
+        onTap: () => onOpen(HomeRingKind.sleep),
+      ),
+      MetricLine(
+        label: l?.homeRingStrain ?? 'Strain',
+        values: wk('strain'),
+        color: C.strain,
+        value: strain.measured ? strain.value : null,
+        sub: 'estimate',
+        absentWhy: strain.measured ? null : (strain.why ?? strain.sub),
+        onTap: () => onOpen(HomeRingKind.strain),
+      ),
+      MetricLine(
+        label: 'Food',
+        values: wk('food'),
+        color: C.food,
+        value: eaten == null || eaten <= 0 ? null : thousands(eaten),
+        unit: d.kcalTarget == null ? 'kcal' : '/${thousands(d.kcalTarget)}',
+        absentWhy: eaten == null || eaten <= 0 ? 'nothing logged yet' : null,
+      ),
+      if (d.proteinTarget case final t?)
+        MetricLine(
+          label: 'Protein',
+          color: C.food,
+          value: d.proteinToday == null ? null : '${d.proteinToday!.round()}',
+          unit: '/${t.round()} g',
+          progress: d.proteinToday == null ? null : d.proteinToday! / t,
+          absentWhy: d.proteinToday == null ? 'not logged yet' : null,
+        ),
+      MetricLine(
+        label: 'Steps',
+        values: wk('steps'),
+        color: C.body,
+        value: d.steps.value == null ? null : thousands(d.steps.value),
+        absentWhy: d.steps.value == null ? 'not counted yet' : null,
+        onTap: onSteps,
+      ),
+    ];
+    return Surface(
+      pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          hero,
+          for (final r in rows) ...[Divider(color: p.line, height: 1), r],
+          if (parts != null) ...[
+            Divider(color: p.line, height: 1),
+            Padding(
+              padding: const EdgeInsets.only(top: S.x3),
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: 'Maintenance ',
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    TextSpan(
+                      text:
+                          'Budget ${thousands(parts.total)}'
+                          '${acsm == null ? '' : ' · ACSM ${thousands(acsm.total)}'} kcal',
+                      style: F.body.copyWith(color: p.ink2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// Which ring. The three the app can stand behind on a home screen: what the
 /// night gave back, what the day has cost, and what the night was made of.
 enum HomeRingKind { recovery, strain, sleep }
@@ -1139,6 +1336,16 @@ class HomeData {
   final Metric bedtime;
   final Map<String, dynamic>? strainTarget;
 
+  /// Build 88: the last 7 days of each Today row, oldest first, null for a
+  /// day with no reading (drawn hatched). Keys: recovery, sleep, strain,
+  /// steps, food.
+  final Map<String, List<double?>> week;
+
+  /// Today's logged protein (null when no entry carries it) and the typed
+  /// protein and calorie goals.
+  final double? proteinToday;
+  final double? proteinTarget, kcalTarget;
+
   /// When today's numbers were last calculated; null before the first.
   final DateTime? updatedAt;
 
@@ -1192,6 +1399,10 @@ class HomeData {
     this.sleepNeedMin = Metric.empty,
     this.bedtime = Metric.empty,
     this.strainTarget,
+    this.week = const {},
+    this.proteinToday,
+    this.proteinTarget,
+    this.kcalTarget,
     this.updatedAt,
     this.heldOverNight,
     this.illnessState,
@@ -1225,6 +1436,10 @@ class HomeData {
     sleepNeedMin: sleepNeedMin,
     bedtime: bedtime,
     strainTarget: strainTarget,
+    week: week,
+    proteinToday: proteinToday,
+    proteinTarget: proteinTarget,
+    kcalTarget: kcalTarget,
     updatedAt: updatedAt,
     heldOverNight: heldOverNight,
     illnessState: state,
@@ -1300,7 +1515,41 @@ class HomeData {
       recentHr = previous?.recentHr ?? const [];
     }
 
+    // Build 88: seven days behind each Today row. Best effort: a row without
+    // its week still shows its value.
+    Future<List<double?>> week(String key) async {
+      try {
+        return denseDays(pointsOf(await repo.getChart(key)), 7);
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    List<double?> foodWeek = const [];
+    double? proteinToday;
+    try {
+      final w = await NutritionDb.window(await LocalDb.instance, days: 7);
+      foodWeek = [for (final x in w.days) x.kcal.value];
+      proteinToday = w.days.isEmpty ? null : w.days.last.protein.value;
+    } catch (_) {}
+    double? goal(String k) {
+      final v = (profile[k] as num?)?.toDouble();
+      return v == null || v <= 0 ? null : v;
+    }
+
+    final weeks = {
+      'recovery': await week('recovery'),
+      'sleep': await week('sleep'),
+      'strain': await week('strain'),
+      'steps': await week('steps'),
+      'food': foodWeek,
+    };
+
     return HomeData(
+      week: weeks,
+      proteinToday: proteinToday,
+      proteinTarget: goal('protein_target'),
+      kcalTarget: goal('kcal_target'),
       graph: graph,
       recentHr: recentHr,
       recentHrFailed: recentHrFailed,
@@ -1387,6 +1636,25 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
 
+  /// Build 88 freshness: the recovery hero carries an amber NEW marker the
+  /// first time a night's score is shown, and keeps it for this visit.
+  bool _freshNight = false;
+  static const _seenKey = 'today.seen_night';
+
+  Future<void> _markSeen(HomeData d) async {
+    if (d.readiness.value == null) return;
+    final night = d.heldOverNight ?? d.dayId;
+    if (night == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_seenKey) == night) return;
+      await prefs.setString(_seenKey, night);
+      if (mounted) setState(() => _freshNight = true);
+    } catch (_) {
+      /* no store: no marker, nothing else changes */
+    }
+  }
+
   /// The load THREW. Distinct from "there is nothing yet": a decode or a locked
   /// database is a read problem, and telling a user with three months of
   /// history that their band has never produced data is the wrong answer to it.
@@ -1449,6 +1717,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       final d = await HomeData.load(repo, AppLocalizations.of(context), _d);
       if (stillNewest(#home, t)) {
         setState(() => (_d = d, _loading = false, _failed = false));
+        unawaited(_markSeen(d));
       }
     } catch (_) {
       if (stillNewest(#home, t)) {
@@ -1659,19 +1928,21 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Today', style: F.t1.copyWith(color: p.ink)),
+                      // Build 88 header (DESIGN.md): the date above a large
+                      // title on the kraft, freshness underneath.
+                      Text(
+                        prettyDay(d.dayId, l),
+                        style: F.body.copyWith(color: p.onGround),
+                      ),
+                      Text('Today', style: F.display.copyWith(color: p.ink)),
                       const SizedBox(height: S.x1),
-                      // When these numbers were calculated, beside the date,
-                      // so an old number never passes for a current one.
+                      // When these numbers were calculated, so an old number
+                      // never passes for a current one.
                       Wrap(
                         spacing: S.x2,
                         runSpacing: S.x1,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            prettyDay(d.dayId, l),
-                            style: F.cap.copyWith(color: p.ink3),
-                          ),
                           if (widget.data == null) UpdatedStamp(d.updatedAt),
                           // What is happening right now, beside when the
                           // numbers were last worked out.
@@ -1747,13 +2018,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             // one tap away, on the Readiness screen: a wall of per-input
             // diagnostics on Home makes the app read as broken.
             if (RingTrio.has(d))
-              RingTrio(
+              _TodayPanel(
                 d: d,
+                fresh: _freshNight,
                 onOpen: (k) => go(c, switch (k) {
                   HomeRingKind.recovery => const ReadinessDetail(),
                   HomeRingKind.strain => const DayStrainDetail(),
                   HomeRingKind.sleep => const SleepDetail(),
                 }),
+                onSteps: () => go(c, const DayStepsDetail()),
               )
             else
               Builder(

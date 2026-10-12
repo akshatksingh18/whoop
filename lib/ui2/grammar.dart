@@ -486,28 +486,57 @@ class Surface extends StatelessWidget {
     this.framed = true,
   });
 
-  /// Page bands share spacing, not a decorative card boundary.
+  /// Build 87 drew page bands unframed. From Build 88 (DESIGN.md) all of a
+  /// screen's data sits on cream panels, so both kinds are panels; the flag
+  /// is kept for callers and for the one difference left: an unframed band
+  /// takes no shadow.
   final bool framed;
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    // A surface inside a panel is part of that panel: flat, no paper-on-paper.
+    final nested = _PanelScope.of(c);
+    // Bands that were drawn unframed carried no side padding; on a panel their
+    // text would touch the paper's edge.
+    final inset = !nested && pad.left < S.x3
+        ? pad.copyWith(
+            left: S.x4,
+            right: S.x4,
+            top: pad.top < S.x2 ? S.x3 : pad.top,
+            bottom: pad.bottom < S.x2 ? S.x3 : pad.bottom,
+          )
+        : pad;
     return Pressable(
       onTap: onTap,
       semanticLabel: semanticLabel,
       child: Container(
         width: double.infinity,
-        padding: pad,
-        // Frame individual tools/items; page bands stay unframed.
-        decoration: BoxDecoration(
-          color: framed ? color ?? p.card : null,
-          borderRadius: framed ? R.rSm : null,
-          border: framed ? Border.all(color: p.edge) : null,
-        ),
-        child: child,
+        padding: inset,
+        decoration: nested
+            ? (color == null
+                  ? null
+                  : BoxDecoration(color: color, borderRadius: R.rMd))
+            : BoxDecoration(
+                color: color ?? p.card,
+                borderRadius: R.rPanel,
+                boxShadow: framed ? p.el(elevation) : const [],
+              ),
+        child: _PanelScope(child: child),
       ),
     );
   }
+}
+
+/// Marks everything below a [Surface] as inside a panel (Build 88).
+class _PanelScope extends InheritedWidget {
+  const _PanelScope({required super.child});
+
+  static bool of(BuildContext c) =>
+      c.dependOnInheritedWidgetOfExactType<_PanelScope>() != null;
+
+  @override
+  bool updateShouldNotify(_PanelScope old) => false;
 }
 
 /// "2,451" — the grouping every calorie figure in the design pieces uses.
@@ -666,19 +695,13 @@ class Section extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // A short bar marks a chapter of the page (build 85).
-                    Container(
-                      width: 3,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: p.ink3,
-                        borderRadius: R.rPill,
-                      ),
-                    ),
-                    const SizedBox(width: S.x2),
+                    // Build 88: a section head sits on the kraft ground in
+                    // the on-ground ink. Titles stay as written — several
+                    // are sentences, which capitals would make shout.
                     Flexible(
                       child: Text(
                         title,
-                        style: F.section.copyWith(color: p.ink2),
+                        style: F.section.copyWith(color: p.onGround),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -2220,11 +2243,9 @@ class SubTabs extends StatelessWidget {
       height: MediaQuery.textScalerOf(c).scale(S.tap) + 8,
       // One segmented control, with a stable touch height.
       padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: p.card,
-        borderRadius: R.rSm,
-        border: Border.all(color: p.edge),
-      ),
+      // Build 88: a rule-coloured track on the kraft, the chosen range a
+      // paper chip (the system segmented-control shape).
+      decoration: BoxDecoration(color: p.line, borderRadius: R.rLg),
       // The fifth tab is off the edge on every phone we ship to — at 360 pt
       // it is entirely off-screen in both tab sets, and above 1.0x text every
       // set overflows even a 430 pt screen. ScrollHint draws nothing at all
@@ -2244,18 +2265,14 @@ class SubTabs extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: S.x4),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: on ? p.wash(color) : const Color(0x00000000),
-                  borderRadius: R.rSm,
-                  border: Border.all(
-                    color: on
-                        ? p.on(color).withValues(alpha: .35)
-                        : const Color(0x00000000),
-                  ),
+                  color: on ? p.card : const Color(0x00000000),
+                  borderRadius: R.rMd,
+                  boxShadow: on ? p.el(1) : const [],
                 ),
                 child: Text(
                   items[i],
                   style: F.cap.copyWith(
-                    color: on ? p.on(color) : p.ink2,
+                    color: on ? p.ink : p.ink2,
                     fontWeight: on ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
@@ -3443,4 +3460,211 @@ class _DragEdgeScrollState extends State<DragEdgeScroll> {
     onPointerCancel: (_) => _stop(),
     child: widget.child,
   );
+}
+
+// ══════════════════ BUILD 88 · METRIC LINES ══════════════════
+
+/// A Build 88 day chart (DESIGN.md): [values] one per day, oldest first, null
+/// a hatched blank. The chart's [style] follows the range — tiles on Today,
+/// bars at 7 days, a daily line under a 7-day average at 30 days, weekly
+/// points over a low–high band at 3 months.
+class DayTiles extends StatelessWidget {
+  final List<double?> values;
+  final Color color;
+  final RangeStyle style;
+  final double height;
+
+  const DayTiles(
+    this.values,
+    this.color, {
+    super.key,
+    this.style = RangeStyle.tiles,
+    this.height = 34,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final have = values.whereType<double>().length;
+    return Semantics(
+      label: '$have of ${values.length} days recorded',
+      excludeSemantics: true,
+      child: SizedBox(
+        height: height,
+        child: CustomPaint(
+          size: Size.infinite,
+          // Graphics, not text: the pure family colour (DESIGN.md), which
+          // clears the 3:1 non-text floor on the paper it sits on.
+          painter: RangeChart(
+            values,
+            color,
+            hatch: C.hatch,
+            style: style,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One Build 88 metric row: an uppercase label, its day chart, then the value
+/// (DESIGN.md "label, 7-day mini chart, then the value"). An absent value is
+/// "—" in the alert colour with its one-line reason; [fresh] adds the amber
+/// NEW marker until the value has been seen; [progress] (0…1) draws a single
+/// value's progress bar in place of the chart.
+class MetricLine extends StatelessWidget {
+  final String label;
+  final List<double?> values;
+  final Color color;
+  final String? value;
+  final String unit;
+  final String? sub;
+  final String? absentWhy;
+  final RangeStyle style;
+  final double? progress;
+  final bool fresh;
+  final VoidCallback? onTap;
+
+  const MetricLine({
+    super.key,
+    required this.label,
+    required this.color,
+    this.values = const [],
+    this.value,
+    this.unit = '',
+    this.sub,
+    this.absentWhy,
+    this.style = RangeStyle.tiles,
+    this.progress,
+    this.fresh = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final absent = value == null;
+    final big = bigText(c);
+    final chart = progress != null
+        ? ClipRRect(
+            borderRadius: R.rPill,
+            child: SizedBox(
+              height: 10,
+              child: Stack(
+                children: [
+                  Positioned.fill(child: ColoredBox(color: p.line)),
+                  FractionallySizedBox(
+                    widthFactor: progress!.clamp(0.0, 1.0),
+                    child: ColoredBox(
+                      color: color,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        : values.isEmpty
+        ? const SizedBox.shrink()
+        : DayTiles(values, color, style: style);
+    final labelCol = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: F.label.copyWith(color: absent ? p.on(C.alert) : p.ink2),
+        ),
+        if (fresh) ...[
+          const SizedBox(height: S.x1),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: 2),
+            decoration: BoxDecoration(
+              color: p.fill(C.alert),
+              borderRadius: R.rSm,
+            ),
+            child: Text(
+              'NEW',
+              style: F.over.copyWith(color: p.inkOnFill),
+            ),
+          ),
+        ],
+      ],
+    );
+    final valueCol = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (absent)
+          Text('—', style: F.n30.copyWith(color: p.on(C.alert)))
+        else
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: value,
+                  style: F.n30.copyWith(color: p.ink),
+                ),
+                if (unit.isNotEmpty)
+                  TextSpan(
+                    text: ' $unit',
+                    style: F.cap.copyWith(
+                      color: p.ink2,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+            textAlign: TextAlign.end,
+          ),
+        if (sub != null && !absent)
+          Text(sub!, style: F.over.copyWith(color: p.ink2)),
+      ],
+    );
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: [
+        label,
+        absent ? 'not measured' : '$value $unit'.trim(),
+        ?sub,
+        ?absentWhy,
+      ].join(', '),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (big) ...[
+              labelCol,
+              const SizedBox(height: S.x2),
+              chart,
+              const SizedBox(height: S.x2),
+              Align(alignment: Alignment.centerRight, child: valueCol),
+            ] else
+              Row(
+                children: [
+                  SizedBox(width: 92, child: labelCol),
+                  const SizedBox(width: S.x2),
+                  SizedBox(width: 112, child: chart),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: valueCol,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            if (absent && absentWhy != null) ...[
+              const SizedBox(height: S.x1),
+              Text(absentWhy!, style: F.cap.copyWith(color: p.on(C.alert))),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }

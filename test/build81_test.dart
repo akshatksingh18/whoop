@@ -194,7 +194,7 @@ void main() {
     final scroll = ScrollController();
     await t.pumpWidget(
       MaterialApp(
-        theme: buildTheme(Brightness.dark),
+        theme: buildTheme(Brightness.light),
         home: Scaffold(
           body: StatefulBuilder(
             builder: (c, set) => SingleChildScrollView(
@@ -269,7 +269,7 @@ void main() {
       addTearDown(t.view.reset);
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Builder(
             builder: (c) => TextButton(
               onPressed: () => Navigator.of(c).push(

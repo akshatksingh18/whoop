@@ -111,13 +111,13 @@ Widget _app(AppState app, Widget child, {double scale = 1}) => MultiProvider(
   child: RepaintBoundary(
     key: const ValueKey('capture'),
     child: MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       builder: (c, w) => MediaQuery(
         data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
         child: w!,
       ),
       home: Scaffold(
-        body: ColoredBox(color: const P(true).bg, child: child),
+        body: ColoredBox(color: const P(false).bg, child: child),
       ),
     ),
   ),
@@ -846,12 +846,11 @@ void main() {
             .first,
       );
       final wash = (chip.decoration! as BoxDecoration).color!;
-      expect(wash.a, closeTo(.18, .001));
+      // Build 88: the chosen range is a paper chip on the rule track.
+      final paper = P.of(t.element(find.byType(NutritionScreen))).card;
+      expect(wash, paper);
       expect(
-        P.contrast(
-          selected.style!.color!,
-          Color.alphaBlend(wash, const P(true).bg),
-        ),
+        P.contrast(selected.style!.color!, paper),
         greaterThanOrEqualTo(4.5),
       );
       final oldMonth = MaterialLocalizations.of(

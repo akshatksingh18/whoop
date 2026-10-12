@@ -6,6 +6,14 @@
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
 > enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 87 candidate
 > (0.9.54), not yet installed. Build 86 (0.9.53) remains on the phone.
+> Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
+> WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
+> installed Builds 86/87 still show it. Build 88 is implemented in local source (branch
+> `build-88`, algorithm 92) but not built or installed: it gates temperature, qualifies HRV,
+> breathing and stress, makes alerts and advice honest and adopts the locked light design
+> (`DESIGN.md`). [`build-88-plan.md`](build-88-plan.md) owns the specification and `todo.md` the
+> open decisions and phone gates; no accuracy parity is claimed. Impeccable is developer design
+> tooling only ([`impeccable-setup.md`](impeccable-setup.md)), not an app dependency.
 > `0.9.32` build `65` was installed after a clean same-identity reinstall and verified
 > encrypted restore; Akshat confirmed the recovered app works. It does not import
 > Apple Health’s aggregate: the minimal personal profile excludes

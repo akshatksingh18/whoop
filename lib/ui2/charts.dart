@@ -1311,3 +1311,247 @@ class DayLanes extends CustomPainter {
       o.movement != movement ||
       o.p.dark != p.dark;
 }
+
+// ══════════════════ BUILD 88 RANGE CHARTS ══════════════════
+
+/// How a [RangeChart] draws its days (DESIGN.md, Build 88).
+enum RangeStyle {
+  /// 7 rounded tiles shaded by value — Today and detail rows.
+  tiles,
+
+  /// One bar per day — Trends at 7 days.
+  bars,
+
+  /// A thin daily line under a bold 7-day average — Trends at 30 days.
+  lineAvg,
+
+  /// Weekly-average points over a soft low–high band — Trends at 3 months.
+  weeklyBand,
+}
+
+/// A Build 88 metric chart over [values], one per day, oldest first; null is a
+/// day with no reading. Every missing day is a HATCHED blank and no line ever
+/// bridges one — "missing" must never read as "low" or as "flat".
+class RangeChart extends CustomPainter {
+  final List<double?> values;
+  final Color color;
+  final Color hatch;
+  final RangeStyle style;
+
+  const RangeChart(
+    this.values,
+    this.color, {
+    required this.hatch,
+    this.style = RangeStyle.tiles,
+  });
+
+  static const _gapFrac = .22;
+
+  (double, double)? get _span {
+    final vs = [for (final v in values) ?v];
+    if (vs.isEmpty) return null;
+    return (vs.reduce(min), vs.reduce(max));
+  }
+
+  /// 0…1 position of [v] in the series' own span; a flat series sits high.
+  double _norm(double v, (double, double) s) =>
+      s.$2 - s.$1 < 1e-9 ? .8 : ((v - s.$1) / (s.$2 - s.$1)).clamp(0.0, 1.0);
+
+  void _hatchRect(Canvas c, RRect r) {
+    c.save();
+    c.clipRRect(r);
+    final paint = Paint()
+      ..color = hatch
+      ..strokeWidth = 1.4;
+    final h = r.outerRect.height, l = r.outerRect.left, t = r.outerRect.top;
+    for (var x = -h; x < r.outerRect.width + h; x += 5) {
+      c.drawLine(Offset(l + x, t + h), Offset(l + x + h, t), paint);
+    }
+    c.restore();
+  }
+
+  @override
+  void paint(Canvas c, Size size) {
+    final n = values.length;
+    if (n == 0 || size.width <= 0 || size.height <= 0) return;
+    final span = _span;
+    switch (style) {
+      case RangeStyle.tiles:
+      case RangeStyle.bars:
+        final slot = size.width / n;
+        final gap = slot * _gapFrac;
+        final w = slot - gap;
+        final radius = Radius.circular(min(w / 2, 7));
+        for (var i = 0; i < n; i++) {
+          final left = i * slot + gap / 2;
+          final v = values[i];
+          if (v == null || span == null) {
+            _hatchRect(
+              c,
+              RRect.fromLTRBR(left, 0, left + w, size.height, radius),
+            );
+            continue;
+          }
+          final f = _norm(v, span);
+          if (style == RangeStyle.tiles) {
+            c.drawRRect(
+              RRect.fromLTRBR(left, 0, left + w, size.height, radius),
+              Paint()..color = color.withValues(alpha: .55 + .45 * f),
+            );
+          } else {
+            final h = size.height * (.3 + .7 * f);
+            c.drawRRect(
+              RRect.fromLTRBR(left, size.height - h, left + w, size.height,
+                  radius),
+              Paint()..color = color,
+            );
+          }
+        }
+      case RangeStyle.lineAvg:
+        if (span == null) return;
+        final step = n == 1 ? 0.0 : size.width / (n - 1);
+        double y(double v) => size.height * (1 - (.1 + .8 * _norm(v, span)));
+        // Hatched slivers where days are missing.
+        for (var i = 0; i < n; i++) {
+          if (values[i] != null) continue;
+          final x = i * step;
+          _hatchRect(
+            c,
+            RRect.fromLTRBR(x - step / 2, 0, x + step / 2, size.height,
+                Radius.zero),
+          );
+        }
+        // The thin daily line, broken at every gap.
+        _polyline(c, [for (var i = 0; i < n; i++) values[i]], step, y,
+            Paint()
+              ..color = color.withValues(alpha: .45)
+              ..strokeWidth = 1.2
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round);
+        // The bold 7-day average: defined where at least 4 of the trailing 7
+        // days have a reading, and broken where it is not.
+        final avg = <double?>[
+          for (var i = 0; i < n; i++)
+            () {
+              final w = [
+                for (var k = max(0, i - 6); k <= i; k++) ?values[k],
+              ];
+              return w.length >= 4 ? w.reduce((a, b) => a + b) / w.length : null;
+            }(),
+        ];
+        _polyline(c, avg, step, y,
+            Paint()
+              ..color = color
+              ..strokeWidth = 2.6
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round
+              ..strokeJoin = StrokeJoin.round);
+      case RangeStyle.weeklyBand:
+        if (span == null) return;
+        final weeks = <List<double>>[];
+        for (var i = 0; i < n; i += 7) {
+          weeks.add([for (var k = i; k < min(n, i + 7); k++) ?values[k]]);
+        }
+        final m = weeks.length;
+        final step = m == 1 ? 0.0 : size.width / (m - 1);
+        double y(double v) => size.height * (1 - (.1 + .8 * _norm(v, span)));
+        for (var i = 0; i < m; i++) {
+          if (weeks[i].isNotEmpty) continue;
+          final x = i * step;
+          _hatchRect(
+            c,
+            RRect.fromLTRBR(x - step / 3, 0, x + step / 3, size.height,
+                Radius.zero),
+          );
+        }
+        // The soft low–high band between consecutive weeks that both exist.
+        final band = Paint()..color = color.withValues(alpha: .16);
+        for (var i = 0; i + 1 < m; i++) {
+          final a = weeks[i], b = weeks[i + 1];
+          if (a.isEmpty || b.isEmpty) continue;
+          final path = Path()
+            ..moveTo(i * step, y(a.reduce(max)))
+            ..lineTo((i + 1) * step, y(b.reduce(max)))
+            ..lineTo((i + 1) * step, y(b.reduce(min)))
+            ..lineTo(i * step, y(a.reduce(min)))
+            ..close();
+          c.drawPath(path, band);
+        }
+        final means = [
+          for (final w in weeks)
+            w.isEmpty ? null : w.reduce((a, b) => a + b) / w.length,
+        ];
+        _polyline(c, means, step, y,
+            Paint()
+              ..color = color
+              ..strokeWidth = 2
+              ..style = PaintingStyle.stroke
+              ..strokeCap = StrokeCap.round);
+        final dot = Paint()..color = color;
+        for (var i = 0; i < m; i++) {
+          final v = means[i];
+          if (v != null) c.drawCircle(Offset(i * step, y(v)), 3.2, dot);
+        }
+    }
+  }
+
+  /// Segments between consecutive non-null points only.
+  static void _polyline(
+    Canvas c,
+    List<double?> vs,
+    double step,
+    double Function(double) y,
+    Paint paint,
+  ) {
+    Path? path;
+    Offset? first;
+    var points = 0;
+    void flush() {
+      if (path == null) return;
+      if (points == 1) {
+        // A lone reading between gaps is a dot, not an invisible segment.
+        c.drawCircle(
+          first!,
+          paint.strokeWidth * 1.2,
+          Paint()..color = paint.color,
+        );
+      } else {
+        c.drawPath(path, paint);
+      }
+    }
+
+    for (var i = 0; i < vs.length; i++) {
+      final v = vs[i];
+      if (v == null) {
+        flush();
+        path = null;
+        points = 0;
+        continue;
+      }
+      final pt = Offset(i * step, y(v));
+      if (path == null) {
+        path = Path()..moveTo(pt.dx, pt.dy);
+        first = pt;
+      } else {
+        path.lineTo(pt.dx, pt.dy);
+      }
+      points++;
+    }
+    flush();
+  }
+
+  @override
+  bool shouldRepaint(RangeChart old) =>
+      old.color != color ||
+      old.style != style ||
+      old.hatch != hatch ||
+      !_same(old.values, values);
+
+  static bool _same(List<double?> a, List<double?> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}

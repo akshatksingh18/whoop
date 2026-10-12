@@ -22,7 +22,7 @@ Future<void> _until(WidgetTester t, bool Function() done) async {
 }
 
 Widget _app(Widget child) => MaterialApp(
-  theme: buildTheme(Brightness.dark),
+  theme: buildTheme(Brightness.light),
   home: Scaffold(body: ListView(children: [child])),
 );
 

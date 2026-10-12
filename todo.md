@@ -31,6 +31,66 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
+## Build 88: implemented in local source, not built or installed
+
+**State:** Akshat approved `build-88-proposal.md` with every recommendation (C1 note-only, C2
+"—", C3 off, C4-C8 yes, C10 built-in review) and asked for one combined Build 88. All twelve
+packages are implemented as local commits on branch `build-88` (algorithm 92), not pushed, with no
+IPA. `build-88-plan.md` owns the specifications, `bugs.md` what each repair closed and what is
+still open, and `DESIGN.md` the locked visual system. Full-suite result: RESULT.
+Phone checks, publication and the testing IPA are separate gates that need Akshat's go-ahead.
+
+Done in source (each with tests):
+- [x] **B88-01** temperature integrity: WHOOP 4 counts never publish temperature or feed
+  anomaly/illness/glass box; Trends/Sleep/rough-night rows hidden; history kept.
+- [x] **B88-02** load: net TRIMP over observed-day runs; strain target withheld (D3); one zone
+  set for minutes and label; strain-dependent need and mover count observed days only.
+- [x] **B88-03** HRV: timestamp-adjacent pairs and frozen window/night gates everywhere
+  (headline, timeline, 24/7, daytime, PRSA, irregular rhythm); `ln_rmssd_v2` baseline; RSA/BRV/
+  stress qualification; one HRR tau; label fixes.
+- [x] **B88-04** sleep: relative stillness gate, Phillips SRI, night-time fallback, correction
+  save blocked under 50%, Home bar on last night's need, "In bed at".
+- [x] **B88-05** sync: no prior night as today; ownership wait capped at 20 s with a headless
+  stop; BG expiry stops the drain; off-wrist link cap; frontier and burst evidence; background
+  log lines; live speed over time, stop detection, "—" without a fresh fix (D5), moving-time pace.
+- [x] **B88-06** energy and food: low-HR lifts, DST BMR, lift caps/overlap, partial-run steps,
+  explicit completion (D13), "at least" totals, day-state calorie card, robust food/weight range.
+- [x] **B88-07/08** strength and advice: one comparator with "not comparable"; recomposition
+  needs waist and a comparable lift; protein from 5 complete days; floor and no-goal rules; Navy
+  male-only and dated (D7); dated waist/tape windows; Monday weeks.
+- [x] **B88-11** alerts: composite low readiness, quiet hours for every health finding (D4),
+  one-sided anomaly, RHR-shift gap restart, import filters, bounded baselines.
+- [x] **B88-12** C4 quality lines, C5 Status sync-health panel, C6 tape prompts/second reading
+  (weigh-in time already stored), C7 range, C8 per-kind alert switches.
+- [x] **B88-09** redesign: light kraft ground with cream 26 pt panels, family colours, hero
+  number, paper tab bar and segmented control (all screens through the shared tokens); Today and
+  Trends rebuilt to the locked mocks (tiles, 7-day bars, 30-day line plus average, 3-month weekly
+  band, hatched gaps, NEW and amber absence); Flutter iPhone-size captures reviewed against the
+  mocks (built-in degraded review, C10).
+- [x] **B88-10** one `kAlgoVersion` bump to 92 with its changelog; retained days re-derive and
+  the new HRV baseline never mixes in old-method nights.
+
+Open, each needing a decision or the phone:
+- [ ] Decide: remove the per-night CVHR chart on the breathing screen (library says "never
+  per-night"; removing a visible chart needs Akshat's yes).
+- [ ] Decide: TRIMP on the observed ceiling and a minimum samples-per-minute rule (both change
+  the strain score the approved rules keep unchanged).
+- [ ] Decide: the locked food colour `#D9961A` measures 2.13:1 on paper, under the 3:1 graphics
+  floor; keep, or darken it.
+- [ ] Food, Train, Progress, Sleep, Recovery and live screens take the new tokens and panels but
+  keep their Build 87 composition; their structural rebuild to the mocks is not done.
+- [ ] Fatigue waits 28 observed days like fitness (approved 7); no screen shows it alone.
+- [ ] Phone: check the 250 ms beat-adjacency rule's qualification rate on real nights, live-speed
+  constants on an outdoor walk and run, and the full lifecycle/background/soak matrix.
+- [ ] **Prerequisites:** keep the installed app signed past 2026-10-17; take an encrypted
+  off-phone backup before any Build 88 install.
+- [ ] Publication, CI/macOS build and testing IPA: separate approval.
+- [ ] Verify Codex first-use hook trust (advisory tooling, not an app blocker).
+
+**Not bundled:** personal quiet-HRR substitution, different recovery weights, Kalman smoothing, a
+replacement TDEE anchor, ML/Cole-Kripke staging, the chest-strap kit (C9) and the raw optical
+tail (C3 off). Accuracy gains remain unproven until reference evaluation.
+
 ## Build 87 (`0.9.54`/`87`): testing IPA ready, phone acceptance open
 
 **State:** Akshat requested an audit of installed Build 86 and a genuinely different,
@@ -196,11 +256,16 @@ capability boundaries, safety invariants and detailed acceptance checks.
 Implementation checklist:
 - [x] Resolve native lifecycle before scheduler/bootstrap work and guard every foreground-session
    entry. Coordinate queued native wakes with AppState so startup has one band owner.
-- [x] Cancel actual in-flight calculation on ordinary backgrounding; preserve committed results
+- [ ] Cancel actual in-flight calculation on ordinary backgrounding; preserve committed results
    and requeue unfinished work without pruning, finalizing or marking cancellation successful.
-- [x] Keep short BLE wakes transfer/commit/ACK-first. Replace the fallback's unconditional full
+   *Partly met (Build 87 source audit): scheduler-owned passes cancel and requeue, but detached
+   rescan/reanalyze/override/nap passes keep running, and a pass refused by the engine lock is
+   marked complete. `bugs.md` "Overnight Freshness And Sync Lifecycle Gaps"; Build 88 B88-05.*
+- [ ] Keep short BLE wakes transfer/commit/ACK-first. Replace the fallback's unconditional full
    light derive with queued calculation; propagate expiration, retire old workers and bound
-   ownership handoffs without overlapping ACKs or orphaned work.
+   ownership handoffs without overlapping ACKs or orphaned work. *Partly met: commit/ACK order and
+   queued calculation hold, but `acquireForeground` has no deadline and BG expiry leaves the
+   headless drain running (same `bugs.md` section).*
 - [ ] Preserve passive wrist steps and active workouts. Remove invisible UI work and profile
    the high-rate path; no silent HR-only switch, sparse-step reconstruction or metric deletion. *Source: background UI notifications coalesce; high-rate-path CPU profiling still needs the phone.*
 - [ ] Reuse unaffected calculation, prioritize today/new sleep, and keep raw-data freshness

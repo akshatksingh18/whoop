@@ -142,6 +142,11 @@ OpenStrap regression asset restored byte-for-byte from the pinned analytics revi
 
 ## Updating from OpenStrap
 
+Build 88 developer design tooling is installed separately from the app toolchain.
+`impeccable-setup.md` owns pinned skill/engine hashes, project hooks, first-use trust and native
+limitations; `product.md` is a minimal platform/context adapter. This installation does not
+change Flutter dependencies, app capabilities, signing, testing/backup IPA slots or build state.
+
 Fetch and review each named upstream independently. Protocol or analytics changes must be merged
 into their existing package histories and reviewed together with the app behavior they affect.
 Never copy a floating upstream worktree over a package, and never change an algorithm revision

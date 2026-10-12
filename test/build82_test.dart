@@ -30,7 +30,7 @@ Future<void> _host(WidgetTester t, void Function(BuildContext) open) async {
   addTearDown(t.view.reset);
   await t.pumpWidget(
     MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       home: Scaffold(
         body: Builder(
           builder: (c) => TextButton(

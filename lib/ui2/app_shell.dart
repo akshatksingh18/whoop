@@ -168,15 +168,16 @@ class _TabBar extends StatelessWidget {
       text.dispose();
       return measured > height ? measured : height;
     });
+    // Build 88: the tab bar is paper over the kraft, like the system bar.
     return ColoredBox(
-      color: p.bg,
+      color: p.card,
       child: SafeArea(
         top: false,
         minimum: const EdgeInsets.only(bottom: S.x1),
         child: Container(
           height: (labelHeight + 38).clamp(62, double.infinity),
           decoration: BoxDecoration(
-            color: p.bg,
+            color: p.card,
             border: Border(top: BorderSide(color: p.line)),
           ),
           child: Row(
@@ -207,7 +208,8 @@ class _Tab extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final ink = on ? p.ink : p.ink3;
+    // Build 88: the active tab is the recovery green (DESIGN.md).
+    final ink = on ? p.on(C.recovery) : p.ink3;
     return Semantics(
       selected: on,
       child: Pressable(
@@ -224,13 +226,13 @@ class _Tab extends StatelessWidget {
                 vertical: 3,
               ),
               decoration: BoxDecoration(
-                color: on ? p.wash(domain.accent) : const Color(0x00000000),
-                borderRadius: R.rSm,
+                color: on ? p.fill(C.recovery) : const Color(0x00000000),
+                borderRadius: R.rMd,
               ),
               child: Icon(
                 domain.icon,
                 size: 20,
-                color: on ? p.on(domain.accent) : ink,
+                color: on ? p.inkOnFill : ink,
               ),
             ),
             const SizedBox(height: 3),

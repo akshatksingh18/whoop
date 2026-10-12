@@ -101,6 +101,18 @@ lib/firebase_options.dart
 
 .codegraph/
 
+# Impeccable developer tooling: retain reviewed source/config, not binaries or local state.
+/.claude/skills/impeccable/scripts/bin/
+/.claude/settings.local.json
+/.impeccable/config.local.json
+/.impeccable/hook.cache.json
+/.impeccable/hook.pending.json
+/.impeccable/*.png
+/.impeccable/review/
+/.impeccable/mocks/
+/.impeccable/live/sessions/
+/.impeccable/runtime/
+
 # gen-l10n output — regenerated from lib/l10n/*.arb by `flutter gen-l10n`
 # (also runs automatically before build/analyze/test). The .arb files are
 # the source and stay tracked.

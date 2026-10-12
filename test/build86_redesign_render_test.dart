@@ -120,6 +120,16 @@ HomeData _home() {
   return HomeData(
     name: 'Alex',
     dayId: todayLabel(),
+    // Build 88: a week behind each row, one day missing (drawn hatched).
+    week: const {
+      'sleep': [412, 455, 398, null, 470, 440, 431],
+      'strain': [9.1, 12.4, 8.2, 14.0, 7.5, 10.2, 11.8],
+      'steps': [9800, 10400, 8700, 9900, 11200, 8100, 8642],
+      'food': [2210, 2400, 2050, null, 2330, 2190, 1450],
+    },
+    proteinToday: 112,
+    proteinTarget: 165,
+    kcalTarget: 2300,
     readiness: const Metric(value: 74, confidence: .8, tier: MetricTier.high),
     sleepMin: const Metric(
       value: 431,
@@ -168,14 +178,14 @@ Widget _app(AppState app, Widget child, double scale) => MultiProvider(
     key: const ValueKey('capture'),
     child: MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       builder: (c, w) => MediaQuery(
         data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
         child: w!,
       ),
       home: Scaffold(
         body: ColoredBox(
-          color: const P(true).bg,
+          color: const P(false).bg,
           child: SafeArea(child: child),
         ),
       ),

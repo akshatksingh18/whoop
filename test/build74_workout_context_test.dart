@@ -53,7 +53,7 @@ void main() {
         double? rate = 150;
         await t.pumpWidget(
           MaterialApp(
-            theme: buildTheme(Brightness.dark),
+            theme: buildTheme(Brightness.light),
             home: RepaintBoundary(
               key: const ValueKey('live-cadence-capture'),
               child: LiveMeasured(

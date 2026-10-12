@@ -15,8 +15,9 @@ Build 70 remains accepted recovery, and Build 86 remains installed. `build-85-au
 are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
 
-Stored metrics remain intact; any removal
-still needs Akshat's per-item approval.
+Build 88 source (branch `build-88`, algorithm 92) is implemented locally but not built or
+installed; where it changes what a screen shows, the paragraph below says "Build 88 source".
+Stored metrics remain intact; any removal still needs Akshat's per-item approval.
 
 ## What is stored
 
@@ -24,11 +25,64 @@ still needs Akshat's per-item approval.
 
 | Store | What it holds | Kept |
 |---|---|---|
-| `decoded_onehz` | 1-second heart rate, motion, skin temperature, per-second steps | about 3 days after a day is fully analysed |
-| `decoded_rr` | every beat-to-beat interval (the HRV input) | same as above |
-| `raw_records` / `raw_archive` | undecoded band frames kept for replay and recovery | same as above; unknown formats archived longer |
+| `decoded_onehz` | timestamped heart rate/motion and family-specific raw fields; WHOOP 4 has no historical step counter or verified temperature field | about 3 days after a day is fully analysed |
+| `decoded_rr` | decoded reported beat intervals (variable coverage; HRV input) | same as above |
+| `raw_archive` | undecodable/unknown-format frames, not a complete raw backup | retained, except old `undecodable_rec_v20` frames selectively thinned to one in 60 |
+| `raw_records` | legacy raw-frame store | dropped by the current open-schema path; not available as a permanent replay ledger |
+
+The usual decoded cutoff is three days behind the newest committed data edge, with bounded
+protection for unfinished derivation. Inspect actual retained inputs before promising historical
+recalculation; immutable derived results do not recreate pruned sensor observations.
 
 Nothing a screen shows depends on raw data once a day is analysed.
+
+### Sleep inputs and WHOOP comparison
+
+The personal app reads the WHOOP 4 band's historical Bluetooth records, not WHOOP cloud sleep
+results. `packages/protocol/lib/src/records.dart` decodes timestamps, heart rate, beat-to-beat
+intervals (0-4 observed per record; the historical decoder accepts up to 8) and a three-axis
+gravity/motion vector. The green optical count is decoded but not stored. Wear events qualify recording
+gaps; they are not sleep-stage labels. The optical-block counts are not a continuous PPG waveform.
+
+`calendarDays` in `lib/compute/substrate.dart` finds the main sleep ending on the local day,
+using the single `segmentSleep` path. Motion/heart-rate candidate windows are staged by the
+transparent `cardioStager` in 30-second epochs using movement, HR and RR-derived variability.
+Asleep time, light/deep/REM, wakes and efficiency come from that same staging. Missing observations
+remain unobserved, not invented sleep. Stages, especially the light/deep split, are estimates;
+coverage confidence is not measured accuracy or a probability that a label is correct.
+
+`onehz_pipeline.dart` computes nightly HRV as the mean of cleaned five-minute RMSSD windows,
+resting HR from the lowest qualifying 30-minute sleep window, and breathing from RR modulation.
+The primary helper currently splits rejected reported beats but can join unreported time inside
+one bucket and qualify a window from one surviving difference; `bugs.md` records a synthetic
+reproduction. Do not interpret "five-minute" as five minutes of verified beat coverage.
+These are local calculations, not device-supplied nightly scores. WHOOP documents heart-rate and
+movement sleep detection and machine-learning staging, and a differently weighted whole-night
+HRV. Similar signal families do not imply identical models, values or validated accuracy.
+Its official OAuth API exposes processed sleep summaries; this app does not use that API.
+
+Official references, checked 2026-10-11:
+- [Activity and sleep detection](https://support.whoop.com/s/article/Automatic-and-Manual-Activity-Detection)
+- [WHOOP cycles and sleep staging](https://support.whoop.com/s/article/WHOOP-Cycles?language=en_US)
+- [WHOOP Recovery and HRV weighting](https://support.whoop.com/s/article/WHOOP-Recovery)
+- [Official API sleep/recovery schemas](https://developer.whoop.com/api/)
+
+**Open WHOOP 4 field-integrity issue:** `skinTempRaw` is explicitly deprecated by the protocol
+decoder as an unverified fast optical-block quantity, not temperature. The app still feeds it
+into `skin_temp_adc`, temperature-labelled curves/deviation and potentially readiness. A relative
+z-score does not establish the field's physical meaning. Do not treat these WHOOP 4 outputs as
+validated temperature. `bugs.md` owns the finding and `todo.md` the queued, unimplemented
+Build 88 repair gate. `metrics-accuracy-research-prompt.md` is the source-backed research brief,
+and `metrics-accuracy-research.md` is the completed primary-source desk review with family-by-family
+assessment, additional source findings and ranked proposals. Neither establishes physical accuracy
+or implements changes. Akshat selected hiding unsupported WHOOP 4 rows in Trends/Sleep while
+retaining history, and primary-only headline HRV with unavailable primary left absent and labelled
+secondary details. These decisions are not implemented. Primary HRV continuity/coverage and
+partially missing load densification still require the qualification/version policies in the plan.
+`build-88-plan.md` condenses the report and both supplied AI analyses into proposed work packages;
+it does not replace this current calculation inventory or approve new coefficients.
+Sleep detection/staging does not consume this field. SpO2 is already refused by the pipeline;
+the decoded red/IR counts are not sufficient for a trustworthy oxygen percentage.
 
 ### 2. Per-day scalars (`metric_series`, kept forever)
 
@@ -37,7 +91,8 @@ One number per day. These drive every trend, baseline and "against your usual" c
 **Recovery and heart**
 - `readiness` = recovery score
 - `rhr` = resting heart rate
-- `rmssd` = HRV. Also `ln_rmssd`, `sdnn` and `hrv_cv` (night-to-night swing)
+- `rmssd` = HRV. Also `rmssd_whole`, `ln_rmssd`, `sdnn` and `hrv_cv`
+  (within-night NN-interval CV: `100 * SDNN / meanNN`, not night-to-night HRV variation)
 - `lf_hf` = HRV frequency balance
 - `prsa_dc` = deceleration capacity
 - `dip_pct` = how far heart rate falls in sleep
@@ -57,8 +112,9 @@ One number per day. These drive every trend, baseline and "against your usual" c
 
 **Breathing and temperature**
 - `resp_rate` = breaths per minute in sleep
-- `brv_cv` = breathing variability
-- `skin_temp_z`, `skin_temp_adc` and `skin_temp_coverage_frac`
+- `brv_cv` = breathing variability; `brv_slope` = qualified window-rate trend
+- `skin_temp_z`, `skin_temp_adc`, `skin_temp_coverage_frac` and `skin_temp_settled_frac`
+  (WHOOP 4 temperature-labelled legacy outputs, not validated temperature)
 
 **Load and activity**
 - `strain` (0–21) and `trimp` = cardio load
@@ -142,7 +198,7 @@ local destinations and acceptance gates are documented in `build-87-ui-plan.md`.
 | Steps, walking kcal | card | separate Steps and Step calories rows | Steps with inline hourly source graph; separate kcal trend |
 | Maintenance estimate | card: resting · steps · run · food; tap for the detail sheet | step calories row | Food → Today (card and sheet) and History |
 | Breathing rate | — | only when measured on at least half the nights of the last 30 | metric detail; Sleep overnight row when measured; Readiness says why it was not counted |
-| Skin temperature | — | once 7 of the last 30 nights have one | metric detail (this band's nights only, as a difference from usual); Sleep overnight row |
+| Skin temperature-labelled legacy output | — | once 7 of the last 30 nights have one | metric detail and Sleep overnight row remain in Builds 86/87, but WHOOP 4 channel semantics are unverified; do not interpret the deviation as temperature |
 | Wear time | — | yes | metric detail, with recorded hourly wear and unmeasured gaps |
 | Breathing pattern in sleep | — | — | one tap below Sleep |
 | Bedtime and sleep need | — | — | not shown (still computed); the wind-down reminder is off and hidden |
@@ -168,8 +224,9 @@ breathing history and shared readout/time limits are implemented in build 74;
 **Readiness inputs (build-81 source, algorithm 91):** HRV 35%, resting HR 25%, last night's
 total sleep 20%, breathing 12%, skin temperature 8%, each a robust z against your own trailing
 nights (14 needed per input). Sleep's shortfall counts in full; a longer night than usual adds at
-most one deviation. The "What drove it" breakdown uses the same weights and shows a Sleep row.
-Scores stored before algorithm 91 keep the four-input formula.
+most one deviation. Scores stored before algorithm 91 keep the four-input formula. The "What
+drove it" breakdown and the Low readiness notification used the separate glass-box model in
+Builds 86/87; Build 88 source reads the composite's own contributions for both (B88-11).
 
 **What moves it (build-81 source, personal build):** Recovery, HRV, resting HR and Sleep metric
 screens show patterns from logged data (`lib/data/recovery_movers.dart`): the morning after eating
@@ -182,9 +239,14 @@ replaced is no longer collected.
 through the shared metric screen with the same ranges; its inputs open their own metric.
 Dragging an empty day reads its stored reason (14-night baseline building, no sleep heart data, HRV or resting HR not measured, held back).
 
-The end-to-end readiness audit found no bug. Each night writes HRV (`ln_rmssd`), resting HR,
+The earlier readiness read/baseline audit found no defect in the headline baseline read; it did not validate
+the physical meaning of the WHOOP 4 temperature channel. The open temperature-field mismatch
+above can affect readiness in Builds 86/87; Build 88 source removes it from every input.
+Each night writes HRV (`ln_rmssd`), resting HR,
 breathing and skin temperature into `metric_series`. `_BaselineHistoryCache` reads the last 28
-earlier values per input, excluding imported days and other band families. `readinessComposite`
+earlier stored values per input, with no calendar-age bound, excluding imported days and other
+band families. That exclusion applies to this headline baseline only; cross-day detectors do not
+filter imports. `readinessComposite`
 requires at least 14 earlier nights per input, at least two usable inputs and at least half the
 weight; robust z-scores are combined with weights renormalised over available inputs. Missing
 scores store `readiness_absent_diag`; `readinessGap` exposes the per-day reason. The sparse history
@@ -218,7 +280,8 @@ food/session history rather than fixed 400-day/year caps; failed families retain
 view when available, display Retry and withhold combined advice. Algorithm 91 is unchanged.
 
 Local Build 87 shows protein alongside calories in diary meal/group totals, saved-meal rows and
-copy previews. Partial totals are explicitly floors; absent protein remains untracked.
+copy previews. Absent protein remains untracked; remaining meal-card/meal-page calorie-floor
+labelling gaps are documented in `bugs.md` and queued for Build 88, not universally fixed.
 Today has recorded 10-minute/1-hour/Day HR views, direct diary portion editing and All-workout
 activity/date filters. These change presentation/access, not metric formulas or history.
 
@@ -228,6 +291,11 @@ entry; Build 86 adds explicit Complete/Incomplete overrides. Missing optional ma
 exclude a calorie day. Protein averages require eligible days with complete protein coverage,
 not merely a displayed protein total or completed calorie diary. Counts/exclusions are separate
 by nutrient; the app cannot detect every forgotten food or prove a complete diary.
+Build 88 source: a past day counts only when marked complete (D13); the evening-entry heuristic
+is gone. Meal and day totals with an unknown item say "at least"; the food/weight estimate uses a
+robust slope with a range and hides past ±300 kcal/day.
+Recorded strain stays an estimate with its prescriptive target hidden until calibrated, and all
+health findings respect app quiet hours. `build-88-plan.md` owns these choices and the version gates.
 All four macro rows/icons remain visible; in Build 86 an unlogged nutrient displays as unknown,
 not zero. Activity streaks accept ten active recorded purposeful-exercise minutes (including lifts
 and Other exercise) OR reaching the
@@ -241,7 +309,7 @@ streak and does not earn the general activity streak. `lib/compute/streak.dart` 
 ### Computed and stored, but shown on no screen
 
 Still calculated every day and kept in `metric_series`, so a screen can be added back with its
-history intact: stress score, LF/HF, HRV night-to-night swing, deceleration capacity, heart-rate
+history intact: stress score, LF/HF, within-night NN-interval CV, deceleration capacity, heart-rate
 dip, heart-rate recovery, breathing variability, TRIMP, active minutes, sleep efficiency / deep /
 REM as their own trend charts, chronotype, social jetlag and sleep regularity, fitness / fatigue /
 form (training load), next-morning session cost, and the beat-by-beat night data.
@@ -250,8 +318,10 @@ form (training load), next-morning session cost, and the beat-by-beat night data
 
 1. **Total sleep:** time asleep, in bed, bedtime → wake, and % asleep while in bed.
 2. **Through the night:** stage chart (deep in the sleep violet) with the stage names only in the
-   colour key and five clock marks. Drag it: time · stage · heart rate · HRV · skin temperature
-   (against the night's average, °C) show in two wrapping header rows. Deep uses the same violet in
+   colour key and five clock marks. Drag it: time, stage and available cardiac signals show in
+   wrapping header rows. The legacy WHOOP 4 raw-count temperature scrub value was removed in
+   Build 86; the remaining temperature-labelled row/chart is still unverified. No WHOOP 4 °C
+   readout is valid. Deep uses the same violet in
    Stages. A compact wake-up/stretch summary stays visible; full caveats are under Night details.
 3. **Stages:** Deep, REM, Light (minutes and % of sleep, summing to total sleep) and Awake.
 4. **Against your usual:** your last 28 nights for time asleep, deep sleep, % asleep while in bed
@@ -403,7 +473,17 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout Decisions (Local Build 87; Build 86 Still Installed)
+## Layout Decisions (Build 87 Built; Build 88 Source Restyled; Build 86 Installed)
+
+**Build 88 source (DESIGN.md):** light kraft ground, cream 26 pt panels with every Surface,
+family colours (recovery, sleep, strain, food, body; amber only for NEW/unavailable), a paper
+tab bar with a green active tab and a paper range chip. Today is one panel: recovery hero
+(116 pt, band word, HRV/resting HR, NEW on a newly seen night) then Sleep/Strain/Food/Protein/
+Steps rows with seven-day tiles, then Maintenance; the HR card, daily actions, maintenance
+card and week card follow as panels. Trends rows are label/chart/value: bars at 7 days, a daily
+line under a 7-day average at 30 days, weekly points over a low-high band at 3 months; missing
+days are hatched and no line bridges a gap. Status adds a Sync health group; Settings adds a
+switch per health-alert kind. The Build 87 bullets below otherwise still describe structure.
 
 - **Tabs:** Today / Trends / Food / Train / Progress; Food keeps Today / History / Foods. Body
   lives in Progress, Pushups in Train with a compact Today shortcut. No sixth destination.

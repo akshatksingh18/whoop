@@ -1611,7 +1611,33 @@ import 'substrate.dart';
 // both the headline composite and the glass-box breakdown (packages/analytics
 // readiness_composite.dart + readiness_glassbox.dart). Retained days re-derive;
 // older stored scores keep the formula they were computed with.
-const int kAlgoVersion = 91;
+// 91 -> 92 (Build 88, one bump for every output change in it; build-88-plan.md
+// owns the packages):
+//   B88-01 WHOOP 4 `skinTempRaw` is not temperature: temperature outputs, the
+//     anomaly/temp-illness inputs and the glass-box temp term are gated to
+//     verified families.
+//   B88-02 load uses net TRIMP over observed (>=16 h worn) day runs; unknown
+//     days are not rest; the strain target is withheld; day zone minutes use
+//     the pipeline's trainingZones set; strain-dependent sleep need and the
+//     strain mover count observed days only.
+//   B88-03 timestamp-adjacent beat pairs everywhere (headline RMSSD, rolling
+//     curves, daytime HRV, PRSA, irregular-rhythm screens) with explicit
+//     window/night qualification; the headline baseline reads `ln_rmssd_v2`
+//     only; RSA per-window coverage/Nyquist and 6-window nights; BRV uses the
+//     real artifact fraction; stress needs 20 min and 3 gap-free windows; one
+//     HRR tau (analytics); nadir time is the lowest 5-min stretch.
+//   B88-04 breathing-lane stillness is relative to the window median; SRI
+//     pairs observed all-day epochs; HR-led fallback nights need 3 h at
+//     night; each day's sleep need is stored for the next morning's bar.
+//   B88-05 overnight freshness never presents an earlier night as today's.
+//   B88-06 low-HR lifting prices by MET, DST-length BMR, fabricated/over-4 h
+//     and overlapping lifts, partial-run steps kept known.
+//   B88-11 low readiness reads the headline composite; RHR-shift evidence
+//     restarts after a 7-day gap; imported days leave cross-day inputs;
+//     baselines are bounded to 60 days; the anomaly flag is one-sided.
+// Retained days re-derive; older stored rows keep the version they were
+// computed with, and the new HRV baseline never mixes in old-method nights.
+const int kAlgoVersion = 92;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

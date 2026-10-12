@@ -34,26 +34,40 @@ import 'package:flutter/material.dart';
 /// them fail AA on white. Run them through [P.on] (accent as text) or
 /// [P.fill] (accent as a filled surface under [P.inkOnFill]) first.
 class C {
-  // primary
-  static const green = Color(0xFF58D6A0);
-  static const greenD = Color(0xFF35B982);
-  static const blue = Color(0xFF7BAEF4);
-  static const purple = Color(0xFFB49AF4);
+  // ── Build 88 families (DESIGN.md, locked by Akshat). One flat earth/jewel
+  // colour per metric family, used only for that family's data; [alert] only
+  // marks NEW, unavailable and stale values and never decorates.
+  static const recovery = Color(0xFF2E7D63);
+  static const sleepInk = Color(0xFF34478F);
+  static const strainInk = Color(0xFFC24E25);
+  static const food = Color(0xFFD9961A);
+  static const body = Color(0xFF7A4F30);
+  static const alert = Color(0xFFC8551B);
+
+  /// The fill behind a missing day's hatching. Not an ink: never text.
+  static const hatch = Color(0xFFCDBBA2);
+
+  // primary — the earth/jewel set the families are drawn from. Screens that
+  // still name a raw pigment get the Build 88 tone of it.
+  static const green = recovery;
+  static const greenD = Color(0xFF23664F);
+  static const blue = sleepInk;
+  static const purple = Color(0xFF5B4A8C);
 
   // secondary
-  static const orange = Color(0xFFF7B17A);
-  static const red = Color(0xFFF47B79);
-  static const teal = Color(0xFF5DD5D0);
-  static const yellow = Color(0xFFF2CB74);
-  static const pink = Color(0xFFF299B8);
-  static const indigo = Color(0xFF9CA5F3);
+  static const orange = strainInk;
+  static const red = Color(0xFFB23A3A);
+  static const teal = Color(0xFF2F7F86);
+  static const yellow = food;
+  static const pink = Color(0xFFA8506E);
+  static const indigo = Color(0xFF3F4A8A);
 
   /// Two light blues the ramps need and nothing else does: the light-sleep
   /// lane sits between REM and deep, and zone 1 sits below `blue`. They live
   /// here rather than inside the painters because a palette that is partly in
   /// theme.dart and partly in charts.dart is two palettes.
-  static const sky = Color(0xFF7DD3FC);
-  static const blueSoft = Color(0xFF93C5FD);
+  static const sky = Color(0xFF4F7FB8);
+  static const blueSoft = Color(0xFF6F8FC4);
 
   /// The route ramp, and only the route ramp.
   ///
@@ -109,17 +123,18 @@ class C {
   /// One colour per pillar, used wherever that pillar appears: the ring,
   /// its Trends row, its charts. Recovery itself takes green, amber or red
   /// from its own band (see `readinessBand`).
-  static const strain = blue;
-  static const sleep = purple;
-  static const heart = Color(0xFFFF8794);
-  static const run = orange;
-  static const steps = teal;
+  static const strain = strainInk;
+  static const sleep = sleepInk;
+  // Heart rate, HRV and resting HR belong to the recovery family.
+  static const heart = recovery;
+  static const run = strainInk;
+  static const steps = body;
 
-  static const domHome = green;
-  static const domHealth = blue;
-  static const domFood = orange;
-  static const domMove = purple;
-  static const domMind = teal;
+  static const domHome = recovery;
+  static const domHealth = recovery;
+  static const domFood = food;
+  static const domMove = strainInk;
+  static const domMind = body;
 
   /// Every accent the contrast test sweeps. Adding a colour above without
   /// adding it here means it ships unverified.
@@ -146,6 +161,12 @@ class C {
     heart,
     run,
     steps,
+    recovery,
+    sleepInk,
+    strainInk,
+    food,
+    body,
+    alert,
   ];
 }
 
@@ -158,10 +179,14 @@ class P {
 
   static P of(BuildContext c) => P(Theme.of(c).brightness == Brightness.dark);
 
-  Color get bg => dark ? const Color(0xFF1B1C19) : C.n50;
-  Color get card => dark ? const Color(0xFF262922) : C.white;
-  Color get card2 => dark ? const Color(0xFF30352C) : C.n100;
-  Color get line => dark ? const Color(0xFF424A3B) : C.n200;
+  /// Build 88 light appearance (DESIGN.md): the deep kraft [bg] ground, cream
+  /// [card] paper panels the data sits on, a slightly deeper [card2] well,
+  /// and the [line] rule inside panels. The dark values are kept only so the
+  /// contrast sweep still covers them; the app runs light.
+  Color get bg => dark ? const Color(0xFF1B1C19) : const Color(0xFFC9AE84);
+  Color get card => dark ? const Color(0xFF262922) : const Color(0xFFF4EBDA);
+  Color get card2 => dark ? const Color(0xFF30352C) : const Color(0xFFEBDFC9);
+  Color get line => dark ? const Color(0xFF424A3B) : const Color(0xFFE2D2B8);
 
   /// The hairline round every card (build 85): a card is lifted by its edge
   /// and a soft top light, not by a shadow the dark page cannot show.
@@ -183,14 +208,21 @@ class P {
   Color glow(Color accent) => accent.withValues(alpha: dark ? .16 : .10);
   Color get track => line;
 
-  Color get ink => dark ? const Color(0xFFF8F8F3) : C.n900;
-  Color get ink2 => dark ? const Color(0xFFCED2C5) : C.n600;
+  Color get ink => dark ? const Color(0xFFF8F8F3) : const Color(0xFF2A211B);
+
+  /// Secondary ink. Solved so it clears AA on the kraft ground as well as the
+  /// paper (Build 88): DESIGN's #6E6155 measures 2.82:1 on the ground, and
+  /// screens still place secondary text there.
+  Color get ink2 => dark ? const Color(0xFFCED2C5) : const Color(0xFF463A31);
+
+  /// Text placed directly on the kraft ground: titles and section heads.
+  Color get onGround => dark ? ink : const Color(0xFF3B2F23);
 
   /// The muted caption ink. Hand-solved to clear 4.5:1 on [card2], the darkest
   /// (light theme) / lightest (dark theme) surface it can sit on — so it is
   /// legible on every surface, not just the one it was eyeballed against.
   /// The values it replaces measured 4.34:1 and 3.21:1 respectively.
-  Color get ink3 => dark ? const Color(0xFFBFC7B4) : const Color(0xFF627188);
+  Color get ink3 => dark ? const Color(0xFFBFC7B4) : const Color(0xFF4E4239);
 
   /// The ink that goes on top of a [fill]. White by construction — [fill]
   /// darkens the accent until white clears AA on it.
@@ -208,9 +240,20 @@ class P {
   /// solver only ever nudges toward the page ink, so clearing the second
   /// surface cannot un-clear the first.
   Color on(Color accent) {
-    final toward = dark ? ink : C.n900;
+    final toward = dark ? ink : const Color(0xFF2A211B);
     final flat = _solve(accent, toward, card2, dark);
-    return _solve(flat, toward, Color.alphaBlend(wash(accent), card2), dark);
+    final washed = _solve(
+      flat,
+      toward,
+      Color.alphaBlend(wash(accent), card2),
+      dark,
+    );
+    // Build 88: in the light appearance the kraft ground — and the accent's
+    // own wash over it — are the darkest surfaces accent text can land on,
+    // so both are solved against too.
+    if (dark) return washed;
+    final ground = _solve(washed, toward, bg, dark);
+    return _solve(ground, toward, Color.alphaBlend(wash(accent), bg), dark);
   }
 
   /// [accent] rendered as a FILLED surface under [inkOnFill], darkened until
@@ -233,11 +276,12 @@ class P {
   List<BoxShadow> el(int level) {
     if (level <= 0) return const [];
     if (dark) return const [];
+    // Build 88: a soft warm shadow lifts the paper off the kraft.
     return [
       BoxShadow(
-        color: C.n900.withValues(alpha: .04 + level * .015),
-        blurRadius: 5.0 * level,
-        offset: Offset(0, level * 1.2),
+        color: onGround.withValues(alpha: .08 + level * .03),
+        blurRadius: 14.0 + 4.0 * level,
+        offset: Offset(0, 3.0 + 2.0 * level),
       ),
     ];
   }
@@ -368,6 +412,49 @@ class F {
     letterSpacing: 0,
   );
 
+  /// Build 88 hero number (DESIGN.md): light weight, about 116 pt, tabular.
+  static const hero = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 116,
+    height: 1,
+    fontWeight: FontWeight.w300,
+    letterSpacing: -2,
+    fontFeatures: _tab,
+  );
+
+  /// The hero for long values such as 1,920, 80.4 or 4.21.
+  static const heroLong = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 88,
+    height: 1,
+    fontWeight: FontWeight.w300,
+    letterSpacing: -1.5,
+    fontFeatures: _tab,
+  );
+
+  /// Build 88 row value: 30 pt semibold, tabular.
+  static const n30 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 30,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+    fontFeatures: _tab,
+  );
+
+  /// Build 88 row label: 11.5 pt uppercase with 0.12 em tracking.
+  static const label = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 11.5,
+    height: 14 / 11.5,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 11.5 * .12,
+  );
+
   // Numerals — a parallel display ramp. Tabular, so a live value never jitters
   // its own layout as digits change.
   static const n48 = TextStyle(
@@ -434,6 +521,10 @@ class R {
   static const xl = 24.0;
   static const xxl = 32.0;
   static const pill = 999.0;
+
+  /// Build 88 panel corner (DESIGN.md: 26 pt continuous corners).
+  static const panel = 26.0;
+  static const rPanel = BorderRadius.all(Radius.circular(panel));
 
   static const rSm = BorderRadius.all(Radius.circular(sm));
   static const rMd = BorderRadius.all(Radius.circular(md));
@@ -533,7 +624,7 @@ ThemeData buildTheme(Brightness b) {
     brightness: b,
     scaffoldBackgroundColor: p.bg,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: C.green,
+      seedColor: C.recovery,
       brightness: b,
       surface: p.card,
     ),

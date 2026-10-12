@@ -26,7 +26,7 @@ Future<void> _until(WidgetTester t, bool Function() done) async {
 Widget _app(AppState app, double scale) => ChangeNotifierProvider<AppState>.value(
   value: app,
   child: MaterialApp(
-    theme: buildTheme(Brightness.dark),
+    theme: buildTheme(Brightness.light),
     builder: (c, w) => MediaQuery(
       data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
       child: w!,

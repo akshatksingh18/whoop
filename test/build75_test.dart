@@ -337,7 +337,7 @@ void main() {
       final groups = {'a': 'Oatmeal', 'b': 'Oatmeal', 'c': ''};
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: SingleChildScrollView(
               child: GroupedDragList<String>(
@@ -370,7 +370,7 @@ void main() {
     ) async {
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: SingleChildScrollView(
               child: GroupedDragList<String>(
@@ -393,7 +393,7 @@ void main() {
     testWidgets('pulling a sheet past its top closes it', (t) async {
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Builder(
             builder: (c) => Scaffold(
               body: TextButton(
@@ -428,7 +428,7 @@ void main() {
     ) async {
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: const Scaffold(body: CalorieCard(eaten: 1475, goal: 2202)),
         ),
       );
@@ -486,7 +486,7 @@ void main() {
       final amount = TextEditingController(text: '142');
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: AmountInput(controller: amount, def: sausage, unit: unit),
           ),
@@ -537,7 +537,7 @@ void main() {
       List<(String, String)>? got;
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: SingleChildScrollView(
               child: GroupedDragList<String>(
@@ -576,7 +576,7 @@ void main() {
     String text(WidgetTester t, String label, [int i = 0]) =>
         t.widget<TextField>(field(label).at(i)).controller!.text;
     Widget host(Widget child) => MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       home: Scaffold(body: child),
     );
 
@@ -791,7 +791,7 @@ void main() {
     Future<void> pump(WidgetTester t, Map<String, Object?> def) =>
         t.pumpWidget(
           MaterialApp(
-            theme: buildTheme(Brightness.dark),
+            theme: buildTheme(Brightness.light),
             home: Scaffold(
               body: AmountInput(
                 controller: TextEditingController(text: '1'),

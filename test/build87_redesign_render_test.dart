@@ -276,7 +276,7 @@ Widget _app(
     key: const ValueKey('capture'),
     child: MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       builder: (c, w) => MediaQuery(
         data: MediaQuery.of(c).copyWith(
           textScaler: TextScaler.linear(scale),
@@ -384,7 +384,7 @@ ProgressData _progress({bool empty = false, bool failed = false}) {
   );
 }
 
-HealthData _trends() {
+HealthData _trends({int days = 30, bool gaps = false}) {
   final now = DateTime.now();
   return HealthData(
     charts: {
@@ -402,11 +402,14 @@ HealthData _trends() {
         ('wear', 1350.0),
       ])
         name: [
-          for (var i = 0; i < 30; i++)
-            (
-              t: _ts(DateTime(now.year, now.month, now.day - (29 - i), 12)),
-              v: base + (i % 5).toDouble(),
-            ),
+          for (var i = 0; i < days; i++)
+            if (!gaps || (i % 11 != 3 && (i < 40 || i > 48)))
+              (
+                t: _ts(
+                  DateTime(now.year, now.month, now.day - (days - 1 - i), 12),
+                ),
+                v: base + (i % 5).toDouble() + (i % 13) / 3,
+              ),
         ],
     },
   );
@@ -775,7 +778,7 @@ void main() {
     for (final color in C.all) {
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: BigButton('Add entry', color: color, onTap: () {}),
           ),
@@ -791,7 +794,7 @@ void main() {
       );
       final fill = (container.decoration! as BoxDecoration).color!;
       final ink = t.widget<Text>(find.text('Add entry')).style!.color!;
-      expect(fill, Color.alphaBlend(color, const P(true).card));
+      expect(fill, const P(false).fill(color));
       expect(P.contrast(ink, fill), greaterThanOrEqualTo(4.5));
     }
   });
@@ -1211,7 +1214,12 @@ void main() {
         _app(app, HomeScreen(data: _home(), hour: 9), 2, ShellDomain.home),
       );
       await _settle(t);
-      await t.drag(find.byType(Scrollable).first, const Offset(0, -550));
+      // Build 88's Today panel is taller; scroll to the card, not a distance.
+      await t.scrollUntilVisible(
+        find.text(window),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await t.pumpAndSettle();
       await t.tap(find.text(window));
       await t.pumpAndSettle();
@@ -1242,7 +1250,7 @@ void main() {
   ) async {
     await t.pumpWidget(
       MaterialApp(
-        theme: buildTheme(Brightness.dark),
+        theme: buildTheme(Brightness.light),
         home: const Scaffold(
           body: CalorieCard(eaten: null, goal: 2300, maintenance: 2600),
         ),
@@ -1346,7 +1354,8 @@ void main() {
       expect(text, contains('−4 vs '));
       expect(text, isNot(contains('previous week')));
       final prior = DateTime.parse(
-        BodyLogDb.blockStart(label(-21), d.measureWeekday),
+        // B88-08: weight weeks run Monday–Sunday.
+        BodyLogDb.blockStart(label(-21), DateTime.monday),
       );
       const months = [
         'Jan',
@@ -1415,6 +1424,18 @@ void main() {
           ('food', ShellDomain.nutrition, () => const NutritionScreen()),
           ('train', ShellDomain.workout, () => const WorkoutScreen()),
           ('trends', ShellDomain.health, () => HealthScreen(data: _trends())),
+          // Build 88: the 30-day line + 7-day average and the 3-month weekly
+          // band, both over data with real gaps.
+          (
+            'trends_30',
+            ShellDomain.health,
+            () => HealthScreen(data: _trends(days: 90, gaps: true), range: 2),
+          ),
+          (
+            'trends_90',
+            ShellDomain.health,
+            () => HealthScreen(data: _trends(days: 90, gaps: true), range: 3),
+          ),
           (
             'progress',
             ShellDomain.progress,

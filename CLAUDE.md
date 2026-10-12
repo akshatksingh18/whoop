@@ -40,6 +40,19 @@ Pushups stays installed and unchanged until import and phone acceptance. A SideS
 (`../akshatos/sidestore-evaluation.md`), with laptop setup reported; on-phone handover and renewal
 remain unconfirmed. No refresh ownership changes were made by this check.
 
+Build 88 is implemented in local source on branch `build-88` (algorithm 92), not pushed, built,
+installed or phone-verified. Akshat approved `build-88-proposal.md` with every recommendation and
+locked `DESIGN.md` (light kraft ground, cream panels, family colours). All twelve packages are in
+source: temperature integrity, observed-day load and a withheld strain target, timestamp-adjacent
+HRV with frozen gates, sleep/breathing coverage, sync freshness and lifecycle bounds, live speed,
+food/energy completeness, strength and advice qualification, honest alerts, the good-to-have set
+and the redesign (Today and Trends rebuilt to the mocks; the other screens restyled through shared
+tokens). `todo.md` owns what is done and the open decisions and phone gates; `build-88-plan.md`
+the specifications; `bugs.md` what each repair closed. Impeccable stays developer tooling only.
+`metrics-accuracy-research.md` owns detailed evidence, including the expanded local HRV/strength
+audit. Physical accuracy validation remains open; the indexed accuracy/design prompts are
+reusable briefs, not authorizations.
+
 Build `0.9.37`/`70` remains accepted after
 Akshat confirmed the feature phone check and current-version automatic-refresh enrollment; it is
 the recovery/refresh build in `final-ipas\whoop\backup\`. Build `0.9.39`/`72` was installed,
@@ -130,7 +143,10 @@ It adds:
   - The breathing-pattern screen is a single card.
   - "Fix sleep times" is folded.
 - **Skin temperature:** charted from this band's nights.
-- **Readiness:** the end-to-end audit (`metrics-map.md`) found no bug. The history is coloured bars with a
+- **Readiness:** the earlier read/baseline audit (`metrics-map.md`) found no defect in the
+  headline baseline read; it did not validate the temperature channel (open Build 88 repair). The
+  Build 88 second-pass audit found that the on-screen breakdown and the Low readiness alert use a
+  different model (`bugs.md`, B88-11). The history is coloured bars with a
   per-day reason, and it shows why breathing was not counted.
 - **Steps, phone first:** `resolveDaySteps(phoneFirst: kPersonalSideload)`; build 70 uses `kAlgoVersion` 87.
 - **Runs:** medal pins on the map, phone steps and cadence (plus a chart), and spoken km cues (the
@@ -212,8 +228,38 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
+- `todo.md` — Build 88 implemented-in-source list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
+- `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,
+  cream panels, tiles, Trends bars) and its tokens; local sketches live in gitignored
+  `.impeccable/mocks/screens/`. Read before UI work. Locked; implemented in Build 88 source.
+- `build-88-proposal.md` — plain-language Build 88 scope, proposed per-metric quality/history
+  rules, optional choices explained and the Impeccable design options; read when reviewing or
+  approving Build 88. Approved with every recommendation.
+- `build-88-plan.md` — condensed source/research/AI-analysis reconciliation, twelve work
+  packages (implemented in source), feature-preserving acceptance criteria and deferred experiments; read before selecting
+  or changing Build 88 behavior. A specification, not a precision claim.
+- `impeccable-setup.md` — pinned Impeccable skill/Windows engine, hook scope/trust, native Flutter
+  limits, local validation and recovery; read before installing/updating hooks or designing Build 88.
+- `product.md` — minimal Impeccable-native platform/context adapter linking the canonical owning
+  documents; required for iOS routing, not a duplicate product/feature/status authority.
+- `.codex/hooks.json` and `tool/impeccable-hook.ps1` — provider-required project hooks and the
+  offline, checksum-pinned Windows engine wrapper; not a separate instruction system.
+  First-use trust/automatic delivery is unverified. No automatic download or PATH fallback.
+- `.claude/skills/impeccable/SKILL.md` — required Build 88 UI design discipline and installed
+  playbooks; canonical copy for all agents. Never treat its tool output as permission to publish,
+  upload data, bypass trust or alter app algorithms.
+- `metrics-accuracy-research-prompt.md` — self-contained WHOOP 4 input/formula inventory and
+  official-source accuracy/validation research brief; read before broad algorithm research.
+  A prompt, not a completed study or an implementation authorization.
+- `metrics-accuracy-research.md` — completed source/primary-source desk research across cardiac,
+  sleep, recovery, training, energy, body and integrated progress; ranked Build 88 proposals and
+  reference-validation/version gates, not implemented fixes or validated accuracy. Read before
+  selecting algorithm changes.
+- `ui-design-research-prompt.md` — self-contained feature/flow inventory and open design brief
+  for the requested structural, contrasting-colour redesign using the selected Impeccable/native
+  workflow; no design or source changes are
+  accepted merely by creating this brief.
 - `build-86-audit.md` — source-reviewed reported bugs, additional reliability/insight risks,
   structural UX proposals, the Pushups port, public evidence and unexecuted/device test
   gates; read before implementing the expanded build-86 scope.
@@ -805,6 +851,10 @@ As implementation proceeds, update all affected sources in the same coherent cha
   source of truth and remove superseded planned wording in the same change.
 
 ## Working agreement
+- **Build 88 UI work must use the installed Impeccable native playbooks.** Follow
+  `impeccable-setup.md` and `ui-design-research-prompt.md`; review materially different concepts
+  before production code. Its web hooks do not substitute for Flutter/native QA or authorize
+  uploads, new feature scope, formula changes, hook trust bypass or global installation.
 - **Before removing any feature, screen or tab, audit what only it shows and ask Akshat.** List
   every metric, insight or entry point that would become unreachable, and say whether it is a
   primary WHOOP/wearable metric (recovery, strain, sleep, HRV, heart rate, breathing, stress,
@@ -868,6 +918,13 @@ One monorepo, strict source-area separation — put work in the right tree:
 - the root app (`lib/`, platform folders, and app config) — flows, BLE link
   management, storage, UI.
 
+**Known signal-integrity limit:** local sleep staging is an estimate, not WHOOP's proprietary
+model/output. The protocol deprecates WHOOP 4 `skinTempRaw` as not temperature. Builds 86/87
+still use it for temperature-labelled outputs; Build 88 source (algorithm 92) gates every
+temperature output and input to verified families, not yet installed. `metrics-map.md` owns the
+input comparison, `bugs.md` the repair and `todo.md` its phone gate. Never describe this channel
+as verified temperature.
+
 New opcode/record → protocol. New metric → analytics. New screen/flow/table →
 the root app. A change implementing a metric inside `lib/compute` is in the
 wrong source area unless it is pure orchestration.
@@ -906,10 +963,13 @@ Line counts drift constantly; don't trust a number here, `wc -l` the file.
 - Also `ai/` (BYOK), `gps/`, `health/` (HealthKit/Health Connect export),
   `telemetry/` (opt-in), `widget/` (App-Group snapshot for WidgetKit/watch).
 
-**Storage.** Durable ledger: `decoded_onehz` (1 Hz, `UNIQUE(rec_ts)`,
-INSERT-OR-REPLACE) + `decoded_rr` (beats, cascades on eviction) + `raw_archive`
-(never pruned; undecodable/unknown-version records) + `raw_records` (retained as
-replay/debug ledger and upgrade fallback) + `events`/`band_events`. Derived
+**Storage.** Durable ledger: `decoded_onehz` (1 Hz, PK `(device_id, ts_ms)` with
+`ts_ms = rec_ts*1000` since schema 47, INSERT-OR-REPLACE newest-wins) + `decoded_rr` (reported beats, cascades on eviction) + `raw_archive`
+(undecodable/unknown-version records; old `undecodable_rec_v20` frames selectively thinned
+to one in 60) + `events`/`band_events`. Legacy `raw_records` is dropped by the current
+open-schema path, not a permanent replay/debug ledger. Decoded retention is normally three
+days behind the data edge with bounded unfinished-day protection; inspect retained rows before
+promising reprocessing. Derived
 output: versioned **immutable** `day_result` (PK `day_id, algo_version`) and
 `metric_series` (PK `date,key`, REPLACE).
 
@@ -927,7 +987,7 @@ a hotspot.
    `buildHistoryResultOk` echoes the verbatim 8-byte HISTORY_END token. The band
    trims flash on ACK. Reordering, or echoing a regenerated/mangled token, causes
    permanent data loss or an infinite re-flood. Never ACK a partial chunk.
-2. **`decoded_onehz` stays INSERT-OR-REPLACE keyed on `rec_ts`.** INSERT-OR-IGNORE
+2. **`decoded_onehz` stays INSERT-OR-REPLACE on its `(device_id, ts_ms)` key.** INSERT-OR-IGNORE
    breaks counter-reset recovery. Evicting a row must delete that counter's
    `decoded_rr` beats in the same batch.
 3. **Never fabricate a metric.** Absent input ⇒ null / `Metric.absent` / "—". No
@@ -955,7 +1015,9 @@ a hotspot.
 9. **Never prune raw/decoded for a day that is not fully derived.** `day_result`
    has a `partial` column because days with good headline scalars but a failed
    second-half compute were finalized and pruned — unrecoverable. `raw_archive`
-   is never pruned.
+   is not a full backup: only undecodable frames enter it, and old gen5
+   `undecodable_rec_v20` frames are thinned to one in 60. Decodable WHOOP 4 frame bytes
+   are not retained anywhere.
 10. **Heavy compute never on the UI isolate.** Staging/derivation goes through
     `Isolate.run`; analytics ambient globals do not cross the boundary and must
     be re-armed inside the closure.

@@ -8,6 +8,10 @@ its rejected UI. Structural design and physical background acceptance remain sep
 `todo.md` owns release scope and gates; this file owns the implemented UX and verification.
 Akshat approved source implementation and requested a pretty, peaceful warm palette. Existing
 Build 86 remains installed; Build 87 is a validated testing IPA, not an installed or accepted replacement.
+The latest colour feedback rejects the current direction as washed out/dull and requests richer
+contrast and vitality. That redesign is queued in Build 88 (`todo.md`), with the standalone
+`ui-design-research-prompt.md` brief; the Build 87 artifact and implemented contract below are
+unchanged, not evidence that the palette is accepted.
 
 ## Evidence And Boundary
 

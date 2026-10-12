@@ -326,9 +326,11 @@ void main() {
       // `double.tryParse('NaN')` really does return NaN, and NaN fails every
       // comparison — so a `ms <= 0` guard passes it straight into the
       // Substrate, where one bad beat poisons the whole day's HRV.
-      const t0 = 1786262400; // 2026-08-09
+      // 2026-08-09, 09:00 LOCAL: 3.5 hours stay inside one local day.
+      final t0 = DateTime(2026, 8, 9, 9).millisecondsSinceEpoch ~/ 1000;
       final b = StringBuffer()..writeln(_header);
-      for (var i = 0; i < 600; i++) {
+      // 3.5 h: the irregular-rhythm screen needs 3 hours of beats (Build 88).
+      for (var i = 0; i < 12600; i++) {
         final ts = t0 + i;
         b.writeln(_row(ts, 'hr', hr: '${60 + (i % 10)}'));
         b.writeln(_row(ts, 'gravity', gx: '0.1', gy: '0.2', gz: '0.97'));
@@ -353,7 +355,7 @@ void main() {
       // Assert on the BEAT COUNT the pipeline actually used, not on the row's
       // typed columns: every derived metric lives inside `payload_json`, so a
       // `whereType<double>` sweep over the row finds nothing and passes however
-      // broken the guard is. 600 beats were written, two of them non-finite.
+      // broken the guard is. 12,600 beats were written, two of them non-finite.
       final d = DateTime.fromMillisecondsSinceEpoch(t0 * 1000);
       final day = '${d.year.toString().padLeft(4, '0')}-'
           '${d.month.toString().padLeft(2, '0')}-'
@@ -366,7 +368,7 @@ void main() {
       for (final r in rows) {
         final n = _beatsUsed(r);
         if (n == null) continue;
-        expect(n, 598,
+        expect(n, 12598,
             reason: 'the NaN and the Infinity are dropped, not counted');
         checked++;
       }

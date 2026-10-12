@@ -67,7 +67,7 @@ ActivityResult demoRun() {
 }
 
 Widget frame(Widget child, double scale) => MaterialApp(
-  theme: buildTheme(Brightness.dark),
+  theme: buildTheme(Brightness.light),
   home: MediaQuery(
     data: MediaQueryData(
       size: const Size(390, 1400),

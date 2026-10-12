@@ -420,6 +420,71 @@ Map<String, Widget> goldenCases() => {
     DateTime(2026, 10, 8, 7, 5),
     now: DateTime(2026, 10, 8, 9),
   ),
+  // Build 88 day charts and metric lines: a hatched missing day in each.
+  'day_tiles': const Column(
+    children: [
+      DayTiles([62, 70, 58, null, 66, 71, 64], C.recovery),
+      SizedBox(height: S.x2),
+      DayTiles(
+        [7.1, 7.4, null, 6.8, 7.9, 7.2, 7.5],
+        C.sleep,
+        style: RangeStyle.bars,
+      ),
+      SizedBox(height: S.x2),
+      DayTiles(
+        [50, 52, 49, null, null, 55, 51, 53, 54, 50, 48, 52, 51, 53],
+        C.recovery,
+        style: RangeStyle.lineAvg,
+      ),
+      SizedBox(height: S.x2),
+      DayTiles(
+        [
+          50, 52, 49, 51, 55, 51, 53, //
+          null, null, null, null, null, null, null,
+          54, 50, 48, 52, 51, 53, 56,
+        ],
+        C.recovery,
+        style: RangeStyle.weeklyBand,
+      ),
+    ],
+  ),
+  'metric_line': const Column(
+    children: [
+      MetricLine(
+        label: 'Sleep',
+        values: [7.1, 7.4, 7.0, null, 7.9, 7.2, 7.5],
+        color: C.sleep,
+        value: '7:12',
+        unit: 'h',
+      ),
+      MetricLine(
+        label: 'Strain',
+        values: [8, 11, 9, 13, 7, 10, 8.4],
+        color: C.strain,
+        value: '8.4',
+        sub: 'estimate',
+      ),
+      MetricLine(
+        label: 'Protein',
+        color: C.food,
+        value: '142',
+        unit: '/165 g',
+        progress: 142 / 165,
+      ),
+      MetricLine(
+        label: 'Steps',
+        values: [9800, 10400, 8700, 9900, 11200, 8100, 9840],
+        color: C.body,
+        value: '9,840',
+        fresh: true,
+      ),
+      MetricLine(
+        label: 'Breathing',
+        color: C.sleep,
+        absentWhy: 'not measured last night',
+      ),
+    ],
+  ),
   'stat_tile': const StatTile(
     label: 'Steps',
     value: '8,642',

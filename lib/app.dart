@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'build_profile.dart';
@@ -156,10 +157,11 @@ class _OpenStrapAppState extends State<OpenStrapApp>
     return MaterialApp(
       title: kAppName,
       debugShowCheckedModeBanner: false,
-      // Dark only, by Akshat's decision.
-      theme: buildTheme(Brightness.dark),
-      darkTheme: buildTheme(Brightness.dark),
-      themeMode: ThemeMode.dark,
+      // Build 88: light only — the warm kraft ground with cream data panels
+      // Akshat locked in DESIGN.md, replacing the dark-only app.
+      theme: buildTheme(Brightness.light),
+      darkTheme: buildTheme(Brightness.light),
+      themeMode: ThemeMode.light,
       locale: locale.locale, // null = follow the OS locale
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
@@ -183,8 +185,12 @@ class _OpenStrapAppState extends State<OpenStrapApp>
         }
         return const Locale('en');
       },
-      builder: (context, child) =>
-          ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
+      // Status-bar icons stay dark on the light kraft whatever the phone's
+      // own appearance (the legacy theme controller follows the system).
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark,
+        child: ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
+      ),
       navigatorObservers: [TelemetryNavigatorObserver()],
       home: const _Gate(),
     );

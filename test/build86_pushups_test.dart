@@ -330,7 +330,7 @@ void main() {
       ], DateTime(2026, 10, 10))!;
       await t.pumpWidget(
         MaterialApp(
-          theme: buildTheme(Brightness.dark),
+          theme: buildTheme(Brightness.light),
           home: PushupDayScreen(day: d),
         ),
       );

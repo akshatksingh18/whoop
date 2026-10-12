@@ -236,7 +236,7 @@ void main() {
     addTearDown(t.view.reset);
 
     await t.pumpWidget(MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       home: Scaffold(body: Center(child: PosterCard(_run))),
     ));
     await t.pumpAndSettle();
@@ -265,7 +265,7 @@ void main() {
     addTearDown(t.view.reset);
 
     await t.pumpWidget(MaterialApp(
-      theme: buildTheme(Brightness.dark),
+      theme: buildTheme(Brightness.light),
       home: Scaffold(
         body: Center(child: PosterCard(_run)),
       ),

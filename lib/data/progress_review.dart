@@ -14,6 +14,7 @@ import 'dart:math' as math;
 import 'body_log.dart';
 import 'day_label.dart';
 import 'lift_log.dart';
+import 'lift_progress.dart' show SetVerdict, bestSet, compareSet;
 
 /// The range menu on Progress.
 enum ProgressRange {
@@ -119,6 +120,26 @@ List<DatedValue> siteSeries(List<BodyMeasure> all, BodySite site) => [
   for (final m in all)
     if (m.value(site) != null) (date: m.date, value: m.value(site)!),
 ]..sort((a, b) => a.date.compareTo(b.date));
+
+/// B88-08: the reading a period's change starts from — the one nearest
+/// [start] within [days] calendar days either side, or null. A tape or waist
+/// change never reaches back to an older reading.
+DatedValue? readingNear(List<DatedValue> s, String start, {int days = 7}) {
+  final t = DateTime.parse(start);
+  final anchor = DateTime.utc(t.year, t.month, t.day);
+  int gap(String d) {
+    final x = DateTime.parse(d);
+    return DateTime.utc(x.year, x.month, x.day).difference(anchor).inDays.abs();
+  }
+
+  DatedValue? best;
+  for (final x in s) {
+    final g = gap(x.date);
+    if (g > days) continue;
+    if (best == null || g < gap(best.date)) best = x;
+  }
+  return best;
+}
 
 List<DatedValue> inRange(List<DatedValue> s, String from, String to) => [
   for (final d in s)
@@ -271,15 +292,16 @@ FoodWindow foodWindow(
   );
 }
 
-/// One exercise's comparable progress between two windows: the best set by
-/// load then reps in each, only for the same name, load meaning and
-/// equipment note. Absent when either window lacks it.
+/// One exercise's progress between two windows: each window's best set
+/// ([bestSet], the live workout's own choice), only for the same name, load
+/// meaning and equipment note, judged by the live workout's comparator
+/// ([compareSet], B88-07). Absent when either window lacks it.
 typedef LiftComparison = ({
   String exercise,
   LiftLoadMode mode,
   LiftSet before,
   LiftSet after,
-  int direction, // 1 better, 0 same, -1 worse
+  SetVerdict change,
 });
 
 List<LiftComparison> liftComparisons(
@@ -288,24 +310,20 @@ List<LiftComparison> liftComparisons(
   DayWindow after,
 ) {
   Map<String, (LiftExercise, LiftSet)> bestIn(DayWindow w) {
-    final out = <String, (LiftExercise, LiftSet)>{};
+    final ex = <String, LiftExercise>{};
+    final sets = <String, List<LiftSet>>{};
     for (final x in finished) {
       final d = dayLabelOf(x.startedAt);
       if (d.compareTo(w.from) < 0 || d.compareTo(w.to) > 0) continue;
       for (final e in x.exercises) {
+        if (e.sets.isEmpty) continue;
         final k =
             '${liftNameKey(e.name)}|${e.loadMode.name}|${liftNameKey(e.equipmentNote)}';
-        for (final s in e.sets) {
-          final cur = out[k];
-          if (cur == null ||
-              s.load > cur.$2.load ||
-              (s.load == cur.$2.load && s.reps > cur.$2.reps)) {
-            out[k] = (e, s);
-          }
-        }
+        ex[k] ??= e;
+        (sets[k] ??= []).addAll(e.sets);
       }
     }
-    return out;
+    return {for (final k in ex.keys) k: (ex[k]!, bestSet(sets[k]!))};
   }
 
   final a = bestIn(before), b = bestIn(after);
@@ -317,18 +335,9 @@ List<LiftComparison> liftComparisons(
           mode: b[k]!.$1.loadMode,
           before: pa.$2,
           after: b[k]!.$2,
-          direction: _compare(pa.$2, b[k]!.$2),
+          change: compareSet(b[k]!.$2, pa.$2),
         ),
   ];
-}
-
-int _compare(LiftSet a, LiftSet b) {
-  if (b.load > a.load && b.reps >= a.reps) return 1;
-  if (b.load == a.load && b.reps > a.reps) return 1;
-  if (b.load == a.load && b.reps == a.reps) return 0;
-  if (b.load < a.load && b.reps <= a.reps) return -1;
-  if (b.load == a.load && b.reps < a.reps) return -1;
-  return 0; // heavier for fewer reps, or lighter for more: not comparable
 }
 
 // ── the review ─────────────────────────────────────────────────────────────
@@ -358,7 +367,14 @@ Review review({
     missing.add('at least three weigh-ins in each period');
   }
   if (food.kcalDays < 4) missing.add('food logged on four or more days');
-  if (lifts.isEmpty) missing.add('the same lift logged in both periods');
+  // B88-07: a lift whose best sets cannot be compared is not evidence.
+  final comparable = [
+    for (final l in lifts)
+      if (l.change != SetVerdict.incomparable) l,
+  ];
+  if (comparable.isEmpty) {
+    missing.add('the same lift logged comparably in both periods');
+  }
   if (missing.isNotEmpty) {
     return (
       state: ReviewState.gatherEvidence,
@@ -371,8 +387,10 @@ Review review({
           : 'Log your sets in the Lift workout.',
     );
   }
-  final better = lifts.where((l) => l.direction > 0).length;
-  final worse = lifts.where((l) => l.direction < 0).length;
+  final better = comparable.where((l) => l.change == SetVerdict.better).length;
+  final worse = comparable.where((l) => l.change == SetVerdict.worse).length;
+  final same = comparable.length - better - worse;
+  final apart = lifts.length - comparable.length;
   final dw = weightAfter.mean! - weightBefore.mean!;
   final pct = dw / weightBefore.mean! * 100;
   final because = <String>[
@@ -381,7 +399,8 @@ Review review({
         '${weightBefore.count} weigh-ins.',
     if (waistChange != null)
       'Waist ${waistChange == 0 ? 'unchanged' : '${waistChange > 0 ? 'up' : 'down'} ${waistChange.abs().toStringAsFixed(2)} in'} between its measured dates.',
-    '$better of ${lifts.length} comparable lifts better, $worse worse.',
+    '$better of ${comparable.length} comparable lifts better, $same the same, '
+        '$worse worse${apart == 0 ? '' : '; $apart not comparable'}.',
     '$sessionsAfter workouts; food on ${food.kcalDays} of ${food.windowDays} days.',
   ];
   if (worse >= 2 && worse > better) {
@@ -394,7 +413,9 @@ Review review({
   }
   return (
     state: ReviewState.keepGoing,
-    headline: better >= worse
+    // B88-07: "stronger" needs at least one lift actually better; 0 better
+    // and 0 worse is holding steady, not improvement.
+    headline: better > 0 && better >= worse
         ? 'Consistent with getting stronger'
         : 'Holding steady',
     because: because,

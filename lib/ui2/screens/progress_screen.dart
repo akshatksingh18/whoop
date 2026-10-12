@@ -24,6 +24,7 @@ import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/goal_plan.dart';
 import '../../data/lift_log.dart';
+import '../../data/lift_progress.dart' show SetVerdict;
 import '../../data/nutrition_store.dart';
 import '../../data/photo_encode.dart';
 import '../../data/progress_review.dart';
@@ -684,11 +685,13 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   /// Current block's observed mean and the actual earlier recorded block date,
   /// for the block holding [today]; null when it has no reading.
   String? _blockLine(ProgressData d, String today) {
+    // B88-08: weight weeks run Monday–Sunday, the same weeks as the Review;
+    // the measurement weekday only schedules the tape reminder.
     final blocks = BodyLogDb.weekBlocks([
       for (final w in d.weights)
         if (w.date.compareTo(today) <= 0) w,
-    ], d.measureWeekday);
-    final now = BodyLogDb.blockStart(today, d.measureWeekday);
+    ], DateTime.monday);
+    final now = BodyLogDb.blockStart(today, DateTime.monday);
     final b = blocks.where((x) => x.from == now).firstOrNull;
     if (b == null) return null;
     final previous = blocks
@@ -714,18 +717,34 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final h = d.heightCm == null ? null : d.heightCm! / 2.54;
     if (latest == null || h == null || !h.isFinite || h <= 0) return const [];
     final waist = latest.value(BodySite.waistNavel)!;
+    // B88-08: the US Navy formula here is the MALE form, so it is shown only
+    // for a stated male profile, with a neck reading within 30 days of the
+    // waist reading, and only inside 3–50%. Both dates are printed.
+    final male =
+        (d.user['sex'] as String?)?.toLowerCase().startsWith('m') ?? false;
+    int daysApart(String a, String b) => DateTime.parse(a)
+        .difference(DateTime.parse(b))
+        .inHours
+        .abs() ~/
+        24;
     final neck = d.measures
         .where(
-          (x) => x.date.compareTo(today) <= 0 && x.value(BodySite.neck) != null,
+          (x) =>
+              x.date.compareTo(today) <= 0 &&
+              x.value(BodySite.neck) != null &&
+              daysApart(x.date, latest.date) <= 30,
         )
         .firstOrNull;
-    final bf = BodyLogDb.navyBodyFat(waist, neck?.value(BodySite.neck), h);
+    final raw = male
+        ? BodyLogDb.navyBodyFat(waist, neck?.value(BodySite.neck), h)
+        : null;
+    final bf = raw == null || raw < 3 || raw > 50 ? null : raw;
     return [
       Padding(
         padding: const EdgeInsets.only(top: S.x2),
         child: Text(
           'Estimates from ${_md(latest.date)}: waist-to-height ${(waist / h).toStringAsFixed(2)}'
-          '${bf == null ? '' : ' · US Navy body fat about ${bf.toStringAsFixed(0)}%${neck!.date == latest.date ? '' : ' (neck ${_md(neck.date)})'}'}. '
+          '${bf == null ? '' : ' · US Navy body fat about ${bf.toStringAsFixed(0)}% (waist ${_md(latest.date)}, neck ${_md(neck!.date)})'}. '
           'The trend matters, not the exact number.',
           style: F.cap.copyWith(color: p.ink3),
         ),
@@ -943,8 +962,11 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final kg = BodyLogDb.sevenDayMean(d.weights, today)?.kg;
     final lifts = liftComparisons(d.lifts, before, last);
     final waist = siteSeries(d.measures, BodySite.waistNavel);
-    final wb = inRange(waist, '0000-00-00', before.to).lastOrNull;
-    final wa = inRange(waist, last.from, last.to).lastOrNull;
+    // B88-08: the earlier waist reading must sit within 7 days of the window's
+    // start (the one nearest it), and the later one in its last week; both
+    // dates are shown. Any older reading is not this window's change.
+    final wb = readingNear(waist, before.from);
+    final wa = inRange(waist, weeks[0].from, weeks[0].to).lastOrNull;
     final since = g.since == null ? null : DateTime.tryParse(g.since!);
     final advice = goalAdvice(
       plan: g,
@@ -956,13 +978,26 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       kg: kg,
       currentGoal: (d.user['kcal_target'] as num?)?.toDouble(),
       restingKcal: bmrMifflin(Profile.fromMap(d.user)),
-      liftsBetter: lifts.where((x) => x.direction > 0).length,
-      liftsWorse: lifts.where((x) => x.direction < 0).length,
+      liftsBetter: lifts.where((x) => x.change == SetVerdict.better).length,
+      liftsWorse: lifts.where((x) => x.change == SetVerdict.worse).length,
+      liftsComparable: lifts
+          .where((x) => x.change != SetVerdict.incomparable)
+          .length,
       proteinPerKg: fl.protein == null || kg == null ? null : fl.protein! / kg,
+      proteinDays: fl.proteinDays,
       waistChange: wa == null || wb == null ? null : wa.value - wb.value,
+      waistFrom: wb == null ? null : _md(wb.date),
+      waistTo: wa == null ? null : _md(wa.date),
       kgChange: a.mean == null || b.mean == null ? null : a.mean! - b.mean!,
-      daysOnGoal: since == null ? null : t.difference(since).inDays,
-      female: d.user['sex'] == 'f',
+      // Calendar days, not 24-hour units: across a spring-forward night
+      // `difference().inDays` read 13 on day 14 (B88-08).
+      daysOnGoal: since == null
+          ? null
+          : DateTime.utc(t.year, t.month, t.day)
+                .difference(DateTime.utc(since.year, since.month, since.day))
+                .inDays,
+      // Unknown sex takes the higher floor; only a stated female uses 1,200.
+      female: (d.user['sex'] as String?)?.toLowerCase().startsWith('f') ?? false,
     );
     final band = g.band;
     String pct(double v) =>
@@ -1088,9 +1123,10 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     double? waistChange;
     for (final site in BodySite.values) {
       final series = siteSeries(d.measures, site);
-      final b = inRange(series, '0000-00-00', before.to).lastOrNull;
+      // B88-08: from a reading within 7 days of the period's start only.
+      final b = readingNear(series, before.from);
       final a = inRange(series, after.from, after.to).lastOrNull;
-      if (a == null || b == null) continue;
+      if (a == null || b == null || a.date == b.date) continue;
       final change = a.value - b.value;
       tapeChanges.add(
         '${site.title}: ${_num(b.value)} → ${_num(a.value)} in (${_md(b.date)} → ${_md(a.date)})',
@@ -1173,8 +1209,8 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                 _stat(
                   p,
                   'Strength',
-                  '${cmp.where((x) => x.direction > 0).length} ↑ · ${cmp.where((x) => x.direction < 0).length} ↓',
-                  '${cmp.length} comparable lifts',
+                  '${cmp.where((x) => x.change == SetVerdict.better).length} ↑ · ${cmp.where((x) => x.change == SetVerdict.worse).length} ↓',
+                  '${cmp.where((x) => x.change != SetVerdict.incomparable).length} comparable lifts',
                 ),
               ],
             ),
@@ -1286,11 +1322,12 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                       ),
                     ),
                     Icon(
-                      x.direction > 0
-                          ? LucideIcons.trendingUp
-                          : x.direction < 0
-                          ? LucideIcons.trendingDown
-                          : LucideIcons.minus,
+                      switch (x.change) {
+                        SetVerdict.better => LucideIcons.trendingUp,
+                        SetVerdict.worse => LucideIcons.trendingDown,
+                        SetVerdict.same => LucideIcons.equal,
+                        SetVerdict.incomparable => LucideIcons.minus,
+                      },
                       size: 16,
                       color: p.ink2,
                     ),
@@ -2212,7 +2249,7 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
     }.toList()..sort((a, b) => b.compareTo(a));
     String? month;
     final rows = <Widget>[];
-    final blocks = BodyLogDb.weekBlocks(d.weights, d.measureWeekday);
+    final blocks = BodyLogDb.weekBlocks(d.weights, DateTime.monday);
     double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
     for (final day in days) {
       final mo = day.substring(0, 7);

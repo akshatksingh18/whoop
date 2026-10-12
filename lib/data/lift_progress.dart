@@ -85,7 +85,7 @@ List<ExerciseSession> exerciseHistory(
   return out;
 }
 
-enum LiftTrend { tooFew, up, flat, down }
+enum LiftTrend { tooFew, up, flat, down, incomparable }
 
 /// The trend over the last [window] comparable sessions (newest first), in
 /// one plain line. Needs two sessions; "flat" means no new best in the last
@@ -102,9 +102,25 @@ enum LiftTrend { tooFew, up, flat, down }
           : 'One earlier session. Two or more show a trend.',
     );
   }
-  final w = h.take(window).toList();
+  final first = h.take(window).toList();
+  final useScore = first.every((s) => s.score != null);
+  // B88-07: without the estimate, reps only compare AT THE SAME LOAD. A
+  // heavier best set with fewer reps is not "down"; the trend uses only the
+  // sessions whose best set was at today's load, or says it cannot compare.
+  final w = useScore
+      ? first
+      : [
+          for (final s in first)
+            if (s.best.load == first.first.best.load) s,
+        ];
+  if (w.length < 2) {
+    return (
+      trend: LiftTrend.incomparable,
+      text: 'Not comparable yet: your earlier best sets were at a different '
+          'weight. Repeat a weight to see a trend.',
+    );
+  }
   final newest = w.first, oldest = w.last;
-  final useScore = w.every((s) => s.score != null);
   double m(ExerciseSession s) => useScore ? s.score! : s.best.reps.toDouble();
   final change = m(newest) - m(oldest);
   final pct = m(oldest) == 0 ? 0.0 : change / m(oldest) * 100;
@@ -113,7 +129,10 @@ enum LiftTrend { tooFew, up, flat, down }
   final before = h.skip(3);
   final comparableBefore = [
     for (final s in before)
-      if (!useScore || s.score != null) s,
+      if (useScore
+          ? s.score != null
+          : s.score == null && s.best.load == newest.best.load)
+        s,
   ];
   final bestBefore = comparableBefore.isEmpty
       ? null
@@ -131,7 +150,14 @@ enum LiftTrend { tooFew, up, flat, down }
           'up in weight, would show progress.',
     );
   }
-  final span = '${w.length} sessions';
+  // B88-07: the trend names its dates, not only a session count.
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  String day(DateTime d) => '${d.day} ${months[d.month - 1]}';
+  final span =
+      '${w.length} sessions, ${day(oldest.date)} to ${day(newest.date)}';
   if (pct >= 1) {
     return (
       trend: LiftTrend.up,
@@ -152,19 +178,29 @@ enum LiftTrend { tooFew, up, flat, down }
   return (trend: LiftTrend.flat, text: 'About level over $span.');
 }
 
-enum SetVerdict { better, same, worse }
+enum SetVerdict { better, same, worse, incomparable }
 
-/// Today's sets against last time's set by set, by position.
+/// THE set comparator (B88-07), shared by the live workout and the Progress
+/// review. Two sets of the same exercise, load meaning and equipment:
+/// - both 1-12 reps with load: the rep-adjusted estimate decides;
+/// - otherwise reps at the same load;
+/// - otherwise only an unambiguous step counts (heavier AND at least as many
+///   reps, or lighter AND no more reps);
+/// - heavier-for-fewer or lighter-for-more with no estimate is
+///   [SetVerdict.incomparable], never "same" and never "down".
 SetVerdict compareSet(LiftSet now, LiftSet last) {
   if (now.load == last.load && now.reps == last.reps) return SetVerdict.same;
-  final heavier = now.load >= last.load, longer = now.reps >= last.reps;
-  if (heavier && longer) return SetVerdict.better;
-  if (now.load <= last.load && now.reps <= last.reps) return SetVerdict.worse;
-  // Heavier for fewer, or lighter for more: the estimate decides, when it
-  // can; otherwise it is not a clear step either way.
   final a = setScore(now), b = setScore(last);
-  if (a == null || b == null || (a - b).abs() < 0.5) return SetVerdict.same;
-  return a > b ? SetVerdict.better : SetVerdict.worse;
+  if (a != null && b != null) {
+    if ((a - b).abs() < 0.5) return SetVerdict.same;
+    return a > b ? SetVerdict.better : SetVerdict.worse;
+  }
+  if (now.load == last.load) {
+    return now.reps > last.reps ? SetVerdict.better : SetVerdict.worse;
+  }
+  if (now.load >= last.load && now.reps >= last.reps) return SetVerdict.better;
+  if (now.load <= last.load && now.reps <= last.reps) return SetVerdict.worse;
+  return SetVerdict.incomparable;
 }
 
 /// One line for the exercise as it stands: ahead, level or behind last time
@@ -175,13 +211,15 @@ SetVerdict compareSet(LiftSet now, LiftSet last) {
 ) {
   if (today.sets.isEmpty || last.sets.isEmpty) return null;
   final n = math.min(today.sets.length, last.sets.length);
-  var better = 0, worse = 0;
+  var better = 0, worse = 0, apart = 0;
   for (var i = 0; i < n; i++) {
     switch (compareSet(today.sets[i], last.sets[i])) {
       case SetVerdict.better:
         better++;
       case SetVerdict.worse:
         worse++;
+      case SetVerdict.incomparable:
+        apart++;
       case SetVerdict.same:
         break;
     }
@@ -195,26 +233,38 @@ SetVerdict compareSet(LiftSet now, LiftSet last) {
   final reps = repsNow == repsThen
       ? ''
       : ' (${repsNow > repsThen ? '+' : '−'}${(repsNow - repsThen).abs()} reps)';
+  final odd = apart == 0
+      ? ''
+      : ' · $apart not comparable (different weight and reps)';
+  if (apart == n) {
+    return (
+      verdict: SetVerdict.incomparable,
+      text: 'Not comparable with last time: different weight and reps$extra',
+    );
+  }
   if (better > 0 && worse == 0) {
     return (
       verdict: SetVerdict.better,
       text:
-          'Ahead of last time on $better of $n ${n == 1 ? 'set' : 'sets'}$reps$extra',
+          'Ahead of last time on $better of $n ${n == 1 ? 'set' : 'sets'}$reps$odd$extra',
     );
   }
   if (worse > 0 && better == 0) {
     return (
       verdict: SetVerdict.worse,
       text:
-          'Behind last time on $worse of $n ${n == 1 ? 'set' : 'sets'}$reps$extra',
+          'Behind last time on $worse of $n ${n == 1 ? 'set' : 'sets'}$reps$odd$extra',
     );
   }
   if (better == 0 && worse == 0) {
-    return (verdict: SetVerdict.same, text: 'Matching last time so far$extra');
+    return (
+      verdict: SetVerdict.same,
+      text: 'Matching last time so far$odd$extra',
+    );
   }
   return (
     verdict: SetVerdict.same,
-    text: 'Mixed: $better ahead, $worse behind$reps$extra',
+    text: 'Mixed: $better ahead, $worse behind$reps$odd$extra',
   );
 }
 

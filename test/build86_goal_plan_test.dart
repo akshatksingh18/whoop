@@ -15,6 +15,8 @@ GoalAdvice advise(
   int better = 1,
   int worse = 0,
   double? protein = 1.8,
+  int proteinDays = 6,
+  double? waist = -0.25,
 }) => goalAdvice(
   plan: g,
   weeklyPct: weekly,
@@ -25,7 +27,10 @@ GoalAdvice advise(
   restingKcal: resting,
   liftsBetter: better,
   liftsWorse: worse,
+  liftsComparable: better + worse,
   proteinPerKg: protein,
+  proteinDays: proteinDays,
+  waistChange: waist,
 );
 
 void main() {
@@ -214,5 +219,54 @@ void main() {
       -50,
       reason: 'down to 1,250 resting energy, above 1,200',
     );
+  });
+
+  group('B88-08', () {
+    test('recomposition without a waist pair is not enough data', () {
+      final a = advise(const GoalPlan(phase: GoalPhase.recomp), waist: null);
+      expect(a.verdict, GoalVerdict.needMore);
+      expect(a.because.join(' '), contains('waist'));
+    });
+
+    test('recomposition without a comparable lift is not enough data', () {
+      final a = advise(
+        const GoalPlan(phase: GoalPhase.recomp),
+        better: 0,
+        worse: 0,
+      );
+      expect(a.verdict, GoalVerdict.needMore);
+    });
+
+    test('protein advice needs five complete-protein days', () {
+      final a = advise(
+        const GoalPlan(phase: GoalPhase.maintain),
+        protein: 1.1,
+        proteinDays: 4,
+      );
+      expect(a.next, isNot(contains('Protein')));
+      expect(a.because.join(' '), isNot(contains('Protein')));
+    });
+
+    test('with no calorie goal set, no calorie step is suggested', () {
+      final a = advise(
+        const GoalPlan(phase: GoalPhase.fatLoss),
+        weekly: 0.0,
+        goal: null,
+      );
+      expect(a.verdict, GoalVerdict.adjust);
+      expect(a.kcalChange, isNull);
+      expect(a.next, contains('Set a calorie goal'));
+    });
+
+    test('at the floor the advice does not prescribe extra exercise', () {
+      final a = advise(
+        const GoalPlan(phase: GoalPhase.fatLoss),
+        weekly: 0.0,
+        goal: 1800,
+        resting: 1800,
+      );
+      expect(a.kcalChange, isNull);
+      expect(a.next, isNot(contains('steps')));
+    });
   });
 }

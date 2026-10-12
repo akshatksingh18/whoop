@@ -12,6 +12,8 @@ import 'package:openstrap_edge/data/calculation_store.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/lift_log.dart';
+import 'package:openstrap_edge/data/lift_progress.dart'
+    show SetVerdict, compareSet;
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/data/profile_history.dart';
 import 'package:openstrap_edge/data/progress_review.dart';
@@ -362,7 +364,7 @@ void main() {
               mode: LiftLoadMode.perHand,
               before: s(40, 8),
               after: s(40, 10),
-              direction: 1,
+              change: SetVerdict.better,
             ),
           ],
           sessionsAfter: 4,
@@ -371,6 +373,76 @@ void main() {
         expect(r.because.join(' '), contains('1 of 1 comparable lifts better'));
       },
     );
+
+    test('B88-07: no lift better and none worse is holding steady, not stronger',
+        () {
+      LiftSet s(double l, int r) =>
+          LiftSet(reps: r, load: l, completedAt: DateTime(2026));
+      final r = review(
+        weightBefore: (mean: 80, count: 5, first: null, last: null),
+        weightAfter: (mean: 80.1, count: 6, first: null, last: null),
+        waistChange: null,
+        food: (
+          kcal: 2400,
+          kcalDays: 6,
+          protein: 170,
+          proteinDays: 5,
+          windowDays: 7,
+        ),
+        lifts: [
+          (
+            exercise: 'Bench',
+            mode: LiftLoadMode.perHand,
+            before: s(40, 8),
+            after: s(40, 8),
+            change: SetVerdict.same,
+          ),
+        ],
+        sessionsAfter: 4,
+      );
+      expect(r.headline, 'Holding steady');
+    });
+
+    test('B88-07: only not-comparable lifts are no evidence', () {
+      LiftSet s(double l, int r) =>
+          LiftSet(reps: r, load: l, completedAt: DateTime(2026));
+      final r = review(
+        weightBefore: (mean: 80, count: 5, first: null, last: null),
+        weightAfter: (mean: 80.1, count: 6, first: null, last: null),
+        waistChange: null,
+        food: (
+          kcal: 2400,
+          kcalDays: 6,
+          protein: 170,
+          proteinDays: 5,
+          windowDays: 7,
+        ),
+        lifts: [
+          (
+            exercise: 'Curl',
+            mode: LiftLoadMode.perHand,
+            before: s(10, 15),
+            after: s(12, 13),
+            change: SetVerdict.incomparable,
+          ),
+        ],
+        sessionsAfter: 4,
+      );
+      expect(r.state, ReviewState.gatherEvidence);
+    });
+
+    test('B88-07: one comparator for live and Review', () {
+      LiftSet s(double l, int r) =>
+          LiftSet(reps: r, load: l, completedAt: DateTime(2026));
+      // 1-12 reps: the rep-adjusted estimate decides heavier-for-fewer.
+      expect(compareSet(s(100, 5), s(90, 8)), SetVerdict.better);
+      // Above 12 reps, heavier for fewer has no same-load match.
+      expect(compareSet(s(12, 13), s(10, 15)), SetVerdict.incomparable);
+      // Same load, more reps, is better at any rep count.
+      expect(compareSet(s(10, 16), s(10, 15)), SetVerdict.better);
+      // Dominated is worse.
+      expect(compareSet(s(8, 14), s(10, 15)), SetVerdict.worse);
+    });
 
     test(
       'a range summary carries its real dates; a single reading has no change',

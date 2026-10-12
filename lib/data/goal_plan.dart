@@ -289,7 +289,21 @@ GoalAdvice goalAdvice({
   double? kgChange,
   int? daysOnGoal,
   bool female = false,
+
+  /// B88-08: complete-protein days behind [proteinPerKg]; protein advice
+  /// needs at least five.
+  int proteinDays = 0,
+
+  /// B88-08: comparable (not "not comparable") lifts in the window, null when
+  /// unknown. Recomposition needs at least one, and a waist pair.
+  int? liftsComparable,
+
+  /// B88-08: the dates of the two waist readings behind [waistChange].
+  String? waistFrom,
+  String? waistTo,
 }) {
+  // Protein below five complete days is not a reading of intake.
+  final protein = proteinDays >= 5 ? proteinPerKg : null;
   final b = plan.band;
   final weeks = plan.windowWeeks * 2;
   final missing = <String>[
@@ -299,6 +313,16 @@ GoalAdvice goalAdvice({
     if (foodDays < 5)
       'five fully logged food days in each of the last $weeks weeks',
   ];
+  // B88-08: recomposition is judged on waist and comparable lifts as well as
+  // weight. Missing either is "not enough data", never "no progress".
+  if (plan.phase == GoalPhase.recomp) {
+    if (waistChange == null) {
+      missing.add('a waist reading near the start of the window and one in its last week');
+    }
+    if (liftsComparable != null && liftsComparable == 0) {
+      missing.add('the same lift logged comparably in both halves');
+    }
+  }
   if (missing.isNotEmpty || weeklyPct == null || kg == null) {
     return (
       verdict: GoalVerdict.needMore,
@@ -320,12 +344,13 @@ GoalAdvice goalAdvice({
     if (off != null)
       '${pct(off)} from the ${held!.toStringAsFixed(1)} kg you are holding (aim within ±1.5%).',
     if (waistChange != null)
-      'Waist ${waistChange == 0 ? 'unchanged' : '${waistChange > 0 ? 'up' : 'down'} ${waistChange.abs().toStringAsFixed(2)} in'}.',
+      'Waist ${waistChange == 0 ? 'unchanged' : '${waistChange > 0 ? 'up' : 'down'} ${waistChange.abs().toStringAsFixed(2)} in'}'
+          '${waistFrom != null && waistTo != null ? ' ($waistFrom to $waistTo)' : ''}.',
     '$liftsBetter comparable lifts better, $liftsWorse worse.',
-    if (proteinPerKg != null)
-      'Protein ${proteinPerKg.toStringAsFixed(1)} g/kg; aim ${b.proteinLow}–${b.proteinHigh}.',
+    if (protein != null)
+      'Protein ${protein.toStringAsFixed(1)} g/kg on $proteinDays complete days; aim ${b.proteinLow}–${b.proteinHigh}.',
   ];
-  final proteinLow = proteinPerKg != null && proteinPerKg < b.proteinLow;
+  final proteinLow = protein != null && protein < b.proteinLow;
   // Lifts falling across sessions come first: a calorie cut is not the
   // answer to that, and during a cut a short break at maintenance is.
   if (liftsWorse >= 2 && liftsWorse > liftsBetter) {
@@ -345,8 +370,9 @@ GoalAdvice goalAdvice({
   final inside = off != null
       ? off.abs() <= 1.5
       : weeklyPct >= b.low - kGoalMargin && weeklyPct <= b.high + kGoalMargin;
-  // Gaining: a waist rising faster than about 1 cm per 2 kg is fat, not
-  // muscle (convention; no validated ratio exists).
+  // Gaining: a waist rising faster than about 1 cm per 2 kg of weight gained.
+  // An OBSERVATION (convention; no validated ratio exists), never a claim
+  // about which tissue changed.
   final waistFast =
       plan.phase == GoalPhase.leanGain &&
       waistChange != null &&
@@ -396,19 +422,30 @@ GoalAdvice goalAdvice({
     );
   }
   var change = _step(gap, kg) * (gap > 0 ? 1 : -1);
+  // B88-08: with no calorie goal set there is nothing to step from and no way
+  // to keep a cut above the floor, so no number is suggested.
+  if (currentGoal == null || currentGoal <= 0) {
+    return (
+      verdict: GoalVerdict.adjust,
+      headline: 'Outside your ${plan.phase.title.toLowerCase()} aim',
+      because: because,
+      kcalChange: null,
+      next: 'Set a calorie goal in Food → Goals to see a suggested step.',
+    );
+  }
   final floor = [
     ?restingKcal,
     female ? 1200.0 : 1500.0,
   ].reduce((a, c) => a > c ? a : c);
   String? floorNote;
-  if (change < 0 && currentGoal != null && currentGoal + change < floor) {
+  if (change < 0 && currentGoal + change < floor) {
     change = (floor - currentGoal).round();
     floorNote =
         'A larger cut would go below ${floor.round()} kcal, your floor (resting energy or the minimum intake).';
     if (change >= 0) change = 0;
   }
   final direction = waistFast
-      ? 'gaining waist faster than muscle explains'
+      ? 'gaining waist faster than about 1 cm per 2 kg of weight gained'
       : off != null
       ? (off > 0
             ? 'above the weight you are holding'
@@ -427,8 +464,10 @@ GoalAdvice goalAdvice({
         : 'Consider ${change > 0 ? 'raising' : 'lowering'} your calorie goal by ${change.abs()} kcal',
     because: [...because, 'You are $direction.', ?floorNote],
     kcalChange: change == 0 ? null : change,
+    // B88-08: at the floor the app does not prescribe extra exercise; a fixed
+    // floor is not evidence that intake is adequate.
     next: change == 0
-        ? 'More steps, a break at maintenance, or ending this phase are the options left.'
+        ? 'A break at maintenance, or ending this phase, are the options here.'
         : 'Change it yourself in Food → Goals. Check again after two more weeks.',
   );
 }

@@ -272,6 +272,20 @@ void main() {
       expect(flags, 0, reason: 'no false multivariate alarms on normal data');
     });
 
+    test('B88-11: an unusually GOOD stretch is not an anomaly', () {
+      // Resting HR far BELOW baseline for two nights: far from the cloud, but
+      // in the healthy direction, so it must not raise an alert.
+      final feats = <AnomalyFeatures>[
+        for (var i = 0; i < 20; i++) normalNight(),
+        AnomalyFeatures(rhr: 40, hrv: 4.0, temp: 2000, resp: 14),
+        AnomalyFeatures(rhr: 39, hrv: 4.0, temp: 2000, resp: 14),
+      ];
+      final out = multivariateAnomaly(dates(feats.length), feats,
+          baselineDays: 28, minBaseline: 10, persistDays: 2);
+      expect(out[20].candidate, isFalse);
+      expect(out[21].flagged, isFalse);
+    });
+
     test('a single isolated spike is NOT flagged (persistence gate)', () {
       final feats = <AnomalyFeatures>[
         for (var i = 0; i < 20; i++) normalNight(),

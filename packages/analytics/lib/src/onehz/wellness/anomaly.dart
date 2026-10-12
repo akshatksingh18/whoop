@@ -220,7 +220,11 @@ List<AnomalyDay> multivariateAnomaly(
       if (cols[f].length < baseN) baseN = cols[f].length;
     }
     final gate = chiSqGate ?? _chiSq999(keep.length) * _madInflation(baseN);
-    final candidate = d2 > gate;
+    // B88-11: one-sided. Features are oriented so positive is the illness
+    // direction; a night far from baseline because it was unusually GOOD (the
+    // largest deviation is negative) is not an anomaly worth flagging.
+    final worse = drivers.isNotEmpty && drivers.first.contribution > 0;
+    final candidate = d2 > gate && worse;
     if (candidate) {
       run++;
     } else {

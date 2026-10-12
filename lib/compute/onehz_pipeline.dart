@@ -1125,16 +1125,17 @@ Map<String, dynamic> deriveDayBundle(
   };
 
   // Indexed scalars (also surfaced to metric_series by the engine).
-  // HEADLINE RMSSD = mean of 5-min cleaned-window RMSSDs across the detected
-  // sleep session. Fall back to the robust estimator, then the whole-window
-  // RMSSD only when the canonical sleep-session value is absent.
-  final rmssdScalar =
-      sleepSessionRmssd ??
-      (robustRmssd.present
-          ? robustRmssd.value
-          : ((hrvT.present && hrvT.value!.rmssd != null)
-                ? hrvT.value!.rmssd
-                : null));
+  // HEADLINE RMSSD = mean of qualified 5-min windows across the detected sleep
+  // session, and ONLY that (B88-03, Akshat's primary-only decision): when it
+  // does not qualify the headline is absent. The robust/whole-window estimates
+  // are published separately, labelled, for details — never substituted.
+  final rmssdScalar = sleepSessionRmssd;
+  final String? rmssdSecondaryMethod = robustRmssd.present
+      ? 'robust_nocturnal'
+      : ((hrvT.present && hrvT.value!.rmssd != null) ? 'whole_window' : null);
+  final double? rmssdSecondary = rmssdSecondaryMethod == 'robust_nocturnal'
+      ? robustRmssd.value
+      : (rmssdSecondaryMethod == 'whole_window' ? hrvT.value!.rmssd : null);
   // Whole-window RMSSD kept available as a secondary detail (NOT the headline).
   final rmssdWholeScalar = (hrvT.present && hrvT.value!.rmssd != null)
       ? hrvT.value!.rmssd
@@ -1461,9 +1462,15 @@ Map<String, dynamic> deriveDayBundle(
       // every stored bundle.
       'rhr': rhrToday,
       'rhr_nocturnal': rhrToday,
-      // Headline RMSSD (robust nocturnal, NREM). Whole-window kept separately.
+      // Headline RMSSD: the qualified primary only (B88-03). Whole-window and
+      // the labelled secondary are kept separately, never in the headline.
       'rmssd': rmssdScalar,
       'rmssd_whole': rmssdWholeScalar,
+      'rmssd_secondary': rmssdSecondary,
+      'rmssd_secondary_method': rmssdSecondaryMethod,
+      // The readiness HRV baseline restarts on nights computed by this method
+      // (B88-10): `ln_rmssd` history from earlier methods is not compatible.
+      'ln_rmssd_v2': lnToday,
       'readiness': readinessScalar,
       // Headline 0–21 strain (the screens already expect a 0–21 scale); raw
       // Banister TRIMP stays under `trimp` as the secondary "training load".

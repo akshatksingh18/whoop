@@ -1737,10 +1737,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final minHr = noc is Map ? noc['sleeping_hr_min'] as num? : null;
     final respV = n['resp'] is Map ? (n['resp'] as Map)['value'] as num? : null;
     final (hrLine, hrMean) = lane('hr');
-    final (hrvLine, hrvMean) = lane('hrv');
+    final (hrvLine, _) = lane('hrv');
     final (tempLine, _) = lane('skin_temp');
     final (respLine, _) = lane('resp');
-    final hrv = d.hrvNight ?? hrvMean;
+    // B88-03: the night's qualified HRV only; never the mean of chart points.
+    final hrv = d.hrvNight;
     final z = d.skinTempZ;
 
     final rows = <(String, String, String, Color, List<double?>, String)>[

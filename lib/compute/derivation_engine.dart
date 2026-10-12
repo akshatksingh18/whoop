@@ -1849,6 +1849,7 @@ class _BaselineHistoryCache {
   /// The baseline series this cache carries, keyed by `metric_series.key`.
   static const List<String> keys = [
     'ln_rmssd',
+    'ln_rmssd_v2',
     'rmssd',
     'rhr',
     'resp_rate',
@@ -2002,10 +2003,23 @@ class _BaselineHistoryCache {
     return best;
   }
 
-  List<double> valuesBefore(String key, String beforeDate) => _trailing([
-    for (final s in _series[key] ?? const <_DatedValue>[])
-      if (s.date.compareTo(beforeDate) < 0) s,
-  ]);
+  /// B88-11: the last 28 eligible values, but only from the 60 calendar days
+  /// before [beforeDate], so a long wear gap never compares a night against a
+  /// months-old baseline (an honest warm-up follows instead).
+  List<double> valuesBefore(String key, String beforeDate) {
+    final d = DateTime.parse(beforeDate);
+    final from = DateTime(d.year, d.month, d.day - _baselineMaxAgeDays);
+    final fromLabel = '${from.year.toString().padLeft(4, '0')}-'
+        '${from.month.toString().padLeft(2, '0')}-'
+        '${from.day.toString().padLeft(2, '0')}';
+    return _trailing([
+      for (final s in _series[key] ?? const <_DatedValue>[])
+        if (s.date.compareTo(beforeDate) < 0 && s.date.compareTo(fromLabel) >= 0)
+          s,
+    ]);
+  }
+
+  static const int _baselineMaxAgeDays = 60;
 
   static List<double> _trailing(List<_DatedValue> samples) {
     final from = samples.length <= _baselineWindowDays
@@ -4298,6 +4312,7 @@ class DerivationEngine {
         'sdnn': sc('sdnn'),
         'readiness': sc('readiness'),
         'ln_rmssd': sc('ln_rmssd'),
+        'ln_rmssd_v2': sc('ln_rmssd_v2'),
         'resp_rate': sc('resp_rate'),
         'skin_temp_z': sc('skin_temp_z'),
         // RAW nightly ADC mean — the baseline series for skin_temp_z. Written
@@ -4631,7 +4646,9 @@ class DerivationEngine {
   ) {
     final m = input.toJson();
     final date = input.date;
-    m['ln_rmssd_history'] = history.valuesBefore('ln_rmssd', date);
+    // B88-03/10: new-method nights only; earlier `ln_rmssd` used a different
+    // (gap-bridging, sparse-admitting) estimator.
+    m['ln_rmssd_history'] = history.valuesBefore('ln_rmssd_v2', date);
     m['rhr_history'] = history.valuesBefore('rhr', date);
     m['resp_history'] = history.valuesBefore('resp_rate', date);
     // Robust nocturnal RMSSD history (the `rmssd` series) — feeds the EWMA hrv
@@ -4915,6 +4932,9 @@ class DerivationEngine {
     // both static, so this whole transform+encode step is isolate-safe.
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
+    // B88-11: another vendor's imported days are not this band's measurements;
+    // tagged here so every cross-day consumer drops them.
+    final imported = await LocalDb.importedDates();
     final (days, json) = await _runIsolateCancellable(
       () {
         final days = <Map<String, dynamic>>[];
@@ -4943,6 +4963,7 @@ class DerivationEngine {
           // flag, a today-scoped consumer can only take the LAST record
           // positionally, which on a day with no derived row is YESTERDAY's.
           if (row['day_id'] == today) rec['is_today'] = true;
+          if (imported.contains(row['day_id'])) rec['imported'] = true;
           days.add(rec);
         }
         // `built_for_day` is what makes the `is_today` stamps inside `days`
@@ -4984,9 +5005,6 @@ class DerivationEngine {
       final illness = cd['illness'] is Map ? cd['illness'] as Map : null;
       final anomaly = cd['anomaly'] is Map ? cd['anomaly'] as Map : null;
       final temp = cd['temp_illness'] is Map ? cd['temp_illness'] as Map : null;
-      final gb = cd['readiness_glassbox'] is Map
-          ? cd['readiness_glassbox'] as Map
-          : null;
       date ??=
           (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
       // ANCHORED TO THE DAY THIS IS RUNNING ON, not to the newest DERIVED day.
@@ -5033,16 +5051,16 @@ class DerivationEngine {
       if (temp != null && temp['flag'] == 'elevated') {
         findings.add(Finding(FindingKind.tempElevated, date));
       }
-      // 24/7 irregular-rhythm SCREEN (not a diagnosis).
-      final irregFlag = await LocalDb.metricValueOn(
-        date,
-        'irregular_rhythm_flag',
-      );
-      if (irregFlag == 1.0) {
-        findings.add(Finding(FindingKind.irregularRhythm, date));
-      }
-      final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
-      if (score is num && score < kLowReadiness) {
+      // The 24/7 irregular-rhythm screen is a details-only note (B88 C1): a
+      // sparse wrist-beat heuristic is not AF detection, so it never pushes.
+      // LOW READINESS from the HEADLINE composite the ring shows (B88-11),
+      // never the deprecated glass-box percentile. The composite already
+      // withholds itself while the overnight is incomplete (its own input and
+      // weight gates), so it is not additionally gated on `unsettled`: a day
+      // only finalizes 48 h later, which would suppress every same-morning
+      // finding.
+      final score = await LocalDb.metricValueOn(date, 'readiness');
+      if (score != null && score < kLowReadiness) {
         findings.add(Finding(FindingKind.lowReadiness, date));
       }
 
@@ -5069,8 +5087,19 @@ class DerivationEngine {
       if (recent is List) {
         for (final r in recent) {
           if (r is Map && r['rhr'] is num) {
+            // B88-11: a wear gap of more than 7 days restarts the evidence, so
+            // a shift is never "detected" against a pre-gap baseline.
+            final d = r['date'] as String?;
+            final prev = rhrDates.isEmpty ? null : rhrDates.last;
+            if (d != null && prev != null) {
+              final gap = DateTime.parse(d).difference(DateTime.parse(prev));
+              if (gap.inDays > 7) {
+                rhrSeries.clear();
+                rhrDates.clear();
+              }
+            }
             rhrSeries.add((r['rhr'] as num).toDouble());
-            rhrDates.add(r['date'] as String?);
+            rhrDates.add(d);
           }
         }
       }
@@ -5107,7 +5136,8 @@ class DerivationEngine {
         NotificationEvent(
           dedupeKey: medical ? '$date:exception:medical' : '$date:exception',
           category: NotifCategory.health,
-          priority: NotifPriority.critical,
+          // B88-11 / D4: every health finding respects quiet hours.
+          priority: NotifPriority.normal,
           title: one
               ? findings.first.title
               : '${findings.length} things to look at',

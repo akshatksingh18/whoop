@@ -84,6 +84,14 @@ Metric<IrregularRhythm> irregularBeatScreen(
   // inflated sdsd/sd1, pushing both flag conditions toward a false "sustained
   // irregularity" screen positive.
   final keep = [for (final v in rrMs) v >= 300 && v <= 2000];
+  // B88-03: with beat times, two beats are successive only when TIME-adjacent
+  // too (their gap equals the later interval within 250 ms). [rrMs] here is
+  // usually a corrector's COMPACTED output, so array neighbours can straddle a
+  // dropout or a removed run; without this check every such seam became one
+  // invented difference and inflated SD1/pNN70.
+  final timed = nnTimesMs != null && nnTimesMs.length == rrMs.length;
+  bool timeAdj(int i) =>
+      !timed || ((nnTimesMs[i] - nnTimesMs[i - 1]) - rrMs[i]).abs() <= 250;
   final nn = [
     for (var i = 0; i < rrMs.length; i++)
       if (keep[i]) rrMs[i]
@@ -98,7 +106,7 @@ Metric<IrregularRhythm> irregularBeatScreen(
   var prevKeptOrigIdx = -1;
   for (var i = 0; i < rrMs.length; i++) {
     if (keep[i]) {
-      nnAdjacent.add(prevKeptOrigIdx == i - 1);
+      nnAdjacent.add(prevKeptOrigIdx == i - 1 && i > 0 && timeAdj(i));
       prevKeptOrigIdx = i;
     }
   }
@@ -121,7 +129,7 @@ Metric<IrregularRhythm> irregularBeatScreen(
   // Poincaré descriptors — successive beats only (see [keep]).
   final diffs = <double>[
     for (var i = 1; i < rrMs.length; i++)
-      if (keep[i] && keep[i - 1]) rrMs[i] - rrMs[i - 1]
+      if (keep[i] && keep[i - 1] && timeAdj(i)) rrMs[i] - rrMs[i - 1]
   ];
   final sdsd = stddev(diffs);
   final sdnn = stddev(nn);

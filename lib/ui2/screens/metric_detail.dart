@@ -281,7 +281,7 @@ const _specs = <String, MetricSpec>{
     color: C.green,
     icon: LucideIcons.activity,
     higherBetter: false,
-    method: 'Night-to-night coefficient of variation of RMSSD.',
+    method: 'Within-night variation of beat intervals: SDNN ÷ mean NN.',
     citation: 'Within-user dispersion',
   ),
   'brv': MetricSpec(

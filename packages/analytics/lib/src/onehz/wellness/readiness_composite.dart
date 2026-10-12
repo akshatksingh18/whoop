@@ -86,7 +86,9 @@ class ReadinessInput {
 ReadinessInput hrvInput(double? v, List<double> base) =>
     ReadinessInput('HRV', v, base, 1, 0.35);
 ReadinessInput rhrInput(double? v, List<double> base) =>
-    ReadinessInput('RHR', v, base, -1, 0.25, quantum: 1); // whole bpm
+    // 0.5 bpm (B88-11): the input is a continuous 30-min mean, not an integer
+    // sample, so a whole-bpm floor refused legitimately tight baselines.
+    ReadinessInput('RHR', v, base, -1, 0.25, quantum: 0.5);
 ReadinessInput respInput(double? v, List<double> base) =>
     ReadinessInput('RR', v, base, -1, 0.12);
 

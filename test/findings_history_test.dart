@@ -75,7 +75,9 @@ void main() {
     final days = [_day('2026-08-10')];
     expect(findingsHistory(_cd(days)), isEmpty);
     expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 71}), isEmpty);
-    expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 33}).single.kind,
+    // B88-11: the bottom band (26) of the headline ring's scheme.
+    expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 33}), isEmpty);
+    expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 25}).single.kind,
         FindingKind.lowReadiness);
   });
 

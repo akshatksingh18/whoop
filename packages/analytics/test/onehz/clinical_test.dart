@@ -753,6 +753,8 @@ void main() {
         startSec: 1,
         endSec: 601,
         windowSec: 300,
+        // Cleaner arithmetic only; the qualification gates are pinned below.
+        minCoveredSec: 0, minPairs: 1, minWindows: 1, minNightCoverage: 0, maxArtifactFrac: 1,
       );
       expect(m.present, isTrue);
       expect(m.value, closeTo((15.8113883 + 79.0569415) / 2.0, 1e-6));
@@ -761,7 +763,8 @@ void main() {
     test('drops out-of-range and Malik-style ectopic beats before RMSSD', () {
       final rr = <double>[1000, 1000, 200, 1000, 1000];
       final ts = <double>[1000, 2000, 3000, 4000, 5000];
-      final m = sleepSessionWindowedRmssd(rr, ts, startSec: 1, endSec: 301);
+      final m = sleepSessionWindowedRmssd(rr, ts,
+          startSec: 1, endSec: 301, minCoveredSec: 0, minPairs: 1, minWindows: 1, minNightCoverage: 0, maxArtifactFrac: 1);
       expect(m.present, isTrue);
       expect(m.value, closeTo(0.0, 1e-9));
     });
@@ -775,10 +778,65 @@ void main() {
       // (87.7 -> 58.2, 82.9 -> 53.0, 76.9 -> 48.4 ms) and 2-13 % on gen4.
       final rr = <double>[900, 900, 900, 200, 1000, 1000, 1000];
       final ts = <double>[for (var i = 0; i < 7; i++) 1000.0 + i * 1000.0];
-      final m = sleepSessionWindowedRmssd(rr, ts, startSec: 1, endSec: 301);
+      final m = sleepSessionWindowedRmssd(rr, ts,
+          startSec: 1, endSec: 301, minCoveredSec: 0, minPairs: 1, minWindows: 1, minNightCoverage: 0, maxArtifactFrac: 1);
       expect(m.present, isTrue);
       expect(m.value, closeTo(0.0, 1e-9),
           reason: '2 runs of flat beats, no seam difference');
+    });
+
+    // B88-03 — qualification and time adjacency (build-88-proposal.md §2).
+    test('B88-03: two isolated beats never make a nightly HRV', () {
+      // The bugs.md reproduction: [1000, 1100] once read RMSSD 100 ms whether
+      // the reports were 1 s or 298 s apart.
+      for (final gapMs in [1000.0, 298000.0]) {
+        final m = sleepSessionWindowedRmssd(
+          const [1000, 1100],
+          [1000.0, 1000.0 + gapMs],
+          startSec: 1,
+          endSec: 601,
+        );
+        expect(m.present, isFalse, reason: 'gap $gapMs ms');
+      }
+    });
+
+    test('B88-03: unreported time splits a run instead of forming a pair', () {
+      // Same beats; the second pair is 40 s late. With loose gates the only
+      // valid difference is the time-adjacent one (0 ms), never 1000→1100.
+      final m = sleepSessionWindowedRmssd(
+        const [1000, 1000, 1100],
+        const [1000.0, 2000.0, 42000.0],
+        startSec: 1,
+        endSec: 301,
+        minCoveredSec: 0, minPairs: 1, minWindows: 1, minNightCoverage: 0, maxArtifactFrac: 1,
+      );
+      expect(m.present, isTrue);
+      expect(m.value, closeTo(0.0, 1e-9));
+    });
+
+    test('B88-03: a continuous night qualifies; a thin one does not', () {
+      final rnd = math.Random(3);
+      List<double> rr(int n) => [
+            for (var i = 0; i < n; i++)
+              1000 + 40 * math.sin(i / 3) + (rnd.nextDouble() - 0.5) * 6
+          ];
+      List<double> ts(List<double> r, double t0) {
+        var t = t0;
+        return [for (final v in r) t += v];
+      }
+
+      // 40 continuous minutes of beats inside a 40-minute session.
+      final full = rr(2400);
+      final ok = sleepSessionWindowedRmssd(full, ts(full, 1000.0),
+          startSec: 1, endSec: 2401);
+      expect(ok.present, isTrue);
+      // Only 5 minutes of real beats in that same session: one window is not
+      // a night.
+      final thin = rr(300);
+      final no = sleepSessionWindowedRmssd(thin, ts(thin, 1000.0),
+          startSec: 1, endSec: 2401);
+      expect(no.present, isFalse);
+      expect(no.note, contains('hrv_not_qualified'));
     });
 
     test('HRV-02: the nightly headline is ABSENT on a jitter-dominated night',

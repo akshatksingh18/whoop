@@ -53,7 +53,12 @@ Map<String, dynamic> buildCrossDayBundle(
   List<String> cycleStartDates = const [],
   Map<String, List<String>> sessionTypesByDate = const {},
 }) {
-  final days = daysOldestFirst;
+  // B88-11: imported days (another vendor's numbers) feed no cross-day
+  // detector, baseline, percentile or load model.
+  final days = [
+    for (final d in daysOldestFirst)
+      if (d['imported'] != true) d,
+  ];
   final n = days.length;
 
   // ── per-series arrays (preserve order, parallel to `days`) ─────────────────

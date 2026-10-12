@@ -108,6 +108,18 @@ void main() {
       expect(flag?['flag'], isNot('elevated'));
     });
 
+    test('B88-11: imported days feed no cross-day detector', () {
+      // 20 imported days with a towering resting HR, then calm real nights:
+      // if imports reached the CUSUM/anomaly baseline the real nights would
+      // look anomalously LOW and the imported ones like an illness.
+      final days = [
+        for (var i = 0; i < 20; i++) {...day(i), 'rhr': 80, 'imported': true},
+        for (var i = 20; i < 26; i++) day(i, family: 'gen4'),
+      ];
+      final b = buildCrossDayBundle(days, const {'age': 23, 'sex': 'm'});
+      expect(b['n_days'], 6);
+    });
+
     test('a verified family feeds the raw nightly mean, not a z-score', () {
       // Raw centi-°C means steady at 3350, then two clearly warmer nights.
       // The stored z is deliberately inconsistent garbage: if the detector

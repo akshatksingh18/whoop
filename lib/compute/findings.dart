@@ -31,9 +31,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-/// Below this, readiness is a finding. Shared so the notification and the log
-/// cannot disagree about which mornings were low.
-const double kLowReadiness = 34;
+/// Below this, readiness is a finding: the bottom band (26) of the headline
+/// ring's 61/37/26 scheme (B88-11). Shared so the notification and the log,
+/// which now both read the headline composite, cannot disagree.
+const double kLowReadiness = 26;
 
 enum FindingKind {
   illness,
@@ -81,7 +82,7 @@ class Finding {
 
   String get detail => switch (kind) {
         FindingKind.illness =>
-          'Elevated resting HR + suppressed HRV over recent nights.',
+          'Resting heart rate above your usual over recent nights.',
         FindingKind.anomaly =>
           'Your nightly signals deviate from your personal baseline.',
         FindingKind.tempElevated =>

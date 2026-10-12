@@ -372,12 +372,27 @@ Metric<double> nocturnalRmssd(
 /// milliseconds. [startSec]/[endSec] bound the chosen sleep session in epoch
 /// seconds. The implementation is one-pass over the time-sorted RR stream:
 /// beats are bucketed once by `(tsSec - startSec) ~/ windowSec`.
+///
+/// B88-03 qualification (engineering policy, `build-88-proposal.md` §2, not a
+/// clinical constant): a successive difference needs TIME-ADJACENT beats —
+/// their reported times must differ by the later interval within
+/// [adjacencyTolMs] — so unreported time never becomes a fake difference. A
+/// window qualifies with ≥[minCoveredSec] of accepted beats, ≥[minPairs] valid
+/// pairs and ≤[maxArtifactFrac] rejected beats; the night needs ≥[minWindows]
+/// qualifying windows covering ≥[minNightCoverage] of the session. Otherwise
+/// absent with the reason; a confidence floor never substitutes for this.
 Metric<double> sleepSessionWindowedRmssd(
   List<double> rrMs,
   List<double> rrTsMs, {
   required int startSec,
   required int endSec,
   int windowSec = 300,
+  double adjacencyTolMs = 250,
+  double minCoveredSec = 180,
+  int minPairs = 120,
+  double maxArtifactFrac = 0.20,
+  int minWindows = 6,
+  double minNightCoverage = 0.15,
 }) {
   const inputs = ['rr_sleep_window'];
   if (startSec <= 0 ||
@@ -393,11 +408,13 @@ Metric<double> sleepSessionWindowedRmssd(
   }
 
   final buckets = <int, List<double>>{};
+  final bucketTs = <int, List<double>>{};
   for (var i = 0; i < rrMs.length; i++) {
     final tsSec = (rrTsMs[i] / 1000.0).round();
     if (tsSec < startSec || tsSec >= endSec) continue;
     final idx = ((tsSec - startSec) ~/ windowSec);
     (buckets[idx] ??= <double>[]).add(rrMs[i]);
+    (bucketTs[idx] ??= <double>[]).add(rrTsMs[i]);
   }
 
   if (buckets.isEmpty) {
@@ -411,9 +428,18 @@ Metric<double> sleepSessionWindowedRmssd(
   final rmssds = <double>[];
   final runs = <List<double>>[]; // pooled jitter floor — see [nocturnalRmssd]
   final indices = buckets.keys.toList()..sort();
+  var thinWindows = 0;
   for (final idx in indices) {
+    final raw = buckets[idx]!;
+    final cleaned =
+        _cleanWindowRuns(raw, tsMs: bucketTs[idx], adjacencyTolMs: adjacencyTolMs);
+    final kept = cleaned.fold<int>(0, (a, r) => a + r.length);
+    final coveredSec =
+        cleaned.fold<double>(0, (a, r) => a + r.fold<double>(0, (b, v) => b + v)) /
+            1000.0;
+    final artifactFrac = raw.isEmpty ? 1.0 : 1 - kept / raw.length;
     final diffRuns = [
-      for (final r in _cleanWindowRuns(buckets[idx]!))
+      for (final r in cleaned)
         if (r.length >= 2) [for (var i = 1; i < r.length; i++) r[i] - r[i - 1]]
     ];
     var ssd = 0.0;
@@ -424,7 +450,13 @@ Metric<double> sleepSessionWindowedRmssd(
         nd++;
       }
     }
-    if (nd == 0) continue;
+    if (nd < minPairs ||
+        nd == 0 ||
+        coveredSec < minCoveredSec ||
+        artifactFrac > maxArtifactFrac) {
+      thinWindows++;
+      continue;
+    }
     runs.addAll(diffRuns);
     rmssds.add(math.sqrt(ssd / nd));
   }
@@ -440,11 +472,15 @@ Metric<double> sleepSessionWindowedRmssd(
       note: _jitterNote(acf1),
     );
   }
-  if (rmssds.isEmpty) {
-    return const Metric<double>.absent(
+  final sessionWindows = ((endSec - startSec) / windowSec).ceil();
+  if (rmssds.length < minWindows ||
+      rmssds.length < minNightCoverage * sessionWindows) {
+    return Metric<double>.absent(
       tier: Tier.high,
       inputs_used: inputs,
-      note: 'no valid 5-min windows for sleep-session RMSSD',
+      note: 'hrv_not_qualified:windows=${rmssds.length},'
+          'need=${math.max(minWindows, (minNightCoverage * sessionWindows).ceil())},'
+          'thin=$thinWindows',
     );
   }
 
@@ -493,7 +529,16 @@ List<List<double>> _fiveMinSegments(List<double> nn, List<double> times) {
 /// audit corpus: it inflated the headline by 2–13 % on gen4 (57.2 → 52.3 ms at
 /// worst) and by 51–102 % on MG (87.7 → 58.2, 82.9 → 40.9, 76.9 → 40.2 ms) —
 /// i.e. most of the "gen5 reads 2× gen4" gap was this, not physiology.
-List<List<double>> _cleanWindowRuns(List<double> rr) {
+///
+/// With [tsMs] (each beat's reported end time) a run also breaks where two
+/// kept beats are not TIME-ADJACENT: the gap between their reported times
+/// must equal the later interval within [adjacencyTolMs] (B88-03). Without
+/// times, positional adjacency alone applies (legacy callers/tests).
+List<List<double>> _cleanWindowRuns(
+  List<double> rr, {
+  List<double>? tsMs,
+  double adjacencyTolMs = 250,
+}) {
   const radius = 2;
   const threshold = 0.20;
   // Range filter first, keeping each survivor's position in [rr] — BOTH filters
@@ -528,7 +573,10 @@ List<List<double>> _cleanWindowRuns(List<double> rr) {
       }
       continue;
     }
-    if (run.isNotEmpty && at[i] != lastKept + 1) {
+    final timeGap = tsMs != null &&
+        run.isNotEmpty &&
+        ((tsMs[at[i]] - tsMs[lastKept]) - rr[at[i]]).abs() > adjacencyTolMs;
+    if (run.isNotEmpty && (at[i] != lastKept + 1 || timeGap)) {
       runs.add(run);
       run = <double>[];
     }

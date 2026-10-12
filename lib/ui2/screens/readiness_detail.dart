@@ -92,9 +92,41 @@ class ReadinessData {
     return diag is Map ? diag.cast<String, dynamic>() : null;
   }
 
+  /// The HEADLINE composite's own per-input contributions for [day] (B88-11),
+  /// shaped like the rows the breakdown renders. The glass-box percentile is a
+  /// different model; showing its ranking under the composite ring explained a
+  /// calculation that did not produce the number. Inputs the composite did not
+  /// use are listed as unused so their absence stays visible.
+  static Future<List<Map<String, dynamic>>> _compositeBreakdown(
+    String? day,
+  ) async {
+    if (day == null) return const [];
+    final payload = (await LocalDb.dayResult(day))?['payload_json'];
+    if (payload is! String) return const [];
+    final b = jsonDecode(payload);
+    final clin = b is Map ? b['clinical'] : null;
+    final comp = clin is Map ? clin['readiness_composite'] : null;
+    final drivers = comp is Map ? comp['drivers'] : null;
+    const keyOf = {'HRV': 'hrv', 'RHR': 'rhr', 'RR': 'resp', 'sleep': 'sleep'};
+    final byLabel = <String, Map>{
+      for (final d in (drivers is List ? drivers : const []))
+        if (d is Map && keyOf[d['label']] != null) keyOf[d['label']]!: d,
+    };
+    const nominal = {'hrv': 0.35, 'rhr': 0.25, 'sleep': 0.20, 'resp': 0.12};
+    return [
+      for (final e in nominal.entries)
+        {
+          'label': e.key,
+          'weight': e.value,
+          'used': byLabel.containsKey(e.key),
+          'weighted_contribution': byLabel[e.key]?['contribution'],
+          'past_mdc': false,
+        },
+    ];
+  }
+
   static Future<ReadinessData> load(LocalRepository repo, {String? day}) async {
     final today = await repo.getToday();
-    final cd = await repo.getInsights();
     final chart = await repo.getChart('recovery');
     final currentDay = (today['status'] as Map?)?['today_day']?.toString();
     if (day != null && day != currentDay) {
@@ -113,9 +145,10 @@ class ReadinessData {
     }
 
     final daily = today['daily'];
-    final gb = cd['readiness_glassbox'];
-    final v = envValue(gb) ?? const <String, dynamic>{};
-    final bd = v['breakdown'];
+    final status = today['status'] as Map?;
+    final bd = await _compositeBreakdown(
+      (status?['overnight_day'] ?? status?['today_day'])?.toString(),
+    );
 
     final readiness = overnightMetric(
       today,
@@ -124,18 +157,9 @@ class ReadinessData {
 
     return ReadinessData(
       readiness: readiness,
-      // `narrative` and the glass-box `score` are DELIBERATELY not read. Both
-      // belong to the deprecated percentile score, which bands at 70/40 while
-      // the headline composite bands at 61/37/26 (see `readinessBand`) —
-      // printing its verdict under the ring put "You're ready" directly
-      // beneath "45 · Take it easy". The
-      // breakdown below IS worth keeping; it is a parallel ranking of the same
-      // four inputs, and the footer now says so.
-      breakdown: [
-        for (final e in (bd is List ? bd : const []))
-          if (e is Map) e.cast<String, dynamic>(),
-      ],
-      inputsUsed: (v['inputs_used'] as num?)?.toInt() ?? 0,
+      // The composite's OWN contributions (B88-11), not the glass box.
+      breakdown: bd,
+      inputsUsed: bd.where((r) => r['used'] == true).length,
       heldOverNight: heldOverNightOf(today),
       series: denseDays(pointsOf(chart), 90),
       // Only read when there is nothing to explain away — a scored day has no

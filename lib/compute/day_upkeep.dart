@@ -241,6 +241,9 @@ Future<Profile> sessionProfile(
     WorkoutClock.read(id, start, end: end).profile ??
     await ProfileHistory.on(dayLabelOf(start), fallback);
 
+/// Longest lifting session priced in the separate lifting line.
+const int kMaxLiftHours = 4;
+
 /// Net energy of the day's strength sessions ([kLiftTypeKeys]), each priced by
 /// [sessionActiveKcal] ((MET − 1) × kg × active hours; heart rate not used),
 /// less the step calories of steps taken inside the session's active windows,
@@ -284,6 +287,12 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
     final end = endTs == null
         ? DateTime.now()
         : DateTime.fromMillisecondsSinceEpoch(endTs * 1000);
+    // B88-06: a session longer than [kMaxLiftHours] is a forgotten stop, not
+    // a workout; it gets no lifting calories rather than hours of them.
+    if (end.difference(start) > const Duration(hours: kMaxLiftHours)) {
+      approximate = true;
+      continue;
+    }
     if (coveredUntil != null && start.isBefore(coveredUntil)) {
       start = coveredUntil;
     }

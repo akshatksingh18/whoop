@@ -55,6 +55,24 @@ double emaSpeed(double? prevSmoothed, double raw, {double alpha = 0.15}) {
   return prevSmoothed + alpha * (raw - prevSmoothed);
 }
 
+/// B88-05: the same smoothing over TIME rather than per fix. With the 5 m
+/// distance filter fixes arrive per distance travelled, so a per-fix weight
+/// lagged by distance (about 33 m) whatever the pace. Here a reading [dtSec]
+/// after the last moves the value by 1 − e^(−dt/τ): a step change settles to
+/// 63% in [tauSec] seconds at any speed. Same-timestamp readings are ignored.
+/// τ ≈ 5 s is a starting value to confirm on a real walk and run.
+double emaSpeedOverTime(
+  double? prevSmoothed,
+  double raw,
+  double dtSec, {
+  double tauSec = 5,
+}) {
+  if (prevSmoothed == null) return raw;
+  if (!(dtSec > 0)) return prevSmoothed;
+  final alpha = 1 - math.exp(-dtSec / tauSec);
+  return prevSmoothed + alpha * (raw - prevSmoothed);
+}
+
 /// Instantaneous speed (m/s) derived from two consecutive fixes, for when the
 /// platform doesn't report `Position.speed` (some Android devices, or the
 /// first fix). Less accurate than a real Doppler speed — position-fix jitter

@@ -77,6 +77,12 @@ void main() {
     expect((await liftingOn('2026-10-07', me))!.kcal, closeTo(201.25, 1e-9));
   });
 
+  test('B88-06: a lift longer than four hours gets no lifting calories', () async {
+    final d = DateTime(2026, 10, 8, 9).millisecondsSinceEpoch ~/ 1000;
+    await session('forgot', 'Weight training', d, 5 * 60);
+    expect(await liftingOn('2026-10-08', me), isNull);
+  });
+
   test('no weight, no line', () async {
     expect(await liftingOn(day, const Profile(ageYears: 23)), isNull);
   });

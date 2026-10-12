@@ -1479,6 +1479,7 @@ LiveFeed _feedOf(AppState app) {
     currentSpeedMps: app.routeTracker?.freshSpeedMps(
       DateTime.now().millisecondsSinceEpoch,
     ),
+    movingSec: app.routeTracker?.movingSeconds,
     gpsActive: app.routeTracking,
     gpsWaiting: app.routeWaitingForFix,
     bandConnected: app.isConnected,

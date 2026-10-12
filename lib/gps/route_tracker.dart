@@ -81,6 +81,7 @@ class RouteTracker {
     _breakNext = true;
     currentSpeedMps.value = null;
     _speedAtMs = null;
+    _lastRawMps = null;
     stalled.value = false;
     _lastFixAt = clock.now();
   }
@@ -134,20 +135,38 @@ class RouteTracker {
   /// Cumulative distance in metres.
   final ValueNotifier<double> distanceMeters = ValueNotifier<double>(0);
 
-  /// Smoothed instantaneous speed (m/s) — see [rmath.emaSpeed]. Null until the
+  /// Smoothed instantaneous speed (m/s) — see [rmath.emaSpeedOverTime]. Null until the
   /// first usable fix (platform speed or a fallback derived from two fixes).
   final ValueNotifier<double?> currentSpeedMps = ValueNotifier<double?>(null);
 
   /// When [currentSpeedMps] was last fed a usable reading (fix time, ms).
   int? _speedAtMs;
 
+  /// The last unsmoothed reading, for stop detection.
+  double? _lastRawMps;
+
   /// The current speed if a usable reading arrived within [maxAge] of
   /// [nowMs], else null — an old value is not current speed (B86-02). A
   /// measured stationary zero is a valid current speed.
-  double? freshSpeedMps(int nowMs, {Duration maxAge = const Duration(seconds: 10)}) {
+  ///
+  /// B88-05 stop detection: under the 5 m distance filter iOS stops sending
+  /// fixes when you stop, so the last walking speed used to linger. When no
+  /// reading has arrived for [stopAfter] and the last one was already under
+  /// 0.5 m/s, you have stopped: 0. Past [maxAge] with no reading the current
+  /// speed is unknown and the screen shows "—" (D5), never the average.
+  double? freshSpeedMps(
+    int nowMs, {
+    Duration maxAge = const Duration(seconds: 10),
+    Duration stopAfter = const Duration(seconds: 5),
+  }) {
     final at = _speedAtMs;
     if (at == null || stalled.value || error.value != null) return null;
-    return nowMs - at <= maxAge.inMilliseconds ? currentSpeedMps.value : null;
+    final age = nowMs - at;
+    if (age > maxAge.inMilliseconds) return null;
+    if (age >= stopAfter.inMilliseconds && (_lastRawMps ?? 1) < 0.5) {
+      return 0;
+    }
+    return currentSpeedMps.value;
   }
 
   /// The platform's own speed when its uncertainty allows it: negative
@@ -163,7 +182,13 @@ class RouteTracker {
 
   void _feedSpeed(double raw, int tsMs) {
     final clamped = math.min(raw, rmath.kMaxPlausibleSpeedMps);
-    currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, clamped);
+    final prevAt = _speedAtMs;
+    currentSpeedMps.value = rmath.emaSpeedOverTime(
+      currentSpeedMps.value,
+      clamped,
+      prevAt == null ? 0 : (tsMs - prevAt) / 1000,
+    );
+    _lastRawMps = clamped;
     _speedAtMs = tsMs;
   }
 
@@ -208,8 +233,9 @@ class RouteTracker {
       isRunning && _accepted > 0 && !stalled.value && error.value == null;
 
   /// Moving time in seconds so far — the sum of inter-fix intervals, excluding
-  /// gaps > 60 s (paused / no signal). Drives the LIVE pace so pre-first-fix
-  /// waiting and pauses don't dilute it. Mirrors route_math.movingSeconds.
+  /// gaps > 60 s (paused / no signal) and stopped intervals (under 0.5 m/s for
+  /// 2 s or more). Drives the LIVE average pace so waiting at a crossing does
+  /// not dilute it (B88-05). Mirrors route_math.movingSeconds.
   int get movingSeconds => _movingMs ~/ 1000;
 
   /// Begin consuming [source]. Safe to call once per tracker instance.
@@ -280,7 +306,8 @@ class RouteTracker {
       } else {
         _rejectStreak = 0;
         if (dtMs > 60000) gapBefore = true;
-        if (dtMs > 0 && dtMs <= 60 * 1000) _movingMs += dtMs;
+        final stopped = dtMs >= 2000 && jump / (dtMs / 1000) < 0.5;
+        if (dtMs > 0 && dtMs <= 60 * 1000 && !stopped) _movingMs += dtMs;
       }
     }
 
@@ -291,6 +318,7 @@ class RouteTracker {
     if (gapBefore) {
       currentSpeedMps.value = null;
       _speedAtMs = null;
+      _lastRawMps = null;
     }
     final rawSpeed =
         _platformSpeed(s) ??

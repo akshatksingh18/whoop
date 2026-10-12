@@ -3,6 +3,7 @@
 // geolocator, no DB).
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -377,9 +378,10 @@ void main() {
     await pumpEventQueue();
 
     // Clamped to kMaxPlausibleSpeedMps (25) BEFORE the EMA runs, so the
-    // result is bounded by smoothing toward 25, never toward 50.
+    // result is bounded by smoothing toward 25, never toward 50. The weight
+    // is time-based from B88-05: 1 s at τ = 5 s is 1 − e^(−0.2).
     final v = t.currentSpeedMps.value!;
-    final maxIfClampedFirst = 3.0 + 0.15 * (25.0 - 3.0); // ~6.3
+    final maxIfClampedFirst = 3.0 + (1 - math.exp(-0.2)) * (25.0 - 3.0); // ~7.0
     expect(v, lessThanOrEqualTo(maxIfClampedFirst + 0.01));
 
     await t.stop();

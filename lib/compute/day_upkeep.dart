@@ -44,6 +44,15 @@ class DayUpkeep {
   /// lifting session; `approximate` when a session's steps were unknown.
   final ({double kcal, int sessions, bool approximate})? lifting;
 
+  /// The local day's real length ÷ 24 h (DST days are 23 or 25 h).
+  double get dayFraction {
+    final d = date == null ? null : DateTime.tryParse(date!);
+    if (d == null) return 1.0;
+    final start = DateTime(d.year, d.month, d.day);
+    final end = DateTime(d.year, d.month, d.day + 1);
+    return end.difference(start).inMinutes / 1440.0;
+  }
+
   ({double bmr, double steps, double run, double food, double total})?
   get acsmParts {
     final m = parts;
@@ -75,6 +84,7 @@ class DayUpkeep {
       digestionKcal: digestion,
       runKcal: runs.kcal,
       runSteps: runs.steps,
+      dayFraction: dayFraction,
     );
     if (m == null || !overlapUnknown) return m;
     // Without evidence of run-step overlap, use the larger movement estimate
@@ -255,16 +265,30 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   var kcal = 0.0;
   var counted = 0;
   var approximate = false;
+  // B88-06: overlapping lift sessions are one stretch of lifting, priced once.
+  DateTime? coveredUntil;
+  rows.sort((a, b) =>
+      ((a['start_ts'] as num?) ?? 0).compareTo((b['start_ts'] as num?) ?? 0));
   for (final r in rows) {
     final id = r['id'] as String?;
     final startTs = (r['start_ts'] as num?)?.toInt();
     if (id == null || startTs == null) continue;
-    final start = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
+    // A reconcile-time end (a stale live session closed later) is not the
+    // real end; pricing it billed hours of lifting nobody did.
+    if ((r['end_ts_fabricated'] as num?) == 1) {
+      approximate = true;
+      continue;
+    }
+    var start = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
     final endTs = (r['end_ts'] as num?)?.toInt();
     final end = endTs == null
         ? DateTime.now()
         : DateTime.fromMillisecondsSinceEpoch(endTs * 1000);
+    if (coveredUntil != null && start.isBefore(coveredUntil)) {
+      start = coveredUntil;
+    }
     if (!end.isAfter(start)) continue;
+    coveredUntil = end;
     final clock = WorkoutClock.read(id, start, end: end);
     final minutes = clock.activeDuration(end).inSeconds / 60;
     final at = await sessionProfile(id, start, profile, end: end);

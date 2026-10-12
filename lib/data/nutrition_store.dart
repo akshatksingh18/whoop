@@ -23,9 +23,9 @@ import 'day_label.dart';
 /// schemaVersion 35. Two tables: a per-entry log, and a dictionary so a
 /// repeat entry costs one row instead of re-typing the macros.
 Future<void> createNutritionTables(Database db) async {
-  // A day the user marked complete or incomplete themselves (build 86). It
-  // overrides the evening-entry guess either way; it never makes a day with
-  // an unknown calorie value complete.
+  // A day the user marked complete or incomplete themselves (build 86). From
+  // build 88 it is the only way a past day becomes complete; it never makes a
+  // day with an unknown calorie value complete.
   await db.execute('''
     CREATE TABLE IF NOT EXISTS food_day_mark (
       date        TEXT PRIMARY KEY,
@@ -574,20 +574,14 @@ enum DayLogState {
   /// judged incomplete while it is still happening.
   inProgress,
 
-  /// Logged, but with a gap we can detect: an unknown energy value, or no
-  /// occasion in the evening. EXCLUDED from every derived average, and the UI
-  /// says so.
+  /// Logged, but not known whole: an unknown energy value, a past day the
+  /// user has not marked complete, or one marked incomplete. EXCLUDED from
+  /// every derived average, and the UI says so.
   partial,
 
-  /// Every occasion carries energy and the day's span reaches the evening.
+  /// Marked complete by the user, with energy on every occasion.
   complete,
 }
-
-/// The hour after which a finished day is taken to have been logged through to
-/// the end. A calibration knob, not a physiological claim: shift-workers and
-/// early eaters will trip it, which is exactly why the UI states the rule
-/// rather than hiding it.
-const int kEveningLogHour = 17;
 
 /// One day, rolled up. Built by [rollupDay] — never by the UI.
 class NutritionDay {
@@ -647,10 +641,10 @@ NutritionDay rollupDay(
   );
 }
 
-/// Partial-day detection. Automatic by default; from build 86 the user can
-/// also mark a day ([mark] `complete` or `incomplete`), which wins over the
-/// evening-entry guess — today included — but never over an unknown calorie
-/// value.
+/// Partial-day detection (D13, build 88). A day counts only when the user
+/// marks it complete and every occasion carries energy. A past unmarked day is
+/// partial: the old evening-entry guess admitted a missed late meal, and one
+/// unseen meal moves an average or a food/weight maintenance by hundreds of kcal.
 DayLogState dayLogState(
   String date,
   List<FoodEntry> entries, {
@@ -663,14 +657,7 @@ DayLogState dayLogState(
   final energy = kcal ?? _sum(entries, (e) => e.kcal);
   if (mark == 'complete' && energy.complete) return DayLogState.complete;
   if (date == today) return DayLogState.inProgress;
-  if (!energy.complete) return DayLogState.partial;
-  final spanned = entries.any((e) {
-    final ts = e.atTs;
-    if (ts == null) return false;
-    final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-    return dayLabelOf(at) == date && at.hour >= kEveningLogHour;
-  });
-  return spanned ? DayLogState.complete : DayLogState.partial;
+  return DayLogState.partial;
 }
 
 /// One nutrient averaged across a window, with what was left out of it.
@@ -714,7 +701,7 @@ class NutritionWindow {
   /// One nutrient's mean over the counted days, gated PER NUTRIENT.
   ///
   /// [NutritionDay.countsTowardAverages] is an ENERGY rule: a day qualifies on
-  /// complete kcal and an evening occasion, and says nothing about protein. So
+  /// complete kcal and the user's mark, and says nothing about protein. So
   /// this used to admit any non-null total — including one that summed past
   /// occasions carrying no macro figure, i.e. a FLOOR — and print it as a mean
   /// with no marker. Only [NutrientTotal.complete] totals go in; the floors are

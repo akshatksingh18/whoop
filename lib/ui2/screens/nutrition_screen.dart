@@ -459,7 +459,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           ),
         const SizedBox(height: S.x2),
         Text(
-          'Complete: your manual mark, or a past day with calories on every entry and an evening log. Macro coverage is separate.',
+          'Complete: a day you mark complete, with calories on every entry. Macro coverage is separate.',
           style: F.over.copyWith(color: p.ink3),
         ),
       ],
@@ -1075,7 +1075,8 @@ class _NutritionDayViewState extends State<NutritionDayView>
 
   /// Whether this day counts in the weekly averages, and the one tap that
   /// says so yourself (build 86): mark it complete when everything is in,
-  /// or incomplete when it is not, instead of the evening-entry guess.
+  /// or incomplete when it is not. From build 88 an unmarked past day is
+  /// partial: only the user knows the log is whole.
   Widget _completeLine(BuildContext c, NutritionDay d) {
     final p = P.of(c);
     final say = switch (d.state) {
@@ -1088,7 +1089,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
         _mark == 'incomplete'
             ? 'Marked incomplete · left out of averages'
             : d.kcal.complete
-            ? 'Left out of averages: nothing logged after 5 pm'
+            ? 'Left out of averages until you mark it complete'
             : 'Left out of averages: a food has no calories',
     };
     Future<void> set(String? m) async {

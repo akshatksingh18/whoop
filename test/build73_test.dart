@@ -632,7 +632,7 @@ void main() {
               kcal: 2200,
               proteinG: 150,
             ),
-          ], today: '2026-10-04'),
+          ], today: '2026-10-04', mark: 'complete'),
       ];
       expect(estimatedMaintenance(weights, days)!.kcal, 2200);
       expect(maintenanceFoodCoverage(weights, days), (complete: 14, days: 14));

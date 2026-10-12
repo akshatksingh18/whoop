@@ -879,7 +879,14 @@ void main() {
       ..user = {..._profile};
     addTearDown(app.dispose);
     await t.pumpWidget(_app(app, const WeekCard()));
-    await _until(t, () => find.text('This week').evaluate().isNotEmpty);
+    // On a Monday the card shows last week, so accept either heading.
+    await _until(
+      t,
+      () => find
+          .textContaining(RegExp('^(This week|Last week)'))
+          .evaluate()
+          .isNotEmpty,
+    );
     final state = t.state(find.byType(WeekCard));
     final first = WeekCard.debugLoads;
     await t.runAsync(
@@ -887,10 +894,12 @@ void main() {
     );
     await _until(t, () => WeekCard.debugLoads > first);
     expect(identical(state, t.state(find.byType(WeekCard))), isTrue);
-    expect(
-      find.textContaining('Food summary awaits a completed day'),
-      findsOneWidget,
-    );
+    if (DateTime.now().weekday != DateTime.monday) {
+      expect(
+        find.textContaining('Food summary awaits a completed day'),
+        findsOneWidget,
+      );
+    }
     final second = WeekCard.debugLoads;
     app.bumpInsights();
     await _until(t, () => WeekCard.debugLoads > second);
@@ -1247,6 +1256,7 @@ void main() {
           '2026-09-30',
           entries,
           today: '2026-10-03',
+          mark: 'complete',
         ).countsTowardAverages,
         isTrue,
       );
@@ -1262,6 +1272,9 @@ void main() {
           db,
           _entry('Complete', '2026-09-28', kcal: 1800, protein: 120),
         ),
+      );
+      await t.runAsync(
+        () => NutritionDb.setDayMark(db, '2026-09-28', 'complete'),
       );
       await t.runAsync(
         () => NutritionDb.put(

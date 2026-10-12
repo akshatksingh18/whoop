@@ -206,13 +206,9 @@ Future<RunSummary?> summariseRun(
     final label = dayLabelOf(day);
     var steps = 0;
     var known = false;
-    var complete = true;
     final windows = dailyClock.onDay(label);
     for (final w in windows) {
       final r = await LocalDb.resolvedStepsForWindow(w.start, w.end);
-      if (r.coveredSeconds < w.end.difference(w.start).inSeconds) {
-        complete = false;
-      }
       if (r.hasPhoneCoverage || r.total > 0) {
         known = true;
         steps += r.total;
@@ -231,7 +227,6 @@ Future<RunSummary?> summariseRun(
       if (!known && excluded.isEmpty && phone > 0) {
         steps = phone;
         known = true;
-        complete = true;
       }
     }
     if (!known &&
@@ -242,7 +237,6 @@ Future<RunSummary?> summariseRun(
         dayLabelOf(end.subtract(const Duration(milliseconds: 1))) == label) {
       steps = bandSteps;
       known = true;
-      complete = true;
     }
     final dayClock = WorkoutClock(
       id,
@@ -273,7 +267,11 @@ Future<RunSummary?> summariseRun(
     if (windows.isNotEmpty) {
       byDay[label] = (
         mix: dayMix,
-        steps: known && complete ? steps : null,
+        // B88-06: partially recorded run steps are still KNOWN steps. The
+        // daily total comes from the same resolver, so its uncovered seconds
+        // are absent from both and nothing is double counted; returning null
+        // here switched the whole day to max(walk, run) and dropped the run.
+        steps: known ? steps : null,
         meters: meters,
       );
     }

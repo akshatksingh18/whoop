@@ -94,11 +94,17 @@ void main() {
       expect(d.state, DayLogState.partial);
     });
 
-    test('a day with energy everywhere and an evening occasion is complete', () {
-      final d = rollupDay(yesterday, [
+    test('a past day with energy everywhere counts only once marked complete '
+        '(D13: an evening entry no longer guesses it)', () {
+      final entries = [
         _entry(date: yesterday, kcal: 300, hour: 8),
         _entry(date: yesterday, kcal: 900, hour: 19),
-      ], today: today);
+      ];
+      expect(
+        rollupDay(yesterday, entries, today: today).state,
+        DayLogState.partial,
+      );
+      final d = rollupDay(yesterday, entries, today: today, mark: 'complete');
       expect(d.state, DayLogState.complete);
       expect(d.kcal.value, 1200);
     });
@@ -113,7 +119,7 @@ void main() {
       final complete = rollupDay(yesterday, [
         _entry(date: yesterday, kcal: 2000, hour: 8),
         _entry(date: yesterday, kcal: 400, hour: 19),
-      ], today: today);
+      ], today: today, mark: 'complete');
       final partial = rollupDay('2026-08-13', [
         _entry(date: '2026-08-13', kcal: 200, hour: 8),
       ], today: today);
@@ -127,18 +133,18 @@ void main() {
 
     test('a macro that is only a floor on a counted day is left out of its own '
         'mean, and says how many days it lost', () {
-      // Both days qualify on ENERGY (complete kcal + an evening occasion), so
+      // Both days qualify on ENERGY (complete kcal + the user's mark), so
       // `countsTowardAverages` is true for both. Only one reports protein on
       // every occasion; the other summed past an occasion with no protein
       // figure, which makes its total a lower bound.
       final full = rollupDay(yesterday, [
         _entry(date: yesterday, kcal: 2000, hour: 8, protein: 100),
         _entry(date: yesterday, kcal: 400, hour: 19, protein: 40),
-      ], today: today);
+      ], today: today, mark: 'complete');
       final floored = rollupDay('2026-08-13', [
         _entry(date: '2026-08-13', kcal: 2000, hour: 8, protein: 20),
         _entry(date: '2026-08-13', kcal: 400, hour: 19),
-      ], today: today);
+      ], today: today, mark: 'complete');
       expect(full.countsTowardAverages, isTrue);
       expect(floored.countsTowardAverages, isTrue);
       expect(floored.protein.isFloor, isTrue);

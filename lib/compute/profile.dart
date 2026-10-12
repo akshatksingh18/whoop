@@ -320,6 +320,10 @@ double? otherWorkoutActiveKcal({
         )?.kcal;
   if (byMet == null) return byHr;
   if (byHr == null) return byMet;
+  // B88-06: a low mean HR makes net Keytel ≤ 0; that is "HR says nothing
+  // above resting", not "this session cost nothing". The lower of the two
+  // applies only when both are positive estimates.
+  if (byHr <= 0) return byMet;
   return math.min(byMet, byHr);
 }
 
@@ -373,8 +377,12 @@ maintenance(
   double? digestionKcal,
   double runKcal = 0,
   num runSteps = 0,
+  // B88-06: the day's real length ÷ 24 h (23/24 or 25/24 on DST days), so a
+  // full-day resting burn matches the day it is priced for.
+  double dayFraction = 1.0,
 }) {
-  final bmr = bmrMifflin(p);
+  final bmr0 = bmrMifflin(p);
+  final bmr = bmr0 == null ? null : bmr0 * dayFraction;
   if (bmr == null ||
       !eatenKcal.isFinite ||
       !runKcal.isFinite ||

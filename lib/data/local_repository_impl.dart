@@ -539,8 +539,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // B88-04: the need that applied to the night shown — stored on the day
       // before it — so the Home sleep bar never divides by tonight's need.
       if (sleepBundle?['date'] case final String night)
-        'sleep_need_night_min': await LocalDb.seriesValueOn(
-          'sleep_need_min',
+        'sleep_need_night_min': await LocalDb.metricValueOn(
           dayLabelOf(
             DateTime(
               DateTime.parse(night).year,
@@ -548,6 +547,7 @@ class LocalRepositoryImpl extends LocalRepository {
               DateTime.parse(night).day - 1,
             ),
           ),
+          'sleep_need_min',
         ),
       'status': {
         'today_day': todayDay,

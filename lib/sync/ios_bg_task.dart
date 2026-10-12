@@ -96,7 +96,7 @@ class IosBgTask {
         // Skip headless BLE if the foreground session already owns the band.
         if (!IosBleRestore.foregroundActive) {
           _bgLog('[ios-bgtask] running headless sync (syncOnly=$syncOnly)');
-          await runHeadlessSync();
+          await runHeadlessSync(wake: syncOnly ? 'bg_refresh' : 'bg_task');
         } else {
           // The foreground app owns the band: no headless BLE (it would fight
           // flutter_blue_plus for the peripheral) — but still use this OS-granted

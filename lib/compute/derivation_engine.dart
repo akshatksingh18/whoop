@@ -41,6 +41,7 @@ import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
+import '../notify/notification_prefs.dart' show NotificationPrefs;
 import '../notify/tap_router.dart' show workoutSuggestionRoute;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
@@ -5139,6 +5140,10 @@ class DerivationEngine {
         }
       }
 
+      // B88-12 (C8): a kind the user switched off never reaches the
+      // notification; the in-app findings log still lists it.
+      final muted = (await NotificationPrefs.load()).mutedFindings;
+      findings.removeWhere((f) => muted.contains(f.kind.name));
       if (findings.isEmpty) return;
       final one = findings.length == 1;
       // The key carries the day's HIGHEST severity class, not just the day.

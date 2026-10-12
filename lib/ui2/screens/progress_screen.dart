@@ -40,6 +40,27 @@ import 'today_plan.dart' show PlanRow;
 
 const _camera = MethodChannel('openstrap/camera');
 
+/// B88-12 (C6): one tape reading, or two of the same site averaged. Two
+/// readings more than half an inch apart are refused: one of them is off.
+@visibleForTesting
+double tapeReading(String site, String text) {
+  final parts = text
+      .replaceAll(',', '.')
+      .split(RegExp(r'[\s/]+'))
+      .where((x) => x.isNotEmpty)
+      .toList();
+  final vs = [for (final x in parts) double.tryParse(x)];
+  if (vs.isEmpty || vs.length > 2 || vs.any((v) => v == null || v <= 0)) {
+    throw BodyLogError('$site must be one number, or two from measuring twice.');
+  }
+  if (vs.length == 2 && (vs[0]! - vs[1]!).abs() > 0.5) {
+    throw BodyLogError(
+      'The two $site readings are more than half an inch apart. Measure again.',
+    );
+  }
+  return vs.length == 1 ? vs[0]! : (vs[0]! + vs[1]!) / 2;
+}
+
 String _md(String day) {
   const m = [
     'Jan',
@@ -1762,11 +1783,9 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
           if (BodySite.parse(e.key) == null) e.key: e.value,
       };
       for (final s in BodySite.values) {
-        final t = _sites[s]!.text.trim().replaceAll(',', '.');
+        final t = _sites[s]!.text.trim();
         if (t.isEmpty) continue;
-        final v = double.tryParse(t);
-        if (v == null) throw BodyLogError('${s.title} must be a number.');
-        inches[s.name] = v;
+        inches[s.name] = tapeReading(s.title, t);
       }
       if (inches.isNotEmpty) {
         await BodyLogDb.putMeasure(
@@ -1893,14 +1912,25 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                     'TAPE (INCHES, OPTIONAL)',
                     style: F.over.copyWith(color: p.ink3),
                   ),
+                  const SizedBox(height: S.x1),
+                  // B88-12 (C6): what makes two tape readings comparable.
+                  Text(
+                    'Same spot and same time of day each time, relaxed, tape '
+                    'snug but not pressing. Measured twice? Enter both, like '
+                    '34.5 34.75, and the average is kept.',
+                    style: F.cap.copyWith(color: p.ink3),
+                  ),
                   const SizedBox(height: S.x2),
                   for (final s in BodySite.values) ...[
                     OsTextField(
                       controller: _sites[s]!,
                       label: s.title,
                       hint: s.guidance,
+                      // Signed numbers open iOS's numbers-and-punctuation
+                      // keyboard, which has the space a second reading needs.
                       keyboard: const TextInputType.numberWithOptions(
                         decimal: true,
+                        signed: true,
                       ),
                     ),
                     const SizedBox(height: S.x3),

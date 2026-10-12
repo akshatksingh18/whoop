@@ -256,10 +256,41 @@ String? whyFromNote(String? note, {String unit = 'nights'}) {
         'this number has to be calibrated per strap, so it is withheld rather '
         'than guessed.';
   }
+  final q = _qualityWhy(s);
+  if (q != null) return q;
   // The pipeline's own "we could not attribute this" marker. It exists so an
   // absence never has to borrow a plausible reason, so it renders as no reason.
   if (s == 'unknown_cause') return null;
   return _machineNote.hasMatch(s) ? null : s;
+}
+
+/// B88-12 (C4): the data-quality line for the Build 88 qualification gates,
+/// in plain words, so "not measured" explains itself. Null for any other note.
+String? _qualityWhy(String s) {
+  int? n(String key) =>
+      int.tryParse(RegExp('$key=' r'(\d+)').firstMatch(s)?.group(1) ?? '');
+  if (s.startsWith('hrv_not_qualified:')) {
+    return 'Not measured: ${n('windows') ?? 0} of ${n('need') ?? 6} needed '
+        '5-minute windows had enough clean, gap-free beats.';
+  }
+  if (s.startsWith('stress_not_qualified:')) {
+    final sec = n('beats_sec');
+    if (sec != null) {
+      return 'Not measured: ${(sec / 60).round()} minutes of clean beats; it '
+          'needs ${((n('need') ?? 1200) / 60).round()}.';
+    }
+    return 'Not measured: ${n('windows') ?? 0} of ${n('need') ?? 3} needed '
+        'gap-free beat windows.';
+  }
+  if (s.startsWith('irregular_not_qualified:')) {
+    return 'Not screened: ${((n('covered_sec') ?? 0) / 3600).toStringAsFixed(1)} '
+        'hours of clean beats; it needs ${((n('need') ?? 10800) / 3600).round()}.';
+  }
+  if (s.startsWith('strain_target_withheld:')) {
+    return 'No strain target: the resting baseline it is built on is not '
+        'calibrated for you yet. The strain score itself is an estimate.';
+  }
+  return null;
 }
 
 /// Pull a per-metric flag map ({c, tier, label, beta}) out of a row's `flags`

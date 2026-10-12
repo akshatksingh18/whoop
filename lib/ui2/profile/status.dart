@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../build_profile.dart';
+import '../../data/db.dart' show LocalDb;
 import '../../data/auto_backup.dart' show BackupCadence;
 import '../../live/live_activity.dart';
 import '../../state/app_state.dart';
@@ -33,6 +34,25 @@ class _StatusScreenState extends State<StatusScreen> {
   String _version = '';
   Map<String, Object?> _la = const {};
   bool _testing = false;
+
+  /// B88-12 (C5): last background wake, transfer and calculation.
+  ({
+    int? wakeAt,
+    String? wakeSource,
+    int? transferAt,
+    String? transferStatus,
+    int? calculatedAt,
+  })?
+  _health;
+
+  Future<void> _readHealth() async {
+    try {
+      final h = await LocalDb.syncHealth();
+      if (mounted) setState(() => _health = h);
+    } catch (_) {
+      /* the panel stays hidden; nothing else depends on it */
+    }
+  }
 
   Future<void> _readLa() async {
     // The personal build ships no lock-screen extension (see
@@ -68,6 +88,7 @@ class _StatusScreenState extends State<StatusScreen> {
     app.refreshSigningStatus();
     app.refreshBackupPassphraseState();
     _readLa();
+    _readHealth();
     PackageInfo.fromPlatform().then((i) {
       if (mounted) setState(() => _version = '${i.version} (${i.buildNumber})');
     }, onError: (_) {});
@@ -165,6 +186,60 @@ class _StatusScreenState extends State<StatusScreen> {
                         value: _la['enabled'] == true ? 'On' : 'Off',
                         onTap: _testLa,
                       ),
+                    ]),
+                  ],
+                  if (_health case final h?) ...[
+                    const SizedBox(height: S.x5),
+                    settingsGroup(c, 'Sync health', [
+                      for (final (icon, title, at, what) in [
+                        (
+                          LucideIcons.alarmClock,
+                          'Last background wake',
+                          h.wakeAt,
+                          switch (h.wakeSource) {
+                            'ble_restore' => 'Band came back in range',
+                            'bg_refresh' => 'iOS background refresh',
+                            'bg_task' => 'iOS background task',
+                            null => null,
+                            final s => s,
+                          },
+                        ),
+                        (
+                          LucideIcons.arrowDownToLine,
+                          'Last band transfer',
+                          h.transferAt,
+                          switch (h.transferStatus) {
+                            'complete' => 'Finished',
+                            'partial' => 'Stopped part way',
+                            'idle' => 'Nothing new to send',
+                            null => null,
+                            final s => s,
+                          },
+                        ),
+                        (
+                          LucideIcons.calculator,
+                          'Last calculation',
+                          h.calculatedAt,
+                          null,
+                        ),
+                      ])
+                        SetRow(
+                          icon,
+                          C.n500,
+                          title,
+                          sub: at == null
+                              ? 'Not yet'
+                              : [
+                                  _stamp(
+                                    DateTime.fromMillisecondsSinceEpoch(at),
+                                  ),
+                                  ?what,
+                                ].join(' · '),
+                          value: at == null
+                              ? ''
+                              : '${_span(now.difference(DateTime.fromMillisecondsSinceEpoch(at)))} ago',
+                          chevron: false,
+                        ),
                     ]),
                   ],
                   const SizedBox(height: S.x5),

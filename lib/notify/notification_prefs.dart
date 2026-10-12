@@ -113,6 +113,11 @@ class NotificationPrefs {
   final bool windDownEnabled;
   final bool trainingReviewEnabled;
 
+  /// B88-12 (C8): health-alert kinds the user switched off, by
+  /// `FindingKind.name`. A muted kind still appears in the in-app findings
+  /// log; it only never reaches the notification.
+  final Set<String> mutedFindings;
+
   /// Allowed bounds for [batteryAlertPct]. Below 5% a band is dying, not low;
   /// above 40% the alert would fire constantly and be muted forever.
   static const int batteryPctMin = 5;
@@ -140,6 +145,7 @@ class NotificationPrefs {
     this.batteryAlertPct = batteryPctDefault,
     this.stepGoalEnabled = true,
     this.windDownEnabled = false, this.trainingReviewEnabled = false,
+    this.mutedFindings = const {},
   });
 
   static const _kHealth = 'notif_health';
@@ -166,6 +172,7 @@ class NotificationPrefs {
   static const _kStepGoal = 'notif_stepgoal';
   static const _kTrainingReview = 'notif_training_review';
   static const _kWindDown = 'notif_winddown';
+  static const _kMutedFindings = 'notif_muted_findings';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -202,6 +209,7 @@ class NotificationPrefs {
       // No bedtime is shown in the personal build, so no bedtime nudge
       // either: read as OFF so one an older build armed is cancelled.
       windDownEnabled: !kPersonalSideload && (p.getBool(_kWindDown) ?? false),
+      mutedFindings: {...?p.getStringList(_kMutedFindings)},
     );
   }
 
@@ -226,6 +234,7 @@ class NotificationPrefs {
     await p.setBool(_kStepGoal, stepGoalEnabled);
     await p.setBool(_kWindDown, windDownEnabled);
     await p.setBool(_kTrainingReview, trainingReviewEnabled);
+    await p.setStringList(_kMutedFindings, mutedFindings.toList()..sort());
   }
 
   NotificationPrefs copyWith({
@@ -246,6 +255,7 @@ class NotificationPrefs {
     int? batteryAlertPct,
     bool? stepGoalEnabled,
     bool? windDownEnabled, bool? trainingReviewEnabled,
+    Set<String>? mutedFindings,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -267,6 +277,7 @@ class NotificationPrefs {
         stepGoalEnabled: stepGoalEnabled ?? this.stepGoalEnabled,
         windDownEnabled: windDownEnabled ?? this.windDownEnabled,
         trainingReviewEnabled: trainingReviewEnabled ?? this.trainingReviewEnabled,
+        mutedFindings: mutedFindings ?? this.mutedFindings,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {

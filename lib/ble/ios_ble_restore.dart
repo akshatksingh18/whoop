@@ -78,7 +78,7 @@ class IosBleRestore {
       // the running entry point completes its own cycle).
       await HeadlessSyncGate.tryRun<void>('ble_restore_wake', () async {
         try {
-          await runHeadlessSync();
+          await runHeadlessSync(wake: 'ble_restore');
         } catch (e) {
           _bgLog('[ios-restore] headless sync threw: $e');
         } finally {

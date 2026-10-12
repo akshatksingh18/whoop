@@ -32,8 +32,15 @@ import 'file_log.dart';
 /// throws. Connects-by-id if reachable, drains whatever the band buffered to
 /// flash into local storage (non-destructive cursor — catches up everything since
 /// last time), and disconnects. No network.
-Future<bool> runHeadlessSync({BandLease? lease}) async {
+Future<bool> runHeadlessSync({
+  BandLease? lease,
+  String wake = 'background',
+}) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // B88-12 (C5): the Status panel's "last background wake". Best effort.
+  try {
+    await LocalDb.noteBackgroundWake(wake);
+  } catch (_) {}
   final ownedLease = lease ?? BandOwnership.tryAcquireHeadless();
   if (ownedLease == null) {
     _bgLog(

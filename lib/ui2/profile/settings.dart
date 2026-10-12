@@ -22,6 +22,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/auto_backup.dart';
 import '../../data/body_log.dart' show BodyLogDb;
 import '../../build_profile.dart';
+import '../../compute/findings.dart' show FindingKind;
 import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
@@ -1128,6 +1129,37 @@ class NotificationSettingsView extends StatelessWidget {
                             prefs.copyWith(healthEnabled: !prefs.healthEnabled),
                           ),
                         ),
+                        // B88-12 (C8): each health-alert kind on or off. A
+                        // muted kind stays in the in-app findings log. The
+                        // irregular-rhythm screen never pushes (C1), and the
+                        // temperature kind only exists where skin temperature
+                        // is shown.
+                        if (prefs.healthEnabled)
+                          for (final (kind, title) in [
+                            (FindingKind.illness, 'Possible illness onset'),
+                            (FindingKind.anomaly, 'Unusual night'),
+                            (FindingKind.lowReadiness, 'Low readiness'),
+                            (FindingKind.rhrShift, 'Resting heart-rate shift'),
+                            if (kShowSkinTemp)
+                              (
+                                FindingKind.tempElevated,
+                                'Skin temperature up',
+                              ),
+                          ])
+                            SetRow(
+                              LucideIcons.heartPulse,
+                              C.red,
+                              title,
+                              value: prefs.mutedFindings.contains(kind.name)
+                                  ? off
+                                  : on,
+                              chevron: false,
+                              onTap: () {
+                                final m = {...prefs.mutedFindings};
+                                if (!m.remove(kind.name)) m.add(kind.name);
+                                set(prefs.copyWith(mutedFindings: m));
+                              },
+                            ),
                         SetRow(
                           LucideIcons.watch,
                           C.orange,

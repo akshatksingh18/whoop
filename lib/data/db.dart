@@ -5938,6 +5938,52 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// B88-12 (C5): stamp the latest background wake ([source] is
+  /// `ble_restore`, `bg_task` or `bg_refresh`) for the Status sync-health
+  /// panel. One fixed row, replaced; never a history.
+  static Future<void> noteBackgroundWake(String source) =>
+      upsertSyncLedgerEntry(chunkId: 'wake', kind: 'diag', status: source);
+
+  /// B88-12 (C5): the four sync-health facts, newest first, each with its
+  /// epoch-ms time or null: last background wake (and what woke it), last
+  /// band transfer (and how it ended), last calculation of today.
+  static Future<
+    ({
+      int? wakeAt,
+      String? wakeSource,
+      int? transferAt,
+      String? transferStatus,
+      int? calculatedAt,
+    })
+  >
+  syncHealth() async {
+    final wake = await syncLedgerEntry('wake');
+    final capture = await syncLedgerEntry('capture');
+    int? calculated;
+    final today = await computeFreshness('today');
+    final raw = today?['payload_json'];
+    if (raw is String) {
+      try {
+        final m = jsonDecode(raw);
+        if (m is Map) {
+          final a = (m['activity_computed_at'] as num?)?.toInt();
+          final o = (m['overnight_computed_at'] as num?)?.toInt();
+          calculated = [?a, ?o].fold<int?>(
+            null,
+            (x, y) => x == null || y > x ? y : x,
+          );
+        }
+      } catch (_) {}
+    }
+    return (
+      wakeAt: (wake?['updated_at'] as num?)?.toInt(),
+      wakeSource: wake?['status'] as String?,
+      transferAt: (capture?['updated_at'] as num?)?.toInt(),
+      transferStatus: capture?['status'] as String?,
+      calculatedAt: calculated,
+    );
+  }
+
   static Future<List<Map<String, dynamic>>> syncLedger() async {
     final db = await instance;
     return db.query('sync_ledger', orderBy: 'created_at ASC');
@@ -7920,19 +7966,6 @@ class LocalDb {
       'key': key,
       'value': value,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  /// One (date, key) scalar from the series store, or null.
-  static Future<double?> seriesValueOn(String key, String date) async {
-    final db = await instance;
-    final rows = await db.query(
-      'metric_series',
-      columns: ['value'],
-      where: 'key = ? AND date = ?',
-      whereArgs: [key, date],
-      limit: 1,
-    );
-    return rows.isEmpty ? null : (rows.first['value'] as num?)?.toDouble();
   }
 
   /// A long-format metric series (oldest first) for trends/sparklines.

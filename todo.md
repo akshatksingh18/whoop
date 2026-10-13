@@ -31,14 +31,15 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 88: implemented in local source, not built or installed
+## Build 88 (`0.9.55`/`88`): testing IPA ready, phone checks open
 
 **State:** Akshat approved `build-88-proposal.md` with every recommendation (C1 note-only, C2
 "—", C3 off, C4-C8 yes, C10 built-in review) and asked for one combined Build 88. All twelve
-packages are implemented as local commits on branch `build-88` (algorithm 92), not pushed, with no
-IPA. `build-88-plan.md` owns the specifications, `bugs.md` what each repair closed and what is
-still open, and `DESIGN.md` the locked visual system. Full-suite result: RESULT.
-Phone checks, publication and the testing IPA are separate gates that need Akshat's go-ahead.
+packages are implemented (algorithm 92) and published as source `0f48c56f`; Linux CI
+`38329137774` (3,703 tests, 415 intentional skips) and personal macOS build `38329490196` pass,
+and the downloaded IPA passes source/version, checksum, ZIP and payload checks. It is the single
+candidate in `final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f`; `setup.md` owns the artifact evidence. `build-88-plan.md` owns the specifications, `bugs.md` what each repair closed and what is
+still open, and `DESIGN.md` the locked visual system. Local full suite: 3,698 tests pass (420 intentional skips). Not installed or phone-verified.
 
 Done in source (each with tests):
 - [x] **B88-01** temperature integrity: WHOOP 4 counts never publish temperature or feed
@@ -90,20 +91,20 @@ Open:
   constants on an outdoor walk and run, then the full lifecycle/background/soak matrix.
 - [ ] **Prerequisites:** keep the installed app signed past 2026-10-17; take an encrypted
   off-phone backup before any Build 88 install.
-- [ ] Publication, CI/macOS build and testing IPA: separate approval.
+- [x] Publication, CI/macOS build and testing IPA (Akshat asked for them).
 - [ ] Verify Codex first-use hook trust (advisory tooling, not an app blocker).
 
 **Not bundled:** personal quiet-HRR substitution, different recovery weights, Kalman smoothing, a
 replacement TDEE anchor, ML/Cole-Kripke staging, the chest-strap kit (C9) and the raw optical
 tail (C3 off). Accuracy gains remain unproven until reference evaluation.
 
-## Build 87 (`0.9.54`/`87`): testing IPA ready, phone acceptance open
+## Build 87 (`0.9.54`/`87`): built, never installed, superseded by Build 88
 
 **State:** Akshat requested an audit of installed Build 86 and a genuinely different,
 user-friendly Build 87 without losing required features/data. `build-87-ui-plan.md` owns the
 source/screenshot findings, detailed compositions, feature-preservation routes and acceptance
 criteria. Akshat approved implementation of the full UI and queued sync scope. Local source,
-full regression checks and real-height previews pass, including approved shortcuts, protein summaries and log-driven sync repairs. Published source `b0eee377` passes Linux CI `38156660026` (3,616 tests, 399 intentional skips) and personal macOS build `38156663594`. Downloaded source/version/checksum/ZIP/payload checks pass; the single testing candidate is `final-ipas\whoop\testing\WHOOP-0.9.54-build87-b0eee377`. `setup.md` owns the artifact evidence.
+full regression checks and real-height previews pass, including approved shortcuts, protein summaries and log-driven sync repairs. Published source `b0eee377` passes Linux CI `38156660026` (3,616 tests, 399 intentional skips) and personal macOS build `38156663594`. Downloaded source/version/checksum/ZIP/payload checks passed; it was never installed and Build 88 replaced its testing folder. `setup.md` owns the artifact evidence.
 Physical background and structural design acceptance remain open.
 
 - [x] Audit the 13 supplied phone screens against the five-tab UI and related source/data paths.

@@ -2,8 +2,8 @@
 
 **Status:** Published and built as `0.9.54`/`87`, source `b0eee377`, with Akshat's approval.
 Local checks, Linux CI `38156660026` and personal macOS build `38156663594` pass. The downloaded
-IPA passes source/version, checksum, ZIP and personal payload checks and is the single candidate
-in `../final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377`. Build 86 remains installed with
+IPA passes source/version, checksum, ZIP and personal payload checks; it was never installed and
+its testing folder is superseded by the Build 88 candidate. Build 86 remains installed with
 its rejected UI. Structural design and physical background acceptance remain separate gates.
 `todo.md` owns release scope and gates; this file owns the implemented UX and verification.
 Akshat approved source implementation and requested a pretty, peaceful warm palette. Existing

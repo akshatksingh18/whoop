@@ -15,8 +15,7 @@ Build 70 remains accepted recovery, and Build 86 remains installed. `build-85-au
 are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
 
-Build 88 source (branch `build-88`, algorithm 92) is implemented locally but not built or
-installed; where it changes what a screen shows, the paragraph below says "Build 88 source".
+Build 88 (`0.9.55`/`88`, algorithm 92) is the built testing IPA, not yet installed; where it changes what a screen shows, the paragraph below says "Build 88 source".
 Stored metrics remain intact; any removal still needs Akshat's per-item approval.
 
 ## What is stored

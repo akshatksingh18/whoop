@@ -34,6 +34,25 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 88 Candidate
+
+Source `0f48c56f43ac98820b3130bf3e35a87d62b3f2e1`, version `0.9.55+88`, is published to
+`akshatksingh18/whoop` with Akshat's approval. `build-88-plan.md` and `todo.md` own scope and
+gates. Algorithm 92; schema, personal capabilities, signing identity and recovery format are
+unchanged. Local full suite passes 3,698 tests (420 intentional skips), analytics 639 (6 skips),
+personal-profile gate and version-sensitive checks pass; analysis has 133 informational lints and
+no errors/warnings; personal-iOS contracts (9) pass. Fixture profiles are synthetic and no
+captures were committed.
+
+Personal macOS run `38329490196` passes. Downloaded
+`whoop-personal-0f48c56f43ac-unsigned.ipa` (19,082,603 bytes), SHA-256
+`896fa7af6d4726cf0b69744fd610eab15d38eb02971d752f846c72d1f5327033`, matches its source/version
+manifest and checksum. Full ZIP CRC and personal payload validation pass. Linux CI
+`38329137774` passes 3,703 tests (415 intentional skips). The single testing candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f`, replacing Build 87's folder after validation.
+Build 86 remains installed and Build 70 accepted recovery. Installation, the real-night HRV
+qualification rate, outdoor live speed and the lifecycle/background/soak matrix remain open.
+
 ## Build 87 Candidate
 
 Source `b0eee377c63c9f2da44c00dbbd274954266176f6`, version `0.9.54+87`, is published to
@@ -51,10 +70,8 @@ Personal macOS run `38156663594` passes. Downloaded
 manifest and checksum. Full ZIP CRC and personal payload validation pass: one app, no extension,
 exact BLE/location/audio/fetch/processing modes, and no private databases/media/credentials.
 Linux CI `38156660026` passes 3,616 tests (399 intentional skips); analysis has 133 infos and
-no errors/warnings. The single testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377`, replacing Build 86's folder after
-validation. Build 86 remains installed, and Build 70
-remains accepted recovery. Build 87 structural design, gym/locked workout, automatic foreground
+no errors/warnings. It was never installed; its testing folder was replaced by the validated
+Build 88 candidate and it is reproducible from run `38156663594` and its commit. Build 87 structural design, gym/locked workout, automatic foreground
 freshness, cold/background/overnight collection, CPU and 72-hour soak acceptance remain open.
 
 ## Local Windows toolchain and build validation

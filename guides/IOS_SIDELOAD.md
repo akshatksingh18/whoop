@@ -15,8 +15,8 @@ Build `0.9.37`/`70` remains the accepted recovery build: its phone check and com
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.54-build87-b0eee377` holds Build 87. Build 86's former folder was replaced;
-its original
+`testing\WHOOP-0.9.55-build88-0f48c56f` holds Build 88. Build 87's (run `38156663594`) and
+Build 86's former folders were replaced; Build 86's original
 artifact is from run `38090037024`, subject to retention, and is rebuildable from its commit;
 `../setup.md` owns current and superseded source/hash/workflow records. `../build-85-audit.md`
 owns its approved changes, and the earlier audits retain their findings and repair contracts.

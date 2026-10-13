@@ -4,12 +4,12 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 87 candidate
-> (0.9.54), not yet installed. Build 86 (0.9.53) remains on the phone.
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 88 candidate
+> (0.9.55), not yet installed. Build 86 (0.9.53) remains on the phone.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
-> installed Builds 86/87 still show it. Build 88 is implemented in local source (branch
-> `build-88`, algorithm 92) but not built or installed: it gates temperature, qualifies HRV,
+> installed Builds 86/87 still show it. Build 88 (0.9.55, algorithm 92) is published and
+> built as the testing IPA but not installed: it gates temperature, qualifies HRV,
 > breathing and stress, makes alerts and advice honest and adopts the locked light design
 > (`DESIGN.md`). [`build-88-plan.md`](build-88-plan.md) owns the specification and `todo.md` the
 > open decisions and phone gates; no accuracy parity is claimed. Impeccable is developer design
@@ -84,9 +84,8 @@
 > editing, workout filters, protein summaries and latest freshness/connect repairs.
 > Akshat approved publication to this repo, CI/macOS build and the validated testing IPA.
 > Source `b0eee377` passes Linux CI `38156660026` and personal macOS build `38156663594`.
-> The downloaded IPA passes source/version/checksum/ZIP/payload checks and is the sole candidate
-> in `final-ipas/whoop/testing/WHOOP-0.9.54-build87-b0eee377`. Build 86 remains installed;
-> Build 87 installation and physical/design acceptance remain open.
+> The downloaded IPA passed source/version/checksum/ZIP/payload checks; it was never installed
+> and Build 88 replaced its testing folder. Build 86 remains installed.
 > Sideloadly corroborates current-version enrollment with no error; feature/background phone
 > acceptance remains pending. SideStore laptop setup is reported, not verified app handover.
 > `todo.md` owns device gates.

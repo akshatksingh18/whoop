@@ -34,7 +34,7 @@ Map<String, dynamic> _bundle({required String? family, required int tempCount}) 
       hypnoStages: const [],
       sleepOnsetSec: ts.first,
       sleepOffsetSec: ts.last + 1,
-      profile: const {'age': 23, 'sex': 'm', 'weight_kg': 80, 'height_cm': 187},
+      profile: const {'age': 35, 'sex': 'm', 'weight_kg': 75, 'height_cm': 178},
       // 20 earlier nights of the same channel, with real spread, so the old
       // code had everything it needed to z-score and to use the readiness
       // temperature driver.
@@ -103,7 +103,7 @@ void main() {
         // has no device family.
         day(26, z: 37.4),
       ];
-      final b = buildCrossDayBundle(days, const {'age': 23, 'sex': 'm'});
+      final b = buildCrossDayBundle(days, const {'age': 35, 'sex': 'm'});
       final flag = (b['temp_illness'] as Map?)?.cast<String, dynamic>();
       expect(flag?['flag'], isNot('elevated'));
     });
@@ -116,7 +116,7 @@ void main() {
         for (var i = 0; i < 20; i++) {...day(i), 'rhr': 80, 'imported': true},
         for (var i = 20; i < 26; i++) day(i, family: 'gen4'),
       ];
-      final b = buildCrossDayBundle(days, const {'age': 23, 'sex': 'm'});
+      final b = buildCrossDayBundle(days, const {'age': 35, 'sex': 'm'});
       expect(b['n_days'], 6);
     });
 
@@ -130,7 +130,7 @@ void main() {
         day(25, family: 'gen5', z: 0.0, adc: 3450),
         day(26, family: 'gen5', z: 0.0, adc: 3460),
       ];
-      final b = buildCrossDayBundle(days, const {'age': 23, 'sex': 'm'});
+      final b = buildCrossDayBundle(days, const {'age': 35, 'sex': 'm'});
       final flag = (b['temp_illness'] as Map?)?.cast<String, dynamic>();
       expect(flag?['flag'], 'elevated');
     });
@@ -151,7 +151,7 @@ void main() {
           'worn_min': worn,
         };
     Map? loadOf(List<Map<String, dynamic>> days) =>
-        buildCrossDayBundle(days, const {'age': 23, 'sex': 'm'})['load'] as Map?;
+        buildCrossDayBundle(days, const {'age': 35, 'sex': 'm'})['load'] as Map?;
 
     test('unknown days are not rest: no history means no load', () {
       final l = loadOf([for (var i = 0; i < 40; i++) loadDay(i)]);

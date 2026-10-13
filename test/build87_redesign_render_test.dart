@@ -1349,6 +1349,12 @@ void main() {
       );
       await _settle(t);
       final block = find.textContaining('This week (from');
+      // Build 88: the review leads Progress, so scroll to the weight block.
+      await t.scrollUntilVisible(
+        block,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       final text = t.widget<Text>(block).data!;
       expect(text, contains('80 kg from 1 reading'));
       expect(text, contains('−4 vs '));
@@ -1372,10 +1378,22 @@ void main() {
         'Dec',
       ];
       expect(text, contains('vs ${months[prior.month - 1]} ${prior.day}'));
+      await t.drag(find.byType(Scrollable).first, const Offset(0, 5000));
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(
+        find.byTooltip('Select Measurement'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await t.tap(find.byTooltip('Select Measurement'));
       await t.pumpAndSettle();
       await t.tap(find.text('Waist (navel)').last);
       await t.pumpAndSettle();
+      await t.scrollUntilVisible(
+        find.textContaining('Estimates from'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       final estimate = t
           .widget<Text>(find.textContaining('Estimates from'))
           .data!;

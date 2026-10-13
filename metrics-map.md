@@ -483,7 +483,13 @@ Steps rows with seven-day tiles, then Maintenance; the HR card, daily actions, m
 card and week card follow as panels. Trends rows are label/chart/value: bars at 7 days, a daily
 line under a 7-day average at 30 days, weekly points over a low-high band at 3 months; missing
 days are hatched and no line bridges a gap. Status adds a Sync health group; Settings adds a
-switch per health-alert kind. The Build 87 bullets below otherwise still describe structure.
+switch per health-alert kind. Food leads with the intake hero and four macro progress lines, then
+one meal panel closed by the day's completion line; Train has four family start tiles, a week
+panel (streak, strain, run km) and Recent in a panel; Progress leads with the Week/Month/Since
+start review (7-day weight hero, weight/waist/lifts/protein/calories lines, one verdict panel);
+Sleep, Recovery and the live run each open with their hero panel. The breathing-pattern screen
+shows the across-nights card only (per-night chart removed). The Build 87 bullets below describe
+what each tab still contains.
 
 - **Tabs:** Today / Trends / Food / Train / Progress; Food keeps Today / History / Foods. Body
   lives in Progress, Pushups in Train with a compact Today shortcut. No sixth destination.

@@ -792,6 +792,25 @@ Map<String, dynamic> deriveDayBundle(
   // TRIMP, HR zones, and calories so all three see the same wake series).
   final wakeHr = _perMinuteWakeSeries(d);
   final perMin = [for (final p in wakeHr) p.hr];
+  // B88-02: each wake minute weighted by the time it actually recorded, so a
+  // minute of one or two samples at a gap's edge is not a full minute of load.
+  final wakeTs = <double>[
+    for (var i = 0; i < d.dayHr.length && i < d.dayTsSec.length; i++)
+      if (d.dayHr[i] > 0 &&
+          !(d.dayTsSec[i] >= d.sleepOnsetSec &&
+              d.dayTsSec[i] < d.sleepOffsetSec))
+        d.dayTsSec[i].toDouble(),
+  ];
+  final cover = minuteCoverage(wakeTs, [for (final p in wakeHr) p.tsSec ~/ 60]);
+  final minuteWeights = cover.length == perMin.length ? cover : null;
+  final coveredMin = minuteWeights == null
+      ? perMin.length.toDouble()
+      : minuteWeights.fold<double>(0, (a, b) => a + b);
+  // B88-02: TRIMP prices effort against the SAME maximum the zones use —
+  // the observed ceiling once it reaches the age estimate, else the estimate
+  // (Banister TRIMP is defined on the person's own HRmax; age formulas carry
+  // about ±10 bpm of error).
+  final trimpMaxHr = zoneSet?.maxHr ?? hrMax;
   // ── WHY the activity family is absent, named AT THE GATE THAT CAUSED IT ────
   //
   // These four figures — strain/TRIMP, the zone minutes, the ceiling they were
@@ -857,7 +876,8 @@ Map<String, dynamic> deriveDayBundle(
       trimp = banisterTrimp(
         perMin,
         restingHr: rhrForTrimp,
-        maxHr: hrMax,
+        maxHr: trimpMaxHr,
+        minuteWeights: minuteWeights,
         sex: workoutSex(sex) == 'female' ? Sex.female : Sex.male,
       );
     }
@@ -922,7 +942,7 @@ Map<String, dynamic> deriveDayBundle(
   final rawTrimp = trimp.present ? trimp.value : null;
   final strainMetric = strainScoreMetric(
     rawTrimp,
-    wakeMinutes: perMin.isEmpty ? null : perMin.length.toDouble(),
+    wakeMinutes: perMin.isEmpty ? null : coveredMin,
     // THE REFERENCE LEVEL, NOT THIS USER'S (edge#226 is still open). analytics
     // stopped defaulting the quiet-waking level so every caller has to state
     // which one it means; `quietWakingHrr` is the constant the anchor table was
@@ -946,7 +966,7 @@ Map<String, dynamic> deriveDayBundle(
           0.0,
           rawTrimp -
               baselineTrimp(
-                perMin.length.toDouble(),
+                coveredMin,
                 quietHrr: quietWakingHrr,
                 female: workoutSex(sex) == 'female',
               ),
@@ -979,8 +999,9 @@ Map<String, dynamic> deriveDayBundle(
   final strainCurve = _strainCurve(
     wakeHr,
     restingHr: rhrForTrimp,
-    maxHr: hrMax,
+    maxHr: trimpMaxHr,
     sex: sex,
+    weights: minuteWeights,
   );
   final zoneTimeline = zoneSet == null
       ? const <Map<String, num>>[]
@@ -1800,6 +1821,7 @@ List<Map<String, num>> _strainCurve(
   required double? restingHr,
   required double? maxHr,
   required String? sex,
+  List<double>? weights,
 }) {
   if (wakeHr.isEmpty ||
       restingHr == null ||
@@ -1819,15 +1841,20 @@ List<Map<String, num>> _strainCurve(
   var trimp = 0.0;
   var wakeMin = 0.0;
   final out = <Map<String, num>>[];
-  for (final p in wakeHr) {
+  final weighted = weights != null && weights.length == wakeHr.length;
+  for (var i = 0; i < wakeHr.length; i++) {
+    final p = wakeHr[i];
+    // B88-02: the same per-minute recorded fraction the headline uses, so the
+    // curve ends on the day's own strain.
+    final w = weighted ? weights[i] : 1.0;
     var hrr = (p.hr - restingHr) / reserve;
     if (hrr < 0) hrr = 0;
     if (hrr > 1) hrr = 1;
-    trimp += hrr * StrainScorer.banisterY(hrr, female: female);
+    trimp += w * hrr * StrainScorer.banisterY(hrr, female: female);
     // The baseline grows with the wake window ALREADY elapsed, so the curve
     // stays flat through quiet waking and climbs only on real effort — rather
     // than charging a whole day's allowance against the first minute.
-    wakeMin += 1;
+    wakeMin += w;
     out.add({
       't': p.tsSec,
       'v': _round(

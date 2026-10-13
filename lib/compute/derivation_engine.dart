@@ -1619,7 +1619,9 @@ import 'substrate.dart';
 //   B88-02 load uses net TRIMP over observed (>=16 h worn) day runs; unknown
 //     days are not rest; the strain target is withheld; day zone minutes use
 //     the pipeline's trainingZones set; strain-dependent sleep need and the
-//     strain mover count observed days only.
+//     strain mover count observed days only; TRIMP uses that set's max HR
+//     and weights each minute by the time it recorded (analytics
+//     `minuteCoverage`), the quiet baseline over the same covered minutes.
 //   B88-03 timestamp-adjacent beat pairs everywhere (headline RMSSD, rolling
 //     curves, daytime HRV, PRSA, irregular-rhythm screens) with explicit
 //     window/night qualification; the headline baseline reads `ln_rmssd_v2`
@@ -6288,6 +6290,22 @@ class DerivationEngine {
       sleepOffsetSec,
     );
     final perMin = wakeSeries.hr;
+    // B88-02: each wake minute weighted by the time it actually recorded
+    // (same rule as the day pipeline), so a gap-edge minute of one sample is
+    // not a full minute of load.
+    final wakeTs = <double>[
+      for (var i = 0; i < daySub.hr.length && i < daySub.tsSec.length; i++)
+        if (daySub.hr[i] > 0 &&
+            !(sleepOffsetSec > sleepOnsetSec &&
+                daySub.tsSec[i] >= sleepOnsetSec &&
+                daySub.tsSec[i] < sleepOffsetSec))
+          daySub.tsSec[i].toDouble(),
+    ];
+    final cover = ana.minuteCoverage(wakeTs, wakeSeries.keys);
+    final minuteWeights = cover.length == perMin.length ? cover : null;
+    final coveredMin = minuteWeights == null
+        ? perMin.length.toDouble()
+        : minuteWeights.fold<double>(0, (a, b) => a + b);
     // The day's MEASURED walking cadence, minute-aligned to the same wake
     // buckets — from the resolved `live_coverage` spans, so band/phone overlap
     // is already settled and a step is never priced twice. Null minutes are
@@ -6387,7 +6405,10 @@ class DerivationEngine {
         final trimp = ana.banisterTrimp(
           perMin,
           restingHr: rhrForTrimp,
-          maxHr: hrMax,
+          // B88-02: the zones' maximum — observed ceiling once it reaches the
+          // age estimate, else the estimate — so TRIMP and zones agree.
+          maxHr: zoneSet?.maxHr ?? hrMax,
+          minuteWeights: minuteWeights,
           // Same sex normalisation the calorie path uses. This read `sex == 'f'`
           // alone, so a profile stored as 'female' (which the profile screen can
           // write) got female calorie coefficients and MALE TRIMP off the same
@@ -6402,7 +6423,7 @@ class DerivationEngine {
           // day from being charged a full day's overhead.
           final score = ana.strainScoreMetric(
             trimp.value,
-            wakeMinutes: perMin.length.toDouble(),
+            wakeMinutes: coveredMin,
             // Reference level, not this user's — see onehz_pipeline's
             // `strainMetric` for why, and edge#226 for the fix.
             quietHrr: ana.quietWakingHrr,

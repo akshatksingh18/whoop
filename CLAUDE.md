@@ -46,8 +46,7 @@ locked `DESIGN.md` (light kraft ground, cream panels, family colours). All twelv
 source: temperature integrity, observed-day load and a withheld strain target, timestamp-adjacent
 HRV with frozen gates, sleep/breathing coverage, sync freshness and lifecycle bounds, live speed,
 food/energy completeness, strength and advice qualification, honest alerts, the good-to-have set
-and the redesign (Today and Trends rebuilt to the mocks; the other screens restyled through shared
-tokens). `todo.md` owns what is done and the open decisions and phone gates; `build-88-plan.md`
+and the redesign (every main screen rebuilt to the locked mocks, visually checked for legibility). `todo.md` owns what is done and the open decisions and phone gates; `build-88-plan.md`
 the specifications; `bugs.md` what each repair closed. Impeccable stays developer tooling only.
 `metrics-accuracy-research.md` owns detailed evidence, including the expanded local HRV/strength
 audit. Physical accuracy validation remains open; the indexed accuracy/design prompts are

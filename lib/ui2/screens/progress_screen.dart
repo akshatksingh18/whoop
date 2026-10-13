@@ -369,7 +369,10 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       child: ListView(
         padding: pad,
         children: [
-          const ScreenTitle('Progress'),
+          ScreenTitle(
+            'Progress',
+            kicker: d == null ? null : 'Goal: ${d.goal.phase.title.toLowerCase()}',
+          ),
           if (_failed)
             StatusCard(
               'Progress could not load',
@@ -414,6 +417,11 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       ...d.recovery.map((x) => x.date),
     ].any((date) => date.compareTo(from) >= 0 && date.compareTo(today) <= 0);
     return [
+      // Build 88: the review leads the page (mock `5-progress`).
+      if (hasEvidence) ...[
+        ..._reviewSection(c, p, d, today),
+        const SizedBox(height: S.x5),
+      ],
       Row(
         children: [
           Expanded(child: _goalCard(c, p, d, today)),
@@ -435,8 +443,6 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       ..._bodySection(c, p, d, from, today),
       const SizedBox(height: S.x3),
       if (hasEvidence) ...[
-        ..._reviewSection(c, p, d, today),
-        const SizedBox(height: S.x5),
         ..._strengthSection(c, p, d, from, today),
         const SizedBox(height: S.x5),
         ..._foodSection(c, p, d, from, today),
@@ -1174,99 +1180,141 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
         : wa.mean! - wb.mean!;
     String signed(double? n, String unit) =>
         n == null ? '—' : '${n >= 0 ? '+' : '−'}${_num(n.abs())} $unit';
+    // Build 88 (mock `5-progress`): the period's 7-day weight as the hero in
+    // the body colour, then one line per family, then the one supported
+    // conclusion in its own panel. Methods and exclusions stay in Details.
+    final weightByDay = {for (final w in ws) w.date: w.value};
+    final afterDays = daysBetween(after.from, after.to);
+    final weightDays = [for (final day in afterDays) weightByDay[day]];
+    final up = cmp.where((x) => x.change == SetVerdict.better).length;
+    final down = cmp.where((x) => x.change == SetVerdict.worse).length;
+    final comparable = cmp.where((x) => x.change != SetVerdict.incomparable);
+    final pct = change == null || wb.mean == null || wb.mean == 0
+        ? null
+        : change / wb.mean! * 100;
+    final noStart = _review == 2 && since == null;
+    void details() => _details(c, 'Review details', [
+      '${_md(after.from)} – ${_md(after.to)} vs ${_md(before.from)} – ${_md(before.to)}',
+      if (d.readErrors.isNotEmpty)
+        'Review unavailable until the records refresh.'
+      else ...[
+        rv.headline,
+        ...rv.because,
+        if (rv.next != null) rv.next!,
+      ],
+      'Protein: ${f.protein == null ? 'Not recorded' : '${f.protein!.round()} g/day'} · ${f.proteinDays} macro-complete days',
+      '$count workouts in the later period',
+      ...tapeChanges,
+      'Measurements and lifting performance cannot establish muscle gained or what caused a change.',
+    ]);
     return [
-      Section(
-        'Review',
-        Column(
+      SubTabs(
+        const ['Week', 'Month', 'Since start'],
+        _review,
+        (i) => setState(() => _review = i),
+        color: C.body,
+      ),
+      const SizedBox(height: S.x3),
+      Surface(
+        pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x3),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SubTabs(
-              const ['Week', 'Month', 'Since start'],
-              _review,
-              (i) => setState(() => _review = i),
-              color: C.teal,
-            ),
-            const SizedBox(height: S.x3),
-            Text(
-              _review == 2 && since == null
-                  ? 'Add a starting entry to compare'
-                  : '${_md(after.from)} – ${_md(after.to)}',
-              style: F.cap.copyWith(color: p.ink),
-            ),
-            Text(
-              'vs ${_md(before.from)} – ${_md(before.to)}',
-              style: F.over.copyWith(color: p.ink3),
-            ),
-            const SizedBox(height: S.x3),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _stat(
-                  p,
-                  'Weight average',
-                  signed(change, _unit),
-                  '${wb.count} → ${wa.count} weigh-ins',
-                ),
-                _stat(
-                  p,
-                  'Waist',
-                  signed(waistChange, 'in'),
-                  waistChange == null
-                      ? 'No paired measurements'
-                      : 'Dated measurements',
-                ),
+            HeroStat(
+              value: wa.mean == null ? null : _num(wa.mean!),
+              color: C.body,
+              label: '7-day weight · $_unit',
+              lines: [
+                noStart
+                    ? 'Add a starting entry to compare'
+                    : [
+                        if (change != null) '${signed(change, '')} vs before',
+                        '${wa.count} weigh-ins',
+                      ].join(' · '),
+                if (!noStart)
+                  '${_md(after.from)}–${_md(after.to)} vs ${_md(before.from)}–${_md(before.to)}',
               ],
+              onTap: details,
             ),
-            const SizedBox(height: S.x3),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _stat(
-                  p,
-                  'Calories / day',
-                  f.kcal == null ? '—' : thousands(f.kcal!),
-                  '${f.kcalDays} complete days',
-                ),
-                _stat(
-                  p,
-                  'Strength',
-                  '${cmp.where((x) => x.change == SetVerdict.better).length} ↑ · ${cmp.where((x) => x.change == SetVerdict.worse).length} ↓',
-                  '${cmp.where((x) => x.change != SetVerdict.incomparable).length} comparable lifts',
-                ),
-              ],
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: 'Weight',
+              values: weightDays,
+              color: C.body,
+              style: afterDays.length <= 7
+                  ? RangeStyle.bars
+                  : afterDays.length <= 40
+                  ? RangeStyle.lineAvg
+                  : RangeStyle.weeklyBand,
+              value: pct == null
+                  ? null
+                  : '${pct >= 0 ? '+' : '−'}${pct.abs().toStringAsFixed(1)}',
+              unit: '%',
+              absentWhy: pct == null ? 'needs weigh-ins in both periods' : null,
             ),
-            const SizedBox(height: S.x3),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    d.readErrors.isNotEmpty
-                        ? 'Review unavailable until refresh'
-                        : rv.state == ReviewState.gatherEvidence
-                        ? 'Partial evidence'
-                        : rv.headline,
-                    style: F.cap.copyWith(color: p.ink2),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => _details(c, 'Review details', [
-                    '${_md(after.from)} – ${_md(after.to)} vs ${_md(before.from)} – ${_md(before.to)}',
-                    if (d.readErrors.isNotEmpty)
-                      'Review unavailable until the records refresh.'
-                    else ...[
-                      rv.headline,
-                      ...rv.because,
-                      if (rv.next != null) rv.next!,
-                    ],
-                    'Protein: ${f.protein == null ? 'Not recorded' : '${f.protein!.round()} g/day'} · ${f.proteinDays} macro-complete days',
-                    '$count workouts in the later period',
-                    ...tapeChanges,
-                    'Measurements and lifting performance cannot establish muscle gained or what caused a change.',
-                  ]),
-                  child: const Text('Details'),
-                ),
-              ],
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: 'Waist',
+              color: C.body,
+              note: waistChange == null
+                  ? 'no reading near the start'
+                  : tapeChanges
+                        .firstWhere(
+                          (t) => t.startsWith(BodySite.waistNavel.title),
+                          orElse: () => 'dated readings',
+                        )
+                        .split('(')
+                        .last
+                        .replaceAll(')', ''),
+              value: waistChange == null ? null : signed(waistChange, ''),
+              unit: 'in',
             ),
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: 'Lifts',
+              color: C.sleepInk,
+              note: cmp.isEmpty
+                  ? 'no lift in both periods'
+                  : '${comparable.length} comparable: $up up, '
+                        '${comparable.length - up - down} same, $down down',
+              value: comparable.isEmpty ? null : '$up ↑',
+            ),
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: 'Protein',
+              color: C.food,
+              note: '${f.proteinDays} complete days',
+              value: f.protein == null ? null : '${f.protein!.round()}',
+              unit: 'g',
+            ),
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: 'Calories',
+              color: C.food,
+              note: '${f.kcalDays} complete days',
+              value: f.kcal == null ? null : thousands(f.kcal!),
+              unit: '/day',
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: S.x3),
+      Surface(
+        onTap: details,
+        semanticLabel: 'Review details',
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                d.readErrors.isNotEmpty
+                    ? 'Review unavailable until refresh'
+                    : rv.state == ReviewState.gatherEvidence
+                    ? 'Partial evidence. ${rv.because.first}'
+                    : rv.headline,
+                style: F.body.copyWith(color: p.ink),
+              ),
+            ),
+            Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
           ],
         ),
       ),

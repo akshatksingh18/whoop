@@ -40,9 +40,20 @@ class C {
   static const recovery = Color(0xFF2E7D63);
   static const sleepInk = Color(0xFF34478F);
   static const strainInk = Color(0xFFC24E25);
-  static const food = Color(0xFFD9961A);
+  // Darkened from DESIGN's #D9961A (2.13:1 on paper) to clear the 3:1
+  // graphics floor on paper (3.46:1) and the inner well (3.11:1).
+  static const food = Color(0xFFA8730A);
   static const body = Color(0xFF7A4F30);
   static const alert = Color(0xFFC8551B);
+
+  /// The sleep-stage ramp (Build 88): four distinct hues — navy deep, steel
+  /// blue light, plum REM and a warm clay awake, the one interruption — each
+  /// clearing the 4.5:1 mark floor on both panel surfaces. Lane height
+  /// carries the stage too, so hue is never the only channel.
+  static const stageDeep = sleepInk;
+  static const stageLight = Color(0xFF2B6688);
+  static const stageRem = Color(0xFF7A4A92);
+  static const stageAwake = Color(0xFF8F5530);
 
   /// The fill behind a missing day's hatching. Not an ink: never text.
   static const hatch = Color(0xFFCDBBA2);
@@ -211,9 +222,9 @@ class P {
   Color get ink => dark ? const Color(0xFFF8F8F3) : const Color(0xFF2A211B);
 
   /// Secondary ink. Solved so it clears AA on the kraft ground as well as the
-  /// paper (Build 88): DESIGN's #6E6155 measures 2.82:1 on the ground, and
-  /// screens still place secondary text there.
-  Color get ink2 => dark ? const Color(0xFFCED2C5) : const Color(0xFF463A31);
+  /// paper (Build 88): DESIGN's #6E6155 measures 2.82:1 on the ground. Akshat
+  /// asked for no text that blends in, so it sits at 6.1:1 on the kraft.
+  Color get ink2 => dark ? const Color(0xFFCED2C5) : const Color(0xFF3A2F27);
 
   /// Text placed directly on the kraft ground: titles and section heads.
   Color get onGround => dark ? ink : const Color(0xFF3B2F23);
@@ -222,7 +233,7 @@ class P {
   /// (light theme) / lightest (dark theme) surface it can sit on — so it is
   /// legible on every surface, not just the one it was eyeballed against.
   /// The values it replaces measured 4.34:1 and 3.21:1 respectively.
-  Color get ink3 => dark ? const Color(0xFFBFC7B4) : const Color(0xFF4E4239);
+  Color get ink3 => dark ? const Color(0xFFBFC7B4) : const Color(0xFF40352C);
 
   /// The ink that goes on top of a [fill]. White by construction — [fill]
   /// darkens the accent until white clears AA on it.

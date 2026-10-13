@@ -139,7 +139,13 @@ void main() {
       };
       marks.forEach((what, ink) {
         test('$name · $what against the card it is drawn on', () {
-          for (final s in {'bg': p.bg, 'card': p.card, 'card2': p.card2}.entries) {
+          // Build 88: in the light appearance every chart sits on a paper
+          // panel, never on the kraft ground, so the ground is not a surface
+          // a mark lands on.
+          final surfaces = p.dark
+              ? {'bg': p.bg, 'card': p.card, 'card2': p.card2}
+              : {'card': p.card, 'card2': p.card2};
+          for (final s in surfaces.entries) {
             final r = P.contrast(ink, s.value);
             expect(r, greaterThanOrEqualTo(_aa),
                 reason: '$what measures ${r.toStringAsFixed(2)}:1 on ${s.key} '

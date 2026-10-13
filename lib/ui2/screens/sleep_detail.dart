@@ -537,15 +537,29 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         if (widget.embedded && d.day != null && d.day != todayLabel())
           Text(prettyDay(d.day, l)),
 
-        // ── 1 · THE ANSWER ──
-        _answer(c, p, d, n),
-
-        // ── 2 · THE NIGHT ITSELF ──
-        const SizedBox(height: S.x3),
-        _night(c, p, d, n),
-
-        // ── 3 · WHAT IT WAS MADE OF ──
-        Section(l?.sleepDetailStagesSection ?? 'Stages', _stages(c, p, n)),
+        // Build 88 (mock `6-sleep`): the answer, the night and what it was
+        // made of are ONE panel — each part's own surface goes flat inside it.
+        Surface(
+          pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x3),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── 1 · THE ANSWER ──
+              _answer(c, p, d, n),
+              Divider(color: p.line, height: 1),
+              // ── 2 · THE NIGHT ITSELF ──
+              const SizedBox(height: S.x3),
+              _night(c, p, d, n),
+              // ── 3 · WHAT IT WAS MADE OF ──
+              const SizedBox(height: S.x3),
+              Text(
+                l?.sleepDetailStagesSection ?? 'Stages',
+                style: F.section.copyWith(color: p.ink2),
+              ),
+              _stages(c, p, n),
+            ],
+          ),
+        ),
 
         // ── 4 · AGAINST THE USER'S OWN NIGHTS ──
         if (_versusUsual(c, p, d, n) case final versus?)
@@ -671,30 +685,16 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(hm(tst), style: F.n48.copyWith(color: p.ink)),
-          const SizedBox(height: S.x1),
-          Text(
-            l?.sleepDetailTotalSleep ?? 'Total sleep',
-            style: F.cap.copyWith(color: p.ink3),
+          // Build 88: the night's sleep as the hero in the sleep colour.
+          HeroStat(
+            value: tst == null ? null : hm(tst),
+            color: C.sleep,
+            label: l?.sleepDetailTotalSleep ?? 'Total sleep',
+            lines: [
+              if (from.isNotEmpty && to.isNotEmpty) '$from → $to',
+              if (eff != null) '${_pct(eff * 100)} asleep while in bed',
+            ],
           ),
-          if (from.isNotEmpty && to.isNotEmpty) ...[
-            const SizedBox(height: S.x4),
-            Row(
-              children: [
-                Icon(LucideIcons.moon, size: 15, color: p.ink3),
-                const SizedBox(width: S.x2),
-                Flexible(
-                  child: Text(
-                    '$from → $to',
-                    style: F.body.copyWith(
-                      color: p.ink,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
           if (inBed != null || eff != null) ...[
             const SizedBox(height: S.x4),
             InlineMetrics([
@@ -1346,13 +1346,17 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final awake = n['awake_min'] as num?;
     final rows = <(String, String, Color)>[
       if (staged)
-        (l?.sleepDetailDeep ?? 'Deep', _stageText(deep, total), C.sleep),
+        (l?.sleepDetailDeep ?? 'Deep', _stageText(deep, total), C.stageDeep),
       if (staged)
-        (l?.sleepDetailStageRem ?? 'REM', _stageText(rem, total), C.teal),
+        (l?.sleepDetailStageRem ?? 'REM', _stageText(rem, total), C.stageRem),
       if (staged)
-        (l?.sleepDetailLight ?? 'Light', _stageText(light, total), C.sky),
+        (
+          l?.sleepDetailLight ?? 'Light',
+          _stageText(light, total),
+          C.stageLight,
+        ),
       if (awake != null)
-        (l?.sleepDetailStageAwake ?? 'Awake', hm(awake), C.orange),
+        (l?.sleepDetailStageAwake ?? 'Awake', hm(awake), C.stageAwake),
     ];
     if (rows.isEmpty) {
       return StatusCard(

@@ -3,9 +3,10 @@
 **Status:** locked by Akshat on 2026-10-12 after reviewing the full screen set: Today, Trends
 (7 days, 30 days, 3 months), Food, Train, Progress, Sleep, Recovery and Live run. Implemented in
 Build 88 source (`lib/ui2/theme.dart` tokens, panels, tab bar, `RangeChart`/`DayTiles`/
-`MetricLine`): Today and Trends follow the mocks; the other screens take the tokens and panels
-but keep their Build 87 composition (`todo.md`). Secondary inks are darkened to `#463A31`/`#4E4239`
-so they clear 4.5:1 on the kraft as well as the paper; text on the ground otherwise uses
+`MetricLine`/`HeroStat`): Today, Trends, Food, Train, Progress, Sleep, Recovery and the live
+run follow their mocks. Sleep stages use navy deep, steel blue light, plum REM and clay awake,
+each 4.5:1+ on paper. Secondary inks are darkened to `#3A2F27`/`#40352C`
+(6.1:1 and 5.6:1 on the kraft) at Akshat's request; text on the ground otherwise uses
 `onGround`.
 Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (local and
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
@@ -29,13 +30,13 @@ Light appearance; this replaces the dark-only app.
 | ground | `#C9AE84` | screen background (deep kraft) |
 | paper | `#F4EBDA` | data panels, tab bar |
 | ink | `#2A211B` | primary text and numbers |
-| ink2 | `#6E6155` (built as `#463A31`, see Status) | labels and secondary text |
+| ink2 | `#3A2F27` (darkened from `#6E6155` for legibility on the kraft) | labels and secondary text |
 | onGround | `#3B2F23` | text placed directly on the kraft |
 | rule | `#E2D2B8` | 1 px dividers inside panels |
 | recovery | `#2E7D63` | recovery, HRV, resting HR, active tab |
 | sleep | `#34478F` | sleep, deep stage, breathing |
 | strain | `#C24E25` | strain, runs, live workout |
-| food | `#D9961A` | calories and macros |
+| food | `#A8730A` (was `#D9961A`, too faint on paper) | calories and macros |
 | body | `#7A4F30` | steps, weight, body |
 | alert | `#C8551B` | NEW marker, unavailable and stale values only |
 | hatch | `#CDBBA2` | missing-day hatching |

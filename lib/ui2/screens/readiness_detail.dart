@@ -381,60 +381,46 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                 _absence(c, p, d.absentDiag!),
               ),
           ] else
+            // Build 88 (mock `7-recovery`): the score as the hero in the
+            // recovery colour, and what drove it in the same panel.
             Surface(
+              pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x3),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(
-                    width: 150,
-                    height: 150,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        CustomPaint(
-                          size: const Size(150, 150),
-                          painter: Ring(
-                            d.readiness.normalized(100),
-                            p.on(band.color),
-                            p.track,
-                            stroke: 14,
-                            t: animate(c, 1),
-                          ),
-                        ),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${v.round()}',
-                              style: F.n48.copyWith(color: p.ink),
-                            ),
-                            Text(
-                              band.label,
-                              style: F.cap.copyWith(color: p.on(band.color)),
-                            ),
-                          ],
-                        ),
-                      ],
+                  HeroStat(
+                    value: '${v.round()}',
+                    color: C.recovery,
+                    label: l?.homeRingRecovery ?? 'Recovery',
+                    lines: [
+                      band.label,
+                      'vs your own last 28 nights, within 60 days',
+                    ],
+                  ),
+                  Text(_advice(band.tier), style: F.body.copyWith(color: p.ink2)),
+                  if (d.breakdown.isNotEmpty) ...[
+                    const SizedBox(height: S.x3),
+                    Divider(color: p.line, height: 1),
+                    const SizedBox(height: S.x3),
+                    Text(
+                      'WHAT DROVE IT',
+                      style: F.label.copyWith(color: p.ink2),
                     ),
-                  ),
-                  const SizedBox(height: S.x4),
-                  Text(
-                    _advice(band.tier),
-                    textAlign: TextAlign.center,
-                    style: F.body.copyWith(color: p.ink2),
-                  ),
+                    _breakdown(c, p, d),
+                    if (d.breathingNote != null)
+                      Text(
+                        'Breathing rate not counted last night: ${d.breathingNote}.',
+                        style: F.cap.copyWith(color: p.ink2),
+                      ),
+                  ],
                 ],
               ),
             ),
 
           if (d.breakdown.isNotEmpty) ...[
-            Section('What drove it', _breakdown(c, p, d)),
-            if (d.breathingNote != null) ...[
-              const SizedBox(height: S.x2),
-              Text(
-                'Breathing rate not counted last night: ${d.breathingNote}.',
-                style: F.cap.copyWith(color: p.ink3),
-              ),
-            ],
+            // A scored day shows its drivers in the hero panel above; an
+            // unscored day still lists them here.
+            if (v == null) Section('What drove it', _breakdown(c, p, d)),
             const SizedBox(height: S.x4),
             Pressable(
               onTap: () => setState(() => _showHow = !_showHow),
@@ -462,9 +448,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                 color: p.card2,
                 child: Text(
                   '${d.inputsUsed} of ${d.breakdown.length} inputs were available. '
-                  'Each is compared with your own recent nights; HRV and resting '
-                  'heart rate carry most of the weight, skin temperature the least '
-                  '(it is a relative reading, not a calibrated temperature).',
+                  'Each is compared with your own recent nights: HRV carries '
+                  '35% of the weight, resting heart rate 25%, last night\'s sleep '
+                  '20% and breathing rate 12%. Skin temperature is left out on '
+                  'this band (its sensor reading is not a temperature).',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
               ),

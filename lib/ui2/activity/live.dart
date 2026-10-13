@@ -1072,6 +1072,67 @@ List<Widget> _distanceStats(
             : ('—', speedUnit))
       : (nowPace != null ? (nowPace, '/$unit') : ('—', '/$unit'));
   final moving = isRunType(a.typeKey) || walk;
+  if (moving) {
+    // Build 88 (mock `8-live-run`): distance as the hero in the activity's
+    // family colour, then pace now / average / steps / strain as lines of
+    // the same panel. "—" for pace now without a fresh fix (D5).
+    final family = walk ? C.body : C.strain;
+    return [
+      Surface(
+        pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            HeroStat(
+              value: value?.toStringAsFixed(2),
+              color: family,
+              label: unit,
+              lines: [
+                gpsMoving
+                    ? 'moving ${clock(f.movingSec!)}'
+                    : 'elapsed ${clock(elapsed)}',
+              ],
+            ),
+            if (current != null) ...[
+              Divider(color: p.line, height: 1),
+              MetricLine(
+                label: walk ? 'Speed now' : 'Pace now',
+                color: family,
+                note: current.$1 == '—' ? 'no fresh GPS fix' : 'GPS',
+                value: current.$1 == '—' ? null : current.$1,
+                unit: current.$2,
+              ),
+            ],
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: walk ? 'Avg speed' : 'Avg pace',
+              color: family,
+              note: gpsMoving ? 'moving time' : 'elapsed time',
+              value: avg?.$1,
+              unit: avg?.$2.replaceAll(' avg', '') ?? '',
+            ),
+            if (f.steps != null) ...[
+              Divider(color: p.line, height: 1),
+              MetricLine(
+                label: 'Steps',
+                color: C.body,
+                value: '${f.steps}',
+              ),
+            ],
+            if (f.strain != null) ...[
+              Divider(color: p.line, height: 1),
+              MetricLine(
+                label: 'Strain',
+                color: C.strain,
+                value: f.strain!.toStringAsFixed(1),
+                sub: 'estimate',
+              ),
+            ],
+          ],
+        ),
+      ),
+    ];
+  }
   return [
     statRow(p, [
       if (value != null) (value.toStringAsFixed(2), unit),

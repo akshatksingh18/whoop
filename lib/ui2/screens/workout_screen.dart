@@ -47,7 +47,8 @@ import '../charts.dart';
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
-import 'home_screen.dart' show calendarDaysBetween, pad, pullToRefresh;
+import 'home_screen.dart'
+    show calendarDaysBetween, pad, prettyDay, pullToRefresh;
 import 'food_picker.dart' show PickRow, SwipeDelete;
 import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
@@ -215,7 +216,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           child: ListView(
             padding: pad,
             children: [
-              const ScreenTitle('Train'),
+              ScreenTitle('Train', kicker: prettyDay(todayLabel())),
               if (snap.hasError)
                 StatusCard(
                   'Training history could not load',
@@ -335,7 +336,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             Expanded(
               child: _QuickTile(
                 LucideIcons.dumbbell,
-                C.purple,
+                C.sleepInk,
                 'Lift',
                 () => start(act('Weight training')),
               ),
@@ -344,7 +345,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             Expanded(
               child: _QuickTile(
                 LucideIcons.ellipsis,
-                C.n500,
+                C.food,
                 'Other',
                 () => _openPicker(c, d),
               ),
@@ -354,10 +355,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       const SizedBox(height: S.x3),
       // Your week first (build 86 redesign): the streak, the seven days and
       // what this week holds, then the movement breaks.
-      if (d.streak != null) ...[
-        _streakCard(c, p, d.streak!, d),
-        const SizedBox(height: S.x3),
-      ],
+      // Build 88 (mock `4-train`): one panel — the streak with its week of
+      // days, strain and running distance over the last seven days.
+      _weekPanel(c, p, d),
+      const SizedBox(height: S.x3),
       // Movement breaks through the day (build 86): its own reminders, goal
       // and streak; never a workout clock and never counted as exercise.
       const TodayPushupRow(embedded: true, showWhenEmpty: true),
@@ -371,7 +372,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 'Start one above.',
                 icon: LucideIcons.dumbbell,
               )
-            : Column(
+            : Surface(
+                pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x3),
+                child: Column(
                 children: [
                   // The last five as one-line rows; a tap opens one in place.
                   // Everything older lives on the history page, so this
@@ -402,6 +405,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                     () => _push(c, WorkoutHistoryScreen(weightKg: d.weightKg)),
                   ),
                 ],
+                ),
               ),
         action: 'Add a past one',
         onAction: () => _push(c, const LogWorkout()),
@@ -607,6 +611,52 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   /// Days in a row with at least ten minutes of running or walking.
+  /// The Build 88 week panel: streak, strain and running distance, each a
+  /// label / last-seven-days / value line, with the streak's own controls.
+  Widget _weekPanel(BuildContext c, P p, _WorkoutData d) {
+    final end = d.weekEnd ?? DateTime.now();
+    String labelOf(int i) =>
+        dayLabelOf(DateTime(end.year, end.month, end.day - (6 - i)));
+    final km = List<double?>.filled(7, null);
+    for (final r in d.runs) {
+      final i = List.generate(7, labelOf).indexOf(dayLabelOf(r.start));
+      if (i >= 0) km[i] = (km[i] ?? 0) + r.meters / 1000;
+    }
+    final weekKm = km.whereType<double>().fold<double>(0, (a, b) => a + b);
+    final today = d.strain7.isEmpty ? null : d.strain7.last;
+    return Surface(
+      pad: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, S.x3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (d.streak != null) ...[
+            _streakCard(c, p, d.streak!, d),
+            Divider(color: p.line, height: 1),
+          ],
+          MetricLine(
+            label: 'Strain',
+            values: d.strain7,
+            color: C.strain,
+            value: today?.toStringAsFixed(1),
+            sub: 'estimate',
+            absentWhy: today == null ? 'nothing scored today yet' : null,
+            onTap: () => _push(c, const DayStrainDetail()),
+          ),
+          if (d.runs.isNotEmpty) ...[
+            Divider(color: p.line, height: 1),
+            MetricLine(
+              label: 'Run km',
+              values: km,
+              color: C.run,
+              value: weekKm.toStringAsFixed(1),
+              unit: '/wk',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _streakCard(BuildContext c, P p, MoveStreak s, _WorkoutData d) {
     final now = DateTime.now();
     return Container(
@@ -614,7 +664,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('YOUR WEEK', style: F.section.copyWith(color: p.ink3)),
+          Text('STREAK', style: F.label.copyWith(color: p.ink2)),
           const SizedBox(height: S.x2),
           Wrap(
             spacing: S.x3,
@@ -626,7 +676,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text('${s.current}', style: F.n24.copyWith(color: p.ink)),
+                  Text('${s.current}', style: F.n30.copyWith(color: p.ink)),
                   const SizedBox(width: S.x2),
                   Text('day streak', style: F.cap.copyWith(color: p.ink2)),
                 ],
@@ -1032,19 +1082,24 @@ class _QuickTile extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    // Build 88 (mock `4-train`): a paper tile with the activity's family
+    // square, so the four starts read as four distinct doors.
     return Surface(
-      framed: false,
-      pad: const EdgeInsets.symmetric(vertical: S.x3, horizontal: S.x1),
+      pad: const EdgeInsets.symmetric(vertical: S.x4, horizontal: S.x1),
       onTap: onTap,
       semanticLabel: 'Start $label',
       child: Column(
         children: [
-          // Stable, compact targets keep recent sessions close to Start.
-          Icon(icon, size: 24, color: p.on(color)),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rMd),
+            child: Icon(icon, size: 22, color: p.inkOnFill),
+          ),
           const SizedBox(height: S.x2),
           Text(
             label,
-            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            style: F.head.copyWith(color: p.ink),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

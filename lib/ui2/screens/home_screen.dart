@@ -953,86 +953,22 @@ class _TodayPanel extends StatelessWidget {
     final sleepMin = d.sleepMin.value;
     final eaten = d.upkeep?.eaten;
     final parts = d.upkeep?.parts, acsm = d.upkeep?.acsmParts;
-    final hero = Pressable(
+    final hero = HeroStat(
+      value: v == null ? null : '${v.round()}',
+      color: C.recovery,
+      label: l?.homeRingRecovery ?? 'Recovery',
+      fresh: fresh,
       onTap: () => onOpen(HomeRingKind.recovery),
       semanticLabel: rec.spoken,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: S.x3),
-        child: Flex(
-          // Large text stacks the hero rather than squeezing it.
-          direction: bigText(c) ? Axis.vertical : Axis.horizontal,
-          crossAxisAlignment: bigText(c)
-              ? CrossAxisAlignment.start
-              : CrossAxisAlignment.center,
-          children: [
-            Flexible(
-              flex: 0,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  v == null ? '—' : '${v.round()}',
-                  // Large text: the pure recovery colour clears 3:1 on paper.
-                  style: F.hero.copyWith(
-                    color: v == null ? p.on(C.alert) : C.recovery,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: S.x4, height: S.x2),
-            Flexible(
-              flex: bigText(c) ? 0 : 1,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        (l?.homeRingRecovery ?? 'Recovery').toUpperCase(),
-                        style: F.label.copyWith(color: p.ink2),
-                      ),
-                      if (fresh && v != null) ...[
-                        const SizedBox(width: S.x2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: S.x2,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: p.fill(C.alert),
-                            borderRadius: R.rSm,
-                          ),
-                          child: Text(
-                            'NEW',
-                            style: F.over.copyWith(color: p.inkOnFill),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: S.x1),
-                  Text(
-                    v == null ? rec.value : band.label,
-                    style: F.t2.copyWith(color: p.ink),
-                  ),
-                  const SizedBox(height: S.x1),
-                  Text(
-                    v == null
-                        ? (rec.why ?? rec.sub)
-                        : [
-                            if (hrv != null) 'HRV ${hrv.round()} ms',
-                            if (rhr != null) 'resting HR ${rhr.round()}',
-                          ].join(' · '),
-                    style: F.cap.copyWith(
-                      color: v == null ? p.on(C.alert) : p.ink2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      lines: v == null
+          ? [rec.why ?? rec.sub]
+          : [
+              band.label,
+              [
+                if (hrv != null) 'HRV ${hrv.round()} ms',
+                if (rhr != null) 'resting HR ${rhr.round()}',
+              ].join(' · '),
+            ],
     );
     final rows = <Widget>[
       MetricLine(

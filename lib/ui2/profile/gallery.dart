@@ -448,6 +448,31 @@ Map<String, Widget> goldenCases() => {
       ),
     ],
   ),
+  'hero_stat': const Column(
+    children: [
+      HeroStat(
+        value: '64',
+        color: C.recovery,
+        label: 'Recovery',
+        lines: ['Steady', 'HRV 52 ms · resting HR 54'],
+        fresh: true,
+      ),
+      HeroStat(
+        value: '1,920',
+        color: C.food,
+        label: 'Eaten so far',
+        lines: ['goal 2,400 · 480 left'],
+      ),
+      HeroStat(value: null, color: C.sleep, label: 'Asleep', lines: ['no night']),
+    ],
+  ),
+  'metric_line_note': const MetricLine(
+    label: 'Waist',
+    color: C.body,
+    note: 'navel · 11 Oct vs 4 Oct',
+    value: '−0.3',
+    unit: 'in',
+  ),
   'metric_line': const Column(
     children: [
       MetricLine(

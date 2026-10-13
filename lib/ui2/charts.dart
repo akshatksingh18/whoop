@@ -773,22 +773,26 @@ class Hypnogram extends CustomPainter {
   /// Deep takes the sleep pillar's violet; light the paler sky; REM teal;
   /// awake orange, the one warm lane, because it is the interruption.
   static const pigment = <SleepStage, Color>{
-    SleepStage.awake: C.orange,
-    SleepStage.rem: C.teal,
-    SleepStage.light: C.sky,
-    SleepStage.deep: C.sleep,
+    SleepStage.awake: C.stageAwake,
+    SleepStage.rem: C.stageRem,
+    SleepStage.light: C.stageLight,
+    SleepStage.deep: C.stageDeep,
   };
 
   /// The lane colours as drawn. Four lanes at four different heights, so hue is
   /// never the only channel here — y position already carries the stage.
-  static Map<SleepStage, Color> cols(P p) =>
-      {for (final e in pigment.entries) e.key: p.on(e.value)};
+  /// Build 88: the stage tones are drawn as they are — each already clears
+  /// the 4.5:1 mark floor on the paper it sits on; the solver would darken
+  /// them toward one another.
+  static Map<SleepStage, Color> cols(P p) => p.dark
+      ? {for (final e in pigment.entries) e.key: p.on(e.value)}
+      : Map.of(pigment);
 
   /// Hand straight to `ChartFrame.legend`. Derived from [cols] rather than
   /// retyped, so a lane can never be recoloured without its key following, and
   /// the swatch is the mark's real colour rather than the pigment behind it.
   static List<(String, Color)> legend(P p) =>
-      [for (final s in SleepStage.values) (s.label, p.on(pigment[s]!))];
+      [for (final s in SleepStage.values) (s.label, cols(p)[s]!)];
 
   /// One column per drawable slot, with a STATED precedence: awake wins.
   ///
@@ -1396,7 +1400,9 @@ class RangeChart extends CustomPainter {
           if (style == RangeStyle.tiles) {
             c.drawRRect(
               RRect.fromLTRBR(left, 0, left + w, size.height, radius),
-              Paint()..color = color.withValues(alpha: .55 + .45 * f),
+              // Shaded by value, but never fainter than 70%: a tile is a
+              // graphic and must stay visible on the paper.
+              Paint()..color = color.withValues(alpha: .7 + .3 * f),
             );
           } else {
             final h = size.height * (.3 + .7 * f);

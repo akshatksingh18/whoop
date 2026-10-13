@@ -1,8 +1,8 @@
 // Breathing pattern in sleep — the across-nights heart-rate-cycling screen.
 //
-// Individual nights now have dated measured readouts; missing/irregular nights
-// retain their quality labels. The across-night finding remains separate, not
-// a breathing measurement or diagnostic reassurance.
+// The across-nights finding only (Build 88): no per-night chart, because one
+// night of heart-rate cycling means little. Not a breathing measurement or
+// diagnostic reassurance.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -12,7 +12,7 @@ import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
-import 'home_screen.dart' show envValue, pointsOf, repoOf, prettyDay;
+import 'home_screen.dart' show envValue, pointsOf, repoOf;
 import 'metric_detail.dart' show detailScaffold;
 
 class SleepBreathingScreen extends StatefulWidget {
@@ -79,12 +79,9 @@ class SleepBreathingScreen extends StatefulWidget {
 class _SleepBreathingScreenState extends State<SleepBreathingScreen>
     with RevisionReload {
   ana.Metric<ana.CvhrDistribution>? _m;
-  List<ana.CvhrNight> _nights = const [];
   bool _loading = true;
   bool _more = false;
   bool _failed = false;
-  int? _pick;
-  Map<String, String> _notes = const {};
 
   @override
   void initState() {
@@ -110,24 +107,8 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen>
     final token = beginRead(#breathing);
     try {
       final ns = await SleepBreathingScreen.nights(repo);
-      final notes = <String, String>{};
-      final valid = ns.map((n) => n.dayKey).toSet();
-      final now = DateTime.now(), last = dayLabelOf(now);
-      final first = dayLabelOf(DateTime(now.year, now.month, now.day - 29));
-      final days =
-          (await repo.availableDays())
-              .where((d) => d.compareTo(first) >= 0 && d.compareTo(last) <= 0)
-              .toList()
-            ..sort();
-      for (final day in days) {
-        if (valid.contains(day)) continue;
-        final raw = (await repo.getDayLungs(day))['cvhr'];
-        if (raw is Map) notes[day] = raw['note']?.toString() ?? 'not measured';
-      }
       if (stillNewest(#breathing, token))
         setState(() {
-          _nights = ns;
-          _notes = notes;
           _m = ana.cvhrPersonalDistribution(ns);
           _loading = false;
           _failed = false;
@@ -139,69 +120,6 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen>
           _failed = true;
         });
     }
-  }
-
-  Widget _history(BuildContext c) {
-    final p = P.of(c);
-    return Surface(
-      child: Builder(
-        builder: (c) {
-          final byDate = {for (final n in _nights) n.dayKey: n};
-
-          final last = DateTime.parse(dayLabelOf(DateTime.now()));
-          final first = DateTime(last.year, last.month, last.day - 29);
-          final calendar = <String>[];
-          for (
-            var day = first;
-            !day.isAfter(last);
-            day = DateTime(day.year, day.month, day.day + 1)
-          ) {
-            calendar.add(dayLabelOf(day));
-          }
-          final series = [for (final day in calendar) byDate[day]?.cvhrPerHour];
-          final axis = AxisSpec.of(
-            series.whereType<double>(),
-            floor: 0,
-            ticks: 2,
-          );
-          final pick = _pick?.clamp(0, series.length - 1);
-          String says(int i) {
-            final n = byDate[calendar[i]];
-            return '${prettyDay(calendar[i])} · ${n == null ? (_notes[calendar[i]] ?? "not recorded") : "${n.cvhrPerHour.toStringAsFixed(1)} cycles per observed hour · ${n.analyzedHours.toStringAsFixed(1)} h analysed${n.irregularRhythm ? " · irregular-rhythm flag" : ""}"}';
-          }
-
-          return ChartFrame(
-            title: 'Each night',
-            unit: 'cycles per observed hour',
-            height: 110,
-            yAxis: axis,
-            series: series,
-            readout: pick == null ? null : says(pick),
-            xLabels: [prettyDay(calendar.first), prettyDay(calendar.last)],
-            child: Scrubber(
-              value: pick == null ? null : pick / (series.length - 1),
-              step: 1 / (series.length - 1),
-              label: 'Sleep heart-rate cycling by night',
-              describe: (f) => says((f * (series.length - 1)).round()),
-              onChanged: (f) =>
-                  setState(() => _pick = (f * (series.length - 1)).round()),
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: LineChart(
-                  series,
-                  p.on(C.sleep),
-                  dots: series.length <= 40,
-                  dotInk: p.card,
-                  cursor: pick,
-                  cursorInk: p.ink,
-                  axis: axis,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
   }
 
   @override
@@ -313,12 +231,9 @@ class _SleepBreathingScreenState extends State<SleepBreathingScreen>
           ),
         ],
       ],
-      if (!_loading &&
-          !_failed &&
-          (_nights.isNotEmpty || _notes.isNotEmpty)) ...[
-        const SizedBox(height: S.x3),
-        _history(c),
-      ],
+      // B88-03: no per-night chart. The analytics library says this measure
+      // means little night by night; the across-nights card above is the
+      // reading. Overnight heart rate stays on the Sleep screen's lanes.
     ]);
   }
 }

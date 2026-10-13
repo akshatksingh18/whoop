@@ -39,11 +39,17 @@ import '../util.dart';
 /// [hrPerMin] mean HR for each worn minute (bpm; pass only valid minutes).
 /// [restingHr], [maxHr] the personal anchors. [sex] selects the coefficients.
 /// Returns absent if anchors are missing/degenerate (no fabrication).
+///
+/// [minuteWeights] (B88-02): the recorded fraction (0–1) of each minute in
+/// [hrPerMin], from [minuteCoverage]. TRIMP is a time integral, so a minute
+/// built from a few samples at a gap's edge counts for the time it actually
+/// covered, not a full minute. Omitted, every minute counts in full.
 Metric<double> banisterTrimp(
   List<double> hrPerMin, {
   required double? restingHr,
   required double? maxHr,
   required Sex sex,
+  List<double>? minuteWeights,
 }) {
   const inputs = ['hr_per_min', 'resting_hr', 'max_hr'];
   // `maxHr <= restingHr` is FALSE when either is NaN, so the finiteness checks
@@ -63,15 +69,19 @@ Metric<double> banisterTrimp(
     );
   }
   final reserve = maxHr - restingHr;
+  final weighted =
+      minuteWeights != null && minuteWeights.length == hrPerMin.length;
   var trimp = 0.0;
-  for (final hr in hrPerMin) {
+  for (var i = 0; i < hrPerMin.length; i++) {
+    final hr = hrPerMin[i];
     if (!hr.isFinite || hr <= 0) continue; // off-skin + non-finite guard
+    final w = weighted ? minuteWeights[i].clamp(0.0, 1.0) : 1.0;
     var hrr = (hr - restingHr) / reserve;
     if (hrr < 0) hrr = 0;
     if (hrr > 1) hrr = 1;
     // ONE Banister implementation for the whole package: the sex-specific
     // weighting factor y lives in [StrainScorer.banisterY]. 1 minute each.
-    trimp += 1.0 * hrr * StrainScorer.banisterY(hrr, female: sex == Sex.female);
+    trimp += w * hrr * StrainScorer.banisterY(hrr, female: sex == Sex.female);
   }
   return Metric<double>(
     value: trimp,
@@ -80,6 +90,23 @@ Metric<double> banisterTrimp(
     inputs_used: inputs,
     note: 'Banister exponential TRIMP (wrist HR estimate)',
   );
+}
+
+/// B88-02: the recorded fraction (0–1) of each wall-clock minute in
+/// [minuteKeys] (epoch seconds ~/ 60), from the samples' own times [tsSec]:
+/// each sample is credited with its interval to the next, capped at the
+/// stream's median cadence ([StrainScorer.sampleDurationsMinutes]), so a
+/// dropout never counts as recorded time. Empty when the cadence cannot be
+/// measured — callers then weight every minute in full, as before.
+List<double> minuteCoverage(List<double> tsSec, List<int> minuteKeys) {
+  final dur = StrainScorer.sampleDurationsMinutes(tsSec);
+  if (dur.isEmpty || dur.length != tsSec.length) return const [];
+  final byMinute = <int, double>{};
+  for (var i = 0; i < tsSec.length; i++) {
+    final k = tsSec[i] ~/ 60;
+    byMinute[k] = (byMinute[k] ?? 0) + dur[i];
+  }
+  return [for (final k in minuteKeys) (byMinute[k] ?? 0).clamp(0.0, 1.0)];
 }
 
 /// Fraction of heart-rate reserve that simply BEING AWAKE costs — THE REFERENCE

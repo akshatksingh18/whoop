@@ -2288,21 +2288,33 @@ class SubTabs extends StatelessWidget {
 class ScreenTitle extends StatelessWidget {
   final String title;
   final Widget? trailing;
-  const ScreenTitle(this.title, {super.key, this.trailing});
+
+  /// Build 88: the small line above the title (the date, the goal).
+  final String? kicker;
+  const ScreenTitle(this.title, {super.key, this.trailing, this.kicker});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    // Build 88 (DESIGN.md): a large title on the kraft, its context above it.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(S.x1, S.x2, S.x1, S.x3),
+      padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x3),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: Text(
-              title,
-              style: F.t1.copyWith(color: p.ink),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (kicker != null)
+                  Text(kicker!, style: F.body.copyWith(color: p.onGround)),
+                Text(
+                  title,
+                  style: F.display.copyWith(color: p.ink),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
           ?trailing,
@@ -3524,6 +3536,10 @@ class MetricLine extends StatelessWidget {
   final bool fresh;
   final VoidCallback? onTap;
 
+  /// Text in the chart's place — the method, dates or counts behind the
+  /// value (DESIGN.md: "navel · 11 Oct vs 4 Oct").
+  final String? note;
+
   const MetricLine({
     super.key,
     required this.label,
@@ -3537,6 +3553,7 @@ class MetricLine extends StatelessWidget {
     this.progress,
     this.fresh = false,
     this.onTap,
+    this.note,
   });
 
   @override
@@ -3544,7 +3561,12 @@ class MetricLine extends StatelessWidget {
     final p = P.of(c);
     final absent = value == null;
     final big = bigText(c);
-    final chart = progress != null
+    final chart = note != null
+        ? Text(
+            note!,
+            style: F.cap.copyWith(color: absent ? p.on(C.alert) : p.ink2),
+          )
+        : progress != null
         ? ClipRRect(
             borderRadius: R.rPill,
             child: SizedBox(
@@ -3658,12 +3680,116 @@ class MetricLine extends StatelessWidget {
                   ),
                 ],
               ),
-            if (absent && absentWhy != null) ...[
+            if (absent && absentWhy != null && absentWhy != note) ...[
               const SizedBox(height: S.x1),
               Text(absentWhy!, style: F.cap.copyWith(color: p.on(C.alert))),
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The Build 88 hero (DESIGN.md): one big light number in its family colour,
+/// an uppercase label and up to two detail lines beside it — stacked under it
+/// at large text sizes. A null [value] is "—" in the alert colour.
+class HeroStat extends StatelessWidget {
+  final String? value;
+  final Color color;
+  final String label;
+  final List<String> lines;
+  final bool fresh;
+  final VoidCallback? onTap;
+  final String? semanticLabel;
+
+  const HeroStat({
+    super.key,
+    required this.value,
+    required this.color,
+    required this.label,
+    this.lines = const [],
+    this.fresh = false,
+    this.onTap,
+    this.semanticLabel,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final big = bigText(c);
+    final long = (value ?? '').length > 3;
+    final number = FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Text(
+        value ?? '—',
+        // Large text: the pure family colour clears 3:1 on the paper.
+        style: (long ? F.heroLong : F.hero).copyWith(
+          color: value == null ? p.on(C.alert) : color,
+        ),
+      ),
+    );
+    final side = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                label.toUpperCase(),
+                style: F.label.copyWith(color: p.ink2),
+              ),
+            ),
+            if (fresh && value != null) ...[
+              const SizedBox(width: S.x2),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: S.x2,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: p.fill(C.alert),
+                  borderRadius: R.rSm,
+                ),
+                child: Text('NEW', style: F.over.copyWith(color: p.inkOnFill)),
+              ),
+            ],
+          ],
+        ),
+        for (var i = 0; i < lines.length; i++) ...[
+          const SizedBox(height: S.x1),
+          Text(
+            lines[i],
+            style: i == 0 && lines.length > 1
+                ? F.head.copyWith(color: p.ink)
+                : F.cap.copyWith(color: value == null ? p.on(C.alert) : p.ink2),
+          ),
+        ],
+      ],
+    );
+    return Pressable(
+      onTap: onTap,
+      semanticLabel:
+          semanticLabel ?? [label, value ?? 'not measured', ...lines].join(', '),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: S.x3),
+        child: big
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [number, const SizedBox(height: S.x2), side],
+              )
+            // The number may take up to 60% of a narrow row and scales down
+            // to fit it; the labels take the rest.
+            : Row(
+                children: [
+                  Flexible(flex: 3, child: number),
+                  const SizedBox(width: S.x4),
+                  Flexible(flex: 2, fit: FlexFit.tight, child: side),
+                ],
+              ),
       ),
     );
   }

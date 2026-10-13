@@ -202,6 +202,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         children: [
           ScreenTitle(
             'Food',
+            kicker: prettyDay(todayLabel()),
             trailing: Pressable(
               semanticLabel: 'Goals',
               onTap: () async {
@@ -1125,19 +1126,24 @@ class _NutritionDayViewState extends State<NutritionDayView>
             child: Text(say, style: F.cap.copyWith(color: p.ink3)),
           ),
           if (action != null)
-            Pressable(
-              semanticLabel: action.$1,
-              onTap: action.$2,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: S.x2,
-                  vertical: S.x1,
-                ),
-                child: Text(
-                  action.$1,
-                  style: F.cap.copyWith(
-                    color: p.on(C.domFood),
-                    fontWeight: FontWeight.w600,
+            // Flexible: at large text sizes the action wraps rather than
+            // pushing the row past the panel's edge.
+            Flexible(
+              child: Pressable(
+                semanticLabel: action.$1,
+                onTap: action.$2,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: S.x2,
+                    vertical: S.x1,
+                  ),
+                  child: Text(
+                    action.$1,
+                    textAlign: TextAlign.end,
+                    style: F.cap.copyWith(
+                      color: p.on(C.recovery),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -1199,16 +1205,29 @@ class _NutritionDayViewState extends State<NutritionDayView>
             if (mounted) await _changed();
           },
         ),
-        if (d.logged) _completeLine(c, d),
-        if (_recent.isNotEmpty) _logAgain(c, addTo),
-        const SizedBox(height: S.x2),
-        for (final m in kMeals)
-          MealCard(
-            date: widget.date,
-            meal: m,
-            entries: d.mealEntries(m),
-            onChanged: _changed,
+        const SizedBox(height: S.x3),
+        // Build 88 (mock `3-food`): the meals as rows of one panel, the day's
+        // completion line closing it, and log-again under it.
+        Surface(
+          pad: const EdgeInsets.fromLTRB(S.x5, S.x1, S.x5, S.x3),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final m in kMeals)
+                MealCard(
+                  date: widget.date,
+                  meal: m,
+                  entries: d.mealEntries(m),
+                  onChanged: _changed,
+                ),
+              if (d.logged) _completeLine(c, d),
+            ],
           ),
+        ),
+        if (_recent.isNotEmpty) ...[
+          const SizedBox(height: S.x2),
+          _logAgain(c, addTo),
+        ],
         if (_upkeep != null) ...[
           const SizedBox(height: S.x3),
           MaintenanceCard(
@@ -1298,54 +1317,44 @@ class CalorieCard extends StatelessWidget {
     final balance = food == null || maintenance == null
         ? null
         : maintenance! - food;
-    final color = status == IntakeStatus.aboveMaintenance
-        ? C.red
-        : status == IntakeStatus.withinMaintenance
-        ? C.green
-        : C.n500;
+    // Build 88 (DESIGN.md, mock `3-food`): the day's intake as the hero in the
+    // food colour, goal and maintenance beside it, the four macros as
+    // progress lines under it.
+    final heroLines = <String>[
+      g == null || g <= 0
+          ? 'No intake goal'
+          : food == null
+          ? 'Goal ${thousands(g)} · intake not recorded'
+          : floor
+          ? 'Goal ${thousands(g)} · ${food > g ? 'at least ${thousands(food - g)} over' : 'at most ${thousands(g - food)} left'}'
+          : 'Goal ${thousands(g)} · ${thousands((g - food).abs())} ${food > g ? 'over' : 'left'}',
+      food == null
+          ? 'Intake not recorded'
+          : balance == null
+          ? 'Maintenance not available'
+          : floor && balance >= 0
+          ? 'A food has no calories, so this cannot be compared with maintenance'
+          : '${floor ? 'At least ' : ''}${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance${soFar ? ' so far' : ''}',
+    ];
     return Surface(
-      framed: false,
-      pad: const EdgeInsets.symmetric(vertical: S.x3),
+      pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Pressable(
                   onTap: onTap,
                   semanticLabel: 'Daily food totals',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        floor
-                            ? (soFar ? 'At least, so far' : 'Eaten, at least')
-                            : (soFar ? 'Eaten so far' : 'Eaten'),
-                        style: F.cap.copyWith(color: p.ink3),
-                      ),
-                      Wrap(
-                        spacing: S.x2,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            food == null ? '—' : thousands(food),
-                            style: F.n34.copyWith(color: p.ink),
-                          ),
-                          Text('kcal', style: F.cap.copyWith(color: p.ink2)),
-                        ],
-                      ),
-                      Text(
-                        g == null || g <= 0
-                            ? 'No intake goal'
-                            : food == null
-                            ? 'Goal ${thousands(g)} · intake not recorded'
-                            : floor
-                            ? 'Goal ${thousands(g)} · ${food > g ? 'at least ${thousands(food - g)} over' : 'at most ${thousands(g - food)} left'}'
-                            : 'Goal ${thousands(g)} · ${thousands((g - food).abs())} ${food > g ? 'over' : 'left'}',
-                        style: F.cap.copyWith(color: p.ink3),
-                      ),
-                    ],
+                  child: _CalorieHero(
+                    value: food == null ? null : thousands(food),
+                    label: floor
+                        ? (soFar ? 'At least, so far' : 'Eaten, at least')
+                        : (soFar ? 'Eaten so far' : 'Eaten'),
+                    lines: heroLines,
+                    status: status,
                   ),
                 ),
               ),
@@ -1353,33 +1362,59 @@ class CalorieCard extends StatelessWidget {
                 IconButton(
                   tooltip: addLabel ?? 'Add food',
                   onPressed: onAdd,
-                  icon: Icon(LucideIcons.plus, color: p.on(C.domFood)),
+                  icon: Icon(LucideIcons.plus, color: p.on(C.food)),
                 ),
             ],
           ),
-          const SizedBox(height: S.x2),
-          Text(
-            food == null
-                ? 'Intake not recorded'
-                : balance == null
-                ? 'Maintenance not available'
-                : floor && balance >= 0
-                ? 'A food has no calories, so this cannot be compared with maintenance'
-                : '${floor ? 'At least ' : ''}${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance${soFar ? ' so far' : ''}',
-            style: F.cap.copyWith(color: p.on(color)),
-          ),
           if (day case final d?) ...[
-            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
             _Macros(day: d, profile: profile),
           ],
           if (note case final line?) ...[
             const SizedBox(height: S.x2),
             Text(line, style: F.cap.copyWith(color: p.ink2)),
           ],
-          const SizedBox(height: S.x3),
-          Divider(color: p.line, height: 1),
         ],
       ),
+    );
+  }
+}
+
+/// The Food hero: the intake number in the food colour (DESIGN.md), the day
+/// state as its label, and goal and maintenance beside it. The maintenance
+/// line keeps the warning colour (above maintenance) the old card used.
+class _CalorieHero extends StatelessWidget {
+  const _CalorieHero({
+    required this.value,
+    required this.label,
+    required this.lines,
+    required this.status,
+  });
+
+  final String? value;
+  final String label;
+  final List<String> lines;
+  final IntakeStatus status;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final warn = status == IntakeStatus.aboveMaintenance;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        HeroStat(
+          value: value,
+          color: C.food,
+          label: label,
+          lines: [lines.first],
+        ),
+        Text(
+          lines.last,
+          style: F.cap.copyWith(color: warn ? p.on(C.red) : p.ink2),
+        ),
+        const SizedBox(height: S.x3),
+      ],
     );
   }
 }
@@ -1392,81 +1427,37 @@ class _Macros extends StatelessWidget {
   final NutritionDay day;
   final Map<String, dynamic> profile;
 
+  /// Build 88 (mock `3-food`): one progress line per macro in the food
+  /// colour, the value against its target. Always all four, fibre included;
+  /// an unlogged macro says so instead of showing zero.
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final rows = [
-      (
-        'Protein',
-        day.protein.value,
-        _targetOf(profile, 'protein_target'),
-        C.red,
-      ),
-      ('Carbs', day.carbs.value, _targetOf(profile, 'carbs_target'), C.blue),
-      ('Fat', day.fat.value, _targetOf(profile, 'fat_target'), C.yellow),
-      ('Fibre', day.fibre.value, _targetOf(profile, 'fibre_target'), C.green),
+      ('Protein', day.protein, _targetOf(profile, 'protein_target')),
+      ('Carbs', day.carbs, _targetOf(profile, 'carbs_target')),
+      ('Fat', day.fat, _targetOf(profile, 'fat_target')),
+      ('Fibre', day.fibre, _targetOf(profile, 'fibre_target')),
     ];
-    Widget column((String, double?, double?, Color) r) {
-      final (name, v, target, color) = r;
-      final frac = target == null || target <= 0
-          ? 0.0
-          : ((v ?? 0) / target).clamp(0.0, 1.0).toDouble();
-      return Semantics(
-        label:
-            '$name ${(v ?? 0).round()} grams'
-            '${target == null ? '' : ' of ${target.round()}'}',
-        excludeSemantics: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(name, style: F.over.copyWith(color: p.ink3)),
-            const SizedBox(height: S.x1),
-            Text(
-              v == null ? '–' : '${v.round()} g',
-              style: F.n17.copyWith(color: p.ink),
-            ),
-            if (target != null)
-              Text(
-                'of ${target.round()}',
-                style: F.over.copyWith(color: p.ink3),
-              ),
-            const SizedBox(height: S.x2),
-            ClipRRect(
-              borderRadius: R.rPill,
-              child: SizedBox(
-                height: 4,
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: ColoredBox(color: p.track)),
-                    FractionallySizedBox(
-                      widthFactor: frac,
-                      child: ColoredBox(
-                        color: p.on(color),
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < rows.length; i++) ...[
-              if (i > 0) const SizedBox(width: S.x3),
-              Expanded(child: column(rows[i])),
-            ],
-          ],
-        ),
-        const SizedBox(height: S.x3),
+        for (final (name, total, target) in rows) ...[
+          MetricLine(
+            label: name,
+            color: C.food,
+            value: total.value == null
+                ? null
+                : '${total.isFloor ? '≥' : ''}${total.value!.round()}',
+            unit: target == null ? 'g' : '/${target.round()} g',
+            progress: target == null || target <= 0
+                ? 0
+                : (total.value ?? 0) / target,
+            absentWhy: total.value == null ? 'not logged' : null,
+          ),
+          Divider(color: p.line, height: 1),
+        ],
+        const SizedBox(height: S.x2),
         Text(
           'Logged macros only · blank values are not tracked',
           style: F.over.copyWith(color: p.ink3),

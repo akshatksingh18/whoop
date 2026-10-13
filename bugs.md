@@ -475,7 +475,7 @@ rewrite is authorized by this planning request.
 
 ## Partly Missing Training Load Becomes Zero (Repaired In Build 88 Source)
 
-**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** load uses net TRIMP over runs of observed days (at least 16 h worn); 1-2 unknown days are skipped, 3 end the run; imported days leave the inputs. Deviation: fatigue waits for the same 28 observed days as fitness (approved 7); no screen shows fatigue alone.
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** load uses net TRIMP over runs of observed days (at least 16 h worn); 1-2 unknown days are skipped, 3 end the run; imported days leave the inputs. Fatigue keeps the 28-observed-day floor (decided): its only reader compares it with fitness, which needs 28, so fatigue alone at 7 days would have no use.
 
 Confirmed from current source, not a new phone reproduction:
 `lib/compute/crossday_pipeline.dart::_denseDailyTrimp` returns an empty series when every input
@@ -652,7 +652,7 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Timestamp-Blind Beat Differencing Beyond The Primary HRV
 
-**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: one rolling-RMSSD rule (`rollingRmssd`) for the HRV timeline, 24/7 curve and daytime HRV; PRSA needs gap-free windows; RSA window coverage/Nyquist and 6-window nights; BRV uses the real artifact fraction; stress and irregular-rhythm duration gates; labels fixed. Open: the per-night CVHR chart on the breathing screen is still drawn (removing a visible chart needs Akshat's yes); corrected-NN consumers still bridge 250-1000 ms gaps inside `correctRr` (its whole-second fallback needs that bar); Lomb-Scargle power scaling under gaps and the beat-sum clock remain unresolved.
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: one rolling-RMSSD rule (`rollingRmssd`) for the HRV timeline, 24/7 curve and daytime HRV; PRSA needs gap-free windows; RSA window coverage/Nyquist and 6-window nights; BRV uses the real artifact fraction; stress and irregular-rhythm duration gates; labels fixed. The per-night CVHR chart is removed (decided); the across-nights card stays. Open: corrected-NN consumers still bridge 250-1000 ms gaps inside `correctRr` (its whole-second fallback needs that bar); Lomb-Scargle power scaling under gaps and the beat-sum clock remain unresolved.
 
 - These also form successive differences without timestamps, so they can join unreported time:
   - the irregular-rhythm screens (above);
@@ -718,7 +718,7 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Quiet-Day Strain Inflation And Gross Training Load
 
-**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: the strain target is withheld; day zone minutes and the zone label share one `trainingZones` set; strain-dependent sleep need and the strain mover count observed days only. Open (needs a decision, because both change the strain score the approved rules keep unchanged): TRIMP on the age-estimate max HR versus the observed ceiling, and one-sample minutes.
+**Build 88 source (branch `build-88`, algorithm 92; not built, installed or phone-verified):** repaired: the strain target is withheld; day zone minutes and the zone label share one `trainingZones` set; strain-dependent sleep need and the strain mover count observed days only. Also repaired (decided): TRIMP uses the zones' max HR (observed ceiling once it reaches the age estimate, else the estimate), and each minute counts for the time it actually recorded, with the quiet baseline over the same covered minutes. Strain values can move slightly on days with gaps or a high observed ceiling.
 
 - All five strain callers pass `quietWakingHrr = 0.20`. The constant's own documentation in
   `load_trimp.dart` (spot-checked) measured that this left a no-activity day at 6.93–12.14 out of

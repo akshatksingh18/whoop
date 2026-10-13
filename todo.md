@@ -70,18 +70,24 @@ Done in source (each with tests):
 - [x] **B88-10** one `kAlgoVersion` bump to 92 with its changelog; retained days re-derive and
   the new HRV baseline never mixes in old-method nights.
 
-Open, each needing a decision or the phone:
-- [ ] Decide: remove the per-night CVHR chart on the breathing screen (library says "never
-  per-night"; removing a visible chart needs Akshat's yes).
-- [ ] Decide: TRIMP on the observed ceiling and a minimum samples-per-minute rule (both change
-  the strain score the approved rules keep unchanged).
-- [ ] Decide: the locked food colour `#D9961A` measures 2.13:1 on paper, under the 3:1 graphics
-  floor; keep, or darken it.
-- [ ] Food, Train, Progress, Sleep, Recovery and live screens take the new tokens and panels but
-  keep their Build 87 composition; their structural rebuild to the mocks is not done.
-- [ ] Fatigue waits 28 observed days like fitness (approved 7); no screen shows it alone.
-- [ ] Phone: check the 250 ms beat-adjacency rule's qualification rate on real nights, live-speed
-  constants on an outdoor walk and run, and the full lifecycle/background/soak matrix.
+Decided by Akshat ("take your call") and done in source:
+- [x] Per-night CVHR chart removed from the breathing screen; the across-nights card stays
+  (one night of pulse cycling means little; overnight HR stays on the Sleep lanes).
+- [x] Strain: TRIMP uses the zones' max HR (observed ceiling once it reaches the age estimate,
+  else the estimate) and weights each minute by the time it recorded (TRIMP is a time
+  integral); the quiet baseline subtracts over the same covered minutes.
+- [x] Fatigue keeps the 28-observed-day floor: its only reader compares it with fitness, which
+  needs 28, so fatigue alone at 7 days would have no use.
+- [x] Food colour darkened to `#A8730A` (3.46:1 on paper); secondary inks darkened to 6.1:1 and
+  5.6:1 on the kraft; sleep stages re-toned (navy, steel blue, plum, clay), each 4.5:1+ on paper.
+- [x] Food, Train, Progress, Sleep, Recovery and live run rebuilt to their mocks (hero number,
+  label/chart/value lines, one panel per screen part) and visually checked at 1x, 2x, 3.1x and
+  320 pt for blending text and overflow.
+
+Open:
+- [ ] **At install (Akshat asked to be reminded):** check the 250 ms beat-adjacency rule's
+  qualification rate on real nights (HRV should still score most nights), the live-speed
+  constants on an outdoor walk and run, then the full lifecycle/background/soak matrix.
 - [ ] **Prerequisites:** keep the installed app signed past 2026-10-17; take an encrypted
   off-phone backup before any Build 88 install.
 - [ ] Publication, CI/macOS build and testing IPA: separate approval.

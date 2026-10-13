@@ -259,8 +259,8 @@ time (phone first): positive phone measurements owned overlapping time, accepted
 spans supplemented uncovered time and dense cadence could override a phone-zero span. Hour/source/day boundaries preserve
 measured counts. Fine phone windows around source handoffs and session pauses avoid subtracting
 whole-hour totals from part-hour sessions. Growing live wrist windows replace their earlier partial
-rows rather than accumulating duplicates. Personal builds request the live IMU passively while
-connected, subject to device battery/background acceptance. Source provenance stays visible.
+rows rather than accumulating duplicates. From Build 89 source the personal build never requests the
+live IMU at all (heart-rate-only live stream, `kHighRateLive`). Source provenance stays visible.
 WHOOP 4 recorded history cannot accurately reconstruct offline steps beyond Bluetooth range.
 `resolveDaySteps` in `lib/data/live_coverage_policy.dart` is the common counter.
 

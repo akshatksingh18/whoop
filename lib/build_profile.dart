@@ -22,6 +22,16 @@ const bool kShowSkinTemp = !kPersonalSideload;
 /// did not measure has no step count ("—"), never a band one.
 const bool kBandSteps = !kPersonalSideload;
 
+/// Whether the app may arm the band's high-rate live streams (100 Hz motion,
+/// raw R10/R11 beat records and the optical flood). The personal build keeps
+/// ONLY the compact 1 Hz heart-rate stream, foreground and background
+/// (Akshat, Build 89): with phone-only steps the fast feed served nothing it
+/// shows — wrist steps, wrist cadence fallback, the inactivity nudge, spot
+/// checks and paced breathing are all off or removed there — and it cost band
+/// and phone battery and crowded the radio the history offloads need. Live
+/// heart rate, zones, wear and workouts all ride the 1 Hz stream.
+const bool kHighRateLive = !kPersonalSideload;
+
 /// The name a person sees, in every build: "WHOOP" on the home screen, so
 /// nothing the app shows or names (exports, backups, logs) says OpenStrap.
 const String kAppName = 'WHOOP';

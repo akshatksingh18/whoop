@@ -3224,7 +3224,9 @@ class AppState extends ChangeNotifier {
 
   void _maybeDowngradeLiveForBackground() {
     if (!engine.isConnected || !engine.liveEnabled) return;
-    if (_hasLiveConsumer || (kPersonalSideload && Platform.isIOS)) return;
+    // Already HR-only (the personal build always is, [kHighRateLive]):
+    // nothing to step down.
+    if (_hasLiveConsumer || engine.liveHrOnly) return;
     _bgLiveDowngrade = Platform.isAndroid
         ? engine.disableLiveStreams()
         : engine.enableHrOnlyLive();

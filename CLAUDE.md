@@ -405,8 +405,8 @@ evidence below.
 - A day earns a movement streak through 10 active run/walk minutes or its dated measured step goal.
   Goals before migration are unknown; historical workout evidence is preserved.
 - Steps are phone only from Build 89 source (Akshat: the wrist count is inaccurate and he always
-  carries the phone): the connected wrist fallback still records gait rows, but no step total
-  counts them, so phone-absent time has no steps.
+  carries the phone), and the live band stream is heart rate only (`kHighRateLive`), so no
+  wrist gait is captured and phone-absent time has no steps.
   WHOOP 4 recorded history cannot recover accurate offline steps beyond Bluetooth range. Passive
   background battery/coverage and accuracy against counted steps remain physical-device gates.
 - Workout profiles/weights are captured; daily history uses dated anchors. Food/weight inferred

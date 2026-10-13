@@ -50,6 +50,7 @@ import '../sync/sync_policy.dart';
 import 'adapters/_registry.dart';
 import 'android_native_name.dart';
 import 'ble_state.dart';
+import '../build_profile.dart';
 
 // Little-endian u32 reader. The package keeps `u32` private, and the engine only
 // needs it to peek the record-counter / ts out of a raw historical frame header.
@@ -7332,6 +7333,10 @@ class BleEngine {
   /// DOES NOT change the displayed state — we stay in the single `listening` phase;
   /// live records simply start arriving on the same subscription history uses.
   Future<void> enableLiveStreams() async {
+    // Personal build: the 1 Hz heart-rate stream is the whole live set
+    // ([kHighRateLive]), so every caller — foreground return, workout start,
+    // a radio-fallback retry — arms exactly that.
+    if (!kHighRateLive) return enableHrOnlyLive();
     _liveEnabled = true;
     _liveHrOnly = false;
     unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
@@ -7414,7 +7419,9 @@ class BleEngine {
       await op();
       await Future.delayed(const Duration(milliseconds: 60));
     }
-    _log('Live streams: HR-only (background downgrade — raw flood off).');
+    _log(kHighRateLive
+        ? 'Live streams: HR-only (background downgrade — raw flood off).'
+        : 'Live streams: HR-only (personal build — 1 Hz heart rate only).');
   }
 
   /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.

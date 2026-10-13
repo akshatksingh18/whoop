@@ -181,9 +181,9 @@ new library, or wholesale native rewrite is proposed.
 4. **Preserve wrist-only steps while reducing unnecessary CPU.** First remove invisible UI
    refresh/repeated readout work and profile decoding, counting and checkpointing separately.
    Keep measured dense sample windows, per-minute counting/checkpoints and active-workout
-   behavior. Do not silently switch passive capture to HR-only, duty-cycle it, or count
-   sparse samples as full coverage. If capture alone still fails the phone budget, present
-   the measured tradeoff to Akshat before changing this unique primary metric.
+   behavior. Superseded for the personal build by Akshat's explicit Build 89 decision: steps
+   are phone only and live capture is HR-only (`kHighRateLive`), so no passive wrist capture
+   remains to budget.
 5. **Recompute changed inputs, not every recent day on every open.** Prioritize today and
    the newest completed sleep; cache reusable night results; invalidate on raw, phone-step,
    food, session, profile, manual sleep/nap, algorithm and baseline changes, not just one
@@ -233,9 +233,9 @@ window; repairing sync alone does not repair a calendar-day/night-window mismatc
 - Akshat approved implementation and personal `fetch`/`processing` modes; both ship in installed
   Build 86 with bounded work and preserved passive wrist steps. Charging-only processing is an
   extra opportunity, not required for freshness. Local Build 87 changes no capability/profile.
-- No feature removal is proposed. HR-only passive background capture would lose wrist-only
-  step measurement when the phone is absent; it requires a separate explicit decision if
-  profiling shows the preserved stream cannot meet the budget. Sleep, HRV, recovery, strain,
+- Akshat made the explicit decision this item reserved (Build 89): the personal build counts
+  phone steps only and arms the HR-only live stream, giving up wrist-only steps when the phone is
+  absent. Sleep, HRV, recovery, strain,
   HR, breathing, workouts, step formulas and maintenance formulas must remain reachable.
 - Tests must cover background cold startup, queued wake before AppState, foreground arrival
   mid-startup, cancellation during sleep/day/cross-day/rescan, native expiration, ownership

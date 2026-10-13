@@ -58,6 +58,13 @@ all 13 qualify and agree closely with algorithm 91. Implemented as local commits
   (off in the personal build), keeps band rows out of the day total, hourly graph, step calories,
   workouts and runs and stops the on-chip fallback; band rows stay stored. Time or a day the phone
   did not measure has no steps ("—"). Retained days re-derive under algorithm 93.
+- [x] Live band streams are heart rate only (Akshat, Build 89): `kHighRateLive` off arms just
+  the 1 Hz stream in the foreground and background; the 100 Hz motion, raw beat records and
+  optical flood are never requested (their only readers — wrist steps, wrist cadence fallback,
+  inactivity nudge, spot checks, paced breathing — are off or removed). Live HR, zones, wear and
+  workouts are unchanged; the upstream build keeps the full set.
+- [ ] Phone: live heart rate on Today and in a workout still updates; overnight history syncs;
+  battery compared with Build 88.
 - [ ] Phone: after install, the nightly HRV shows on recent nights (or its reason shows); text
   reads without strain on every tab; Files → WHOOP shows
   `WHOOP Backups` and the `whoop_*` logs with no OpenStrap-named file.
@@ -312,8 +319,9 @@ Implementation checklist:
    ownership handoffs without overlapping ACKs or orphaned work. *Partly met: commit/ACK order and
    queued calculation hold, but `acquireForeground` has no deadline and BG expiry leaves the
    headless drain running (same `bugs.md` section).*
-- [ ] Preserve passive wrist steps and active workouts. Remove invisible UI work and profile
-   the high-rate path; no silent HR-only switch, sparse-step reconstruction or metric deletion. *Source: background UI notifications coalesce; high-rate-path CPU profiling still needs the phone.*
+- [x] Superseded by Akshat's Build 89 decision: steps are phone only and the personal build arms
+   only the 1 Hz heart-rate stream (`kHighRateLive` off), so there is no passive wrist-step or
+   high-rate path left to preserve or profile. Active workouts keep live heart rate and zones.
 - [ ] Reuse unaffected calculation, prioritize today/new sleep, and keep raw-data freshness
    separate from the input revision covered by an insight. Short-wake compute must be measured
    and genuinely bounded; the current one-day "light" pass does not meet that contract. *Source: today is derived first, BLE wakes queue work, and Today shows band-data age apart from the calculation time; per-input reuse ships in the validated Build 87 testing IPA; cold preparation/staging and short-wake CPU still need measurement on the phone.*

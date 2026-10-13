@@ -34,6 +34,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
+import '../build_profile.dart';
 import '../data/db.dart';
 import '../data/nap_ledger.dart';
 import '../data/day_label.dart';
@@ -1645,6 +1646,9 @@ import 'substrate.dart';
 //   `correctRr` re-anchor step already used 1000). WHOOP 4 `beat_ts_ms` is the
 //   1 Hz record's phase, so 250 ms rejected most successive pairs: on 13 real
 //   nights the headline was absent on 6 and biased low on the rest.
+//   Personal build: day steps are phone only (`kBandSteps` off) — band spans
+//   no longer fill time the phone did not cover, and the on-chip counter is
+//   never the day's fallback.
 const int kAlgoVersion = 93;
 
 /// The sibling SHAs this version was derived against, asserted against
@@ -6056,7 +6060,10 @@ class DerivationEngine {
     // 18,856 on a day the strap synced for part of).
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
-    final useBand = liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
+    final useBand = kBandSteps &&
+        liveStepsReal <= 0 &&
+        bandSteps != null &&
+        bandSteps > 0;
     final steps = useBand ? bandSteps : liveStepsReal;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {

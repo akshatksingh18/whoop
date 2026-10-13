@@ -151,6 +151,7 @@ It adds:
   different model (`bugs.md`, B88-11). The history is coloured bars with a
   per-day reason, and it shows why breathing was not counted.
 - **Steps, phone first:** `resolveDaySteps(phoneFirst: kPersonalSideload)`; build 70 uses `kAlgoVersion` 87.
+  Build 89 source goes further: phone only (`kBandSteps` off in `lib/build_profile.dart`).
 - **Runs:** medal pins on the map, phone steps and cadence (plus a chart), and spoken km cues (the
   native `SpeechBridge`, no new dependency).
 - **Food:** a MyFitnessPal-style diary:
@@ -403,8 +404,9 @@ evidence below.
   chart/navigation/notification repairs, calorie comparisons and optional lock-screen feature.
 - A day earns a movement streak through 10 active run/walk minutes or its dated measured step goal.
   Goals before migration are unknown; historical workout evidence is preserved.
-- Connected wrist fallback captures accepted high-rate gait without Start, supplements separately
-  measured phone-absent time and never overrides positive overlapping phone measurements.
+- Steps are phone only from Build 89 source (Akshat: the wrist count is inaccurate and he always
+  carries the phone): the connected wrist fallback still records gait rows, but no step total
+  counts them, so phone-absent time has no steps.
   WHOOP 4 recorded history cannot recover accurate offline steps beyond Bluetooth range. Passive
   background battery/coverage and accuracy against counted steps remain physical-device gates.
 - Workout profiles/weights are captured; daily history uses dated anchors. Food/weight inferred

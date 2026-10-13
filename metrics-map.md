@@ -251,9 +251,12 @@ weight; robust z-scores are combined with weights renormalised over available in
 scores store `readiness_absent_diag`; `readinessGap` exposes the per-day reason. The sparse history
 before 30 September reflects those baseline/missing-input/import rules, not a broken read path.
 
-**Steps (phone first, personal build):** positive phone measurements own overlapping time, even
-when the band counts more. Accepted wrist-only spans supplement uncovered time; dense walking
-cadence is required to override a measured phone-zero span. Hour/source/day boundaries preserve
+**Steps (phone only, personal build; Build 89 source):** every step total — the day, the
+hourly graph, step calories, workouts and runs — counts the phone alone (`kBandSteps` off).
+Band step rows are still stored but never counted, so time the phone did not measure has no
+steps and a day the phone did not cover shows "—". Before Build 89 the band filled uncovered
+time (phone first): positive phone measurements owned overlapping time, accepted wrist-only
+spans supplemented uncovered time and dense cadence could override a phone-zero span. Hour/source/day boundaries preserve
 measured counts. Fine phone windows around source handoffs and session pauses avoid subtracting
 whole-hour totals from part-hour sessions. Growing live wrist windows replace their earlier partial
 rows rather than accumulating duplicates. Personal builds request the live IMU passively while

@@ -408,9 +408,15 @@ class _Ranked {
 ResolvedDaySteps resolveDaySteps(
   Iterable<CoverageSpan> rows, {
   bool phoneFirst = kPersonalSideload,
+  bool bandSteps = kBandSteps,
 }) {
   final spans = <_Ranked>[];
-  final measured = rows.toList();
+  // Phone only ([kBandSteps] off): band rows never enter the resolution, so
+  // they can neither add steps nor fill time the phone did not cover.
+  final measured = [
+    for (final r in rows)
+      if (bandSteps || !r.fromBand) r,
+  ];
   final hasPhoneCoverage = measured.any(
     (r) => !r.fromBand && r.steps >= 0 && r.endTs > r.startTs,
   );

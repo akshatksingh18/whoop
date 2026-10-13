@@ -31,7 +31,7 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 89 (`0.9.56`/`89`): HRV repair, WHOOP naming and legibility, local source
+## Build 89 (`0.9.56`/`89`): HRV repair, WHOOP naming, legibility and phone-only steps, local source
 
 **State:** Akshat's screenshots show Build 88 installed: the night's HRV curve drew, but the
 nightly HRV read "Not measured" and Recovery scored without it. His exported database (read
@@ -54,6 +54,10 @@ all 13 qualify and agree closely with algorithm 91. Implemented as local commits
   (the old files are renamed once). Internal identifiers stay: the database file, Bluetooth
   restore identifier, background-task and channel names, package names, the Open Food Facts user
   agent and the upstream licence attribution.
+- [x] Steps are phone only (Akshat: the wrist count is inaccurate): one switch, `kBandSteps`
+  (off in the personal build), keeps band rows out of the day total, hourly graph, step calories,
+  workouts and runs and stops the on-chip fallback; band rows stay stored. Time or a day the phone
+  did not measure has no steps ("—"). Retained days re-derive under algorithm 93.
 - [ ] Phone: after install, the nightly HRV shows on recent nights (or its reason shows); text
   reads without strain on every tab; Files → WHOOP shows
   `WHOOP Backups` and the `whoop_*` logs with no OpenStrap-named file.

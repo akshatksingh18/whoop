@@ -13,6 +13,7 @@ import '../data/local_repository.dart';
 import 'motion_window.dart';
 import 'route_math.dart' show totalDistanceMeters, movingSeconds;
 import 'run_analysis.dart';
+import '../build_profile.dart';
 
 /// Activity types that count as running for pace, the distance calorie method
 /// and the Running row of maintenance. Treadmill, track intervals, sprinting
@@ -81,8 +82,9 @@ class RunSummary {
   });
 
   /// The steps to take off the day's count: the phone's for the exact window
-  /// first (the same sensor the day total comes from), else the band's.
-  int? get steps => phoneSteps ?? bandSteps;
+  /// first (the same sensor the day total comes from), else the band's — never
+  /// the band's when band steps are off ([kBandSteps]).
+  int? get steps => phoneSteps ?? (kBandSteps ? bandSteps : null);
 
   /// Method 1 calories for this run at [weightKg].
   double? floorKcal(double? weightKg) => runFloorKcal(
@@ -229,7 +231,8 @@ Future<RunSummary?> summariseRun(
         known = true;
       }
     }
-    if (!known &&
+    if (kBandSteps &&
+        !known &&
         excluded.isEmpty &&
         bandSteps != null &&
         bandSteps > 0 &&

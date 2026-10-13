@@ -10,6 +10,7 @@ import 'run_analysis.dart';
 import 'run_history.dart' show isRunType, isWalkType;
 import 'session_track.dart';
 import 'workout_clock.dart';
+import '../build_profile.dart';
 
 double? workoutMethod1(String type, Profile p, {int? steps, RunMix? mix}) {
   if (isWalkType(type)) return stepCalories(steps, p.weightKg);
@@ -101,7 +102,7 @@ class WorkoutMeasurements {
       known = true;
       steps = motion.totalSteps;
     }
-    if (!known && bandSteps != null && bandSteps > 0) {
+    if (kBandSteps && !known && bandSteps != null && bandSteps > 0) {
       known = true;
       steps = bandSteps;
     }

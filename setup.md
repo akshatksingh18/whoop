@@ -50,8 +50,9 @@ Personal macOS run `38329490196` passes. Downloaded
 manifest and checksum. Full ZIP CRC and personal payload validation pass. Linux CI
 `38329137774` passes 3,703 tests (415 intentional skips). The single testing candidate is
 `../final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f`, replacing Build 87's folder after validation.
-Build 86 remains installed and Build 70 accepted recovery. Installation, the real-night HRV
-qualification rate, outdoor live speed and the lifecycle/background/soak matrix remain open.
+Akshat's screenshots show Build 88 installed; Build 70 remains accepted recovery. Its first real
+nights failed the HRV qualification check (repaired in Build 89 source, `todo.md`); current-version
+refresh enrollment, outdoor live speed and the lifecycle/background/soak matrix remain open.
 
 ## Build 87 Candidate
 

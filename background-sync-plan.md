@@ -5,7 +5,7 @@ process-wide `DeriveStop` cancels running calculation on backgrounding and on BL
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation
 instead of deriving; launch kind is settled before the scheduler arms and native `ready` waits for
 the band owner; personal `fetch`/`processing` tasks run bounded calculation with single
-completion; native breadcrumbs go to `openstrap_native.log`; background UI notifications
+completion; native breadcrumbs go to `whoop_native.log` (`openstrap_native.log` before Build 89); background UI notifications
 coalesce. Build 86 exposes recent recorded HR through the repository, but Today's chart still
 read only its calculated timeline and Status used a launch-only sample. Build 87 connects
 Today to the raw-extended chart plus recorded 10-minute/hour windows and makes Status/Today read

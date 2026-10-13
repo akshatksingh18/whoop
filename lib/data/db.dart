@@ -41,6 +41,7 @@ import 'models.dart';
 import 'nutrition_store.dart';
 import 'observation.dart';
 import 'series_codec.dart';
+import '../build_profile.dart';
 
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
@@ -6577,7 +6578,7 @@ class LocalDb {
     final db = await instance;
     final tmp = await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    final dest = p.join(tmp.path, 'openstrap_export_$stamp.db');
+    final dest = p.join(tmp.path, 'whoop_export_$stamp.db');
     final f = File(dest);
     if (await f.exists()) await f.delete(); // VACUUM INTO requires a fresh path
     await db.execute('VACUUM INTO ?', [dest]);
@@ -6695,7 +6696,7 @@ class LocalDb {
     final src = await instance;
     final tmp = await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    final dest = p.join(tmp.path, 'openstrap_days_$stamp.db');
+    final dest = p.join(tmp.path, 'whoop_days_$stamp.db');
     await deleteDatabase(dest);
     final out = await openDatabase(
       dest,
@@ -7232,7 +7233,7 @@ class LocalDb {
       if (inflated == null ||
           await sniffFile(inflated) != ImportContainer.sqlite) {
         throw const ImportFormatException(
-          'That file unpacked to something that is not an OpenStrap database.',
+          'That file unpacked to something that is not a $kAppName database.',
         );
       }
       return await _mergeFromDbFile(inflated);

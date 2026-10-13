@@ -155,7 +155,7 @@ void main() {
 
     test('is zero-padded so widths match', () {
       expect(backupFileName(DateTime(2026, 1, 2, 3, 4, 5)),
-          'openstrap-20260102-030405.osbk');
+          'whoop-20260102-030405.osbk');
     });
 
     test('two runs in the same minute get different names', () {
@@ -196,6 +196,22 @@ void main() {
       );
     });
 
+    test('older openstrap- backups rank by time beside whoop- ones', () {
+      touch('openstrap-20260101-000000.osbk');
+      touch('whoop-20260201-000000.osbk');
+      touch('openstrap-20260301-000000.osbk');
+      touch('whoop-notes.db');
+      final out = sortBackupsNewestFirst(tmp.listSync());
+      expect(
+        out.map((f) => p.basename(f.path)),
+        [
+          'openstrap-20260301-000000.osbk',
+          'whoop-20260201-000000.osbk',
+          'openstrap-20260101-000000.osbk',
+        ],
+      );
+    });
+
     test('matches only the exact shape it emits', () {
       // This list is what retention DELETES, in a folder the user can drop
       // files into. A loose openstrap-*.db glob would eat their notes.
@@ -207,9 +223,11 @@ void main() {
       touch('openstrap-20260101.db');
       touch('random.db');
       touch('openstrap-20260101-000000.db.gz.bak');
+      touch('whoop-notes.db');
+      touch('whoop-20260101.db');
       final out = sortBackupsNewestFirst(tmp.listSync());
       expect(out.map((f) => p.basename(f.path)), [
-        'openstrap-20260101-000000.osbk',
+        'whoop-20260101-000000.osbk',
       ]);
     });
 

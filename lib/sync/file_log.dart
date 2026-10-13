@@ -39,7 +39,15 @@ class FileLog {
         } catch (_) {}
       }
       dir ??= await getApplicationDocumentsDirectory();
-      _file = File('${dir.path}/openstrap_sync.log');
+      _file = File('${dir.path}/whoop_sync.log');
+      // Earlier builds wrote `openstrap_sync.log`; carry it over once so the
+      // log in Files → WHOOP keeps its history under the new name.
+      final legacy = File('${dir.path}/openstrap_sync.log');
+      if (!_file!.existsSync() && legacy.existsSync()) {
+        try {
+          legacy.renameSync(_file!.path);
+        } catch (_) {}
+      }
     } catch (_) {
       _file = null;
     }

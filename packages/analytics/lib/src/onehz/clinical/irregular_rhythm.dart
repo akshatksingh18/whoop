@@ -88,13 +88,13 @@ Metric<IrregularRhythm> irregularBeatScreen(
   // irregularity" screen positive.
   final keep = [for (final v in rrMs) v >= 300 && v <= 2000];
   // B88-03: with beat times, two beats are successive only when TIME-adjacent
-  // too (their gap equals the later interval within 250 ms). [rrMs] here is
+  // too (their gap equals the later interval within [kBeatAdjacencyTolMs]). [rrMs] here is
   // usually a corrector's COMPACTED output, so array neighbours can straddle a
   // dropout or a removed run; without this check every such seam became one
   // invented difference and inflated SD1/pNN70.
   final timed = nnTimesMs != null && nnTimesMs.length == rrMs.length;
   bool timeAdj(int i) =>
-      !timed || ((nnTimesMs[i] - nnTimesMs[i - 1]) - rrMs[i]).abs() <= 250;
+      !timed || ((nnTimesMs[i] - nnTimesMs[i - 1]) - rrMs[i]).abs() <= kBeatAdjacencyTolMs;
   final nn = [
     for (var i = 0; i < rrMs.length; i++)
       if (keep[i]) rrMs[i]

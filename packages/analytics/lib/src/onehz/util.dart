@@ -502,3 +502,20 @@ List<double?> benjaminiHochberg(List<double?> ps) {
   }
   return out;
 }
+
+/// How far two beats' reported end times may differ from the later beat's
+/// interval and still count as SUCCESSIVE (RMSSD/pNNx pairs, PRSA windows,
+/// the irregular-rhythm screen, every rolling-RMSSD curve) — and the wall step
+/// past which `correctRr` re-anchors its clock. One value for all of them.
+///
+/// It is the band's timing resolution, not a physiological constant. WHOOP 4
+/// history places a beat by its 1 Hz record: `beat_ts_ms` carries the
+/// record's own sub-second phase, which is the same for every record, so two
+/// truly successive beats read about 1000 or 2000 ms apart whatever their
+/// interval. On 13 real WHOOP 4 nights (about one beat per record) the Build 88
+/// value of 250 ms rejected most successive pairs, left the nightly HRV absent
+/// on 6 of 13 nights and biased the rest low; 1000 ms qualified all 13 and
+/// agreed closely with the earlier algorithm. A real dropout (seconds of
+/// unreported beats) still splits a run, and a missed beat still fails the
+/// range and ectopic filters as a doubled interval.
+const double kBeatAdjacencyTolMs = 1000;

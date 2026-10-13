@@ -533,7 +533,7 @@ muscle/fat classifier or automatic calorie-target change.
 
 ## Primary HRV Joins Unreported Time And Accepts Sparse Windows (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** pairs must be time-adjacent within 250 ms; windows need 180 s covered, 120 pairs and at most 20% artifacts; nights need 6 windows and 15% of the session. Open: the 250 ms rule is untested on real sub-second beat times (the repo fixture is whole-second), so its qualification rate must be checked on the phone.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** pairs must be time-adjacent; windows need 180 s covered, 120 pairs and at most 20% artifacts; nights need 6 windows and 15% of the session. The installed Build 88's 250 ms adjacency left the nightly HRV absent on 6 of 13 real nights and biased low on the rest, because WHOOP 4 beat times carry the 1 Hz record's phase, not the beat's. Build 89 source (algorithm 93) uses one 1000 ms tolerance (`kBeatAdjacencyTolMs`) everywhere; on the same 13 nights all qualify and agree closely with algorithm 91 (`todo.md` Build 89).
 
 Confirmed source behavior with a local synthetic probe, not a personal-data accuracy estimate.
 `packages/analytics/lib/src/onehz/clinical/hrv_time.dart::sleepSessionWindowedRmssd` uses

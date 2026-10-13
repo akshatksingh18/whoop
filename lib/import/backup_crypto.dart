@@ -55,6 +55,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
+import '../build_profile.dart';
 
 /// File magic. Four bytes so a corrupted or mis-picked file fails on the first
 /// read rather than after a two-second key derivation.
@@ -131,11 +132,11 @@ class BackupHeader {
 
   static BackupHeader parse(Uint8List bytes) {
     if (bytes.length < byteLength) {
-      throw const BackupFormatException('not an OpenStrap backup');
+      throw const BackupFormatException('not a $kAppName backup');
     }
     for (var i = 0; i < 4; i++) {
       if (bytes[i] != kBackupMagic[i]) {
-        throw const BackupFormatException('not an OpenStrap backup');
+        throw const BackupFormatException('not a $kAppName backup');
       }
     }
     final version = bytes[4];

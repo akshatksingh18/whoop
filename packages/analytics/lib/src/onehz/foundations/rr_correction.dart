@@ -80,7 +80,7 @@ RrCorrectionResult correctRr(
   double alpha = 5.2,
   int windowBeats = 91,
   double minThresholdMs = 100,
-  double reanchorGapMs = 1000,
+  double reanchorGapMs = kBeatAdjacencyTolMs,
 }) {
   final n = rrMs.length;
   // Beat-end time for EVERY input beat, kept or not. One array, built once, so

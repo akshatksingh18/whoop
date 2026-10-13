@@ -14,6 +14,6 @@ const bool kPersonalSideload = bool.fromEnvironment(
 /// strap's channel is verified).
 const bool kShowSkinTemp = !kPersonalSideload;
 
-/// The name a person sees. The personal build is "WHOOP" on the home screen,
-/// so nothing it shows says OpenStrap.
-const String kAppName = kPersonalSideload ? 'WHOOP' : 'OpenStrap';
+/// The name a person sees, in every build: "WHOOP" on the home screen, so
+/// nothing the app shows or names (exports, backups, logs) says OpenStrap.
+const String kAppName = 'WHOOP';

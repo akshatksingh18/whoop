@@ -410,7 +410,7 @@ enum NativeLog {
     queue.async {
       guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
             let data = line.data(using: .utf8) else { return }
-      let url = dir.appendingPathComponent("openstrap_native.log")
+      let url = documentsLog(dir, "whoop_native.log", legacy: "openstrap_native.log")
       if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
          let size = attrs[.size] as? Int, size > 256 * 1024,
          let old = try? Data(contentsOf: url) {
@@ -427,10 +427,23 @@ enum NativeLog {
   }
 }
 
+/// A log file in Documents (shown in Files → WHOOP). Earlier builds used
+/// `openstrap_*` names; the old file is moved to the new name once, so its
+/// history carries over and no OpenStrap-named file is left behind.
+private func documentsLog(_ dir: URL, _ name: String, legacy: String) -> URL {
+  let url = dir.appendingPathComponent(name)
+  let old = dir.appendingPathComponent(legacy)
+  let fm = FileManager.default
+  if !fm.fileExists(atPath: url.path) && fm.fileExists(atPath: old.path) {
+    try? fm.moveItem(at: old, to: url)
+  }
+  return url
+}
+
 /// Why iOS ended the app. Time-limit, memory and watchdog terminations leave no
 /// crash report (8 Oct: about 20 silent restarts, nothing in Analytics Data),
 /// but MetricKit reports their counts once a day on a later launch. Each
-/// payload's exit metrics are appended to `openstrap_exits.log` in Documents,
+/// payload's exit metrics are appended to `whoop_exits.log` in Documents,
 /// beside the app log in Files → WHOOP. A file of its own, so these writes can
 /// never interleave with the Dart log's.
 final class ExitReasonLog: NSObject, MXMetricManagerSubscriber {
@@ -457,8 +470,8 @@ final class ExitReasonLog: NSObject, MXMetricManagerSubscriber {
   private func append(_ line: String) {
     guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
           let data = line.data(using: .utf8) else { return }
-    let url = dir.appendingPathComponent("openstrap_exits.log")
-    // B88-05: bounded like openstrap_native.log — cut to the newest half past
+    let url = documentsLog(dir, "whoop_exits.log", legacy: "openstrap_exits.log")
+    // B88-05: bounded like whoop_native.log — cut to the newest half past
     // 256 KB, so a long-lived install cannot grow it without limit.
     if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
        let size = attrs[.size] as? Int, size > 256 * 1024,

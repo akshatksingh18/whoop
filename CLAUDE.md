@@ -14,8 +14,10 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification: Akshat's screenshots show build `0.9.53`/`86` installed on
-his iPhone 17 (iOS `26.6.2`), which Akshat also confirms in chat. Phone checks and acceptance
+**Status:** Active iPhone verification: Akshat's screenshots show Build `0.9.55`/`88` installed on
+his iPhone 17 (iOS `26.6.2`). Build 89 (`0.9.56`/`89`, algorithm 93) is local source only: it
+repairs the nightly HRV his first Build 88 nights exposed and renames everything the app shows or
+names from OpenStrap to WHOOP (`todo.md` Build 89). Build 86 was the previous install. Phone checks and acceptance
 remain open. Akshat rejects the installed UI's cosmetic-only feel and Progress's excessive copy;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -345,7 +347,7 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA;
-  build 86 is currently installed; build 70 remains accepted recovery. Enabling **This phone →
+  build 88 is currently installed; build 70 remains accepted recovery. Enabling **This phone →
   Steps** on build 63 verified direct iPhone-pedometer import; recheck that setting and behavior on
   the current candidate. Apple Health’s aggregate is deliberately not read. Band reconnection, installed About/
   profile details, complete sync/background behavior, GPS, and same-ID refresh remain unverified.
@@ -734,7 +736,7 @@ The personal artifact must have these properties:
     (`lib/data/backup_passphrase.dart`).
   - Each run gzips a `VACUUM INTO` snapshot and seals it as an `OSBK` file (`backup_crypto.dart`).
   - The file is decrypted and compared before it is published; the work runs on a worker isolate.
-  - The newest 5 go to `OpenStrap Backups`. Plaintext automatic backups are no longer written, and
+  - The newest 5 go to `WHOOP Backups` (Build 89 renames an existing `OpenStrap Backups` once). Plaintext automatic backups are no longer written, and
     old ones are deleted after the first encrypted success.
   - A restore uses the existing **Import a file** path with the passphrase.
 - **Still not off-device:** the backup folder is inside the app container and is deleted with the

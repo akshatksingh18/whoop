@@ -101,7 +101,8 @@ filled in from another metric.
 ### Shared beat rule (all HRV, PRSA, irregular-rhythm, stress, breathing paths)
 
 - **Adjacent beats.** Two reported beats form a valid pair only if their timestamps are adjacent:
-  the gap between their reported times equals the second interval within ±250 ms. No rejected
+  the gap between their reported times equals the second interval within ±1000 ms (one 1 Hz
+  record; the approved ±250 ms failed on real WHOOP 4 nights, Build 89). No rejected
   beat may sit between them. Anything else splits the run.
 - **Plausible beats.** Intervals must be 300–2,000 ms.
 - **Shared report seconds.** Several intervals reported in the same second keep the existing

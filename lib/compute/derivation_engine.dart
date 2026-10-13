@@ -1639,7 +1639,13 @@ import 'substrate.dart';
 //     baselines are bounded to 60 days; the anomaly flag is one-sided.
 // Retained days re-derive; older stored rows keep the version they were
 // computed with, and the new HRV baseline never mixes in old-method nights.
-const int kAlgoVersion = 92;
+// 92 -> 93 (Build 89): beat time-adjacency tolerance 250 -> 1000 ms
+//   (analytics `kBeatAdjacencyTolMs`, one value for the nightly headline,
+//   every rolling-RMSSD curve, PRSA and the irregular-rhythm screen; the
+//   `correctRr` re-anchor step already used 1000). WHOOP 4 `beat_ts_ms` is the
+//   1 Hz record's phase, so 250 ms rejected most successive pairs: on 13 real
+//   nights the headline was absent on 6 and biased low on the rest.
+const int kAlgoVersion = 93;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

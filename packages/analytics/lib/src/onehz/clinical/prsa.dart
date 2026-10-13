@@ -69,7 +69,7 @@ Metric<PrsaResult> decelerationCapacity(List<double> nnMs,
         {int l = 2,
         double anchorRatioCap = 0.05,
         List<double>? nnTimesMs,
-        double adjacencyTolMs = 250}) =>
+        double adjacencyTolMs = kBeatAdjacencyTolMs}) =>
     _prsa(nnMs,
         l: l,
         deceleration: true,
@@ -82,7 +82,7 @@ Metric<PrsaResult> accelerationCapacity(List<double> nnMs,
         {int l = 2,
         double anchorRatioCap = 0.05,
         List<double>? nnTimesMs,
-        double adjacencyTolMs = 250}) =>
+        double adjacencyTolMs = kBeatAdjacencyTolMs}) =>
     _prsa(nnMs,
         l: l,
         deceleration: false,
@@ -96,7 +96,7 @@ Metric<PrsaResult> _prsa(
   required bool deceleration,
   required double anchorRatioCap,
   List<double>? nnTimesMs,
-  double adjacencyTolMs = 250,
+  double adjacencyTolMs = kBeatAdjacencyTolMs,
 }) {
   final kind = deceleration ? 'DC' : 'AC';
   final inputs = const ['rr_cleaned'];

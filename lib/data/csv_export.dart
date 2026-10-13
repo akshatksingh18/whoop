@@ -366,7 +366,7 @@ class CsvExportResult {
 
 /// Parent directory for CSV exports. Each run gets its own subdirectory under
 /// it, named by timestamp.
-const _csvDirName = 'openstrap_csv';
+const _csvDirName = 'whoop_csv';
 
 /// How many runs survive a cleanup.
 ///
@@ -410,7 +410,7 @@ Future<CsvExportResult> exportCsvFiles(
       // emitting one made an empty database indistinguishable from a working
       // export to the caller.
       if (rows.isEmpty) continue;
-      final file = File(p.join(dir.path, 'openstrap_${set.name}_$stamp.csv'));
+      final file = File(p.join(dir.path, 'whoop_${set.name}_$stamp.csv'));
       // utf8 with a BOM: without it Excel on Windows reads the file as the
       // local code page and mangles every non-ASCII character in a note.
       await file.writeAsBytes([

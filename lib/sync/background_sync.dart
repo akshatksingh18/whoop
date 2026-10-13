@@ -27,6 +27,7 @@ import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
 import 'file_log.dart';
+import '../build_profile.dart';
 
 /// One headless LOCAL drain pass. Safe to call from a background isolate. Never
 /// throws. Connects-by-id if reachable, drains whatever the band buffered to
@@ -209,7 +210,7 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
         // event was actually presented.
         priority: NotifPriority.normal,
         title: "Your band hasn't synced in a while",
-        body: 'No new data for about $hoursStale hours. Open OpenStrap to '
+        body: 'No new data for about $hoursStale hours. Open $kAppName to '
             'reconnect — background sync may have stalled.',
         date: now.toIso8601String().substring(0, 10),
         route: '/today',

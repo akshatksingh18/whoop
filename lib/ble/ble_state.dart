@@ -16,6 +16,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
     show alarmRev1Payload;
 
 import '../sync/sync_policy.dart' show isPlausibleUnix, kMinPlausibleUnix;
+import '../build_profile.dart';
 
 /// Current-link evidence only. Replayed older wear events cannot replace a
 /// newer HELLO or wear transition. A new connection starts unknown. Refuse
@@ -280,10 +281,10 @@ BandStatus bandStatusFor({
       return const BandStatus(
         BandCondition.bluetoothDenied,
         'Bluetooth is switched off for this app',
-        'The phone is withholding the Bluetooth radio from OpenStrap, so '
+        'The phone is withholding the Bluetooth radio from $kAppName, so '
             'nothing can be scanned or connected. This is not the band — '
             'walking closer to it will not help.',
-        fix: 'Open Settings → OpenStrap and allow Bluetooth',
+        fix: 'Open Settings → $kAppName and allow Bluetooth',
       );
     case BleBlocker.adapterOff:
       return const BandStatus(

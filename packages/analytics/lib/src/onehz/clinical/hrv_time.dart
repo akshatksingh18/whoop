@@ -387,7 +387,7 @@ Metric<double> sleepSessionWindowedRmssd(
   required int startSec,
   required int endSec,
   int windowSec = 300,
-  double adjacencyTolMs = 250,
+  double adjacencyTolMs = kBeatAdjacencyTolMs,
   double minCoveredSec = 180,
   int minPairs = 120,
   double maxArtifactFrac = 0.20,
@@ -519,7 +519,7 @@ List<RmssdPoint> rollingRmssd(
   int stepSec = 60,
   double minCoverage = 0.60,
   int minPairs = 8,
-  double adjacencyTolMs = 250,
+  double adjacencyTolMs = kBeatAdjacencyTolMs,
   bool Function(double tsMs)? include,
 }) {
   final out = <RmssdPoint>[];
@@ -625,7 +625,7 @@ List<List<double>> _fiveMinSegments(List<double> nn, List<double> times) {
 List<List<double>> _cleanWindowRuns(
   List<double> rr, {
   List<double>? tsMs,
-  double adjacencyTolMs = 250,
+  double adjacencyTolMs = kBeatAdjacencyTolMs,
 }) {
   const radius = 2;
   const threshold = 0.20;

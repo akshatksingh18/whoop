@@ -12,6 +12,7 @@
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
 import 'ai_prefs.dart';
+import '../build_profile.dart';
 
 class AiReminderSlot {
   final int id;
@@ -84,7 +85,7 @@ List<AiReminderSlot> aiReminderPlan(
     out.add(AiReminderSlot(
       id: NotificationService.idJournalLog,
       title: 'About your bedtime — log your day',
-      body: 'A minute of notes tonight teaches OpenStrap what actually moves '
+      body: 'A minute of notes tonight teaches $kAppName what actually moves '
           'your recovery.',
       route: kRouteJournalCompose,
       hour: m ~/ 60,

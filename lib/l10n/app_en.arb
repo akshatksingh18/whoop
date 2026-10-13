@@ -1,6 +1,6 @@
 {
   "@@locale": "en",
-  "appTitle": "OpenStrap",
+  "appTitle": "WHOOP",
   "@appTitle": {
     "description": "App name shown in the OS task switcher / MaterialApp title."
   },
@@ -498,7 +498,7 @@
   "@dataImportFile": {
     "description": "Row title."
   },
-  "dataImportFileSub": "An OpenStrap backup (encrypted or not), a journal CSV you edited, a raw sensor export, or a vendor CSV. Days this band already measured are never overwritten",
+  "dataImportFileSub": "A WHOOP backup (encrypted or not), a journal CSV you edited, a raw sensor export, or a vendor CSV. Days this band already measured are never overwritten",
   "@dataImportFileSub": {
     "description": "Row sub."
   },
@@ -1249,7 +1249,7 @@
   "@welcomeBringMyHistoryFirst": {
     "description": "Button label: idle."
   },
-  "welcomeImportFooterNote": "Raw sensor exports, an OpenStrap backup (encrypted or not), or a vendor CSV. Imported days sit alongside days this app measured and feed the same baselines — but a day the band already measured is never overwritten.",
+  "welcomeImportFooterNote": "Raw sensor exports, a WHOOP backup (encrypted or not), or a vendor CSV. Imported days sit alongside days this app measured and feed the same baselines — but a day the band already measured is never overwritten.",
   "@welcomeImportFooterNote": {
     "description": "Footer note about imports."
   },
@@ -4264,7 +4264,7 @@
   "@coachNotSetUp": {
     "description": "Coach screen: subtitle shown wherever the coach has no model configured yet"
   },
-  "coachNotSetUpBody": "It runs on a model you choose — one on your own machine, or any OpenAI-compatible provider with your own key. Nothing goes through OpenStrap either way.",
+  "coachNotSetUpBody": "It runs on a model you choose — one on your own machine, or any OpenAI-compatible provider with your own key. Nothing goes through WHOOP either way.",
   "@coachNotSetUpBody": {
     "description": "Coach screen: body text explaining how to set up the coach and its privacy stance"
   },
@@ -9039,7 +9039,7 @@
       }
     }
   },
-  "workoutDeleteBodyOwn": "It disappears from OpenStrap. A copy in {storeName}, if there is one, stays where it is.",
+  "workoutDeleteBodyOwn": "It disappears from WHOOP. A copy in {storeName}, if there is one, stays where it is.",
   "@workoutDeleteBodyOwn": {
     "description": "Confirm-delete dialog body for a session this band recorded",
     "placeholders": {
@@ -9048,7 +9048,7 @@
       }
     }
   },
-  "workoutDeleteBodyImported": "It disappears from OpenStrap and will not be re-imported. The original in {storeName} stays.",
+  "workoutDeleteBodyImported": "It disappears from WHOOP and will not be re-imported. The original in {storeName} stays.",
   "@workoutDeleteBodyImported": {
     "description": "Confirm-delete dialog body for an imported session",
     "placeholders": {
@@ -11400,11 +11400,11 @@
   "@bandStatusBluetoothDeniedTitle": {
     "description": "BandStatus card title: app-level Bluetooth permission denied"
   },
-  "bandStatusBluetoothDeniedReason": "The phone is withholding the Bluetooth radio from OpenStrap, so nothing can be scanned or connected. This is not the band — walking closer to it will not help.",
+  "bandStatusBluetoothDeniedReason": "The phone is withholding the Bluetooth radio from WHOOP, so nothing can be scanned or connected. This is not the band — walking closer to it will not help.",
   "@bandStatusBluetoothDeniedReason": {
     "description": "BandStatus card body: app-level Bluetooth permission denied"
   },
-  "bandStatusBluetoothDeniedFix": "Open Settings → OpenStrap and allow Bluetooth",
+  "bandStatusBluetoothDeniedFix": "Open Settings → WHOOP and allow Bluetooth",
   "@bandStatusBluetoothDeniedFix": {
     "description": "BandStatus fix action: app-level Bluetooth permission denied"
   },

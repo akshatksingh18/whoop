@@ -31,7 +31,35 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 88 (`0.9.55`/`88`): testing IPA ready, phone checks open
+## Build 89 (`0.9.56`/`89`): HRV repair and WHOOP naming, local source
+
+**State:** Akshat's screenshots show Build 88 installed: the night's HRV curve drew, but the
+nightly HRV read "Not measured" and Recovery scored without it. His exported database (read
+locally only, nothing committed) showed why: WHOOP 4 `beat_ts_ms` is the 1 Hz record's
+sub-second phase, the same for every record, so successive beats read about 1000 or 2000 ms apart
+whatever their interval. The Build 88 250 ms adjacency rule rejected most successive pairs: on 13
+real nights the nightly HRV was absent on 6 and biased low on the other 7. At 1000 ms (one record)
+all 13 qualify and agree closely with algorithm 91. Implemented as local commits
+(algorithm 93), not pushed or built.
+
+- [x] One shared beat-adjacency tolerance, `kBeatAdjacencyTolMs` = 1000 ms (analytics
+  `util.dart`), for the nightly HRV, every rolling curve, PRSA, the irregular-rhythm screen and
+  the `correctRr` re-anchor; regression tests rebuild record-stamped timing and fail at 250 ms.
+- [x] `kAlgoVersion` 93: retained nights re-derive with the repaired rule.
+- [x] Nothing the app shows or names says OpenStrap: app name, messages, permission prompts and
+  every translation say WHOOP; exports are `whoop_export_*.db`, `whoop_days_*.db` and
+  `whoop_csv/whoop_*.csv`; automatic backups go to `WHOOP Backups` as `whoop-*.osbk` (the old
+  `OpenStrap Backups` folder is renamed once and its `openstrap-*` files stay recognised for
+  retention and restore); logs are `whoop_sync.log`, `whoop_native.log` and `whoop_exits.log`
+  (the old files are renamed once). Internal identifiers stay: the database file, Bluetooth
+  restore identifier, background-task and channel names, package names, the Open Food Facts user
+  agent and the upstream licence attribution.
+- [ ] Phone: after install, the nightly HRV shows on recent nights; Files → WHOOP shows
+  `WHOOP Backups` and the `whoop_*` logs with no OpenStrap-named file.
+- [ ] Optional, not built: show why a nightly HRV is missing under the empty value.
+- [ ] Publication, CI/macOS build and testing IPA: Akshat's go-ahead.
+
+## Build 88 (`0.9.55`/`88`): installed, phone checks open
 
 **State:** Akshat approved `build-88-proposal.md` with every recommendation (C1 note-only, C2
 "—", C3 off, C4-C8 yes, C10 built-in review) and asked for one combined Build 88. All twelve
@@ -86,9 +114,10 @@ Decided by Akshat ("take your call") and done in source:
   320 pt for blending text and overflow.
 
 Open:
-- [ ] **At install (Akshat asked to be reminded):** check the 250 ms beat-adjacency rule's
-  qualification rate on real nights (HRV should still score most nights), the live-speed
-  constants on an outdoor walk and run, then the full lifecycle/background/soak matrix.
+- [x] Beat-adjacency qualification on real nights: failed on the installed build (HRV
+  absent on 6 of 13 nights); repaired in Build 89 above.
+- [ ] **At install (Akshat asked to be reminded):** the live-speed constants on an outdoor walk
+  and run, then the full lifecycle/background/soak matrix.
 - [ ] **Prerequisites:** keep the installed app signed past 2026-10-17; take an encrypted
   off-phone backup before any Build 88 install.
 - [x] Publication, CI/macOS build and testing IPA (Akshat asked for them).
@@ -288,7 +317,7 @@ Implementation checklist:
    then synchronize native/Dart registration, modes, payload transformation/validator and tests.
    These supplement BLE and foreground catch-up; Apple provides no fixed execution schedule.
 - [ ] Add local native restoration/expiration and launch/build diagnostics, then verify ordinary
-   locked two-hour/overnight use, brief visits, termination/range recovery and a 72-hour soak. *Source: native breadcrumbs in openstrap_native.log; device verification open.*
+   locked two-hour/overnight use, brief visits, termination/range recovery and a 72-hour soak. *Source: native breadcrumbs in whoop_native.log; device verification open.*
 
 Decided: implement the repair and add personal `fetch`/`processing` modes with bounded work.
 No extension, App Group, HealthKit, cloud service or feature removal. If preserved wrist capture
@@ -619,7 +648,7 @@ and reported Today's strain at 0.0 while Day strain showed a number. Implemented
 - **Background offloads** are checked every 5 min (run at most every 15) instead of every 15,
   which let any other offload push the next to 30 min.
 - **Exit reasons:** MetricKit's daily exit metrics (memory, background time limit, watchdog…)
-  are appended to `openstrap_exits.log` in Files → WHOOP (`ExitReasonLog`, Swift).
+  are appended to `whoop_exits.log` in Files → WHOOP (`ExitReasonLog`, Swift).
 - **Food:** digestion per entry at the low end (protein 20%, carbs 5%, fat 0%, unknown 5%, capped
   at 20% of the entry), replacing the flat 10%; the sheet row reads "Digestion".
 - **Lifting:** "Lifting (extra, not in maintenance)" in the maintenance sheet, from the existing
@@ -634,8 +663,8 @@ Validation: 311 tests across the affected files pass (including `test/build84_te
 exact digestion/lifting numbers); analysis of `lib` and `test` has no errors or warnings.
 Phone checks: Today's strain matches Day strain right after a refresh; pull-to-refresh ends within
 about 15 s; Food → Maintenance shows Digestion and, on a lifting day, the Lifting line; after a
-night, `openstrap_sync.log` shows `[launch] background` relaunches without heavy passes, and
-`openstrap_exits.log` appears after a day or two.
+night, `whoop_sync.log` shows `[launch] background` relaunches without heavy passes, and
+`whoop_exits.log` appears after a day or two.
 
 ## Audit (not approved, keep for later): calibrated heart-rate + movement burn estimate
 
@@ -821,7 +850,7 @@ pull-to-refresh"); he has no other fixes for it. Implemented:
   if a wait it did not start ends empty.
 Validation: the new log test, `today_refresh_test` and `ui2_router_test` pass; analysis has no
 errors or warnings in the changed files.
-Then: after an hour in the background and one pull-to-refresh, share `openstrap_sync.log` to time
+Then: after an hour in the background and one pull-to-refresh, share `whoop_sync.log` to time
 background syncs and each refresh stage before the refresh and background-sync fixes.
 
 ## Build 82: installed (Akshat), awaiting phone pass
@@ -848,7 +877,7 @@ later asked for build 82 to be built. Implemented:
   - One unit per food: a meal holding the same food twice (2 eggs and 50 g of egg) converts copies
     to one unit, in the editor and when saving from a meal card, instead of silently mis-scaling.
 - **Diagnostics for background sync and slow refresh** (`bugs.md`): the iPhone app log now
-  actually writes (`openstrap_sync.log` in Files → WHOOP); pull-to-refresh logs each stage's
+  actually writes (`whoop_sync.log` in Files → WHOOP); pull-to-refresh logs each stage's
   finish time. Fixes for background spacing and the refresh spinner wait for that log.
 Build-82 source `0.9.49`/`82` (commit `4b53abbe`) is published with Akshat's approval; Linux CI `37708103583` (3,406 tests, 371 intentional skips) and personal macOS build `37708104201` pass; downloaded source/version, checksum, ZIP and payload checks pass, with no app extension. Its testing folder was replaced by build 83 after Akshat installed it.
 Phone checks: drag a bottom food to the top in one hold; pull down a typed sheet and see "Discard changes?"; search Foods; build a saved meal adding several foods; tap a saved meal on the log screen to review and log; after an hour in the background, share `openstrap_sync.log` and do one pull-to-refresh.

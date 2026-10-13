@@ -46,10 +46,12 @@ Each family colour is used only for its own data. Alert colour never decorates.
 ## Type And Size
 
 - **Typeface:** the system face (SF Pro), with Dynamic Type respected.
-- **Hero number:** light weight, about 116 pt; 84-96 pt for long values such as 1,920, 80.4 or
-  4.21.
+- **Hero number:** semibold, about 116 pt; 84-96 pt for long values such as 1,920, 80.4 or
+  4.21, in the family colour's contrast-solved ink (never the raw fill colour). Build 89 changed
+  it from light weight after Akshat found the thin gold food number hard to read.
 - **Row values:** 30 pt semibold; 22 pt on dense screens. Tabular figures throughout.
-- **Labels:** 11.5 pt uppercase with 0.12 em tracking. Body text is 13-15 pt.
+- **Labels:** 12.5 pt semibold uppercase with 0.10 em tracking. Body and caption text (13-15 pt)
+  is medium weight, never regular, and Material text follows the same floor.
 
 ## Shape And Layout
 

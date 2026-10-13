@@ -3726,7 +3726,9 @@ class HeroStat extends StatelessWidget {
         value ?? '—',
         // Large text: the pure family colour clears 3:1 on the paper.
         style: (long ? F.heroLong : F.hero).copyWith(
-          color: value == null ? p.on(C.alert) : color,
+          // The contrast-solved ink of the family colour: the raw accent is
+          // a fill colour (food gold is 3.5:1 on paper) and read faint as text.
+          color: value == null ? p.on(C.alert) : p.on(color),
         ),
       ),
     );

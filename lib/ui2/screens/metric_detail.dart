@@ -799,6 +799,9 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   /// 30-day window is not slot 12 of a year.
   int? _pick;
 
+  /// HRV only: why last night's value is missing, in plain words.
+  String? _why;
+
   /// Every range is always offered, as on Trends. A short history simply
   /// shows "n of 90 days" under the average rather than hiding the button.
   int _offered(MetricData d) => _windows.length;
@@ -861,8 +864,13 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         );
         _calorieCache[key] = d;
       }
+      final why = widget.metricKey == 'hrv'
+          ? await hrvMissingReason(todayLabel())
+          : null;
       if (stillNewest(#metric, token))
-        setState(() => (_d = d, _loading = false, _failed = false));
+        setState(
+          () => (_d = d, _why = why, _loading = false, _failed = false),
+        );
     } catch (_) {
       if (stillNewest(#metric, token))
         setState(() => (_loading = false, _failed = true));
@@ -939,12 +947,13 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                 : (l?.metricDetailNoHistoryYet(spec.title.toLowerCase()) ??
                       'No history for ${spec.title.toLowerCase()} yet'),
             win == 1
-                ? (all.isEmpty
+                ? (_why ??
+                      (all.isEmpty
                       ? (l?.metricDetailNoValueYet ??
                             'Today has not produced a value yet.')
                       : (l?.metricDetailNoValueYetWiderRanges ??
                             'Today has not produced a value yet. The wider ranges '
-                                'above hold the days that did.'))
+                                'above hold the days that did.')))
                 : (l?.metricDetailNoValueInWindow ??
                       'No day in this window produced a value.'),
             // Today opens first now, so this card is what someone with months

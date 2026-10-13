@@ -31,7 +31,7 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 89 (`0.9.56`/`89`): HRV repair and WHOOP naming, local source
+## Build 89 (`0.9.56`/`89`): HRV repair, WHOOP naming and legibility, local source
 
 **State:** Akshat's screenshots show Build 88 installed: the night's HRV curve drew, but the
 nightly HRV read "Not measured" and Recovery scored without it. His exported database (read
@@ -54,9 +54,15 @@ all 13 qualify and agree closely with algorithm 91. Implemented as local commits
   (the old files are renamed once). Internal identifiers stay: the database file, Bluetooth
   restore identifier, background-task and channel names, package names, the Open Food Facts user
   agent and the upstream licence attribution.
-- [ ] Phone: after install, the nightly HRV shows on recent nights; Files → WHOOP shows
+- [ ] Phone: after install, the nightly HRV shows on recent nights (or its reason shows); text
+  reads without strain on every tab; Files → WHOOP shows
   `WHOOP Backups` and the `whoop_*` logs with no OpenStrap-named file.
-- [ ] Optional, not built: show why a nightly HRV is missing under the empty value.
+- [x] A missing nightly HRV says why (Akshat asked): on its Readiness row and on the HRV screen's
+  empty Today card ("Too few clean beats: 5 of the 13 five-minute stretches it needs were
+  clean", "No sleep was found last night…", "…too noisy…"), from the stored note (`hrvWhy`).
+- [x] Legibility (Akshat: the thin gold food number and other text strained his eyes): hero
+  numbers semibold in their contrast-solved ink, labels 12.5 pt semibold, body/caption and
+  Material text medium weight; rendered screens checked.
 - [ ] Publication, CI/macOS build and testing IPA: Akshat's go-ahead.
 
 ## Build 88 (`0.9.55`/`88`): installed, phone checks open

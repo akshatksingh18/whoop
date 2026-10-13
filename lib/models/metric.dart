@@ -264,6 +264,30 @@ String? whyFromNote(String? note, {String unit = 'nights'}) {
   return _machineNote.hasMatch(s) ? null : s;
 }
 
+/// Why last night's HRV is missing, in plain words, from the stored note of
+/// the nightly headline (`clinical.rmssd_sleep_session.note`). Null when the
+/// note gives no reason — the screen then says nothing rather than guessing.
+String? hrvWhy(String? note) {
+  final s = note?.trim() ?? '';
+  if (s.isEmpty) return null;
+  if (s.startsWith('invalid or empty RR session window')) {
+    return 'No sleep was found last night, so there was no night to measure.';
+  }
+  if (s.startsWith('no RR beats inside the session window')) {
+    return 'No heartbeats were recorded while you slept.';
+  }
+  if (s.startsWith('rmssd_refused:')) {
+    return 'The beat timing was too noisy last night to measure HRV.';
+  }
+  if (s.startsWith('hrv_not_qualified:')) {
+    int? n(String key) =>
+        int.tryParse(RegExp('$key=' r'(\d+)').firstMatch(s)?.group(1) ?? '');
+    return 'Too few clean beats: ${n('windows') ?? 0} of the '
+        '${n('need') ?? 6} five-minute stretches it needs were clean.';
+  }
+  return whyFromNote(s);
+}
+
 /// B88-12 (C4): the data-quality line for the Build 88 qualification gates,
 /// in plain words, so "not measured" explains itself. Null for any other note.
 String? _qualityWhy(String s) {

@@ -19,6 +19,19 @@ import '../ui2.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
 
+/// Why [day]'s nightly HRV is missing, in plain words ([hrvWhy]), or null when
+/// it was measured, the day has no record, or the stored note gives no reason.
+Future<String?> hrvMissingReason(String? day) async {
+  if (day == null) return null;
+  final payload = (await LocalDb.dayResult(day))?['payload_json'];
+  if (payload is! String) return null;
+  final b = jsonDecode(payload);
+  final clin = b is Map ? b['clinical'] : null;
+  final m = clin is Map ? clin['rmssd_sleep_session'] : null;
+  if (m is! Map || m['value'] is num) return null;
+  return hrvWhy(m['note']?.toString());
+}
+
 class ReadinessData {
   final Metric readiness;
   final List<Map<String, dynamic>> breakdown;
@@ -52,6 +65,10 @@ class ReadinessData {
   /// when it was measured (or the night has no record).
   final String? breathingNote;
 
+  /// Why last night's HRV is missing, in plain words, or null when it was
+  /// measured or the stored note gives no reason.
+  final String? hrvNote;
+
   const ReadinessData({
     this.readiness = Metric.empty,
     this.breakdown = const [],
@@ -60,6 +77,7 @@ class ReadinessData {
     this.series = const [],
     this.absentDiag,
     this.breathingNote,
+    this.hrvNote,
   });
 
   /// The stored reason a night's breathing rate was withheld
@@ -141,6 +159,7 @@ class ReadinessData {
         series: denseDays(pointsOf(chart), 90),
         absentDiag: await _absentDiag(day),
         breathingNote: await _breathingNote(day),
+        hrvNote: await hrvMissingReason(day),
       );
     }
 
@@ -177,6 +196,9 @@ class ReadinessData {
             ),
       breathingNote: await _breathingNote(
         (today['status'] as Map?)?['today_day']?.toString(),
+      ),
+      hrvNote: await hrvMissingReason(
+        (status?['overnight_day'] ?? status?['today_day'])?.toString(),
       ),
     );
   }
@@ -710,6 +732,11 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                     Text(
                       '${(share * 100).round()}% of the score',
                       style: F.over.copyWith(color: p.ink3),
+                    )
+                  else if (!used && key == 'hrv' && _d?.hrvNote != null)
+                    Text(
+                      _d!.hrvNote!,
+                      style: F.cap.copyWith(color: p.ink2),
                     ),
                 ],
               ),

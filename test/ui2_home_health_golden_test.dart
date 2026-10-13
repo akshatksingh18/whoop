@@ -599,4 +599,50 @@ void main() {
       );
     }
   });
+
+  // Build 89: a missing nightly HRV says why, on its Readiness row.
+  test('hrvWhy turns each stored note into plain words', () {
+    expect(
+      hrvWhy('hrv_not_qualified:windows=5,need=13,thin=81'),
+      'Too few clean beats: 5 of the 13 five-minute stretches it needs '
+      'were clean.',
+    );
+    expect(hrvWhy('invalid or empty RR session window'),
+        contains('No sleep was found'));
+    expect(hrvWhy('no RR beats inside the session window'),
+        contains('No heartbeats'));
+    expect(hrvWhy('rmssd_refused:acf1=-0.480 — the NN successive'),
+        contains('too noisy'));
+    expect(hrvWhy(null), isNull);
+    expect(hrvWhy('unknown_cause'), isNull);
+  });
+
+  testWidgets('an unmeasured HRV row shows its reason', (tester) async {
+    await tester.pumpWidget(
+      _frame(
+        const ReadinessDetail(
+          data: ReadinessData(
+            readiness: Metric(value: 71, confidence: .8, tier: MetricTier.high),
+            breakdown: [
+              {'label': 'hrv', 'weight': .35, 'used': false},
+              {
+                'label': 'rhr',
+                'weight': .25,
+                'used': true,
+                'weighted_contribution': 0.1,
+              },
+            ],
+            inputsUsed: 1,
+            hrvNote: 'Too few clean beats: 5 of the 13 five-minute stretches '
+                'it needs were clean.',
+          ),
+        ),
+        Brightness.light,
+        1,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Too few clean beats'), findsOneWidget);
+    expect(find.text('Not measured'), findsOneWidget);
+  });
 }

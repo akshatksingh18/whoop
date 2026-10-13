@@ -395,6 +395,9 @@ class F {
     fontFamilyFallback: _fb,
     fontSize: 15,
     height: 22 / 15,
+    // Medium, not regular: regular strokes on the cream panels and the
+    // kraft ground were hard to read (Akshat, Build 89).
+    fontWeight: FontWeight.w500,
     letterSpacing: 0,
   );
   static const cap = TextStyle(
@@ -402,13 +405,14 @@ class F {
     fontFamilyFallback: _fb,
     fontSize: 13,
     height: 18 / 13,
+    fontWeight: FontWeight.w500,
   );
   static const over = TextStyle(
     fontFamily: _f,
     fontFamilyFallback: _fb,
     fontSize: 11,
     height: 14 / 11,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w700,
     letterSpacing: 0,
   );
 
@@ -423,13 +427,14 @@ class F {
     letterSpacing: 0,
   );
 
-  /// Build 88 hero number (DESIGN.md): light weight, about 116 pt, tabular.
+  /// Build 88 hero number (DESIGN.md): about 116 pt, tabular. Semibold from
+  /// Build 89 — the light weight read thin and faint in a family colour.
   static const hero = TextStyle(
     fontFamily: _f,
     fontFamilyFallback: _fb,
     fontSize: 116,
     height: 1,
-    fontWeight: FontWeight.w300,
+    fontWeight: FontWeight.w600,
     letterSpacing: -2,
     fontFeatures: _tab,
   );
@@ -440,7 +445,7 @@ class F {
     fontFamilyFallback: _fb,
     fontSize: 88,
     height: 1,
-    fontWeight: FontWeight.w300,
+    fontWeight: FontWeight.w600,
     letterSpacing: -1.5,
     fontFeatures: _tab,
   );
@@ -456,14 +461,15 @@ class F {
     fontFeatures: _tab,
   );
 
-  /// Build 88 row label: 11.5 pt uppercase with 0.12 em tracking.
+  /// Row label: uppercase, tracked. 12.5 pt semibold from Build 89 (was
+  /// 11.5 pt medium, too small and light to read at a glance).
   static const label = TextStyle(
     fontFamily: _f,
     fontFamilyFallback: _fb,
-    fontSize: 11.5,
-    height: 14 / 11.5,
-    fontWeight: FontWeight.w500,
-    letterSpacing: 11.5 * .12,
+    fontSize: 12.5,
+    height: 16 / 12.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 12.5 * .10,
   );
 
   // Numerals — a parallel display ramp. Tabular, so a live value never jitters
@@ -629,6 +635,35 @@ class _Gated extends PageTransitionsBuilder {
   }
 }
 
+TextTheme _readable(TextTheme t, Color ink) {
+  TextStyle? up(TextStyle? s) {
+    if (s == null) return null;
+    final w = s.fontWeight ?? FontWeight.w400;
+    return s.copyWith(
+      color: ink,
+      fontWeight: w.value < 500 ? FontWeight.w500 : w,
+    );
+  }
+
+  return TextTheme(
+    displayLarge: up(t.displayLarge),
+    displayMedium: up(t.displayMedium),
+    displaySmall: up(t.displaySmall),
+    headlineLarge: up(t.headlineLarge),
+    headlineMedium: up(t.headlineMedium),
+    headlineSmall: up(t.headlineSmall),
+    titleLarge: up(t.titleLarge),
+    titleMedium: up(t.titleMedium),
+    titleSmall: up(t.titleSmall),
+    bodyLarge: up(t.bodyLarge),
+    bodyMedium: up(t.bodyMedium),
+    bodySmall: up(t.bodySmall),
+    labelLarge: up(t.labelLarge),
+    labelMedium: up(t.labelMedium),
+    labelSmall: up(t.labelSmall),
+  );
+}
+
 ThemeData buildTheme(Brightness b) {
   final p = P(b == Brightness.dark);
   return ThemeData(
@@ -641,6 +676,9 @@ ThemeData buildTheme(Brightness b) {
     ),
     fontFamily: '.SF Pro Text',
     fontFamilyFallback: const ['Manrope'],
+    // Material text (dialogs, fields, list rows, sheets) at medium weight or
+    // heavier and in the app's ink, matching [F.body].
+    textTheme: _readable(ThemeData(brightness: b).textTheme, p.ink),
     splashFactory: NoSplash.splashFactory,
     highlightColor: const Color(0x00000000),
     pageTransitionsTheme: PageTransitionsTheme(

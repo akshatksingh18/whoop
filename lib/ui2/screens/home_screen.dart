@@ -967,7 +967,9 @@ class _TodayPanel extends StatelessWidget {
               band.label,
               [
                 if (hrv != null) 'HRV ${hrv.round()} ms',
-                if (rhr != null) 'resting HR ${rhr.round()}',
+                // The lowest 30-minute average while asleep (nocturnal resting
+                // HR), not an awake seated reading, which runs higher.
+                if (rhr != null) 'resting HR ${rhr.round()} asleep',
               ].join(' · '),
             ],
     );
@@ -1875,16 +1877,28 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                       const SizedBox(height: S.x1),
                       // When these numbers were calculated, so an old number
                       // never passes for a current one.
-                      Wrap(
-                        spacing: S.x2,
-                        runSpacing: S.x1,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          if (widget.data == null) UpdatedStamp(d.updatedAt),
-                          // What is happening right now, beside when the
-                          // numbers were last worked out.
-                          const _WorkLine(),
-                        ],
+                      // Build 90: the freshness line opens Status, where the
+                      // band-data age and sync health are explained.
+                      Pressable(
+                        semanticLabel: 'Data freshness. Opens Status',
+                        onTap: () => go(c, const StatusScreen()),
+                        child: Wrap(
+                          spacing: S.x2,
+                          runSpacing: S.x1,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            if (widget.data == null) UpdatedStamp(d.updatedAt),
+                            // What is happening right now, beside when the
+                            // numbers were last worked out.
+                            const _WorkLine(),
+                            if (widget.data == null)
+                              Icon(
+                                LucideIcons.chevronRight,
+                                size: 14,
+                                color: p.onGround,
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -1992,15 +2006,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             // ── the rollup was withheld, not absent ──
             if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
-            // Latest recorded heart-rate trace before daily actions.
-            const SizedBox(height: S.x3),
-            _HeartCard(
-              graph: d.graph,
-              recorded: d.recentHr,
-              failed: d.recentHrFailed,
-              graphFailed: d.graphFailed,
-              onRetry: _load,
-            ),
+            // Build 90 (D6): the day's actions (Steps, Log food, Weigh in,
+            // Pushups, Start or Resume) come straight after the summary; the
+            // larger heart-rate explorer follows them.
             const SizedBox(height: S.x3),
             TodayPlanCard(
               steps: d.steps.value?.round(),
@@ -2008,6 +2016,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               eaten: d.upkeep?.eaten,
               budget: d.upkeep?.parts?.total.toDouble(),
               full: widget.data == null,
+            ),
+            const SizedBox(height: S.x3),
+            _HeartCard(
+              graph: d.graph,
+              recorded: d.recentHr,
+              failed: d.recentHrFailed,
+              graphFailed: d.graphFailed,
+              onRetry: _load,
             ),
 
             // Maintenance so far: the same card Food shows, both methods, the

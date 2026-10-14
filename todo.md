@@ -111,15 +111,23 @@ Only the owner edits a file; the other lane asks through its notes block below.
   `main`) with the three contracts (`openProgress`/`ProgressDest` in
   `lib/ui2/screens/progress_routes.dart`, `AppState.publishSessionChange()`, and the
   additive-only note above `rollupDay`); `build-90`, `build-90-claude` and `build-90-codex`
-  are pushed to origin and local-backup. Codex's lane brief is written when implementation
-  starts.
-- [x] Research pass (Claude, D3): `build-90-research.md`. Before implementation Akshat decides
-  the items it marks for approval: A1 withholding a night above 10% omitted beats, A2 gap
-  segments in breathing rate/staging, B2b sleep need (quarter of the gap; drop the strain
-  bonus), C3 the day's-weight rule, G2 bodyweight MET 3.0, G4 the maintenance range, G6 the
-  10-rep estimate cap. D1 strain waits for a local comparison; the local counts (A1 omitted
-  beats, E1 R10 prevalence) and the phone measurements (C1 zone pickup, E4 bursts, F1 wake
-  timing, H1 outdoor speed) are listed there.
+  are pushed to origin and local-backup. Linux CI `38618327848` on the contracts commit
+  passes 3,719 tests (427 intentional skips; 133 informational lints, no errors or warnings).
+  Codex's lane brief is written when implementation starts.
+- [x] Research pass (Claude, D3): `build-90-research.md`, with the local measurements from
+  Akshat's export (values only in git-ignored `build/research-local/`): A1 needs no change
+  (the withholding rule is dropped; store the omitted-beat share as quality), E1 R10 is
+  absent (no change), and D1 found a Build 89 bug (`bugs.md`: the day-strain floor never
+  reaches the stored strain), added to the engine lane. Phone measurements stay open: C1
+  zone pickup, E4 bursts, F1 wake timing, H1 outdoor speed.
+- [x] Akshat's research decisions: every recommendation accepted (A2 gap segments, B2b sleep
+  need adds a quarter of the gap and drops the strain bonus, G2 bodyweight 3.0 MET, G4 the
+  maintenance range under 6 weeks, G6 the 10-rep cap). C3: the day's weight is the first
+  reading of the day; every reading is kept with its time. Exercise energy stays at the low end of its source and beside maintenance, never
+  inside it: lifting and home workouts already use (MET − 1) × weight × time on a separate
+  line. Runs and walks enter maintenance through the step and distance formula; whether
+  that should change is an open question to Akshat. D1's strain form is chosen later by
+  running the app's own functions over the export.
 - [ ] 1. Lanes in parallel, on Akshat's go-ahead. Claude sends the early Progress preview;
   approved research verdicts are implemented in the engine lane.
 - [ ] 2. Merge (Claude): Codex lane, then Claude lane; `0.9.57+90`; one `kAlgoVersion`
@@ -149,7 +157,9 @@ Missing, with the smallest fix:
   the note there too, label it "Variation", and offer that exercise's earlier variations as
   one-tap chips plus "New variation". "Push-up · Feet raised" stays one Push-up exercise.
 - Starting: Lift starts Weight training; Calisthenics needs Other and the picker. Fix: Lift
-  offers Gym or Home; Home starts Calisthenics with the Home split.
+  offers Gym or Home; Home starts the Bodyweight type with the Home split. Bodyweight is the
+  lowest matching Compendium code for this routine (02056 body-weight resistance, general,
+  3.0 MET after G2), as Akshat wants the low end; Calisthenics stays at 3.8 for other use.
 - A ready, editable Home split: Push-up, Backpack row, Bed-edge dip, Split squat, Leg raise.
 - Not added (Akshat's constraints): timed plank, programming, targets, RPE/RIR, progression
   suggestions, new calorie logic.

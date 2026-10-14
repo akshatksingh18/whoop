@@ -53,6 +53,22 @@ assuming correct):**
 range-loss cases. If the iPhone path fails, fix that path or surface an honest recovery prompt.
 Do not reopen or patch the Android-specific hypotheses above as part of the iPhone work.
 
+## Build 89 day-strain floor never reached the stored day strain (repaired in Build 90 source)
+
+**Found by the Build 90 local measurement (read-only export, two weeks of retained data).**
+On algorithm 93, days with a finished walk whose own session strain was about 3.5–5.8 still
+store a day strain of 0.0, in `day_result` scalars and `metric_series`. The Build 89 session
+net-TRIMP floor (`derivation_engine.dart`, the `strain_session_floor` block) raises
+`wake['strain']`, but `_applyWakeDayFeatures` has already copied `wake['strain']` into the
+day's scalars a few lines earlier, so Today, Trends, history and exports never see the
+floor. The Build 89 regression covered the floor's arithmetic, not the stored value.
+
+**Repair (Build 90 source, algorithm 94):** the floor now runs before
+`_applyWakeDayFeatures`, so the scalar every screen reads carries it;
+`test/build90_strain_floor_test.dart` reads the stored scalar. Retained days recompute.
+Phone check: a day with a finished walk shows at least that walk's strain. The quiet-day baseline form itself
+stays as `build-90-research.md` D1 describes.
+
 ## iPhone background reconnect: restore wake landing on a parked backoff
 
 **Found by code review. Fixed from source `0.9.33`/`66` and included in accepted build 70;

@@ -1652,7 +1652,11 @@ import 'substrate.dart';
 //   Personal build: day steps are phone only (`kBandSteps` off) — band spans
 //   no longer fill time the phone did not cover, and the on-chip counter is
 //   never the day's fallback.
-const int kAlgoVersion = 93;
+// 93 -> 94 (Build 90): the Build 89 day-strain floor now reaches the stored
+//   strain. It was applied to the wake features after they had been copied
+//   into the day's scalars, so `scalars.strain` and `metric_series` kept the
+//   unfloored value (0.0 on low-daytime-HR days with a finished walk).
+const int kAlgoVersion = 94;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -5796,29 +5800,10 @@ class DerivationEngine {
         wake['calories_session_credit'] = credited;
       }
     }
-    _applyWakeDayFeatures(bundle, scalars, wake);
-    _stepsAndEnergy(
-      bundle,
-      scalars,
-      daySub,
-      profile,
-      liveStepsReal,
-      liveStepsFromStrap,
-      dynFloorG,
-      dynHistoryDays,
-    );
-    // `_stepsAndEnergy` just wrote `steps` — REAL pedometer counts from
-    // `live_coverage`, band 100 Hz or phone, never an estimate. `wake` was
-    // built before that ran and deliberately leaves `steps` null: the
-    // early-read path has no gait-capable source of its own and must not invent
-    // one. `wake` is what `_persistWakeDayFeatures` stores and what the Today
-    // repository reads until the full day result exists, so copy the measured
-    // count back in — otherwise Today shows no steps on a day that really was
-    // measured. `calories_total` is NOT in this list any more: it is written
-    // once, by `_applyWakeDayFeatures`, and is already in `wake`.
-    final measuredSteps = scalars['steps'];
-    if (measuredSteps != null) wake['steps'] = measuredSteps;
-    // Build 89: A DAY IS NEVER LESS STRAINED THAN THE WORKOUTS INSIDE IT. The
+    // Build 89: A DAY IS NEVER LESS STRAINED THAN THE WORKOUTS INSIDE IT.
+    // Build 90: applied BEFORE `_applyWakeDayFeatures` copies strain into the
+    // day's scalars. Applied after it, the floor only reached `wake`, and the
+    // stored strain every screen reads stayed 0.0 beside the walk. The
     // day's strain nets the quiet-waking baseline (still the population level,
     // edge#226) over every waking minute, so a wearer whose ordinary daytime
     // HR sits below it had a 3.4-strain walk cancelled by the quiet hours
@@ -5842,6 +5827,28 @@ class DerivationEngine {
         wake['strain_session_floor'] = true;
       }
     }
+    _applyWakeDayFeatures(bundle, scalars, wake);
+    _stepsAndEnergy(
+      bundle,
+      scalars,
+      daySub,
+      profile,
+      liveStepsReal,
+      liveStepsFromStrap,
+      dynFloorG,
+      dynHistoryDays,
+    );
+    // `_stepsAndEnergy` just wrote `steps` — REAL pedometer counts from
+    // `live_coverage`, band 100 Hz or phone, never an estimate. `wake` was
+    // built before that ran and deliberately leaves `steps` null: the
+    // early-read path has no gait-capable source of its own and must not invent
+    // one. `wake` is what `_persistWakeDayFeatures` stores and what the Today
+    // repository reads until the full day result exists, so copy the measured
+    // count back in — otherwise Today shows no steps on a day that really was
+    // measured. `calories_total` is NOT in this list any more: it is written
+    // once, by `_applyWakeDayFeatures`, and is already in `wake`.
+    final measuredSteps = scalars['steps'];
+    if (measuredSteps != null) wake['steps'] = measuredSteps;
     return wake;
   }
 

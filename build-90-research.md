@@ -10,15 +10,15 @@ here is implementation approval. Sources were accessed 2026-10-14.
 public primary sources: standards, peer-reviewed studies, Apple and Dart documentation and the
 public WHOOP 4 protocol work. Where only an abstract or a secondary summary was reachable, the
 verdict says so and does not lean on unverified numbers. No search contained Akshat's data,
-and none of his recordings were read in this pass; the questions that need his own data say
-"Needs measurement (local)", to be measured on this PC with results kept in
-`build/research-local/`.
+and his own data was read only on this PC, from a read-only export, for the local
+measurements (A1, E1, D1). Their exact values stay in the git-ignored `build/research-local/`;
+this file states only what they decided.
 
 ## Summary
 
 | ID | Topic | Answer | Recommendation | Akshat's approval |
 |---|---|---|---|---|
-| A1 | Beat continuity | Conditional | Keep 1000 ms; pair beats only across consecutive 1 Hz records; withhold a night whose estimated omitted-beat share exceeds 10% | Yes (nightly HRV can be withheld) |
+| A1 | Beat continuity | Definite (measured) | Keep the current pairing; no withholding rule; record the omitted-beat share as a quality field | No (no change to the number) |
 | A2 | Spectral methods | Conditional | Scaling is correct; skip spectral segments that contain a gap | Yes (breathing rate, staging features) |
 | A3 | Consumers | Definite | Map in A3 | — |
 | B1 | Restlessness | Definite (method) | Replace "distance from 1 g" with arm-angle change, 5° (van Hees 2015) | No (secondary display) |
@@ -31,8 +31,8 @@ and none of his recordings were read in this pass; the questions that need his o
 | C1 | Travel and time zones | Definite (rules); one platform check | Store each day's IANA zone; boundaries from a recorded zone timeline | Decided (D2) |
 | C2 | Minutes worn | Definite (convention) | One definition with a 2-minute bridge; separate charging, off-wrist and not-yet-synced | Decided (D2) |
 | C3 | Timestamps | Conditional | A food time means when eaten; keep every weigh-in with its time | Yes (weight-of-the-day rule) |
-| D1 | Quiet-day strain | Needs measurement (local) | Keep the Build 89 session floor; compare two forms on retained days | Later (after measurement) |
-| E1 | R10-lite history | Conditional + Needs measurement (local) | Bring HR and RR into the substrate only for seconds with no 1 Hz record | No |
+| D1 | Quiet-day strain | Bug found; form needs the app's own code | Fix the Build 89 floor so it reaches the stored strain; compare forms with the app's Dart functions | Later (after the comparison) |
+| E1 | R10-lite history | Definite (measured: absent) | No change needed; R10 seconds do not occur in the retained data | No |
 | E2 | RR values per record | Definite | Cap 1 Hz historical records at 4; give R10 its own bound | Decided (D2) |
 | E3 | Unknown sensor values | Definite | Store NULL, never 0; drop legacy oxygen rows from CSV | Decided (D2) |
 | E4 | Short bursts | Needs measurement | Instrument; do not enforce the gate yet | No |
@@ -104,6 +104,23 @@ The unsourced constants this pass found are collected at the end.
    - The Build 89 record-stamped tests still pass.
 8. **Confidence:** medium. The bound is a derivation; the share in real WHOOP 4 data needs a
    local count.
+
+**Local measurement (supersedes recommendations (b)-(c) above).** Two weeks of retained
+nights were checked on this PC.
+- **Every night drops a similar share of beats, and it is above 10%.** Reported intervals
+  cover visibly less time than the sleep window, so the band drops beats together with their
+  intervals. A 10% rule would therefore withhold every night.
+- **The per-beat timestamp can't identify a dropped beat.** Its offset from the interval
+  repeats every whole second.
+- **A guaranteed-adjacent subset exists.** Pairs from consecutive records whose interval is
+  at least 1111 ms (or both beats in one record) cannot hide a dropped beat, because two
+  intervals would not fit between the record stamps.
+- **That subset gave nearly the same RMSSD as all pairs.** The mean ratio was within 1%, and
+  the per-night spread was within about ±9%, in both directions.
+- **So the bias is small and not one-sided.** Keep the current pairing and drop the
+  withholding rule.
+- **Recommendation:** store each night's omitted-beat share as a quality field, so a band or
+  firmware change that raises it becomes visible. No headline change, so no approval needed.
 
 ### A2. Frequency-domain methods under gaps
 
@@ -364,8 +381,8 @@ exact, so no threshold has to be invented.
   - **Weight.** Keep every weigh-in with its time (additive). Define the day's weight
     explicitly: either the first reading of the day (most consistent, before food) or the
     last. Show which rule applies.
-- **Impact.** Food ordering, and Body and weight trends. The weight rule **needs Akshat's
-  choice.**
+- **Impact.** Food ordering, and Body and weight trends. **Akshat's decision:** the day's
+  weight is the first reading of the day; every reading is kept with its time.
 
 ## D. Strain and load
 
@@ -403,6 +420,13 @@ exact, so no threshold has to be invented.
    - Verify the women's coefficient against Banister's own publication before relying on it.
    - The strain target stays withheld.
 6. **Impact.** Day strain (headline). Any change **needs approval** after the measurement.
+
+**Local measurement.** It found a Build 89 bug rather than an answer. Stored day strain is
+0.0 on several retained days whose walks carry their own session strain, because the session
+floor is applied after the day's strain has been copied into the stored scalars (`bugs.md`).
+Fix that first. A Python re-implementation of strain did not reproduce the stored values
+closely enough to choose a form. The comparison must run the app's own Dart functions over
+the export (a local test harness), which belongs to Build 90's engine work.
 7. **Tests.** Quiet-day, workout-day and mixed-day fixtures, under both forms.
 8. **Confidence:** high that it needs measurement; the current floor is the safe interim.
 
@@ -417,7 +441,9 @@ exact, so no threshold has to be invented.
   - The community reverse-engineering guide says RR byte interpretation is not fully
     documented.
   - The R10 field map is this repo's own decoder.
-- **Answer: Conditional, plus Needs measurement (local)** for how often R10 occurs.
+- **Answer: Definite (measured).** No R10-only second occurs in the retained data, so the
+  path below is not needed now. Re-check if older imported history is ever added.
+- **Original conditional answer**, kept for that case:
 - **Recommendation.**
   - Bring R10 HR and RR into the substrate only for seconds with no R24 record (dedupe by
     second), tagged with `r10` as the source.
@@ -553,8 +579,8 @@ exact, so no threshold has to be invented.
 - **Recommendation.**
   - Set "bodyweight" to 3.0.
   - Source or label "functional".
-  - The home workout uses Calisthenics (3.8, moderate effort), which fits 2–3 sets short of
-    failure with rests.
+  - The home workout uses the Bodyweight type: 02056 describes this routine and is the lowest
+    match (Akshat wants the low end).
 - **Impact.** Only the separate lifting calories line; it never enters maintenance.
   **Approval** for the 3.5 → 3.0 change.
 

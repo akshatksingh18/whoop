@@ -175,7 +175,19 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 ### Lane notes
 
 - Claude:
-- Codex:
+- Codex: Task 1 schema ready for Claude: schema 50 implemented; all 4 targeted checks in
+  `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
+  restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.
+  Schema 50 adds `day_zone(date, zone_id, start_offset_sec, end_offset_sec, start_ts, end_ts)`
+  and `zone_change(at_ts, zone_id)` (Unix seconds, offsets east of UTC); no guessed legacy zones.
+  `body_weight_reading` has the requested fields plus preserved `unit`, `entered`, `origin_id`;
+  legacy IDs are `legacy:<date>`, `at_ts` is unchanged, `created_at` is migration time. The
+  one-time seed is guarded by `sync_cursor.name = b90_body_reading_seed`; old-file imports
+  seed legacy daily rows too. `food_entry.logged_at` is nullable for unknown old logging times.
+  `food_day_count(date, calorie_goal, basis, counted, frozen_at, updated_at)` stores frozen
+  counting provenance; first-open goal freezing follows in task 8. All four tables are in
+  import/salvage and full snapshots, day exports carry their scoped context, and wipe is dynamic.
+  Body's first-reading selection/writes remain Claude-owned. Proceeding to decoder integrity.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

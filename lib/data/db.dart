@@ -179,7 +179,11 @@ class LocalDb {
     'food_def',
     'meal_template',
     'food_day_mark',
+    'food_day_count',
     'body_weight',
+    'body_weight_reading',
+    'day_zone',
+    'zone_change',
     'live_coverage',
     'med_def',
     'med_dose',
@@ -270,7 +274,11 @@ class LocalDb {
     'food_def',
     'meal_template',
     'food_day_mark',
+    'food_day_count',
     'body_weight',
+    'body_weight_reading',
+    'day_zone',
+    'zone_change',
     'live_coverage',
     'med_def',
     'med_dose',
@@ -444,7 +452,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 49;
+  static const int schemaVersion = 50;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1028,6 +1036,11 @@ class LocalDb {
           await _createDevice(db);
           await _ensureLiveCoverageDeviceId(db);
         }
+        if (oldV < 50) {
+          await createNutritionTables(db);
+          await BodyLogDb.createTables(db);
+          await _createBuild90Tables(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1109,6 +1122,92 @@ class LocalDb {
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  /// Build 90's additive storage contract. Units/timestamps are unchanged:
+  /// all *_ts values here are Unix seconds; offsets are seconds east of UTC.
+  static Future<void> _createBuild90Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS day_zone (
+        date TEXT PRIMARY KEY,
+        zone_id TEXT NOT NULL,
+        start_offset_sec INTEGER NOT NULL,
+        end_offset_sec INTEGER NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS zone_change (
+        at_ts INTEGER PRIMARY KEY,
+        zone_id TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS body_weight_reading (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        at_ts INTEGER NOT NULL,
+        kg REAL NOT NULL,
+        source TEXT NOT NULL,
+        history_only INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        unit TEXT NOT NULL DEFAULT 'kg',
+        entered REAL,
+        origin_id TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_body_reading_date_time '
+      'ON body_weight_reading(date, at_ts, id)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS food_day_count (
+        date TEXT PRIMARY KEY,
+        calorie_goal REAL,
+        basis TEXT NOT NULL DEFAULT 'automatic',
+        counted INTEGER NOT NULL DEFAULT 0,
+        frozen_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    // Unknown historical logging time stays unknown; do not relabel eaten time
+    // as logging time. New writes populate logged_at separately.
+    await _addColumnIfMissing(db, 'food_entry', 'logged_at', 'INTEGER');
+    await _createSyncCursor(db);
+    final seeded = await db.query(
+      'sync_cursor',
+      columns: ['name'],
+      where: 'name = ?',
+      whereArgs: ['b90_body_reading_seed'],
+    );
+    if (seeded.isEmpty) {
+      await _seedLegacyWeightReadings(db);
+      await db.insert('sync_cursor', {
+        'name': 'b90_body_reading_seed',
+        'value': 'done',
+        'updated_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  static Future<void> _seedLegacyWeightReadings(Database db) async {
+    // Deterministic IDs make interrupted/repeated migration idempotent. The
+    // reading time and input representation are preserved verbatim. created_at
+    // dates the migration row, not an invented original creation timestamp.
+    await db.rawInsert(
+      '''
+      INSERT OR IGNORE INTO body_weight_reading
+        (id, date, at_ts, kg, source, history_only, created_at,
+         unit, entered, origin_id)
+      SELECT 'legacy:' || w.date, w.date, w.at_ts, w.kg, w.source,
+        w.history_only, ?, w.unit, w.entered, w.origin_id
+      FROM body_weight w
+      WHERE NOT EXISTS
+        (SELECT 1 FROM body_weight_reading r WHERE r.date = w.date)
+    ''',
+      [DateTime.now().millisecondsSinceEpoch ~/ 1000],
+    );
   }
 
   /// The column names [table] currently has (empty if the table is absent).
@@ -3212,6 +3311,7 @@ class LocalDb {
     // Body (build 86): tape sessions, photo records, and the in-place
     // body_weight columns that keep imported/backdated weights history only.
     await BodyLogDb.createTables(db);
+    await _createBuild90Tables(db);
     // Pushups (build 86): one JSON row per movement-break day.
     await PushupDb.createTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
@@ -5969,10 +6069,10 @@ class LocalDb {
         if (m is Map) {
           final a = (m['activity_computed_at'] as num?)?.toInt();
           final o = (m['overnight_computed_at'] as num?)?.toInt();
-          calculated = [?a, ?o].fold<int?>(
-            null,
-            (x, y) => x == null || y > x ? y : x,
-          );
+          calculated = [
+            ?a,
+            ?o,
+          ].fold<int?>(null, (x, y) => x == null || y > x ? y : x);
         }
       } catch (_) {}
     }
@@ -6880,6 +6980,21 @@ class LocalDb {
       await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
       await copyRows('journal_metric', where: 'date = ?', whereArgs: [dayId]);
       await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);
+      for (final table in const [
+        'body_weight_reading',
+        'food_day_count',
+        'day_zone',
+      ]) {
+        await copyRows(table, where: 'date = ?', whereArgs: [dayId]);
+      }
+      final (zoneStart, zoneEnd) = _localDayWindow(dayId);
+      await copyRows(
+        'zone_change',
+        where:
+            'at_ts = (SELECT MAX(at_ts) FROM zone_change WHERE at_ts <= ?) '
+            'OR (at_ts > ? AND at_ts < ?)',
+        whereArgs: [zoneStart, zoneStart, zoneEnd],
+      );
       await copyRows('notifications', where: 'date = ?', whereArgs: [dayId]);
       await copyRows(
         'sleep_session_candidates',
@@ -7534,6 +7649,13 @@ class LocalDb {
     } finally {
       await src.close();
     }
+    // Old exports have only the daily weight table. Preserve those readings
+    // when restoring into an already-migrated install; modern per-reading IDs
+    // and existing days win rather than acquiring an extra aggregate reading.
+    if ((counts['body_weight'] ?? 0) > 0 &&
+        !counts.containsKey('body_weight_reading')) {
+      await _seedLegacyWeightReadings(db);
+    }
     // An import writes day_result rows with a raw batch.insert, deliberately
     // bypassing putDayResult (and therefore the curve-encode seam), so the rows
     // arrive in whatever shape the source device stored — legacy, if it was on
@@ -7712,6 +7834,10 @@ class LocalDb {
       'food_def',
       'meal_template',
       'body_weight',
+      'body_weight_reading',
+      'food_day_count',
+      'day_zone',
+      'zone_change',
       'live_coverage',
       'med_def',
       'med_dose',

@@ -1061,7 +1061,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   List<BodyPhoto> _photos = const [];
   bool _busy = false;
   String? _error;
-  bool _changed = false;
 
   /// B90 quick weigh-in: weight and Save come first; tape and photos are
   /// optional sections, open when editing a tape entry.
@@ -1202,10 +1201,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         );
       }
     } finally {
-      if (saved.isNotEmpty) {
-        _changed = true;
-        app.bumpInsights();
-      }
+      if (saved.isNotEmpty) app.bumpInsights();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -1248,7 +1244,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       if (raw == null) return;
       final jpeg = await encodeProgressPhoto(raw);
       await BodyLogDb.addPhoto(jpeg, date: _date, pose: pose);
-      _changed = true;
       await _loadDay();
     } on PlatformException catch (e) {
       setState(() => _error = e.message ?? 'The camera is not available.');

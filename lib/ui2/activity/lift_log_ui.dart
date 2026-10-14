@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/lift_log.dart';
@@ -20,6 +21,7 @@ import '../../data/lift_progress.dart';
 import '../../data/lift_reminders.dart';
 export '../../data/lift_reminders.dart';
 import '../../gps/workout_clock.dart';
+import '../../state/app_state.dart';
 import '../charts.dart' show LineChart;
 import '../grammar.dart';
 import '../theme.dart';
@@ -1572,6 +1574,107 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
     } catch (_) {}
   }
 
+  /// Fix or delete one set of this finished log, then tell every open tab.
+  Future<void> _fix(
+    BuildContext c,
+    LiftWorkout w,
+    LiftExercise e,
+    LiftSet s,
+  ) async {
+    final bodyweight = e.loadMode == LiftLoadMode.addedWeight;
+    final load = TextEditingController(
+      text: bodyweight && s.load == 0 ? '' : liftWeightText(s.load),
+    );
+    final reps = TextEditingController(text: '${s.reps}');
+    final r = await _sheet<String>(
+      c,
+      (sc) => [
+        Text('Fix set', style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x1),
+        Text(
+          '${e.name} · logged ${_hm(s.completedAt)}. Only the weight and reps '
+          'change.',
+          style: F.cap.copyWith(color: P.of(sc).ink3),
+        ),
+        const SizedBox(height: S.x4),
+        OsTextField(
+          controller: load,
+          label: bodyweight
+              ? 'lb added · blank for bodyweight'
+              : e.loadMode.shortUnit,
+          keyboard: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        const SizedBox(height: S.x3),
+        OsTextField(
+          controller: reps,
+          label: 'Reps',
+          keyboard: TextInputType.number,
+        ),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Save',
+          color: C.purple,
+          onTap: () => Navigator.of(sc).pop('save'),
+        ),
+        const SizedBox(height: S.x2),
+        BigButton(
+          'Delete set',
+          icon: LucideIcons.trash2,
+          color: C.red,
+          soft: true,
+          onTap: () => Navigator.of(sc).pop('delete'),
+        ),
+      ],
+    );
+    if (r == null || !c.mounted) return;
+    final next = w.copy();
+    try {
+      if (r == 'save') {
+        final text = load.text.trim().replaceAll(',', '.');
+        final l = text.isEmpty && bodyweight ? 0.0 : double.tryParse(text);
+        final n = int.tryParse(reps.text.trim());
+        if (l == null || n == null) {
+          _note(c, 'Enter the weight and the reps.');
+          return;
+        }
+        next.correctFinishedSet(e.id, s.id, reps: n, load: l);
+      } else {
+        final ok = await confirmRemove(
+          c,
+          title: 'Delete this set?',
+          body:
+              '${e.name}: ${e.setText(s)}. Progress comparisons update; the '
+              "workout's time, heart rate and calories do not change.",
+          remove: 'Delete',
+          keep: 'Keep it',
+        );
+        if (!ok) return;
+        next.deleteFinishedSet(e.id, s.id);
+      }
+      if (next.setCount == 0) {
+        await LiftLogDb.delete(next.id);
+      } else {
+        await LiftLogDb.save(next);
+      }
+    } on LiftLogError catch (err) {
+      if (c.mounted) _note(c, err.message);
+      return;
+    } catch (_) {
+      if (c.mounted) _note(c, 'That was not saved. Please try again.');
+      return;
+    }
+    try {
+      if (c.mounted) c.read<AppState>().bumpInsights();
+    } catch (_) {
+      /* no app state above this card (tests, gallery) */
+    }
+    await _load();
+  }
+
+  void _note(BuildContext c, String t) => ScaffoldMessenger.maybeOf(c)
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(t), duration: Motion.notice));
+
   @override
   Widget build(BuildContext c) {
     final w = _w;
@@ -1602,15 +1705,34 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
             ),
             for (final e in w.exercises) ...[
               const SizedBox(height: S.x3),
-              Text(e.name, style: F.body.copyWith(color: p.ink)),
               Text(
-                [
+                e.equipmentNote.isEmpty
+                    ? e.name
+                    : '${e.name} · ${e.equipmentNote}',
+                style: F.body.copyWith(color: p.ink),
+              ),
+              const SizedBox(height: S.x1),
+              // Build 90 (D5): a mistaken set can be fixed after the workout.
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                children: [
                   for (var i = 0; i < e.sets.length; i++)
-                    'S${i + 1} ${e.setText(e.sets[i])}',
-                ].join(' · '),
-                style: F.cap.copyWith(color: p.ink3),
+                    Pressable(
+                      semanticLabel:
+                          'Set ${i + 1}: ${e.setText(e.sets[i])}. Fix',
+                      onTap: () => _fix(c, w, e, e.sets[i]),
+                      child: Pill('S${i + 1} ${e.setText(e.sets[i])}', C.n400),
+                    ),
+                ],
               ),
             ],
+            const SizedBox(height: S.x2),
+            Text(
+              'Tap a set to fix a mistake. Times, heart rate and calories stay '
+              'as recorded.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
             if (_records.isNotEmpty) ...[
               const SizedBox(height: S.x4),
               Text('NEW BESTS', style: F.over.copyWith(color: p.ink3)),

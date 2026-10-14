@@ -574,6 +574,40 @@ class LiftWorkout {
       ..load = load;
   }
 
+  /// Build 90 (D5): fix a set in a FINISHED log, weight and reps only. The
+  /// set keeps its logged time, and the WHOOP session's times, heart rate and
+  /// calories are untouched (they are not computed from sets). Comparisons
+  /// and records are read from the logs, so they follow on the next read.
+  void correctFinishedSet(
+    String exerciseId,
+    String setId, {
+    required int reps,
+    required double load,
+  }) {
+    if (isActive) {
+      return updateSet(exerciseId, setId, reps: reps, load: load);
+    }
+    if (reps <= 0) throw LiftLogError.invalidReps;
+    if (!load.isFinite || load < 0) throw LiftLogError.invalidLoad;
+    final e = exercises[_indexOf(exerciseId)];
+    final s = e.sets.where((x) => x.id == setId).firstOrNull;
+    if (s == null) throw LiftLogError.setNotFound;
+    s
+      ..reps = reps
+      ..load = load;
+  }
+
+  /// Build 90 (D5): delete a mistaken set from a FINISHED log. An exercise
+  /// left with no sets leaves the log, as at finish.
+  void deleteFinishedSet(String exerciseId, String setId) {
+    if (isActive) return removeSet(exerciseId, setId);
+    final e = exercises[_indexOf(exerciseId)];
+    final before = e.sets.length;
+    e.sets.removeWhere((s) => s.id == setId);
+    if (e.sets.length == before) throw LiftLogError.setNotFound;
+    exercises.removeWhere((x) => x.sets.isEmpty);
+  }
+
   void removeSet(String exerciseId, String setId) {
     _active();
     final e = exercises[_indexOf(exerciseId)];

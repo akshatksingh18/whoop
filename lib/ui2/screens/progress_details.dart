@@ -655,6 +655,8 @@ class _ProgressDetailState extends State<_ProgressDetail>
     final h = d.heightCm == null ? null : d.heightCm! / 2.54;
     if (latest == null || h == null || !h.isFinite || h <= 0) return const [];
     final waist = latest.value(BodySite.waistNavel)!;
+    // G5 (`build-90-research.md`): ± 3.5% is the equation's standard error of
+    // estimate (Hodgdon and Beckett 1984, NHRC 84-11).
     // B88-08: the US Navy formula here is the MALE form, so it is shown only
     // for a stated male profile, with a neck reading within 30 days of the
     // waist reading, and only inside 3–50%. Both dates are printed.
@@ -679,7 +681,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
         padding: const EdgeInsets.only(top: S.x2),
         child: Text(
           'Estimates from ${_md(latest.date)}: waist-to-height ${(waist / h).toStringAsFixed(2)}'
-          '${bf == null ? '' : ' · US Navy body fat about ${bf.toStringAsFixed(0)}% (waist ${_md(latest.date)}, neck ${_md(neck!.date)})'}. '
+          '${bf == null ? '' : ' · US Navy body fat about ${bf.toStringAsFixed(0)}% ± 3.5% (waist ${_md(latest.date)}, neck ${_md(neck!.date)})'}. '
           'The trend matters, not the exact number.',
           style: F.cap.copyWith(color: p.ink3),
         ),

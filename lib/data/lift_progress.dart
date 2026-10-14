@@ -8,7 +8,7 @@
 // load × (1 + reps / 30)). It ranks a heavier set and a longer set on one
 // scale, and is only ever compared with itself: plates per side exclude the
 // bar and added weight excludes your bodyweight, so it is not your true
-// one-rep max and is never shown as one. Sets above 12 reps are compared by
+// one-rep max and is never shown as one. Sets above 10 reps are compared by
 // reps at load instead, where the estimate is weakest; bodyweight-only sets
 // (no added load) compare reps.
 
@@ -17,7 +17,10 @@ import 'dart:math' as math;
 import 'lift_log.dart';
 
 /// Above this many reps the estimate is unreliable; compare reps at load.
-const int kEstimateMaxReps = 12;
+/// Build 90 (G6, `build-90-research.md`): one-repetition-maximum prediction
+/// degrades above about 10 repetitions (Reynolds et al. 2006, JSCR; Mayhew
+/// et al. 2008), so 10, not 12.
+const int kEstimateMaxReps = 10;
 
 /// The estimated one-rep load of [s] on its own setup; null when it has no
 /// load or too many reps to estimate.
@@ -182,7 +185,7 @@ enum SetVerdict { better, same, worse, incomparable }
 
 /// THE set comparator (B88-07), shared by the live workout and the Progress
 /// review. Two sets of the same exercise, load meaning and equipment:
-/// - both 1-12 reps with load: the rep-adjusted estimate decides;
+/// - both 1-10 reps with load: the rep-adjusted estimate decides;
 /// - otherwise reps at the same load;
 /// - otherwise only an unambiguous step counts (heavier AND at least as many
 ///   reps, or lighter AND no more reps);

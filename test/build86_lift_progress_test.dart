@@ -26,6 +26,9 @@ void main() {
     expect(setScore(s(40, 10))! > setScore(s(40, 8))!, isTrue);
     expect(setScore(s(45, 6)), closeTo(54, 1e-9));
     expect(setScore(s(0, 12)), isNull, reason: 'no load: compare reps');
+    // Build 90 (G6): the estimate stops at 10 reps.
+    expect(setScore(s(60, 10)), isNotNull);
+    expect(setScore(s(60, 11)), isNull, reason: 'over 10 reps: reps at load');
     expect(setScore(s(30, 15)), isNull, reason: 'too many reps to estimate');
     expect(
       bestSet([s(40, 8), s(45, 6), s(40, 10)]).load,

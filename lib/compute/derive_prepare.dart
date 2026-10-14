@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'substrate.dart';
+import '../data/day_label.dart';
 
 class PreparedDerivationDay {
   final String date;
@@ -229,11 +230,7 @@ class SleepSessionCandidate {
 /// `DateTime(y, m, d + 1)` normalizes the overflow itself and
 /// `millisecondsSinceEpoch` respects local DST rules, so this is correct on the
 /// two 23 h/25 h days a year — unlike `startOfDay + 86400`.
-int localNextMidnightSecForDayLabel(String dayId) {
-  final d = DateTime.tryParse(dayId);
-  if (d == null) return 0;
-  return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
-}
+int localNextMidnightSecForDayLabel(String dayId) => localDayEndSec(dayId) ?? 0;
 
 void derivationPrepareWorker(SendPort mainSendPort) {
   final port = ReceivePort();

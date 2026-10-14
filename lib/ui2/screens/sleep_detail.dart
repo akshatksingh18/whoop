@@ -87,7 +87,7 @@ Widget _noOvernightLines(BuildContext c) {
 /// a night is never compared against a window that contains itself.
 int? _noonOf(String? day) => day == null
     ? null
-    : (DateTime.tryParse('$day 12:00:00')?.millisecondsSinceEpoch ?? 0) ~/ 1000;
+    : dayChartAnchorSec(day);
 
 /// The middle half of the user's own nights, plus its median and its count.
 ///
@@ -304,7 +304,9 @@ class SleepData {
     final wins = await repo.sleepWindows(days: _window + 1);
     final onsets = <int>[
       for (final w in wins.reversed)
-        if (w['date'] != day && w['onset_ts'] is num)
+        if (w['date'] != day && w['onset_ts'] is num &&
+            !DayClock.spansZoneChange((w['onset_ts'] as num).round(),
+                (w['wake_ts'] as num?)?.round() ?? (w['onset_ts'] as num).round()))
           (w['onset_ts'] as num).round(),
     ];
 
@@ -880,8 +882,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// only the clock moves. A wake that lands before the onset belongs to the
   /// next morning.
   Future<void> _editWindow(String day, int t0, int t1) async {
-    final onset = DateTime.fromMillisecondsSinceEpoch(t0 * 1000);
-    final wake = DateTime.fromMillisecondsSinceEpoch(t1 * 1000);
+    final onset = DayClock.localAt(t0);
+    final wake = DayClock.localAt(t1);
     final l = AppLocalizations.of(context);
     final bed = await showTimePicker(
       context: context,
@@ -1472,7 +1474,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // band edges are formatted back into clock times, which is the only form
     // anyone reads a bedtime in.
     final onset = (n['onset_ts'] as num?)?.round();
-    if (onset != null && d.onsetHistory.isNotEmpty) {
+    if (onset != null && n['sleep_spans_zone_change'] != true &&
+        d.onsetHistory.isNotEmpty) {
       final rel = [for (final o in d.onsetHistory) _relMinutes(o, onset)];
       rows.add(
         _Compare(
@@ -1577,8 +1580,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// Signed minutes from [ref] to [t], as times of day, wrapped to ±12 h.
   /// (Used by the timing rows and the bedtime spread above.)
   static double _relMinutes(int t, int ref) {
-    final a = DateTime.fromMillisecondsSinceEpoch(t * 1000);
-    final b = DateTime.fromMillisecondsSinceEpoch(ref * 1000);
+    final a = DayClock.localAt(t);
+    final b = DayClock.localAt(ref);
     var diff = (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute);
     if (diff > 720) diff -= 1440;
     if (diff < -720) diff += 1440;

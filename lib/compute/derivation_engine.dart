@@ -38,6 +38,7 @@ import '../build_profile.dart';
 import '../data/db.dart';
 import '../data/nap_ledger.dart';
 import '../data/day_label.dart';
+import '../data/day_zone_store.dart';
 import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
@@ -1658,7 +1659,8 @@ import 'substrate.dart';
 //   unfloored value (0.0 on low-daytime-HR days with a finished walk).
 // 94 -> 95 (Build 90 Codex lane): confirmed historical RR count capped at four;
 //   unknown optical inputs stay nullable through storage and isolate payloads;
-//   one bridged recorded-minute definition and event-backed wear states.
+//   one bridged recorded-minute definition and event-backed wear states;
+//   persisted travel-day boundaries and absolute-time sleep regularity.
 //   Only retained inputs re-derive; historical stored results stay versioned.
 const int kAlgoVersion = 95;
 
@@ -2849,8 +2851,10 @@ class DerivationEngine {
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
+    final dayContext = DayClock.snapshot();
     final (candidateJson, observationJson) = await _runIsolateCancellable(
       () {
+        DayClock.restore(dayContext);
         try {
           final p = profileJson == null
               ? null
@@ -3437,6 +3441,8 @@ class DerivationEngine {
   /// resets it, per _deriveScope.
   static const int _tzJumpThresholdMin = 180;
   Future<bool> _timezoneTravelSuspected() async {
+    // Persisted boundaries replace the former hold-on-travel workaround.
+    if (DayClock.days.isNotEmpty) return false;
     final nowOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
     final row = await LocalDb.baseline('tz_travel_guard');
     final raw = row?['payload_json'];
@@ -3694,6 +3700,7 @@ class DerivationEngine {
     // an import racing a background derive of the same day is exactly the
     // partial-overwrites-complete case the lock exists for.
     return _withRunLock(0, () async {
+      await DayZoneStore.ensureRange(sub.tsSec.first, sub.tsSec.last);
       final days = calendarDays(sub);
       final dataNowSec = sub.lastTs ?? 0;
       var done = 0;
@@ -3842,7 +3849,8 @@ class DerivationEngine {
       // forced window.
       sleepSource: day.sleepSource,
     );
-    final withHistory = _attachHistory(input, history);
+    final withHistory = _attachHistory(input, history)
+      ..['day_context'] = DayClock.snapshot();
 
     // Cancellable: on timeout the isolate is KILLED, not merely abandoned to
     // keep burning a core behind the worker pool's back.
@@ -4187,6 +4195,7 @@ class DerivationEngine {
         dayEndSec: day.endSec,
         dataNowSec: dataNowSec,
         viewNowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        dayContext: DayClock.snapshot(),
       );
       final blocks = await _runDayBlocksCancellable(
         blocksInput,
@@ -4875,8 +4884,10 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final crossDayContext = DayClock.snapshot();
       final (bundleJson, dropped, needSec) = await _runIsolateCancellable(
         () {
+          DayClock.restore(crossDayContext);
           final bundle =
               buildCrossDayBundle(
                   days,
@@ -5322,6 +5333,10 @@ class DerivationEngine {
           ? null
           : observedSec / inBedSec,
       'hypnogram': series?['hypnogram'],
+      'day_zone': payload['day_zone'],
+      'sleep_spans_zone_change': payload['sleep_spans_zone_change'],
+      'sleep_onset_local_min': payload['sleep_onset_local_min'],
+      'sleep_wake_local_min': payload['sleep_wake_local_min'],
       // 24 local-hour means of this day's HR curve — the ONLY intraday series
       // that survives long enough to support cross-day circadian analysis.
       // `day_result` is never pruned; the 1 Hz substrate is gone after 3 days,
@@ -7746,6 +7761,7 @@ class DerivationEngine {
   /// in; DB writes + notifications are returned as descriptors for the caller
   /// to apply.
   static _DayBlocksOutput _computeDayBlocks(_DayBlocksInput inp) {
+    DayClock.restore(inp.dayContext);
     final daySub = inp.daySub;
     final sleepSub = inp.sleepSub;
     final onset = inp.onsetSec;
@@ -7784,6 +7800,12 @@ class DerivationEngine {
       zoneSet: inp.zoneSet,
     );
 
+    bundlePatch['day_zone'] = DayClock.forDate(inp.date)?.toRow();
+    bundlePatch['sleep_spans_zone_change'] = DayClock.spansZoneChange(onset, offset);
+    bundlePatch['sleep_onset_local_min'] = onset > 0
+        ? DayClock.localAt(onset).hour * 60 + DayClock.localAt(onset).minute : null;
+    bundlePatch['sleep_wake_local_min'] = offset > 0
+        ? DayClock.localAt(offset).hour * 60 + DayClock.localAt(offset).minute : null;
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
     seriesPatch['hrv_day'] = dayHrvCurve(daySub);
     seriesPatch['resp_day'] = dayRespCurve(daySub);
@@ -8293,23 +8315,8 @@ class DerivationEngine {
   }
 
   // static: pure day-label arithmetic, and `rawPruneCutoffSec` needs it.
-  static int _localDayLabelToSec(String day) {
-    final d = DateTime.tryParse(day);
-    if (d == null) return 0;
-    return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
-  }
-
-  // was `_localDayLabelToSec(day) + 86400` at every call site - assumes every
-  // local day is exactly 24h, which is wrong on the two DST-transition days a
-  // year (23h/25h). DateTime normalizes the day+1 overflow itself and
-  // .millisecondsSinceEpoch already respects local DST rules, so just asking
-  // for the START of the NEXT day gets this right without hardcoding a
-  // day length.
-  int _localNextDayLabelToSec(String day) {
-    final d = DateTime.tryParse(day);
-    if (d == null) return 0;
-    return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
-  }
+  static int _localDayLabelToSec(String day) => localDayStartSec(day) ?? 0;
+  int _localNextDayLabelToSec(String day) => localDayEndSec(day) ?? 0;
 
   String _skipReasonForError(Object error) {
     final msg = error.toString();
@@ -8492,6 +8499,7 @@ class _DayBlocksInput {
   final int dayEndSec;
   final int dataNowSec;
   final int viewNowSec;
+  final Map<String, dynamic> dayContext;
   const _DayBlocksInput({
     required this.daySub,
     required this.napSub,
@@ -8518,6 +8526,7 @@ class _DayBlocksInput {
     required this.dayEndSec,
     required this.dataNowSec,
     required this.viewNowSec,
+    required this.dayContext,
   });
 }
 

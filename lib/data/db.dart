@@ -29,6 +29,7 @@ import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
+import 'day_zone_store.dart';
 import 'calculation_store.dart';
 import '../gps/workout_clock.dart';
 import 'journal_fields.dart';
@@ -148,7 +149,9 @@ class LocalDb {
     // object)` — a sustained crash burst (seen in the wild on background event
     // ingest). Reopen whenever the cached handle isn't actually open.
     if (db != null && db.isOpen) return db;
-    return _db = await _openOrRebuild();
+    final opened = await _openOrRebuild();
+    await DayZoneStore.hydrate(opened);
+    return _db = opened;
   }
 
   /// Set when [_openOrRebuild] had to quarantine an unopenable database and
@@ -399,6 +402,7 @@ class LocalDb {
   }
 
   static Future<void> close() async {
+    DayClock.install([], []);
     if (_db != null) {
       await _db!.close();
       _db = null;
@@ -1137,6 +1141,7 @@ class LocalDb {
         end_ts INTEGER NOT NULL
       )
     ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS day_zone_start ON day_zone(start_ts)');
     await db.execute('''
       CREATE TABLE IF NOT EXISTS zone_change (
         at_ts INTEGER PRIMARY KEY,
@@ -3761,7 +3766,7 @@ class LocalDb {
     await db.execute('''
       CREATE VIEW v_sessions AS
       SELECT id, start_ts, end_ts,
-             strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS date,
+             ${storedDayLabelSql('sessions.start_ts')} AS date,
              type, status, calories, strain, max_hr,
              duration_min, steps, hrr_bpm, source, zone_min_json
       FROM sessions
@@ -4688,7 +4693,8 @@ class LocalDb {
 
   // Canonical LOCAL day label — shared with the UI/coach via day_label.dart so
   // every layer computes "today" identically (never in UTC).
-  static String _localDayLabel(DateTime dt) => dayLabelOf(dt);
+  static String _localDayLabel(DateTime dt) =>
+      dayLabelAtSec(dt.millisecondsSinceEpoch ~/ 1000);
 
   static String _localDayLabelFromEpoch(int epochSec) =>
       _localDayLabel(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
@@ -6239,11 +6245,10 @@ class LocalDb {
   static Future<Map<String, int>> decodedRecTsMaxByDay() async {
     final (lo, hi) = await firstAndLastRecordTs();
     if (lo == null || hi == null) return {};
+    await DayZoneStore.ensureRange(lo, hi);
     final db = await instance;
     final out = <String, int>{};
-    var day = dayLabelOf(
-      DateTime.fromMillisecondsSinceEpoch(lo * 1000, isUtc: true).toLocal(),
-    );
+    var day = dayLabelAtSec(lo);
     // Bounded by the number of days actually present. `localDayEndSec` returns
     // null only for a malformed label, which `dayLabelOf` cannot produce — the
     // guard is there so a future change can never spin here.
@@ -6259,9 +6264,7 @@ class LocalDb {
       final mx = rows.isEmpty ? null : (rows.first['mx'] as num?)?.toInt();
       if (mx != null) out[day] = mx;
       if (end > hi) break;
-      day = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch(end * 1000, isUtc: true).toLocal(),
-      );
+      day = dayLabelAtSec(end);
     }
     return out;
   }
@@ -6690,14 +6693,18 @@ class LocalDb {
 
   static Future<List<Map<String, dynamic>>> dataHistoryDays() async {
     final db = await instance;
-    final rawRows = await db.rawQuery(
+    final (lo, hi) = await firstAndLastRecordTs();
+    if (lo != null && hi != null) await DayZoneStore.ensureRange(lo, hi);
+    final rawRows = await db.rawQuery(DayClock.days.isNotEmpty ?
+      'SELECT z.date AS day_id, COUNT(*) AS raw_count, '
+      'MIN(d.rec_ts) AS min_rec_ts, MAX(d.rec_ts) AS max_rec_ts '
+      'FROM day_zone z JOIN decoded_onehz d ON d.rec_ts >= z.start_ts '
+      'AND d.rec_ts < z.end_ts WHERE d.rec_ts > 0 AND ${derivableSourceSql('d.source')} '
+      'GROUP BY z.date ORDER BY z.date DESC' :
       "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id, "
-      'COUNT(*) AS raw_count, '
-      'MIN(rec_ts) AS min_rec_ts, '
-      'MAX(rec_ts) AS max_rec_ts '
+      'COUNT(*) AS raw_count, MIN(rec_ts) AS min_rec_ts, MAX(rec_ts) AS max_rec_ts '
       'FROM decoded_onehz WHERE rec_ts > 0 AND ${derivableSourceSql()} '
-      'GROUP BY day_id ORDER BY day_id DESC',
-    );
+      'GROUP BY day_id ORDER BY day_id DESC');
     final derivedRows = await db.rawQuery(
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized '
       'FROM day_result r '
@@ -6709,7 +6716,7 @@ class LocalDb {
       'FROM metric_series GROUP BY date',
     );
     final sessionRows = await db.rawQuery(
-      "SELECT strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS day_id, "
+      "SELECT ${storedDayLabelSql('sessions.start_ts')} AS day_id, "
       'COUNT(*) AS session_count '
       'FROM sessions GROUP BY day_id',
     );
@@ -7160,6 +7167,7 @@ class LocalDb {
       }
     });
     await CalculationStore.clearCache();
+    DayClock.install([], []);
     return deleted;
   }
 
@@ -7665,6 +7673,7 @@ class LocalDb {
     // walks this map in order.
     if (importedDays != null) counts['_days'] = importedDays.length;
     await CalculationStore.hydrate();
+    await DayZoneStore.hydrate(db);
     return counts;
   }
 

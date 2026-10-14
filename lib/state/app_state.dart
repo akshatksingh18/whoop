@@ -70,6 +70,7 @@ import '../data/backup_passphrase.dart';
 import '../platform/signing_profile.dart';
 import 'prefs.dart';
 import '../data/db.dart';
+import '../data/day_zone_store.dart';
 import '../data/lift_log.dart' show LiftLogDb;
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -2697,6 +2698,7 @@ class AppState extends ChangeNotifier {
     // on init, and a Bluetooth relaunch must not start a pass in the seconds
     // before this was known (build 86).
     await _settleLaunchKind();
+    await DayZoneStore.check('launch');
     paired = await PairedDevice.load();
     await refreshSensors();
     await _loadProfile();
@@ -4936,6 +4938,7 @@ class AppState extends ChangeNotifier {
 
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
+    await DayZoneStore.check('foreground');
     // B88-05: the app IS in the foreground now, whatever the link is doing.
     // These resets used to sit below the busy/unpaired early return — the only
     // place they ran — so switching away and back during a slow connect left
@@ -5343,6 +5346,7 @@ class AppState extends ChangeNotifier {
   /// which is the bug this guards against ("strap disconnects and never
   /// tries to reconnect").
   Future<void> foregroundCatchUp() async {
+    await DayZoneStore.check('sync');
     if (!engine.isConnected) return;
     if (isLinkStale(
       engine.sinceLastRx,

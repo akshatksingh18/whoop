@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
 import '../data/db.dart';
+import '../data/day_zone_store.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import 'band_ownership.dart';
@@ -38,6 +39,7 @@ Future<bool> runHeadlessSync({
   String wake = 'background',
 }) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await DayZoneStore.check('headless_sync');
   // B88-12 (C5): the Status panel's "last background wake". Best effort.
   try {
     await LocalDb.noteBackgroundWake(wake);

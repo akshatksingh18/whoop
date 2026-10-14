@@ -198,7 +198,19 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   across metric history and day wear; event-backed charging/off-wrist, recording gaps and
   pending sync have distinct timeline copy. `build90_wear_test.dart` passes 4 checks and
   `wear_coverage_test.dart` passes 12, including the actual two-reader comparison.
-  Task 4 timezone persistence and worker context are next. Native/phone checks remain open.
+  Task 3 is committed as `d5b602a7`. Task 4 now persists the native zone inbox and timeline,
+  day boundaries/offsets, worker context and dated chart anchors; SRI uses absolute 24-hour
+  separation, and bedtime history excludes travel-spanning nights. Ten timezone checks and
+  five schema/recovery checks pass, including encrypted restore/cache hydration. Native Swift
+  build and open/background phone delivery are unverified. Legacy exports cannot reconstruct
+  earlier travel: the first observed zone seeds older assignment context, explicitly an
+  assignment convention rather than historical evidence. No dependency change.
+  Claude integration needed: change the one shared `home_screen.dart:clockOfTs` implementation
+  to `DayClock.localAt(ts.round())` so all times use the persisted zone; date formatting for
+  chart instants should use `dayLabelAtSec`, while calendar-only arithmetic keeps `dayLabelOf`.
+  Other Claude-owned headers can use `DayClock.abbreviation(date, nowSec: ...)`; shared detail
+  navigation and Recovery already show differing zones. Sleep/Recovery display fixes continue
+  in task 5. Claude owns the stale top-level planned-status wording and documentation indexes.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

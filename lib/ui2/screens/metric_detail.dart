@@ -2286,7 +2286,16 @@ List<Widget> dayNavRow(
   String? day,
   List<String> days,
   ValueChanged<String> onDay,
-) => [DayNav(day: day, days: days, onDay: onDay), const SizedBox(height: S.x3)];
+ ) {
+  final zone = day == null ? null : DayClock.abbreviation(day,
+      nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000);
+  return [
+    DayNav(day: day, days: days, onDay: onDay),
+    if (zone != null) Builder(builder: (c) => Text(zone,
+        style: F.cap.copyWith(color: P.of(c).ink2))),
+    const SizedBox(height: S.x3),
+  ];
+}
 
 /// A plain door onto another screen. Deliberately quiet: a doorway is not a
 /// card, and a metric screen that grows a second loud card stops having a

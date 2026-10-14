@@ -151,7 +151,7 @@ Map<String, dynamic> buildCrossDayBundle(
     final tstMin = (d['tst_min'] as num?)?.toDouble();
     final dur = tstMin == null ? null : tstMin / 60.0;
     if (dur != null) allDurH.add(dur);
-    if (onset == null || wake == null) continue;
+    if (onset == null || wake == null || d['sleep_spans_zone_change'] == true) continue;
     final midSec = (onset + wake) / 2.0;
     // LOCAL clock-hours [0,24). onset/wake are epoch SECONDS (UTC); `% 86400`
     // would give the UTC time-of-day, not the user's wall clock — convert via a
@@ -228,9 +228,9 @@ Map<String, dynamic> buildCrossDayBundle(
 
   // ── true Phillips SRI across days on a 1440-epoch (1-min) clock grid ───────
   final sri = _crossDaySri(days);
-  // SLP-08 — which two nights. `SriPair.dayIndex` indexes THIS day list and
-  // nothing else (the analytics never sees a date), so here is the only place
-  // it can be resolved into the two nights it compared. Pairs the mask left too
+  // SLP-08 — pairs index fixed 24-hour slices of the absolute timeline.
+  // Resolve dated context from persisted windows, including skipped labels.
+  // Pairs the mask left too
   // thin were already dropped upstream, so a half-unobserved weekend cannot top
   // the list for having no data.
   //
@@ -241,9 +241,20 @@ Map<String, dynamic> buildCrossDayBundle(
   if (sriValue is Map) {
     for (final p in ((sriValue['pairs'] as List?) ?? const []).whereType<Map>()) {
       final d = (p['day_index'] as num?)?.toInt();
-      if (d == null || d <= 0 || d >= dates.length) continue;
-      p['prev_date'] = dates[d - 1];
-      p['date'] = dates[d];
+      if (d == null || d <= 0 || days.isEmpty) continue;
+      final anchor = days.map(_sriWindow).map((w) => w.$1 ~/ 60).reduce(math.min) * 60;
+      String? labelAt(int second) {
+        for (final day in days) {
+          final window = _sriWindow(day);
+          if (second >= window.$1 && second < window.$2) return day['date'] as String?;
+        }
+        return null;
+      }
+      final start = anchor + d * 86400;
+      p['previous_start_ts'] = start - 86400;
+      p['start_ts'] = start;
+      p['prev_date'] = labelAt(start - 86400);
+      p['date'] = labelAt(start);
     }
   }
 
@@ -405,7 +416,8 @@ Map<String, dynamic> buildCrossDayBundle(
   // typical wake clock-minute + efficiency from recent days (medians).
   final wakeMins = <double>[
     for (final d in days)
-      if (d['wake_sec'] != null) _localTodMin((d['wake_sec'] as num).toInt()),
+      if (d['wake_sec'] != null && d['sleep_spans_zone_change'] != true)
+        _numOrNull(d['sleep_wake_local_min']) ?? _localTodMin((d['wake_sec'] as num).toInt()),
   ];
   final effs = <double>[for (final d in days) ?_numOrNull(d['efficiency'])];
   final typicalWakeMin = _median(wakeMins);
@@ -630,7 +642,7 @@ Object? sanitizeForJson(
 /// the user sees — NOT the UTC `% 86400` time-of-day. Deterministic given the
 /// system zone (same property the file's existing DateTime.parse(date) relies on).
 double _localTodMin(int epochSec) {
-  final t = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
+  final t = DayClock.localAt(epochSec);
   return t.hour * 60.0 + t.minute + t.second / 60.0;
 }
 
@@ -1020,87 +1032,59 @@ bool _isNextDay(String a, String b) {
   return db.difference(da).inDays == 1;
 }
 
-/// Reconstruct a per-minute asleep series for each day on a 1440-epoch grid from
-/// the day's hypnogram (stage != 'wake' within [onset,wake] => asleep; minutes
-/// with no hypnogram coverage => valid=false), concatenate across days, then run
-/// the true Phillips SRI. If too few covered days, the package returns absent.
+/// Day windows are persisted absolute instants. Legacy fixtures/rows without
+/// zone metadata retain a UTC calendar window until their context is available.
+(int, int) _sriWindow(Map<String, dynamic> day) {
+  final zone = day['day_zone'];
+  if (zone is Map && zone['start_ts'] is num && zone['end_ts'] is num) {
+    return ((zone['start_ts'] as num).toInt(), (zone['end_ts'] as num).toInt());
+  }
+  final date = DateTime.tryParse('${day['date']}T00:00:00Z');
+  final start = (date?.millisecondsSinceEpoch ?? 0) ~/ 1000;
+  return (start, start + 86400);
+}
+
+/// Fixed 24-hour separation on the absolute timeline, never adjacent local
+/// clock grids. Missing dates, DST and travel retain their actual elapsed time.
 ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
-  const epochsPerDay = 1440; // 1-minute epochs over 24 h
-  final sleepWake = <bool>[];
-  final valid = <bool>[];
-
-  for (final d in days) {
-    // B88-04: Phillips SRI pairs ALL-DAY sleep/wake states 24 h apart, with
-    // unobserved minutes excluded. A day the band recorded for ≥70 % of the
-    // clock (≥1008 min) is observed all day: minutes outside the hypnogram are
-    // wake. Below that the whole day is unobserved (only its daily wear total
-    // is stored, so its wake minutes cannot be told from missing ones). A day
-    // with no detected sleep at all is not evidence of a sleepless day.
-    // ponytail: a ≥70 %-worn day still treats its unrecorded ≤30 % as wake;
-    // a per-minute wear mask would remove that residual error.
-    final hyp0 = d['hypnogram'];
-    final observedDay =
-        ((d['worn_min'] as num?)?.toDouble() ?? 0) >= 0.7 * epochsPerDay &&
-            hyp0 is List &&
-            hyp0.isNotEmpty;
-    final asleep = List<bool>.filled(epochsPerDay, false);
-    final cov = List<bool>.filled(epochsPerDay, observedDay);
-
+  const epochsPerDay = 1440;
+  if (days.isEmpty) return ana.phillipsSri([], epochsPerDay);
+  final windows = [for (final d in days) _sriWindow(d)];
+  final firstMinute = windows.map((w) => w.$1 ~/ 60).reduce(math.min);
+  final lastMinute = windows.map((w) => (w.$2 + 59) ~/ 60).reduce(math.max);
+  // Pad only with invalid epochs so the final partial UTC day is not dropped.
+  final length = ((lastMinute - firstMinute + 1439) ~/ 1440) * 1440;
+  final asleep = List<bool>.filled(length, false);
+  final valid = List<bool>.filled(length, false);
+  for (var i = 0; i < days.length; i++) {
+    final d = days[i], window = windows[i];
     final hyp = d['hypnogram'];
-    if (hyp is List) {
-      for (final seg in hyp) {
-        if (seg is! Map) continue;
-        final start = (seg['start'] as num?)?.toDouble();
-        final end = (seg['end'] as num?)?.toDouble();
-        final stage = seg['stage'] as String?;
-        if (start == null || end == null) continue;
-        // Segment bounds are epoch SECONDS; map to clock-minute-of-day [0,1440).
-        // this was using `start % 86400` directly, which is the UTC
-        // time-of-day, not the user's wall clock - the exact mistake
-        // _localTodMin (right here in this same file, used correctly at
-        // line ~100) already exists to avoid.
-        final startMin = _localTodMin(start.round()).floor();
-        // end is exclusive of the segment's trailing edge; cover [start,end).
-        final endMinRaw = _localTodMin(end.round()).ceil();
-        // WRAP, don't clamp. Both bounds are clock-minutes-of-day in [0,1440),
-        // so a segment crossing local midnight reads e.g. start=1430,
-        // end=20 — and the old `for (m = startMin; m < endMin; m++)` simply
-        // never executed, silently DROPPING that segment (the comment claimed
-        // it "clamps into grid"; it didn't). Every night has exactly one such
-        // segment, so sleep-regularity was always computed with a hole at the
-        // boundary. Unwrap the end past 1440 and write back modulo the grid.
-        // `endMinRaw == startMin` stays a genuinely empty (sub-minute) segment.
-        final endMin =
-            endMinRaw < startMin ? endMinRaw + epochsPerDay : endMinRaw;
-        final span = math.min(endMin - startMin, epochsPerDay);
-        // `unobserved` is neither sleep nor wake: it is excluded, never asleep.
-        final unobserved = stage == 'unobserved';
-        final asleepSeg = stage != null && stage != 'wake' && !unobserved;
-        for (var k = 0; k < span; k++) {
-          final m = (startMin + k) % epochsPerDay;
-          if (!observedDay) continue;
-          cov[m] = !unobserved;
-          if (asleepSeg) asleep[m] = true;
-        }
+    final observed = ((d['worn_min'] as num?)?.toDouble() ?? 0) >=
+        0.7 * (window.$2 - window.$1) / 60 && hyp is List && hyp.isNotEmpty;
+    if (!observed) continue;
+    final lo = math.max(0, window.$1 ~/ 60 - firstMinute);
+    final hi = math.min(length, (window.$2 + 59) ~/ 60 - firstMinute);
+    for (var m = lo; m < hi; m++) { valid[m] = true; }
+  }
+  for (var i = 0; i < days.length; i++) {
+    final d = days[i], window = windows[i];
+    final hyp = d['hypnogram'];
+    if (hyp is! List || hyp.isEmpty ||
+        ((d['worn_min'] as num?)?.toDouble() ?? 0) <
+          0.7 * (window.$2 - window.$1) / 60) continue;
+    for (final segment in hyp.whereType<Map>()) {
+      final start = (segment['start'] as num?)?.toInt();
+      final end = (segment['end'] as num?)?.toInt();
+      final stage = segment['stage'];
+      if (start == null || end == null || end <= start) continue;
+      final lo = math.max(0, start ~/ 60 - firstMinute);
+      final hi = math.min(length, (end + 59) ~/ 60 - firstMinute);
+      for (var m = lo; m < hi; m++) {
+        if (stage == 'unobserved' || stage == null) { valid[m] = false; }
+        else { valid[m] = true; asleep[m] = stage != 'wake'; }
       }
     }
-    sleepWake.addAll(asleep);
-    valid.addAll(cov);
   }
-
-  // SLP-08's per-pair floor. The analytics default is half a clock day (720
-  // minutes), which is right for a grid built from continuous actigraphy and
-  // UNREACHABLE on this one: `cov` is only set inside a hypnogram segment, so
-  // an ordinary 8 h night marks 480 minutes and a pair — which needs the minute
-  // observed on BOTH days — tops out around that. Left at the default the pairs
-  // list is empty for every user forever, which reads as "no irregular nights"
-  // rather than as a floor nobody can clear.
-  //
-  // 240 is four hours of clock-aligned overlap on both nights. It still throws
-  // out the half-unobserved weekend the floor exists for, and it does NOT move
-  // the published SRI: every accepted epoch counts toward the total whether or
-  // not its pair is emitted.
-  // A pair needs ≥70 % of the clock observed on both days (B88-04).
-  return ana.phillipsSri(sleepWake, epochsPerDay,
-      valid: valid, minPairCases: (0.7 * epochsPerDay).round());
+  return ana.phillipsSri(asleep, epochsPerDay,
+    valid: valid, minPairCases: (0.7 * epochsPerDay).round());
 }

@@ -970,7 +970,7 @@ class SleepWindowOverride {
 
 /// Local YYYY-MM-DD label for an epoch-second instant.
 String localDateLabel(int epochSec) =>
-    dayLabelOf(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
+    dayLabelAtSec(epochSec);
 
 /// Split the substrate into CALENDAR days (local midnight → next local midnight).
 ///
@@ -1154,7 +1154,7 @@ List<PhysioDay> calendarDays(
           );
           final onsetHour = cand == null
               ? null
-              : DateTime.fromMillisecondsSinceEpoch(cand.onsetSec * 1000).hour;
+              : DayClock.localAt(cand.onsetSec).hour;
           if (cand != null && (onsetHour! >= 18 || onsetHour < 6)) {
             final s2 = ana.segmentSleep(
               accelSlice,
@@ -1238,22 +1238,15 @@ List<PhysioDay> calendarDays(
 /// and using today's would shift that day's local clock-times by up to an hour.
 /// `DateTime.fromMillisecondsSinceEpoch(..., isUtc: false).timeZoneOffset` asks
 /// the platform zone database for the offset that actually applied then.
-int tzOffsetSecondsAt(int epochSec) => DateTime.fromMillisecondsSinceEpoch(
-  epochSec * 1000,
-  isUtc: false,
-).timeZoneOffset.inSeconds;
+int tzOffsetSecondsAt(int epochSec) => DayClock.offsetAt(epochSec);
 
-/// Local midnight (epoch sec) at/before [epochSec].
-int _localMidnight(int epochSec) {
-  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: false);
-  return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
-}
+int _localMidnight(int epochSec) =>
+    DayClock.at(epochSec)?.startSec ??
+    localDayStartSec(localDateLabel(epochSec))!;
 
-/// The next local midnight strictly after the local midnight of [epochSec].
-int _nextLocalMidnight(int epochSec) {
-  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: false);
-  return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
-}
+int _nextLocalMidnight(int epochSec) =>
+    DayClock.at(epochSec)?.endSec ??
+    localDayEndSec(localDateLabel(epochSec))!;
 
 /// First index i in sorted [xs] with xs[i] >= target (std lower_bound).
 int _lowerBound(List<int> xs, int target) {

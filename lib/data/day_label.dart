@@ -11,6 +11,14 @@
 // Epoch timestamps (session bounds, rec_ts, prune cutoffs) are absolute and are
 // NOT day labels — leave those alone.
 
+import 'day_zone_rules.dart';
+export 'day_zone_rules.dart';
+
+/// An absolute instant uses its persisted travel-day assignment when available.
+String dayLabelAtSec(int second) =>
+    DayClock.at(second)?.date ??
+    dayLabelOf(DateTime.fromMillisecondsSinceEpoch(second * 1000));
+
 /// 'YYYY-MM-DD' of [dt]'s LOCAL calendar date. A UTC instant is converted to
 /// local time first so the label always matches the device-local day model.
 String dayLabelOf(DateTime dt) {
@@ -21,7 +29,16 @@ String dayLabelOf(DateTime dt) {
 
 /// Today's LOCAL day label — the key `LocalDb`/the derivation engine file days
 /// under. [now] is injectable for tests (defaults to the real clock).
-String todayLabel([DateTime? now]) => dayLabelOf(now ?? DateTime.now());
+String todayLabel([DateTime? now]) =>
+    dayLabelAtSec((now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000);
+
+/// Stable dated-series anchor inside the stored day, including a short arrival day.
+int? dayChartAnchorSec(String date) {
+  final stored = DayClock.chartAnchor(date);
+  if (stored != null) return stored;
+  final local = DateTime.tryParse('$date 12:00:00');
+  return local == null ? null : local.millisecondsSinceEpoch ~/ 1000;
+}
 
 /// Parse a 'YYYY-MM-DD' label into its (year, month, day) parts, or null if it
 /// isn't one. Deliberately strict — a malformed label must not silently become
@@ -39,6 +56,8 @@ List<int>? _partsOf(String dayId) {
 /// Epoch SECONDS of the LOCAL midnight that STARTS day [dayId] ('YYYY-MM-DD').
 /// Returns null for a malformed label.
 int? localDayStartSec(String dayId) {
+  final stored = DayClock.forDate(dayId);
+  if (stored != null) return stored.startSec;
   final p = _partsOf(dayId);
   if (p == null) return null;
   return DateTime(p[0], p[1], p[2]).millisecondsSinceEpoch ~/ 1000;
@@ -55,6 +74,8 @@ int? localDayStartSec(String dayId) {
 /// local constructor normalizes day/month/year rollover AND the wall-clock
 /// offset, so "midnight of the next calendar date" is the only correct end.
 int? localDayEndSec(String dayId) {
+  final stored = DayClock.forDate(dayId);
+  if (stored != null) return stored.endSec;
   final p = _partsOf(dayId);
   if (p == null) return null;
   return DateTime(p[0], p[1], p[2] + 1).millisecondsSinceEpoch ~/ 1000;

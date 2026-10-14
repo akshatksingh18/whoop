@@ -867,8 +867,13 @@ or unobserved latent record shapes as established device failures.
   remain NULL through storage and isolate payloads, and old zero sentinels read as absent.
   CSV excludes legacy `odi_per_hour`/`spo2` history without deleting stored rows. Five synthetic
   regressions pass; phone verification remains open.
-- Travel uses the phone's current zone for retained re-derives, so day seams can overlap or gap
-  after a zone change.
+- Build 90 source stores the observed IANA zone timeline and UTC day seams, including
+  westward extended days, eastward skipped labels and 23/25-hour DST days. Derivation workers
+  receive that context; SRI uses absolute 24-hour separation and bedtime comparisons exclude
+  nights spanning a zone change. Ten pure timezone checks and five schema/recovery checks pass.
+  Native notification delivery while open/backgrounded remains a phone gate. Earlier travel
+  cannot be reconstructed from legacy exports: before the first observation, the first known
+  zone seeds the assignment context; it is not evidence of the zone actually visited.
 
 ## Stale Band-Data Age And Repeated Empty Catch-Up
 

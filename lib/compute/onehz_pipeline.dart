@@ -24,6 +24,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'input_reuse.dart';
+import '../data/day_label.dart';
 
 import 'package:openstrap_analytics/onehz.dart';
 
@@ -348,6 +349,7 @@ Map<String, dynamic> deriveDayBundle(
   Map<String, dynamic> inputJson, {
   InputReuse? reuse,
 }) {
+  if (inputJson['day_context'] case final Map context) DayClock.restore(context);
   final d = DayBundleInput.fromJson(inputJson);
   final cache = reuse;
   final rrStamp = cache?.stamp([
@@ -1615,9 +1617,9 @@ Map<String, dynamic> deriveDayBundle(
             ? d.sleepOnsetSec + (d.sleepOffsetSec - d.sleepOnsetSec) ~/ 2
             : 0,
       ),
-      'sleep_onset_sec': sleepClockOffsetSec(
-        d.sleepOffsetSec > d.sleepOnsetSec ? d.sleepOnsetSec : 0,
-      ),
+      'sleep_onset_sec': DayClock.spansZoneChange(d.sleepOnsetSec, d.sleepOffsetSec)
+          ? null : sleepClockOffsetSec(
+              d.sleepOffsetSec > d.sleepOnsetSec ? d.sleepOnsetSec : 0),
     },
   };
 }

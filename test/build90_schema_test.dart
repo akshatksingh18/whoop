@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/day_label.dart';
+import 'package:openstrap_edge/data/day_zone_store.dart';
 import 'package:openstrap_edge/import/backup_crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,6 +50,8 @@ void main() {
       await LocalDb.instance;
       await LocalDb.close();
       final old = await openDatabase(path);
+      // The simulated v49 database must not retain the new travel-aware view.
+      await old.execute('DROP VIEW v_sessions');
       for (final t in [
         'body_weight_reading',
         'food_day_count',
@@ -173,6 +177,42 @@ void main() {
       for (final table in expected.keys) {
         expect(await db.query(table), expected[table]);
       }
+      expect(DayClock.forDate('2025-03-09')?.zoneId, 'America/Chicago');
+      expect(localDayLengthSec('2025-03-09'), 23 * 3600);
+    },
+  );
+
+  test(
+    'zone observations persist travel and reopen the same boundaries',
+    () async {
+      const start = 1767225600;
+      await DayZoneStore.observe([
+        ZoneChange(start, 'Etc/UTC'),
+      ], throughSec: start);
+      await DayZoneStore.observe([
+        ZoneChange(start + 3600, 'America/Chicago'),
+      ], throughSec: start + 2 * 86400);
+      final before = DayClock.days.map((d) => d.toRow()).toList();
+      await LocalDb.close();
+      expect(DayClock.days, isEmpty);
+      await LocalDb.instance;
+      expect(DayClock.days.map((d) => d.toRow()), before);
+      final db = await LocalDb.instance;
+      expect(await db.query('zone_change'), hasLength(2));
+      await db.insert('sessions', {
+        'id': 'synthetic-zone-session',
+        'start_ts': start + 3 * 3600,
+        'end_ts': start + 4 * 3600,
+        'type': 'walking',
+        'status': 'done',
+        'created_at': start + 3 * 3600,
+      });
+      expect((await db.query('v_sessions')).single['date'], '2026-01-01');
+      expect((await LocalDb.dataHistoryDays()).single['day_id'], '2026-01-01');
+      await DayZoneStore.observe([
+        ZoneChange(start + 3 * 86400, 'America/Chicago'),
+      ], throughSec: start + 3 * 86400);
+      expect(await db.query('zone_change'), hasLength(2));
     },
   );
 

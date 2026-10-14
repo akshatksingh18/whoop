@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
-import '../../data/day_label.dart' show dayLabelOf;
+import '../../data/day_label.dart' show dayLabelOf, dayLabelAtSec, DayClock;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
@@ -150,7 +150,7 @@ class ReadinessData {
     if (day != null && day != currentDay) {
       final matches = pointsOf(chart).where(
         (p) =>
-            dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)) == day,
+            dayLabelAtSec(p.t) == day,
       );
       return ReadinessData(
         readiness: matches.isEmpty
@@ -355,6 +355,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     final d = _d ?? const ReadinessData();
     final v = d.readiness.value;
     final band = readinessBand(v, l);
+    final zone = widget.day == null ? null : DayClock.abbreviation(widget.day!,
+        nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
@@ -365,7 +367,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       embedded: widget.embedded,
       [
         if (widget.day != null)
-          Text(prettyDay(widget.day, l), style: F.body.copyWith(color: p.ink2)),
+          Text('${prettyDay(widget.day, l)}${zone == null ? '' : ' · $zone'}',
+              style: F.body.copyWith(color: p.ink2)),
         if (_failed)
           StatusCard(
             'Recovery could not load',

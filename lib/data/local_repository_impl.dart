@@ -30,6 +30,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
+import 'day_zone_store.dart';
 import 'db.dart';
 import '../health/health_export.dart';
 import 'journal_fields.dart';
@@ -873,6 +874,9 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'timeline': (_sub(b, 'series')?['hrv_timeline'] as List?) ?? const [],
       'date': b['date'],
+      'day_zone': b['day_zone'],
+      'zone_abbreviation': DayClock.abbreviation(b['date'] as String? ?? date,
+          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000),
       'rmssd': _scalar(b, 'rmssd'),
       'sdnn': _scalar(b, 'sdnn'),
       'ln_rmssd': _scalar(b, 'ln_rmssd'),
@@ -1049,6 +1053,10 @@ class LocalRepositoryImpl extends LocalRepository {
     final night = <String, dynamic>{
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
+      'day_zone': b['day_zone'],
+      'sleep_spans_zone_change': b['sleep_spans_zone_change'],
+      'zone_abbreviation': DayClock.abbreviation(napDay,
+          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000),
       'sleep_source': sleepSource,
       'duration_min': (tst / 60).round(),
       'in_bed_min': spt == null ? null : (spt / 60).round(),
@@ -1363,6 +1371,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // motion). Fall back to the total record count, never hr_valid.
       'worn_min': wornMin,
       'date': b['date'],
+      'day_zone': b['day_zone'],
+      'zone_abbreviation': DayClock.abbreviation(b['date'] as String? ?? date,
+          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000),
       // MISSING IS NOT 100% either. This used to read `hrSamples > 0 ? 100 : 0`,
       // so one HR sample claimed the band was worn for the whole day and the
       // row printed "Wear time 20m · 100% of the day". The engine wear block is
@@ -2063,9 +2074,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // Measured counts can change without a derive, including old dates.
       // Retained coverage also supplies days which never had a derived row.
       final coverage = await (await LocalDb.instance).rawQuery(
-        "SELECT strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS date "
+        "SELECT ${storedDayLabelSql('live_coverage.start_ts')} AS date "
         'FROM live_coverage WHERE end_ts > start_ts UNION '
-        "SELECT strftime('%Y-%m-%d', end_ts - 1, 'unixepoch', 'localtime') AS date "
+        "SELECT ${storedDayLabelSql('live_coverage.end_ts - 1')} AS date "
         'FROM live_coverage WHERE end_ts > start_ts',
       );
       final dates = {
@@ -2131,9 +2142,7 @@ class LocalRepositoryImpl extends LocalRepository {
     return out;
   }
 
-  int _dateToEpoch(String date) =>
-      (DateTime.tryParse('$date 12:00:00')?.millisecondsSinceEpoch ?? 0) ~/
-      1000;
+  int _dateToEpoch(String date) => dayChartAnchorSec(date) ?? 0;
 
   @override
   Future<Map<String, dynamic>> getRecords() async {

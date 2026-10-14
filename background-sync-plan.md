@@ -34,6 +34,15 @@ opening WHOOP for only two or three minutes a day to read insights. He is unsure
 the supplied afternoon gap included swiping the app away. `todo.md` owns approval and
 release gates; `bugs.md` owns the private-log findings and their attribution limits.
 
+Build 90 source records time-zone changes from the native timezone/significant-time-change
+notifications in a durable inbox, acknowledged after a SQLite transaction. Launch, foreground
+and headless/foreground sync also check the current IANA zone. Workers receive a persisted
+snapshot so re-derivation cannot silently switch to the phone's new zone. A forward date jump
+opens the new label at the change instant; a westward jump holds the current label until a
+midnight advances it. These seams partition absolute time without repeated labels. The pure
+travel/DST and storage/restore checks pass; open-app and background native delivery still need
+phone verification. No new background permission or guaranteed wake schedule is introduced.
+
 ## Required Behavior
 
 An isolated current-code synthetic DB/repository test reproduces the B88-05 overnight mismatch:

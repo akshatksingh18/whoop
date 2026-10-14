@@ -240,10 +240,13 @@ are phone-verified; the broader lifecycle and signing gates remain open.
   reliability findings, complete app-wide repair/verification/enhancement backlog,
   feature-preserving Progress redesign and next-build options; read before
   choosing or implementing the next build. Recommendations are not implementation approval.
-- `build-90-research-prompt.md` — the Build 90 research brief for the single research agent
-  (Codex): engine, sleep, time-zone, strain, decoder, background and estimate questions, the
-  source standard and the verdict format. Its output, `build-90-research.md`, does not exist
-  until that pass is done. A prompt, not findings or approval.
+- `build-90-research-prompt.md` — the Build 90 research brief: engine, sleep, time-zone,
+  strain, decoder, background and estimate questions, the source standard and the verdict
+  format. A prompt, not findings or approval.
+- `build-90-research.md` — the first Build 90 research pass (Claude, the single research
+  agent): a verdict, sources and impact for every brief question, the items needing Akshat's
+  approval and the constants with no source. Read before any Build 90 engine change; it is
+  not implementation approval.
 - `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; planned for Build 90,
   with the source audit and smallest changes in `todo.md`. Read before changing Lift Log for it.
 - `todo.md` — the decided Build 90 plan (lanes, file ownership, phases, home workout audit),

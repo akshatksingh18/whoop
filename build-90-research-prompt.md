@@ -1,8 +1,9 @@
 # Build 90 Research Pass: Brief For The Research Agent (Codex)
 
-**Status:** Active brief for the first Build 90 research pass (Akshat, Build 90 decision D2/D3
-in `todo.md`). A prompt, not findings and not implementation approval. Its output is
-`build-90-research.md`.
+**Status:** The first pass is done (`build-90-research.md`). Akshat reassigned it to Claude
+because Codex's usage was exhausted, so Claude is the single research agent for Build 90; read
+"Codex" below as whichever agent holds that role. Reuse this brief for any follow-up pass.
+A prompt, not findings and not implementation approval.
 
 You are the only agent doing internet research for Build 90. Claude is working on the app's
 screens in a separate branch at the same time. This pass is research and analysis only.

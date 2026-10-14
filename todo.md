@@ -51,8 +51,9 @@ GitHub check. Implementation starts on Akshat's go-ahead for this plan.
   thoroughly so that no constant is an assumption: each number either cites a primary source
   or is derived and tested; unknown stays absent. Recalculation covers only retained inputs
   (about three days of raw); older stored days keep their values and nothing is invented.
-- D3 Research: one agent only does internet research (Codex, the engine lane). Queries never
-  contain Akshat's data. A finding that changes a headline formula (sleep staging, readiness,
+- D3 Research: one agent only does internet research. Akshat reassigned it to Claude when
+  Codex's usage ran out, and the first pass is done (`build-90-research.md`); the engine lane's
+  implementation follows its verdicts. Queries never contain Akshat's data. A finding that changes a headline formula (sleep staging, readiness,
   strain baseline) is summarised for Akshat's per-item approval before it merges; findings
   that need phone measurements ship instrumentation and a safe default.
 - D4 Food counting (B90-10): each counted day keeps the calorie goal it was judged against;
@@ -106,11 +107,21 @@ Only the owner edits a file; the other lane asks through its notes block below.
 
 ### Phases
 
-- [ ] 0. Setup (Claude): privacy-review and commit the pending audit/doc edits as the shared
-  base; create `build-90` from `main`, add the three contracts, push and pass CI; create both
-  lane branches; hand Akshat the Codex brief.
-- [ ] 1. Lanes in parallel. Claude sends the early Progress preview; Codex delivers research
-  findings, and Akshat approves any headline-formula change per item.
+- [x] 0. Setup (Claude): the reviewed audit/doc edits are committed on `build-90` (from
+  `main`) with the three contracts (`openProgress`/`ProgressDest` in
+  `lib/ui2/screens/progress_routes.dart`, `AppState.publishSessionChange()`, and the
+  additive-only note above `rollupDay`); `build-90`, `build-90-claude` and `build-90-codex`
+  are pushed to origin and local-backup. Codex's lane brief is written when implementation
+  starts.
+- [x] Research pass (Claude, D3): `build-90-research.md`. Before implementation Akshat decides
+  the items it marks for approval: A1 withholding a night above 10% omitted beats, A2 gap
+  segments in breathing rate/staging, B2b sleep need (quarter of the gap; drop the strain
+  bonus), C3 the day's-weight rule, G2 bodyweight MET 3.0, G4 the maintenance range, G6 the
+  10-rep estimate cap. D1 strain waits for a local comparison; the local counts (A1 omitted
+  beats, E1 R10 prevalence) and the phone measurements (C1 zone pickup, E4 bursts, F1 wake
+  timing, H1 outdoor speed) are listed there.
+- [ ] 1. Lanes in parallel, on Akshat's go-ahead. Claude sends the early Progress preview;
+  approved research verdicts are implemented in the engine lane.
 - [ ] 2. Merge (Claude): Codex lane, then Claude lane; `0.9.57+90`; one `kAlgoVersion`
   decision with its changelog; full GitHub tests; screenshot review of every changed screen.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,

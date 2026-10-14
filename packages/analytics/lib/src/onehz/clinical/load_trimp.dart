@@ -277,12 +277,28 @@ double strainScore(
 }) {
   final net =
       trimp - baselineTrimp(wakeMinutes, quietHrr: quietHrr, female: female);
-  if (net <= 0) return 0.0;
+  return strainFromNetTrimp(net);
+}
+
+/// The 0–21 map on its own: net TRIMP (earned above the quiet baseline) to
+/// strain. [strainScore] is this after the baseline subtraction.
+double strainFromNetTrimp(double net) {
+  if (!net.isFinite || net <= 0) return 0.0;
   final u = math.min(1.0, net / maximalNetTrimp);
   final s = 21.0 *
       math.log(1 + u * (strainCurvature - 1)) /
       math.log(strainCurvature);
   return math.min(21.0, math.max(0.0, s));
+}
+
+/// The inverse of [strainFromNetTrimp]: the net TRIMP a 0–21 strain stands
+/// for. Strain is a log map, so two workouts' strains do not add; their net
+/// TRIMPs do (Build 89 day floor). 21 maps back to [maximalNetTrimp].
+double netTrimpFromStrain(double strain) {
+  if (!strain.isFinite || strain <= 0) return 0.0;
+  final s = math.min(21.0, strain);
+  final u = (math.pow(strainCurvature, s / 21.0) - 1) / (strainCurvature - 1);
+  return u * maximalNetTrimp;
 }
 
 /// Headline 0–21 strain as a Metric, alongside the raw TRIMP (EST tier).

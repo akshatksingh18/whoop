@@ -642,24 +642,51 @@ NutritionDay rollupDay(
   );
 }
 
-/// Partial-day detection (D13, build 88). A day counts only when the user
-/// marks it complete and every occasion carries energy. A past unmarked day is
-/// partial: the old evening-entry guess admitted a missed late meal, and one
-/// unseen meal moves an average or a food/weight maintenance by hundreds of kcal.
+/// The calorie goal the automatic count is judged against ([dayLogState]).
+/// Written by `AppState` whenever the profile loads or saves — the profile
+/// is its only source — and null when no goal is set, which leaves every
+/// unmarked past day uncounted, as before Build 89.
+double? autoCountKcalGoal;
+
+/// The share of the calorie goal a past unmarked day must reach to count on
+/// its own (Akshat, Build 89): marking every day was a chore, and a forgotten
+/// mark dropped a real day. Half the goal leaves out the day a dinner or two
+/// meals were never logged, which is the case D13 guards against.
+const double kAutoCountGoalShare = 0.5;
+
+/// Partial-day detection. Your mark always wins: complete (when every
+/// occasion carries energy) or incomplete. Otherwise today is in progress,
+/// and a past day counts on its own once every occasion carries energy and
+/// it reached [kAutoCountGoalShare] of [kcalGoal] (Build 89; D13 had required
+/// the mark on every day). Below that it stays partial until you count it.
 DayLogState dayLogState(
   String date,
   List<FoodEntry> entries, {
   required String today,
   NutrientTotal? kcal,
   String? mark,
+  double? kcalGoal,
 }) {
   if (entries.isEmpty) return DayLogState.none;
   if (mark == 'incomplete') return DayLogState.partial;
   final energy = kcal ?? _sum(entries, (e) => e.kcal);
   if (mark == 'complete' && energy.complete) return DayLogState.complete;
   if (date == today) return DayLogState.inProgress;
+  final goal = kcalGoal ?? autoCountKcalGoal;
+  if (mark == null &&
+      energy.complete &&
+      goal != null &&
+      goal > 0 &&
+      (energy.value ?? 0) >= kAutoCountGoalShare * goal) {
+    return DayLogState.complete;
+  }
   return DayLogState.partial;
 }
+
+/// True when [date] counts only because it reached the automatic threshold —
+/// no mark of its own — so the screen can say "counted automatically".
+bool countedAutomatically(NutritionDay d, String? mark) =>
+    mark == null && d.state == DayLogState.complete;
 
 /// One nutrient averaged across a window, with what was left out of it.
 /// [value] null is an absence with a reason attached, never a zero: either no

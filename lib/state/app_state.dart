@@ -95,6 +95,8 @@ import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
 import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
+import '../data/nutrition_store.dart' show autoCountKcalGoal;
+import '../data/food_day_reminder.dart' show FoodDayReminder;
 import '../live/live_activity.dart';
 import '../live/breathing_live_activity.dart';
 import '../notify/device_alerts.dart';
@@ -358,6 +360,7 @@ class AppState extends ChangeNotifier {
     if (raw != null) {
       try {
         user = (jsonDecode(raw) as Map).cast<String, dynamic>();
+        autoCountKcalGoal = (user?['kcal_target'] as num?)?.toDouble();
       } catch (_) {
         /* ignore corrupt blob */
       }
@@ -1120,6 +1123,7 @@ class AppState extends ChangeNotifier {
       rethrow;
     }
     user = next;
+    autoCountKcalGoal = (next['kcal_target'] as num?)?.toDouble();
     runsChanged();
     bumpInsights();
     notifyListeners();
@@ -1244,6 +1248,7 @@ class AppState extends ChangeNotifier {
     await prefs.remove(_kOnboard);
     _onboardChoice = null;
     user = null;
+    autoCountKcalGoal = null;
     await unpair();
   }
 
@@ -2894,6 +2899,10 @@ class AppState extends ChangeNotifier {
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
   /// safe to call repeatedly (cancels + re-schedules). Best-effort.
   Future<void> _ensureRemindersScheduled() async {
+    // Build 89: the evening food question, independent of the rest.
+    try {
+      await FoodDayReminder.arm();
+    } catch (_) {}
     try {
       final prefs = await NotificationPrefs.load();
       // ONE crossday read feeds every schedule that hangs off the rollup:

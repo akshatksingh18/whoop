@@ -27,6 +27,7 @@
 // only three of them and they are read together.
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -2136,6 +2137,9 @@ class _HeartCard extends StatefulWidget {
 
 class _HeartCardState extends State<_HeartCard> {
   int _window = 2;
+
+  /// Where a finger sits on the chart, 0…1; null shows the range (Build 89).
+  double? _scrub;
   Timer? _clock;
   @override
   void initState() {
@@ -2186,6 +2190,16 @@ class _HeartCardState extends State<_HeartCard> {
     final labels = start == null
         ? const ['12 am', 'Noon', '12 am']
         : [time(start), time(start + (end - start) ~/ 2), time(end)];
+    // The minute under a finger at fraction [f] of the chart.
+    String scrubText(double f) {
+      if (points.isEmpty) return 'No recorded heart rate';
+      final i = (f * (points.length - 1)).round().clamp(0, points.length - 1);
+      final v = points[i];
+      final at = start == null ? '' : '${time(start + i * 60)} · ';
+      return v == null || !v.isFinite
+          ? '${at}not recorded'
+          : '$at${v.round()} bpm';
+    }
     return Surface(
       onTap: () => go(c, const DayTimelineScreen()),
       semanticLabel: 'Heart rate${range == null ? '' : ', $range'}',
@@ -2209,7 +2223,7 @@ class _HeartCardState extends State<_HeartCard> {
           SubTabs(
             const ['10 min', '1 hour', 'Day'],
             _window,
-            (i) => setState(() => _window = i),
+            (i) => setState(() => (_window = i, _scrub = null)),
             color: C.heart,
           ),
           if (_window == 2 ? widget.graphFailed : widget.failed)
@@ -2248,14 +2262,57 @@ class _HeartCardState extends State<_HeartCard> {
                       ? 'Last 10 minutes'
                       : 'Last hour'}: '
                   '$range, ${vals.length} recorded minutes. Missing minutes are gaps.',
-              child: SizedBox(
-                height: 100,
-                child: CustomPaint(
-                  size: Size.infinite,
-                  painter: LineChart(points, p.on(C.heart), t: animate(c, 1)),
+              // Build 89: every window reads under the finger, like the full
+              // heart-rate screen. The detector claims taps and sideways drags
+              // so touching the chart reads it instead of opening the card.
+              child: GestureDetector(
+                onTap: () {},
+                onHorizontalDragUpdate: (_) {},
+                child: Scrubber(
+                  value: _scrub,
+                  onChanged: (v) => setState(() => _scrub = v),
+                  label: 'Heart rate chart',
+                  describe: (f) => scrubText(f),
+                  step: 1 / math.max(1, points.length - 1),
+                  child: SizedBox(
+                    height: 100,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            size: Size.infinite,
+                            painter: LineChart(
+                              points,
+                              p.on(C.heart),
+                              t: animate(c, 1),
+                            ),
+                          ),
+                        ),
+                        if (_scrub case final f?)
+                          Align(
+                            alignment: Alignment(f * 2 - 1, 0),
+                            child: SizedBox(
+                              width: 2,
+                              height: double.infinity,
+                              child: ColoredBox(color: p.ink),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
+            if (_scrub case final f?) ...[
+              const SizedBox(height: S.x2),
+              Text(
+                scrubText(f),
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
             const SizedBox(height: S.x2),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

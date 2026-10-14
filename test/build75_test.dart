@@ -432,8 +432,10 @@ void main() {
           home: const Scaffold(body: CalorieCard(eaten: 1475, goal: 2202)),
         ),
       );
-      expect(find.text('1,475'), findsOneWidget);
-      expect(find.text('Goal 2,202 · 727 left'), findsOneWidget);
+      // Build 89: eaten over the goal, and what is left just as large.
+      expect(find.text('1,475 / 2,202 kcal'), findsOneWidget);
+      expect(find.text('727'), findsOneWidget);
+      expect(find.text('left'), findsOneWidget);
       expect(find.text('Maintenance not available'), findsOneWidget);
     });
   });

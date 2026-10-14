@@ -156,6 +156,8 @@ const Map<String, int> _tabRoutes = {
   '/heart': 2,
   '/body': 3,
   '/workouts': 4,
+  // Build 89: the evening food question lands on Food (`domainForTab` 6).
+  '/food': 6,
   // The forgotten-workout nudge. The Workouts tab IS its destination — the
   // live session bar with the finish control is pinned to the shell there and
   // `screenForRoute` has nothing to push — so it belongs in the tab table,

@@ -38,6 +38,9 @@ import '../data/pushup_reminders.dart'
         kPushupPauseAction,
         pushupNotificationBackground,
         PushupReminders;
+import '../data/food_day_reminder.dart'
+    show FoodDayReminder, kFoodCompleteAction, kFoodDayCategory,
+        kFoodNotYetAction;
 import 'notification_event.dart';
 import 'tap_router.dart';
 import 'notification_ids.dart';
@@ -153,6 +156,8 @@ class NotificationService {
 
   /// Body's optional weekly measurement-day reminder (build 86).
   static const int idBodyReminder = 2422;
+  // Build 89: "Is today's food complete?" (FoodDayReminder), daily.
+  static const int idFoodDayReminder = 2423;
 
   /// Pushups (build 86): the ordinary reminder, its band of ten-minute nudges
   /// and the idle 9:00 AM start invitation. iOS keeps at most 64 pending
@@ -233,6 +238,7 @@ class NotificationService {
     idLiftInactivity,
     idRestTimer,
     idBodyReminder,
+    idFoodDayReminder,
     idPushupRegular,
     idPushupDailyStart,
     idWeeklyRecap,
@@ -325,6 +331,19 @@ class NotificationService {
             DarwinNotificationAction.plain(kPushupPauseAction, 'Pause'),
           ],
         ),
+        // Build 89: the evening food question. "Mark complete" opens the app
+        // (foreground), where the tap handler records the mark.
+        DarwinNotificationCategory(
+          kFoodDayCategory,
+          actions: [
+            DarwinNotificationAction.plain(
+              kFoodCompleteAction,
+              'Mark complete',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+            DarwinNotificationAction.plain(kFoodNotYetAction, 'Not yet'),
+          ],
+        ),
       ],
     );
     await _plugin.initialize(
@@ -347,6 +366,10 @@ class NotificationService {
     if (r.actionId == kPushupDoneAction || r.actionId == kPushupPauseAction) {
       PushupReminders.onAction(r, background: false);
       return;
+    }
+    if (r.actionId == kFoodNotYetAction) return;
+    if (r.actionId == kFoodCompleteAction) {
+      FoodDayReminder.onComplete();
     }
     final route = r.payload;
     if (route != null && route.isNotEmpty) _taps.add(route);
@@ -578,6 +601,7 @@ class NotificationService {
     required int minute,
     String? route,
     bool skipToday = false,
+    String? iosCategory,
   }) async {
     try {
       if (!_maySchedule(id)) return;
@@ -600,7 +624,14 @@ class NotificationService {
         title,
         body,
         when,
-        _details(category),
+        iosCategory == null
+            ? _details(category)
+            : NotificationDetails(
+                android: _details(category).android,
+                iOS: DarwinNotificationDetails(
+                  categoryIdentifier: iosCategory,
+                ),
+              ),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,

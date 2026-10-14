@@ -2291,7 +2291,17 @@ class ScreenTitle extends StatelessWidget {
 
   /// Build 88: the small line above the title (the date, the goal).
   final String? kicker;
-  const ScreenTitle(this.title, {super.key, this.trailing, this.kicker});
+
+  /// Build 89: makes the kicker a control (a ⌄ after it), such as Food's date
+  /// opening its calendar.
+  final VoidCallback? onKicker;
+  const ScreenTitle(
+    this.title, {
+    super.key,
+    this.trailing,
+    this.kicker,
+    this.onKicker,
+  });
 
   @override
   Widget build(BuildContext c) {
@@ -2306,7 +2316,32 @@ class ScreenTitle extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (kicker != null)
+                if (kicker != null && onKicker != null)
+                  Pressable(
+                    semanticLabel: '$kicker. Choose a day',
+                    onTap: onKicker,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            kicker!,
+                            style: F.body.copyWith(
+                              color: p.onGround,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: S.x1),
+                        Icon(
+                          LucideIcons.chevronDown,
+                          size: 18,
+                          color: p.onGround,
+                        ),
+                      ],
+                    ),
+                  )
+                else if (kicker != null)
                   Text(kicker!, style: F.body.copyWith(color: p.onGround)),
                 Text(
                   title,
@@ -2322,6 +2357,76 @@ class ScreenTitle extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Progress toward a goal, [frac] = value / goal (Build 89). Up to the goal
+/// it fills in [color]; past it the goal's share stays solid and the excess
+/// is striped in the alert colour, so "over" reads at a glance.
+class GoalBar extends StatelessWidget {
+  const GoalBar(this.frac, {super.key, required this.color, this.height = 8});
+  final double frac;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final f = frac.isFinite && frac > 0 ? frac : 0.0;
+    return Semantics(
+      label: '${(f * 100).round()} percent of the goal',
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
+        child: CustomPaint(
+          painter: _GoalBarPainter(
+            f,
+            track: p.line,
+            fill: color,
+            over: p.on(C.alert),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalBarPainter extends CustomPainter {
+  _GoalBarPainter(this.f, {required this.track, required this.fill, required this.over});
+  final double f;
+  final Color track, fill, over;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final r = Radius.circular(s.height / 2);
+    final whole = RRect.fromRectAndRadius(Offset.zero & s, r);
+    c.drawRRect(whole, Paint()..color = track);
+    if (f <= 0) return;
+    c.save();
+    c.clipRRect(whole);
+    if (f <= 1) {
+      c.drawRect(Rect.fromLTWH(0, 0, s.width * f, s.height), Paint()..color = fill);
+    } else {
+      // The goal is 1/f of the bar; a small gap separates the excess.
+      final goalW = s.width / f;
+      c.drawRect(Rect.fromLTWH(0, 0, goalW, s.height), Paint()..color = fill);
+      final ex = Rect.fromLTWH(goalW + 2, 0, s.width - goalW - 2, s.height);
+      c.drawRect(ex, Paint()..color = over.withValues(alpha: .18));
+      c.save();
+      c.clipRect(ex);
+      final pen = Paint()
+        ..color = over
+        ..strokeWidth = 2;
+      for (var x = ex.left - s.height; x < ex.right + s.height; x += 6) {
+        c.drawLine(Offset(x, s.height), Offset(x + s.height, 0), pen);
+      }
+      c.restore();
+    }
+    c.restore();
+  }
+
+  @override
+  bool shouldRepaint(_GoalBarPainter o) =>
+      o.f != f || o.track != track || o.fill != fill || o.over != over;
 }
 
 /// A small labelled chip. Status, tag, category.
@@ -3567,24 +3672,9 @@ class MetricLine extends StatelessWidget {
             style: F.cap.copyWith(color: absent ? p.on(C.alert) : p.ink2),
           )
         : progress != null
-        ? ClipRRect(
-            borderRadius: R.rPill,
-            child: SizedBox(
-              height: 10,
-              child: Stack(
-                children: [
-                  Positioned.fill(child: ColoredBox(color: p.line)),
-                  FractionallySizedBox(
-                    widthFactor: progress!.clamp(0.0, 1.0),
-                    child: ColoredBox(
-                      color: color,
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
+        // Build 89: past the target the bar turns striped, like the
+        // calorie bar, instead of sitting full and saying nothing.
+        ? GoalBar(progress!, color: color, height: 10)
         : values.isEmpty
         ? const SizedBox.shrink()
         : DayTiles(values, color, style: style);

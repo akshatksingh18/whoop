@@ -22,6 +22,7 @@ import '../../compute/day_upkeep.dart';
 export '../../compute/day_upkeep.dart' show DayUpkeep;
 import '../../data/local_repository.dart';
 import '../../data/nutrition_store.dart';
+import '../../data/food_day_reminder.dart' show FoodDayReminder;
 import '../../gps/run_history.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
@@ -31,6 +32,7 @@ import 'home_screen.dart'
     show metricOf, prettyDay, pullToRefresh, repoOf, thousands;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
+import 'food_calendar.dart' show FoodWeekStrip, showFoodCalendar;
 
 /// The five typed targets, in display order: (profile key, label, unit, colour).
 const kNutritionTargets = [
@@ -202,7 +204,16 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         children: [
           ScreenTitle(
             'Food',
-            kicker: prettyDay(todayLabel()),
+            // Build 89: the date of the day shown, opening a month calendar.
+            kicker: prettyDay(_tab == 0 ? (_shownDay ?? _date) : _date),
+            onKicker: _tab == 0
+                ? () async {
+                    final d = await showFoodCalendar(c, _shownDay ?? _date);
+                    if (d != null && mounted) {
+                      setState(() => _shownDay = d == _date ? null : d);
+                    }
+                  }
+                : null,
             trailing: Pressable(
               semanticLabel: 'Goals',
               onTap: () async {
@@ -258,7 +269,23 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DayHeader(day, go),
+          // Build 89: the week of days, each marked counted / logged /
+          // empty, in place of ‹ Today ›. Older days: the date above.
+          FoodWeekStrip(date: day, onDay: go),
+          if (day != _date)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => go(_date),
+                child: Text(
+                  'Back to today',
+                  style: F.cap.copyWith(
+                    color: P.of(c).ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
           const SizedBox(height: S.x3),
           NutritionDayView(
             key: ValueKey('$day#$_dayKey'),
@@ -839,7 +866,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   /// every food carrying it (B86-08).
   Future<void> _manageLabels(BuildContext c) async {
     final labels = foodLabelsIn(_foods);
-    final pick = await showModalBottomSheet<String>(
+    final picked = await showModalBottomSheet<String>(
       context: c,
       useSafeArea: true,
       sheetAnimationStyle: sheetMotion(c),
@@ -857,26 +884,57 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
               const SizedBox(height: S.x2),
               Text(
                 "Rename one, give it another label's name to merge them, or "
-                'clear the name to remove it from its foods.',
+                'remove it from its foods with the bin.',
                 style: F.cap.copyWith(color: P.of(s).ink3),
               ),
               const SizedBox(height: S.x3),
               for (final l in labels)
-                PickRow(
-                  l,
-                  () {
-                    final n = foodsIn(_foods, l).length;
-                    return '$n ${n == 1 ? 'food' : 'foods'}';
-                  }(),
-                  trailing: LucideIcons.pencil,
-                  onTap: () => Navigator.of(s).pop(l),
+                Row(
+                  children: [
+                    Expanded(
+                      child: PickRow(
+                        l,
+                        () {
+                          final n = foodsIn(_foods, l).length;
+                          return '$n ${n == 1 ? 'food' : 'foods'}';
+                        }(),
+                        onTap: () => Navigator.of(s).pop('rename:$l'),
+                      ),
+                    ),
+                    // Build 89: remove straight from the list, left of the
+                    // pencil, instead of renaming to an empty name.
+                    IconButton(
+                      tooltip: 'Remove $l',
+                      onPressed: () => Navigator.of(s).pop('remove:$l'),
+                      icon: Icon(LucideIcons.trash2, color: P.of(s).ink2),
+                    ),
+                    IconButton(
+                      tooltip: 'Rename $l',
+                      onPressed: () => Navigator.of(s).pop('rename:$l'),
+                      icon: Icon(LucideIcons.pencil, color: P.of(s).ink2),
+                    ),
+                  ],
                 ),
             ],
           ),
         ),
       ),
     );
-    if (pick == null || !c.mounted) return;
+    if (picked == null || !c.mounted) return;
+    final pick = picked.substring(picked.indexOf(':') + 1);
+    if (picked.startsWith('remove:')) {
+      final n = foodsIn(_foods, pick).length;
+      if (await confirmRemove(
+        c,
+        title: 'Remove "$pick"?',
+        body:
+            'It comes off ${n == 1 ? 'the 1 food' : 'all $n foods'} that '
+            'carry it. The foods themselves stay.',
+      )) {
+        await NutritionDb.renameFoodLabel(await LocalDb.instance, pick, '');
+      }
+      return;
+    }
     final to = await askText(
       c,
       'Rename $pick',
@@ -1079,23 +1137,23 @@ class _NutritionDayViewState extends State<NutritionDayView>
     );
   }
 
-  /// Whether this day counts in the weekly averages, and the one tap that
-  /// says so yourself (build 86): mark it complete when everything is in,
-  /// or incomplete when it is not. From build 88 an unmarked past day is
-  /// partial: only the user knows the log is whole.
+  /// Whether this day counts in the weekly averages. From Build 89 a past
+  /// day counts on its own once it looks finished (half the calorie goal,
+  /// every food with calories); a mark always wins either way.
   Widget _completeLine(BuildContext c, NutritionDay d) {
     final p = P.of(c);
     final say = switch (d.state) {
       DayLogState.complete =>
         _mark == 'complete'
             ? 'Marked complete · counts in averages'
-            : 'Counts in averages',
-      DayLogState.inProgress => 'Counts in averages once the day is complete',
+            : 'Counted automatically · counts in averages',
+      DayLogState.inProgress =>
+        'Counts on its own after today if it reaches half your goal',
       _ =>
         _mark == 'incomplete'
-            ? 'Marked incomplete · left out of averages'
+            ? 'Marked as missing food · left out of averages'
             : d.kcal.complete
-            ? 'Left out of averages until you mark it complete'
+            ? 'Under half your goal · left out of averages'
             : 'Left out of averages: a food has no calories',
     };
     Future<void> set(String? m) async {
@@ -1104,11 +1162,14 @@ class _NutritionDayViewState extends State<NutritionDayView>
     }
 
     final action = _mark != null
-        ? ('Automatic', () => set(null))
+        ? ('Undo', () => set(null))
         : d.state == DayLogState.complete
-        ? ('Mark incomplete', () => set('incomplete'))
+        ? ('Missing food', () => set('incomplete'))
         : d.kcal.complete
-        ? ('Mark complete', () => set('complete'))
+        ? (
+            d.state == DayLogState.inProgress ? 'Mark complete' : 'Count this day',
+            () => set('complete'),
+          )
         : null;
     return Padding(
       padding: const EdgeInsets.only(top: S.x2),
@@ -1320,14 +1381,30 @@ class CalorieCard extends StatelessWidget {
     // Build 88 (DESIGN.md, mock `3-food`): the day's intake as the hero in the
     // food colour, goal and maintenance beside it, the four macros as
     // progress lines under it.
+    // Build 89 (Akshat): the hero is what is LEFT of the goal — the number
+    // he opens Food to read — with eaten and the goal beside it and a bar of
+    // eaten against the goal under it. No goal: the hero stays eaten.
+    final hasGoal = g != null && g > 0;
+    final over = hasGoal && food != null && food > g;
+    // Build 89 (Akshat's reference): eaten over the goal on the left, what is
+    // left (or over) as large on the right, and a bar under both that stripes
+    // past the goal.
+    final eatenText = food == null
+        ? null
+        : '${floor ? '≥' : ''}${thousands(food)}';
+    final sideValue = !hasGoal || food == null
+        ? null
+        : thousands((g - food).abs());
+    final sideWord = over
+        ? (floor ? 'over, at least' : 'over')
+        : (floor ? 'left, at most' : 'left');
+    final heroLabel = soFar ? 'Calories so far' : 'Calories';
     final heroLines = <String>[
-      g == null || g <= 0
+      !hasGoal
           ? 'No intake goal'
           : food == null
           ? 'Goal ${thousands(g)} · intake not recorded'
-          : floor
-          ? 'Goal ${thousands(g)} · ${food > g ? 'at least ${thousands(food - g)} over' : 'at most ${thousands(g - food)} left'}'
-          : 'Goal ${thousands(g)} · ${thousands((g - food).abs())} ${food > g ? 'over' : 'left'}',
+          : 'goal ${thousands(g)}',
       food == null
           ? 'Intake not recorded'
           : balance == null
@@ -1349,12 +1426,15 @@ class CalorieCard extends StatelessWidget {
                   onTap: onTap,
                   semanticLabel: 'Daily food totals',
                   child: _CalorieHero(
-                    value: food == null ? null : thousands(food),
-                    label: floor
-                        ? (soFar ? 'At least, so far' : 'Eaten, at least')
-                        : (soFar ? 'Eaten so far' : 'Eaten'),
+                    eaten: eatenText,
+                    goal: hasGoal ? thousands(g) : null,
+                    side: sideValue,
+                    sideWord: sideWord,
+                    label: heroLabel,
                     lines: heroLines,
                     status: status,
+                    over: over,
+                    frac: !hasGoal || food == null ? null : food / g,
                   ),
                 ),
               ),
@@ -1380,35 +1460,99 @@ class CalorieCard extends StatelessWidget {
   }
 }
 
-/// The Food hero: the intake number in the food colour (DESIGN.md), the day
-/// state as its label, and goal and maintenance beside it. The maintenance
-/// line keeps the warning colour (above maintenance) the old card used.
+/// The Food hero (Build 89, Akshat's reference): eaten over the goal on the
+/// left, what is left — or over, in the alert colour — just as large on the
+/// right, a bar of eaten against the goal under both, then the maintenance
+/// line in the warning colour when intake is above it.
 class _CalorieHero extends StatelessWidget {
   const _CalorieHero({
-    required this.value,
+    required this.eaten,
+    required this.goal,
+    required this.side,
+    required this.sideWord,
     required this.label,
     required this.lines,
     required this.status,
+    this.over = false,
+    this.frac,
   });
 
-  final String? value;
+  /// Eaten, formatted; null when intake is not recorded.
+  final String? eaten;
+
+  /// The goal, formatted; null when none is set.
+  final String? goal;
+
+  /// What is left of the goal (or over it), formatted; null without both.
+  final String? side;
+  final String sideWord;
   final String label;
   final List<String> lines;
   final IntakeStatus status;
+  final bool over;
+  final double? frac;
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final warn = status == IntakeStatus.aboveMaintenance;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        HeroStat(
-          value: value,
-          color: C.food,
-          label: label,
-          lines: [lines.first],
+        Text(label.toUpperCase(), style: F.label.copyWith(color: p.ink2)),
+        const SizedBox(height: S.x2),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: eaten ?? '—',
+                      style: F.n48.copyWith(
+                        color: eaten == null ? p.on(C.alert) : p.ink,
+                      ),
+                    ),
+                    TextSpan(
+                      text: goal == null ? ' kcal' : ' / $goal kcal',
+                      style: F.body.copyWith(
+                        color: p.ink2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (side != null) ...[
+              const SizedBox(width: S.x3),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    side!,
+                    style: F.n34.copyWith(
+                      color: p.on(over ? C.alert : C.food),
+                    ),
+                  ),
+                  Text(
+                    sideWord,
+                    style: F.cap.copyWith(
+                      color: p.ink2,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
+        if (frac case final f?) ...[
+          const SizedBox(height: S.x3),
+          GoalBar(f, color: p.on(C.food), height: 12),
+        ],
+        const SizedBox(height: S.x3),
         Text(
           lines.last,
           style: F.cap.copyWith(color: warn ? p.on(C.red) : p.ink2),
@@ -1792,9 +1936,15 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
   bool busy = false;
   String? error;
 
+  /// Build 89: the evening "Is today's food complete?" question.
+  bool? _evening;
+
   @override
   void initState() {
     super.initState();
+    FoodDayReminder.enabled().then((on) {
+      if (mounted) setState(() => _evening = on);
+    });
     ctrls = {
       for (final t in kNutritionTargets)
         t.$1: TextEditingController(
@@ -1875,6 +2025,41 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
       ],
       if (error != null) ...[
         Text(error!, style: F.cap.copyWith(color: P.of(s).on(C.red))),
+        const SizedBox(height: S.x3),
+      ],
+      if (_evening case final on?) ...[
+        Pressable(
+          semanticLabel: 'Evening check ${on ? 'on' : 'off'}',
+          onTap: () async {
+            await FoodDayReminder.setEnabled(!on);
+            if (mounted) setState(() => _evening = !on);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Evening check at 9:30 pm',
+                        style: F.body.copyWith(color: P.of(s).ink),
+                      ),
+                      Text(
+                        "Asks if today's food is complete. A day with half "
+                        'your goal or more counts on its own either way.',
+                        style: F.cap.copyWith(color: P.of(s).ink2),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: S.x3),
+                Pill(on ? 'On' : 'Off', on ? C.domFood : C.n400),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: S.x3),
       ],
       BigButton(

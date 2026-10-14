@@ -1646,6 +1646,9 @@ import 'substrate.dart';
 //   `correctRr` re-anchor step already used 1000). WHOOP 4 `beat_ts_ms` is the
 //   1 Hz record's phase, so 250 ms rejected most successive pairs: on 13 real
 //   nights the headline was absent on 6 and biased low on the rest.
+//   Day strain is never below its finished workouts' combined strain (their
+//   net TRIMPs summed): the population quiet baseline no longer cancels a
+//   real session on a low-daytime-HR day.
 //   Personal build: day steps are phone only (`kBandSteps` off) — band spans
 //   no longer fill time the phone did not cover, and the on-chip counter is
 //   never the day's fallback.
@@ -5815,6 +5818,30 @@ class DerivationEngine {
     // once, by `_applyWakeDayFeatures`, and is already in `wake`.
     final measuredSteps = scalars['steps'];
     if (measuredSteps != null) wake['steps'] = measuredSteps;
+    // Build 89: A DAY IS NEVER LESS STRAINED THAN THE WORKOUTS INSIDE IT. The
+    // day's strain nets the quiet-waking baseline (still the population level,
+    // edge#226) over every waking minute, so a wearer whose ordinary daytime
+    // HR sits below it had a 3.4-strain walk cancelled by the quiet hours
+    // around it and the day read 0.0 beside that walk. The finished sessions'
+    // own net TRIMPs (strain is a log map, so they add as TRIMP, not as
+    // strain) set a floor. It only ever raises a day that HAS a strain; it
+    // never invents one, and a day without sessions is unchanged.
+    final dayStrain = (wake['strain'] as num?)?.toDouble();
+    if (dayStrain != null && sessions.isNotEmpty) {
+      var net = 0.0;
+      for (final s in sessions) {
+        if (s['status'] != 'done') continue;
+        final st = (s['strain'] as num?)?.toDouble();
+        if (st != null && st.isFinite && st > 0) {
+          net += ana.netTrimpFromStrain(st);
+        }
+      }
+      final floor = ana.strainFromNetTrimp(net);
+      if (floor > dayStrain) {
+        wake['strain'] = floor;
+        wake['strain_session_floor'] = true;
+      }
+    }
     return wake;
   }
 

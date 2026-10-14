@@ -236,4 +236,32 @@ void main() {
       expect(m.value, greaterThan(14.0));
     });
   });
+
+  // Build 89: the day floor adds workouts as net TRIMP, never as strain.
+  group('net TRIMP and strain convert both ways', () {
+    test('round trip', () {
+      for (final s in [0.5, 3.4, 8.55, 16.54, 21.0]) {
+        expect(strainFromNetTrimp(netTrimpFromStrain(s)), closeTo(s, 1e-9));
+      }
+      expect(netTrimpFromStrain(0), 0);
+      expect(strainFromNetTrimp(-5), 0);
+    });
+
+    test('two workouts combine above either one, below their sum', () {
+      final both = strainFromNetTrimp(
+        netTrimpFromStrain(3.4) + netTrimpFromStrain(5.0),
+      );
+      expect(both, greaterThan(5.0));
+      expect(both, lessThan(8.4));
+    });
+
+    test('strainScore is the map after the baseline', () {
+      final net = 250.0 -
+          baselineTrimp(600, quietHrr: quietWakingHrr);
+      expect(
+        strainScore(250, wakeMinutes: 600, quietHrr: quietWakingHrr),
+        closeTo(strainFromNetTrimp(net), 1e-12),
+      );
+    });
+  });
 }

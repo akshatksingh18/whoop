@@ -1256,7 +1256,8 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Goal 2,300 · intake not recorded'), findsOneWidget);
+    // Build 89: an unrecorded intake reads "—" over the goal.
+    expect(find.text('— / 2,300 kcal'), findsOneWidget);
     expect(find.text('Intake not recorded'), findsOneWidget);
     expect(find.textContaining('2,300 left'), findsNothing);
     expect(find.text('Maintenance not available'), findsNothing);

@@ -361,7 +361,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       const SizedBox(height: S.x3),
       // Movement breaks through the day (build 86): its own reminders, goal
       // and streak; never a workout clock and never counted as exercise.
-      const TodayPushupRow(embedded: true, showWhenEmpty: true),
+      // Build 89: its own paper panel, like everything around it — the bare
+      // row sat on the kraft ground and blended into it.
+      const Surface(child: TodayPushupRow(embedded: true, showWhenEmpty: true)),
       const SizedBox(height: S.x3),
       ..._suggestionCards(c, d),
       Section(

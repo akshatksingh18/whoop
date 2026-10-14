@@ -53,6 +53,8 @@ import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
 import '../screens/screens.dart';
 import '../ui2.dart';
 import '../screens/today_plan.dart' show PlanRow;
+import '../screens/food_calendar.dart'
+    show FoodCalendar, FoodDayMark, FoodWeekStrip;
 import 'devices.dart';
 import 'profile.dart';
 
@@ -704,6 +706,26 @@ Map<String, Widget> _nutritionAndWellnessCases() {
     confirmed: true,
   );
   return {
+    // Build 89: Food's week strip and month calendar, and the goal bar.
+    'food_week_strip': FoodWeekStrip(
+      date: '2026-10-13',
+      onDay: (_) {},
+      marks: const {
+        '2026-10-12': FoodDayMark.counted,
+        '2026-10-13': FoodDayMark.logged,
+      },
+    ),
+    'food_calendar': const FoodCalendar(
+      current: '2026-10-13',
+      marks: {'2026-10-01': FoodDayMark.counted, '2026-10-02': FoodDayMark.logged},
+    ),
+    'goal_bar': Column(
+      children: const [
+        GoalBar(.6, color: C.food),
+        SizedBox(height: S.x2),
+        GoalBar(1.2, color: C.food),
+      ],
+    ),
     // Calories left against a typed goal; exercise never added back.
     'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
     'calorie_card_over': const CalorieCard(eaten: 2210, goal: 2000),

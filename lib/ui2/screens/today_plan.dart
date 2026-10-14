@@ -93,8 +93,9 @@ class PlanRow extends StatelessWidget {
               Pressable(
                 semanticLabel: action!,
                 onTap: onAction,
-                // A full 44 pt target round the smaller pill.
-                child: Text(action!, style: F.cap.copyWith(color: p.on(color))),
+                // A full 44 pt target round the smaller pill. A real pill,
+                // not bare text, so the action reads as a button (Build 89).
+                child: Pill(action!, color),
               ),
             ],
           ],

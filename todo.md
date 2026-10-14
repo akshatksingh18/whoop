@@ -74,7 +74,84 @@ all 13 qualify and agree closely with algorithm 91. Implemented as local commits
 - [x] Legibility (Akshat: the thin gold food number and other text strained his eyes): hero
   numbers semibold in their contrast-solved ink, labels 12.5 pt semibold, body/caption and
   Material text medium weight; rendered screens checked.
-- [ ] Publication, CI/macOS build and testing IPA: Akshat's go-ahead.
+- [ ] Publication, CI/macOS build and testing IPA: Akshat's go-ahead (he paused the IPA for the
+  items below).
+
+### Build 89 additions requested on the installed Build 88 (approved, in progress)
+
+Akshat's decisions: item 4 option B (automatic counting plus an optional evening reminder);
+item 6 the recommended Markdown file with food items up to 3 months; item 3 lead with calories
+left; item 1 one period selector for the whole page.
+
+No feature is removed by any item; every current number, chart and entry point stays reachable.
+
+1. **Progress tab, end-to-end rework (P1-P6).** Audit of today's page, top to bottom: review
+   tabs (Week/Month/Since start) with a hero and a verdict; a goal card with loose `+` and
+   settings icons beside it; Measurement and Range drop-downs; the body chart with
+   Start/Latest/Change/Total/Average; Strength; Food averages; Activity and recovery; weight
+   Entries; Photos. What makes it hard to follow:
+   - two independent time controls (review tabs and the Range drop-down) that silently disagree:
+     the same page shows protein "162 g · 6 complete days" in the review and "162 g · 50 complete
+     days" lower down, for different periods;
+   - weight, waist, lifts, protein and calories appear twice, once per control;
+   - the controls sit far from what they change (the Measurement drop-down above the chart, the
+     add/settings icons beside the goal, Entries detached from its chart by three sections);
+   - the verdict is a sentence of evidence rules rather than an answer, and the goal it is judged
+     against sits in the middle of the page.
+   Proposal:
+   - P1 one period selector for the whole page (Week · Month · 3 months · Since start, with
+     2 months/6 months/1 year/All under "More"); every section reads it, and each "before vs
+     now" comparison is against the previous period of the same length;
+   - P2 an answer card first: goal, a one-line answer (on track / not yet clear / off track),
+     and what would settle it ("log your waist this week"), with the evidence rules one tap
+     away;
+   - P3 one Body card: metric chips (Weight, Waist, the other sites, Steps) inside the card
+     above its chart, Start/Latest/Change below it, a collapsible list of entries, and
+     "+ Add entry" and Photos inside the same card;
+   - P4 Strength, Food and Activity & recovery as three consistently laid-out cards (label,
+     number, what it covers) for the selected period, without repeating the answer card;
+   - P5 goal details, measurement day and body settings together at the end;
+   - P6 every period stated in plain words ("this week vs last week"), not raw date pairs.
+2. **Pushups on Train.** Give the row its own paper card like the panels around it, with a clear
+   Start button instead of grey text on the kraft.
+3. **Food main card.** Lead with what is left: "850 left" as the hero (or "120 over" in the alert
+   colour), a full-width bar of eaten against goal under it, and "1,450 eaten · goal 2,300"
+   beside it; the maintenance line and the macro rows stay.
+4. **Counting a food day without marking it every day (needs Akshat's decision).** Today a past
+   day counts toward averages only when marked complete (D13, Build 88), so a forgotten mark drops
+   a real day. Options:
+   - A (recommended): a past day counts automatically once it looks finished — energy on every
+     item and at least half of that day's calorie goal — and shows "counted automatically · mark
+     as missing food" to exclude it; days below that stay out, with a one-tap "Count this day"
+     in History. Marking stays available and always wins.
+   - B: A plus an optional evening reminder ("Is today's food complete?") with one-tap actions.
+   - C: every past day with food counts unless marked incomplete (simplest; a forgotten dinner
+     then lowers averages and the food/weight maintenance estimate).
+5. **Labels.** A bin icon to the left of each label's pencil in Manage labels; it asks "Remove
+   'Protein' from 3 foods?" and removes the label only — the foods stay. Clearing the name keeps
+   working.
+6. **Export for AI analysis (needs Akshat's confirmation of shape).** Settings → Your data →
+   "Export for AI analysis", made on demand and shared through the share sheet, so it takes no
+   lasting storage (the temporary file is deleted after sharing). Recommended shape: one Markdown
+   file with
+   - a short header: what each column means, that "—" is not measured (never zero), which numbers
+     are estimates, the goal, profile basics, and a suggested prompt;
+   - range: 2 weeks, 1 month, 3 months, 6 months or Lifetime;
+   - one row per day: weight, waist, calories, protein, carbs, fat, fibre, whether the day counted,
+     steps, sleep, recovery, HRV, resting HR, strain, workouts;
+   - weekly averages for the same columns, so Lifetime shows trends at a glance;
+   - lift sessions (exercise, sets, top set, estimated 1RM) and body measurements;
+   - individual food items only for ranges up to 3 months: they are most of the size and add
+     little beyond a few months.
+   Size: about 0.25 KB a day for the daily row; with food items about 1 KB a day. A lifetime file
+   for a year without items is about 100 KB (roughly 30,000 tokens), which an AI chat reads
+   comfortably.
+7. **Today heart-rate chart.** Make 10 min, 1 hour and Day scrubbable with a finger (time and
+   bpm under the finger), using the same chart as the full heart-rate screen; today all three are
+   plain drawings with no touch handling.
+8. **Found while auditing: Train's week panel Strain read 0.0 on a day with a 3.4-strain walk**
+   (Akshat's screenshot); the same panel's own line says "strain 3.4 in total". Find why the
+   day's strain line and the session total disagree and fix the source, not the label.
 
 ## Build 88 (`0.9.55`/`88`): installed, phone checks open
 

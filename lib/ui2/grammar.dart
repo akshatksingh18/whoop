@@ -2343,11 +2343,21 @@ class ScreenTitle extends StatelessWidget {
                   )
                 else if (kicker != null)
                   Text(kicker!, style: F.body.copyWith(color: p.onGround)),
-                Text(
-                  title,
-                  style: F.display.copyWith(color: p.ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                // B90-08: Apple's Large Title grows from 34 to 60 pt at the
+                // largest accessibility size (x1.76), not with body text's
+                // x3.1; past that one word cannot wrap, so it fits rather
+                // than truncating to "Prog…".
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 60 / 34,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      title,
+                      style: F.display.copyWith(color: p.ink),
+                      maxLines: 1,
+                    ),
+                  ),
                 ),
               ],
             ),

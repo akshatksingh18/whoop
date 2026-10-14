@@ -1473,6 +1473,23 @@ void main() {
             ShellDomain.progress,
             () => ProgressScreen(data: _progress(empty: true)),
           ),
+          // Build 90: the detail pages the overview's rows open.
+          (
+            'progress_body',
+            ShellDomain.progress,
+            () => progressDetailPage(ProgressDest.weight, initial: _progress()),
+          ),
+          (
+            'progress_strength',
+            ShellDomain.progress,
+            () =>
+                progressDetailPage(ProgressDest.strength, initial: _progress()),
+          ),
+          (
+            'progress_context',
+            ShellDomain.progress,
+            () => progressDetailPage(ProgressDest.food, initial: _progress()),
+          ),
         ]) {
       testWidgets('$name renders whole at $tag text without overflow', (
         t,

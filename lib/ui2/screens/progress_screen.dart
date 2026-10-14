@@ -334,10 +334,8 @@ class _ProgressScreenState extends State<ProgressScreen>
       child: ListView(
         padding: pad,
         children: [
-          ScreenTitle(
-            'Progress',
-            kicker: d == null ? null : 'Goal: ${d.goal.phase.title.toLowerCase()}',
-          ),
+          // The goal card names the goal; no kicker repeats it.
+          const ScreenTitle('Progress'),
           if (_failed)
             StatusCard(
               'Progress could not load',
@@ -443,10 +441,13 @@ class _ProgressScreenState extends State<ProgressScreen>
             children: [
               Text(
                 [
-                  'GOAL · ${r.plan.phase.title.toUpperCase()}',
-                  if (days != null) 'DAY ${days + 1}',
+                  'Goal · ${r.plan.phase.title}',
+                  if (days != null) 'day ${days + 1}',
                 ].join(' · '),
-                style: F.label.copyWith(color: p.ink2),
+                style: F.cap.copyWith(
+                  color: p.ink2,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               Text(
                 word,
@@ -555,8 +556,8 @@ class _ProgressScreenState extends State<ProgressScreen>
 
   Widget _outcomes(BuildContext c, P p, ProgressData d, GoalReview r) {
     double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
-    String signed(double v, String unit) =>
-        '${v >= 0 ? '+' : '−'}${_num(v.abs(), 2)} $unit';
+    String signed(double v, String unit, [int places = 1]) =>
+        '${v >= 0 ? '+' : '−'}${_num(v.abs(), places)} $unit';
     final before = reviewWeekLabel(r.before.from, r.before.to);
     final after = reviewWeekLabel(r.after.from, r.after.to);
     final wa = r.weightAfter, wb = r.weightBefore;
@@ -575,7 +576,7 @@ class _ProgressScreenState extends State<ProgressScreen>
       sub: latest == null
           ? 'No waist reading yet'
           : r.waistFrom != null && r.waistTo != null
-          ? '${signed(r.waistTo!.value - r.waistFrom!.value, 'in')} · '
+          ? '${signed(r.waistTo!.value - r.waistFrom!.value, 'in', 2)} · '
                 '${_md(r.waistFrom!.date)} → ${_md(r.waistTo!.date)}'
           : 'Latest ${_md(latest.date)} · no reading near '
                 '${_md(r.before.from)} to compare',
@@ -688,8 +689,11 @@ class _ProgressScreenState extends State<ProgressScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'WHAT WENT IN · ${reviewWeekLabel(r.after.from, r.after.to)}',
-                  style: F.label.copyWith(color: p.ink2),
+                  'What went in · ${reviewWeekLabel(r.after.from, r.after.to)}',
+                  style: F.cap.copyWith(
+                    color: p.ink2,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: S.x1),
                 Text(parts.join(' · '), style: F.body.copyWith(color: p.ink)),

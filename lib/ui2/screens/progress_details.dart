@@ -211,16 +211,26 @@ class _ProgressDetailState extends State<_ProgressDetail>
         : '${_num(a, places)} → ${_num(b, places)} $unit '
               '(${b - a >= 0 ? '+' : '−'}${_num((b - a).abs(), places)})';
     final rows = <(String, String, String)>[
-      (
-        'Average weight',
-        line(
-          wb.mean == null ? null : u(wb.mean!),
-          wa.mean == null ? null : u(wa.mean!),
-          _unit,
-          1,
+      if (wa.mean != null && wb.mean != null)
+        (
+          'Average weight',
+          line(u(wb.mean!), u(wa.mean!), _unit, 1),
+          '${wb.count} and ${wa.count} weigh-ins',
+        )
+      // A known average stays visible when there is nothing to compare.
+      else if (wa.mean != null)
+        (
+          'Average weight',
+          '${_num(u(wa.mean!))} $_unit',
+          '${wa.count} weigh-ins · none in ${_md(before.from)} – '
+              '${_md(before.to)} to compare',
+        )
+      else if (wb.mean != null)
+        (
+          'Average weight',
+          '${_num(u(wb.mean!))} $_unit earlier',
+          'No weigh-in since ${_md(after.from)}',
         ),
-        '${wb.count} and ${wa.count} weigh-ins',
-      ),
     ];
     for (final site in BodySite.values) {
       final s = siteSeries(d.measures, site);

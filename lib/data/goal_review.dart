@@ -293,15 +293,25 @@ GoalAdvice _exactMissing(
   final shortWeeks = weeks.any(
     (w) => w.weighIns < kReviewWeekMinimum || w.foodDays < kReviewWeekMinimum,
   );
+  final recomp = plan.phase == GoalPhase.recomp;
+  final next = [
+    if (shortWeeks)
+      'Those weeks are closed. If you weighed in or ate and did not log it, '
+          'add the real entry for that day; otherwise the review judges again '
+          'once the coming weeks are complete.',
+    if (recomp && !waistPair)
+      'Measure your waist each week, so every review has a reading near its '
+          'start and one in its last week.',
+    if (recomp && liftsComparable == 0)
+      'Log your lifts on the same setup each week.',
+    if (!shortWeeks && daysOnGoal != null && daysOnGoal < 14)
+      'Keep logging; the first review comes after two weeks on this goal.',
+  ];
   return (
     verdict: advice.verdict,
     headline: advice.headline,
     because: lines,
     kcalChange: null,
-    next: shortWeeks
-        ? 'Those weeks are closed. If you weighed in or ate and did not log '
-              'it, add the real entry for that day; otherwise the review '
-              'judges again once the coming weeks are complete.'
-        : advice.next,
+    next: next.isEmpty ? advice.next : next.join(' '),
   );
 }

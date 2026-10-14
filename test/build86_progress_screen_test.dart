@@ -1,6 +1,6 @@
 // The Progress tab renders with real records and with none, at a narrow
-// width and large text, without overflow; switching measurement and range
-// keeps it drawing (build 86).
+// width and large text, without overflow; the Body page's measurement and
+// History range keep it drawing (build 86; Build 90 overview and details).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,9 +54,9 @@ void main() {
   });
 
   for (final scale in [1.0, 2.0]) {
-    testWidgets('empty, then with records, at ${scale}x', (t) async {
-      // Taller at 2x so the page's first controls are laid out under the
-      // Goal card; the width stays the narrow 360 the test is about.
+    testWidgets('overview, then the Body page, empty and with records, at ${scale}x', (t) async {
+      // Taller at 2x so the overview's results sit in view; the width stays
+      // the narrow 360 the test is about.
       t.view.physicalSize = Size(360, 780 * scale * 1.5);
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.reset);
@@ -68,9 +68,16 @@ void main() {
       final app = AppState.forTesting();
       addTearDown(app.dispose);
       await t.pumpWidget(_app(app, scale));
-      await _until(t, () => find.byTooltip('Add body entry').evaluate().isNotEmpty);
+      await _until(t, () => find.text('Add body entry').evaluate().isNotEmpty);
       expect(t.takeException(), isNull);
-      expect(find.textContaining('Nothing recorded'), findsWidgets);
+      // Build 90: one goal verdict on the goal's closed weeks, three results
+      // and what went in. With no records the verdict waits and says why.
+      expect(find.text('Not yet'), findsOneWidget);
+      await t.scrollUntilVisible(
+        find.text('No waist reading yet'),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
 
       final today = DateTime.parse(todayLabel());
       await t.runAsync(() async {
@@ -85,33 +92,26 @@ void main() {
         ));
       });
       app.bumpInsights();
-      // Build 88: the review leads Progress, so the body section sits below
-      // the fold; wait for the reload, then scroll to it.
-      // Build 89: the period tabs show from the first frame; wait for the
-      // reload that brings the new readings in instead.
-      await _until(
-        t,
-        () => find.textContaining('Nothing recorded').evaluate().isEmpty,
-      );
+      // The waist row stays in view: a known reading shows even with nothing
+      // to compare it with.
+      await _until(t, () => find.text('34 in').evaluate().isNotEmpty);
       final list = find.byType(Scrollable).first;
-      await t.scrollUntilVisible(find.text('LATEST'), 200, scrollable: list);
       expect(t.takeException(), isNull);
-      await t.drag(list, const Offset(0, 5000));
-      await t.pumpAndSettle();
-      // Build 89: the Body card's chips choose the chart; one period
-      // selector at the top drives the whole page.
+
+      // The Weight row opens Body with weight chosen; History range explores.
+      await t.scrollUntilVisible(find.text('Weight'), 150, scrollable: list);
+      await t.tap(find.text('Weight'));
+      await _until(t, () => find.text('HISTORY RANGE').evaluate().isNotEmpty);
+      final page = find.byType(Scrollable).last;
+      await t.scrollUntilVisible(find.text('LATEST'), 200, scrollable: page);
+      expect(t.takeException(), isNull);
       final waist = find.text('Waist (navel)');
-      // The chips scroll sideways: bring the Body card in, then the chip.
-      await t.scrollUntilVisible(
-        find.byTooltip('Add body entry'),
-        150,
-        scrollable: list,
-      );
+      await t.scrollUntilVisible(waist.first, 150, scrollable: page);
       await t.ensureVisible(waist.first);
       await t.pumpAndSettle();
       await t.tap(waist.first);
       await t.pumpAndSettle();
-      await t.drag(list, const Offset(0, 5000));
+      await t.drag(page, const Offset(0, 5000));
       await t.pumpAndSettle();
       await t.tap(find.text('Month').first);
       await t.pumpAndSettle();
@@ -120,6 +120,14 @@ void main() {
       await t.tap(find.text('1 year').last);
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
+
+      // Back returns to the overview, which the range never changed.
+      Navigator.of(t.element(find.text('HISTORY RANGE'))).pop();
+      await t.pumpAndSettle();
+      await t.drag(find.byType(Scrollable).first, const Offset(0, 5000));
+      await t.pumpAndSettle();
+      expect(find.text('Add body entry'), findsOneWidget);
+      expect(find.text('Not yet'), findsOneWidget);
     });
   }
 }

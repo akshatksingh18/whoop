@@ -2249,7 +2249,7 @@ class _GoalScreenState extends State<GoalScreen> {
         : ' (${v >= 0 ? '+' : '−'}${(widget.kg! * v.abs() / 100).toStringAsFixed(2)} kg)';
     Widget option(String title, String sub, bool on, VoidCallback tap) =>
         Pressable(
-          semanticLabel: title,
+          semanticLabel: on ? '$title, selected' : title,
           onTap: tap,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: S.x3),

@@ -419,7 +419,9 @@ class _ProgressDetailState extends State<_ProgressDetail>
             Padding(
               padding: const EdgeInsets.only(right: S.x2),
               child: Pressable(
-                semanticLabel: 'Chart $label',
+                semanticLabel: _metricKey == key
+                    ? 'Chart $label, selected'
+                    : 'Chart $label',
                 onTap: () => _setMetric(key),
                 child: Center(
                   child: Pill(label, _metricKey == key ? C.teal : C.n400),
@@ -505,13 +507,20 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     ),
                   ),
                   const SizedBox(width: S.x2),
-                  TextButton(
-                    onPressed: () {
+                  // Build 90: the app's own pill, saying what a tap does.
+                  Pressable(
+                    semanticLabel:
+                        'Unit ${_unit == 'kg' ? 'kilograms' : 'pounds'}. '
+                        'Switch to ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
+                    onTap: () {
                       final u = _unit == 'kg' ? 'lb' : 'kg';
                       setState(() => _unit = u);
                       _save('body.unit', u);
                     },
-                    child: Text(_unit),
+                    child: Padding(
+                      padding: const EdgeInsets.all(S.x2),
+                      child: Pill(_unit, C.teal),
+                    ),
                   ),
                 ],
               ),

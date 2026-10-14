@@ -2261,23 +2261,30 @@ class SubTabs extends StatelessWidget {
           separatorBuilder: (_, _) => const SizedBox(width: S.x2),
           itemBuilder: (_, i) {
             final on = i == index;
-            return Pressable(
-              onTap: () => onTap(i),
-              child: AnimatedContainer(
-                duration: motion(c, Motion.base),
-                constraints: const BoxConstraints(minWidth: S.tap),
-                padding: const EdgeInsets.symmetric(horizontal: S.x4),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: on ? p.card : const Color(0x00000000),
-                  borderRadius: R.rMd,
-                  boxShadow: on ? p.el(1) : const [],
-                ),
-                child: Text(
-                  items[i],
-                  style: F.cap.copyWith(
-                    color: on ? p.ink : p.ink2,
-                    fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+            // Build 90: VoiceOver hears which option is chosen ("3 months,
+            // selected"), not only the option names.
+            return Semantics(
+              selected: on,
+              inMutuallyExclusiveGroup: true,
+              child: Pressable(
+                semanticLabel: items[i],
+                onTap: () => onTap(i),
+                child: AnimatedContainer(
+                  duration: motion(c, Motion.base),
+                  constraints: const BoxConstraints(minWidth: S.tap),
+                  padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: on ? p.card : const Color(0x00000000),
+                    borderRadius: R.rMd,
+                    boxShadow: on ? p.el(1) : const [],
+                  ),
+                  child: Text(
+                    items[i],
+                    style: F.cap.copyWith(
+                      color: on ? p.ink : p.ink2,
+                      fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                    ),
                   ),
                 ),
               ),

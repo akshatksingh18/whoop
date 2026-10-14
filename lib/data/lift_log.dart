@@ -227,6 +227,30 @@ class LiftSplit {
     ],
   );
 
+  static const homeName = 'Home';
+
+  /// Build 90: the home bodyweight routine. A blank Added weight logs a
+  /// bodyweight set; a backpack row's backpack is its whole load, so it is a
+  /// Total weight exercise and needs the weighed number.
+  static LiftSplit get home => LiftSplit(
+    name: homeName,
+    exercises: [
+      LiftSplitExercise(name: 'Push-up', loadMode: LiftLoadMode.addedWeight),
+      // The setup note is the variation (it decides what is compared), so it
+      // stays empty here; weighing the backpack is the load field's hint.
+      LiftSplitExercise(name: 'Backpack row', loadMode: LiftLoadMode.total),
+      LiftSplitExercise(
+        name: 'Bed-edge dip',
+        loadMode: LiftLoadMode.addedWeight,
+      ),
+      LiftSplitExercise(
+        name: 'Split squat',
+        loadMode: LiftLoadMode.addedWeight,
+      ),
+      LiftSplitExercise(name: 'Leg raise', loadMode: LiftLoadMode.addedWeight),
+    ],
+  );
+
   /// What a new log starts with: Lift Log's own starting splits (names,
   /// order and modes only — no performance).
   static List<LiftSplit> get starting => [
@@ -405,9 +429,18 @@ class LiftExercise {
     splitExerciseId: m['splitExerciseID'] as String?,
   );
 
-  String setText(LiftSet s) =>
-      '${liftWeightText(s.load)} ${loadMode.shortUnit} × ${s.reps}';
+  String setText(LiftSet s) => liftSetText(loadMode, s);
 }
+
+/// One set as the app writes it. Build 90 (home workout): in Added weight a
+/// set with no added load is a bodyweight set, so it reads "Bodyweight × 12"
+/// and one with a backpack reads "+10 lb × 12"; every other mode keeps its
+/// load meaning ("60 lb/side × 8").
+String liftSetText(LiftLoadMode mode, LiftSet s) => switch (mode) {
+  LiftLoadMode.addedWeight when s.load == 0 => 'Bodyweight × ${s.reps}',
+  LiftLoadMode.addedWeight => '+${liftWeightText(s.load)} lb × ${s.reps}',
+  _ => '${liftWeightText(s.load)} ${mode.shortUnit} × ${s.reps}',
+};
 
 /// One workout's set log. [sessionId] is the WHOOP session it belongs to;
 /// null only for imported history without a reviewed link.
@@ -827,9 +860,14 @@ class LiftLogDb {
     return [for (final r in rows) _of(r)];
   }
 
+  /// The latest finished session of [name] on the same load meaning and
+  /// variation ([note], the setup note). Build 90: the variation is part of
+  /// the match, so "last time" and Repeat never show feet-raised push-ups
+  /// against standard ones.
   static Future<LiftPerformance?> lastPerformance(
     String name,
     LiftLoadMode mode, {
+    String note = '',
     String? excludingId,
   }) async {
     for (final w in await finished()) {
@@ -837,6 +875,7 @@ class LiftLogDb {
       for (final e in w.exercises) {
         if (sameLiftName(e.name, name) &&
             e.loadMode == mode &&
+            liftNameKey(e.equipmentNote) == liftNameKey(note) &&
             e.sets.isNotEmpty) {
           return (date: w.startedAt, exercise: e);
         }
@@ -854,6 +893,38 @@ class LiftLogDb {
         for (final e in w.exercises)
           if (seen.add(liftNameKey(e.name))) e,
     ];
+  }
+
+  /// The variations already used for [name], most recent first, from the
+  /// finished logs (the setup notes; empty is the plain exercise).
+  static List<String> variationsOf(String name, List<LiftWorkout> finished) {
+    final seen = <String>{};
+    return [
+      for (final w in finished)
+        for (final e in w.exercises)
+          if (sameLiftName(e.name, name) &&
+              e.equipmentNote.isNotEmpty &&
+              seen.add(liftNameKey(e.equipmentNote)))
+            e.equipmentNote,
+    ];
+  }
+
+  /// Build 90: the Home split, created the first time Home is chosen
+  /// (Akshat's routine), then kept and edited like any other split.
+  static Future<LiftSplit> homeSplit() async {
+    final all = await splits();
+    final have = all
+        .where(
+          (s) =>
+              s.name.trim().toLowerCase() == LiftSplit.homeName.toLowerCase(),
+        )
+        .firstOrNull;
+    if (have != null) return have;
+    final home = LiftSplit.home;
+    if (all.length < LiftSplit.maxSplits) {
+      await saveSplits([...all, home]);
+    }
+    return home;
   }
 
   static Future<List<LiftSplit>> splits() async {

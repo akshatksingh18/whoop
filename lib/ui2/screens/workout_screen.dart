@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../build_profile.dart';
+import '../../data/lift_log.dart' show LiftLogDb;
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
@@ -38,7 +39,8 @@ import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
-import '../activity/lift_log_ui.dart' show finishLiftLogFor, reconcileLiftLogs;
+import '../activity/lift_log_ui.dart'
+    show LiftChoice, LiftSplitChoice, finishLiftLogFor, reconcileLiftLogs;
 import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
@@ -253,6 +255,60 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// Open a screen that can write a session, then re-read. Every write path on
   /// this tab goes through here: `RevisionReload` covers the writers that bump
   /// `AppState.insightsRevision`, and this covers the ones that do not.
+  /// Build 90 (H3): Lift asks Gym or Home. Home is the Bodyweight type
+  /// (Compendium 02056, the lowest match for the routine) with the Home split
+  /// chosen; Gym is weight training as before.
+  Future<void> _chooseLift(
+    BuildContext c,
+    void Function(Activity) start,
+    Activity Function(String) act,
+  ) async {
+    final p = P.of(c);
+    final pick = await showModalBottomSheet<String>(
+      context: c,
+      useSafeArea: true,
+      sheetAnimationStyle: sheetMotion(c),
+      backgroundColor: p.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (sc) => Padding(
+        padding: const EdgeInsets.all(S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Lift', style: F.head.copyWith(color: p.ink)),
+            const SizedBox(height: S.x3),
+            BigButton(
+              'Gym',
+              icon: LucideIcons.dumbbell,
+              color: C.purple,
+              onTap: () => Navigator.of(sc).pop('gym'),
+            ),
+            const SizedBox(height: S.x2),
+            BigButton(
+              'Home · bodyweight',
+              icon: LucideIcons.house,
+              color: C.purple,
+              soft: true,
+              onTap: () => Navigator.of(sc).pop('home'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (pick == null || !c.mounted) return;
+    if (pick == 'gym') return start(act('Weight training'));
+    try {
+      final home = await LiftLogDb.homeSplit();
+      await LiftChoice.remember(LiftSplitChoice(home));
+    } catch (_) {
+      // Setup still offers every split; Home just is not preselected.
+    }
+    if (c.mounted) start(act('Bodyweight'));
+  }
+
   Future<void> _push(BuildContext c, Widget w) async {
     await Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
     if (mounted) reload();
@@ -338,7 +394,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 LucideIcons.dumbbell,
                 C.sleepInk,
                 'Lift',
-                () => start(act('Weight training')),
+                () => _chooseLift(c, start, act),
               ),
             ),
             const SizedBox(width: S.x2),
@@ -377,36 +433,37 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             : Surface(
                 pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x3),
                 child: Column(
-                children: [
-                  // The last five as one-line rows; a tap opens one in place.
-                  // Everything older lives on the history page, so this
-                  // section never grows with the month.
-                  for (var i = 0; i < d.workouts.length.clamp(0, 5); i++) ...[
-                    if (i == 0 ||
-                        dayLabelOf(d.workouts[i].start) !=
-                            dayLabelOf(d.workouts[i - 1].start))
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: S.x2),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            dayNavLabel(dayLabelOf(d.workouts[i].start)),
-                            style: F.over.copyWith(color: p.ink3),
+                  children: [
+                    // The last five as one-line rows; a tap opens one in place.
+                    // Everything older lives on the history page, so this
+                    // section never grows with the month.
+                    for (var i = 0; i < d.workouts.length.clamp(0, 5); i++) ...[
+                      if (i == 0 ||
+                          dayLabelOf(d.workouts[i].start) !=
+                              dayLabelOf(d.workouts[i - 1].start))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: S.x2),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              dayNavLabel(dayLabelOf(d.workouts[i].start)),
+                              style: F.over.copyWith(color: p.ink3),
+                            ),
                           ),
                         ),
-                      ),
-                    _sessionRow(c, d, d.workouts[i]),
-                    const SizedBox(height: S.x2),
+                      _sessionRow(c, d, d.workouts[i]),
+                      const SizedBox(height: S.x2),
+                    ],
+                    const SizedBox(height: S.x1),
+                    detailLinkRow(
+                      c,
+                      LucideIcons.history,
+                      'All workouts',
+                      'Every session, by month',
+                      () =>
+                          _push(c, WorkoutHistoryScreen(weightKg: d.weightKg)),
+                    ),
                   ],
-                  const SizedBox(height: S.x1),
-                  detailLinkRow(
-                    c,
-                    LucideIcons.history,
-                    'All workouts',
-                    'Every session, by month',
-                    () => _push(c, WorkoutHistoryScreen(weightKg: d.weightKg)),
-                  ),
-                ],
                 ),
               ),
         action: 'Add a past one',
@@ -1095,7 +1152,10 @@ class _QuickTile extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rMd),
+            decoration: BoxDecoration(
+              color: p.fill(color),
+              borderRadius: R.rMd,
+            ),
             child: Icon(icon, size: 22, color: p.inkOnFill),
           ),
           const SizedBox(height: S.x2),

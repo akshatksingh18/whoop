@@ -878,8 +878,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
         ? <LiftComparison>[]
         : liftComparisons(d.lifts, first, second);
     final sets = lifts.fold<int>(0, (n, w) => n + w.setCount);
-    String setText(LiftComparison x, LiftSet s) =>
-        '${liftWeightText(s.load)} ${x.mode.shortUnit} × ${s.reps}';
+    String setText(LiftComparison x, LiftSet s) => liftSetText(x.mode, s);
     return [
       Section(
         'Strength',

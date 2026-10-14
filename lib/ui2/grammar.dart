@@ -2405,7 +2405,12 @@ class GoalBar extends StatelessWidget {
 }
 
 class _GoalBarPainter extends CustomPainter {
-  _GoalBarPainter(this.f, {required this.track, required this.fill, required this.over});
+  _GoalBarPainter(
+    this.f, {
+    required this.track,
+    required this.fill,
+    required this.over,
+  });
   final double f;
   final Color track, fill, over;
 
@@ -2418,7 +2423,10 @@ class _GoalBarPainter extends CustomPainter {
     c.save();
     c.clipRRect(whole);
     if (f <= 1) {
-      c.drawRect(Rect.fromLTWH(0, 0, s.width * f, s.height), Paint()..color = fill);
+      c.drawRect(
+        Rect.fromLTWH(0, 0, s.width * f, s.height),
+        Paint()..color = fill,
+      );
     } else {
       // The goal is 1/f of the bar; a small gap separates the excess.
       final goalW = s.width / f;
@@ -3625,12 +3633,7 @@ class DayTiles extends StatelessWidget {
           size: Size.infinite,
           // Graphics, not text: the pure family colour (DESIGN.md), which
           // clears the 3:1 non-text floor on the paper it sits on.
-          painter: RangeChart(
-            values,
-            color,
-            hatch: C.hatch,
-            style: style,
-          ),
+          painter: RangeChart(values, color, hatch: C.hatch, style: style),
         ),
       ),
     );
@@ -3708,10 +3711,7 @@ class MetricLine extends StatelessWidget {
               color: p.fill(C.alert),
               borderRadius: R.rSm,
             ),
-            child: Text(
-              'NEW',
-              style: F.over.copyWith(color: p.inkOnFill),
-            ),
+            child: Text('NEW', style: F.over.copyWith(color: p.inkOnFill)),
           ),
         ],
       ],
@@ -3764,15 +3764,39 @@ class MetricLine extends StatelessWidget {
               const SizedBox(height: S.x2),
               chart,
               const SizedBox(height: S.x2),
-              Align(alignment: Alignment.centerRight, child: valueCol),
+              Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: valueCol,
+                    ),
+                  ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: S.x1),
+                    Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                  ],
+                ],
+              ),
             ] else
+              // Build 90: the value comes first. It takes the larger share
+              // of the space and the small chart gives way, so a number is
+              // never shrunk to make room for a sparkline; a row that opens
+              // something shows the chevron every tappable row shows.
               Row(
                 children: [
                   SizedBox(width: 92, child: labelCol),
                   const SizedBox(width: S.x2),
-                  SizedBox(width: 112, child: chart),
+                  Flexible(
+                    flex: 2,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 112),
+                      child: chart,
+                    ),
+                  ),
                   const SizedBox(width: S.x3),
                   Expanded(
+                    flex: 3,
                     child: Align(
                       alignment: Alignment.centerRight,
                       child: FittedBox(
@@ -3782,6 +3806,10 @@ class MetricLine extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: S.x1),
+                    Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                  ],
                 ],
               ),
             if (absent && absentWhy != null && absentWhy != note) ...[
@@ -3879,13 +3907,18 @@ class HeroStat extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel:
-          semanticLabel ?? [label, value ?? 'not measured', ...lines].join(', '),
+          semanticLabel ??
+          [label, value ?? 'not measured', ...lines].join(', '),
       child: Padding(
         padding: const EdgeInsets.only(bottom: S.x3),
         child: big
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [number, const SizedBox(height: S.x2), side],
+                children: [
+                  number,
+                  const SizedBox(height: S.x2),
+                  side,
+                ],
               )
             // The number may take up to 60% of a narrow row and scales down
             // to fit it; the labels take the rest.

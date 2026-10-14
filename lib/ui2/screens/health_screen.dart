@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../build_profile.dart';
 import '../../compute/findings.dart';
@@ -50,9 +51,10 @@ const _rows = <_Row>[
   ),
   _Row('sleep', 'Sleep', 'min', LucideIcons.moon, C.sleep, Rising.good),
   _Row('hrv', 'HRV', 'ms', LucideIcons.activity, C.recovery, Rising.good),
+  // The lowest 30-minute average while asleep, not an awake seated reading.
   _Row(
     'resting_hr',
-    'Resting heart rate',
+    'Resting HR asleep',
     'bpm',
     LucideIcons.heart,
     C.heart,
@@ -215,9 +217,123 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   HealthData? _d;
   bool _loading = true, _failed = false;
 
+  /// Build 90 (D5): up to three favourite metrics, shown first; the full
+  /// list stays below, unchanged. Kept on this phone only.
+  static const _pinKey = 'trends.pinned';
+  static const _maxPinned = 3;
+  List<String> _pinned = const [];
+
+  Future<void> _loadPins() async {
+    try {
+      final v = (await SharedPreferences.getInstance()).getStringList(_pinKey);
+      if (mounted && v != null) {
+        setState(() => _pinned = v.take(_maxPinned).toList());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _savePins(List<String> v) async {
+    setState(() => _pinned = v);
+    try {
+      await (await SharedPreferences.getInstance()).setStringList(_pinKey, v);
+    } catch (_) {}
+  }
+
+  Future<void> _editPins(BuildContext c, List<_Row> rows) async {
+    var picked = [..._pinned];
+    await showModalBottomSheet<void>(
+      context: c,
+      useSafeArea: true,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(c),
+      backgroundColor: P.of(c).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (sc) => StatefulBuilder(
+        builder: (sc, set) {
+          final p = P.of(sc);
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(S.x5),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Pin up to three', style: F.head.copyWith(color: p.ink)),
+                const SizedBox(height: S.x1),
+                Text(
+                  'Pinned metrics show first. Every metric stays in the list.',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+                const SizedBox(height: S.x3),
+                for (final r in rows)
+                  Pressable(
+                    semanticLabel: picked.contains(r.key)
+                        ? '${r.label}, pinned'
+                        : r.label,
+                    onTap: () => set(() {
+                      if (picked.contains(r.key)) {
+                        picked.remove(r.key);
+                      } else if (picked.length < _maxPinned) {
+                        picked.add(r.key);
+                      }
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: S.x3),
+                      child: Row(
+                        children: [
+                          Icon(
+                            picked.contains(r.key)
+                                ? LucideIcons.squareCheck
+                                : LucideIcons.square,
+                            size: 20,
+                            color: picked.contains(r.key)
+                                ? p.on(C.blue)
+                                : p.ink3,
+                          ),
+                          const SizedBox(width: S.x3),
+                          Expanded(
+                            child: Text(
+                              r.label,
+                              style: F.body.copyWith(color: p.ink),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: S.x3),
+                BigButton(
+                  'Done',
+                  color: C.blue,
+                  onTap: () => Navigator.of(sc).pop(),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    await _savePins(picked);
+  }
+
+  /// "Oct 8 – 14" for the range ending today.
+  String _dates(int win) {
+    const m = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final t = DateTime.parse(todayLabel());
+    final f = DateTime(t.year, t.month, t.day - (win - 1));
+    return f.month == t.month
+        ? '${m[f.month - 1]} ${f.day} – ${t.day}'
+        : '${m[f.month - 1]} ${f.day} – ${m[t.month - 1]} ${t.day}';
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadPins();
     shellReselect.addListener(_reselected);
     _d = widget.data;
     if (widget.data != null) {
@@ -276,8 +392,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Build 90: the range's real dates, not only its length.
                 Text(
-                  win == 1 ? 'Today' : 'Daily averages · measured days only',
+                  win == 1
+                      ? 'Today'
+                      : '${_dates(win)} · daily averages, measured days only',
                   style: F.body.copyWith(color: p.onGround),
                 ),
                 Text('Trends', style: F.display.copyWith(color: p.ink)),
@@ -310,6 +429,44 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               },
             ),
           if (_d != null) ...[
+            if (rows.where((r) => _pinned.contains(r.key)).toList()
+                case final pins when pins.isNotEmpty) ...[
+              Section(
+                'Pinned',
+                Surface(
+                  pad: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, S.x2),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < pins.length; i++) ...[
+                        if (i > 0) Divider(color: p.line, height: 1),
+                        _trendRow(
+                          c,
+                          p,
+                          pins[i],
+                          d.points(pins[i].key),
+                          win,
+                          alternate: d.points('step_kcal_acsm'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                action: 'Edit',
+                onAction: () => _editPins(c, rows),
+              ),
+              const SizedBox(height: S.x4),
+            ] else
+              Align(
+                alignment: Alignment.centerRight,
+                child: Pressable(
+                  semanticLabel: 'Pin favourite metrics',
+                  onTap: () => _editPins(c, rows),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x2),
+                    child: Pill('Pin favourites', C.blue, icon: LucideIcons.pin),
+                  ),
+                ),
+              ),
             Surface(
               pad: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, S.x2),
               child: Column(

@@ -165,7 +165,10 @@ These are still stored but no longer entered in the personal build:
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
 | `food_def.category` | the user's own category label (custom labels in Build 86; '' = Uncategorised); existing labels are preserved, and the same field feeds Foods, log-screen and saved-meal-picker filters |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
-| `body_weight` | one weight per day (latest wins); today's sets profile `weight_kg`. Build-86 source adds `unit`, `entered`, `source`, `origin_id` and `history_only`: backdated/imported rows are history only and never price a day |
+| `body_weight` | legacy daily aggregate; today's sets profile `weight_kg`. `unit`, `entered`, `source`, `origin_id` and `history_only` preserve input/provenance; backdated/imported rows never price a day. Build 90's first-reading aggregate behaviour is pending the Body lane |
+| `body_weight_reading` | Build 90 schema 50: every reading with identity, effective date, Unix-second measurement time, kg, input units/value, source/origin, history-only flag and creation time. Legacy daily rows migrate once; Body write/selection integration is pending |
+| `day_zone` / `zone_change` | Build 90 schema 50: per-day IANA zone, UTC boundaries and boundary offsets, plus the instant/zone timeline. Schema only so far; native timeline capture and derivation integration follow in the engine lane |
+| `food_day_count` / `food_entry.logged_at` | Build 90 schema 50: frozen calorie-goal/counting provenance and a separate logging timestamp. Legacy logging times remain NULL; counting-policy and new-write integration follow in the engine lane |
 | `body_measure` | build-86 source: one tape session, inches by AkshatOS site key (unknown keys kept) |
 | `body_photo` | build-86 source: a progress-photo record; the JPEG lives in `body_photos/` (metadata stripped) |
 | `lift_log` | build-86 source: one Lift Log workout as JSON, linked to its WHOOP session (imported AkshatOS history has none) |

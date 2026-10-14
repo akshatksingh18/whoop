@@ -241,6 +241,21 @@ class BodyLogDb {
   /// any other day is history only (Akshat's decision: past calorie numbers
   /// never move). A same-day reading replaces the earlier one — the caller
   /// asks first.
+  /// The kilograms [value] in [unit] stands for, or a [BodyLogError] when it
+  /// is not a plausible weight. Callers validate with it before any write.
+  static double checkWeight(double value, String unit) {
+    if (!value.isFinite || value <= 0) {
+      throw const BodyLogError('Enter a weight.');
+    }
+    final kg = unit == 'lb' ? value / kLbPerKg : value;
+    if (kg < 30 || kg > 300) {
+      throw const BodyLogError(
+        'Enter a weight from 30 to 300 kg (66 to 660 lb).',
+      );
+    }
+    return kg;
+  }
+
   static Future<void> putWeight(
     String date,
     double value,
@@ -250,14 +265,7 @@ class BodyLogDb {
     bool? historyOnly,
     DateTime? at,
   }) async {
-    if (!value.isFinite || value <= 0)
-      throw const BodyLogError('Enter a weight.');
-    final kg = unit == 'lb' ? value / kLbPerKg : value;
-    if (kg < 30 || kg > 300) {
-      throw const BodyLogError(
-        'Enter a weight from 30 to 300 kg (66 to 660 lb).',
-      );
-    }
+    final kg = checkWeight(value, unit);
     final db = await LocalDb.instance;
     await db.insert('body_weight', {
       'date': date,

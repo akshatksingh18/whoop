@@ -341,6 +341,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
       ),
     ];
   }
+
   /// The page's one period: four tabs, the rest under More.
   Widget _periodPicker(BuildContext c, P p) => SubTabs(
     // "Start" here; the line under the tabs says what it compares.
@@ -371,38 +372,34 @@ class _ProgressDetailState extends State<_ProgressDetail>
     ];
     final inMore = more.contains(_range);
     return PopupMenuButton<ProgressRange>(
-          tooltip: 'More periods',
-          onSelected: (r) {
-            setState(() {
-              _range = r;
-              _cursor = null;
-            });
-            _save('progress.range', r.name);
-          },
-          itemBuilder: (_) => [
-            for (final r in more)
-              PopupMenuItem(value: r, child: Text(r.label)),
+      tooltip: 'More periods',
+      onSelected: (r) {
+        setState(() {
+          _range = r;
+          _cursor = null;
+        });
+        _save('progress.range', r.name);
+      },
+      itemBuilder: (_) => [
+        for (final r in more) PopupMenuItem(value: r, child: Text(r.label)),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: S.x3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              inMore ? _range.label : 'More',
+              style: F.cap.copyWith(
+                color: p.onGround,
+                fontWeight: inMore ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+            Icon(LucideIcons.chevronDown, size: 16, color: p.onGround),
           ],
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: S.x2,
-              vertical: S.x3,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  inMore ? _range.label : 'More',
-                  style: F.cap.copyWith(
-                    color: p.onGround,
-                    fontWeight: inMore ? FontWeight.w700 : FontWeight.w600,
-                  ),
-                ),
-                Icon(LucideIcons.chevronDown, size: 16, color: p.onGround),
-              ],
-            ),
-          ),
-        );
+        ),
+      ),
+    );
   }
 
   /// What the Body card charts: weight, steps or a tape site.
@@ -663,11 +660,8 @@ class _ProgressDetailState extends State<_ProgressDetail>
     // waist reading, and only inside 3–50%. Both dates are printed.
     final male =
         (d.user['sex'] as String?)?.toLowerCase().startsWith('m') ?? false;
-    int daysApart(String a, String b) => DateTime.parse(a)
-        .difference(DateTime.parse(b))
-        .inHours
-        .abs() ~/
-        24;
+    int daysApart(String a, String b) =>
+        DateTime.parse(a).difference(DateTime.parse(b)).inHours.abs() ~/ 24;
     final neck = d.measures
         .where(
           (x) =>
@@ -869,8 +863,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
     final dates = daysBetween(from, today);
     final mid = DateTime.parse(dates[(dates.length - 1) ~/ 2]);
     final first =
-        before ??
-        (from: from, to: dayLabelOf(mid), days: 0, partial: false);
+        before ?? (from: from, to: dayLabelOf(mid), days: 0, partial: false);
     final second =
         after ??
         (

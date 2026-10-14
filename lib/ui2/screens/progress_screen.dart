@@ -55,7 +55,9 @@ double tapeReading(String site, String text) {
       .toList();
   final vs = [for (final x in parts) double.tryParse(x)];
   if (vs.isEmpty || vs.length > 2 || vs.any((v) => v == null || v <= 0)) {
-    throw BodyLogError('$site must be one number, or two from measuring twice.');
+    throw BodyLogError(
+      '$site must be one number, or two from measuring twice.',
+    );
   }
   if (vs.length == 2 && (vs[0]! - vs[1]!).abs() > 0.5) {
     throw BodyLogError(
@@ -493,7 +495,11 @@ class _ProgressScreenState extends State<ProgressScreen>
     );
   }
 
-  Future<void> _goalDetails(BuildContext c, ProgressData d, GoalReview r) async {
+  Future<void> _goalDetails(
+    BuildContext c,
+    ProgressData d,
+    GoalReview r,
+  ) async {
     final g = r.plan;
     final band = g.band;
     String pct(double v) =>
@@ -527,7 +533,10 @@ class _ProgressScreenState extends State<ProgressScreen>
               ])
                 Padding(
                   padding: const EdgeInsets.only(bottom: S.x3),
-                  child: Text(line, style: F.body.copyWith(color: P.of(dc).ink2)),
+                  child: Text(
+                    line,
+                    style: F.body.copyWith(color: P.of(dc).ink2),
+                  ),
                 ),
             ],
           ),
@@ -547,7 +556,9 @@ class _ProgressScreenState extends State<ProgressScreen>
     if (change != true || !c.mounted) return;
     final kg = BodyLogDb.sevenDayMean(d.weights, todayLabel())?.kg;
     final changed = await Navigator.of(c).push<bool>(
-      MaterialPageRoute(builder: (_) => GoalScreen(plan: g, kg: kg)),
+      MaterialPageRoute(
+        builder: (_) => GoalScreen(plan: g, kg: kg),
+      ),
     );
     if (changed == true) reload();
   }
@@ -606,9 +617,23 @@ class _ProgressScreenState extends State<ProgressScreen>
       pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x1),
       child: Column(
         children: [
-          _outcomeRow(c, p, 'Weight', weight.value, weight.sub, ProgressDest.weight),
+          _outcomeRow(
+            c,
+            p,
+            'Weight',
+            weight.value,
+            weight.sub,
+            ProgressDest.weight,
+          ),
           Divider(color: p.line, height: 1),
-          _outcomeRow(c, p, 'Waist', waist.value, waist.sub, ProgressDest.waist),
+          _outcomeRow(
+            c,
+            p,
+            'Waist',
+            waist.value,
+            waist.sub,
+            ProgressDest.waist,
+          ),
           Divider(color: p.line, height: 1),
           _outcomeRow(
             c,
@@ -1038,6 +1063,11 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   String? _error;
   bool _changed = false;
 
+  /// B90 quick weigh-in: weight and Save come first; tape and photos are
+  /// optional sections, open when editing a tape entry.
+  late bool _showTape = widget.measure != null;
+  bool _showPhotos = false;
+
   @override
   void initState() {
     super.initState();
@@ -1085,36 +1115,25 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     _loadDay();
   }
 
+  /// B90-01: every field is checked before anything is written, so a typo in
+  /// one field never saves the others behind an error. If a later write fails
+  /// after an earlier one succeeded, the message says exactly what was saved,
+  /// and the draft stays on screen.
   Future<void> _save() async {
     if (_busy) return;
     setState(() => (_busy = true, _error = null));
+    final app = context.read<AppState>();
+    final saved = <String>[];
     try {
-      final app = context.read<AppState>();
+      // 1. Validate everything.
       final wText = _weight.text.trim().replaceAll(',', '.');
+      double? value, kg;
       if (wText.isNotEmpty) {
-        final v = double.tryParse(wText);
-        if (v == null)
+        value = double.tryParse(wText);
+        if (value == null) {
           throw const BodyLogError('Enter the weight as a number.');
-        final kg = _unit == 'lb' ? v / kLbPerKg : v;
-        if (_existing != null &&
-            (_existing!.kg - kg).abs() >= 0.05 &&
-            mounted) {
-          final ok = await confirmRemove(
-            context,
-            title: 'Replace ${_md(_date)}\'s weight?',
-            body:
-                'It is ${bodyWeightText(_existing!, unit: _unit)}. One weight per day: the new one replaces it.',
-            remove: 'Replace',
-            keep: 'Keep it',
-          );
-          if (!ok) throw const BodyLogError('Weight kept as it was.');
         }
-        await BodyLogDb.putWeight(_date, v, _unit);
-        // Today's weigh-in is the current profile weight, as Food's always
-        // was; a past day's never re-prices anything.
-        if (_date == todayLabel()) {
-          await app.updateProfile({'weight_kg': kg});
-        }
+        kg = BodyLogDb.checkWeight(value, _unit);
       }
       // Sites a newer build wrote that this one does not know are carried.
       final inches = <String, double>{
@@ -1122,12 +1141,46 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
             in (widget.measure?.inches ?? const <String, double>{}).entries)
           if (BodySite.parse(e.key) == null) e.key: e.value,
       };
+      var tape = false;
       for (final s in BodySite.values) {
         final t = _sites[s]!.text.trim();
         if (t.isEmpty) continue;
         inches[s.name] = tapeReading(s.title, t);
+        tape = true;
       }
-      if (inches.isNotEmpty) {
+      if (kg == null && !tape) {
+        throw const BodyLogError('Enter a weight or a tape reading.');
+      }
+      // 2. Confirm a replacement before any write.
+      if (kg != null &&
+          _existing != null &&
+          (_existing!.kg - kg).abs() >= 0.05 &&
+          mounted) {
+        final ok = await confirmRemove(
+          context,
+          title: 'Replace ${_md(_date)}\'s weight?',
+          body:
+              'It is ${bodyWeightText(_existing!, unit: _unit)}. One weight per day: the new one replaces it.',
+          remove: 'Replace',
+          keep: 'Keep it',
+        );
+        if (!ok)
+          throw const BodyLogError(
+            'Nothing saved; the weight is kept as it was.',
+          );
+      }
+      // 3. Write, recording what landed.
+      if (kg != null) {
+        await BodyLogDb.putWeight(_date, value!, _unit);
+        saved.add('weight');
+        // Today's weigh-in is the current profile weight, as Food's always
+        // was; a past day's never re-prices anything.
+        if (_date == todayLabel()) {
+          await app.updateProfile({'weight_kg': kg});
+          saved.add('current weight');
+        }
+      }
+      if (tape) {
         await BodyLogDb.putMeasure(
           BodyMeasure(
             id: widget.measure?.id,
@@ -1136,16 +1189,48 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
             inches: inches,
           ),
         );
+        saved.add('tape');
       }
       app.bumpInsights();
       if (mounted) Navigator.of(context).pop(true);
     } on BodyLogError catch (e) {
-      setState(() => _error = e.message);
-    } catch (e) {
-      setState(() => _error = 'Not saved. Please try again.');
+      if (mounted) setState(() => _error = _partial(saved, e.message));
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = _partial(saved, 'Not saved. Please try again.'),
+        );
+      }
     } finally {
+      if (saved.isNotEmpty) {
+        _changed = true;
+        app.bumpInsights();
+      }
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// The error, prefixed with what was already saved when part of it was.
+  String _partial(List<String> saved, String error) {
+    if (saved.isEmpty) return error;
+    final what = saved.contains('weight') && saved.contains('current weight')
+        ? 'The weight was saved, and is your current weight'
+        : saved.contains('weight')
+        ? 'The weight was saved'
+        : 'The tape was saved';
+    final missing = [
+      if (_weight.text.trim().isNotEmpty && !saved.contains('weight')) 'weight',
+      if (_weight.text.trim().isNotEmpty &&
+          _date == todayLabel() &&
+          saved.contains('weight') &&
+          !saved.contains('current weight'))
+        'your current weight for calculations',
+      if (_sites.values.any((c) => c.text.trim().isNotEmpty) &&
+          !saved.contains('tape'))
+        'tape',
+    ];
+    return '$what; ${missing.isEmpty ? 'the rest' : missing.join(' and ')} '
+        'did not save ($error). Your entries are still here: Save again.';
   }
 
   Future<void> _addPhoto(String pose, {required bool camera}) async {
@@ -1171,6 +1256,42 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       setState(() => _error = 'That photo could not be added.');
     }
   }
+
+  /// An optional section's header: tap to open or close it.
+  Widget _section(
+    P p,
+    String title,
+    String sub,
+    bool open,
+    VoidCallback onTap,
+  ) => Surface(
+    semanticLabel: '$title. ${open ? 'Hide' : 'Show'}',
+    onTap: onTap,
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(sub, style: F.cap.copyWith(color: p.ink2)),
+            ],
+          ),
+        ),
+        Icon(
+          open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+          size: 18,
+          color: p.ink3,
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext c) {
@@ -1247,93 +1368,101 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: S.x5),
-                  Text(
-                    'TAPE (INCHES, OPTIONAL)',
-                    style: F.over.copyWith(color: p.ink3),
-                  ),
-                  const SizedBox(height: S.x1),
-                  // B88-12 (C6): what makes two tape readings comparable.
-                  Text(
-                    'Same spot and same time of day each time, relaxed, tape '
-                    'snug but not pressing. Measured twice? Enter both, like '
-                    '34.5 34.75, and the average is kept.',
-                    style: F.cap.copyWith(color: p.ink3),
-                  ),
-                  const SizedBox(height: S.x2),
-                  for (final s in BodySite.values) ...[
-                    OsTextField(
-                      controller: _sites[s]!,
-                      label: s.title,
-                      hint: s.guidance,
-                      // Signed numbers open iOS's numbers-and-punctuation
-                      // keyboard, which has the space a second reading needs.
-                      keyboard: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                    ),
-                    const SizedBox(height: S.x3),
-                  ],
-                  const SizedBox(height: S.x2),
-                  Text('PHOTOS', style: F.over.copyWith(color: p.ink3)),
-                  const SizedBox(height: S.x2),
-                  if (_photos.isNotEmpty)
-                    SizedBox(
-                      height:
-                          96 +
-                          MediaQuery.textScalerOf(c).scale(F.over.fontSize!) *
-                              2,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          for (final ph in _photos)
-                            _Thumb(ph, size: 96, label: ph.pose),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: S.x2),
-                  Wrap(
-                    spacing: S.x2,
-                    runSpacing: S.x2,
-                    children: [
-                      for (final pose in const ['front', 'side']) ...[
-                        Pressable(
-                          semanticLabel: 'Take a $pose photo',
-                          onTap: () => _addPhoto(pose, camera: true),
-                          child: Pill(
-                            'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
-                            C.teal,
-                            icon: LucideIcons.camera,
-                          ),
-                        ),
-                        Pressable(
-                          semanticLabel: 'Choose a $pose photo',
-                          onTap: () => _addPhoto(pose, camera: false),
-                          child: Pill(
-                            'Photos · ${pose == 'front' ? 'Front' : 'Side'}',
-                            C.n400,
-                            icon: LucideIcons.image,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
                   if (_error != null) ...[
-                    const SizedBox(height: S.x4),
+                    const SizedBox(height: S.x3),
                     Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
                   ],
-                  const SizedBox(height: S.x5),
+                  const SizedBox(height: S.x4),
                   BigButton(
                     _busy ? 'Saving' : 'Save',
                     color: C.teal,
                     onTap: _busy ? null : _save,
                   ),
-                  if (_changed) ...[
+                  const SizedBox(height: S.x5),
+                  _section(
+                    p,
+                    'Measurements',
+                    'Tape, in inches. Optional.',
+                    _showTape,
+                    () => setState(() => _showTape = !_showTape),
+                  ),
+                  if (_showTape) ...[
                     const SizedBox(height: S.x2),
+                    // B88-12 (C6): what makes two tape readings comparable.
                     Text(
-                      'Photos are saved as soon as they are added.',
-                      style: F.over.copyWith(color: p.ink3),
+                      'Same spot and same time of day each time, relaxed, tape '
+                      'snug but not pressing. Measured twice? Enter both, like '
+                      '34.5 34.75, and the average is kept.',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                    const SizedBox(height: S.x2),
+                    for (final s in BodySite.values) ...[
+                      OsTextField(
+                        controller: _sites[s]!,
+                        label: s.title,
+                        hint: s.guidance,
+                        // Signed numbers open iOS's numbers-and-punctuation
+                        // keyboard, which has the space a second reading needs.
+                        keyboard: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                      ),
+                      const SizedBox(height: S.x3),
+                    ],
+                  ],
+                  const SizedBox(height: S.x3),
+                  _section(
+                    p,
+                    'Photos',
+                    _photos.isEmpty
+                        ? 'Optional. Each photo saves the moment you add it.'
+                        : '${_photos.length} for this day. Each photo saves the moment you add it.',
+                    _showPhotos,
+                    () => setState(() => _showPhotos = !_showPhotos),
+                  ),
+                  if (_showPhotos) ...[
+                    const SizedBox(height: S.x2),
+                    if (_photos.isNotEmpty)
+                      SizedBox(
+                        height:
+                            96 +
+                            MediaQuery.textScalerOf(c).scale(F.over.fontSize!) *
+                                2,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (final ph in _photos)
+                              _Thumb(ph, size: 96, label: ph.pose),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: S.x2),
+                    Wrap(
+                      spacing: S.x2,
+                      runSpacing: S.x2,
+                      children: [
+                        for (final pose in const ['front', 'side']) ...[
+                          Pressable(
+                            semanticLabel: 'Take a $pose photo',
+                            onTap: () => _addPhoto(pose, camera: true),
+                            child: Pill(
+                              'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
+                              C.teal,
+                              icon: LucideIcons.camera,
+                            ),
+                          ),
+                          Pressable(
+                            semanticLabel: 'Choose a $pose photo',
+                            onTap: () => _addPhoto(pose, camera: false),
+                            child: Pill(
+                              'Photos · ${pose == 'front' ? 'Front' : 'Side'}',
+                              C.n400,
+                              icon: LucideIcons.image,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ],
@@ -2081,9 +2210,38 @@ class _GoalScreenState extends State<GoalScreen> {
   late GoalPace _pace = widget.plan.pace;
   late TrainingAge _age = widget.plan.trainingAge;
   bool _saving = false;
+  String? _saveError;
 
   GoalPlan get _draft =>
       GoalPlan(phase: _phase, pace: _pace, trainingAge: _age);
+
+  /// B90-04: a failed save clears the busy state, keeps every choice on
+  /// screen and offers Try again; the goal counts as changed only once it is
+  /// stored.
+  Future<void> _save(BuildContext c) async {
+    setState(() => (_saving = true, _saveError = null));
+    try {
+      await GoalPlan.save(
+        GoalPlan(
+          phase: _phase,
+          pace: _pace,
+          trainingAge: _age,
+          since: todayLabel(),
+          holdKg: _phase == GoalPhase.maintain ? widget.kg : null,
+        ),
+      );
+      if (c.mounted) Navigator.of(c).pop(true);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _saveError =
+              'Your goal was not saved. Your choices are still here.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -2216,25 +2374,19 @@ class _GoalScreenState extends State<GoalScreen> {
           ],
         ),
       ),
+      if (_saveError != null) ...[
+        const SizedBox(height: S.x3),
+        Text(_saveError!, style: F.cap.copyWith(color: p.on(C.red))),
+      ],
       const SizedBox(height: S.x4),
       BigButton(
-        _saving ? 'Saving…' : 'Use this goal from today',
+        _saving
+            ? 'Saving…'
+            : _saveError != null
+            ? 'Try again'
+            : 'Use this goal from today',
         color: C.teal,
-        onTap: _saving
-            ? null
-            : () async {
-                setState(() => _saving = true);
-                await GoalPlan.save(
-                  GoalPlan(
-                    phase: _phase,
-                    pace: _pace,
-                    trainingAge: _age,
-                    since: todayLabel(),
-                    holdKg: _phase == GoalPhase.maintain ? widget.kg : null,
-                  ),
-                );
-                if (c.mounted) Navigator.of(c).pop(true);
-              },
+        onTap: _saving ? null : () => _save(c),
       ),
     ]);
   }

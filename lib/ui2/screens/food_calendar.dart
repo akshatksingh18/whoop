@@ -309,10 +309,13 @@ class _FoodCalendarState extends State<FoodCalendar> {
             children: [
               for (final w in _weekdays)
                 Expanded(
-                  child: Text(
-                    w,
-                    textAlign: TextAlign.center,
-                    style: F.over.copyWith(color: p.ink2),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      w,
+                      textAlign: TextAlign.center,
+                      style: F.over.copyWith(color: p.ink2),
+                    ),
                   ),
                 ),
             ],
@@ -344,7 +347,10 @@ class _FoodCalendarState extends State<FoodCalendar> {
                   children: [
                     _MarkDot(m, size: 14),
                     const SizedBox(width: S.x1),
-                    Text(label, style: F.cap.copyWith(color: p.ink2)),
+                    // Wraps at large text sizes instead of overflowing.
+                    Flexible(
+                      child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+                    ),
                   ],
                 ),
             ],
@@ -383,7 +389,9 @@ class _FoodCalendarState extends State<FoodCalendar> {
                       border: Border.all(color: p.on(C.food), width: 1.5),
                     )
                   : null,
-              child: Text(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
                 '${DateTime.parse(day).day}',
                 style: F.body.copyWith(
                   color: future
@@ -395,6 +403,7 @@ class _FoodCalendarState extends State<FoodCalendar> {
                       ? FontWeight.w700
                       : FontWeight.w500,
                 ),
+              ),
               ),
             ),
             if (!future) _MarkDot(marks[day] ?? FoodDayMark.empty, size: 10),

@@ -34,6 +34,7 @@ import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/screens/food_diary.dart';
+import 'package:openstrap_edge/ui2/screens/food_calendar.dart' show FoodWeekStrip;
 import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
@@ -827,7 +828,7 @@ void main() {
       t.view.devicePixelRatio = 1;
       addTearDown(t.view.reset);
       await t.pumpWidget(_app(app, const NutritionScreen()));
-      await _until(t, () => find.byType(DayHeader).evaluate().isNotEmpty);
+      await _until(t, () => find.byType(FoodWeekStrip).evaluate().isNotEmpty);
       await t.tap(find.text('History'));
       await t.pump();
       await _until(t, () => find.byType(ExpansionTile).evaluate().length >= 2);
@@ -977,7 +978,7 @@ void main() {
       );
     }
     await t.tap(find.text('Retry'));
-    await _until(t, () => find.byType(DayHeader).evaluate().isNotEmpty);
+    await _until(t, () => find.byType(FoodWeekStrip).evaluate().isNotEmpty);
     await _unmount(t);
   });
 

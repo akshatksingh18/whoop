@@ -16,8 +16,10 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification: Akshat's screenshots show Build `0.9.55`/`88` installed on
 his iPhone 17 (iOS `26.6.2`). Build 89 (`0.9.56`/`89`, algorithm 93) is local source only: it
-repairs the nightly HRV his first Build 88 nights exposed and renames everything the app shows or
-names from OpenStrap to WHOOP (`todo.md` Build 89). Build 86 was the previous install. Phone checks and acceptance
+repairs the nightly HRV his first Build 88 nights exposed, renames everything the app shows or
+names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rate-only, reworks
+Progress and the Food card, counts food days automatically and adds an AI-analysis export
+(`todo.md` Build 89). Build 86 was the previous install. Phone checks and acceptance
 remain open. Akshat rejects the installed UI's cosmetic-only feel and Progress's excessive copy;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -231,7 +233,7 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — Build 88 implemented-in-source list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
+- `todo.md` — Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,
   cream panels, tiles, Trends bars) and its tokens; local sketches live in gitignored

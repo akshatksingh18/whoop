@@ -2263,11 +2263,11 @@ class _HeartCardState extends State<_HeartCard> {
                       : 'Last hour'}: '
                   '$range, ${vals.length} recorded minutes. Missing minutes are gaps.',
               // Build 89: every window reads under the finger, like the full
-              // heart-rate screen. The detector claims taps and sideways drags
-              // so touching the chart reads it instead of opening the card.
-              child: GestureDetector(
+              // heart-rate screen. The inner Pressable claims the tap, so
+              // touching the chart reads it instead of opening the card.
+              child: Pressable(
+                semanticLabel: 'Heart rate chart',
                 onTap: () {},
-                onHorizontalDragUpdate: (_) {},
                 child: Scrubber(
                   value: _scrub,
                   onChanged: (v) => setState(() => _scrub = v),

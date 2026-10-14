@@ -300,7 +300,6 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   String _metricKey = 'weight';
   String _unit = 'kg';
   bool _trend = true;
-  int _review = 0;
   int? _cursor;
 
   @override
@@ -405,7 +404,15 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
   List<Widget> _page(BuildContext c, ProgressData d) {
     final p = P.of(c);
     final today = todayLabel();
-    final from = _range.from(today, baseline: d.baseline, earliest: d.earliest);
+    // Build 89: ONE period for the whole page (progressPeriod) — what the
+    // answer compares and the days every card below shows.
+    final per = progressPeriod(
+      _range,
+      today,
+      baseline: d.baseline,
+      earliest: d.earliest,
+    );
+    final from = per.shownFrom, to = per.shownTo;
     final hasEvidence = [
       ...d.weights.map((x) => x.date),
       ...d.measures.map((x) => x.date),
@@ -415,108 +422,168 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       ...d.steps.map((x) => x.date),
       ...d.sleepMin.map((x) => x.date),
       ...d.recovery.map((x) => x.date),
-    ].any((date) => date.compareTo(from) >= 0 && date.compareTo(today) <= 0);
+    ].any((date) => date.compareTo(from) >= 0 && date.compareTo(to) <= 0);
     return [
-      // Build 88: the review leads the page (mock `5-progress`).
-      if (hasEvidence) ...[
-        ..._reviewSection(c, p, d, today),
-        const SizedBox(height: S.x5),
-      ],
+      _periodPicker(c, p),
+      const SizedBox(height: S.x1),
       Row(
         children: [
-          Expanded(child: _goalCard(c, p, d, today)),
-          IconButton(
-            tooltip: 'Add body entry',
-            onPressed: () => _addEntry(c, d),
-            icon: Icon(LucideIcons.plus, color: p.on(C.teal)),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x1),
+              child: Text(per.words, style: F.cap.copyWith(color: p.onGround)),
+            ),
           ),
-          IconButton(
-            tooltip: 'Body settings',
-            onPressed: () => _settings(c, d),
-            icon: const Icon(LucideIcons.settings2),
-          ),
+          _morePeriods(c, p),
         ],
       ),
       const SizedBox(height: S.x3),
-      _menus(c, p),
-      const SizedBox(height: S.x3),
-      ..._bodySection(c, p, d, from, today),
-      const SizedBox(height: S.x3),
       if (hasEvidence) ...[
-        ..._strengthSection(c, p, d, from, today),
+        ..._reviewSection(c, p, d, per),
         const SizedBox(height: S.x5),
-        ..._foodSection(c, p, d, from, today),
-        const SizedBox(height: S.x5),
-        ..._activitySection(c, p, d, from, today),
       ],
-      const SizedBox(height: S.x3),
-      ..._entries(c, p, d, _metric, from, today),
-      const SizedBox(height: S.x3),
-      _photoCard(c, p, d),
-    ];
-  }
-
-  Widget _menus(BuildContext c, P p) {
-    Widget menu<T>(
-      String label,
-      String value,
-      List<PopupMenuEntry<T>> items,
-      ValueChanged<T> select,
-    ) => PopupMenuButton<T>(
-      tooltip: 'Select $label',
-      onSelected: select,
-      itemBuilder: (_) => items,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x2),
+      // One Body card: the measurement chips, its chart and figures, the
+      // latest entries and the photos, with add and settings in its header.
+      Surface(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(label, style: F.over.copyWith(color: p.ink3)),
-            const SizedBox(height: S.x1),
             Row(
               children: [
                 Expanded(
-                  child: Text(value, style: F.body.copyWith(color: p.ink)),
+                  child: Text('Body', style: F.head.copyWith(color: p.ink)),
                 ),
-                Icon(LucideIcons.chevronDown, size: 18, color: p.ink3),
+                IconButton(
+                  tooltip: 'Add body entry',
+                  onPressed: () => _addEntry(c, d),
+                  icon: Icon(LucideIcons.plus, color: p.on(C.teal)),
+                ),
+                IconButton(
+                  tooltip: 'Body settings',
+                  onPressed: () => _settings(c, d),
+                  icon: Icon(LucideIcons.settings2, color: p.ink2),
+                ),
               ],
             ),
+            _metricChips(c, p),
+            ..._bodySection(c, p, d, from, to),
+            ..._entries(c, p, d, _metric, from, to),
             const SizedBox(height: S.x2),
-            Divider(height: 1, color: p.line),
+            _photoCard(c, p, d),
           ],
         ),
       ),
-    );
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: menu<String>('Measurement', _metric.label, [
-            const PopupMenuItem(value: 'weight', child: Text('Weight')),
-            const PopupMenuItem(value: 'steps', child: Text('Steps')),
-            for (final s in BodySite.values)
-              PopupMenuItem(value: s.name, child: Text(s.title)),
-          ], _setMetric),
+      if (hasEvidence) ...[
+        const SizedBox(height: S.x5),
+        ..._strengthSection(
+          c,
+          p,
+          d,
+          from,
+          to,
+          before: per.before,
+          after: per.after,
         ),
-        const SizedBox(width: S.x4),
-        Expanded(
-          child: menu<ProgressRange>(
-            'Range',
-            _range.label,
-            [
-              for (final r in ProgressRange.values)
-                PopupMenuItem(value: r, child: Text(r.label)),
-            ],
-            (v) {
-              setState(() {
-                _range = v;
-                _cursor = null;
-              });
-              _save('progress.range', v.name);
-            },
-          ),
-        ),
+        const SizedBox(height: S.x5),
+        ..._foodSection(c, p, d, from, to),
+        const SizedBox(height: S.x5),
+        ..._activitySection(c, p, d, from, to),
       ],
+      const SizedBox(height: S.x5),
+      Section('Goal', Surface(child: _goalCard(c, p, d, today))),
+    ];
+  }
+
+  /// The page's one period: four tabs, the rest under More.
+  Widget _periodPicker(BuildContext c, P p) => SubTabs(
+    // "Start" here; the line under the tabs says what it compares.
+    const ['Week', 'Month', '3 months', 'Start'],
+    _mainPeriods.indexOf(_range),
+    (i) {
+      setState(() {
+        _range = _mainPeriods[i];
+        _cursor = null;
+      });
+      _save('progress.range', _mainPeriods[i].name);
+    },
+    color: C.body,
+  );
+
+  static const _mainPeriods = [
+    ProgressRange.week,
+    ProgressRange.month,
+    ProgressRange.threeMonths,
+    ProgressRange.sinceStart,
+  ];
+
+  /// 2 months, 6 months, 1 year and All, beside the period's description.
+  Widget _morePeriods(BuildContext c, P p) {
+    final more = [
+      for (final r in ProgressRange.values)
+        if (!_mainPeriods.contains(r)) r,
+    ];
+    final inMore = more.contains(_range);
+    return PopupMenuButton<ProgressRange>(
+          tooltip: 'More periods',
+          onSelected: (r) {
+            setState(() {
+              _range = r;
+              _cursor = null;
+            });
+            _save('progress.range', r.name);
+          },
+          itemBuilder: (_) => [
+            for (final r in more)
+              PopupMenuItem(value: r, child: Text(r.label)),
+          ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: S.x2,
+              vertical: S.x3,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  inMore ? _range.label : 'More',
+                  style: F.cap.copyWith(
+                    color: p.onGround,
+                    fontWeight: inMore ? FontWeight.w700 : FontWeight.w600,
+                  ),
+                ),
+                Icon(LucideIcons.chevronDown, size: 16, color: p.onGround),
+              ],
+            ),
+          ),
+        );
+  }
+
+  /// What the Body card charts: weight, steps or a tape site.
+  Widget _metricChips(BuildContext c, P p) {
+    final options = <(String, String)>[
+      ('weight', 'Weight'),
+      ('steps', 'Steps'),
+      for (final s in BodySite.values) (s.name, s.title),
+    ];
+    // Every chip built (a scroll view, not a lazy list), so each is reachable
+    // at any text size.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final (key, label) in options)
+            Padding(
+              padding: const EdgeInsets.only(right: S.x2),
+              child: Pressable(
+                semanticLabel: 'Chart $label',
+                onTap: () => _setMetric(key),
+                child: Center(
+                  child: Pill(label, _metricKey == key ? C.teal : C.n400),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1131,17 +1198,21 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     BuildContext c,
     P p,
     ProgressData d,
-    String today,
+    ProgressPeriod per,
   ) {
-    final (week, weekBefore) = closedWeeks(today);
-    final (month, monthBefore) = closedMonths(today);
-    final start = d.baseline ?? d.earliest;
-    final since = start == null ? null : sinceStartWindows(start, today);
-    final (before, after) = switch (_review) {
-      1 => (monthBefore, month),
-      2 when since != null => since,
-      _ => (weekBefore, week),
-    };
+    // Build 89: the page's one period decides what is compared.
+    final before = per.before, after = per.after;
+    if (before == null || after == null) {
+      return [
+        Surface(
+          child: Text(
+            'Too early to compare. Keep logging and this will show how the '
+            'start compares with now.',
+            style: F.body.copyWith(color: p.ink),
+          ),
+        ),
+      ];
+    }
     final ws = weightSeries(d.weights, unit: _unit);
     final wb = weightWindow(ws, before), wa = weightWindow(ws, after);
     final f = foodWindow(d.food, after);
@@ -1192,7 +1263,6 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     final pct = change == null || wb.mean == null || wb.mean == 0
         ? null
         : change / wb.mean! * 100;
-    final noStart = _review == 2 && since == null;
     void details() => _details(c, 'Review details', [
       '${_md(after.from)} – ${_md(after.to)} vs ${_md(before.from)} – ${_md(before.to)}',
       if (d.readErrors.isNotEmpty)
@@ -1207,12 +1277,53 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
       ...tapeChanges,
       'Measurements and lifting performance cannot establish muscle gained or what caused a change.',
     ]);
+    // Build 89: the answer first, in words, with what would settle it; the
+    // figures behind it under it. Calories and protein live on the Food card.
+    final answer = d.readErrors.isNotEmpty
+        ? ('Not available', 'Review unavailable until the records refresh.')
+        : switch (rv.state) {
+            ReviewState.gatherEvidence => (
+              'Not yet clear',
+              rv.because.isEmpty ? rv.headline : rv.because.first,
+            ),
+            _ => (rv.headline, rv.because.isEmpty ? '' : rv.because.first),
+          };
     return [
-      SubTabs(
-        const ['Week', 'Month', 'Since start'],
-        _review,
-        (i) => setState(() => _review = i),
-        color: C.body,
+      Surface(
+        onTap: details,
+        semanticLabel: 'Goal: ${d.goal.phase.title}. ${answer.$1}. Details',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'GOAL · ${d.goal.phase.title.toUpperCase()}',
+              style: F.label.copyWith(color: p.ink2),
+            ),
+            const SizedBox(height: S.x2),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(answer.$1, style: F.t2.copyWith(color: p.ink)),
+                ),
+                Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+              ],
+            ),
+            if (answer.$2.isNotEmpty) ...[
+              const SizedBox(height: S.x1),
+              Text(answer.$2, style: F.body.copyWith(color: p.ink2)),
+            ],
+            if (rv.next != null && d.readErrors.isEmpty) ...[
+              const SizedBox(height: S.x2),
+              Text(
+                'Next: ${rv.next!}',
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
       const SizedBox(height: S.x3),
       Surface(
@@ -1223,16 +1334,12 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
             HeroStat(
               value: wa.mean == null ? null : _num(wa.mean!),
               color: C.body,
-              label: '7-day weight · $_unit',
+              label: 'Average weight · $_unit',
               lines: [
-                noStart
-                    ? 'Add a starting entry to compare'
-                    : [
-                        if (change != null) '${signed(change, '')} vs before',
-                        '${wa.count} weigh-ins',
-                      ].join(' · '),
-                if (!noStart)
-                  '${_md(after.from)}–${_md(after.to)} vs ${_md(before.from)}–${_md(before.to)}',
+                [
+                  if (change != null) '${signed(change, '')} vs before',
+                  '${wa.count} weigh-ins',
+                ].join(' · '),
               ],
               onTap: details,
             ),
@@ -1279,42 +1386,6 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
                         '${comparable.length - up - down} same, $down down',
               value: comparable.isEmpty ? null : '$up ↑',
             ),
-            Divider(color: p.line, height: 1),
-            MetricLine(
-              label: 'Protein',
-              color: C.food,
-              note: '${f.proteinDays} complete days',
-              value: f.protein == null ? null : '${f.protein!.round()}',
-              unit: 'g',
-            ),
-            Divider(color: p.line, height: 1),
-            MetricLine(
-              label: 'Calories',
-              color: C.food,
-              note: '${f.kcalDays} complete days',
-              value: f.kcal == null ? null : thousands(f.kcal!),
-              unit: '/day',
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: S.x3),
-      Surface(
-        onTap: details,
-        semanticLabel: 'Review details',
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                d.readErrors.isNotEmpty
-                    ? 'Review unavailable until refresh'
-                    : rv.state == ReviewState.gatherEvidence
-                    ? 'Partial evidence. ${rv.because.first}'
-                    : rv.headline,
-                style: F.body.copyWith(color: p.ink),
-              ),
-            ),
-            Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
           ],
         ),
       ),
@@ -1328,23 +1399,31 @@ class _ProgressScreenState extends State<ProgressScreen> with RevisionReload {
     P p,
     ProgressData d,
     String from,
-    String today,
-  ) {
+    String today, {
+    DayWindow? before,
+    DayWindow? after,
+  }) {
     final lifts = [
       for (final w in d.lifts)
         if (dayLabelOf(w.startedAt).compareTo(from) >= 0 &&
             dayLabelOf(w.startedAt).compareTo(today) <= 0)
           w,
     ];
+    // Build 89: the page's own comparison, not a split of its own — the
+    // answer card and this card compare the same two periods.
     final dates = daysBetween(from, today);
     final mid = DateTime.parse(dates[(dates.length - 1) ~/ 2]);
-    final first = (from: from, to: dayLabelOf(mid), days: 0, partial: false);
-    final second = (
-      from: dayLabelOf(DateTime(mid.year, mid.month, mid.day + 1)),
-      to: today,
-      days: 0,
-      partial: false,
-    );
+    final first =
+        before ??
+        (from: from, to: dayLabelOf(mid), days: 0, partial: false);
+    final second =
+        after ??
+        (
+          from: dayLabelOf(DateTime(mid.year, mid.month, mid.day + 1)),
+          to: today,
+          days: 0,
+          partial: false,
+        );
     final cmp = dates.length < 2
         ? <LiftComparison>[]
         : liftComparisons(d.lifts, first, second);

@@ -77,7 +77,18 @@ all 13 qualify and agree closely with algorithm 91. Implemented as local commits
 - [ ] Publication, CI/macOS build and testing IPA: Akshat's go-ahead (he paused the IPA for the
   items below).
 
-### Build 89 additions requested on the installed Build 88 (approved, in progress)
+### Build 89 additions requested on the installed Build 88 (approved, implemented in source)
+
+Implemented, each with tests: P1-P6 as proposed (one period selector — Week · Month · 3 months
+· Start, More for the rest — driving every card through `progressPeriod`; the answer card first;
+one Body card with chips, chart, entries, add/settings and photos; Strength on the page's own
+comparison; Goal in its own card); Pushups in its own panel with a Start pill; the Food card per
+Akshat's reference (eaten / goal with left or over beside it, a striped-past-goal `GoalBar`, the
+same on macro bars), the date above the title opening a month calendar and a Monday week strip
+marking counted/logged/empty days; automatic day counting at half the goal plus the optional
+9:30 pm question (`FoodDayReminder`, toggle in Food's targets); the label bin; Settings → Your
+data → Export for AI analysis (`analysis_export.dart`); scrubbable Today heart-rate windows; and
+the day strain floor (finished workouts' net TRIMP). Not phone-verified.
 
 Akshat's decisions: item 4 option B (automatic counting plus an optional evening reminder);
 item 6 the recommended Markdown file with food items up to 3 months; item 3 lead with calories

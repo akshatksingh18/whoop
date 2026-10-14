@@ -1381,14 +1381,15 @@ void main() {
       expect(text, contains('vs ${months[prior.month - 1]} ${prior.day}'));
       await t.drag(find.byType(Scrollable).first, const Offset(0, 5000));
       await t.pumpAndSettle();
+      final waist = find.text('Waist (navel)');
       await t.scrollUntilVisible(
-        find.byTooltip('Select Measurement'),
+        find.byTooltip('Add body entry'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await t.tap(find.byTooltip('Select Measurement'));
+      await t.ensureVisible(waist.first);
       await t.pumpAndSettle();
-      await t.tap(find.text('Waist (navel)').last);
+      await t.tap(waist.first);
       await t.pumpAndSettle();
       await t.scrollUntilVisible(
         find.textContaining('Estimates from'),

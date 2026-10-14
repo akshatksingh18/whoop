@@ -87,28 +87,37 @@ void main() {
       app.bumpInsights();
       // Build 88: the review leads Progress, so the body section sits below
       // the fold; wait for the reload, then scroll to it.
-      await _until(t, () => find.text('Week').evaluate().isNotEmpty);
+      // Build 89: the period tabs show from the first frame; wait for the
+      // reload that brings the new readings in instead.
+      await _until(
+        t,
+        () => find.textContaining('Nothing recorded').evaluate().isEmpty,
+      );
       final list = find.byType(Scrollable).first;
       await t.scrollUntilVisible(find.text('LATEST'), 200, scrollable: list);
       expect(t.takeException(), isNull);
       await t.drag(list, const Offset(0, 5000));
       await t.pumpAndSettle();
+      // Build 89: the Body card's chips choose the chart; one period
+      // selector at the top drives the whole page.
+      final waist = find.text('Waist (navel)');
+      // The chips scroll sideways: bring the Body card in, then the chip.
       await t.scrollUntilVisible(
-        find.byTooltip('Select Measurement'),
+        find.byTooltip('Add body entry'),
         150,
         scrollable: list,
       );
-      await t.ensureVisible(find.byTooltip('Select Measurement'));
+      await t.ensureVisible(waist.first);
       await t.pumpAndSettle();
-      await t.tap(find.byTooltip('Select Measurement'));
+      await t.tap(waist.first);
       await t.pumpAndSettle();
-      await t.tap(find.text('Waist (navel)').last);
+      await t.drag(list, const Offset(0, 5000));
       await t.pumpAndSettle();
-      await t.ensureVisible(find.byTooltip('Select Range'));
+      await t.tap(find.text('Month').first);
       await t.pumpAndSettle();
-      await t.tap(find.byTooltip('Select Range'));
+      await t.tap(find.byTooltip('More periods'));
       await t.pumpAndSettle();
-      await t.tap(find.text('1 month').last);
+      await t.tap(find.text('1 year').last);
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
     });

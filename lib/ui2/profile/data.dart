@@ -22,6 +22,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../build_profile.dart';
+import '../../data/analysis_export.dart';
 import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/db.dart';
@@ -41,7 +42,7 @@ import '../onboarding/welcome.dart'
         PassphraseCancelled,
         askBackupPassphrase,
         runImport;
-import '../screens/home_screen.dart' show dbRebuiltCard;
+import '../screens/home_screen.dart' show dbRebuiltCard, repoOf;
 import '../ui2.dart';
 import 'phone_import.dart';
 import 'profile.dart';
@@ -302,6 +303,72 @@ class _DataScreenState extends State<DataScreen> {
     } catch (_) {
       return ' The height could not be saved; your profile is unchanged.';
     }
+  }
+
+  /// Build 89: one Markdown file for an AI chat (Claude, Codex) — diet,
+  /// weight, body, lifting, activity and recovery over a chosen period.
+  Future<_Note> _exportAnalysis() async {
+    final origin = shareOrigin(context);
+    final repo = repoOf(context);
+    final user = context.read<AppState>().user ?? const <String, dynamic>{};
+    if (repo == null) return ('Your data is not open yet.', true);
+    final range = await showModalBottomSheet<AnalysisRange>(
+      context: context,
+      useSafeArea: true,
+      sheetAnimationStyle: sheetMotion(context),
+      backgroundColor: P.of(context).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Export for AI analysis',
+                  style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x2),
+              Text(
+                'One Markdown file to paste into Claude or Codex: daily diet, '
+                'weight, waist, steps, sleep, recovery, HRV, strain and '
+                'workouts, weekly averages, lifts and tape measurements. '
+                'Food items are listed for up to 3 months. Made now and '
+                'shared; nothing is kept.',
+                style: F.cap.copyWith(color: P.of(s).ink2),
+              ),
+              const SizedBox(height: S.x3),
+              for (final r in AnalysisRange.values)
+                Pressable(
+                  semanticLabel: r.label,
+                  onTap: () => Navigator.of(s).pop(r),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x3),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(r.label,
+                              style: F.body.copyWith(color: P.of(s).ink)),
+                        ),
+                        Icon(LucideIcons.chevronRight, color: P.of(s).ink2),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (range == null) return ('Export cancelled.', false);
+    final path = await writeAnalysisExport(range: range, repo: repo, user: user);
+    await Share.shareXFiles(
+      [XFile(path)],
+      subject: '$kAppName data · ${range.label}',
+      sharePositionOrigin: origin,
+    );
+    return ('Analysis file shared (${range.label}).', false);
   }
 
   Future<_Note> _exportBody() async {
@@ -614,6 +681,16 @@ class _DataScreenState extends State<DataScreen> {
                               'typed in. Each day carries where it came from and '
                               'which algorithm version scored it',
                       onTap: _busy ? null : () => _run(_exportCsv),
+                    ),
+                    SetRow(
+                      LucideIcons.sparkles,
+                      C.purple,
+                      'Export for AI analysis',
+                      sub:
+                          'One readable file of your diet, weight, training '
+                          'and recovery for Claude or Codex — 2 weeks to '
+                          'lifetime',
+                      onTap: _busy ? null : () => _run(_exportAnalysis),
                     ),
                     SetRow(
                       LucideIcons.database,

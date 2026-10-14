@@ -46,6 +46,9 @@ Each family colour is used only for its own data. Alert colour never decorates.
 ## Type And Size
 
 - **Typeface:** the system face (SF Pro), with Dynamic Type respected.
+- **Food card (Build 89, Akshat's reference):** eaten over the goal and what is left (or over,
+  in the alert colour) at the same size on one line, with a `GoalBar` that stripes past the goal;
+  Food's date opens a month calendar and a week strip marks each day's state.
 - **Hero number:** semibold, about 116 pt; 84-96 pt for long values such as 1,920, 80.4 or
   4.21, in the family colour's contrast-solved ink (never the raw fill colour). Build 89 changed
   it from light weight after Akshat found the thin gold food number hard to read.

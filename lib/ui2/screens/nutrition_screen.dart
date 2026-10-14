@@ -1510,7 +1510,7 @@ class _CalorieHero extends StatelessWidget {
                   children: [
                     TextSpan(
                       text: eaten ?? '—',
-                      style: F.n48.copyWith(
+                      style: F.n34.copyWith(
                         color: eaten == null ? p.on(C.alert) : p.ink,
                       ),
                     ),

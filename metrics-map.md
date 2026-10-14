@@ -485,7 +485,12 @@ Steps rows with seven-day tiles, then Maintenance; the HR card, daily actions, m
 card and week card follow as panels. Trends rows are label/chart/value: bars at 7 days, a daily
 line under a 7-day average at 30 days, weekly points over a low-high band at 3 months; missing
 days are hatched and no line bridges a gap. Status adds a Sync health group; Settings adds a
-switch per health-alert kind. Food leads with the intake hero and four macro progress lines, then
+switch per health-alert kind. From Build 89 source: Food's date opens a month calendar and a
+week strip marks each day counted, logged or empty; its card reads eaten / goal with what is left
+or over beside it and a bar that stripes past the goal; Progress has one period selector for every
+card, the answer first and one Body card; Settings → Your data → Export for AI analysis writes one
+Markdown file (2 weeks to lifetime, food items up to 3 months). Before that, Food led with the
+intake hero and four macro progress lines, then
 one meal panel closed by the day's completion line; Train has four family start tiles, a week
 panel (streak, strain, run km) and Recent in a panel; Progress leads with the Week/Month/Since
 start review (7-day weight hero, weight/waist/lifts/protein/calories lines, one verdict panel);

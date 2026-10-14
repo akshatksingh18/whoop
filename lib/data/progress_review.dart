@@ -204,6 +204,107 @@ typedef DayWindow = ({String from, String to, int days, bool partial});
   );
 }
 
+/// Build 89: ONE period for the whole Progress page. What it compares
+/// ([before] → [after]) and the days every section below shows ([shownFrom]
+/// → [shownTo]), so no two numbers on the page cover different days:
+/// - week / month: the last closed week or month against the one before;
+/// - 2 months … 1 year: the last N days against the N days before;
+/// - since start / all: your first week against the last closed week, with
+///   the sections covering start (or the first record) to today.
+/// [before]/[after] are null when the history cannot be compared yet.
+typedef ProgressPeriod = ({
+  DayWindow? before,
+  DayWindow? after,
+  String shownFrom,
+  String shownTo,
+  String words,
+});
+
+ProgressPeriod progressPeriod(
+  ProgressRange r,
+  String today, {
+  String? baseline,
+  String? earliest,
+}) {
+  String md(String d) {
+    final x = DateTime.parse(d);
+    const m = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${x.day} ${m[x.month - 1]}';
+  }
+
+  String span(DayWindow w) => '${md(w.from)}–${md(w.to)}';
+  switch (r) {
+    case ProgressRange.week:
+      final (after, before) = closedWeeks(today);
+      return (
+        before: before,
+        after: after,
+        shownFrom: after.from,
+        shownTo: after.to,
+        words: 'Last week (${span(after)}) vs the week before (${span(before)})',
+      );
+    case ProgressRange.month:
+      final (after, before) = closedMonths(today);
+      const names = [
+        'January', 'February', 'March', 'April', 'May', 'June', 'July', //
+        'August', 'September', 'October', 'November', 'December',
+      ];
+      String name(DayWindow w) => names[DateTime.parse(w.from).month - 1];
+      return (
+        before: before,
+        after: after,
+        shownFrom: after.from,
+        shownTo: after.to,
+        words: '${name(after)} vs ${name(before)}',
+      );
+    case ProgressRange.sinceStart:
+    case ProgressRange.all:
+      final start = r == ProgressRange.sinceStart
+          ? (baseline ?? earliest)
+          : (earliest ?? baseline);
+      final w = start == null ? null : sinceStartWindows(start, today);
+      final from = r.from(today, baseline: baseline, earliest: earliest);
+      return (
+        before: w?.$1,
+        after: w?.$2,
+        shownFrom: from,
+        shownTo: today,
+        words: w == null
+            ? '${r == ProgressRange.all ? 'Everything' : 'Since ${md(from)}'} — '
+                  'too early to compare a first and a last week'
+            : 'Your first week (${span(w.$1)}) vs last week (${span(w.$2)})',
+      );
+    case ProgressRange.twoMonths:
+    case ProgressRange.threeMonths:
+    case ProgressRange.sixMonths:
+    case ProgressRange.year:
+      final n = r.days!;
+      final t = DateTime.parse(today);
+      final after = (
+        from: dayLabelOf(DateTime(t.year, t.month, t.day - (n - 1))),
+        to: today,
+        days: n,
+        partial: false,
+      );
+      final before = (
+        from: dayLabelOf(DateTime(t.year, t.month, t.day - (2 * n - 1))),
+        to: dayLabelOf(DateTime(t.year, t.month, t.day - n)),
+        days: n,
+        partial: false,
+      );
+      return (
+        before: before,
+        after: after,
+        shownFrom: after.from,
+        shownTo: today,
+        words: 'Last ${r.label} (${span(after)}) vs the ${r.label} before',
+      );
+  }
+}
+
 /// The last complete calendar month before [today] and the one before it,
 /// with their real day counts (28–31 are not the same length).
 (DayWindow, DayWindow) closedMonths(String today) {

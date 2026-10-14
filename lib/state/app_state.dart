@@ -95,7 +95,7 @@ import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
 import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
-import '../data/nutrition_store.dart' show autoCountKcalGoal;
+import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../data/food_day_reminder.dart' show FoodDayReminder;
 import '../live/live_activity.dart';
 import '../live/breathing_live_activity.dart';
@@ -3126,6 +3126,15 @@ class AppState extends ChangeNotifier {
   /// `notifyListeners` is NOT that signal — it also ticks at ~1 Hz with live
   /// HR, so screens listen to this instead and re-read only when something
   /// actually landed.
+  /// Build 90 contract (B90-02): call once after a workout session is durably
+  /// added, edited, retimed or deleted, never before the write commits. Every
+  /// open tab re-reads: Today, Train and Progress on [insightsRevision], Food's
+  /// maintenance on the food revision.
+  void publishSessionChange() {
+    bumpInsights();
+    NutritionDb.changed();
+  }
+
   void bumpInsights() {
     runsChanged();
     if (_disposed) return;

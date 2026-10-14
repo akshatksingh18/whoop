@@ -614,6 +614,12 @@ class NutritionDay {
   ];
 }
 
+// Build 90 contract: Progress reads food through [rollupDay], [dayLogState],
+// [NutritionWindow], [NutritionDay] and `NutritionDb.entriesSince` /
+// `NutritionDb.dayMarks`. Changes to them are additive only (new optional
+// parameters or fields); never rename, remove or change the meaning of an
+// existing one without coordinating with the Progress owner.
+
 /// Roll a day up. [today] is the local day label of the current day, so
 /// "in progress" is decided by the caller's clock and never by a hidden one.
 NutritionDay rollupDay(

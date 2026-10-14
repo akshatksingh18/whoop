@@ -858,12 +858,10 @@ or unobserved latent record shapes as established device failures.
 - Green ADC is decoded but never stored, so no historical RIIV/green respiration path can run.
 - Historical R10-lite HR goes only to legacy `samples`, not the substrate (its beats are kept).
   Prevalence is unknown.
-- Two `worn_min` definitions exist:
-  - `metric_series` counts minutes with any record (Trends/CSV);
-  - the day wear block bridges runs (the day screen).
-- Wear is record presence (a gap over 120 s means off), so off-wrist, charging and undelivered
-  data are one "off" state. WRIST/charging events feed only nap rejection and a sleep-charging
-  flag.
+- Build 90 source uses one recorded-minute definition for `metric_series` and the day wear
+  block, bridging gaps up to 120 seconds. WRIST events establish off-wrist spans, band events
+  establish charging, and time after the committed frontier is pending sync. Other recording
+  gaps are unknown, including legacy segments; they are not labelled off-wrist.
 - Build 90 source caps historical v12/v24 records at four RR values; larger declared counts
   yield no intervals. R10 keeps its separate eight-value bound. Unknown-layout optical fields
   remain NULL through storage and isolate payloads, and old zero sentinels read as absent.

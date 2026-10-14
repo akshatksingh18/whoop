@@ -194,6 +194,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   Algorithm version is 95, with one changelog entry to extend for the remaining approved work.
   Akshat also assigned `csv_export.dart`, `day_label.dart`, `local_repository_impl.dart`,
   `day_timeline.dart` and `activity/live.dart` to Codex. No push or full local build/test run.
+  Task 2 is committed as `05d7dca2`. Task 3 now shares bridged record-minute accounting
+  across metric history and day wear; event-backed charging/off-wrist, recording gaps and
+  pending sync have distinct timeline copy. `build90_wear_test.dart` passes 4 checks and
+  `wear_coverage_test.dart` passes 12, including the actual two-reader comparison.
+  Task 4 timezone persistence and worker context are next. Native/phone checks remain open.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

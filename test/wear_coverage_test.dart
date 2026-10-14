@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/compute/substrate.dart';
+import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 
 const _profile = Profile(ageYears: 35, sex: 'm', weightKg: 75, heightCm: 178);
 
@@ -75,6 +76,18 @@ void main() {
   final (dayStart, dayEnd) = _localDay(DateTime(2026, 8, 10));
   final nineAm = dayStart + 9 * 3600;
   final elevenAm = dayStart + 11 * 3600;
+
+  test('metric history and day wear count the same bridged minutes', () {
+    final sub = _sub([(dayStart + 59, dayStart + 181)], stepSec: 60);
+    final bundle = deriveDayBundle({
+      'date': '2026-08-10', 'day_ts': sub.tsSec, 'day_hr': sub.hr,
+      'device_family': 'gen4',
+    });
+    final wear = _wear(sub, dayStartSec: dayStart,
+      dayCalendarEndSec: dayEnd, dataNowSec: dayEnd);
+    expect(wear['worn_min'], 3);
+    expect((bundle['scalars'] as Map)['worn_min'], wear['worn_min']);
+  });
 
   group('coverage_pct divides by the day', () {
     test('a band worn 9-11am on a finished day is not 100%', () {
@@ -166,9 +179,10 @@ void main() {
       expect(segs.first['end'], nineAm);
       expect(segs.last['on'], false);
       expect(segs.last['end'], dayEnd);
-      // "your band was off your wrist ..." needs the longest gap to be a real
-      // measured span, and the 13 h evening one is longer than the 9 h morning.
-      expect(w['longest_off_min'], (dayEnd - elevenAm) ~/ 60);
+      // A recording gap is not evidence the band was off-wrist.
+      expect(segs.first['state'], 'missing');
+      expect(segs.last['state'], 'missing');
+      expect(w['longest_off_min'], 0);
     });
 
     test('sum(on) / observable is exactly coverage_pct', () {

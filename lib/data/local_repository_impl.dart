@@ -1374,15 +1374,10 @@ class LocalRepositoryImpl extends LocalRepository {
       // is "we never looked". A renderer cannot tell those apart from `[]`, so
       // the key is absent instead.
       //
-      // The segments themselves are `{on, start, end, len_min}` over the
-      // OBSERVABLE day (local midnight → now, or → next midnight once the day
-      // is done), which is what makes them renderable as "your band was off
-      // your wrist 11:20 PM – 2:14 AM": the leading and trailing holes are on
-      // the list now, so a day whose records start at 9am shows the 00:00-09:00
-      // gap instead of opening the timeline at the first record and implying
-      // the night before it never existed. `sum(on) / observable` is exactly
-      // `coverage_pct`, so the ribbon and the percentage cannot disagree.
+      // Event-backed states distinguish off-wrist and charging from missing
+      // records and time beyond the durable frontier.
       'segments': ?w?['segments'],
+      'frontier_ts': w?['frontier_ts'],
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
       'longest_off_min': w?['longest_off_min'],

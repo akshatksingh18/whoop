@@ -119,7 +119,10 @@ One number per day. These drive every trend, baseline and "against your usual" c
 
 **Other**
 - `stress` = overnight autonomic stress, 0–100
-- `worn_min` = wear time
+- `worn_min` = epoch-minute buckets touched by record runs after bridging gaps up to 120 s;
+  shared by metric history and day detail. HR validity does not gate wear. Day segments
+  carry `worn`, `charging`, `off_wrist`, `missing` or `pending` states; only WRIST events
+  establish off-wrist time. Coverage excludes the tail after the committed record frontier.
 
 Build 90 decoder integrity: historical v12/v24 records accept at most four RR values;
 larger declared counts emit no beats. R10 retains an independent eight-value limit. Optical

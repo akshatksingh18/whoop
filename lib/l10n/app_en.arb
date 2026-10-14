@@ -3374,6 +3374,8 @@
     "description": "Fallback timeline/legend title for a workout session with no known type."
   },
   "dayTimelineBandOffWrist": "Band off your wrist",
+  "dayTimelineNotYetSynced": "Not yet synced",
+  "dayTimelineRecordingGap": "Recording gap",
   "@dayTimelineBandOffWrist": {
     "description": "Timeline title for a stretch the band was off the wrist."
   },

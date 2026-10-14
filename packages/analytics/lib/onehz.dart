@@ -39,6 +39,7 @@ export 'src/onehz/clinical/cardiac_coherence.dart';
 export 'src/onehz/sleep/sleep.dart';
 export 'src/onehz/respiration/respiration.dart';
 export 'src/onehz/motion/motion.dart';
+export 'src/onehz/motion/wear.dart';
 export 'src/onehz/workout/workout.dart';
 export 'src/onehz/wellness/wellness.dart';
 export 'src/onehz/human/human.dart';

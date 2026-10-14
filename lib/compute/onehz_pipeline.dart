@@ -377,11 +377,7 @@ Map<String, dynamic> deriveDayBundle(
   // mostly during SLEEP, so an HR-valid count collapses "worn" to ~the sleep
   // duration (the 24 h-worn-shows-7 h bug). Bucketing by real epoch-second
   // timestamp (not array index) is also gap-safe.
-  final wornMinuteBuckets = <int>{};
-  for (final ts in d.dayTsSec) {
-    wornMinuteBuckets.add(ts ~/ 60);
-  }
-  final wornMin = wornMinuteBuckets.length;
+  final wornMin = recordedWornMinutes(d.dayTsSec);
 
   // ── HR over the SLEEP WINDOW (RHR / dip night-side) ────────────────────────
   final sleepHr = [for (final h in d.sleepHr) h.toDouble()];

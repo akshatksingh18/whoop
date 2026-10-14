@@ -1657,7 +1657,8 @@ import 'substrate.dart';
 //   into the day's scalars, so `scalars.strain` and `metric_series` kept the
 //   unfloored value (0.0 on low-daytime-HR days with a finished walk).
 // 94 -> 95 (Build 90 Codex lane): confirmed historical RR count capped at four;
-//   unknown optical inputs stay nullable through storage and isolate payloads.
+//   unknown optical inputs stay nullable through storage and isolate payloads;
+//   one bridged recorded-minute definition and event-backed wear states.
 //   Only retained inputs re-derive; historical stored results stay versioned.
 const int kAlgoVersion = 95;
 
@@ -4085,8 +4086,10 @@ class DerivationEngine {
       final spanLo = day.sleepOnsetSec > 0
           ? math.min(napLo, day.sleepOnsetSec)
           : napLo;
-      final wristOffSpans = await LocalDb.wristOffSpans(spanLo, napHi);
-      final chargingSpans = await LocalDb.chargingSpans(spanLo, napHi);
+      final wearLo = math.min(spanLo, _localDayLabelToSec(day.date));
+      final wearHi = math.max(napHi, localNextMidnightSecForDayLabel(day.date));
+      final wristOffSpans = await LocalDb.wristOffSpans(wearLo, wearHi);
+      final chargingSpans = await LocalDb.chargingSpans(wearLo, wearHi);
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //
@@ -4183,6 +4186,7 @@ class DerivationEngine {
         dayStartSec: _localDayLabelToSec(day.date),
         dayEndSec: day.endSec,
         dataNowSec: dataNowSec,
+        viewNowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       );
       final blocks = await _runDayBlocksCancellable(
         blocksInput,
@@ -5728,6 +5732,9 @@ class DerivationEngine {
     required int dayStartSec,
     required int dayCalendarEndSec,
     required int dataNowSec,
+    int? viewNowSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
     double? restingHr,
     double? dynFloorG,
     int liveStepsReal = 0,
@@ -5753,6 +5760,9 @@ class DerivationEngine {
       dayStartSec: dayStartSec,
       dayCalendarEndSec: dayCalendarEndSec,
       dataNowSec: dataNowSec,
+      viewNowSec: viewNowSec,
+      wristOff: wristOff,
+      charging: charging,
       restingHr: restingHr,
       dynFloorG: dynFloorG,
       stepSpans: stepSpans,
@@ -6323,6 +6333,9 @@ class DerivationEngine {
     required int dayStartSec,
     required int dayCalendarEndSec,
     required int dataNowSec,
+    int? viewNowSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
     double? restingHr,
     double? dynFloorG,
     List<List<int>> stepSpans = const [],
@@ -6334,6 +6347,9 @@ class DerivationEngine {
       dayStartSec: dayStartSec,
       dayCalendarEndSec: dayCalendarEndSec,
       dataNowSec: dataNowSec,
+      viewNowSec: viewNowSec,
+      wristOff: wristOff,
+      charging: charging,
     );
     final wakeSeries = _perMinuteMeanWake(
       daySub,
@@ -6745,119 +6761,25 @@ class DerivationEngine {
   /// future firmware streams off-wrist records, add a skin-temp/motion on-body
   /// gate here (the substrate carries accel + skinTemp).
   ///
-  /// THE DENOMINATOR IS THE DAY, NOT THE DATA. `coverage_pct` used to divide
-  /// worn seconds by `last sample - first sample`, so a band worn 9-11am and
-  /// nowhere else reported 100% — and `day_strain` renders that number as the
-  /// sentence "The band saw N% of this day", which was then false. The span
-  /// between the first and last record cannot answer a question about the day;
-  /// only the day can.
-  ///
-  /// WHICH day, for a day still in progress: the ELAPSED part of it, not all 24
-  /// hours. A day that is 40% over must not read as 60% missing — that would
-  /// make every morning open on "the band saw 30% of this day" and re-teach the
-  /// user to ignore the one number that is supposed to mean something. So the
-  /// window is [dayStartSec, min(dataNowSec, dayCalendarEndSec)): for a finished
-  /// past day that is the whole local day (23 h / 25 h on the two DST days,
-  /// because both bounds come from the day LABEL, never from `+86400`), and for
-  /// today it is midnight-to-now.
-  ///
-  /// [dataNowSec] is the DATA edge, not the wall clock, for the same reason
-  /// finalization is: a day whose sync stopped at 14:00 has not been observed
-  /// since, and charging the phone against wall-clock time would invent hours of
-  /// "not worn" out of hours we simply have not received yet.
-  ///
-  /// The segments follow the same window. They used to start at the first
-  /// record and stop at the last, so the hole from midnight to the first record
-  /// was invisible — which would now contradict the coverage number sitting
-  /// beside it. Leading and trailing holes are emitted as off-segments, so
-  /// `sum(on segments) / observable == coverage_pct` exactly.
+  /// Coverage uses elapsed time through the durable record frontier. Worn
+  /// minutes share metric_series' bridged record-minute definition. Only
+  /// WRIST reports establish off-wrist time; the unsynced tail is pending.
   static Map<String, dynamic> _wearBlock(
     Substrate s, {
     required int dayStartSec,
     required int dayCalendarEndSec,
     required int dataNowSec,
-  }) {
-    final observableEnd = math.min(
-      math.max(dataNowSec, dayStartSec),
-      math.max(dayCalendarEndSec, dayStartSec),
-    );
-    final observableSec = observableEnd - dayStartSec;
-    final n = s.length;
-    if (n == 0) {
-      return {
-        'segments': const [],
-        'first_on': null,
-        'last_on': null,
-        'longest_off_min': 0,
-        'worn_min': 0,
-        // Zero here is a measurement — the day was derived and held no record.
-        // Null only when there is no day to divide by at all (an unparseable
-        // label), where a percentage would be division by nothing.
-        'coverage_pct': observableSec > 0 ? 0 : null,
-      };
-    }
-    const offGapSec = 120; // a >2-min hole in the 1 Hz stream = off / not worn
-    final firstOn = s.tsSec.first;
-    final lastOn = s.tsSec.last + 1;
-
-    // On-runs first: contiguous stretches of record presence. The off-segments
-    // are then everything else inside the observable window, which is what puts
-    // the leading/trailing holes on the list.
-    final runs = <List<int>>[];
-    var runStart = s.tsSec.first;
-    var prev = s.tsSec.first;
-    for (var i = 1; i < n; i++) {
-      final ts = s.tsSec[i];
-      if (ts - prev > offGapSec) {
-        runs.add([runStart, prev + 1]);
-        runStart = ts;
-      }
-      prev = ts;
-    }
-    runs.add([runStart, prev + 1]);
-
-    final segments = <Map<String, dynamic>>[];
-    var longestOff = 0, wornSec = 0;
-    void addOff(int start, int end) {
-      if (end <= start) return;
-      segments.add({
-        'on': false,
-        'start': start,
-        'end': end,
-        'len_min': ((end - start) / 60).round(),
-      });
-      if (end - start > longestOff) longestOff = end - start;
-    }
-
-    var cursor = dayStartSec;
-    for (final r in runs) {
-      addOff(cursor, r[0]);
-      segments.add({
-        'on': true,
-        'start': r[0],
-        'end': r[1],
-        'len_min': ((r[1] - r[0]) / 60).round(),
-      });
-      wornSec += r[1] - r[0];
-      cursor = r[1];
-    }
-    addOff(cursor, observableEnd);
-
-    return {
-      'segments': segments,
-      'first_on': firstOn,
-      'last_on': lastOn,
-      'longest_off_min': (longestOff / 60).round(),
-      'worn_min': (wornSec / 60).round(),
-      // Clamped only against a substrate that reaches outside its own day —
-      // production slices `daySub` to the day, so this is a guard, not a
-      // correction, and it must never be the thing that makes the number look
-      // sane.
-      'coverage_pct': observableSec > 0
-          ? (100 * wornSec / observableSec).round().clamp(0, 100).toInt()
-          : null,
-    };
-  }
+    int? viewNowSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
+  }) => ana.dayWearBlock(
+    s.tsSec,
+    startSec: dayStartSec,
+    endSec: math.min(viewNowSec ?? dataNowSec, dayCalendarEndSec),
+    frontierSec: dataNowSec + 1,
+    offWrist: wristOff,
+    charging: charging,
+  );
 
   /// Waking ultradian HRV: RMSSD over 5-min buckets of the DAY's RR that falls
   /// OUTSIDE the sleep window (the daytime autonomic rhythm). Timeline + mean.
@@ -7849,6 +7771,9 @@ class DerivationEngine {
       // NOT `inp.dayEndSec` — that is the data edge. See `applyDayActivity`.
       dayCalendarEndSec: localNextMidnightSecForDayLabel(inp.date),
       dataNowSec: inp.dataNowSec,
+      viewNowSec: inp.viewNowSec,
+      wristOff: inp.wristOffSpans,
+      charging: inp.chargingSpans,
       restingHr: inp.rhr,
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
@@ -8566,6 +8491,7 @@ class _DayBlocksInput {
   final int dayStartSec;
   final int dayEndSec;
   final int dataNowSec;
+  final int viewNowSec;
   const _DayBlocksInput({
     required this.daySub,
     required this.napSub,
@@ -8591,6 +8517,7 @@ class _DayBlocksInput {
     required this.dayStartSec,
     required this.dayEndSec,
     required this.dataNowSec,
+    required this.viewNowSec,
   });
 }
 

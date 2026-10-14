@@ -115,10 +115,10 @@ void main() {
       for (final entry in {7: 27, 18: 14, 9: 17}.entries) {
         final r = parseR24(withOptical(entry.key, entry.value));
         expect(r, isNotNull, reason: 'v${entry.key} still decodes');
-        expect(r!.ppgGreen, 0, reason: 'v${entry.key} ppg');
-        expect(r.spo2RedRaw, 0, reason: 'v${entry.key} red');
-        expect(r.spo2IrRaw, 0, reason: 'v${entry.key} ir');
-        expect(r.ambientRaw, 0, reason: 'v${entry.key} ambient');
+        expect(r!.ppgGreen, isNull, reason: 'v${entry.key} ppg');
+        expect(r.spo2RedRaw, isNull, reason: 'v${entry.key} red');
+        expect(r.spo2IrRaw, isNull, reason: 'v${entry.key} ir');
+        expect(r.ambientRaw, isNull, reason: 'v${entry.key} ambient');
         expect(r.hr, 60, reason: 'v${entry.key} keeps HR and timing');
         expect(r.tsEpoch, 1780000000);
       }

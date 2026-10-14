@@ -148,7 +148,7 @@ class DayBundleInput {
   final List<int> sleepHr;
   final List<double> sleepRrTsMs;
   final List<double> sleepRrMs;
-  final List<int> sleepSkinTemp;
+  final List<int?> sleepSkinTemp;
 
   // ── the SINGLE-SOURCE sleep segmentation (JSON of SleepSegmentation) ──────
   final Map<String, dynamic> sleepJson; // {window,tst_sec,…,confidence}
@@ -291,6 +291,7 @@ class DayBundleInput {
       }
       return out;
     }
+
     List<String> strs(String k) =>
         ((m[k] as List?) ?? const []).map((e) => e.toString()).toList();
     return DayBundleInput(
@@ -303,7 +304,9 @@ class DayBundleInput {
       sleepHr: ints('sleep_hr'),
       sleepRrTsMs: dbls('sleep_rr_ts_ms'),
       sleepRrMs: dbls('sleep_rr_ms'),
-      sleepSkinTemp: ints('sleep_skin_temp'),
+      sleepSkinTemp: (m['sleep_skin_temp'] as List? ?? const [])
+          .map((e) => (e as num?)?.toInt())
+          .toList(),
       sleepJson: ((m['sleep_json'] as Map?) ?? const {})
           .cast<String, dynamic>(),
       hypnoStages: strs('hypno_stages'),
@@ -593,7 +596,8 @@ Map<String, dynamic> deriveDayBundle(
   // oxygenation. No firmware capture and no packet work changes that; it is a
   // property of the bytes. The raw channels stay in the substrate because they
   // ARE the bytes at those offsets.
-  const kSpo2Refusal = 'refused: the red and IR channels are one signal — '
+  const kSpo2Refusal =
+      'refused: the red and IR channels are one signal — '
       'ir − red is a fixed offset within a session, so any ratio built from '
       'them measures baseline drift, not oxygenation';
   const odi = Metric<RelativeOdiResult>.absent(
@@ -614,7 +618,7 @@ Map<String, dynamic> deriveDayBundle(
   // no samples here: every downstream temperature output, baseline value and
   // readiness driver is then absent with its usual reason, never zero.
   final tempValid = hasVerifiedSkinTemp(d.deviceFamily)
-      ? d.sleepSkinTemp.where((v) => v > 0).map((v) => v.toDouble()).toList()
+      ? d.sleepSkinTemp.whereType<int>().map((v) => v.toDouble()).toList()
       : const <double>[];
   final double? skinTempAdc = tempValid.length >= 60 ? _mean(tempValid) : null;
   // WH-11a — how much of the night that mean is actually made of. The gate above
@@ -623,7 +627,9 @@ Map<String, dynamic> deriveDayBundle(
   // the window and nothing said so. NO THRESHOLD IS APPLIED and none should be
   // guessed here — emit the number, look at what it reads on real nights first.
   final double? skinTempCoverage =
-      (!hasVerifiedSkinTemp(d.deviceFamily) || inBedSec == null || inBedSec <= 0)
+      (!hasVerifiedSkinTemp(d.deviceFamily) ||
+          inBedSec == null ||
+          inBedSec <= 0)
       ? null
       : (tempValid.length / inBedSec).clamp(0.0, 1.0);
   // HOW MUCH OF THE NIGHT THE STRAP SPENT AT SKIN TEMPERATURE (#250).
@@ -718,22 +724,10 @@ Map<String, dynamic> deriveDayBundle(
   Map<String, dynamic>? readinessAbsentDiag;
   if (!composite.present) {
     readinessAbsentDiag = {
-      'hrv': {
-        'value': lnToday != null,
-        'baseline_n': d.lnRmssdHistory.length,
-      },
-      'rhr': {
-        'value': rhrToday != null,
-        'baseline_n': d.rhrHistory.length,
-      },
-      'resp': {
-        'value': respToday != null,
-        'baseline_n': d.respHistory.length,
-      },
-      'sleep': {
-        'value': tstToday != null,
-        'baseline_n': d.tstHistory.length,
-      },
+      'hrv': {'value': lnToday != null, 'baseline_n': d.lnRmssdHistory.length},
+      'rhr': {'value': rhrToday != null, 'baseline_n': d.rhrHistory.length},
+      'resp': {'value': respToday != null, 'baseline_n': d.respHistory.length},
+      'sleep': {'value': tstToday != null, 'baseline_n': d.tstHistory.length},
       'temp': {
         'value': skinTempAdc != null,
         'baseline_n': d.skinTempAdcHistory.length,
@@ -925,10 +919,9 @@ Map<String, dynamic> deriveDayBundle(
         // of the number growing when the coordinator's pass lands.
         cadenceSpmPerMin: d.stepSpans.isEmpty
             ? null
-            : cadenceSpmForMinutes(
-                [for (final p in wakeHr) p.tsSec ~/ 60],
-                d.stepSpans,
-              ),
+            : cadenceSpmForMinutes([
+                for (final p in wakeHr) p.tsSec ~/ 60,
+              ], d.stepSpans),
         // `?.` — `dailyEnergy` abstains outright when the anchors cannot
         // define a gate, rather than billing every waking minute as active.
         // Absent stays absent here, same as every other input on this seam.
@@ -1272,9 +1265,7 @@ Map<String, dynamic> deriveDayBundle(
     'tier': Tier.relative,
     'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
     'note': kSpo2Refusal,
-    'debug': <String, dynamic>{
-      'sleep_samples': d.sleepTsSec.length,
-    },
+    'debug': <String, dynamic>{'sleep_samples': d.sleepTsSec.length},
   };
 
   // ── NOCTURNAL detail: sleeping-HR nadir + waking HR. Both computable today
@@ -1321,9 +1312,11 @@ Map<String, dynamic> deriveDayBundle(
   final hrStats = dayHrValid.isEmpty
       ? null
       : {
-          'max': smoothedMaxHr(dayHrInt, age: age?.round()) ??
+          'max':
+              smoothedMaxHr(dayHrInt, age: age?.round()) ??
               dayHrValid.reduce(math.max).round(),
-          'min': smoothedMinHr(dayHrInt, age: age?.round()) ??
+          'min':
+              smoothedMinHr(dayHrInt, age: age?.round()) ??
               dayHrValid.reduce(math.min).round(),
           'avg': _mean(dayHrValid)!.round(),
         };
@@ -1426,11 +1419,7 @@ Map<String, dynamic> deriveDayBundle(
   }
 
   final baselines = <String, dynamic>{
-    'resting_hr': baselineBlock(
-      d.rhrHistory,
-      rhrToday,
-      Baselines.restingHRCfg,
-    ),
+    'resting_hr': baselineBlock(d.rhrHistory, rhrToday, Baselines.restingHRCfg),
     'hrv': baselineBlock(d.rmssdHistory, rmssdScalar, Baselines.hrvCfg),
     'resp': baselineBlock(d.respHistory, respToday, Baselines.respCfg),
     'skin_temp': baselineBlock(

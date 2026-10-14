@@ -4880,7 +4880,7 @@ class LocalDb {
       return 0;
     }
     final recTs = _recTsFrom(raw, decoded);
-    final ambient = decoded.ambientRaw == 0 ? null : decoded.ambientRaw;
+    final ambient = decoded.ambientRaw;
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by the volatile counter). decoded_onehz is keyed
     // by rec_ts and decoded_rr by (rec_ts, beat_index). We use REPLACE, not
@@ -4946,13 +4946,8 @@ class LocalDb {
       // everything the mid-ladder backfill can replay — but omitted-when-null
       // regardless, for the same reason.
       'band_sleep_state': ?decoded.bandSleepState,
-      // 0 IS THE ABSENT SENTINEL, NOT A READING. records.dart:501 emits
-      // `ambientRaw: optical ? u16@70 : 0`, so every unconfirmed record version
-      // reports 0 — writing that through would turn "we did not read the
-      // channel" into a real measurement of total darkness on a one-sided
-      // signal where dark already means nothing. Omitted-when-null (same form
-      // as device_family) so the mid-ladder backfill can't name a column a
-      // pre-v42 rebuild has not handed back yet.
+      // Unconfirmed layouts now emit NULL; confirmed raw zero stays zero.
+      // Omit NULL for mid-ladder backfills before this column exists.
       'ambient_raw': ?ambient,
       // Which strap measured this second. Stamped from the live link; unknown
       // provenance is NULL, never a guess. See _ensureDeviceFamilyColumns.

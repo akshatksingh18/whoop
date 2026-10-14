@@ -121,6 +121,12 @@ One number per day. These drive every trend, baseline and "against your usual" c
 - `stress` = overnight autonomic stress, 0–100
 - `worn_min` = wear time
 
+Build 90 decoder integrity: historical v12/v24 records accept at most four RR values;
+larger declared counts emit no beats. R10 retains an independent eight-value limit. Optical
+fields from unconfirmed layouts are NULL, including across isolate serialization; old zero
+sentinels read as absent. Metric CSV omits legacy `odi_per_hour` and `spo2` rows. This does
+not make any withheld optical output available.
+
 ### 3. Per-day bundle (`day_result`, kept forever)
 
 The full analysis of each day, including curves:

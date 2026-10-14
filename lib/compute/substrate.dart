@@ -69,8 +69,8 @@ const int kMaxPlausibleRrMs = 2400;
 /// [rrMs] when it is an interval a human heart can produce, else NULL.
 double? plausibleRrOrNull(num rrMs) =>
     (rrMs >= kMinPlausibleRrMs && rrMs <= kMaxPlausibleRrMs)
-        ? rrMs.toDouble()
-        : null;
+    ? rrMs.toDouble()
+    : null;
 
 /// The largest acceleration MAGNITUDE (g) a wrist can hold for a WHOLE SECOND.
 ///
@@ -229,10 +229,10 @@ class Substrate {
   /// deliberately not in this struct either — see `Spo2Data` in
   /// models/payloads.dart for the whole refusal, including why the gen5 field
   /// is the tempting one.
-  final List<int> spo2Red;
-  final List<int> spo2Ir;
-  final List<int> skinTemp;
-  final List<int> skinContact;
+  final List<int?> spo2Red;
+  final List<int?> spo2Ir;
+  final List<int?> skinTemp;
+  final List<int?> skinContact;
 
   /// Gen5 on-chip CUMULATIVE step counter (u16, wraps at 65536, no midnight
   /// reset). Parallel to [tsSec]. **`-1` means the record carried no counter at
@@ -299,30 +299,29 @@ class Substrate {
     required List<double> ax,
     required List<double> ay,
     required List<double> az,
-    required List<int> spo2Red,
-    required List<int> spo2Ir,
-    required List<int> skinTemp,
-    required List<int> skinContact,
+    required List<int?> spo2Red,
+    required List<int?> spo2Ir,
+    required List<int?> skinTemp,
+    required List<int?> skinContact,
     List<int> stepCount = const [],
     List<int> hrValid = const [],
     String? deviceFamily,
-  }) =>
-      Substrate._(
-        deviceFamily: deviceFamily,
-        tsSec: tsSec,
-        hr: hr,
-        rrTsMs: _packed(rrTsMs),
-        rrMs: _packed(rrMs),
-        ax: _packed(ax),
-        ay: _packed(ay),
-        az: _packed(az),
-        spo2Red: spo2Red,
-        spo2Ir: spo2Ir,
-        skinTemp: skinTemp,
-        skinContact: skinContact,
-        stepCount: stepCount,
-        hrValid: hrValid,
-      );
+  }) => Substrate._(
+    deviceFamily: deviceFamily,
+    tsSec: tsSec,
+    hr: hr,
+    rrTsMs: _packed(rrTsMs),
+    rrMs: _packed(rrMs),
+    ax: _packed(ax),
+    ay: _packed(ay),
+    az: _packed(az),
+    spo2Red: spo2Red,
+    spo2Ir: spo2Ir,
+    skinTemp: skinTemp,
+    skinContact: skinContact,
+    stepCount: stepCount,
+    hrValid: hrValid,
+  );
 
   const Substrate._({
     required this.tsSec,
@@ -368,10 +367,15 @@ class Substrate {
   /// see them as ABSENT instead of as a perfectly still wrist. See
   /// [accelPresentAt].
   List<ana.AccelSample> accelSamples() => <ana.AccelSample>[
-        for (var i = 0; i < tsSec.length; i++)
-          ana.AccelSample(tsSec[i] * 1000.0, ax[i], ay[i], az[i],
-              valid: accelPresentAt(i))
-      ];
+    for (var i = 0; i < tsSec.length; i++)
+      ana.AccelSample(
+        tsSec[i] * 1000.0,
+        ax[i],
+        ay[i],
+        az[i],
+        valid: accelPresentAt(i),
+      ),
+  ];
 
   /// Whether second [i] carries a REAL gravity vector.
   ///
@@ -563,22 +567,22 @@ class Substrate {
   }
 
   Map<String, dynamic> toJson() => {
-        'ts_sec': tsSec,
-        'hr': hr,
-        'rr_ts_ms': rrTsMs,
-        'rr_ms': rrMs,
-        'ax': ax,
-        'ay': ay,
-        'az': az,
-        'spo2_red': spo2Red,
-        'spo2_ir': spo2Ir,
-        'skin_temp': skinTemp,
-        'skin_contact': skinContact,
-        'step_count': stepCount,
-        'hr_valid': hrValid,
-        // Null (unknown provenance) is a real answer — emit the key regardless.
-        'device_family': deviceFamily,
-      };
+    'ts_sec': tsSec,
+    'hr': hr,
+    'rr_ts_ms': rrTsMs,
+    'rr_ms': rrMs,
+    'ax': ax,
+    'ay': ay,
+    'az': az,
+    'spo2_red': spo2Red,
+    'spo2_ir': spo2Ir,
+    'skin_temp': skinTemp,
+    'skin_contact': skinContact,
+    'step_count': stepCount,
+    'hr_valid': hrValid,
+    // Null (unknown provenance) is a real answer — emit the key regardless.
+    'device_family': deviceFamily,
+  };
 
   static Substrate fromJson(Map<String, dynamic> m) {
     List<int> ints(Map<String, dynamic> m, String k) =>
@@ -596,14 +600,21 @@ class Substrate {
       return out;
     }
 
-
     final tsSec = ints(m, 'ts_sec');
     final n = tsSec.length;
-    
+
     List<int> safeI(String k) {
       final l = ints(m, k);
       return (l.isEmpty && n > 0) ? List<int>.filled(n, 0) : l;
     }
+
+    List<int?> optical(String k) {
+      final l = (m[k] as List? ?? const [])
+          .map((e) => (e as num?)?.toInt())
+          .toList();
+      return l.length == n ? l : List<int?>.filled(n, null);
+    }
+
     List<double> safeD(String k) {
       final l = dbls(k);
       return (l.isEmpty && n > 0) ? Float64List(n) : l;
@@ -617,10 +628,10 @@ class Substrate {
       ax: safeD('ax'),
       ay: safeD('ay'),
       az: safeD('az'),
-      spo2Red: safeI('spo2_red'),
-      spo2Ir: safeI('spo2_ir'),
-      skinTemp: safeI('skin_temp'),
-      skinContact: safeI('skin_contact'),
+      spo2Red: optical('spo2_red'),
+      spo2Ir: optical('spo2_ir'),
+      skinTemp: optical('skin_temp'),
+      skinContact: optical('skin_contact'),
       // NOT `safeI`: a missing/short list means the counter was ABSENT, and the
       // absent marker is -1, not 0 (0 is a real, unmoved counter reading).
       stepCount: () {
@@ -691,10 +702,10 @@ Substrate decodeSubstrate(List<String> hexes) {
   final ax = List<double>.filled(n, 0);
   final ay = List<double>.filled(n, 0);
   final az = List<double>.filled(n, 0);
-  final spo2Red = List<int>.filled(n, 0);
-  final spo2Ir = List<int>.filled(n, 0);
-  final skinTemp = List<int>.filled(n, 0);
-  final skinContact = List<int>.filled(n, 0);
+  final spo2Red = List<int?>.filled(n, null);
+  final spo2Ir = List<int?>.filled(n, null);
+  final skinTemp = List<int?>.filled(n, null);
+  final skinContact = List<int?>.filled(n, null);
   final rrTsMs = <double>[], rrMs = <double>[];
 
   for (var i = 0; i < n; i++) {
@@ -1024,7 +1035,10 @@ List<PhysioDay> calendarDays(
     // prev-18:00 → noon window missed late wakes and forced the detector to act
     // like there was only one candidate sleep. The richer selector needs the
     // full set of sessions that can legitimately end today.
-    final searchStart = math.max(dataStart, dayStart - kNocturnalSearchLookbackSec);
+    final searchStart = math.max(
+      dataStart,
+      dayStart - kNocturnalSearchLookbackSec,
+    );
     final searchEnd = math.min(dataEnd, dayEnd);
     final loS = _lowerBound(sub.tsSec, searchStart);
     final hiS = _lowerBound(sub.tsSec, searchEnd);
@@ -1034,8 +1048,9 @@ List<PhysioDay> calendarDays(
     var sleepSource = 'none';
     final dayLabel = localDateLabel(dayStart);
     // Does the user have an override (manual / confirmed) for THIS day?
-    final ov =
-        (override != null && override.dayId == dayLabel) ? override : null;
+    final ov = (override != null && override.dayId == dayLabel)
+        ? override
+        : null;
     if (hiS - loS >= 600 || ov != null) {
       // The habitual-midsleep prior converts each HISTORICAL sleep block's epoch
       // seconds to a local time-of-day. Using `DateTime.now()`'s offset applied
@@ -1054,7 +1069,10 @@ List<PhysioDay> calendarDays(
         tzOffsetResolver: tzOffset,
       );
       // Daytime HR baseline = valid HR before the nocturnal search window.
-      final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];
+      final base = <double>[
+        for (var i = 0; i < loS; i++)
+          if (hr[i] > 0) hr[i],
+      ];
       final hrBaseline = base.length >= 60 ? base : null;
       final accelSlice = accel.sublist(loS, hiS);
       final hrSlice = hr.sublist(loS, hiS);
@@ -1144,8 +1162,10 @@ List<PhysioDay> calendarDays(
               hrBaseline: hrBaseline,
               rrMs: rrMsSeg,
               rrTsMs: rrTsSeg,
-              forcedWindow:
-                  (onsetSec: cand.onsetSec, offsetSec: cand.offsetSec),
+              forcedWindow: (
+                onsetSec: cand.onsetSec,
+                offsetSec: cand.offsetSec,
+              ),
             );
             if (s2.present) {
               s = s2;
@@ -1184,25 +1204,27 @@ List<PhysioDay> calendarDays(
       }
     }
 
-    days.add(PhysioDay(
-      date: dayLabel,
-      startSec: cs,
-      endSec: ce,
-      sleep: seg,
-      sleepLoIdx: sleepLo,
-      sleepHiIdx: sleepHi,
-      confidence: seg.present ? seg.confidence : 0.0,
-      sleepSource: sleepSource,
-      flags: seg.present
-          ? (sleepSource == 'auto_fallback'
-              ? const <String>['SLEEP_FALLBACK']
-              : (sleepSource == 'manual' || sleepSource == 'confirmed'
-                  ? const <String>['SLEEP_MANUAL']
-                  : const <String>[]))
-          : (sleepSource == 'rejected'
-              ? const <String>['SLEEP_REJECTED']
-              : const <String>['NO_SLEEP_DETECTED']),
-    ));
+    days.add(
+      PhysioDay(
+        date: dayLabel,
+        startSec: cs,
+        endSec: ce,
+        sleep: seg,
+        sleepLoIdx: sleepLo,
+        sleepHiIdx: sleepHi,
+        confidence: seg.present ? seg.confidence : 0.0,
+        sleepSource: sleepSource,
+        flags: seg.present
+            ? (sleepSource == 'auto_fallback'
+                  ? const <String>['SLEEP_FALLBACK']
+                  : (sleepSource == 'manual' || sleepSource == 'confirmed'
+                        ? const <String>['SLEEP_MANUAL']
+                        : const <String>[]))
+            : (sleepSource == 'rejected'
+                  ? const <String>['SLEEP_REJECTED']
+                  : const <String>['NO_SLEEP_DETECTED']),
+      ),
+    );
     dayStart = dayEnd;
   }
   return days;
@@ -1216,10 +1238,10 @@ List<PhysioDay> calendarDays(
 /// and using today's would shift that day's local clock-times by up to an hour.
 /// `DateTime.fromMillisecondsSinceEpoch(..., isUtc: false).timeZoneOffset` asks
 /// the platform zone database for the offset that actually applied then.
-int tzOffsetSecondsAt(int epochSec) =>
-    DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: false)
-        .timeZoneOffset
-        .inSeconds;
+int tzOffsetSecondsAt(int epochSec) => DateTime.fromMillisecondsSinceEpoch(
+  epochSec * 1000,
+  isUtc: false,
+).timeZoneOffset.inSeconds;
 
 /// Local midnight (epoch sec) at/before [epochSec].
 int _localMidnight(int epochSec) {

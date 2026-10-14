@@ -864,10 +864,11 @@ or unobserved latent record shapes as established device failures.
 - Wear is record presence (a gap over 120 s means off), so off-wrist, charging and undelivered
   data are one "off" state. WRIST/charging events feed only nap rejection and a sleep-charging
   flag.
-- The decoder accepts up to 8 historical RR values; counts of 5–8 would read optical bytes as beats
-  (latent, unobserved).
-- Unconfirmed record versions write `skin_temp_raw`/`spo2_*` as 0 instead of NULL. Legacy
-  pre-refusal `odi_per_hour`/`spo2` rows, if present, remain in CSV metric history.
+- Build 90 source caps historical v12/v24 records at four RR values; larger declared counts
+  yield no intervals. R10 keeps its separate eight-value bound. Unknown-layout optical fields
+  remain NULL through storage and isolate payloads, and old zero sentinels read as absent.
+  CSV excludes legacy `odi_per_hour`/`spo2` history without deleting stored rows. Five synthetic
+  regressions pass; phone verification remains open.
 - Travel uses the phone's current zone for retained re-derives, so day seams can overlap or gap
   after a zone change.
 

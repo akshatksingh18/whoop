@@ -1656,7 +1656,10 @@ import 'substrate.dart';
 //   strain. It was applied to the wake features after they had been copied
 //   into the day's scalars, so `scalars.strain` and `metric_series` kept the
 //   unfloored value (0.0 on low-daytime-HR days with a finished walk).
-const int kAlgoVersion = 94;
+// 94 -> 95 (Build 90 Codex lane): confirmed historical RR count capped at four;
+//   unknown optical inputs stay nullable through storage and isolate payloads.
+//   Only retained inputs re-derive; historical stored results stay versioned.
+const int kAlgoVersion = 95;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -2055,12 +2058,14 @@ class _BaselineHistoryCache {
   List<double> valuesBefore(String key, String beforeDate) {
     final d = DateTime.parse(beforeDate);
     final from = DateTime(d.year, d.month, d.day - _baselineMaxAgeDays);
-    final fromLabel = '${from.year.toString().padLeft(4, '0')}-'
+    final fromLabel =
+        '${from.year.toString().padLeft(4, '0')}-'
         '${from.month.toString().padLeft(2, '0')}-'
         '${from.day.toString().padLeft(2, '0')}';
     return _trailing([
       for (final s in _series[key] ?? const <_DatedValue>[])
-        if (s.date.compareTo(beforeDate) < 0 && s.date.compareTo(fromLabel) >= 0)
+        if (s.date.compareTo(beforeDate) < 0 &&
+            s.date.compareTo(fromLabel) >= 0)
           s,
     ]);
   }
@@ -2145,8 +2150,9 @@ class DeriveStop {
   DeriveStop._();
   static int _generation = 0;
   static String _reason = '';
-  static final StreamController<int> _changes =
-      StreamController<int>.broadcast(sync: true);
+  static final StreamController<int> _changes = StreamController<int>.broadcast(
+    sync: true,
+  );
 
   static int get generation => _generation;
   static Stream<int> get changes => _changes.stream;
@@ -4143,8 +4149,8 @@ class DerivationEngine {
         zoneSet: trainingZones(
           age: profile.ageYears,
           deviceFamily: daySub.deviceFamily,
-          observedCeilingBpm:
-              (withHistory['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
+          observedCeilingBpm: (withHistory['observed_hr_ceiling_bpm'] as num?)
+              ?.toDouble(),
           restingHrHistory: [
             for (final v in (withHistory['rhr_history'] as List?) ?? const [])
               if (v is num) v.toDouble(),
@@ -6094,10 +6100,8 @@ class DerivationEngine {
     // 18,856 on a day the strap synced for part of).
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
-    final useBand = kBandSteps &&
-        liveStepsReal <= 0 &&
-        bandSteps != null &&
-        bandSteps > 0;
+    final useBand =
+        kBandSteps && liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
     final steps = useBand ? bandSteps : liveStepsReal;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
@@ -7041,7 +7045,7 @@ class DerivationEngine {
     final bins = <int, List<double>>{};
     for (var i = 0; i < s.skinTemp.length && i < s.tsSec.length; i++) {
       final v = s.skinTemp[i];
-      if (v > 0) (bins[s.tsSec[i] ~/ 300] ??= []).add(v.toDouble());
+      if (v != null) (bins[s.tsSec[i] ~/ 300] ??= []).add(v.toDouble());
     }
     if (bins.length < 3) return const [];
     final keys = bins.keys.toList()..sort();

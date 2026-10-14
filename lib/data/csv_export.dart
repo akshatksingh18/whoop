@@ -114,14 +114,17 @@ const kCsvExportSets = <CsvExportSet>[
     name: 'sleep',
     title: 'Sleep stages',
     columns: ['date', 'start_ts', 'end_ts', 'stage'],
-    sql: 'SELECT date, start_ts, end_ts, stage FROM v_hypnogram '
+    sql:
+        'SELECT date, start_ts, end_ts, stage FROM v_hypnogram '
         'ORDER BY date ASC, start_ts ASC',
   ),
   CsvExportSet(
     name: 'metrics',
     title: 'Metric history',
     columns: ['date', 'key', 'value'],
-    sql: 'SELECT date, key, value FROM v_metric ORDER BY date ASC, key ASC',
+    sql:
+        "SELECT date, key, value FROM v_metric "
+        "WHERE key NOT IN ('odi_per_hour', 'spo2') ORDER BY date ASC, key ASC",
   ),
   CsvExportSet(
     name: 'journal',
@@ -146,7 +149,8 @@ const kCsvExportSets = <CsvExportSet>[
     name: 'labs',
     title: 'Lab results',
     columns: ['taken_on', 'marker', 'value', 'unit', 'note'],
-    sql: 'SELECT taken_on, marker, value, unit, note FROM lab_result '
+    sql:
+        'SELECT taken_on, marker, value, unit, note FROM lab_result '
         'ORDER BY taken_on ASC, marker ASC',
   ),
   // ── everything below is data the user TYPED IN ──────────────────────────────
@@ -163,6 +167,7 @@ const kCsvExportSets = <CsvExportSet>[
     columns: [
       'date',
       'at_ts',
+      'logged_at',
       'meal',
       'label',
       'quantity',
@@ -178,7 +183,7 @@ const kCsvExportSets = <CsvExportSet>[
       'source',
     ],
     sql: '''
-      SELECT date, at_ts, meal, label, quantity, unit, kcal, protein_g,
+      SELECT date, at_ts, logged_at, meal, label, quantity, unit, kcal, protein_g,
              carbs_g, fat_g, fibre_g, sugar_g, sat_fat_g, sodium_mg, source
       FROM food_entry ORDER BY date ASC, at_ts ASC
     ''',

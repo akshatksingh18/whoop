@@ -276,8 +276,8 @@ void main() {
       final reds = <int>{};
       for (final b in records) {
         final r = parseR24(b)!;
-        diffs.add(r.spo2IrRaw - r.spo2RedRaw);
-        reds.add(r.spo2RedRaw);
+        diffs.add(r.spo2IrRaw! - r.spo2RedRaw!);
+        reds.add(r.spo2RedRaw!);
       }
       expect(reds.length, greaterThan(10),
           reason: 'the red channel really does drift');

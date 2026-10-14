@@ -175,7 +175,7 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 ### Lane notes
 
 - Claude:
-- Codex: Task 1 schema ready for Claude: schema 50 implemented; all 4 targeted checks in
+- Codex: Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
   restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.
   Schema 50 adds `day_zone(date, zone_id, start_offset_sec, end_offset_sec, start_ts, end_ts)`
@@ -187,7 +187,13 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   `food_day_count(date, calorie_goal, basis, counted, frozen_at, updated_at)` stores frozen
   counting provenance; first-open goal freezing follows in task 8. All four tables are in
   import/salvage and full snapshots, day exports carry their scoped context, and wipe is dynamic.
-  Body's first-reading selection/writes remain Claude-owned. Proceeding to decoder integrity.
+  Body's first-reading selection/writes remain Claude-owned. Task 2 implemented: historical
+  v12/v24 RR counts cap at four, R10 retains its independent eight-value limit, unconfirmed
+  optical inputs stay nullable, legacy zero sentinels read as absent, and CSV omits legacy
+  oxygen metrics. All 5 synthetic checks in `test/build90_decode_integrity_test.dart` pass.
+  Algorithm version is 95, with one changelog entry to extend for the remaining approved work.
+  Akshat also assigned `csv_export.dart`, `day_label.dart`, `local_repository_impl.dart`,
+  `day_timeline.dart` and `activity/live.dart` to Codex. No push or full local build/test run.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

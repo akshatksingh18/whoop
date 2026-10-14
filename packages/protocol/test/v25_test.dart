@@ -24,8 +24,8 @@ void main() {
       for (final r in rows) {
         expect(r.hr, 0);
         expect(r.rrIntervalsMs, isEmpty);
-        expect(r.spo2RedRaw, 0);
-        expect(r.spo2IrRaw, 0);
+        expect(r.spo2RedRaw, isNull);
+        expect(r.spo2IrRaw, isNull);
         // No accel on v25. The old inner[69/71/73] read looked like a ~1 g
         // vector on exactly these records, which is why it survived so long:
         // across the real corpus its "z" has three distinct values, its "x" is

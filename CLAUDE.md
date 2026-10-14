@@ -14,15 +14,17 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification: Akshat's screenshots show Build `0.9.55`/`88` installed on
-his iPhone 17 (iOS `26.6.2`). Build 89 (`0.9.56`/`89`, algorithm 93, source `77d6a365`) is published; Linux CI
+**Status:** Active iPhone verification: Akshat reports Build `0.9.56`/`89` installed and being tested on
+his iPhone 17 (iOS `26.6.2`). Build 89 (algorithm 93, source `77d6a365`) is published; Linux CI
 `38494407678` and personal macOS build `38495939393` pass and its validated IPA is the single
-candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, not yet installed. It
+candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, installed but not yet cache-promoted. It
 repairs the nightly HRV his first Build 88 nights exposed, renames everything the app shows or
 names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rate-only, reworks
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
-(`todo.md` Build 89). Build 86 was the previous install. Phone checks and acceptance
-remain open. Akshat rejects the installed UI's cosmetic-only feel and Progress's excessive copy;
+(`todo.md` Build 89). Build 88 was the previous install. Akshat wants Build 89 as recovery after
+the whole-app review; Build 70 remains cached recovery until that promotion. `build-90-audit.md`
+owns the current visual/source audit, reproduced export/navigation defects and proposed next-build scope.
+Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
 Build 87 checklist. Akshat approved implementation, including a peaceful warm palette. Published
@@ -33,7 +35,7 @@ repairs and calorie/protein meal-group summaries pass local and cloud checks. Ak
 publication to the public `akshatksingh18/whoop` repo and the testing IPA. Source/version,
 checksum, ZIP and personal payload validation passed; Build 87 was never installed and its
 testing folder is superseded by the Build 88 candidate. `setup.md` owns artifact evidence. Sideloadly records current-version automatic-refresh enrollment, no error and
-expiry 2026-10-17 at 17:51 local. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It remains installed; its former testing folder is superseded by the validated Build 87 candidate. It brings bounded background sync with real calculation
+expiry 2026-10-17 at 17:51 local. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It was installed before Builds 88/89; its former testing folder is superseded by the validated Build 87 candidate. It brings bounded background sync with real calculation
 cancellation and personal `fetch`/`processing` tasks, Lift Log inside the Lift workout, Body and a
   fifth Progress tab, the B86-01..16 repairs and the UI redesign rejected at structural acceptance. `todo.md` owns its
 decisions, implemented/open items, phone checks and gates; `build-86-audit.md`,
@@ -136,8 +138,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 (Linux tests and the macOS workflow passed; the IPA matches its SHA-256 and passes the validator;
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
-`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds the installed
-build-86 candidate; build 85 is superseded.
+`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds installed Build 89 pending promotion; earlier candidates are superseded.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -235,7 +236,18 @@ and the list of metrics still stored but no longer shown. The reported sync, GPS
 are phone-verified; the broader lifecycle and signing gates remain open.
 
 ## Files
-- `todo.md` — Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
+- `build-90-audit.md` — current Build 89 all-tab visual/source audit, targeted synthetic evidence,
+  reliability findings, complete app-wide repair/verification/enhancement backlog,
+  feature-preserving Progress redesign and next-build options; read before
+  choosing or implementing the next build. Recommendations are not implementation approval.
+- `build-90-research-prompt.md` — the Build 90 research brief for the single research agent
+  (Codex): engine, sleep, time-zone, strain, decoder, background and estimate questions, the
+  source standard and the verdict format. Its output, `build-90-research.md`, does not exist
+  until that pass is done. A prompt, not findings or approval.
+- `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; planned for Build 90,
+  with the source audit and smallest changes in `todo.md`. Read before changing Lift Log for it.
+- `todo.md` — the decided Build 90 plan (lanes, file ownership, phases, home workout audit),
+  Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,
   cream panels, tiles, Trends bars) and its tokens; local sketches live in gitignored
@@ -352,7 +364,7 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA;
-  build 88 is currently installed; build 70 remains accepted recovery. Enabling **This phone →
+  build 89 is installed and being tested; build 70 remains cached recovery pending the requested promotion. Enabling **This phone →
   Steps** on build 63 verified direct iPhone-pedometer import; recheck that setting and behavior on
   the current candidate. Apple Health’s aggregate is deliberately not read. Band reconnection, installed About/
   profile details, complete sync/background behavior, GPS, and same-ID refresh remain unverified.
@@ -372,7 +384,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds the not-yet-installed Build 88 candidate awaiting phone acceptance, and older candidates are reproducible from their workflow
+`testing\` holds installed Build 89 pending acceptance and the requested recovery promotion, and older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health
@@ -530,7 +542,7 @@ The personal artifact must have these properties:
     Readiness entry and no findings screen; a rough-night card on Sleep states the measurements and
     never asks for tags. `journal_compose.dart` stays only because it hosts shared input widgets
     (`OsTextField`, `FieldStepper`).
-  - **Current UI** (installed Build 86; built Build 87 replacement awaiting acceptance):
+  - **Build 86/87 UI history** (superseded by installed Build 89; current design is in `DESIGN.md`, next proposal in `build-90-audit.md`):
     - **Tabs:** Today · Trends · Food · Train · Progress, each one scrolling page (`ShellDomain`
       keeps the internal names). Local Build 87 has flat navigation and unframed numeric/diary
       sections, replacing installed Build 86's rounded floating-pill/card composition.
@@ -928,8 +940,8 @@ One monorepo, strict source-area separation — put work in the right tree:
 
 **Known signal-integrity limit:** local sleep staging is an estimate, not WHOOP's proprietary
 model/output. The protocol deprecates WHOOP 4 `skinTempRaw` as not temperature. Builds 86/87
-still use it for temperature-labelled outputs; Build 88 source (algorithm 92) gates every
-temperature output and input to verified families, not yet installed. `metrics-map.md` owns the
+used it for temperature-labelled outputs; Build 88 source (algorithm 92) gates every
+temperature output and input to verified families, retained in installed Build 89. `metrics-map.md` owns the
 input comparison, `bugs.md` the repair and `todo.md` its phone gate. Never describe this channel
 as verified temperature.
 

@@ -1,13 +1,17 @@
 # WHOOP 4 Metrics Accuracy Research
 
 **Status:** Source audit and primary-source desk research completed against Build 87
-(`0.9.54+87`, algorithm 91, schema 49, source `b0eee377`). Recommendations are proposals,
-not implemented or physically validated. Build 86 remains the reported installed app; Build 87
-remains the testing candidate. Build 88 implementation, visual acceptance and release are separate
-gates. Public sources checked 2026-10-11 using generic searches authorized by Akshat; no personal
+(`0.9.54+87`, algorithm 91, schema 49, source `b0eee377`). Build 88's selected repair packages
+were subsequently implemented, published, built and installed; Build 89 is now installed and
+being tested, with its HRV timing and approved food-counting extensions. `todo.md`/`bugs.md`
+own which research findings are repaired; `build-90-audit.md` consolidates remaining work.
+The baseline findings/proposals below are retained as research evidence, not a claim that all
+remain unfixed. Personal physiological accuracy and complete phone acceptance remain open.
+Public sources checked 2026-10-11 using generic searches authorized by Akshat; no personal
 records, screenshots, logs or repository content were sent to those sources. The expanded local
 audit below adds synthetic HRV/strength reproductions. The second-pass source audit and refreshed
-external round are recorded under "Second Pass" below; listed items there remain unverified.
+external round are recorded under "Second Pass" below; limitations of that source/reference
+verification are retained independently of later implementation.
 
 ## Read This With
 

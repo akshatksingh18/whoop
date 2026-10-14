@@ -5,8 +5,10 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Akshat confirms build `0.9.53`/`86` installed; its background phone
-acceptance remains open. Earlier supplied logs confirm
+**Current verification:** Akshat reports build `0.9.56`/`89` installed and being tested; background
+phone acceptance remains open. `build-90-audit.md` owns the current visual/source findings,
+including reproduced export and Reduce Motion defects and proposed repairs; none is fixed by
+the audit. Earlier supplied logs confirm
 background transfers can succeed, but long transfer gaps, foreground-only recovery and background
 CPU-limit exits remain. Build 70 remains accepted recovery; `todo.md` owns current acceptance
 gates. The background-sync section below owns the current evidence and source findings.
@@ -426,7 +428,7 @@ readout no longer shows temperature (the Skin temp row and its chart remain).
 
 ## WHOOP 4 Temperature Field Integrity (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** temperature outputs, the anomaly/temp-illness inputs, the glass-box term and the Sleep/Trends/rough-night rows are gated to verified families (`hasVerifiedSkinTemp`, `kShowSkinTemp`); stored history is untouched. The text below is the original finding.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** temperature outputs, the anomaly/temp-illness inputs, the glass-box term and the Sleep/Trends/rough-night rows are gated to verified families (`hasVerifiedSkinTemp`, `kShowSkinTemp`); stored history is untouched. The text below is the original finding.
 
 Confirmed source mismatch, not a new firmware or phone observation: the protocol's
 `R24.skinTempRaw` (`packages/protocol/lib/src/records.dart`) is explicitly deprecated as
@@ -475,7 +477,7 @@ rewrite is authorized by this planning request.
 
 ## Partly Missing Training Load Becomes Zero (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** load uses net TRIMP over runs of observed days (at least 16 h worn); 1-2 unknown days are skipped, 3 end the run; imported days leave the inputs. Fatigue keeps the 28-observed-day floor (decided): its only reader compares it with fitness, which needs 28, so fatigue alone at 7 days would have no use.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** load uses net TRIMP over runs of observed days (at least 16 h worn); 1-2 unknown days are skipped, 3 end the run; imported days leave the inputs. Fatigue keeps the 28-observed-day floor (decided): its only reader compares it with fitness, which needs 28, so fatigue alone at 7 days would have no use.
 
 Confirmed from current source, not a new phone reproduction:
 `lib/compute/crossday_pipeline.dart::_denseDailyTrimp` returns an empty series when every input
@@ -494,7 +496,7 @@ evidence of an observed rest day.
 
 ## HRV Headline And Recovery Method Identity (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** the headline and readiness use the qualified primary only; the secondary estimate is stored separately and labelled; the baseline reads `ln_rmssd_v2` nights only.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** the headline and readiness use the qualified primary only; the secondary estimate is stored separately and labelled; the baseline reads `ln_rmssd_v2` nights only.
 
 Confirmed caller difference in `lib/compute/onehz_pipeline.dart`: `rmssdScalar` can fall back
 from the sleep-session five-minute mean to robust or whole-window RMSSD, while `lnToday`
@@ -515,7 +517,7 @@ primary method and is not authorization to replace it.
 
 ## Lean-Gain Waist Rule Overstates Tissue Attribution (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** the rule and its copy are an observation (waist rising faster than about 1 cm per 2 kg), never a tissue claim.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** the rule and its copy are an observation (waist rising faster than about 1 cm per 2 kg), never a tissue claim.
 
 `lib/data/goal_plan.dart::waistFast` qualifies weight gain with waist growth greater than
 0.5 cm per kg and can explain this as gaining waist faster than muscle accounts for. The source
@@ -533,7 +535,7 @@ muscle/fat classifier or automatic calorie-target change.
 
 ## Primary HRV Joins Unreported Time And Accepts Sparse Windows (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** pairs must be time-adjacent; windows need 180 s covered, 120 pairs and at most 20% artifacts; nights need 6 windows and 15% of the session. The installed Build 88's 250 ms adjacency left the nightly HRV absent on 6 of 13 real nights and biased low on the rest, because WHOOP 4 beat times carry the 1 Hz record's phase, not the beat's. Build 89 source (algorithm 93) uses one 1000 ms tolerance (`kBeatAdjacencyTolMs`) everywhere; on the same 13 nights all qualify and agree closely with algorithm 91 (`todo.md` Build 89).
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** pairs must be time-adjacent; windows need 180 s covered, 120 pairs and at most 20% artifacts; nights need 6 windows and 15% of the session. The installed Build 88's 250 ms adjacency left the nightly HRV absent on 6 of 13 real nights and biased low on the rest, because WHOOP 4 beat times carry the 1 Hz record's phase, not the beat's. Build 89 source (algorithm 93) uses one 1000 ms tolerance (`kBeatAdjacencyTolMs`) everywhere; on the same 13 nights all qualify and agree closely with algorithm 91 (`todo.md` Build 89).
 
 Confirmed source behavior with a local synthetic probe, not a personal-data accuracy estimate.
 `packages/analytics/lib/src/onehz/clinical/hrv_time.dart::sleepSessionWindowedRmssd` uses
@@ -558,7 +560,7 @@ require algorithm/version and compatible-history decisions; the current source i
 
 ## Strength Review Can Praise Unchanged Or Incomparable Sets (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** one comparator (`compareSet`) for live and Review with an explicit not-comparable state; "stronger" needs at least one lift better.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** one comparator (`compareSet`) for live and Review with an explicit not-comparable state; "stronger" needs at least one lift better.
 
 Confirmed in source and a synthetic local test: `lib/data/progress_review.dart::_compare` returns `0` both for identical
 performance and heavier/fewer-rep or lighter/more-rep pairs that its comment calls not
@@ -574,7 +576,7 @@ tests. This is an interpretation/consumer repair, not permission to invent a mus
 
 ## High-Rep Lift Trend Ignores Changed Load (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** without the estimate the trend compares reps at the same load only, or says it cannot compare, and names its date span.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** without the estimate the trend compares reps at the same load only, or says it cannot compare, and names its date span.
 
 Confirmed in source and a synthetic local test: `lib/data/lift_progress.dart::liftTrend`, if any session lacks an eligible Epley
 score, `m` falls back to `best.reps` for every session without requiring a fixed load. A
@@ -591,7 +593,7 @@ mixed eligible/ineligible sessions and plateau/advice paths. No lift source chan
 
 ## Second-Pass Source Audit Findings (Mostly Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** each subsection below starts with what Build 88 source repaired and what remains open.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** each subsection below starts with what Build 88 source repaired and what remains open.
 
 These come from read-only source audits against Build 87 source (`kAlgoVersion` 91, schema 49).
 They are verified by reading code, and spot-checked where marked. Additional isolated synthetic
@@ -603,7 +605,7 @@ claims.
 
 ### Health Alerts Use Unsettled Inputs, A Different Score And Critical Priority
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: low readiness reads the headline composite; every health finding is normal priority and respects quiet hours; the anomaly flag is one-sided; RHR-shift evidence restarts after a 7-day gap; irregular rhythm is note-only (C1); each kind can be muted (C8).
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: low readiness reads the headline composite; every health finding is normal priority and respects quiet hours; the anomaly flag is one-sided; RHR-shift evidence restarts after a 7-day gap; irregular rhythm is note-only (C1); each kind can be muted (C8).
 
 - Every aggregated health notification is sent as `NotifPriority.critical`
   (`derivation_engine.dart` `_runNotifications`). That includes "Low readiness", a falling resting
@@ -638,7 +640,7 @@ claims.
 
 ### Readiness Explanation Comes From A Different Model
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: the Readiness breakdown reads the composite's own drivers. Home stores but never rendered glass-box drivers.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: the Readiness breakdown reads the composite's own drivers. Home stores but never rendered glass-box drivers.
 
 The Readiness screen breakdown, Home drivers and driver-breakdown screen render
 `readiness_glassbox.breakdown`, a parallel ranking from the deprecated model. Source comments call
@@ -652,7 +654,7 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Timestamp-Blind Beat Differencing Beyond The Primary HRV
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: one rolling-RMSSD rule (`rollingRmssd`) for the HRV timeline, 24/7 curve and daytime HRV; PRSA needs gap-free windows; RSA window coverage/Nyquist and 6-window nights; BRV uses the real artifact fraction; stress and irregular-rhythm duration gates; labels fixed. The per-night CVHR chart is removed (decided); the across-nights card stays. Open: corrected-NN consumers still bridge 250-1000 ms gaps inside `correctRr` (its whole-second fallback needs that bar); Lomb-Scargle power scaling under gaps and the beat-sum clock remain unresolved.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: one rolling-RMSSD rule (`rollingRmssd`) for the HRV timeline, 24/7 curve and daytime HRV; PRSA needs gap-free windows; RSA window coverage/Nyquist and 6-window nights; BRV uses the real artifact fraction; stress and irregular-rhythm duration gates; labels fixed. The per-night CVHR chart is removed (decided); the across-nights card stays. Build 89 replaces the too-strict 250 ms admission with a shared 1000 ms tolerance for WHOOP 4's record-stamped timing. Open investigations: corrected-NN continuity across actual dropouts, Lomb-Scargle power scaling under gaps and the beat-sum clock. Do not relist the pre-Build-89 adjacency mismatch as an unfixed defect or tighten timing without fixtures that preserve real record cadence.
 
 - These also form successive differences without timestamps, so they can join unreported time:
   - the irregular-rhythm screens (above);
@@ -688,7 +690,7 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Sleep Regularity, Breathing Lane And Night-Selection Defects
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: relative stillness (within 0.02 g of the window median on 90%); SRI over observed all-day epochs; 3 h night-time fallback; correction save blocked under 50% recorded; Home bar uses last night's stored need; "In bed at" label. Kept: the approved rule lets a later night with more sleep replace the pick (a later, shorter night does not). Open: the restlessness map's |mag - 1| test, stage cutoffs (experiment), debt/wake-count and smaller items.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: relative stillness (within 0.02 g of the window median on 90%); SRI over observed all-day epochs; 3 h night-time fallback; correction save blocked under 50% recorded; Home bar uses last night's stored need; "In bed at" label. Kept: the approved rule lets a later night with more sleep replace the pick (a later, shorter night does not). Open: the restlessness map's |mag - 1| test, stage cutoffs (experiment), debt/wake-count and smaller items.
 
 - **SRI is not the Phillips index.** `_crossDaySri` marks epochs valid only where a hypnogram exists
   (spot-checked), so it compares only minutes inside both nights' windows and moving bedtime barely
@@ -718,7 +720,7 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Quiet-Day Strain Inflation And Gross Training Load
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: the strain target is withheld; day zone minutes and the zone label share one `trainingZones` set; strain-dependent sleep need and the strain mover count observed days only. Also repaired (decided): TRIMP uses the zones' max HR (observed ceiling once it reaches the age estimate, else the estimate), and each minute counts for the time it actually recorded, with the quiet baseline over the same covered minutes. Strain values can move slightly on days with gaps or a high observed ceiling.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: the strain target is withheld; day zone minutes and the zone label share one `trainingZones` set; strain-dependent sleep need and the strain mover count observed days only. Also repaired (decided): TRIMP uses the zones' max HR (observed ceiling once it reaches the age estimate, else the estimate), and each minute counts for the time it actually recorded, with the quiet baseline over the same covered minutes. Strain values can move slightly on days with gaps or a high observed ceiling.
 
 - All five strain callers pass `quietWakingHrr = 0.20`. The constant's own documentation in
   `load_trimp.dart` (spot-checked) measured that this left a no-activity day at 6.93–12.14 out of
@@ -733,7 +735,7 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Energy, Steps, Live Speed And Food/Weight Estimate Edge Cases
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: partial run steps stay known; DST-length BMR; fabricated, over-4 h and overlapping lifts; low-HR lifts by MET; live speed over time (tau 5 s), stop detection, "—" without a fresh fix and moving-time average; Theil-Sen food/weight estimate with Sen's range, 3 weigh-ins per half, hidden past +/-300 kcal. Open: step-resolver phone-hour/wrist-density policies unchanged; live-speed constants need an outdoor walk and run.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: partial run steps stay known; DST-length BMR; fabricated, over-4 h and overlapping lifts; low-HR lifts by MET; live speed over time (tau 5 s), stop detection, "—" without a fresh fix and moving-time average; Theil-Sen food/weight estimate with Sen's range, 3 weigh-ins per half, hidden past +/-300 kcal. Superseded by Build 89: steps are phone-only and high-rate live streams are off in the personal build. Open: live-speed constants need an outdoor walk and run.
 
 All documented coefficients, gates and worked examples match source. Climb terms are inert:
 `runMix`/`motionMix` pass `climbM: 0`. These are policy/coverage edges, not arithmetic errors:
@@ -763,7 +765,7 @@ All documented coefficients, gates and worked examples match source. Climb terms
 
 ### Food Completeness, Body Estimates, Strength Comparisons And Goal Advice
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: explicit completion only (D13); "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired in Build 88: explicit completion only (D13), subsequently extended by Build 89 automatic counting with manual overrides; "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
 
 All documented phase bands, protein ranges, review gates, step sizes, floor formula, streak
 constants and per-100/two-way serving scaling match source. No path writes a calorie target.
@@ -831,6 +833,12 @@ Defects and corrections:
 
 ### Input Retention And Wear Accounting Limits
 
+These are carried-forward investigation items from the Build 87 source review, not all
+reproduced Build 89 defects. Reconfirm current consumers/decoder paths before implementation;
+unsupported temperature/oxygen outputs remain withheld by the shipped family gates.
+`build-90-audit.md` includes them in the complete backlog without treating absent raw inputs
+or unobserved latent record shapes as established device failures.
+
 - Green ADC is decoded but never stored, so no historical RIIV/green respiration path can run.
 - Historical R10-lite HR goes only to legacy `samples`, not the substrate (its beats are kept).
   Prevalence is unknown.
@@ -874,7 +882,7 @@ process restarted. The supplied MetricKit exit windows do not cover this later i
 
 ## Overnight Freshness And Sync Lifecycle Gaps (Repaired In Build 88 Source)
 
-**Build 88 source (`0.9.55`/`88`, algorithm 92; testing IPA built, not installed or phone-verified):** repaired: no-sleep today holds over and says so; today's overnight state refreshes on commit; a lock-refused pass is not marked done; flags reset on every early return; foreground ownership waits at most 20 s and asks the headless drain to stop; BG expiry stops the drain; off-wrist links are bounced after 660 s of silence; the frontier ignores records over 10 min ahead; burst shortfalls are totalled; background lines reach the file log. Open: a BG refresh task still spends most of its ~30 s on transfer; every item needs the phone lifecycle checks.
+**Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: no-sleep today holds over and says so; today's overnight state refreshes on commit; a lock-refused pass is not marked done; flags reset on every early return; foreground ownership waits at most 20 s and asks the headless drain to stop; BG expiry stops the drain; off-wrist links are bounced after 660 s of silence; the frontier ignores records over 10 min ahead; burst shortfalls are totalled; background lines reach the file log. Open: a BG refresh task still spends most of its ~30 s on transfer; every item needs the phone lifecycle checks.
 
 From a read-only Build 87 source audit; none is reproduced on the phone yet.
 - **A prior night can show as today's.** If today's `day_result` is flagged `NO_SLEEP_DETECTED`

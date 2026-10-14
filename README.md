@@ -5,11 +5,13 @@
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
 > enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 89 candidate
-> (0.9.56), not yet installed. Build 88 (0.9.55) is on the phone.
+> (0.9.56), installed and being tested as reported by Akshat, superseding Build 88. Recovery-cache
+> promotion is requested after the whole-app review; Build 70 remains cached recovery meanwhile.
+> [`build-90-audit.md`](build-90-audit.md) owns the current visual/source findings and next-build
+> proposal; implementation, UI acceptance and physical background/renewal checks remain open.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
-> installed Builds 86/87 still show it. Build 88 (0.9.55, algorithm 92) is published and
-> built as the testing IPA but not installed: it gates temperature, qualifies HRV,
+> Builds 86/87 showed it. Build 88 (0.9.55, algorithm 92) and installed Build 89 gate temperature, qualify HRV,
 > breathing and stress, makes alerts and advice honest and adopts the locked light design
 > (`DESIGN.md`). [`build-88-plan.md`](build-88-plan.md) owns the specification and `todo.md` the
 > open decisions and phone gates; no accuracy parity is claimed. Impeccable is developer design
@@ -85,8 +87,8 @@
 > Akshat approved publication to this repo, CI/macOS build and the validated testing IPA.
 > Source `b0eee377` passes Linux CI `38156660026` and personal macOS build `38156663594`.
 > The downloaded IPA passed source/version/checksum/ZIP/payload checks; it was never installed
-> and Build 88 replaced its testing folder. Akshat's screenshots show Build 88 installed.
-> Sideloadly corroborates current-version enrollment with no error; feature/background phone
+> and Build 88 replaced its testing folder. Akshat's screenshots showed Build 88 installed; he now reports Build 89 installed and being tested.
+> Sideloadly corroborated Build 86 enrollment with no error; Build 89 enrollment and feature/background phone
 > acceptance remains pending. SideStore laptop setup is reported, not verified app handover.
 > `todo.md` owns device gates.
 > Build 70 remains

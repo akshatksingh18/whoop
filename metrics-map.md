@@ -2,20 +2,20 @@
 
 Everything the app stores and where each item appears in the approved local build. This file is the
 reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the installed `0.9.53`/`86` feature contracts plus the built `0.9.54`/`87` presentation repairs;
+the Build 86 feature contracts, subsequent Build 87/88 repairs and installed Build `0.9.56`/`89`;
 complete physical-device acceptance is pending.
 
-**Status:** Build 86 source `651345e7` passes recorded Linux CI, macOS compilation and downloaded
-artifact checks and is installed. Feature phone acceptance remains open; structural UI acceptance
-failed. `build-87-ui-plan.md` owns the replacement and open visual acceptance. Build 87 source
-`b0eee377` passes local checks, Linux CI/macOS compilation and downloaded artifact validation;
-its IPA is the single testing candidate, not yet installed or phone-accepted.
-Build 70 remains accepted recovery, and Build 86 remains installed. `build-85-audit.md` owns its earlier approved changes;
+**Status:** Akshat reports Build 89 installed and being tested. Recorded Linux/macOS and artifact
+checks pass; full physical acceptance remains open. He rejects Progress's information overload;
+`build-90-audit.md` owns the current all-tab audit and proposed feature-preserving redesign.
+No proposal is implemented by that report. Build 89 still occupies testing; its recovery promotion
+is requested after the review. Build 70 remains cached recovery. `build-85-audit.md` owns earlier approved changes;
 `build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
 are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
 
-Build 88 (`0.9.55`/`88`, algorithm 92) is the built testing IPA, not yet installed; where it changes what a screen shows, the paragraph below says "Build 88 source".
+Build 88 (`0.9.55`/`88`, algorithm 92) was installed before Build 89 (algorithm 93). Historical
+sections below describe the originating build; Build 89 retains those changes except where stated.
 Stored metrics remain intact; any removal still needs Akshat's per-item approval.
 
 ## What is stored
@@ -66,20 +66,15 @@ Official references, checked 2026-10-11:
 - [WHOOP Recovery and HRV weighting](https://support.whoop.com/s/article/WHOOP-Recovery)
 - [Official API sleep/recovery schemas](https://developer.whoop.com/api/)
 
-**Open WHOOP 4 field-integrity issue:** `skinTempRaw` is explicitly deprecated by the protocol
-decoder as an unverified fast optical-block quantity, not temperature. The app still feeds it
-into `skin_temp_adc`, temperature-labelled curves/deviation and potentially readiness. A relative
-z-score does not establish the field's physical meaning. Do not treat these WHOOP 4 outputs as
-validated temperature. `bugs.md` owns the finding and `todo.md` the queued, unimplemented
-Build 88 repair gate. `metrics-accuracy-research-prompt.md` is the source-backed research brief,
-and `metrics-accuracy-research.md` is the completed primary-source desk review with family-by-family
-assessment, additional source findings and ranked proposals. Neither establishes physical accuracy
-or implements changes. Akshat selected hiding unsupported WHOOP 4 rows in Trends/Sleep while
-retaining history, and primary-only headline HRV with unavailable primary left absent and labelled
-secondary details. These decisions are not implemented. Primary HRV continuity/coverage and
-partially missing load densification still require the qualification/version policies in the plan.
-`build-88-plan.md` condenses the report and both supplied AI analyses into proposed work packages;
-it does not replace this current calculation inventory or approve new coefficients.
+**WHOOP 4 field integrity:** `skinTempRaw` is an unverified optical-block quantity, not
+temperature. Builds 86/87 consumed it; Build 88 gated temperature-labelled outputs and
+physiological inputs to verified device families, retaining stored history. Installed Build 89
+keeps this repair. The primary HRV identity/gates and observed-day load repairs also ship;
+Build 89 adjusts the shared beat-adjacency tolerance to WHOOP 4 record-stamped timing.
+`bugs.md` owns defects, `todo.md` owns implemented state and open phone gates, and
+`metrics-accuracy-research.md` preserves the research baseline. These changes do not establish
+physical accuracy or vendor-model parity. `build-88-plan.md` is the originating specification;
+`build-90-audit.md` is the unimplemented next-build proposal.
 Sleep detection/staging does not consume this field. SpO2 is already refused by the pipeline;
 the decoded red/IR counts are not sufficient for a trustworthy oxygen percentage.
 
@@ -288,12 +283,12 @@ Today has recorded 10-minute/1-hour/Day HR views, direct diary portion editing a
 activity/date filters. These change presentation/access, not metric formulas or history.
 
 **Food coverage:** calories/protein are primary. Optional omitted macros remain null/untracked;
-explicit zero is retained. Automatic completion uses calorie-complete past days with an evening
-entry; Build 86 adds explicit Complete/Incomplete overrides. Missing optional macros do not
+explicit zero is retained. Build 89 automatic counting uses calorie-complete past days reaching
+half the current target; explicit Complete/Incomplete overrides remain. Missing optional macros do not
 exclude a calorie day. Protein averages require eligible days with complete protein coverage,
 not merely a displayed protein total or completed calorie diary. Counts/exclusions are separate
 by nutrient; the app cannot detect every forgotten food or prove a complete diary.
-Build 88 source: a past day counts only when marked complete (D13); the evening-entry heuristic
+Build 88 required a marked-complete past day (D13). Build 89 adds automatic counting at half the current calorie target when every item has energy, with manual overrides; the evening-entry heuristic
 is gone. Meal and day totals with an unknown item say "at least"; the food/weight estimate uses a
 robust slope with a range and hides past ±300 kcal/day.
 Recorded strain stays an estimate with its prescriptive target hidden until calibrated, and all
@@ -475,7 +470,7 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout Decisions (Build 87 Built; Build 88 Source Restyled; Build 86 Installed)
+## Layout Decisions (Build 89 Installed; Next Redesign Is A Proposal)
 
 **Build 88 source (DESIGN.md):** light kraft ground, cream 26 pt panels with every Surface,
 family colours (recovery, sleep, strain, food, body; amber only for NEW/unavailable), a paper

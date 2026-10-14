@@ -2,15 +2,16 @@
 
 **State:** The repository contains full upstream-capable iOS targets plus an implemented minimal
 personal-sideload profile and public manual macOS workflow. Akshat's screenshots show build
-`0.9.55`/`88` installed (over Build 86), with no app extension (removed in build 81).
+`0.9.55`/`88` installed previously; Akshat now reports `0.9.56`/`89` installed and being tested,
+with no app extension (removed in build 81).
 The single testing candidate is
 `../../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365` (Linux CI `38494407678`, personal
 macOS build `38495939393`; source/version/checksum/ZIP/payload checks pass). It replaces the
-Build 88 cache, not the phone install. `../todo.md` Build 89 owns its scope.
-Take an encrypted off-phone backup, then install it over the same signed identity; verify
-data/pairing, foreground/background behavior and current-version refresh enrollment before
-promotion. Build 88's installation is shown by Akshat's screenshots; its current-version
-Sideloadly enrollment and any future unattended renewal are not yet confirmed. `../todo.md` owns phone gates.
+Build 88 cache. `../todo.md` Build 89 owns scope and phone gates; `../build-90-audit.md` owns the
+current whole-app review and unimplemented next-build proposal. Akshat wants Build 89 as recovery
+after this review; the cache is not yet promoted. Confirm an off-phone encrypted export,
+identity/data/pairing, foreground/background behavior and current-version refresh enrollment
+before promotion. Natural unattended renewal remains unconfirmed.
 
 Build `0.9.37`/`70` remains accepted recovery: its feature phone check and current-version
 automatic-refresh registration at the existing signed identity were confirmed with no error.

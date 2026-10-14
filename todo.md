@@ -1,7 +1,9 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat's screenshots show build `0.9.53`/`86` installed (Food Today with Log again, the
-day-complete mark and the Progress tab); build 85 was the one before it. Build `0.9.53`/`86` (source `651345e7`) passed Linux CI `38090036814` (3,539 tests, 399 intentional skips) and personal macOS build `38090037024`; the downloaded IPA matches its checksum and manifest and passes the payload validator. It remains installed; its former testing folder is superseded by the validated Build 87 candidate below.
+**State:** Akshat reports Build `0.9.56`/`89` installed and being tested. Build 88 was the previous
+install. Build 89 works on his phone and becomes the cached recovery build before Build 90 installs;
+until then Build 70 remains cached recovery. Build 90's decided plan is below, awaiting the
+final go-ahead.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -31,7 +33,130 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 89 (`0.9.56`/`89`): HRV repair, WHOOP naming, legibility and phone-only steps, local source
+## Build 90 (`0.9.57`/`90`): Plan Decided, Awaiting Final Go-Ahead
+
+**State:** planning only; no Build 90 code exists. Akshat chose to ship the whole backlog in
+`build-90-audit.md` ("Complete App-Wide Worklist") in this one build, including the full engine
+depth, plus a home bodyweight workout (`home-workout-proposal.md`). Work is split between two
+agents in two lanes that never edit the same file; Claude integrates, pushes and runs every
+GitHub check. Implementation starts on Akshat's go-ahead for this plan.
+
+### Decisions (Akshat, Build 89 review)
+
+- D1 Scope: everything in the audit worklist ships in Build 90, not split across releases.
+- D2 Engine: full depth. Fix and test the code-provable items (one worn-minute definition, a
+  per-day time zone so travel never shifts days, blank instead of 0 for unconfirmed sensor
+  values, no legacy oxygen rows in CSV, a 4-value RR cap in the decoder, older R10-lite heart
+  rate reaching the analytics substrate where present). Research every remaining item
+  thoroughly so that no constant is an assumption: each number either cites a primary source
+  or is derived and tested; unknown stays absent. Recalculation covers only retained inputs
+  (about three days of raw); older stored days keep their values and nothing is invented.
+- D3 Research: one agent only does internet research (Codex, the engine lane). Queries never
+  contain Akshat's data. A finding that changes a headline formula (sleep staging, readiness,
+  strain baseline) is summarised for Akshat's per-item approval before it merges; findings
+  that need phone measurements ship instrumentation and a safe default.
+- D4 Food counting (B90-10): each counted day keeps the calorie goal it was judged against;
+  days before Build 90 freeze at the goal on Build 90's first open (no older goal history
+  exists). Manual marks win; "Counted automatically" is labelled apart from "Marked complete".
+- D5 Optional features, all in: pinned Trends (up to 3); copy a whole food day (review,
+  adjust portions, untick, explicit Log, into the viewed date); edit or delete a finished lift
+  set with progress recomputed (no adding a forgotten set; session times, HR and calories
+  unchanged); dated milestones on Body and Strength (no scores or notifications). Warm-up flags
+  and RPE/RIR stay out.
+- D6 Layout: Food keeps all four macros visible in one compact row (protein larger). Today:
+  Recovery/Sleep/Strain, then Log food · Weigh in · Start/Resume · Pushups, then the HR chart,
+  then steps/food/maintenance, then Body. Train: Pushups becomes one compact row with Start.
+- D7 Fallback: Build 89 works on Akshat's phone; it becomes the cached recovery build before
+  Build 90 (which changes the database) is installed, after an off-phone encrypted export.
+- D8 Process: Claude writes Codex's brief; Codex commits on its own branch and never pushes;
+  Claude privacy-reviews, pushes and runs CI. Screenshot gates: an early Progress preview, then
+  one full review of every changed screen before the IPA.
+
+### Lanes and file ownership
+
+Only the owner edits a file; the other lane asks through its notes block below.
+
+- **Claude lane (`build-90-claude`, separate worktree):** Progress overview and Body / Strength /
+  context details, History range, quick weigh-in, milestones (B90-01, B90-04, B90-09); Today
+  redesign, freshness line and links; Trends and pinned metrics; Train redesign, compact
+  Pushups row and Train's large text; Lift Log: home workout, variations, finished-set
+  correction; design system: Reduce Motion back (B90-03), tab labels and selected-state
+  semantics, consistent tap affordances (B90-08 shared parts). Files: `progress_screen.dart`
+  (split into new files), `progress_review.dart`, `goal_plan.dart`, `body_log.dart`,
+  `home_screen.dart`, `today_plan.dart`, `pushups_screen.dart`, `health_screen.dart`,
+  `workout_screen.dart`, `lift_log.dart`, `lift_log_ui.dart`, `lift_progress.dart`,
+  `theme.dart`, `grammar.dart`, `app_shell.dart`, the widget gallery, `pubspec.yaml` and
+  version metadata.
+- **Codex lane (`build-90-codex`, main checkout):** all engine/data work and all research
+  (D2, D3); workout-deletion publication (B90-02 data side); analysis export (B90-05..07);
+  backup/export wording (B90-11); frozen food counting (B90-10); Food redesign, Food large text
+  and Food's Progress link; whole-day food copy; performance profiling and bounded queries.
+  Files: `packages/protocol`, `packages/analytics`, `lib/compute/` (including
+  `derivation_engine.dart` and `kAlgoVersion`), `db.dart`, `app_state.dart`,
+  `nutrition_store.dart`, `analysis_export.dart`, `profile/data.dart`, `media_backup.dart`,
+  `lib/l10n/`, `nutrition_screen.dart`, `food_calendar.dart`, `food_diary.dart`.
+- **Shared rules:** three contracts land on the base branch before the lanes split: one
+  `openProgress(context, destination)` entry, a session-change publication hook in AppState,
+  and additive-only changes to the food-window/rollup functions Progress reads. Codex keeps new
+  Food widgets private to its own files; any public widget it adds is registered in the
+  gallery in a marked Codex block. Each lane updates only its own tabs' cases in shared render
+  tests. Docs: each lane writes only its notes block below; Claude synchronises `CLAUDE.md`,
+  `setup.md`, `README.md` and the guides at merge. Small targeted local checks only; full
+  suites run on GitHub.
+
+### Phases
+
+- [ ] 0. Setup (Claude): privacy-review and commit the pending audit/doc edits as the shared
+  base; create `build-90` from `main`, add the three contracts, push and pass CI; create both
+  lane branches; hand Akshat the Codex brief.
+- [ ] 1. Lanes in parallel. Claude sends the early Progress preview; Codex delivers research
+  findings, and Akshat approves any headline-formula change per item.
+- [ ] 2. Merge (Claude): Codex lane, then Claude lane; `0.9.57+90`; one `kAlgoVersion`
+  decision with its changelog; full GitHub tests; screenshot review of every changed screen.
+- [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
+  validation and the single testing candidate.
+- [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
+  change, and the device/operational matrix in `build-90-audit.md`.
+
+### Home bodyweight workout (audit, Claude lane)
+
+Most of it exists. Calisthenics (3.8 MET) and Bodyweight (3.5 MET) are lift types, so a workout
+of either type gets the Lift Log panel: saved splits (up to 20, 40 exercises each), set logging,
+repeat last set, rest timer, previous performance and history. A workout starts and logs with
+no band ("No band connected"); calories stay the existing MET estimate; a 10-minute session
+counts for the streak as a lift day. Sets accept weight 0, comparisons at the same weight are
+reps-based, and no strength estimate is made without load, so a reps-only set is honest today.
+"Added weight" (bodyweight excluded) fits a loaded backpack. Comparisons already separate by
+name, load mode and the exercise's setup note.
+
+Missing, with the smallest fix:
+- Reps-only entry needs a typed "0" and reads "0 lb added × 12". Fix: in Added weight, a blank
+  weight logs bodyweight only and reads "Bodyweight × 12" or "+10 lb × 12". No new mode, so
+  backpack and bodyweight sets stay one exercise (heavier for fewer reps reads "not comparable").
+- Variations: the setup note already keeps comparisons valid, but "last time" and Repeat look
+  up name and mode only, so after a variation change they show the other variation. Fix: use
+  the note there too, label it "Variation", and offer that exercise's earlier variations as
+  one-tap chips plus "New variation". "Push-up · Feet raised" stays one Push-up exercise.
+- Starting: Lift starts Weight training; Calisthenics needs Other and the picker. Fix: Lift
+  offers Gym or Home; Home starts Calisthenics with the Home split.
+- A ready, editable Home split: Push-up, Backpack row, Bed-edge dip, Split squat, Leg raise.
+- Not added (Akshat's constraints): timed plank, programming, targets, RPE/RIR, progression
+  suggestions, new calorie logic.
+
+Akshat's decisions: variations inside one exercise with variation buttons (H1); a blank
+weight logs bodyweight only, no new mode (H2); Lift asks Gym or Home (H3); push-ups logged in
+a workout stay separate from the Pushups daily count (H4); the five names above (H5); loads
+stay in pounds (H6). Home loads can be dumbbells or a backpack of unknown weight: a
+dumbbell-held exercise uses the existing Weight per hand mode, a backpack of known weight
+uses Added weight, and an unweighed backpack is logged as a variation ("Backpack") with a
+blank weight, never a guessed number. A changed load mode is a separate comparison history.
+
+### Lane notes
+
+- Claude:
+- Codex:
+
+## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 
 **State:** Akshat's screenshots show Build 88 installed: the night's HRV curve drew, but the
 nightly HRV read "Not measured" and Recovery scored without it. His exported database (read
@@ -42,7 +167,8 @@ real nights the nightly HRV was absent on 6 and biased low on the other 7. At 10
 all 13 qualify and agree closely with algorithm 91. Published as source `77d6a365`
 (algorithm 93); Linux CI `38494407678` (3,719 tests, 427 intentional skips) and personal macOS
 build `38495939393` pass, and the validated IPA is the single candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`
-(`setup.md`). Not yet installed.
+(`setup.md`). Akshat reports it installed and is testing it. The requested recovery promotion
+follows the whole-app audit; Build 70 remains cached recovery in the meantime.
 
 - [x] One shared beat-adjacency tolerance, `kBeatAdjacencyTolMs` = 1000 ms (analytics
   `util.dart`), for the nightly HRV, every rolling curve, PRSA, the irregular-rhythm screen and
@@ -67,6 +193,11 @@ build `38495939393` pass, and the validated IPA is the single candidate in `fina
   workouts are unchanged; the upstream build keeps the full set.
 - [ ] Phone: live heart rate on Today and in a workout still updates; overnight history syncs;
   battery compared with Build 88.
+- [ ] Phone: the Build 89 additions below — a finished workout with valid strain counts toward
+  the day's strain (no forced number without qualified inputs), Food's week
+  strip/calendar/calorie card, automatic counting and its actions, the 9:30 pm question and its
+  buttons, the Labels bin, the Pushups card, Today chart scrubbing and the AI export file
+  (`build-90-audit.md` "Build 89-specific phone pass").
 - [ ] Phone: after install, the nightly HRV shows on recent nights (or its reason shows); text
   reads without strain on every tab; Files → WHOOP shows
   `WHOOP Backups` and the `whoop_*` logs with no OpenStrap-named file.
@@ -165,7 +296,7 @@ No feature is removed by any item; every current number, chart and entry point s
    (Akshat's screenshot); the same panel's own line says "strain 3.4 in total". Find why the
    day's strain line and the session total disagree and fix the source, not the label.
 
-## Build 88 (`0.9.55`/`88`): installed, phone checks open
+## Build 88 (`0.9.55`/`88`): Previously Installed, Superseded By 89
 
 **State:** Akshat approved `build-88-proposal.md` with every recommendation (C1 note-only, C2
 "—", C3 off, C4-C8 yes, C10 built-in review) and asked for one combined Build 88. All twelve
@@ -173,7 +304,7 @@ packages are implemented (algorithm 92) and published as source `0f48c56f`; Linu
 `38329137774` (3,703 tests, 415 intentional skips) and personal macOS build `38329490196` pass,
 and the downloaded IPA passes source/version, checksum, ZIP and payload checks. It is the single
 candidate until Build 89 replaced its testing folder; `setup.md` owns the artifact evidence. `build-88-plan.md` owns the specifications, `bugs.md` what each repair closed and what is
-still open, and `DESIGN.md` the locked visual system. Local full suite: 3,698 tests pass (420 intentional skips). Not installed or phone-verified.
+still open, and `DESIGN.md` the locked visual system. Local full suite: 3,698 tests pass (420 intentional skips). Build 88 was installed and is now superseded by Build 89; complete phone verification remains open.
 
 Done in source (each with tests):
 - [x] **B88-01** temperature integrity: WHOOP 4 counts never publish temperature or feed
@@ -276,8 +407,7 @@ Physical background and structural design acceptance remain open.
   Installation/CI alone cannot pass structural design acceptance.
 
 No feature removals, relaxed intake/signal gates, new permissions/network services, AkshatOS
-cutover or signing-identity/recovery changes are selected. Build 86 remains installed until
-Akshat upgrades; Build 87 occupies testing, and Build 70 remains accepted recovery.
+cutover or signing-identity/recovery changes are selected. Build 86 and uninstalled Build 87 are superseded; installed Build 89 occupies testing pending promotion, and Build 70 remains cached recovery.
 
 **Approved convenience additions, implemented and locally verified:**
 - [x] Today HR 10-minute / 1-hour / Day views from actual recorded timestamps, preserving the
@@ -300,7 +430,7 @@ Akshat upgrades; Build 87 occupies testing, and Build 70 remains accepted recove
 `build-87-ui-plan.md` owns the boundaries. Akshat explicitly approved all three. Extended
 regression and actual-height shortcut previews pass; phone verification remains required. Existing tab reselect-to-top and Status/freshness shortcuts are already present.
 
-## Build 86: installed, awaiting phone acceptance
+## Build 86: Previously Installed, Acceptance Gates Carried To 89
 
 **State:** Akshat approved implementation of the whole build-86 scope below as **one build**.
 Selected extras: repeat last set, rest timer, comparable records and independent photo
@@ -309,8 +439,7 @@ screenshot-based MyFitnessPal import. The scope also covers weekly/monthly diet/
 insights, navigation/speed/sleep/freshness repairs, safe deletion, custom food labels, both-way
 serving equivalents, maintenance-based calorie warnings, general activity/rest protection and a
 structural UI redesign. `build-86-audit.md` owns confirmed findings, additional risks and tests.
-The confirmed fitness goal is recomposition: leaner while getting stronger. Build 86 is installed,
-as confirmed by Akshat; build 85 is superseded. Sideloadly records version `0.9.53`, completed
+The confirmed fitness goal is recomposition: leaner while getting stronger. Build 86 was installed as confirmed by Akshat; Build 89 is now installed and its inherited phone gates remain open. Sideloadly records version `0.9.53`, completed
 current-version automatic-refresh enrollment, no error, and expiry 2026-10-17 at 17:51 local.
 This is installer evidence, not proof of a future unattended renewal or SideStore adoption.
 
@@ -400,14 +529,14 @@ Implementation checklist:
    entry. Coordinate queued native wakes with AppState so startup has one band owner.
 - [ ] Cancel actual in-flight calculation on ordinary backgrounding; preserve committed results
    and requeue unfinished work without pruning, finalizing or marking cancellation successful.
-   *Partly met (Build 87 source audit): scheduler-owned passes cancel and requeue, but detached
-   rescan/reanalyze/override/nap passes keep running, and a pass refused by the engine lock is
-   marked complete. `bugs.md` "Overnight Freshness And Sync Lifecycle Gaps"; Build 88 B88-05.*
+   *The detached-pass cancellation and lock-refusal source gaps found in Build 87 were repaired
+   by Build 88 B88-05 and carried into Build 89. This remaining checkbox is phone cancellation/
+   requeue acceptance, not an unimplemented source repair; see `bugs.md`.*
 - [ ] Keep short BLE wakes transfer/commit/ACK-first. Replace the fallback's unconditional full
    light derive with queued calculation; propagate expiration, retire old workers and bound
-   ownership handoffs without overlapping ACKs or orphaned work. *Partly met: commit/ACK order and
-   queued calculation hold, but `acquireForeground` has no deadline and BG expiry leaves the
-   headless drain running (same `bugs.md` section).*
+   ownership handoffs without overlapping ACKs or orphaned work. *Build 88 B88-05 repaired the
+   unbounded foreground wait and headless-drain expiry gaps; Build 89 retains those repairs.
+   Actual short-wake scheduling and ownership/expiry behaviour still need the phone pass.*
 - [x] Superseded by Akshat's Build 89 decision: steps are phone only and the personal build arms
    only the 1 Hz heart-rate stream (`kHighRateLive` off), so there is no passive wrist-step or
    high-rate path left to preserve or profile. Active workouts keep live heart rate and zones.
@@ -618,7 +747,7 @@ two apps do not sync. Code: `lib/data/pushups.dart`, `lib/data/pushup_reminders.
 
 ### 8. Structural UI redesign and whole-app convenience audit
 
-**Implemented in installed build 86, but visual/structural acceptance failed.** Akshat's phone
+**Implemented in the previously installed build 86; visual/structural acceptance failed.** Akshat's phone
 screenshots and feedback reject the cosmetic-only feel and Progress's excessive sentences/noise.
 Rendering without overflow is technical evidence, not design acceptance. No metric or entry point
 was removed; the implementation checkmarks below do not mean the design is accepted.

@@ -1,6 +1,9 @@
 # Background Sync And Insight Freshness
 
-**Status:** Implemented in built and installed `0.9.53`/`86`, awaiting background phone acceptance: one
+**Status:** Build 89 is installed and being tested; background phone acceptance remains open.
+The following contract originated in Build 86 and retains later Build 87/88 repairs described
+in `bugs.md`/`todo.md`. `build-90-audit.md` proposes additional source/UI repairs; it implements none.
+Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation
 instead of deriving; launch kind is settled before the scheduler arms and native `ready` waits for
@@ -24,8 +27,9 @@ wear evidence to the current connection: known off-wrist silence suppresses the 
 stream re-arm and fast battery polling; actual disconnects/write failures still recover, and
 normal RTC/battery/offload polling stays active. Pre-link replay and far-future wear stamps are
 refused (60-second RTC slop); older events cannot override newer current-link evidence. These source repairs do not recover unrecorded data or guarantee iOS wake scheduling.
-Still open: phone CPU/freshness profiling, high-rate-path costs and every device gate below. Build
-`0.9.53`/`86` is installed. Akshat reports an iPhone 17 on iOS `26.6.2`, normally
+Still open: phone CPU/freshness profiling and every device gate below. Installed Build 89 counts
+phone steps only and arms the heart-rate-only live stream; high-rate wrist capture is no longer
+personal scope. Akshat reports an iPhone 17 on iOS `26.6.2`, normally
 opening WHOOP for only two or three minutes a day to read insights. He is unsure whether
 the supplied afternoon gap included swiping the app away. `todo.md` owns approval and
 release gates; `bugs.md` owns the private-log findings and their attribution limits.

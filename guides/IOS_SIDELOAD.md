@@ -1,22 +1,20 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Akshat confirms build `0.9.53`/`86` installed. Source `651345e7` passes
-recorded local validation, Linux CI `38090036814`, macOS build `38090037024` and downloaded
-source/version/checksum/ZIP/payload checks. The personal IPA has no app extension from build 81.
-Current-version Sideloadly enrollment is corroborated with no error; complete phone acceptance
-and overwrite/data continuity remain open. SideStore setup is reported on the laptop, but app
-handover and on-phone renewal are unconfirmed; `../todo.md` owns the checks. Build `0.9.54`/`87`
-source `b0eee377` is published with passing Linux CI `38156660026`, personal macOS build
-`38156663594` and downloaded source/version/checksum/ZIP/payload checks. Its unsigned IPA is
-ready in testing, not installed. No signing, refresh ownership or installed app identity changed;
-phone design/feature/background acceptance and current-version enrollment are promotion gates.
+**State:** Akshat reports build `0.9.56`/`89` installed and being tested. Recorded Linux/macOS and
+source/version/checksum/ZIP/payload checks pass (`../setup.md`). The personal IPA has no app
+extension from build 81. He wants Build 89 as recovery after the whole-app audit; the cache has
+not been promoted. Current-version enrollment and remaining feature/background/refresh gates
+are in `../todo.md`; `../build-90-audit.md` owns the review and unimplemented next-build proposal.
+Earlier Build 86 Sideloadly enrollment is corroborated, but it does not establish Build 89
+enrollment or a natural renewal. SideStore laptop setup is reported; app handover/on-phone renewal
+remain unconfirmed. No refresh ownership or installed identity change is inferred from this report.
 
 Build `0.9.37`/`70` remains the accepted recovery build: its phone check and completed
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.56-build89-77d6a365` holds Build 89. Build 88's (run `38329490196`, still
-installed), Build 87's (run `38156663594`) and
+`testing\WHOOP-0.9.56-build89-77d6a365` holds installed Build 89 pending promotion. Build 88's
+(run `38329490196`, superseded on the phone), Build 87's (run `38156663594`) and
 Build 86's former folders were replaced; Build 86's original
 artifact is from run `38090037024`, subject to retention, and is rebuildable from its commit;
 `../setup.md` owns current and superseded source/hash/workflow records. `../build-85-audit.md`

@@ -1,6 +1,7 @@
 # WHOOP As An All-In-One Fitness App
 
-**State:** Implemented in built and installed `0.9.53`/`86`, awaiting feature phone acceptance:
+**State:** Implemented from Build 86 and retained in installed Build 89, which Akshat is testing;
+feature phone acceptance remains open:
 Body (`lib/data/body_log.dart`), photos (camera bridge, `photo_encode.dart`), the Progress tab
 (`progress_screen.dart`, `progress_review.dart`), imports and format-2 media backups. The review
 offers gather evidence / continue / review together, and a Goal card judges the goal Akshat
@@ -17,11 +18,14 @@ whole-body reviews, goal-aware intake reviews, general activity/rest protection,
 chart/action repairs and a structural UI redesign. Pushup Reminder and approved Home capability
 ship in 86, but ownership cutover and phone acceptance remain open; `build-86-audit.md` owns findings.
 Akshat's confirmed goal is **recomposition: leaner while getting stronger**.
-The installed Build 86 UI is rejected for its cosmetic-only composition and noisy Progress copy.
+The previously installed Build 86 UI was rejected for its cosmetic-only composition and noisy Progress copy.
+Build 89's Progress remains rejected for information overload; `build-90-audit.md` proposes a
+compact overview and focused detail routes, with reliability and all-tab readability repairs.
+No proposed composition, optional capability or ownership cutover is accepted by that report.
 `build-87-ui-plan.md` owns the source/screenshot audit and built data-first
 replacement; `todo.md` owns verification, publication and visual acceptance gates. Akshat approved
 Build 87 implementation and warm palette changes. Feature/data contracts below remain unchanged.
-Build 86 is installed with Today / Trends / Food / Train / Progress; AkshatOS retains Lift
+Installed Build 89 retains Today / Trends / Food / Train / Progress; AkshatOS retains Lift
 Log and Body. `todo.md` owns combined approval, `lift-log-integration-plan.md` owns exact lifting
 parity, and `../akshatos/hub-plan.md` owns the unchanged cross-project boundary.
 

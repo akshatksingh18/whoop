@@ -1,13 +1,15 @@
 # Fitness Goal Rules And Their Evidence
 
-**Status:** Implemented in build-86 source (`lib/data/goal_plan.dart`, Progress → Goal); not yet
-phone-tested. Change a number here and in the code together, with its test
+**Status:** Implemented from Build 86 (`lib/data/goal_plan.dart`, Progress → Goal), with Build 88
+qualification repairs retained in installed Build 89; phone acceptance remains open.
+`build-90-audit.md` proposes save/error and review-date presentation repairs, not changed goal bands.
+Change a number here and in the code together, with its test
 (`test/build86_goal_plan_test.dart`).
 
 **Open research qualification:** [metrics-accuracy-research.md](metrics-accuracy-research.md)
-reviews the current policy against primary sources. R03 proposes removing unsupported
-waist-to-tissue attribution and reviewing intake-floor advice; R08 proposes separately evaluating
-the existing intake/weight estimator and trend calibration. These are not implemented changes.
+preserves the pre-Build-88 policy review against primary sources. R03's tissue-attribution and
+eligibility repairs shipped in Build 88; R08's replacement estimator/anchor experiments remain
+unselected. Current installed behavior and limits are in `todo.md` and `metrics-map.md`.
 The waist ratio below is a source policy, not validated fat/muscle identification, and the fixed
 intake floor is not a universal safety guarantee. `todo.md` owns selection/implementation gates.
 `build-88-plan.md` consolidates both attached analyses with this evidence: B88-07 covers the
@@ -15,12 +17,13 @@ qualified advice/eligibility repair; B88-06 preserves manual targets and seconda
 estimates. No proposed TDEE anchor, tissue classifier or automatic target change is adopted.
 The expanded source audit also reproduces unchanged/incomparable lifts receiving an improvement
 headline and changed-load high-rep sets receiving a reps-only down trend (`bugs.md`). B88-07/08
-must repair comparison states and advice consumers; stronger lifts remain observations, not
+repaired comparison states and advice consumers in Build 88; stronger lifts remain observations, not
 proof of hypertrophy. Current goal constants below are unchanged.
 Akshat selected explicit food-day completion for intake advice and food/weight TDEE in Build 88;
-one evening entry is not enough evidence. Preserve known-nutrient eligibility, historical explicit
-marks and partial logs. This changes the planned admission contract, not the implemented phase
-bands or calorie targets below; implementation/version review remains in `build-88-plan.md`.
+one evening entry is not enough evidence. Build 89 adds automatic counting at half the current
+target with energy on every item, retaining manual overrides and nutrient-specific eligibility.
+`build-90-audit.md` identifies retrospective target reclassification and proposes a dated policy;
+that proposal changes no implemented phase band, target or admission rule.
 
 The goal is chosen by Akshat in the app, not written into code. The review only suggests; it never
 changes a goal. Labels: **[P]** primary study or position stand, **[R]** narrative review,
@@ -61,7 +64,7 @@ source list says so.
   for women. Those are the lower ends of the guideline intake targets (S17). At the floor, the
   review offers more steps, a maintenance break or ending the phase.
 - **Build muscle, waist check:** a waist rising faster than about 1 cm per 2 kg of gain is
-  flagged as fat gain [C, no validated ratio].
+  reported as a waist/weight observation [C, no validated ratio], never identified as fat gain.
 - **Recomposition stall:** after eight weeks with no stronger lifts and no smaller waist, the
   review suggests a dedicated fat-loss or muscle-gain phase [C].
 - **Safety:** the Goal screen says to set goals with a clinician when there is a medical condition

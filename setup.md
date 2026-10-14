@@ -2,7 +2,8 @@
 
 ## Current repository state
 
-This folder is one Git repository on `main`. It preserves the OpenStrap histories and currently
+This folder is one Git repository; the current local checkout is `build-89` at documentation
+HEAD `ee2dd55c`, with app/packaging source `77d6a365`. It preserves the OpenStrap histories and contains
 contains:
 
 - edge base `daf6011d3aa0312e22b991713b7af9e5c4433b32`
@@ -49,8 +50,12 @@ Personal macOS run `38495939393` passes. Downloaded
 `whoop-personal-77d6a3658f58-unsigned.ipa` (19,114,834 bytes), SHA-256
 `cdf3d195346dd334d8215a18d7c25e9667a6dcb9aca537256b1a2907b00a9674`, matches its source/version manifest and checksum.
 Full ZIP CRC and personal payload validation pass. The single testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, replacing Build 88's folder after validation. Build 88 stays installed until
-Akshat installs Build 89; Build 70 remains accepted recovery.
+`../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, replacing Build 88's folder after validation.
+Akshat reports Build 89 installed and being tested, superseding Build 88. He wants it to become
+recovery after the whole-app audit; the cache remains unchanged, with Build 70 accepted recovery.
+Current-version enrollment, identity/data continuity, remaining feature/soak/refresh gates and
+the promotion step remain tracked in `todo.md`. `build-90-audit.md` owns the source/visual review;
+it changes no binary and is not evidence of full phone acceptance.
 
 ## Build 88 Candidate
 
@@ -67,8 +72,7 @@ Personal macOS run `38329490196` passes. Downloaded
 `896fa7af6d4726cf0b69744fd610eab15d38eb02971d752f846c72d1f5327033`, matches its source/version
 manifest and checksum. Full ZIP CRC and personal payload validation pass. Linux CI
 `38329137774` passes 3,703 tests (415 intentional skips). Its testing folder was replaced by the
-Build 89 candidate; it is reproducible from run `38329490196`. Akshat's screenshots show Build 88
-installed; Build 70 remains accepted recovery. Its first real
+Build 89 candidate; it is reproducible from run `38329490196`. Akshat's screenshots showed Build 88 installed; it is now superseded by reported installed Build 89. Build 70 remains cached recovery. Its first real
 nights failed the HRV qualification check (repaired in Build 89 source, `todo.md`); current-version
 refresh enrollment, outdoor live speed and the lifecycle/background/soak matrix remain open.
 
@@ -320,7 +324,7 @@ file and passes `tool/personal_ios.py validate`. It is the accepted build in
 `../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. Akshat installed it over build 69,
 confirmed the phone check passed and confirmed completed automatic-refresh registration for
 version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV` with no install error. It is promoted;
-it remains the accepted backup while Build 87 occupies `testing\` and Build 86 remains installed. The checksum, manifest and
+it remains the accepted backup while installed Build 89 occupies `testing\` pending the requested promotion. The checksum, manifest and
 local payload validator pass at the promoted path;
 all 7 `tool.test_personal_ios` contract tests pass, and the accepted-build guard refuses build-70
 reuse. Accepted feature verification does not close the broader lifecycle/refresh gates in

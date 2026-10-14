@@ -1,12 +1,13 @@
 # Build 88 Actionable Plan
 
-**Status:** Implemented in local source on branch `build-88` (algorithm 92, schema 49), from
-Build 87 source `b0eee377`, after Akshat approved `build-88-proposal.md`. Not pushed, built,
-installed or phone-verified; Build 86 remains reported installed and Build 87 the testing
-candidate. The specifications below are the contract the source was built to. Where source
-deviates or a choice is still open (per-night CVHR chart, strain max-HR and minute rule, the food
-colour's contrast, the remaining screens' structural rebuild, fatigue's 28-day floor), `todo.md`
-lists it and `bugs.md` records it under the matching finding.
+**Status:** Implemented, published, built and previously installed as Build 88 (algorithm 92,
+schema 49), now superseded by installed/testing Build 89 (algorithm 93). `todo.md` and `setup.md`
+own execution/artifact evidence; physical accuracy and the complete phone acceptance remain open.
+The specifications below preserve the approved Build 88 contract and its baseline findings;
+baseline descriptions are not an inventory of unfixed Build 89 defects. Per-night CVHR removal,
+strain max-HR/minute rules, contrast, screen rebuild and the fatigue floor are settled in
+`todo.md`. Build 89 supersedes HRV adjacency and the food-counting convenience. The complete
+current repair/verification backlog is in `build-90-audit.md`.
 
 [todo.md](todo.md) owns execution status; [research](metrics-accuracy-research.md) owns detailed
 evidence and attachment reconciliation; [bugs.md](bugs.md) owns confirmed defects.
@@ -26,9 +27,10 @@ the pinned installation, hook trust and native limitations.
   all required data, logging, live, history, settings and recovery routes.
 - **Approved integrity/UX policies:** health findings respect quiet hours; hide the uncalibrated
   prescriptive strain target while retaining recorded strain as an estimate; intake advice and
-  food/weight TDEE require explicitly completed food days. These are selected, not implemented.
-- **Open before implementation:** the Decision Register below (D1-D13). Research and tooling
-  installation are not the app implementation go-ahead.
+  food/weight TDEE required explicitly completed food days in Build 88. Those policies were
+  implemented; Build 89 subsequently adds approved automatic counting with manual overrides.
+- **Decision Register:** D1-D13 below records settled Build 88 choices. It does not request a
+  new implementation approval or reopen those policies. New build scope remains separate.
 - No automatic calorie targets, guessed temperature, exact muscle/fat scores, hidden metric
   revival, new sensor permissions, cloud dependency or guaranteed background cadence.
 - No data upload or public publication is authorized by this planning/tooling task.
@@ -52,7 +54,7 @@ availability tradeoffs with Akshat rather than asking him to invent scientific c
 | D10 | Design direction and palette | B88-09 | Settled and locked 2026-10-12 (`DESIGN.md`): C deep kraft, E jewel colours, G big numbers, single panel, tiles, Trends bars at 7 days and lines at 30 days/3 months; full screen set approved |
 | D11 | Finish reviewer | B88-09 | Settled: built-in degraded review, no extra agent |
 | D12 | Implementation go-ahead and the one `kAlgoVersion` bump | B88-10 | Settled 2026-10-12: go-ahead for one combined build, `kAlgoVersion` 92 |
-| D13 | Food-day completeness evidence | B88-06 | Settled: advice and food/weight TDEE require explicit completion. An evening entry alone is not proof; partial logs remain useful |
+| D13 | Food-day completeness evidence | B88-06 | Settled for Build 88: explicit completion. Build 89 subsequently adds approved half-goal automatic counting and manual overrides; the dated-target issue is B90-10. An evening entry alone is not proof; partial logs remain useful |
 
 Hook-install authorization is already present in Akshat's direct chat request to install automatic
 hooks and executable tooling. The provider-required `.codex/hooks.json` is a tool manifest, not
@@ -61,9 +63,10 @@ ask again whether the installation itself was requested.
 
 ## Readiness Check
 
-**Not implementation-ready or release-verified yet.** The major reported concerns have owners,
-but remaining policy choices, the selected design and exact quality/migration specifications
-must be closed before their production changes. No audit can certify that no undiscovered bug exists.
+**Source/release gates passed; physical acceptance remains open.** This checklist describes
+the implementation/validation contract, with shipped status in `todo.md`. Unselected new
+estimators and personal physiological accuracy require separate evidence. No audit can certify
+that no undiscovered bug exists.
 
 - **Core versus extras:** baseline absence explanations, safe sleep-correction refusal and honest
   incomplete-food handling are core correctness work. Rich quality rows, expanded previews,
@@ -88,9 +91,9 @@ must be closed before their production changes. No audit can certify that no und
   this is not a fresh on-phone expiry check. Confirm current Status and a renewed profile through
   the active signer before the recorded deadline; a Build 87 installation alone is not evidence
   of future renewal. Preserve signed identity, pairing and data; no installer change is selected.
-- **Build 87 baseline.** B88-05 verifies Build 87's existing repairs on the phone, so Build 87 must
-  be installed and its phone checks run (`todo.md` Build 87) before B88-05 tuning starts. Source
-  repairs can start earlier.
+- **Current phone baseline.** Verify the carried-forward B88-05 repairs on installed Build 89
+  before tuning from phone evidence. Build 87 was never installed and is superseded; its old
+  installation is not a prerequisite for current acceptance.
 - **Encrypted backup first.** Take an encrypted export, copied off the phone, before any Build 88
   install. Its validation and backup rules are in `CLAUDE.md`.
 
@@ -369,12 +372,14 @@ secondary estimate, not a precise maintenance measurement or automatic target an
 history and Progress; import-only historical weights do not reprice old calories or feed dated
 pricing/TDEE inputs. No coefficient, lifting-credit or automatic target change is bundled.
 
-**Approved completion rule (D13):** advice and food/weight TDEE use explicitly marked-complete
+**Build 88 completion contract (D13; extended by Build 89):** advice and food/weight TDEE used explicitly marked-complete
 days with known required nutrients. Reuse existing durable `food_day_mark` evidence; an automatic
 evening timestamp is not equivalent. Preserve earlier explicit marks, partial logs and unknown
 macros; do not bulk-promote automatically classified legacy days. Test dinner-only, missing kcal,
 missing protein, explicit Complete/Incomplete, edits after marking and closed-period eligibility.
 Explain excluded days in details without reinstating Progress's wall of text.
+Build 89 adds the approved half-goal automatic counting and manual overrides; it does not make
+a partial nutrient total complete. Current dated-target reconciliation is B90-10 in the audit.
 
 **Audit completed (second pass).** All coefficients, gates and worked examples match source;
 import-only weights already never price a day. Edge cases to select (`bugs.md` "Energy, Steps,

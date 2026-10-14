@@ -6,14 +6,17 @@ Everything a screen needs, and nothing a screen may bypass. Import the barrel:
 import 'package:openstrap_edge/ui2/ui2.dart';
 ```
 
-**Dark only.** The app always uses the dark palette (`app.dart`); light tokens remain for the
+**Light appearance.** Build 88/89 follow the locked kraft/cream `DESIGN.md`; dark tokens remain for
 contrast tests. One colour per pillar: `C.strain`, `C.sleep`, `C.heart`, `C.run`, `C.steps`;
 recovery takes green, amber or red from `readinessBand`.
 
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
 and `paint_activity.dart` (painters), `app_shell.dart` (Today, Trends, Food, Train, Progress).
 
-**Current UX state:** installed Build 86 uses the existing warm/rounded surface grammar but failed
+**Current UX state:** Build 89 is installed and being tested; `../../build-90-audit.md` owns the
+all-tab review and unimplemented Progress/large-text/action-access proposals. `../../DESIGN.md`
+owns the current locked design. The following Build 86/87 paragraphs are historical source context:
+installed Build 86 used the existing warm/rounded surface grammar but failed
 Akshat's structural design acceptance. [`build-87-ui-plan.md`](../../build-87-ui-plan.md) owns the
 published/built Build 87 replacement and its real-phone preview gates. Build 87 uses warm
 graphite, richer emerald/turquoise/coral accents, flat navigation, 8-point framed tools and unframed

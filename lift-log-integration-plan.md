@@ -4,8 +4,9 @@
 data ownership. Code: `lib/data/lift_log.dart`, `lib/data/lift_reminders.dart`,
 `lib/ui2/activity/lift_log_ui.dart`. An import proposes linking each AkshatOS workout to the
 finished WHOOP lift session it overlaps most (asked, one import per session, never one with sets);
-the summary HR trace marks the minute each set was logged (log time, not a set duration). Build 86
-is installed with integrated set logging, awaiting gym-session acceptance;
+the summary HR trace marks the minute each set was logged (log time, not a set duration). Installed
+Build 89 retains integrated set logging, awaiting gym-session acceptance. `build-90-audit.md`
+proposes improved access and optional finished-set correction; neither proposal is approved;
 AkshatOS still owns its installed Lift Log. No module removal, migration, new entitlement or
 calorie-model change is authorized. `todo.md` owns combined build approval;
 `../akshatos/hub-plan.md` owns the cross-project boundary.

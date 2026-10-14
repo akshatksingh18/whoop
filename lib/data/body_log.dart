@@ -98,6 +98,18 @@ typedef BodyWeightRow = ({
   bool historyOnly,
 });
 
+/// One weigh-in (Build 90): a day can hold several; its weight is the first.
+typedef BodyWeightReading = ({
+  String id,
+  String date,
+  double kg,
+  int atTs,
+  String unit,
+  double? entered,
+  String source,
+  bool historyOnly,
+});
+
 /// The weight as the user entered it ("181.4 lb"), falling back to kg.
 String bodyWeightText(BodyWeightRow w, {String unit = 'kg'}) {
   if (w.entered != null && w.unit == unit) {
@@ -237,10 +249,6 @@ class BodyLogDb {
     return rows.isEmpty ? null : _w(rows.first);
   }
 
-  /// Save a weigh-in for [date] as entered. Today's is a calculation input;
-  /// any other day is history only (Akshat's decision: past calorie numbers
-  /// never move). A same-day reading replaces the earlier one — the caller
-  /// asks first.
   /// The kilograms [value] in [unit] stands for, or a [BodyLogError] when it
   /// is not a plausible weight. Callers validate with it before any write.
   static double checkWeight(double value, String unit) {
@@ -256,6 +264,68 @@ class BodyLogDb {
     return kg;
   }
 
+  /// One weigh-in of the day, as entered.
+  static BodyWeightReading _reading(Map<String, Object?> r) => (
+    id: r['id'] as String,
+    date: r['date'] as String,
+    kg: (r['kg'] as num).toDouble(),
+    atTs: (r['at_ts'] as num).toInt(),
+    unit: (r['unit'] as String?) ?? 'kg',
+    entered: (r['entered'] as num?)?.toDouble(),
+    source: (r['source'] as String?) ?? 'whoop',
+    historyOnly: ((r['history_only'] as num?) ?? 0) != 0,
+  );
+
+  /// Every reading of [date], earliest first.
+  static Future<List<BodyWeightReading>> readingsOn(String date) async {
+    final db = await LocalDb.instance;
+    return [
+      for (final r in await db.query(
+        'body_weight_reading',
+        where: 'date = ?',
+        whereArgs: [date],
+        orderBy: 'at_ts ASC, id ASC',
+      ))
+        _reading(r),
+    ];
+  }
+
+  /// Build 90 (C3, Akshat): THE DAY'S WEIGHT IS ITS FIRST READING — taken on
+  /// waking, before food or water. Every weigh-in is kept in
+  /// `body_weight_reading`; `body_weight` stays the one-row-per-day value every
+  /// reader already uses, rebuilt here from the earliest reading (or removed
+  /// when the day has none).
+  static Future<void> _refreshDay(DatabaseExecutor db, String date) async {
+    final first = await db.query(
+      'body_weight_reading',
+      where: 'date = ?',
+      whereArgs: [date],
+      orderBy: 'at_ts ASC, id ASC',
+      limit: 1,
+    );
+    if (first.isEmpty) {
+      await db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
+      return;
+    }
+    final r = first.single;
+    await db.insert('body_weight', {
+      'date': date,
+      'kg': r['kg'],
+      'at_ts': r['at_ts'],
+      'unit': r['unit'],
+      'entered': r['entered'],
+      'source': r['source'],
+      'origin_id': r['origin_id'],
+      'history_only': r['history_only'],
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Save a weigh-in for [date] as entered. Today's is a calculation input;
+  /// any other day is history only (Akshat's decision: past calorie numbers
+  /// never move). Every reading is kept; the day's weight is its first.
+  /// [correctFirst] fixes the day's first reading in place instead of adding
+  /// one (a mistyped morning weight). A reading for a past day without a
+  /// time takes that day at the current clock time, never today's timestamp.
   static Future<void> putWeight(
     String date,
     double value,
@@ -264,25 +334,92 @@ class BodyLogDb {
     String? originId,
     bool? historyOnly,
     DateTime? at,
+    bool correctFirst = false,
   }) async {
     final kg = checkWeight(value, unit);
+    final now = DateTime.now();
+    final d = DateTime.parse(date);
+    final when =
+        at ??
+        (date == todayLabel()
+            ? now
+            : DateTime(d.year, d.month, d.day, now.hour, now.minute));
     final db = await LocalDb.instance;
-    await db.insert('body_weight', {
-      'date': date,
-      'kg': kg,
-      'at_ts': (at ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000,
-      'unit': unit,
-      'entered': value,
-      'source': source,
-      'origin_id': originId,
-      'history_only': (historyOnly ?? date != todayLabel()) ? 1 : 0,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((tx) async {
+      final row = {
+        'date': date,
+        'kg': kg,
+        'unit': unit,
+        'entered': value,
+        'source': source,
+        'origin_id': originId,
+        'history_only': (historyOnly ?? date != todayLabel()) ? 1 : 0,
+      };
+      // The reading to update in place: the day's first when correcting it,
+      // or the same imported record (origin ID) so a re-import never doubles.
+      final first = correctFirst
+          ? await tx.query(
+              'body_weight_reading',
+              where: 'date = ?',
+              whereArgs: [date],
+              orderBy: 'at_ts ASC, id ASC',
+              limit: 1,
+            )
+          : originId != null
+          ? await tx.query(
+              'body_weight_reading',
+              where: 'origin_id = ?',
+              whereArgs: [originId],
+              limit: 1,
+            )
+          : const <Map<String, Object?>>[];
+      if (first.isNotEmpty) {
+        await tx.update(
+          'body_weight_reading',
+          row,
+          where: 'id = ?',
+          whereArgs: [first.single['id']],
+        );
+      } else {
+        await tx.insert('body_weight_reading', {
+          'id': newLiftId(),
+          ...row,
+          'at_ts': when.millisecondsSinceEpoch ~/ 1000,
+          'created_at': now.millisecondsSinceEpoch ~/ 1000,
+        });
+      }
+      await _refreshDay(tx, date);
+    });
     NutritionDb.changed();
   }
 
+  /// Delete every reading of [date] (the day's weight goes with them).
   static Future<void> deleteWeight(String date) async {
     final db = await LocalDb.instance;
-    await db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
+    await db.transaction((tx) async {
+      await tx.delete(
+        'body_weight_reading',
+        where: 'date = ?',
+        whereArgs: [date],
+      );
+      await tx.delete('body_weight', where: 'date = ?', whereArgs: [date]);
+    });
+    NutritionDb.changed();
+  }
+
+  /// Delete one reading; the day's weight becomes its next earliest.
+  static Future<void> deleteReading(String id) async {
+    final db = await LocalDb.instance;
+    await db.transaction((tx) async {
+      final r = await tx.query(
+        'body_weight_reading',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (r.isEmpty) return;
+      await tx.delete('body_weight_reading', where: 'id = ?', whereArgs: [id]);
+      await _refreshDay(tx, r.single['date'] as String);
+    });
     NutritionDb.changed();
   }
 

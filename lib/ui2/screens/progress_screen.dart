@@ -1058,6 +1058,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   final _weight = TextEditingController();
   final _sites = {for (final s in BodySite.values) s: TextEditingController()};
   BodyWeightRow? _existing;
+  List<BodyWeightReading> _readings = const [];
   List<BodyPhoto> _photos = const [];
   bool _busy = false;
   String? _error;
@@ -1082,6 +1083,12 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
 
   Future<void> _loadDay() async {
     final w = await BodyLogDb.weightOn(_date);
+    List<BodyWeightReading> readings = const [];
+    try {
+      readings = await BodyLogDb.readingsOn(_date);
+    } catch (_) {
+      /* the day's weight still shows without its reading list */
+    }
     final ph = [
       for (final x in await BodyLogDb.photos())
         if (x.date == _date) x,
@@ -1089,8 +1096,9 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     if (!mounted) return;
     setState(() {
       _existing = w;
+      _readings = readings;
       _photos = ph;
-      if (w != null && _weight.text.isEmpty) {
+      if (w != null && _weight.text.isEmpty && widget.date != null) {
         _weight.text = w.entered != null && w.unit == _unit
             ? _num(w.entered!)
             : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
@@ -1150,32 +1158,35 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       if (kg == null && !tape) {
         throw const BodyLogError('Enter a weight or a tape reading.');
       }
-      // 2. Confirm a replacement before any write.
+      // 2. A day that already has a weight: another reading, or a fix of
+      // the first (the day's weight is its first reading; Build 90, C3).
+      var correctFirst = false;
       if (kg != null &&
           _existing != null &&
           (_existing!.kg - kg).abs() >= 0.05 &&
           mounted) {
-        final ok = await confirmRemove(
-          context,
-          title: 'Replace ${_md(_date)}\'s weight?',
-          body:
-              'It is ${bodyWeightText(_existing!, unit: _unit)}. One weight per day: the new one replaces it.',
-          remove: 'Replace',
-          keep: 'Keep it',
-        );
-        if (!ok)
-          throw const BodyLogError(
-            'Nothing saved; the weight is kept as it was.',
-          );
+        final choice = await _askReading(context, _existing!);
+        if (choice == null) {
+          throw const BodyLogError('Nothing saved.');
+        }
+        correctFirst = choice == 'correct';
       }
       // 3. Write, recording what landed.
       if (kg != null) {
-        await BodyLogDb.putWeight(_date, value!, _unit);
+        await BodyLogDb.putWeight(
+          _date,
+          value!,
+          _unit,
+          correctFirst: correctFirst,
+        );
         saved.add('weight');
-        // Today's weigh-in is the current profile weight, as Food's always
-        // was; a past day's never re-prices anything.
+        // Today's FIRST reading is the current profile weight; a later one
+        // is kept but does not move it. A past day's never re-prices.
         if (_date == todayLabel()) {
-          await app.updateProfile({'weight_kg': kg});
+          final first = await BodyLogDb.weightOn(_date);
+          if (first != null) {
+            await app.updateProfile({'weight_kg': first.kg});
+          }
           saved.add('current weight');
         }
       }
@@ -1204,6 +1215,101 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       if (saved.isNotEmpty) app.bumpInsights();
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Add another reading, or correct the day's first; null cancels.
+  Future<String?> _askReading(BuildContext c, BodyWeightRow first) =>
+      showDialog<String>(
+        context: c,
+        builder: (dc) => AlertDialog(
+          title: Text(
+            _date == todayLabel()
+                ? 'Today already has a weight'
+                : '${_md(_date)} already has a weight',
+          ),
+          content: Text(
+            'Its first reading is ${bodyWeightText(first, unit: _unit)}, and '
+            "the first reading is the day's weight. Keep it and add this one, "
+            'or correct the first if it was mistyped.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop('correct'),
+              child: const Text('Correct the first'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop('add'),
+              child: const Text('Add reading'),
+            ),
+          ],
+        ),
+      );
+
+  /// The day's readings, earliest first; the first is the day's weight.
+  Widget _readingList(P p) {
+    String hm(int ts) {
+      final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+      return '${t.hour.toString().padLeft(2, '0')}:'
+          '${t.minute.toString().padLeft(2, '0')}';
+    }
+
+    String w(BodyWeightReading r) => r.entered != null && r.unit == _unit
+        ? '${_num(r.entered!)} $_unit'
+        : '${_num(_unit == 'lb' ? r.kg * kLbPerKg : r.kg)} $_unit';
+    const dayWeight = " · the day's weight";
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < _readings.length; i++)
+            Pressable(
+              semanticLabel:
+                  '${hm(_readings[i].atTs)}, ${w(_readings[i])}'
+                  '${i == 0 ? dayWeight : ''}. Delete',
+              onTap: () => _deleteReading(_readings[i], i, hm, w),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: S.x1),
+                child: Text(
+                  '${hm(_readings[i].atTs)} · ${w(_readings[i])}'
+                  '${i == 0 ? dayWeight : ''}',
+                  style: F.cap.copyWith(color: i == 0 ? p.ink : p.ink2),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteReading(
+    BodyWeightReading r,
+    int index,
+    String Function(int) hm,
+    String Function(BodyWeightReading) w,
+  ) async {
+    final next = index == 0 && _readings.length > 1
+        ? " The next reading becomes the day's weight."
+        : '';
+    final ok = await confirmRemove(
+      context,
+      title: 'Delete this reading?',
+      body: '${w(r)} at ${hm(r.atTs)}.$next',
+      remove: 'Delete',
+      keep: 'Keep it',
+    );
+    if (!ok) return;
+    try {
+      await BodyLogDb.deleteReading(r.id);
+      if (mounted) context.read<AppState>().bumpInsights();
+    } catch (_) {
+      if (mounted) setState(() => _error = 'That reading was not deleted.');
+    }
+    await _loadDay();
   }
 
   /// The error, prefixed with what was already saved when part of it was.
@@ -1363,6 +1469,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                       ),
                     ],
                   ),
+                  if (_readings.isNotEmpty) _readingList(p),
                   if (_error != null) ...[
                     const SizedBox(height: S.x3),
                     Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),

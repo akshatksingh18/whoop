@@ -107,6 +107,11 @@ void main() {
     await t.enterText(find.byType(TextField).first, '79.4');
     await t.tap(find.text('Save'));
     await _until(t, () => find.text('Save').evaluate().isEmpty);
+    // Let the profile update that follows today's first reading finish.
+    for (var i = 0; i < 10; i++) {
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await t.pump(const Duration(seconds: 1));
+    }
     final saved = await t.runAsync(() => BodyLogDb.weightOn(todayLabel()));
     expect(saved?.kg, closeTo(79.4, 1e-9));
   });

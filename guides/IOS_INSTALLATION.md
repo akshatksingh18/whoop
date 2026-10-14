@@ -4,9 +4,9 @@
 personal-sideload profile and public manual macOS workflow. Akshat's screenshots show build
 `0.9.55`/`88` installed (over Build 86), with no app extension (removed in build 81).
 The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f` (Linux CI `38329137774`, personal
-macOS build `38329490196`; source/version/checksum/ZIP/payload checks pass). It replaces the
-never-installed Build 87 cache, not the phone install. `../build-88-plan.md` owns its scope.
+`../../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365` (Linux CI `38494407678`, personal
+macOS build `38495939393`; source/version/checksum/ZIP/payload checks pass). It replaces the
+Build 88 cache, not the phone install. `../todo.md` Build 89 owns its scope.
 Take an encrypted off-phone backup, then install it over the same signed identity; verify
 data/pairing, foreground/background behavior and current-version refresh enrollment before
 promotion. Build 88's installation is shown by Akshat's screenshots; its current-version

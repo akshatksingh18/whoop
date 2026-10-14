@@ -39,8 +39,10 @@ locally only, nothing committed) showed why: WHOOP 4 `beat_ts_ms` is the 1 Hz re
 sub-second phase, the same for every record, so successive beats read about 1000 or 2000 ms apart
 whatever their interval. The Build 88 250 ms adjacency rule rejected most successive pairs: on 13
 real nights the nightly HRV was absent on 6 and biased low on the other 7. At 1000 ms (one record)
-all 13 qualify and agree closely with algorithm 91. Implemented as local commits
-(algorithm 93), not pushed or built.
+all 13 qualify and agree closely with algorithm 91. Published as source `77d6a365`
+(algorithm 93); Linux CI `38494407678` (3,719 tests, 427 intentional skips) and personal macOS
+build `38495939393` pass, and the validated IPA is the single candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`
+(`setup.md`). Not yet installed.
 
 - [x] One shared beat-adjacency tolerance, `kBeatAdjacencyTolMs` = 1000 ms (analytics
   `util.dart`), for the nightly HRV, every rolling curve, PRSA, the irregular-rhythm screen and
@@ -74,8 +76,7 @@ all 13 qualify and agree closely with algorithm 91. Implemented as local commits
 - [x] Legibility (Akshat: the thin gold food number and other text strained his eyes): hero
   numbers semibold in their contrast-solved ink, labels 12.5 pt semibold, body/caption and
   Material text medium weight; rendered screens checked.
-- [ ] Publication, CI/macOS build and testing IPA: Akshat's go-ahead (he paused the IPA for the
-  items below).
+- [x] Publication, CI/macOS build and testing IPA (Akshat's go-ahead after the items below).
 
 ### Build 89 additions requested on the installed Build 88 (approved, implemented in source)
 
@@ -171,7 +172,7 @@ No feature is removed by any item; every current number, chart and entry point s
 packages are implemented (algorithm 92) and published as source `0f48c56f`; Linux CI
 `38329137774` (3,703 tests, 415 intentional skips) and personal macOS build `38329490196` pass,
 and the downloaded IPA passes source/version, checksum, ZIP and payload checks. It is the single
-candidate in `final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f`; `setup.md` owns the artifact evidence. `build-88-plan.md` owns the specifications, `bugs.md` what each repair closed and what is
+candidate until Build 89 replaced its testing folder; `setup.md` owns the artifact evidence. `build-88-plan.md` owns the specifications, `bugs.md` what each repair closed and what is
 still open, and `DESIGN.md` the locked visual system. Local full suite: 3,698 tests pass (420 intentional skips). Not installed or phone-verified.
 
 Done in source (each with tests):

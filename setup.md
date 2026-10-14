@@ -34,6 +34,24 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 89 Candidate
+
+Source `77d6a3658f58a50f90d7193fec5b638ec40dd0cd`, version `0.9.56+89`, is published to
+`akshatksingh18/whoop` (`main`) with Akshat's go-ahead. `todo.md` Build 89 owns scope and gates.
+Algorithm 93; schema, signing identity and recovery format are unchanged; personal capabilities
+are unchanged except that the live band stream is heart-rate only (`kHighRateLive`). Full tests
+ran on GitHub (the standing cloud rule): Linux CI `38494407678` passes 3,719 tests (427
+intentional skips), analysis has 133 informational lints and no errors/warnings, and the
+personal-iOS check passes. Fixtures are synthetic and the outgoing history was scanned for
+personal data.
+
+Personal macOS run `38495939393` passes. Downloaded
+`whoop-personal-77d6a3658f58-unsigned.ipa` (19,114,834 bytes), SHA-256
+`cdf3d195346dd334d8215a18d7c25e9667a6dcb9aca537256b1a2907b00a9674`, matches its source/version manifest and checksum.
+Full ZIP CRC and personal payload validation pass. The single testing candidate is
+`../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, replacing Build 88's folder after validation. Build 88 stays installed until
+Akshat installs Build 89; Build 70 remains accepted recovery.
+
 ## Build 88 Candidate
 
 Source `0f48c56f43ac98820b3130bf3e35a87d62b3f2e1`, version `0.9.55+88`, is published to
@@ -48,9 +66,9 @@ Personal macOS run `38329490196` passes. Downloaded
 `whoop-personal-0f48c56f43ac-unsigned.ipa` (19,082,603 bytes), SHA-256
 `896fa7af6d4726cf0b69744fd610eab15d38eb02971d752f846c72d1f5327033`, matches its source/version
 manifest and checksum. Full ZIP CRC and personal payload validation pass. Linux CI
-`38329137774` passes 3,703 tests (415 intentional skips). The single testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f`, replacing Build 87's folder after validation.
-Akshat's screenshots show Build 88 installed; Build 70 remains accepted recovery. Its first real
+`38329137774` passes 3,703 tests (415 intentional skips). Its testing folder was replaced by the
+Build 89 candidate; it is reproducible from run `38329490196`. Akshat's screenshots show Build 88
+installed; Build 70 remains accepted recovery. Its first real
 nights failed the HRV qualification check (repaired in Build 89 source, `todo.md`); current-version
 refresh enrollment, outdoor live speed and the lifecycle/background/soak matrix remain open.
 

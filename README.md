@@ -4,8 +4,8 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 88 candidate
-> (0.9.55), which Akshat's screenshots show installed. Build 89 is local source only.
+> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 89 candidate
+> (0.9.56), not yet installed. Build 88 (0.9.55) is on the phone.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
 > installed Builds 86/87 still show it. Build 88 (0.9.55, algorithm 92) is published and

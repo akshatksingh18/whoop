@@ -15,7 +15,9 @@ repository remains available as the `local-backup` remote; the three official Op
 remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification: Akshat's screenshots show Build `0.9.55`/`88` installed on
-his iPhone 17 (iOS `26.6.2`). Build 89 (`0.9.56`/`89`, algorithm 93) is local source only: it
+his iPhone 17 (iOS `26.6.2`). Build 89 (`0.9.56`/`89`, algorithm 93, source `77d6a365`) is published; Linux CI
+`38494407678` and personal macOS build `38495939393` pass and its validated IPA is the single
+candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, not yet installed. It
 repairs the nightly HRV his first Build 88 nights exposed, renames everything the app shows or
 names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rate-only, reworks
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
@@ -46,7 +48,7 @@ remain unconfirmed. No refresh ownership changes were made by this check.
 Build 88 (`0.9.55`/`88`, algorithm 92) is published as source `0f48c56f` with Akshat's
 approval; Linux CI `38329137774` (3,703 tests, 415 intentional skips) and personal macOS build
 `38329490196` pass, and the downloaded IPA passes source/version, checksum, ZIP and payload checks.
-It is the single candidate in `final-ipas/whoop/testing/WHOOP-0.9.55-build88-0f48c56f`, not installed or phone-verified. Akshat approved `build-88-proposal.md` with every recommendation and
+Akshat's screenshots show it installed; Build 89's candidate replaced its testing folder. Akshat approved `build-88-proposal.md` with every recommendation and
 locked `DESIGN.md` (light kraft ground, cream panels, family colours). All twelve packages are in
 source: temperature integrity, observed-day load and a withheld strain target, timestamp-adjacent
 HRV with frozen gates, sleep/breathing coverage, sync freshness and lifecycle bounds, live speed,

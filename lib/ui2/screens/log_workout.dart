@@ -91,7 +91,10 @@ class Suggestion {
 /// still real, so they are shown rather than an empty screen.
 List<Suggestion> focusSuggestions(List<Suggestion> all, String? focusId) {
   if (focusId == null) return all;
-  final one = [for (final s in all) if (s.id == focusId) s];
+  final one = [
+    for (final s in all)
+      if (s.id == focusId) s,
+  ];
   return one.isEmpty ? all : one;
 }
 
@@ -186,9 +189,12 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
       message = e.error.message;
       try {
         await LocalDb.dismissWorkoutSuggestion(s.id);
-      } catch (_) {/* the reason is already on screen */}
+      } catch (_) {
+        /* the reason is already on screen */
+      }
     } catch (_) {
-      message = l?.logWorkoutCouldNotLog ?? 'Could not log this one — try again.';
+      message =
+          l?.logWorkoutCouldNotLog ?? 'Could not log this one — try again.';
     }
     if (!mounted) return;
     setState(() => _busy = false);
@@ -204,8 +210,10 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
       await LocalDb.dismissWorkoutSuggestion(s.id);
     } catch (_) {
       if (mounted) {
-        _say(l?.logWorkoutCouldNotDismiss ??
-            'Could not dismiss this one — try again.');
+        _say(
+          l?.logWorkoutCouldNotDismiss ??
+              'Could not dismiss this one — try again.',
+        );
       }
     }
     if (!mounted) return;
@@ -218,14 +226,16 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   Future<void> _adjust(Suggestion s) async {
     final nav = Navigator.of(context);
     final l = AppLocalizations.of(context);
-    final saved = await nav.push<bool>(MaterialPageRoute<bool>(
-      builder: (_) => LogWorkout(
-        start: DateTime.fromMillisecondsSinceEpoch(s.startTs * 1000),
-        end: DateTime.fromMillisecondsSinceEpoch(s.endTs * 1000),
-        activity: s.activity,
-        title: l?.logWorkoutAdjustTimes ?? 'Adjust the times',
+    final saved = await nav.push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => LogWorkout(
+          start: DateTime.fromMillisecondsSinceEpoch(s.startTs * 1000),
+          end: DateTime.fromMillisecondsSinceEpoch(s.endTs * 1000),
+          activity: s.activity,
+          title: l?.logWorkoutAdjustTimes ?? 'Adjust the times',
+        ),
       ),
-    ));
+    );
     if (saved == true) await _afterAction();
   }
 
@@ -251,62 +261,68 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(l?.logWorkoutDetectedActivityTitle ?? 'Detected activity',
-                sub: l?.logWorkoutYoursToConfirmSub ?? 'YOURS TO CONFIRM'),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                if (_failed)
-                  StatusCard(
-                    l?.logWorkoutReadFailedTitle ??
-                        'Could not read your detected activity',
-                    l?.logWorkoutReadFailedBody ??
-                        'The store did not answer. Nothing has been logged or '
-                            'dismissed.',
-                    fix: l?.logWorkoutTryAgain ?? 'Try again',
-                    icon: LucideIcons.refreshCw,
-                    onFix: _load,
-                  )
-                else if (items == null)
-                  NoData(
-                      message: l?.logWorkoutReadingSpotted ??
-                          'Reading what the band spotted…')
-                else if (items.isEmpty)
-                  StatusCard(
-                    l?.logWorkoutNothingToReviewTitle ?? 'Nothing to review',
-                    l?.logWorkoutNothingToReviewBody ??
-                        'This one may already have been logged or dismissed.',
-                    icon: LucideIcons.circleCheck,
-                  )
-                else
-                  for (final s in items) ...[
-                    _SuggestionCard(
-                      s,
-                      onConfirm: _busy ? null : () => _confirm(s),
-                      onDismiss: _busy ? null : () => _dismiss(s),
-                      onAdjust: _busy ? null : () => _adjust(s),
-                    ),
-                    const SizedBox(height: S.x3),
-                  ],
-                const SizedBox(height: S.x3),
-                StatusCard(
-                  l?.logWorkoutHardMinutesTitle ??
-                      'These are the hard minutes, not the whole session',
-                  l?.logWorkoutHardMinutesBody ??
-                      'Detection reports the sustained effort it could see, so a '
-                          'warm-up and the rest between sets fall outside it. '
-                          'Adjust the times before logging if the window is short.',
-                  icon: LucideIcons.scissors,
-                ),
-              ],
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(
+                l?.logWorkoutDetectedActivityTitle ?? 'Detected activity',
+                sub: l?.logWorkoutYoursToConfirmSub ?? 'YOURS TO CONFIRM',
+              ),
             ),
-          ),
-        ]),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  if (_failed)
+                    StatusCard(
+                      l?.logWorkoutReadFailedTitle ??
+                          'Could not read your detected activity',
+                      l?.logWorkoutReadFailedBody ??
+                          'The store did not answer. Nothing has been logged or '
+                              'dismissed.',
+                      fix: l?.logWorkoutTryAgain ?? 'Try again',
+                      icon: LucideIcons.refreshCw,
+                      onFix: _load,
+                    )
+                  else if (items == null)
+                    NoData(
+                      message:
+                          l?.logWorkoutReadingSpotted ??
+                          'Reading what the band spotted…',
+                    )
+                  else if (items.isEmpty)
+                    StatusCard(
+                      l?.logWorkoutNothingToReviewTitle ?? 'Nothing to review',
+                      l?.logWorkoutNothingToReviewBody ??
+                          'This one may already have been logged or dismissed.',
+                      icon: LucideIcons.circleCheck,
+                    )
+                  else
+                    for (final s in items) ...[
+                      _SuggestionCard(
+                        s,
+                        onConfirm: _busy ? null : () => _confirm(s),
+                        onDismiss: _busy ? null : () => _dismiss(s),
+                        onAdjust: _busy ? null : () => _adjust(s),
+                      ),
+                      const SizedBox(height: S.x3),
+                    ],
+                  const SizedBox(height: S.x3),
+                  StatusCard(
+                    l?.logWorkoutHardMinutesTitle ??
+                        'These are the hard minutes, not the whole session',
+                    l?.logWorkoutHardMinutesBody ??
+                        'Detection reports the sustained effort it could see, so a '
+                            'warm-up and the rest between sets fall outside it. '
+                            'Adjust the times before logging if the window is short.',
+                    icon: LucideIcons.scissors,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -331,62 +347,95 @@ class _SuggestionCard extends StatelessWidget {
     final a = s.activity;
     final colour = a?.color ?? C.purple;
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(color: p.wash(colour), borderRadius: R.rMd),
-            child: Icon(a?.icon ?? LucideIcons.activity,
-                size: 19, color: p.on(colour)),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: p.wash(colour),
+                  borderRadius: R.rMd,
+                ),
+                child: Icon(
+                  a?.icon ?? LucideIcons.activity,
+                  size: 19,
+                  color: p.on(colour),
+                ),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
                       l?.logWorkoutMinutesOfEffort(s.durationMin) ??
                           '${s.durationMin} min of effort',
-                      style: F.body
-                          .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                  Text(windowLabel(s.startTs, s.endTs, l),
-                      style: F.over.copyWith(color: p.ink3)),
-                ]),
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      windowLabel(s.startTs, s.endTs, l),
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ]),
-        const SizedBox(height: S.x3),
-        // What was actually measured. No strain and no calories: neither has
-        // been scored yet — the scoring happens on the write, over whatever
-        // window is finally saved, and printing one here would be a number
-        // this screen made up.
-        InlineMetrics([
-          if (s.avgBpm != null)
-            (l?.logWorkoutAvgHr ?? 'Avg HR', '${s.avgBpm} bpm', p.on(C.red)),
-          if (s.peakBpm != null)
-            (l?.logWorkoutPeakHr ?? 'Peak HR', '${s.peakBpm} bpm',
-                p.on(C.orange)),
-          if (a != null) (l?.logWorkoutLooksLike ?? 'Looks like', a.name, p.on(colour)),
-        ]),
-        const SizedBox(height: S.x4),
-        BigButton(l?.logWorkoutLogIt ?? 'Log it',
-            icon: LucideIcons.check, onTap: onConfirm),
-        const SizedBox(height: S.x2),
-        Row(children: [
-          Expanded(
-            child: BigButton(l?.logWorkoutAdjustTimes ?? 'Adjust the times',
-                icon: LucideIcons.clock,
-                color: C.blue,
-                soft: true,
-                onTap: onAdjust),
+          const SizedBox(height: S.x3),
+          // What was actually measured. No strain and no calories: neither has
+          // been scored yet — the scoring happens on the write, over whatever
+          // window is finally saved, and printing one here would be a number
+          // this screen made up.
+          InlineMetrics([
+            if (s.avgBpm != null)
+              (l?.logWorkoutAvgHr ?? 'Avg HR', '${s.avgBpm} bpm', p.on(C.red)),
+            if (s.peakBpm != null)
+              (
+                l?.logWorkoutPeakHr ?? 'Peak HR',
+                '${s.peakBpm} bpm',
+                p.on(C.orange),
+              ),
+            if (a != null)
+              (l?.logWorkoutLooksLike ?? 'Looks like', a.name, p.on(colour)),
+          ]),
+          const SizedBox(height: S.x4),
+          BigButton(
+            l?.logWorkoutLogIt ?? 'Log it',
+            icon: LucideIcons.check,
+            onTap: onConfirm,
           ),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: BigButton(l?.logWorkoutNotAWorkout ?? 'Not a workout',
-                icon: LucideIcons.x, color: C.red, soft: true, onTap: onDismiss),
+          const SizedBox(height: S.x2),
+          Row(
+            children: [
+              Expanded(
+                child: BigButton(
+                  l?.logWorkoutAdjustTimes ?? 'Adjust the times',
+                  icon: LucideIcons.clock,
+                  color: C.blue,
+                  soft: true,
+                  onTap: onAdjust,
+                ),
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: BigButton(
+                  l?.logWorkoutNotAWorkout ?? 'Not a workout',
+                  icon: LucideIcons.x,
+                  color: C.red,
+                  soft: true,
+                  onTap: onDismiss,
+                ),
+              ),
+            ],
           ),
-        ]),
-      ]),
+        ],
+      ),
     );
   }
 }
@@ -487,7 +536,9 @@ class _LogWorkoutState extends State<LogWorkout> {
     try {
       final s = await repo.savedSessionSpans();
       if (mounted) setState(() => _spans = s);
-    } catch (_) {/* the write seam re-checks anyway */}
+    } catch (_) {
+      /* the write seam re-checks anyway */
+    }
   }
 
   int get _startSec => _start.millisecondsSinceEpoch ~/ 1000;
@@ -496,16 +547,15 @@ class _LogWorkoutState extends State<LogWorkout> {
   /// The live verdict, from the SAME pure function the repo refuses on. Null
   /// means the window is acceptable.
   ManualWindowError? get _invalid => validateManualWindow(
-        startSec: _startSec,
-        endSec: _endSec,
-        nowSec:
-            (widget.now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000,
-        existing: _spans,
-        // A retime must not collide with itself; a new entry's id is derived
-        // from its start second, so re-logging the same window updates that
-        // row rather than colliding with it.
-        editingId: widget.sessionId ?? manualSessionId(_startSec),
-      );
+    startSec: _startSec,
+    endSec: _endSec,
+    nowSec: (widget.now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000,
+    existing: _spans,
+    // A retime must not collide with itself; a new entry's id is derived
+    // from its start second, so re-logging the same window updates that
+    // row rather than colliding with it.
+    editingId: widget.sessionId ?? manualSessionId(_startSec),
+  );
 
   Future<void> _pickDate() async {
     final now = widget.now ?? DateTime.now();
@@ -519,7 +569,12 @@ class _LogWorkoutState extends State<LogWorkout> {
     final span = _end.difference(_start);
     setState(() {
       _start = DateTime(
-          picked.year, picked.month, picked.day, _start.hour, _start.minute);
+        picked.year,
+        picked.month,
+        picked.day,
+        _start.hour,
+        _start.minute,
+      );
       _end = _start.add(span);
     });
   }
@@ -534,12 +589,22 @@ class _LogWorkoutState extends State<LogWorkout> {
     setState(() {
       if (isStart) {
         final span = _end.difference(_start);
-        _start = DateTime(_start.year, _start.month, _start.day, picked.hour,
-            picked.minute);
+        _start = DateTime(
+          _start.year,
+          _start.month,
+          _start.day,
+          picked.hour,
+          picked.minute,
+        );
         _end = _start.add(span);
       } else {
         var e = DateTime(
-            _start.year, _start.month, _start.day, picked.hour, picked.minute);
+          _start.year,
+          _start.month,
+          _start.day,
+          picked.hour,
+          picked.minute,
+        );
         // Past midnight. A late run that finishes at 00:20 is an ordinary
         // session, not an invalid window — the alternative is asking the user
         // for a second date to express it.
@@ -550,8 +615,13 @@ class _LogWorkoutState extends State<LogWorkout> {
         // hour off the one the user picked. Same trap as `_exportDay`'s
         // `dayEnd` in health_export.dart.
         if (!e.isAfter(_start)) {
-          e = DateTime(_start.year, _start.month, _start.day + 1, picked.hour,
-              picked.minute);
+          e = DateTime(
+            _start.year,
+            _start.month,
+            _start.day + 1,
+            picked.hour,
+            picked.minute,
+          );
         }
         _end = e;
       }
@@ -583,13 +653,20 @@ class _LogWorkoutState extends State<LogWorkout> {
     try {
       final r = widget.sessionId == null
           ? await repo.logManualWorkout(
-              startTs: _startSec, endTs: _endSec, type: _activity.typeKey)
-          : await repo.setWorkoutWindow(widget.sessionId!,
-              startTs: _startSec, endTs: _endSec);
+              startTs: _startSec,
+              endTs: _endSec,
+              type: _activity.typeKey,
+            )
+          : await repo.setWorkoutWindow(
+              widget.sessionId!,
+              startTs: _startSec,
+              endTs: _endSec,
+            );
       // Both branches: a new session and a RETIMED one both change what the
       // health store should hold for that window (#130).
       await HealthExporter.exportWorkoutId(
-          (r['workout_id'] ?? widget.sessionId) as String?);
+        (r['workout_id'] ?? widget.sessionId) as String?,
+      );
       // Say what was actually banked. A window with no 1 Hz substrate left
       // behind it — anything past the ~3-day retention, or a stretch the band
       // was off — is saved UNSCORED, and a screen that pops silently would let
@@ -599,7 +676,8 @@ class _LogWorkoutState extends State<LogWorkout> {
         if (!mounted) return;
         setState(() {
           _saving = false;
-          _wrote = l?.logWorkoutUnscoredSaved ??
+          _wrote =
+              l?.logWorkoutUnscoredSaved ??
               'Saved. No heart rate was recorded over that window, so it '
                   'has no strain and no calorie figure — the times are all this '
                   'one carries.';
@@ -608,12 +686,17 @@ class _LogWorkoutState extends State<LogWorkout> {
       }
       nav.pop(true);
     } on ManualWindowException catch (e) {
-      if (mounted) setState(() { _saving = false; _wrote = e.error.message; });
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _wrote = e.error.message;
+        });
     } catch (_) {
       if (mounted) {
         setState(() {
           _saving = false;
-          _wrote = l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
+          _wrote =
+              l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
         });
       }
     }
@@ -626,83 +709,111 @@ class _LogWorkoutState extends State<LogWorkout> {
     final bad = _invalid;
     final mins = _end.difference(_start).inMinutes;
     final retime = widget.sessionId != null;
-    final title = widget.title ?? (l?.logWorkoutDefaultTitle ?? 'Log a past workout');
+    final title =
+        widget.title ?? (l?.logWorkoutDefaultTitle ?? 'Log a past workout');
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(title,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(
+                title,
                 sub: retime
-                    ? (l?.logWorkoutWindowRescoredSub ?? 'THE WINDOW, RE-SCORED')
-                    : (l?.logWorkoutYourOwnTimesSub ?? 'YOUR OWN TIMES')),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                settingsGroup(c, l?.logWorkoutWhenGroup ?? 'When', [
-                  if (!retime)
-                    SetRow(_activity.icon, _activity.color,
+                    ? (l?.logWorkoutWindowRescoredSub ??
+                          'THE WINDOW, RE-SCORED')
+                    : (l?.logWorkoutYourOwnTimesSub ?? 'YOUR OWN TIMES'),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  settingsGroup(c, l?.logWorkoutWhenGroup ?? 'When', [
+                    if (!retime)
+                      SetRow(
+                        _activity.icon,
+                        _activity.color,
                         l?.logWorkoutActivityLabel ?? 'Activity',
-                        value: _activity.name, onTap: _pickActivity),
-                  SetRow(LucideIcons.calendar, C.blue,
+                        value: _activity.name,
+                        onTap: _pickActivity,
+                      ),
+                    SetRow(
+                      LucideIcons.calendar,
+                      C.blue,
                       l?.logWorkoutDateLabel ?? 'Date',
                       value: dayLabel(_start, now: widget.now, l: l),
-                      onTap: _pickDate),
-                  SetRow(LucideIcons.play, C.green,
+                      onTap: _pickDate,
+                    ),
+                    SetRow(
+                      LucideIcons.play,
+                      C.green,
                       l?.logWorkoutStartedLabel ?? 'Started',
-                      value:
-                          formatMinuteOfDay(_start.hour * 60 + _start.minute),
-                      onTap: () => _pickTime(isStart: true)),
-                  SetRow(LucideIcons.square, C.orange,
+                      value: formatMinuteOfDay(
+                        _start.hour * 60 + _start.minute,
+                      ),
+                      onTap: () => _pickTime(isStart: true),
+                    ),
+                    SetRow(
+                      LucideIcons.square,
+                      C.orange,
                       l?.logWorkoutEndedLabel ?? 'Ended',
                       value: formatMinuteOfDay(_end.hour * 60 + _end.minute),
                       sub: _end.day != _start.day
                           ? (l?.logWorkoutNextMorningSub ?? 'the next morning')
                           : '',
-                      onTap: () => _pickTime(isStart: false)),
-                  SetRow(LucideIcons.timer, C.purple,
+                      onTap: () => _pickTime(isStart: false),
+                    ),
+                    SetRow(
+                      LucideIcons.timer,
+                      C.purple,
                       l?.logWorkoutLengthLabel ?? 'Length',
                       value: mins > 0 ? '$mins min' : '—',
-                      chevron: false),
-                ]),
-                const SizedBox(height: S.x4),
-                if (bad != null)
-                  StatusCard(
-                      l?.logWorkoutWindowInvalidTitle ?? 'That window will not save',
+                      chevron: false,
+                    ),
+                  ]),
+                  const SizedBox(height: S.x4),
+                  if (bad != null)
+                    StatusCard(
+                      l?.logWorkoutWindowInvalidTitle ??
+                          'That window will not save',
                       bad.message,
-                      icon: LucideIcons.triangleAlert)
-                else if (_wrote != null)
-                  StatusCard(
+                      icon: LucideIcons.triangleAlert,
+                    )
+                  else if (_wrote != null)
+                    StatusCard(
                       retime
                           ? (l?.logWorkoutTimesUpdatedTitle ?? 'Times updated')
                           : (l?.logWorkoutLoggedTitle ?? 'Workout logged'),
-                      _wrote!, icon: LucideIcons.circleCheck)
-                else
-                  StatusCard(
-                    l?.logWorkoutScoredTitle ?? 'Scored from what the band recorded',
-                    l?.logWorkoutScoredBody ??
-                        'Strain and calories come from the 1-second heart rate '
-                            'inside these times, through the same method the day '
-                            'uses. Nothing is estimated from the duration.',
-                    icon: LucideIcons.heartPulse,
+                      _wrote!,
+                      icon: LucideIcons.circleCheck,
+                    )
+                  else
+                    StatusCard(
+                      l?.logWorkoutScoredTitle ??
+                          'Scored from what the band recorded',
+                      l?.logWorkoutScoredBody ??
+                          'Strain and calories come from the 1-second heart rate '
+                              'inside these times, through the same method the day '
+                              'uses. Nothing is estimated from the duration.',
+                      icon: LucideIcons.heartPulse,
+                    ),
+                  const SizedBox(height: S.x4),
+                  BigButton(
+                    _saving
+                        ? (l?.logWorkoutSaving ?? 'Saving…')
+                        : retime
+                        ? (l?.logWorkoutSaveNewTimes ?? 'Save the new times')
+                        : (l?.logWorkoutLogIt ?? 'Log it'),
+                    icon: LucideIcons.check,
+                    onTap: bad == null && !_saving ? _save : null,
                   ),
-                const SizedBox(height: S.x4),
-                BigButton(
-                  _saving
-                      ? (l?.logWorkoutSaving ?? 'Saving…')
-                      : retime
-                          ? (l?.logWorkoutSaveNewTimes ?? 'Save the new times')
-                          : (l?.logWorkoutLogIt ?? 'Log it'),
-                  icon: LucideIcons.check,
-                  onTap: bad == null && !_saving ? _save : null,
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -733,46 +844,60 @@ class _TypeSheetState extends State<_TypeSheet> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x2),
-            child: TextField(
-              autofocus: false,
-              style: F.body.copyWith(color: p.ink),
-              onChanged: (v) => setState(() => _q = v),
-              decoration: InputDecoration(
-                hintText: l?.logWorkoutSearchActivities ?? 'Search activities',
-                hintStyle: F.body.copyWith(color: p.ink3),
-                filled: true,
-                fillColor: p.card2,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: S.x4, vertical: S.x3),
-                border: const OutlineInputBorder(
-                    borderRadius: R.rPill, borderSide: BorderSide.none),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x2),
+              child: TextField(
+                autofocus: false,
+                style: F.body.copyWith(color: p.ink),
+                onChanged: (v) => setState(() => _q = v),
+                decoration: InputDecoration(
+                  hintText:
+                      l?.logWorkoutSearchActivities ?? 'Search activities',
+                  hintStyle: F.body.copyWith(color: p.ink3),
+                  filled: true,
+                  fillColor: p.card2,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: S.x4,
+                    vertical: S.x3,
+                  ),
+                  border: const OutlineInputBorder(
+                    borderRadius: R.rPill,
+                    borderSide: BorderSide.none,
+                  ),
+                ),
               ),
             ),
-          ),
-          Flexible(
-            child: items.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(S.x6),
-                    child: NoData(
-                        message: l?.logWorkoutNoActivityByName ??
-                            'No activity by that name'),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x6),
-                    itemCount: items.length,
-                    itemBuilder: (_, i) {
-                      final a = items[i];
-                      return SetRow(a.icon, a.color, a.name,
+            Flexible(
+              child: items.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(S.x6),
+                      child: NoData(
+                        message:
+                            l?.logWorkoutNoActivityByName ??
+                            'No activity by that name',
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x6),
+                      itemCount: items.length,
+                      itemBuilder: (_, i) {
+                        final a = items[i];
+                        return SetRow(
+                          a.icon,
+                          a.color,
+                          a.name,
                           chevron: false,
-                          onTap: () => Navigator.of(c).pop(a));
-                    },
-                  ),
-          ),
-        ]),
+                          onTap: () => Navigator.of(c).pop(a),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -782,7 +907,10 @@ class _TypeSheetState extends State<_TypeSheet> {
 
 /// Tell the app a session was written, so the Workouts tab re-reads. Null-safe
 /// for a golden or a widget test, which have no AppState above them.
-void bumpInsights(BuildContext c) => appOf(c)?.insightsRevision.value++;
+/// A workout session changed (logged, edited, retyped, deleted). B90-02: the
+/// one post-commit signal, so Today, Food's maintenance, Train and Progress
+/// all re-read, not only the screens on the insights revision.
+void bumpInsights(BuildContext c) => appOf(c)?.publishSessionChange();
 
 /// The AppState, or null when there is none — same shape as [repoOf].
 AppState? appOf(BuildContext c) {

@@ -258,6 +258,58 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// Build 90 (H3): Lift asks Gym or Home. Home is the Bodyweight type
   /// (Compendium 02056, the lowest match for the routine) with the Home split
   /// chosen; Gym is weight training as before.
+  /// Run, Walk, Lift and Other. At large text they go two by two, so each
+  /// label stays whole ("R…" and "Li…" at 2x in Build 89; B90-08).
+  Widget _startTiles(
+    BuildContext c,
+    void Function(Activity) start,
+    Activity Function(String) act,
+    _WorkoutData d,
+  ) {
+    final tiles = [
+      _QuickTile(
+        LucideIcons.footprints,
+        C.run,
+        'Run',
+        () => start(act('Running')),
+      ),
+      _QuickTile(
+        LucideIcons.personStanding,
+        C.steps,
+        'Walk',
+        () => start(act('Walking')),
+      ),
+      _QuickTile(
+        LucideIcons.dumbbell,
+        C.sleepInk,
+        'Lift',
+        () => _chooseLift(c, start, act),
+      ),
+      _QuickTile(
+        LucideIcons.ellipsis,
+        C.food,
+        'Other',
+        () => _openPicker(c, d),
+      ),
+    ];
+    Widget row(List<Widget> ts) => Row(
+      children: [
+        for (var i = 0; i < ts.length; i++) ...[
+          if (i > 0) const SizedBox(width: S.x2),
+          Expanded(child: ts[i]),
+        ],
+      ],
+    );
+    if (MediaQuery.textScalerOf(c).scale(10) <= 13) return row(tiles);
+    return Column(
+      children: [
+        row(tiles.sublist(0, 2)),
+        const SizedBox(height: S.x2),
+        row(tiles.sublist(2)),
+      ],
+    );
+  }
+
   Future<void> _chooseLift(
     BuildContext c,
     void Function(Activity) start,
@@ -369,58 +421,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       if (_live(c) case final live?)
         _ResumeCard(live, onTap: () => _push(c, const SessionDestination(null)))
       else
-        Row(
-          children: [
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.footprints,
-                C.run,
-                'Run',
-                () => start(act('Running')),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.personStanding,
-                C.steps,
-                'Walk',
-                () => start(act('Walking')),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.dumbbell,
-                C.sleepInk,
-                'Lift',
-                () => _chooseLift(c, start, act),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.ellipsis,
-                C.food,
-                'Other',
-                () => _openPicker(c, d),
-              ),
-            ),
-          ],
-        ),
+        _startTiles(c, start, act, d),
       const SizedBox(height: S.x3),
-      // Your week first (build 86 redesign): the streak, the seven days and
-      // what this week holds, then the movement breaks.
-      // Build 88 (mock `4-train`): one panel — the streak with its week of
-      // days, strain and running distance over the last seven days.
-      _weekPanel(c, p, d),
-      const SizedBox(height: S.x3),
-      // Movement breaks through the day (build 86): its own reminders, goal
-      // and streak; never a workout clock and never counted as exercise.
-      // Build 89: its own paper panel, like everything around it — the bare
-      // row sat on the kraft ground and blended into it.
-      const Surface(child: TodayPushupRow(embedded: true, showWhenEmpty: true)),
-      const SizedBox(height: S.x3),
+      // Build 90: Start/Resume, then anything to act on, then your recent
+      // workouts, before the tall week and strain material (B90 audit).
       ..._suggestionCards(c, d),
       Section(
         'Recent',
@@ -469,6 +473,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         action: 'Add a past one',
         onAction: () => _push(c, const LogWorkout()),
       ),
+      const SizedBox(height: S.x3),
+      // Your week first (build 86 redesign): the streak, the seven days and
+      // what this week holds, then the movement breaks.
+      // Build 88 (mock `4-train`): one panel — the streak with its week of
+      // days, strain and running distance over the last seven days.
+      _weekPanel(c, p, d),
+      const SizedBox(height: S.x3),
+      // Movement breaks through the day (build 86): its own reminders, goal
+      // and streak; never a workout clock and never counted as exercise.
+      // Build 89: its own paper panel, like everything around it — the bare
+      // row sat on the kraft ground and blended into it.
+      const Surface(child: TodayPushupRow(embedded: true, showWhenEmpty: true)),
+      const SizedBox(height: S.x3),
       if (d.strain7.any((v) => v != null)) ...[
         const SizedBox(height: S.x3),
         _strainWeek(c, p, d),
@@ -839,12 +856,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       reload();
     }
 
+    // Build 90: the streak's actions look like actions (they were grey text
+    // that read as a caption).
     Widget link(String label, VoidCallback onTap) => Pressable(
       semanticLabel: label,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.only(top: S.x2, right: S.x4),
-        child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+        padding: const EdgeInsets.only(top: S.x2, right: S.x2),
+        child: Pill(label, C.steps),
       ),
     );
     final todayKept =
@@ -2624,6 +2643,9 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
   } else {
     await LocalDb.deleteSession(w.id);
   }
+  // B90-02: after the delete commits, every open tab re-reads; a failed
+  // delete throws above and changes nothing.
+  if (c.mounted) appOf(c)?.publishSessionChange();
   return true;
 }
 

@@ -712,16 +712,20 @@ class Section extends StatelessWidget {
               if (action != null)
                 Flexible(
                   child: Pressable(
+                    semanticLabel: action,
                     onTap: onAction,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: S.x2),
+                      // B90-08: wraps to a second line at large text instead
+                      // of cutting the action to "Add a past …".
                       child: Text(
                         action!,
                         style: F.cap.copyWith(
                           color: p.on(C.blue),
                           fontWeight: FontWeight.w600,
                         ),
-                        maxLines: 1,
+                        textAlign: TextAlign.end,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

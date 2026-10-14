@@ -1660,7 +1660,11 @@ import 'substrate.dart';
 // 94 -> 95 (Build 90 Codex lane): confirmed historical RR count capped at four;
 //   unknown optical inputs stay nullable through storage and isolate payloads;
 //   one bridged recorded-minute definition and event-backed wear states;
-//   persisted travel-day boundaries and absolute-time sleep regularity.
+//   persisted travel-day boundaries and absolute-time sleep regularity;
+//   quarter-gap sleep need without strain bonus, angle-based restlessness,
+//   shared sustained-awakening definition and absent unqualified cycles;
+//   nightly RR reporting quality without a new HRV gate; HF/respiration/REM
+//   spectral segments require 90% coverage and exclude clock re-anchors.
 //   Only retained inputs re-derive; historical stored results stay versioned.
 const int kAlgoVersion = 95;
 
@@ -3832,6 +3836,7 @@ class DerivationEngine {
       sleepHr: sleepSub.hr,
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
+      sleepRrCount: sleepSub.rrCount,
       sleepSkinTemp: sleepSub.skinTemp,
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
@@ -6953,7 +6958,9 @@ class DerivationEngine {
         if (seam != null) {
           brpm = seam(nn, nnt);
         } else {
-          final est = ana.rsaRespRate(nn, nnt, artifactFraction: 0.15);
+          final clock = ana.rrBeatClock(nn, rrTsMs: nnt);
+          final est = ana.rsaRespRate(nn, clock.timesMs, artifactFraction: 0.15,
+              gapBefore: clock.reanchorBefore);
           brpm = est.present ? est.value!.brpm : null;
         }
         // Advance the cadence cursor on every ATTEMPT, not just on a successful
@@ -7000,8 +7007,8 @@ class DerivationEngine {
 
   /// Quiet-second ENMO cut (g), per sensor package.
   ///
-  /// ENMO here is `||a|| − 1 g` — the same amplitude index `restlessness_map`
-  /// and `enmoSeries` use. A sedentary/still wrist sits at ~0.01-0.02 g and
+  /// ENMO here is `||a|| − 1 g`, the amplitude index used by `enmoSeries`.
+  /// Restlessness uses arm-angle change separately. A sedentary/still wrist sits at ~0.01-0.02 g and
   /// walking at ~0.066 g, so 0.02 g separates sitting from moving without
   /// pretending to separate postures. Listed per family because the cut is only
   /// meaningful against that family's accel scale; an unknown strap gets no cut
@@ -7880,36 +7887,10 @@ class DerivationEngine {
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};
 
-    // Feature 6: Restlessness Map (5-min ENMO heatmap of the sleep window).
-    if (sleepSub.length > 0) {
-      const bucketSec = 300; // 5 min
-      final moveSum = <int, double>{};
-      final moveCount = <int, int>{};
-      for (var i = 0; i < sleepSub.length; i++) {
-        // Absent accel would score ENMO |0 - 1| = 1.0 — maximal restlessness
-        // from no data. Skip it; a bucket with no present second is omitted.
-        if (!sleepSub.accelPresentAt(i)) continue;
-        final b = sleepSub.tsSec[i] ~/ bucketSec;
-        final ax = sleepSub.ax[i];
-        final ay = sleepSub.ay[i];
-        final az = sleepSub.az[i];
-        final mag = math.sqrt(ax * ax + ay * ay + az * az);
-        final enmo = (mag - 1.0).abs();
-        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
-        moveCount[b] = (moveCount[b] ?? 0) + 1;
-      }
-      final out = <Map<String, dynamic>>[];
-      final keys = moveSum.keys.toList()..sort();
-      for (final b in keys) {
-        final avgEnmo = moveSum[b]! / moveCount[b]!;
-        final density = math.min(1.0, avgEnmo * 10.0);
-        out.add({
-          't': b * bucketSec,
-          'density': double.parse(density.toStringAsFixed(3)),
-        });
-      }
-      bundlePatch['restlessness_map'] = out;
-    }
+    // Arm-angle range, not uncalibrated magnitude-minus-1 g. Existing
+    // relative-stillness breathing qualification is a separate concern.
+    final angleMap = ana.armAngleRestlessness(sleepSub.accelSamples());
+    if (angleMap.isNotEmpty) bundlePatch['restlessness_map'] = angleMap;
 
     // Feature 2 (fit-quality diagnostic) is GONE, not disabled. It scored band
     // tightness from `skinContact`, and there is no contact-quality field to

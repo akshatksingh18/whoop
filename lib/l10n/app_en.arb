@@ -8122,6 +8122,7 @@
   "@sleepDetailTonightSection": {
     "description": "Section header for the one-takeaway sleep coaching card."
   },
+  "sleepDetailAtLeastDuration": "At least",
   "sleepDetailTotalSleep": "Total sleep",
   "@sleepDetailTotalSleep": {
     "description": "Caption under the big total-sleep-duration number."

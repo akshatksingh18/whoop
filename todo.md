@@ -211,6 +211,21 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   Other Claude-owned headers can use `DayClock.abbreviation(date, nowSec: ...)`; shared detail
   navigation and Recovery already show differing zones. Sleep/Recovery display fixes continue
   in task 5. Claude owns the stale top-level planned-status wording and documentation indexes.
+  Task 4 is committed as `07fff90d`. Task 5 data/compute is implemented: per-record RR-count
+  provenance and omitted-share quality (no new HRV gate), explicit re-anchor metadata and
+  90% spectral coverage for HF/respiration/REM, arm-angle restlessness, a single five-minute
+  awakening function, quarter-gap sleep need without strain bonus, absent unavailable cycles,
+  and recording-gap lower-bound wording. Eight beat-quality and seven accounting tests pass;
+  three selected Sleep widget checks also pass (gap wording, 2x and 3.1x layout).
+  Existing sleep-need clamps were retained; their
+  outstanding source review remains research work for Claude. A1 method review for Claude:
+  the quality estimate uses the documented HR/60 versus retained RR count, with denominators;
+  confirm this definition since the local-measurement paragraph supersedes recommendations
+  (b)-(c) without stating a replacement formula. This field does not gate any headline.
+  No strain formula change.
+  Remaining Codex tasks: energy/estimates (6), instrumentation/speed (7), Food data/exports (8),
+  Food layout/copy-day (9), private strain comparison plus synthetic history profiles (10).
+  Extend the single algorithm-95 changelog as those approved output changes land.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

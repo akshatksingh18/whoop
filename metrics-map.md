@@ -99,8 +99,11 @@ One number per day. These drive every trend, baseline and "against your usual" c
 - `deep_min`, `rem_min`, `light_min` = stage minutes (they sum to `tst_min`)
 - `efficiency` = asleep while in bed
 - `sol_min` = time to fall asleep
-- `awakenings` and `longest_sleep_min`
-- `unobserved_min` = band gaps in the night
+- `awakenings` = observed wake runs of at least five minutes, excluding leading/trailing
+  wake; segmentation and stored scalars share one function. `longest_sleep_min` never
+  bridges an unobserved gap.
+- `unobserved_min` = recording gaps in the night; any gap makes the displayed sleep
+  duration an "at least" bound, with the missing duration stated.
 - `sleep_onset_sec` and `midsleep_sec` = bedtime and midpoint consistency
 - `nap_min`
 
@@ -141,8 +144,19 @@ The full analysis of each day, including curves:
   skin-temperature lanes; sleep window, cycles and wake-ups; nocturnal HR (average and lowest).
   Also the breathing-disturbance screen (heart-rate cycling, CVHR), oxygen-dip proxy fields,
   personal baselines (robust centre and spread per metric), and the illness watch.
-- **Sleep Coach** (in the cross-day rollup): sleep need, debt, minutes added for training load,
-  minutes credited from naps, and target bedtime/wake.
+- **Sleep Coach** (in the cross-day rollup): estimated baseline need plus one quarter of the
+  estimated sleep gap, less the applied nap credit, with the existing bounds retained.
+  The unsupported strain bonus is removed (`strain_bonus_min` remains 0 for compatibility).
+- **RR reporting quality:** `coverage.rr_reporting` stores reported counts, HR/60 expected-count
+  estimate, eligible record count and estimated omitted share; `rr_omitted_share` retains
+  its trend. Unknown old counts yield no estimate. This does not gate or change nightly HRV.
+- **Spectra:** HF Welch segments, respiration sub-windows and REM spectral features require
+  at least 90% measured interval coverage and exclude clock re-anchors. Scaling and segment
+  lengths remain unchanged; no surviving segment means absence.
+- **Restlessness map:** five-minute arm-angle cells flag an observed range greater than 5°;
+  absent acceleration is omitted. This replaces the uncalibrated magnitude-minus-1 g map.
+- **Cycles:** an unqualified cycle estimate or unavailable stages produce no count, including
+  legacy zero placeholders at the read boundary.
 
 ### 4. Training
 

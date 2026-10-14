@@ -708,6 +708,15 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: relative stillness (within 0.02 g of the window median on 90%); SRI over observed all-day epochs; 3 h night-time fallback; correction save blocked under 50% recorded; Home bar uses last night's stored need; "In bed at" label. Kept: the approved rule lets a later night with more sleep replace the pick (a later, shorter night does not). Open: the restlessness map's |mag - 1| test, stage cutoffs (experiment), debt/wake-count and smaller items.
 
+Build 90 source supersedes the map/accounting items below: arm-angle restlessness replaces
+magnitude-minus-1 g; sleep need adds a quarter of the estimated gap and no strain bonus;
+one five-minute wake-run definition serves segmentation and scalar history; cycles are absent
+when unqualified or unstaged; Sleep names recording-gap durations as lower bounds. RR reporting
+quality is retained without a new nightly-HRV gate. HF, respiration and REM spectral windows
+require 90% coverage and exclude clock re-anchors. Eight beat-quality and seven accounting
+regressions pass. Stage smoothing/cutoffs retain their existing experimental status; validation
+against a reference recording and phone checks remain open.
+
 - **SRI is not the Phillips index.** `_crossDaySri` marks epochs valid only where a hypnogram exists
   (spot-checked), so it compares only minutes inside both nights' windows and moving bedtime barely
   changes it. The audit also found unobserved epochs counted as asleep. Hidden from UI, but stored.

@@ -18,6 +18,7 @@ export 'src/onehz/device.dart';
 
 // Layer 0: foundations.
 export 'src/onehz/foundations/rr_correction.dart';
+export 'src/onehz/foundations/beat_quality.dart';
 export 'src/onehz/foundations/baseline.dart';
 export 'src/onehz/foundations/ewma_baselines.dart';
 export 'src/onehz/foundations/fusion.dart';
@@ -40,6 +41,7 @@ export 'src/onehz/sleep/sleep.dart';
 export 'src/onehz/respiration/respiration.dart';
 export 'src/onehz/motion/motion.dart';
 export 'src/onehz/motion/wear.dart';
+export 'src/onehz/motion/restlessness.dart';
 export 'src/onehz/workout/workout.dart';
 export 'src/onehz/wellness/wellness.dart';
 export 'src/onehz/human/human.dart';

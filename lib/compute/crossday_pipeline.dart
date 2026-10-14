@@ -339,28 +339,7 @@ Map<String, dynamic> buildCrossDayBundle(
               dayStrain: dayStrain,
               napCreditSec: napCreditSec,
             );
-  // TODAY's strain only. `_lastNum` walked backward to the last non-null, so a
-  // day whose strain compute abstained built tonight's bonus out of an EARLIER
-  // day's workout — imputation (AGENTS §3.3), and invisible, since the number
-  // lands inside `need_sec` with nothing surfacing it.
-  //
-  // Unlike the nap credit below, 0 here is NOT the cautious direction: strain is
-  // ADDED (up to 45 min via sleepNeed's strainBonusSec), so abstaining removes
-  // sleep from the recommendation rather than adding it. It is still right, on
-  // two grounds that are not "it's safe":
-  //   - Carrying yesterday forward is not a safety margin either. It inflates
-  //     need only when yesterday happened to be harder than today, and deflates
-  //     it when yesterday was a rest day — noise around the true value, not a
-  //     conservative bound, and forbidden regardless.
-  //   - Strain is a same-day ACCUMULATING quantity that starts at 0 and only
-  //     rises. Before today logs anything, 0 is where it genuinely sits, not a
-  //     substituted default. The bonus grows as the day's real strain arrives.
-  // Because that direction is not the cautious one, the substitution is not
-  // allowed to be silent: `strain_bonus_min` below reports what the bonus
-  // actually added, and stays NULL (never 0) when today produced no reading —
-  // which is the case where up to 45 min of need went missing.
-  // B88-02: only an OBSERVED day's strain (≥16 h worn) may add to tonight's
-  // need; otherwise it is unknown and `strain_bonus_min` below says so.
+  // Retained provenance for callers; strain no longer modifies sleep need.
   final todayStrainNum =
       (_todayNum(days, 'worn_min') ?? 0) >= _minObservedLoadMin
       ? _todayNum(days, 'strain')
@@ -383,23 +362,8 @@ Map<String, dynamic> buildCrossDayBundle(
           !needNoNap.present)
       ? null
       : ((needNoNap.value!.needSec - need.value!.needSec) / 60).round();
-  // What the strain bonus ACTUALLY added, measured the same way `nap_credit_min`
-  // measures the nap: re-run at the real operating point with the strain zeroed
-  // and diff. The [6 h, 11 h] clamp applies AFTER adding, so against a high
-  // baseline + debt the bonus is only partly realized — disclosing the raw
-  // (strain/21)*45 would state an increase `need_sec` never took.
-  //
-  // Null when today produced no strain reading. That is the ONE case that
-  // matters most here: a confident 0 says "you rested today", while null says
-  // "we could not measure today's strain, so tonight's need is short by up to
-  // 45 min". Collapsing the two would re-hide exactly what the today-scoping
-  // fix above exposed.
-  final needNoStrain = needAt(dayStrain: 0.0, napCreditSec: todayNapSec);
-  final appliedStrainBonusMin = (todayStrainNum == null ||
-          !need.present ||
-          !needNoStrain.present)
-      ? null
-      : ((need.value!.needSec - needNoStrain.value!.needSec) / 60).round();
+  // Compatibility field: the unsupported strain bonus has been removed.
+  const appliedStrainBonusMin = 0;
   // last night's TST (sec) for performance.
   final lastTstMin = _lastNum(days, 'tst_min');
   final perf = (need.present && lastTstMin != null)

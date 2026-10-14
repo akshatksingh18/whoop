@@ -687,13 +687,21 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Build 88: the night's sleep as the hero in the sleep colour.
+          // Keep the duration legible at large text sizes; the bound is named
+          // directly above it rather than shrinking a long phrase into a number.
+          if (unobserved != null && unobserved > 0)
+            Text(l?.sleepDetailAtLeastDuration ?? 'At least',
+                style: F.body.copyWith(color: p.ink)),
           HeroStat(
             value: tst == null ? null : hm(tst),
+            semanticLabel: tst == null ? null :
+                '${unobserved != null && unobserved > 0 ? 'At least ' : ''}${hm(tst)} total sleep',
             color: C.sleep,
             label: l?.sleepDetailTotalSleep ?? 'Total sleep',
             lines: [
               if (from.isNotEmpty && to.isNotEmpty) '$from → $to',
+              if (unobserved != null && unobserved > 0)
+                '${hm(unobserved)} recording gap; sleep in that gap is unknown',
               if (eff != null) '${_pct(eff * 100)} asleep while in bed',
             ],
           ),
@@ -1016,7 +1024,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     }
     final t0 = (n['onset_ts'] as num?)?.round();
     final t1 = (n['wake_ts'] as num?)?.round();
-    final cycles = (n['cycle_count'] as num?)?.toInt() ?? 0;
+    final cycles = (n['cycle_count'] as num?)?.toInt();
     final mean = n['cycles_mean_min'] as num?;
     return Surface(
       child: Column(
@@ -1045,7 +1053,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           ),
           const SizedBox(height: S.x2),
           Text(
-            cycles > 0
+            cycles != null && cycles > 0
                 ? (mean == null
                       ? (l?.sleepDetailTapDragCycles(cycles) ??
                             'Tap or drag the chart for any moment. $cycles '

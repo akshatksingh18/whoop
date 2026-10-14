@@ -257,6 +257,10 @@ class Substrate {
   /// Same absent-marker discipline as [stepCount] and [accelPresentAt].
   final List<int> hrValid;
 
+  /// Retained RR values per 1 Hz record; empty/-1 means unknown. Quality only,
+  /// never an input to nightly HRV pairing or qualification.
+  final List<int> rrCount;
+
   /// WHICH STRAP MEASURED THIS SUBSTRATE — `'gen4'`, `'gen5'`, or null.
   ///
   /// Stamped at ingest into `decoded_onehz.device_family` and carried here so
@@ -305,6 +309,7 @@ class Substrate {
     required List<int?> skinContact,
     List<int> stepCount = const [],
     List<int> hrValid = const [],
+    List<int> rrCount = const [],
     String? deviceFamily,
   }) => Substrate._(
     deviceFamily: deviceFamily,
@@ -321,6 +326,7 @@ class Substrate {
     skinContact: skinContact,
     stepCount: stepCount,
     hrValid: hrValid,
+    rrCount: rrCount,
   );
 
   const Substrate._({
@@ -337,6 +343,7 @@ class Substrate {
     required this.skinContact,
     this.stepCount = const [],
     this.hrValid = const [],
+    this.rrCount = const [],
     this.deviceFamily,
   });
 
@@ -488,6 +495,7 @@ class Substrate {
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
+      rrCount: _perSecSlice(rrCount, lo, hi),
       deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
@@ -516,6 +524,7 @@ class Substrate {
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
+      rrCount: _perSecSlice(rrCount, lo, hi),
       deviceFamily: deviceFamily,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
@@ -580,6 +589,7 @@ class Substrate {
     'skin_contact': skinContact,
     'step_count': stepCount,
     'hr_valid': hrValid,
+    'rr_count': rrCount,
     // Null (unknown provenance) is a real answer — emit the key regardless.
     'device_family': deviceFamily,
   };
@@ -644,6 +654,7 @@ class Substrate {
         final l = ints(m, 'hr_valid');
         return l.length == n ? l : List<int>.filled(n, -1);
       }(),
+      rrCount: ints(m, 'rr_count'),
       deviceFamily: m['device_family'] as String?,
     );
   }
@@ -699,6 +710,7 @@ Substrate decodeSubstrate(List<String> hexes) {
   final n = recs.length;
   final tsSec = List<int>.filled(n, 0);
   final hr = List<int>.filled(n, 0);
+  final rrCount = List<int>.filled(n, -1);
   final ax = List<double>.filled(n, 0);
   final ay = List<double>.filled(n, 0);
   final az = List<double>.filled(n, 0);
@@ -712,6 +724,9 @@ Substrate decodeSubstrate(List<String> hexes) {
     final r = recs[i].r;
     tsSec[i] = r.tsEpoch;
     hr[i] = plausibleHrOrNull(r.hr) ?? 0;
+    if (r.histVersion == 24 || r.histVersion == 12) {
+      rrCount[i] = r.rrIntervalsMs.length;
+    }
     if (r.accelG.length == 3) {
       ax[i] = r.accelG[0];
       ay[i] = r.accelG[1];
@@ -769,6 +784,7 @@ Substrate decodeSubstrate(List<String> hexes) {
   return Substrate(
     tsSec: tsSec,
     hr: hr,
+    rrCount: rrCount,
     rrTsMs: rrTsMs,
     rrMs: rrMs,
     ax: ax,
@@ -969,8 +985,7 @@ class SleepWindowOverride {
 }
 
 /// Local YYYY-MM-DD label for an epoch-second instant.
-String localDateLabel(int epochSec) =>
-    dayLabelAtSec(epochSec);
+String localDateLabel(int epochSec) => dayLabelAtSec(epochSec);
 
 /// Split the substrate into CALENDAR days (local midnight → next local midnight).
 ///
@@ -1245,8 +1260,7 @@ int _localMidnight(int epochSec) =>
     localDayStartSec(localDateLabel(epochSec))!;
 
 int _nextLocalMidnight(int epochSec) =>
-    DayClock.at(epochSec)?.endSec ??
-    localDayEndSec(localDateLabel(epochSec))!;
+    DayClock.at(epochSec)?.endSec ?? localDayEndSec(localDateLabel(epochSec))!;
 
 /// First index i in sorted [xs] with xs[i] >= target (std lower_bound).
 int _lowerBound(List<int> xs, int target) {

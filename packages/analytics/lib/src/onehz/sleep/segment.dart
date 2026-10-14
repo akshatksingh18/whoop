@@ -623,25 +623,12 @@ SleepSegmentation segmentSleep(
   // an unobserved second. Merging across one is how a naive longest-run bridges
   // a three-hour charging hole and prints a 5 h unbroken stretch, and how two
   // short wakes either side of a gap become one "sustained awakening".
-  var sustainedAwakenings = 0;
-  var longestSleepRun = 0;
-  var sleepRun = 0;
-  var wakeRun = 0;
-  for (var i = 0; i < perSec.length; i++) {
-    final asleep = observed[i] && perSec[i] != SleepStage.wake;
-    final awake = observed[i] && perSec[i] == SleepStage.wake;
-    sleepRun = asleep ? sleepRun + 1 : 0;
-    if (sleepRun > longestSleepRun) longestSleepRun = sleepRun;
-    // Awakenings are WASO only — the settling before onset and the lie-in after
-    // final offset are not awakenings.
-    final inWaso = firstSleep >= 0 && i > firstSleep && i < lastSleep;
-    if (awake && inWaso) {
-      wakeRun++;
-      if (wakeRun == kSustainedAwakeningSec) sustainedAwakenings++;
-    } else {
-      wakeRun = 0;
-    }
-  }
+  final shape = sleepRunShape([
+    for (var i = 0; i < perSec.length; i++)
+      !observed[i] ? 'unobserved' : perSec[i].name,
+  ]);
+  final sustainedAwakenings = shape.awakenings ?? 0;
+  final longestSleepRun = shape.longestSleepSec ?? 0;
   if (tst == 0) {
     // Nothing in the window staged as sleep. A forced window deliberately skips
     // the 3 h and index gates, so this used to publish tst 0 / efficiency 0 % as
@@ -943,4 +930,32 @@ int _lowerBoundInt(List<int> xs, int target) {
     }
   }
   return lo;
+}
+
+/// One shape definition for segmentation, stored scalars and Sleep. Leading
+/// and trailing wake are excluded; unknown seconds split every run.
+({int? awakenings, int? longestSleepSec, int? firstSleep}) sleepRunShape(
+    List<String> labels) {
+  bool asleep(String s) =>
+      s == 'nrem' || s == 'light' || s == 'deep' || s == 'rem';
+  final first = labels.indexWhere(asleep);
+  if (first < 0)
+    return (awakenings: null, longestSleepSec: null, firstSleep: null);
+  var last = labels.length - 1;
+  while (last > first && !asleep(labels[last])) {
+    last--;
+  }
+  var wake = 0, run = 0, longest = 0, awakenings = 0;
+  for (var i = first; i <= last; i++) {
+    if (asleep(labels[i])) {
+      run++;
+      wake = 0;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+      wake = labels[i] == 'wake' ? wake + 1 : 0;
+      if (wake == kSustainedAwakeningSec) awakenings++;
+    }
+  }
+  return (awakenings: awakenings, longestSleepSec: longest, firstSleep: first);
 }

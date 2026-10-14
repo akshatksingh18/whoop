@@ -149,6 +149,7 @@ class DayBundleInput {
   final List<int> sleepHr;
   final List<double> sleepRrTsMs;
   final List<double> sleepRrMs;
+  final List<int> sleepRrCount;
   final List<int?> sleepSkinTemp;
 
   // ── the SINGLE-SOURCE sleep segmentation (JSON of SleepSegmentation) ──────
@@ -225,6 +226,7 @@ class DayBundleInput {
     required this.sleepHr,
     required this.sleepRrTsMs,
     required this.sleepRrMs,
+    this.sleepRrCount = const [],
     required this.sleepSkinTemp,
     required this.sleepJson,
     required this.hypnoStages,
@@ -256,6 +258,7 @@ class DayBundleInput {
     'sleep_hr': sleepHr,
     'sleep_rr_ts_ms': sleepRrTsMs,
     'sleep_rr_ms': sleepRrMs,
+    'sleep_rr_count': sleepRrCount,
     'sleep_skin_temp': sleepSkinTemp,
     'sleep_json': sleepJson,
     'hypno_stages': hypnoStages,
@@ -305,6 +308,7 @@ class DayBundleInput {
       sleepHr: ints('sleep_hr'),
       sleepRrTsMs: dbls('sleep_rr_ts_ms'),
       sleepRrMs: dbls('sleep_rr_ms'),
+      sleepRrCount: ints('sleep_rr_count'),
       sleepSkinTemp: (m['sleep_skin_temp'] as List? ?? const [])
           .map((e) => (e as num?)?.toInt())
           .toList(),
@@ -349,7 +353,8 @@ Map<String, dynamic> deriveDayBundle(
   Map<String, dynamic> inputJson, {
   InputReuse? reuse,
 }) {
-  if (inputJson['day_context'] case final Map context) DayClock.restore(context);
+  if (inputJson['day_context'] case final Map context)
+    DayClock.restore(context);
   final d = DayBundleInput.fromJson(inputJson);
   final cache = reuse;
   final rrStamp = cache?.stamp([
@@ -399,6 +404,7 @@ Map<String, dynamic> deriveDayBundle(
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
+  final reporting = beatReportingQuality(d.sleepHr, d.sleepRrCount);
 
   final hasSleep = (d.sleepJson['tst_sec']) != null;
 
@@ -451,7 +457,12 @@ Map<String, dynamic> deriveDayBundle(
   final hrvF = nn.length >= 20
       ? night(
           'hrv-freq',
-          () => hrvFreq(nn, nnTimes, artifactFraction: artifactFraction),
+          () => hrvFreq(
+            nn,
+            nnTimes,
+            artifactFraction: artifactFraction,
+            gapBefore: corrected.gapBefore,
+          ),
         )
       : Metric<HrvFreq>.absent(
           tier: Tier.high,
@@ -521,6 +532,7 @@ Map<String, dynamic> deriveDayBundle(
             nnTimes,
             artifactFraction: artifactFraction,
             minSegments: 6,
+            gapBefore: corrected.gapBefore,
           ),
         )
       : Metric<RespEstimate>.absent(
@@ -572,7 +584,12 @@ Map<String, dynamic> deriveDayBundle(
   // 0 — the 30% gate used to be bypassed here.
   final respWindows = night(
     'resp-windows',
-    () => _respPerWindow(nn, nnTimes, artifactFraction: artifactFraction),
+    () => _respPerWindow(
+      nn,
+      nnTimes,
+      artifactFraction: artifactFraction,
+      gapBefore: corrected.gapBefore,
+    ),
   );
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
@@ -1329,23 +1346,27 @@ Map<String, dynamic> deriveDayBundle(
     d.sleepOnsetSec,
     d.sleepOffsetSec,
   );
-  sleep['cycles'] = [for (final c in cyc.cycles) c.toJson()];
-  sleep['cycle_count'] = cyc.n;
-  sleep['cycles_mean_min'] = cyc.meanDurationMin;
-  // The SAME detection, in its published Metric envelope. `detectSleepCycles`
-  // is the bare algorithm and returns n=0 both for "no cycles" and for "not
-  // enough RR to look" — indistinguishable downstream, and the raw keys above
-  // carry no tier or confidence, so the UI had to assert its own. This is the
-  // honest wrapper: ESTIMATE tier, HRV-derived, absent with a reason when the
-  // window cannot support detection. The raw keys stay for existing readers.
-  sleep['cycles_metric'] = sleepCyclesMetric(
-    d.sleepRrMs,
-    d.sleepRrTsMs,
-    d.sleepOnsetSec,
-    d.sleepOffsetSec,
-  ).toJson((v) => v.toJson());
-  // The continuous z-RMSSD wave the cycle GRAPH plots ({t: epochSec, z}).
-  sleep['cycle_series'] = cyc.series;
+  final stagesAvailable = d.hypnoStages.any(_isSleepStage);
+  final cyclesMetric = stagesAvailable
+      ? sleepCyclesMetric(
+          d.sleepRrMs,
+          d.sleepRrTsMs,
+          d.sleepOnsetSec,
+          d.sleepOffsetSec,
+        )
+      : const Metric<SleepCyclesResult>.absent(
+          tier: Tier.estimate,
+          inputs_used: ['sleep_stages'],
+          note: 'sleep stages unavailable',
+        );
+  final cyclesPresent = stagesAvailable && cyclesMetric.present;
+  sleep['cycles'] = cyclesPresent
+      ? [for (final c in cyc.cycles) c.toJson()]
+      : null;
+  sleep['cycle_count'] = cyclesPresent ? cyc.n : null;
+  sleep['cycles_mean_min'] = cyclesPresent ? cyc.meanDurationMin : null;
+  sleep['cycles_metric'] = cyclesMetric.toJson((v) => v.toJson());
+  sleep['cycle_series'] = cyclesPresent ? cyc.series : null;
 
   // ── PERSONAL BASELINES (Winsorized-EWMA) ───────────────────────────────────
   // Robust, recency-weighted personal centers + spread for the metrics whose
@@ -1497,6 +1518,7 @@ Map<String, dynamic> deriveDayBundle(
       'hr_samples': d.dayHr.length,
       'hr_valid': dayHrValid.length,
       'rr_beats': d.sleepRrMs.length,
+      'rr_reporting': reporting,
       'nn_clean': nn.length,
       'clean_fraction': _round(corrected.cleanFraction, 4),
       'sleep_seconds': inBedSec ?? 0,
@@ -1596,6 +1618,7 @@ Map<String, dynamic> deriveDayBundle(
           : (unobservedSec / 60).roundToDouble(),
       // SLP-03 — sustained awakenings (a floor) + the longest unbroken stretch.
       'awakenings': (runs['awakenings'] as int?)?.toDouble(),
+      'rr_omitted_share': reporting?['omitted_beat_share_estimate'],
       'longest_sleep_min': (runs['longest_sleep_sec'] as int?) == null
           ? null
           : ((runs['longest_sleep_sec'] as int) / 60).roundToDouble(),
@@ -1617,9 +1640,12 @@ Map<String, dynamic> deriveDayBundle(
             ? d.sleepOnsetSec + (d.sleepOffsetSec - d.sleepOnsetSec) ~/ 2
             : 0,
       ),
-      'sleep_onset_sec': DayClock.spansZoneChange(d.sleepOnsetSec, d.sleepOffsetSec)
-          ? null : sleepClockOffsetSec(
-              d.sleepOffsetSec > d.sleepOnsetSec ? d.sleepOnsetSec : 0),
+      'sleep_onset_sec':
+          DayClock.spansZoneChange(d.sleepOnsetSec, d.sleepOffsetSec)
+          ? null
+          : sleepClockOffsetSec(
+              d.sleepOffsetSec > d.sleepOnsetSec ? d.sleepOnsetSec : 0,
+            ),
     },
   };
 }
@@ -1666,15 +1692,20 @@ List<double> _respPerWindow(
   double windowMs = 1800000.0,
   int minBeats = 60,
   double artifactFraction = 0.0,
+  List<bool> gapBefore = const [],
 }) {
   if (nn.isEmpty || nn.length != nnTimes.length) return const [];
   final t0 = nnTimes.first;
   final binsNn = <int, List<double>>{};
   final binsTs = <int, List<double>>{};
+  final binsGaps = <int, List<bool>>{};
   for (var i = 0; i < nn.length; i++) {
     final idx = ((nnTimes[i] - t0) / windowMs).floor();
     (binsNn[idx] ??= <double>[]).add(nn[i]);
     (binsTs[idx] ??= <double>[]).add(nnTimes[i]);
+    (binsGaps[idx] ??= <bool>[]).add(
+      gapBefore.length == nn.length ? gapBefore[i] : false,
+    );
   }
   final out = <double>[];
   final idxs = binsNn.keys.toList()..sort();
@@ -1685,6 +1716,7 @@ List<double> _respPerWindow(
       segNn,
       binsTs[idx]!,
       artifactFraction: artifactFraction,
+      gapBefore: gapBefore.length == nn.length ? binsGaps[idx]! : const [],
     );
     final b = r.present ? r.value!.brpm : null;
     if (b != null) out.add(b);
@@ -1940,7 +1972,7 @@ bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem';
 /// Sustained-awakening threshold. A CHOICE, not physiology: the 3-15 s cortical
 /// arousals PSG counts are invisible to a 1 Hz wrist, so anything shorter than
 /// this we cannot see and anything we do count is a floor, never a total.
-const int kAwakeningMinSec = 300;
+const int kAwakeningMinSec = kSustainedAwakeningSec;
 
 /// Run decomposition over the same per-second labels [_hypnogramSegments] uses,
 /// so both readers share one definition of where a run ends.
@@ -1968,39 +2000,17 @@ Map<String, dynamic> _sleepRuns(DayBundleInput d) {
   };
   if (stages.isEmpty) return absent;
 
-  final firstSleep = stages.indexWhere(_isSleepStage);
-  if (firstSleep < 0) return absent; // nothing staged as sleep — no runs
-
-  var lastSleep = stages.length - 1;
-  while (lastSleep > firstSleep && !_isSleepStage(stages[lastSleep])) {
-    lastSleep--;
-  }
-
-  var awakenings = 0, longest = 0, run = 0, wake = 0;
-  for (var i = firstSleep; i <= lastSleep; i++) {
-    final s = stages[i];
-    if (_isSleepStage(s)) {
-      run++;
-      if (run > longest) longest = run;
-      if (wake >= kAwakeningMinSec) awakenings++;
-      wake = 0;
-    } else {
-      run = 0;
-      // Only a WAKE run counts toward an awakening; an unobserved gap breaks
-      // the sleep run (above) but is not evidence that you woke up.
-      wake = s == 'wake' ? wake + 1 : 0;
-    }
-  }
-  // A trailing wake run inside the sleep period is only possible if it is
-  // followed by sleep, which the loop already counted, so nothing to flush.
+  final shape = sleepRunShape(stages);
+  final firstSleep = shape.firstSleep;
+  if (firstSleep == null) return absent;
 
   final forced = d.sleepSource == 'manual' || d.sleepSource == 'confirmed';
   final leadingObserved = !stages
       .sublist(0, firstSleep)
       .any((s) => s == 'unobserved');
   return {
-    'awakenings': awakenings,
-    'longest_sleep_sec': longest,
+    'awakenings': shape.awakenings,
+    'longest_sleep_sec': shape.longestSleepSec,
     'sol_sec': (forced && leadingObserved) ? firstSleep : null,
   };
 }

@@ -1075,18 +1075,8 @@ class LocalRepositoryImpl extends LocalRepository {
       // an unvalidated overlay. The screen badges the whole stage block honestly.
       'stages_confidence': sleepConf,
       'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
-      // The movement ribbon that goes UNDER the hypnogram, on the hypnogram's
-      // own axis. 5-min mean-ENMO buckets over the same sleep window
-      // (`derivation_engine._computeDayBlocks`, "Feature 6"), so a caller can
-      // draw both against one x without resampling either: measured spans agree
-      // to the bucket (1786480200→1786498200 against 1786480446→1786498206 on a
-      // real night). `density` is 0..1, a RELATIVE amplitude index — it is not
-      // a fraction of anything and never becomes a percentage.
-      //
-      // Absent, not empty, when the night produced none: buckets with no
-      // present accel second are omitted by the producer (absent accel would
-      // score ENMO 1.0 — maximal restlessness out of no data), and a day that
-      // produced no map at all must not arrive as a flat calm night.
+      // Five-minute arm-angle cells: restless when the observed angle range
+      // exceeds five degrees. Gain cancels; absent acceleration has no cell.
       'restlessness_map': ?b['restlessness_map'],
       // Charging inside this sleep window — {present:false}, or present with
       // minutes/spans/note. A battery-pack swap leaves the strap on the wrist,
@@ -1129,7 +1119,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
       'cycles': _sub(b, 'sleep')?['cycles'] ?? const [],
-      'cycle_count': (_sub(b, 'sleep')?['cycle_count'] as num?)?.toInt() ?? 0,
+      'cycle_count': (acct?['nrem_sec'] is num && acct?['rem_sec'] is num &&
+          _sub(b, 'sleep.cycles_metric')?['value'] is Map)
+          ? (_sub(b, 'sleep')?['cycle_count'] as num?)?.toInt() : null,
       'cycles_mean_min': _cyclesMeanMin(b),
       // The graph plots the continuous z-RMSSD wave [{t,z}] — NOT the cycle spans.
       'cycle_series': _sub(b, 'sleep')?['cycle_series'] ?? const [],

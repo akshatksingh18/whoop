@@ -425,6 +425,7 @@ class _PrepareAccumulator {
   /// See [Substrate.stepCount] for why the sentinel is not 0.
   final List<int> stepCount = [];
   final List<int> hrValid = [];
+  final List<int> rrCount = [];
 
   /// The DISTINCT non-null `device_family` stamps seen across every page fed in
   /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
@@ -478,6 +479,11 @@ class _PrepareAccumulator {
     if (sub.isEmpty) return;
     tsSec.addAll(sub.tsSec);
     hr.addAll(sub.hr);
+    rrCount.addAll(
+      sub.rrCount.length == sub.length
+          ? sub.rrCount
+          : List<int>.filled(sub.length, -1),
+    );
     rrTsMs.addAll(sub.rrTsMs);
     rrMs.addAll(sub.rrMs);
     ax.addAll(sub.ax);
@@ -594,6 +600,7 @@ class _PrepareAccumulator {
       // band id in the neutral layer (BANDAGNOSTIC C12).
       hrValid.add(_num(row?['hr_valid'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
+      rrCount.add(row == null ? -1 : beats?.length ?? 0);
       if (beats == null) continue;
       for (final beat in beats) {
         // The SAME physiological bound the raw-replay path applies
@@ -635,6 +642,7 @@ class _PrepareAccumulator {
     skinContact: skinContact,
     stepCount: stepCount,
     hrValid: hrValid,
+    rrCount: rrCount,
     deviceFamily: deviceFamily,
   );
 }

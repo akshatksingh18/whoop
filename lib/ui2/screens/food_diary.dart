@@ -194,7 +194,7 @@ class MealCard extends StatelessWidget {
                     const SizedBox(width: S.x2),
                     Flexible(
                       child: Text(
-                        entries.isEmpty ? '' : summary,
+                        entries.length > 1 ? summary : '',
                         textAlign: TextAlign.end,
                         style: F.cap.copyWith(color: p.ink3),
                       ),
@@ -225,7 +225,8 @@ class MealCard extends StatelessWidget {
                 if (await editDiaryEntry(c, e) && c.mounted) onChanged();
               },
             ),
-          Text(mealTotals(entries), style: F.over.copyWith(color: p.ink3)),
+          if (entries.length > 1)
+            Text(mealTotals(entries), style: F.over.copyWith(color: p.ink3)),
         ],
         const SizedBox(height: S.x2),
         Divider(color: p.line, height: 1),
@@ -1238,35 +1239,40 @@ class _EntryRow extends StatelessWidget {
         fibre: e.fibreG,
       ),
     ].join(' · ');
+    final information = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(e.label, style: F.body.copyWith(color: p.ink)),
+        if (detail.isNotEmpty)
+          Text(detail, style: F.cap.copyWith(color: p.ink3)),
+      ],
+    );
+    final energy = Text(
+      e.kcal == null ? 'Calories unknown' : '${e.kcal!.round()} kcal',
+      softWrap: false,
+      style: F.n17.copyWith(color: p.ink),
+    );
     return Pressable(
       onTap: onTap,
-      semanticLabel: '${e.label}, ${e.kcal?.round() ?? 'no'} kcal',
+      semanticLabel: '${e.label}, ${e.kcal?.round() ?? 'unknown'} kcal',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
+        child: bigText(c)
+            ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    e.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: F.body.copyWith(color: p.ink),
-                  ),
-                  if (detail.isNotEmpty)
-                    Text(detail, style: F.cap.copyWith(color: p.ink3)),
+                  information,
+                  const SizedBox(height: S.x1),
+                  energy,
+                ],
+              )
+            : Row(
+                children: [
+                  Expanded(child: information),
+                  const SizedBox(width: S.x3),
+                  energy,
                 ],
               ),
-            ),
-            const SizedBox(width: S.x3),
-            Text(
-              e.kcal == null ? '–' : '${e.kcal!.round()}',
-              style: F.n17.copyWith(color: p.ink),
-            ),
-          ],
-        ),
       ),
     );
   }

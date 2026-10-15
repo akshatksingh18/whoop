@@ -261,8 +261,21 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   Session-change publication remains part of task 8; Akshat was asked about the omitted
   `log_workout.dart`, `coach_actions.dart` and `auto_workout_import.dart` ownership so all
   non-Train mutation paths can use the same post-commit signal.
+  Food data/exports are committed as `b1b6d786`. Task 9 is implemented with a compact calorie
+  summary, four macro columns (protein larger), readable stacked large-text values, a
+  week-state legend, direct Food Progress routing and no repeated singleton totals.
+  Copy day selects a source, reviews each item/portion/selection and commits only on Log.
+  Seven focused Food checks pass, including cancel/no-write, transaction rollback and
+  the full copy/portion/selection flow at 1x/2x/3.1x;
+  three actual Food phone-size render checks pass at 1x/2x/3.1x and normal text exposes the
+  first meal. The confirmed large-text week stays in one horizontal row and Log again
+  actions use full labels without a fixed-height clipping box.
+  Claude shared-UI issue: `app_shell.dart` bottom-tab labels split words at 2x/3.1x
+  (Today, Trends, Train, Progress). Screenshots are local synthetic captures under
+  `build/ui_capture/b90_codex_food_*.png`; this needs the Claude lane's tab-bar fix.
+  The targeted unknown-intake render regression also passes.
   Remaining Codex tasks: session mutation signals (8),
-  Food layout/copy-day (9), private strain comparison plus synthetic history profiles (10).
+  private strain comparison plus synthetic history profiles (10).
   Extend the single algorithm-95 changelog as those approved output changes land.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open

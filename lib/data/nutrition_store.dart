@@ -472,8 +472,20 @@ class FoodEntry {
     if (!amount.isFinite || amount <= 0 || quantity == null || quantity! <= 0) {
       throw ArgumentError('Invalid portion');
     }
-    final factor = amount / quantity!;
-    double? scale(double? v) => v == null ? null : v * factor;
+    return scaledPortion(amount / quantity!);
+  }
+
+  /// Review a portion multiplier without writing anything. Unknown nutrients
+  /// stay unknown, including quick-add entries with no reference quantity.
+  FoodEntry scaledPortion(double factor) {
+    if (!factor.isFinite || factor <= 0) throw ArgumentError('Invalid portion');
+    double? scale(double? v) {
+      if (v == null) return null;
+      final n = v * factor;
+      if (!n.isFinite) throw ArgumentError('Portion is too large');
+      return n;
+    }
+
     return FoodEntry(
       id: id,
       date: date,
@@ -483,7 +495,7 @@ class FoodEntry {
       loggedAt: loggedAt,
       counting: counting,
       foodKey: foodKey,
-      quantity: amount,
+      quantity: quantity == null ? null : scale(quantity),
       unit: unit,
       kcal: scale(kcal),
       proteinG: scale(proteinG),
@@ -1205,6 +1217,26 @@ class NutritionDb {
           mark: marks[dayLabelOf(d)],
         ),
     ]);
+  }
+
+  /// One explicit reviewed-day commit. Selecting a date or editing this draft
+  /// never calls this method. Every copied item gets a fresh id/logging time.
+  static Future<int> logDayCopy(
+    Database db, {
+    required String date,
+    required List<FoodEntry> reviewed,
+  }) async {
+    await db.transaction((tx) async {
+      for (final (i, e) in reviewed.indexed) {
+        await put(
+          tx,
+          e.copyTo(date, e.meal, newId: '${newId()}_$i'),
+          notify: false,
+        );
+      }
+    });
+    if (reviewed.isNotEmpty) changed();
+    return reviewed.length;
   }
 
   /// Copy every entry of [fromMeal] on [fromDate] into [toMeal] on [toDate]

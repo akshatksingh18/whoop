@@ -525,6 +525,16 @@ movement or food digestion again. No automatic HR hybrid or coefficient adjustme
 
 ## Layout Decisions (Build 89 Installed; Next Redesign Is A Proposal)
 
+Build 90 Food source replaces the tall macro list with one compact row (protein larger),
+retaining all four values/targets and explicit missing/partial totals. Accessibility text
+stacks values and actions; the week remains horizontally scrollable with the selected date
+revealed, and Counted/Logged/Empty marks have a legend. Meals and Add food appear earlier;
+single-item meals do not repeat the same totals. Food progress uses the shared Progress
+route to its Food destination. Copy a day reviews every item, portion multiplier and selection,
+then logs into the viewed date in one explicit transaction; cancel and failed writes do not
+partially copy the day. Existing calendar, portions, My foods/My meals, scanning, labels and
+meal copy/save paths remain. Windows synthetic renders/checks are not native iPhone acceptance.
+
 **Build 88 source (DESIGN.md):** light kraft ground, cream 26 pt panels with every Surface,
 family colours (recovery, sleep, strain, food, body; amber only for NEW/unavailable), a paper
 tab bar with a green active tab and a paper range chip. Today is one panel: recovery hero

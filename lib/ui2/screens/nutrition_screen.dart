@@ -29,6 +29,8 @@ import '../../state/app_state.dart';
 import '../ui2.dart';
 import '../energy_comparison.dart';
 import 'food_diary.dart';
+import 'progress_routes.dart';
+import 'food_day_copy.dart';
 import 'food_picker.dart';
 import 'home_screen.dart'
     show metricOf, prettyDay, pullToRefresh, repoOf, thousands;
@@ -1035,6 +1037,39 @@ class _NutritionDayViewState extends State<NutritionDayView>
   /// The foods you log most, at the portion you last had, one tap each into
   /// the meal for this time of day — with Undo, because one tap is easy to
   /// make by accident.
+  Future<void> _copyDay(BuildContext c) async {
+    final from = await pickDate(c, shiftDay(widget.date, -1));
+    if (from == null || !c.mounted) return;
+    try {
+      final entries = await NutritionDb.entriesForDay(
+        await LocalDb.instance,
+        from,
+      );
+      if (!c.mounted) return;
+      final copied = await reviewFoodDayCopy(
+        c,
+        from: from,
+        to: widget.date,
+        entries: entries,
+        onLog: (reviewed) async {
+          await NutritionDb.logDayCopy(
+            await LocalDb.instance,
+            date: widget.date,
+            reviewed: reviewed,
+          );
+        },
+      );
+      if (copied == true && mounted) await _changed();
+    } catch (_) {
+      if (c.mounted)
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          const SnackBar(
+            content: Text('Food could not load. Try copying again.'),
+          ),
+        );
+    }
+  }
+
   Widget _logAgain(BuildContext c, String meal) {
     final p = P.of(c);
     Future<void> log(
@@ -1072,6 +1107,21 @@ class _NutritionDayViewState extends State<NutritionDayView>
       );
     }
 
+    if (bigText(c))
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Log again', style: F.body.copyWith(color: p.ink)),
+          for (final r in _recent)
+            TextButton.icon(
+              onPressed: () => log(r),
+              icon: const Icon(LucideIcons.plus),
+              label: Text(
+                '${r.def['label']} · ${portionText(r.amount, r.unit)}',
+              ),
+            ),
+        ],
+      );
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Column(
@@ -1269,7 +1319,6 @@ class _NutritionDayViewState extends State<NutritionDayView>
             if (mounted) await _changed();
           },
         ),
-        const SizedBox(height: S.x3),
         // Build 88 (mock `3-food`): the meals as rows of one panel, the day's
         // completion line closing it, and log-again under it.
         Surface(
@@ -1288,6 +1337,14 @@ class _NutritionDayViewState extends State<NutritionDayView>
             ],
           ),
         ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => _copyDay(c),
+            icon: const Icon(LucideIcons.copy, size: 16),
+            label: const Text('Copy a day'),
+          ),
+        ),
         if (_recent.isNotEmpty) ...[
           const SizedBox(height: S.x2),
           _logAgain(c, addTo),
@@ -1300,6 +1357,14 @@ class _NutritionDayViewState extends State<NutritionDayView>
             compact: true,
           ),
         ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => openProgress(c, ProgressDest.food),
+            icon: const Icon(LucideIcons.trendingUp, size: 16),
+            label: const Text('Food progress'),
+          ),
+        ),
       ],
     );
   }
@@ -1417,37 +1482,47 @@ class CalorieCard extends StatelessWidget {
           : '${floor ? 'At least ' : ''}${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance${soFar ? ' so far' : ''}',
     ];
     return Surface(
-      pad: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x3),
+      pad: const EdgeInsets.fromLTRB(S.x5, S.x3, S.x5, S.x2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: S.x3,
             children: [
-              Expanded(
-                child: Pressable(
-                  onTap: onTap,
-                  semanticLabel: 'Daily food totals',
-                  child: _CalorieHero(
-                    eaten: eatenText,
-                    goal: hasGoal ? thousands(g) : null,
-                    side: sideValue,
-                    sideWord: sideWord,
-                    label: heroLabel,
-                    lines: heroLines,
-                    status: status,
-                    over: over,
-                    frac: !hasGoal || food == null ? null : food / g,
-                  ),
+              Text(
+                heroLabel,
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               if (onAdd != null)
-                IconButton(
-                  tooltip: addLabel ?? 'Add food',
+                TextButton.icon(
                   onPressed: onAdd,
-                  icon: Icon(LucideIcons.plus, color: p.on(C.food)),
+                  icon: const Icon(LucideIcons.plus, size: 18),
+                  label: Text(
+                    'Add food',
+                    style: F.cap.copyWith(color: p.on(C.food)),
+                  ),
                 ),
             ],
+          ),
+          Pressable(
+            onTap: onTap,
+            semanticLabel: 'View food for the day',
+            child: _CalorieHero(
+              eaten: eatenText,
+              goal: hasGoal ? thousands(g) : null,
+              side: sideValue,
+              sideWord: sideWord,
+              label: heroLabel,
+              lines: heroLines,
+              status: status,
+              over: over,
+              frac: !hasGoal || food == null ? null : food / g,
+            ),
           ),
           if (day case final d?) ...[
             Divider(color: p.line, height: 1),
@@ -1499,66 +1574,64 @@ class _CalorieHero extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final warn = status == IntakeStatus.aboveMaintenance;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(label.toUpperCase(), style: F.label.copyWith(color: p.ink2)),
-        const SizedBox(height: S.x2),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+    Widget amount(String name, String? value, {String? sub, Color? color}) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: eaten ?? '—',
-                      style: F.n34.copyWith(
-                        color: eaten == null ? p.on(C.alert) : p.ink,
-                      ),
-                    ),
-                    TextSpan(
-                      text: goal == null ? ' kcal' : ' / $goal kcal',
-                      style: F.body.copyWith(
-                        color: p.ink2,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+            Text(name, style: F.cap.copyWith(color: p.ink2)),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Text(
+                value ?? 'Not logged',
+                softWrap: false,
+                style: (value == null ? F.body : F.n34).copyWith(
+                  color: color ?? p.ink,
                 ),
               ),
             ),
-            if (side != null) ...[
-              const SizedBox(width: S.x3),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    side!,
-                    style: F.n34.copyWith(color: p.on(over ? C.alert : C.food)),
-                  ),
-                  Text(
-                    sideWord,
-                    style: F.cap.copyWith(
-                      color: p.ink2,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            if (sub != null) Text(sub, style: F.cap.copyWith(color: p.ink2)),
           ],
-        ),
+        );
+    final eatenColumn = amount(
+      'Eaten',
+      eaten,
+      sub: goal == null ? 'No intake goal' : 'Goal $goal kcal',
+    );
+    final leftColumn = side == null
+        ? null
+        : amount(
+            sideWord,
+            side,
+            color: p.on(over ? C.alert : C.food),
+            sub: 'kcal',
+          );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (bigText(c)) ...[
+          eatenColumn,
+          if (leftColumn != null) ...[const SizedBox(height: S.x2), leftColumn],
+        ] else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: eatenColumn),
+              if (leftColumn != null) ...[
+                const SizedBox(width: S.x3),
+                Expanded(child: leftColumn),
+              ],
+            ],
+          ),
         if (frac case final f?) ...[
-          const SizedBox(height: S.x3),
-          GoalBar(f, color: p.on(C.food), height: 12),
+          const SizedBox(height: S.x2),
+          GoalBar(f, color: p.on(C.food), height: 6),
         ],
-        const SizedBox(height: S.x3),
+        const SizedBox(height: S.x2),
         Text(
           lines.last,
           style: F.cap.copyWith(color: warn ? p.on(C.red) : p.ink2),
         ),
-        const SizedBox(height: S.x3),
+        const SizedBox(height: S.x2),
       ],
     );
   }
@@ -1584,29 +1657,73 @@ class _Macros extends StatelessWidget {
       ('Fat', day.fat, _targetOf(profile, 'fat_target')),
       ('Fibre', day.fibre, _targetOf(profile, 'fibre_target')),
     ];
+    Widget macro(int i) {
+      final (name, total, target) = rows[i];
+      final value = total.value == null
+          ? 'Not logged'
+          : '${total.isFloor ? '≥' : ''}${total.value!.round()}';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name, style: F.cap.copyWith(color: p.ink2)),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x1,
+            children: [
+              Text(
+                value,
+                softWrap: false,
+                style:
+                    (total.value == null
+                            ? F.cap
+                            : i == 0
+                            ? F.n24
+                            : F.n17)
+                        .copyWith(color: p.ink),
+              ),
+              if (total.value != null)
+                Text('g', style: F.over.copyWith(color: p.ink3)),
+            ],
+          ),
+          if (target != null && target > 0)
+            Text(
+              'of ${thousands(target)} g',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+          if (target != null && target > 0 && total.value != null) ...[
+            const SizedBox(height: S.x1),
+            GoalBar(total.value! / target, color: p.on(C.food), height: 3),
+          ],
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final (name, total, target) in rows) ...[
-          MetricLine(
-            label: name,
-            color: C.food,
-            value: total.value == null
-                ? null
-                : '${total.isFloor ? '≥' : ''}${total.value!.round()}',
-            unit: target == null ? 'g' : '/${target.round()} g',
-            progress: target == null || target <= 0
-                ? 0
-                : (total.value ?? 0) / target,
-            absentWhy: total.value == null ? 'not logged' : null,
-          ),
-          Divider(color: p.line, height: 1),
-        ],
         const SizedBox(height: S.x2),
-        Text(
-          'Logged macros only · blank values are not tracked',
-          style: F.over.copyWith(color: p.ink3),
-        ),
+        if (bigText(c)) ...[
+          for (var i = 0; i < rows.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: S.x2),
+              child: macro(i),
+            ),
+        ] else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0) const SizedBox(width: S.x2),
+                Expanded(child: macro(i)),
+              ],
+            ],
+          ),
+        const SizedBox(height: S.x2),
+        if (rows.any((r) => r.$2.isFloor))
+          Text(
+            '≥ means a partial total',
+            style: F.over.copyWith(color: p.ink3),
+          ),
       ],
     );
   }

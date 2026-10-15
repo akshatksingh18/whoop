@@ -813,6 +813,12 @@ cancellation or failure; share copy does not claim delivery when the result is u
 Database, encrypted media backup and analysis descriptions state restore support/photo contents;
 automatic backups explicitly do not survive container loss. Synthetic checks pass; native share,
 restore, photo-count and Food phone acceptance remain open.
+Build 90 Food source compacts the calorie/macro summary without hiding nutrients, removes
+repeated singleton meal totals, labels week marks, adapts numeric/action layouts to large
+text and adds reviewed whole-day copying. Copying is atomic and only the explicit Log action
+writes. Past-date Quick add already used meal-clock defaults in the base; the added test
+pins that behavior alongside the new separate logging timestamp. Common bottom-tab labels
+still split at accessibility sizes in the Codex checkout; `app_shell.dart` is Claude-owned.
 
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired in Build 88: explicit completion only (D13), subsequently extended by Build 89 automatic counting with manual overrides; "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
 

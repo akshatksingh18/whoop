@@ -23,14 +23,15 @@ names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rat
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
 (`todo.md` Build 89). Build 88 was the previous install. Akshat wants Build 89 as recovery after
 the whole-app review; Build 70 remains cached recovery until that promotion. Build 90
-(`0.9.57`/`90`, algorithm 95, schema 50) contains the engine/data work, approved research,
-reviewed Progress/Body/Lift workflows and A overall with B's whole calorie/macro card. Codex
-has combined the integrated `build-90` state (`e7af786e`) with its B-ring correction (`c8ddfb73`)
-on `build-90-codex`. Akshat approved the six follow-up presentation choices and explicit UI
-fixes, now implemented along with the latest-real-reading HR scrub boundary. Checks and the
-remaining full-page review are in `todo.md` and
-`build-90-audit.md`. Claude retains privacy review, cloud checks, integration and release
-packaging. No Build 90 IPA is built or installed; local synthetic renders establish no phone
+(`0.9.57`/`90`, algorithm 96, schema 50) contains the engine/data work, approved research,
+reviewed Progress/Body/Lift workflows and A overall with B's whole calorie/macro card, all on
+`build-90`. Akshat's calorie decisions are in source: running Budget 0.17 mL/kg/m, Keytel
+priced only inside its fitted heart-rate range, and stored workout calories that are the
+active figure the screens show (`sessions.calories_basis`, with a selective repair of older
+rows). The remaining Build 90 UI audit items are fixed. Claude now carries all remaining Build 90
+work (Codex is no longer needed). Two additions wait on Akshat's pick of the mockups: a recovery
+explanation with a labelled recent HRV trend, and "left after this" on the food amount sheet.
+`todo.md` and `build-90-audit.md` own checks and the full-page review. No Build 90 IPA is built or installed; local synthetic renders establish no phone
 acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -257,7 +258,8 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 - `energy-recovery-independent-review.md` — requested independent verification of calorie and
   recovery research against the current source and additional primary evidence; reproduced
   gross/net persistence and HR/MET selector issues, qualified recommendations and approval gates.
-  Research only: these recommendations have not changed app formulas.
+  Akshat accepted running 0.17 and both calorie repairs (implemented, algorithm 96) and kept the
+  recovery formula; read before any further energy or recovery change.
 - `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; implemented in Build 90
   source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
 - `todo.md` — Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),

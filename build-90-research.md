@@ -802,8 +802,9 @@ Recommendations, revised after Codex's independent review
    movement and lifting by design) and must be labelled so; the weight-trend estimate is the
    realistic total once enough weigh-ins exist.
 2. **Running Budget coefficient to 0.17 mL/kg/m** (from 0.143); the Movement estimate stays
-   ACSM's 0.2. Akshat's approval.
-3. **Two correctness bugs (Codex reproduced; the first confirmed in source):**
+   ACSM's 0.2. Accepted by Akshat; implemented (algorithm 96).
+3. **Two correctness bugs (Codex reproduced; both repaired in Build 90 source, algorithm 96,
+   see `bugs.md`):**
    - `otherWorkoutActiveKcal` returns the MET value when net Keytel ≤ 0 but the smaller of the
      two as soon as Keytel is barely positive, so a tiny heart-rate change can collapse a
      session to near zero. It needs a validity rule (Keytel only inside its fitted intensity

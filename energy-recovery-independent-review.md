@@ -1,7 +1,9 @@
 # Independent energy and recovery review
 
-**Status:** Research and source audit complete; recommendations only. No app formula, stored
-metric, algorithm version, dependency or release changed. Source examined: `9170201b` on
+**Status:** Research and source audit complete. Akshat accepted running 0.17 and both calorie
+repairs (implemented in Build 90 source, algorithm 96, `bugs.md`) and kept the recovery formula,
+adding an explanation and a labelled HRV trend (pending his mockup pick). The text below is the
+review as written. Source examined: `9170201b` on
 `build-90-codex`, algorithm 95. Evidence checked 2026-10-15. The user's explicit request for an
 independent second review supersedes the first pass's single-researcher restriction for this task.
 

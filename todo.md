@@ -36,9 +36,10 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 ## Build 90 (`0.9.57`/`90`): All Work Merged, Visual Review Then Release
 
 **State:** the Claude lane, the Codex engine/data lane and the calm interface Akshat selected
-(A overall with B's compact macro rows, built by Codex after he assigned it the whole UI) are
-merged on `build-90` (version `0.9.57+90`, algorithm 95, schema 50); no Build 90 IPA is built
-or installed. Akshat chose to ship the whole backlog in `build-90-audit.md` ("Complete
+(A overall with B's compact macro rows, built by Codex) are merged on `build-90` (version
+`0.9.57+90`, algorithm 96, schema 50), with Akshat's calorie decisions (D8) and the remaining
+UI audit fixes; no Build 90 IPA is built or installed. Claude now carries every remaining
+Build 90 step, including UI (Akshat: Codex is not needed from here). Akshat chose to ship the whole backlog in `build-90-audit.md` ("Complete
 App-Wide Worklist") in this one build, including the full engine depth, plus a home bodyweight
 workout (`home-workout-proposal.md`). Claude integrates, pushes and runs every GitHub check.
 Next: Akshat's visual approval of the merged pages, the full cloud run, then the release phase.
@@ -60,8 +61,15 @@ Local synthetic checks do not establish native iPhone acceptance.
   strain baseline) is summarised for Akshat's per-item approval before it merges; findings
   that need phone measurements ship instrumentation and a safe default.
   Akshat subsequently requested Codex's independent internet review of calories and recovery;
-  this explicit exception is recorded in `energy-recovery-independent-review.md`. Its new
-  recommendations are research only, not additional formula approval.
+  this explicit exception is recorded in `energy-recovery-independent-review.md`. Its
+  recommendations became decisions only through D8.
+- D8 Calories and recovery (Akshat, after both reviews): running Budget 0.17 mL/kg/m; fix the
+  Keytel validity cliff and make stored workout calories the shown active figure, repairing
+  older rows only where inputs and method are known (never invented height, never blind
+  resting subtraction; unresolved rows kept and marked). Recovery's formula stays; add a
+  driver explanation, a labelled recent HRV trend, "Unavailable, not counted" for missing
+  inputs and one nightly HRV estimator/window shared with the HRV page; revisit at 28 nights.
+  Engine part implemented (`0db6da6e`, algorithm 96); the recovery UI waits on the mockup pick.
 - D4 Food counting (B90-10): each counted day keeps the calorie goal it was judged against;
   days before Build 90 freeze at the goal on Build 90's first open (no older goal history
   exists). Manual marks win; "Counted automatically" is labelled apart from "Marked complete".
@@ -184,7 +192,7 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   entry looks disabled; Body's average-weight card is cramped and milestones show 2-decimal
   inches; context shows recovery as "72%"; the Recovery page is titled Readiness; Sleep says
   no hypnogram while listing stages and leaves Fix sleep times outside a card.
-- [ ] Recovery sensitivity (Akshat's Build 89 phone, reported in review; decision open):
+- [x] Recovery sensitivity (Akshat's Build 89 phone; decided in D8, UI in 2g):
   one night's HRV, below every night in the 14-night repaired-HRV baseline while the other
   inputs were normal, scored recovery in the high 20s ("Take it easy"). The cause is in the
   formula, not a calculation fault: the HRV input is a robust z against only 14 nights with
@@ -199,6 +207,26 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   Keytel and digestion verified at the low end; the running Budget coefficient and the
   day total sit below realistic, with an awake-time cost and 0.17 mL/kg/m proposed). Each
   headline change waits for Akshat's choice.
+- [x] 2e. D8 engine: 0.17, Keytel range, active stored calories with `calories_basis`, once-
+  per-launch selective repair, active-only gap credit, MET table pinned to the catalogue
+  (`0db6da6e`). Cloud run 38809054930: analysis clean, every engine test passed; the 7
+  failures were calm-UI test breaks, fixed in `41535f28`.
+- [x] 2f. UI audit leftovers (`41535f28`): segmented controls fill their track; Unavailable
+  energy in quiet text; one Train week rule; no empty Pushups bar before start; Recovery
+  title/copy; body-colour Add body entry; one-line Trends kicker; unknown intake said once;
+  Food tightened so the first meal clears the tab bar at 1.0x; tile hero sizes are tokens.
+  Single-item meals keep calories only in the meal heading (Codex's deliberate de-duplication).
+- [ ] 2g. Mockups for Akshat's pick (design canvas, `RecoveryWhy` and `FoodFit` boards):
+  - Recovery explanation: A (rows with value vs usual and the points each input moved the
+    score) or B (waterfall from a typical night to the score), both with a labelled recent
+    HRV card (usual range, 7-night average). Also fixes the "About usual" bug: the composite
+    breakdown hard-codes `past_mdc: false`, so every measured input reads "About usual".
+    Needs the HRV page on the same `ln_rmssd_v2` 28-night window.
+  - Food amount sheet "left after this" (Akshat's new request: no more manual
+    goal − eaten − this-food arithmetic): A (calories and protein left after this, live as
+    the amount changes, with an eaten/this/left bar) or B (A plus a "Fit what's left" chip
+    that sets the amount using up the remaining calories). Covers add, meal and edit sheets;
+    an edited entry counts once.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90

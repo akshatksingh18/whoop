@@ -53,10 +53,18 @@ assuming correct):**
 range-loss cases. If the iPhone path fails, fix that path or surface an honest recovery prompt.
 Do not reopen or patch the Android-specific hypotheses above as part of the iPhone work.
 
-## Calorie semantics and HR/MET fallback (open; independently reproduced)
+## Calorie semantics and HR/MET fallback (repaired in Build 90 source, algorithm 96)
 
-Source examined: `9170201b`, algorithm 95. Research and recommended decisions live in
-`energy-recovery-independent-review.md`; no calculation repair is implemented by that review.
+Found by Codex's independent review of `9170201b` (algorithm 95,
+`energy-recovery-independent-review.md`); Akshat approved both repairs. **Repair (`0db6da6e`):**
+`computeManualSessionStats` stores `sessionActiveKcal` (the shown method) instead of the legacy
+bout scorer; every save path tags `sessions.calories_basis`; a non-active stored figure no
+longer competes in the re-score's max rule; `repairSessionCalorieBasis` recalculates older own
+rows only where the shown inputs exist and keeps the rest as `legacy`; the Active Energy
+workout-gap credit counts `active` rows only. `otherWorkoutActiveKcal` lets heart rate compete
+only at or above 57% of Tanaka HRmax. Regressions: `manual_session_test.dart` (Build 90 groups),
+`build90_calorie_basis_repair_test.dart`, `daily_energy_consistency_test.dart`. What the review
+reproduced:
 
 - **Stored workout gross/net mismatch:** `computeManualSessionStats` calls
   `Calories.estimateBoutCalories`, which includes resting energy below its activity threshold

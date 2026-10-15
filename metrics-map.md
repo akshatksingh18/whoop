@@ -386,9 +386,12 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + di
   J/kg per stride at economical walking speeds; a stride is two steps and 8,368 is 2 × 4,184.
   It is not a universal per-step mechanical minimum. `build-74-audit.md` owns the source limits
   and comparison/wording contract; no Budget coefficient or resting subtraction changed.
-- **Running (Method 1, the accepted distance estimate):** 0.005 × kg × (0.143 × metres run + 0.1 × metres
+- **Running (Method 1, the accepted distance estimate):** 0.005 × kg × (0.17 × metres run + 0.1 × metres
   walked inside the run + 0.9 × metres climbed). This is Akshat's four steps folded together (speed ×
-  time = distance, speed × incline × time = climb, 0.3 ÷ 60 = 0.005). `runFloorKcal`.
+  time = distance, speed × incline × time = climb, 0.3 ÷ 60 = 0.005). `runFloorKcal`,
+  `kRunO2PerMeter`. 0.17 (0.85 kcal/kg/km) from Build 90, Akshat's decision (0.143 before): a
+  conservative budgeting calibration below the measured level-running means, not a personal
+  constant (`build-90-research.md` K, `energy-recovery-independent-review.md`).
   - Running vs walking inside a run: by GPS speed over ±15 s, 2.0 m/s and up is running, below it
     walking (ACSM walking cost 0.1, so a walk break never counts as running), below 0.5 m/s
     standing (nothing). Without GPS, from the phone per minute: 140 steps/min and up is running.
@@ -509,7 +512,7 @@ an additional statistical confidence claim.
   Metric prefills and food quantity/nutrient editors retain all supplied decimals.
   Sub-minute movement allocation from older minute-level records remains proportional; the
   app cannot reconstruct an exact step timestamp that was never recorded.
-- **Main workout UI calories (build 85, `sessionActiveKcal`):** strength sessions
+- **Workout calories, one number shown and stored (`sessionActiveKcal`):** strength sessions
   are (MET − 1) × kg × active hours (3.5 MET weight training, the lowest resistance-training
   Compendium value; heart rate shown as context, never priced, because it overstates lifting and
   Keytel's 57-90% HRmax range does not cover a lifting session's average). Sets and rests are
@@ -517,18 +520,22 @@ an additional statistical confidence claim.
   15-second set. 60 active minutes at 80.5 kg = 201.25 kcal; 30 min = 100.6. The setup preview,
   live screen, summary, Train list and maintenance Lifting line all call it, at the session's
   recorded (else dated) weight over active time (start to stop minus pauses). Other non-step
-  sessions keep the lower of net Keytel and (MET − 1) × kg × h. All remain
+  sessions keep the lower of net Keytel and (MET − 1) × kg × h, but heart rate competes only
+  at or above 57% of the Tanaka HRmax (Keytel's fitted range, `kKeytelMinHrMaxFraction`);
+  below it, or with no age, the MET estimate stands (Build 90: no near-zero cliff). All remain
   excluded from this maintenance budget. Treadmill, track intervals, sprinting and hurdles are
   running (distance method, phone motion distance without GPS; best efforts GPS-only).
   Stored daily HR/cadence `calories` and `calories_total` are separate analytics, not Method 1.
-  **Open source discrepancies:** legacy manual/substrate session scoring can persist gross
-  (rest-inclusive) energy in `sessions.calories`, including a 170 cm missing-height assumption,
-  rather than the net estimate recomputed by the main UI. Stored-calorie consumers need a
-  provenance-aware reconciliation; not every historical row has the same meaning. Separately,
-  the other-workout HR/MET selector falls back to MET at zero HR energy but can collapse to
-  almost zero immediately above that boundary. Both are synthetically reproduced, not repaired;
-  see `bugs.md` and `energy-recovery-independent-review.md`. Research recommendations do not
-  change the current 0.143 running coefficient, resting/digestion policy or recovery formula.
+  **Stored workout calories (Build 90, algorithm 96):** every save path stores that same
+  active figure (live stop, manual entry, run/walk Method 1, heart-rate re-score), so
+  `sessions.calories` equals what the screens show; the legacy bout scorer (resting energy,
+  170 cm without a height) no longer writes it. `sessions.calories_basis` says what a stored
+  figure means: `active`, `legacy` (pre-Build 90, could include resting energy, kept as recorded
+  because its inputs are gone) or NULL (not yet examined, or a `whoop`/`cloud` import kept as the
+  vendor reported it). `repairSessionCalorieBasis` runs once per launch: it recalculates older
+  own rows where the shown method's inputs exist and marks the rest `legacy`; nothing is
+  subtracted by guesswork. The Active Energy workout-gap credit counts `active` rows only.
+  Resting/digestion policy and the recovery formula are unchanged.
 
 **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →
 Steps** is on; HealthKit stays excluded from the personal build.

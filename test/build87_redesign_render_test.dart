@@ -1511,18 +1511,30 @@ void main() {
         await t.pumpWidget(_app(app, build(), scale, domain));
         await _settle(t);
         expect(t.takeException(), isNull);
-        if(name == 'food' && width == 390 && scale == 1) {
-          expect(t.getTopLeft(find.text('Breakfast').first).dy,lessThan(height-90),
-            reason:'The first meal must be visible above the tab bar at ordinary phone text.');
+        if (name == 'food' && width == 390 && scale == 1) {
+          expect(
+            t.getTopLeft(find.text('Breakfast').first).dy,
+            lessThan(height - 90),
+            reason:
+                'The first meal must be visible above the tab bar at ordinary phone text.',
+          );
         }
-        await _capture(t, name == 'food' ? 'b90_codex_food_$tag' : 'b87_${name}_$tag');
+        await _capture(
+          t,
+          name == 'food' ? 'b90_codex_food_$tag' : 'b87_${name}_$tag',
+        );
         final scroll = find.byType(Scrollable).first;
         for (var i = 0; i < 4; i++) {
           await t.drag(scroll, const Offset(0, -500));
           await _settle(t);
           expect(t.takeException(), isNull);
         }
-        await _capture(t, name == 'food' ? 'b90_codex_food_${tag}_lower' : 'b87_${name}_${tag}_lower');
+        await _capture(
+          t,
+          name == 'food'
+              ? 'b90_codex_food_${tag}_lower'
+              : 'b87_${name}_${tag}_lower',
+        );
         await t.pumpWidget(const SizedBox.shrink());
         await _settle(t);
       });

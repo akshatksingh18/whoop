@@ -389,8 +389,8 @@ void main() {
     await ctrl.close();
   });
 
-  test('currentSpeedMps falls back to a fix-to-fix derivation when the '
-      'platform reports none', () async {
+  test('currentSpeedMps stays absent when the platform reports no speed '
+      '(Build 90: position differences cannot stand in for it)', () async {
     final ctrl = StreamController<GpsSample>();
     final t = RouteTracker(sink: (_) async {}, batchSize: 100);
     t.start(ctrl.stream);
@@ -400,8 +400,8 @@ void main() {
     ctrl.add(_fix(1, stepMeters: 40)); // 20 m in 1 s ≈ 20 m/s
     await pumpEventQueue();
 
-    expect(t.currentSpeedMps.value, isNotNull);
-    expect(t.currentSpeedMps.value!, greaterThan(0));
+    expect(t.currentSpeedMps.value, isNull);
+    expect(t.freshSpeedMps(1000), isNull);
 
     await t.stop();
     await ctrl.close();
@@ -734,25 +734,36 @@ void main() {
   });
 
   group('current speed is fresh, accuracy-qualified and stops when you do', () {
-    test('a stationary fix updates speed instead of keeping the walk', () async {
-      final ctrl = StreamController<GpsSample>();
-      final t = RouteTracker(sink: (_) async {});
-      t.start(ctrl.stream);
-      ctrl.add(_fix(0, speed: 1.4));
-      ctrl.add(_fix(1, speed: 1.4));
-      await pumpEventQueue();
-      final walking = t.freshSpeedMps(1000)!;
-      expect(walking, greaterThan(1.0));
-      // Standing still: the fix is under the noise floor, so no distance,
-      // but the platform's measured near-zero speed is current speed.
-      for (var i = 2; i < 30; i++) {
-        ctrl.add(GpsSample(lat: 0, lng: 20 / _mPerDegLngAtEq, tsMs: i * 1000, speed: 0));
-      }
-      await pumpEventQueue();
-      expect(t.freshSpeedMps(29000)!, lessThan(0.1));
-      await t.stop();
-      await ctrl.close();
-    });
+    test(
+      'a stationary fix updates speed instead of keeping the walk',
+      () async {
+        final ctrl = StreamController<GpsSample>();
+        final t = RouteTracker(sink: (_) async {});
+        t.start(ctrl.stream);
+        ctrl.add(_fix(0, speed: 1.4));
+        ctrl.add(_fix(1, speed: 1.4));
+        await pumpEventQueue();
+        final walking = t.freshSpeedMps(1000)!;
+        expect(walking, greaterThan(1.0));
+        // Standing still: the fix is under the noise floor, so no distance,
+        // but the platform's measured near-zero speed is current speed.
+        for (var i = 2; i < 30; i++) {
+          ctrl.add(
+            GpsSample(
+              lat: 0,
+              lng: 20 / _mPerDegLngAtEq,
+              tsMs: i * 1000,
+              speed: 0,
+              speedAccuracy: 0.5,
+            ),
+          );
+        }
+        await pumpEventQueue();
+        expect(t.freshSpeedMps(29000)!, lessThan(0.1));
+        await t.stop();
+        await ctrl.close();
+      },
+    );
 
     test('an old reading is not current speed', () async {
       final ctrl = StreamController<GpsSample>();

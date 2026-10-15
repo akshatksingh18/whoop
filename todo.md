@@ -33,13 +33,14 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 90 (`0.9.57`/`90`): Plan Decided, Awaiting Final Go-Ahead
+## Build 90 (`0.9.57`/`90`): Both Lanes Merged, Cloud Checks Then Release
 
-**State:** planning only; no Build 90 code exists. Akshat chose to ship the whole backlog in
-`build-90-audit.md` ("Complete App-Wide Worklist") in this one build, including the full engine
-depth, plus a home bodyweight workout (`home-workout-proposal.md`). Work is split between two
-agents in two lanes that never edit the same file; Claude integrates, pushes and runs every
-GitHub check. Implementation starts on Akshat's go-ahead for this plan.
+**State:** both lanes are implemented and merged on `build-90` (version `0.9.57+90`,
+algorithm 95, schema 50); no Build 90 IPA is built or installed. Akshat chose to ship the whole
+backlog in `build-90-audit.md` ("Complete App-Wide Worklist") in this one build, including the
+full engine depth, plus a home bodyweight workout (`home-workout-proposal.md`). Work was split
+between two agents in two lanes; Claude integrates, pushes and runs every GitHub check. Next:
+the screenshot review of every changed screen, then the release phase.
 
 ### Decisions (Akshat, Build 89 review)
 
@@ -125,13 +126,19 @@ Only the owner edits a file; the other lane asks through its notes block below.
   maintenance range under 6 weeks, G6 the 10-rep cap). C3: the day's weight is the first
   reading of the day; every reading is kept with its time. Exercise energy stays at the low end of its source and beside maintenance, never
   inside it: lifting and home workouts already use (MET − 1) × weight × time on a separate
-  line. Runs and walks enter maintenance through the step and distance formula; whether
-  that should change is an open question to Akshat. D1's strain form is chosen later by
+  line. Runs and walks stay inside maintenance through the step and distance formula
+  (Akshat: walking is normal daily movement, which that formula was built to include). D1's strain form is chosen later by
   running the app's own functions over the export.
-- [ ] 1. Lanes in parallel, on Akshat's go-ahead. Claude sends the early Progress preview;
-  approved research verdicts are implemented in the engine lane.
-- [ ] 2. Merge (Claude): Codex lane, then Claude lane; `0.9.57+90`; one `kAlgoVersion`
-  decision with its changelog; full GitHub tests; screenshot review of every changed screen.
+- [x] 1. Lanes in parallel: Claude lane on `build-90-claude`, Codex lane on
+  `build-90-codex` (both lane notes below); the early Progress preview was sent.
+- [x] 2a. Merge (Claude): Codex's commits privacy-reviewed, then Codex lane and Claude lane
+  merged into `build-90`; `0.9.57+90`; one `kAlgoVersion` bump (94 → 95, Codex's combined
+  changelog). Integration: Today's clock labels read the recorded zone, LiveFeed takes the
+  movement estimate and speed uncertainty, session writes publish once from the repository.
+  The first merged analysis found five test-file nullability errors from the optical change
+  and three unused imports; fixed.
+- [ ] 2b. Full GitHub tests on the merged branch; screenshot review of every changed screen
+  with Akshat (including the 2x/3.1x tab bar over Food).
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
@@ -320,9 +327,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   time are unchanged after the read. The comparison and local review stay only in ignored
   `build/research-local/strain-comparison.json` and `strain-comparison-review.md`; no private
   values or dates are copied here. The strain formula is unchanged.
-  Research question for Claude: D1 describes a measured quiet reference with a fallback, while
-  current engine/pipeline calls use fixed `quietWakingHrr`. Resolve that discrepancy before
-  interpreting or approving an alternate formula. No invented quiet-day labels: a date without
+  D1 research discrepancy resolved: the shipped code uses the fixed `quietWakingHrr` 0.20 at
+  every call site (the personal level is not wired in), and `build-90-research.md` now says so.
+  The baseline level is a separate approval-gated choice from the whole-day/per-minute form.
+  A1's quality method (HR/60 expected versus retained count) and the sleep-need clamps are
+  confirmed there too. No invented quiet-day labels: a date without
   a recorded workout is only a quiet candidate, and pruned raw cannot reproduce a full day.
   Synthetic 3-/10-year actual-reader profiling found the Steps chart's per-date measured lookup
   as the dominant Progress cost. Food month/day and session readers did not justify caps.

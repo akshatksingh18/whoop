@@ -972,7 +972,8 @@ class _TodayPanel extends StatelessWidget {
                 if (hrv != null) 'HRV ${hrv.round()} ms',
                 // The lowest 30-minute average while asleep (nocturnal resting
                 // HR), not an awake seated reading, which runs higher.
-                if (rhr != null) 'resting HR ${rhr.round()} asleep',
+                // Non-breaking spaces keep the phrase on one line.
+                if (rhr != null) 'resting HR ${rhr.round()} asleep',
               ].join(' · '),
             ],
     );

@@ -713,11 +713,9 @@ void main() {
       await until(t, () => find.text('Updating steps…').evaluate().isEmpty);
       expect(find.textContaining('6,500'), findsWidgets);
       expect(find.textContaining('5,000'), findsNothing);
-      await until(
-        t,
-        () => find.textContaining('171 kcal').evaluate().isNotEmpty,
-      );
-      expect(find.textContaining('132 kcal'), findsNothing);
+      // Build 90's EnergyComparison sets the number and its unit apart.
+      await until(t, () => find.text('171').evaluate().isNotEmpty);
+      expect(find.text('132'), findsNothing);
       await capture(t, 'build73-inline-steps');
       final previous = find.byWidgetPredicate(
         (w) => w is Pressable && w.semanticLabel == 'Previous day',
@@ -767,10 +765,12 @@ void main() {
       expect(t.widget<MetricDetail>(find.byType(MetricDetail)).range, 1);
       expect(find.text('steps', findRichText: true), findsNothing);
       await t.tap(
-        find.descendant(
-          of: find.byType(MetricDetail),
-          matching: find.text('Today'),
-        ).first,
+        find
+            .descendant(
+              of: find.byType(MetricDetail),
+              matching: find.text('Today'),
+            )
+            .first,
       );
       await t.pump(const Duration(seconds: 1));
       await until(

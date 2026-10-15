@@ -20,7 +20,8 @@ import 'package:openstrap_edge/ui2/screens/journal_compose.dart'
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 import 'package:openstrap_edge/ui2/grammar.dart' show InputSheet;
-import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart' show CalorieCard;
+import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart'
+    show CalorieCard;
 
 FoodEntry _entry(String id, String food, {String group = '', int at = 0}) =>
     FoodEntry(
@@ -109,9 +110,11 @@ void main() {
       expect(foodMeasures({'measures_json': 'nope'}), isEmpty);
       expect(foodMeasures({'measures_json': ''}), isEmpty);
       expect(
-        myFoodDef(key: 'k', label: 'x', refGrams: 1).containsKey(
-          'measures_json',
-        ),
+        myFoodDef(
+          key: 'k',
+          label: 'x',
+          refGrams: 1,
+        ).containsKey('measures_json'),
         isFalse,
         reason: 'an edit without measures keeps the saved ones',
       );
@@ -232,28 +235,30 @@ void main() {
         );
         expect(n, 2, reason: 'the unticked sausage is left out');
         final es = await NutritionDb.entriesForDay(db, '2026-10-07');
-        expect({for (final e in es) e.label: e.group}, {
-          'eggs': 'Eggs and Sausage',
-          'oats': 'Oatmeal',
-        });
+        expect(
+          {for (final e in es) e.label: e.group},
+          {'eggs': 'Eggs and Sausage', 'oats': 'Oatmeal'},
+        );
         expect(es.firstWhere((e) => e.label == 'eggs').quantity, 4);
         expect(es.firstWhere((e) => e.label == 'eggs').kcal, 280);
       },
     );
 
-    test('an old saved meal without sub-headings still files under its name',
-        () async {
-      await NutritionDb.putFoodDef(db, food('oats'));
-      final old = MealTemplate.fromRow({
-        'key': 'old',
-        'label': 'Usual',
-        'meal': 'breakfast',
-        'items_json': '[{"food":"my:oats","g":1,"unit":"serving"}]',
-      });
-      await MyFoods.logMeal(db, old, '2026-10-07', 'breakfast');
-      final es = await NutritionDb.entriesForDay(db, '2026-10-07');
-      expect(es.single.group, 'Usual');
-    });
+    test(
+      'an old saved meal without sub-headings still files under its name',
+      () async {
+        await NutritionDb.putFoodDef(db, food('oats'));
+        final old = MealTemplate.fromRow({
+          'key': 'old',
+          'label': 'Usual',
+          'meal': 'breakfast',
+          'items_json': '[{"food":"my:oats","g":1,"unit":"serving"}]',
+        });
+        await MyFoods.logMeal(db, old, '2026-10-07', 'breakfast');
+        final es = await NutritionDb.entriesForDay(db, '2026-10-07');
+        expect(es.single.group, 'Usual');
+      },
+    );
 
     test('a dragged entry order survives later edits of an entry', () async {
       for (final (i, id) in ['p', 'q', 'r'].indexed) {
@@ -262,52 +267,57 @@ void main() {
       await NutritionDb.reorderEntries(db, ['r', 'p', 'q']);
       final es = await NutritionDb.entriesForDay(db, '2026-10-06');
       expect([for (final e in es) e.id], ['r', 'p', 'q']);
-      await NutritionDb.put(db, es.firstWhere((e) => e.id == 'p').atQuantity(2));
+      await NutritionDb.put(
+        db,
+        es.firstWhere((e) => e.id == 'p').atQuantity(2),
+      );
       final again = await NutritionDb.entriesForDay(db, '2026-10-06');
       expect([for (final e in again) e.id], ['r', 'p', 'q']);
     });
   });
 
-  test('the first open seeds positions from the order shown until now',
-      () async {
-    sqfliteFfiInit();
-    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
-    await createNutritionTables(db);
-    // Back to the build-74 shape: no position column yet.
-    await db.execute('ALTER TABLE food_def DROP COLUMN pos');
-    await db.execute('ALTER TABLE meal_template DROP COLUMN pos');
-    for (final k in ['never', 'old', 'recent']) {
-      await db.insert('food_def', {'key': k, 'label': k, 'created_at': 0});
-    }
-    for (final (k, t) in [('old', 1), ('recent', 2)]) {
-      await db.insert('food_entry', {
-        'id': k,
-        'date': '2026-10-01',
-        'meal': 'lunch',
-        'food_key': k,
-        'label': k,
-        'created_at': t,
-        'updated_at': t,
-      });
-    }
-    for (final k in ['b', 'a']) {
-      await db.insert('meal_template', {
-        'key': k,
-        'label': k,
-        'meal': 'lunch',
-        'items_json': '[]',
-        'created_at': 0,
-      });
-    }
-    await createNutritionTables(db);
-    expect(
-      [for (final r in await db.query('food_def', orderBy: 'pos')) r['key']],
-      ['recent', 'old', 'never'],
-      reason: 'most recently eaten first, exactly as the list showed before',
-    );
-    expect([for (final m in await MyFoods.meals(db)) m.key], ['a', 'b']);
-    await db.close();
-  });
+  test(
+    'the first open seeds positions from the order shown until now',
+    () async {
+      sqfliteFfiInit();
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      await createNutritionTables(db);
+      // Back to the build-74 shape: no position column yet.
+      await db.execute('ALTER TABLE food_def DROP COLUMN pos');
+      await db.execute('ALTER TABLE meal_template DROP COLUMN pos');
+      for (final k in ['never', 'old', 'recent']) {
+        await db.insert('food_def', {'key': k, 'label': k, 'created_at': 0});
+      }
+      for (final (k, t) in [('old', 1), ('recent', 2)]) {
+        await db.insert('food_entry', {
+          'id': k,
+          'date': '2026-10-01',
+          'meal': 'lunch',
+          'food_key': k,
+          'label': k,
+          'created_at': t,
+          'updated_at': t,
+        });
+      }
+      for (final k in ['b', 'a']) {
+        await db.insert('meal_template', {
+          'key': k,
+          'label': k,
+          'meal': 'lunch',
+          'items_json': '[]',
+          'created_at': 0,
+        });
+      }
+      await createNutritionTables(db);
+      expect(
+        [for (final r in await db.query('food_def', orderBy: 'pos')) r['key']],
+        ['recent', 'old', 'never'],
+        reason: 'most recently eaten first, exactly as the list showed before',
+      );
+      expect([for (final m in await MyFoods.meals(db)) m.key], ['a', 'b']);
+      await db.close();
+    },
+  );
 
   group('build 76 food fixes', () {
     test('stored numbers come back to an edit field without float noise', () {
@@ -432,8 +442,9 @@ void main() {
           home: const Scaffold(body: CalorieCard(eaten: 1475, goal: 2202)),
         ),
       );
-      // Build 89: eaten over the goal, and what is left just as large.
-      expect(find.text('1,475 / 2,202 kcal'), findsOneWidget);
+      // Build 90: eaten and what is left side by side, the goal under eaten.
+      expect(find.text('1,475'), findsOneWidget);
+      expect(find.textContaining('2,202'), findsOneWidget);
       expect(find.text('727'), findsOneWidget);
       expect(find.text('left'), findsOneWidget);
       expect(find.text('Maintenance not available'), findsOneWidget);
@@ -506,7 +517,12 @@ void main() {
     });
 
     test('other workouts take the lower of net HR and net activity', () {
-      const p = Profile(ageYears: 23, weightKg: 80.5, heightCm: 186.69, sex: 'm');
+      const p = Profile(
+        ageYears: 23,
+        weightKg: 80.5,
+        heightCm: 186.69,
+        sex: 'm',
+      );
       // 24 min of weight training at mean HR 130: MET net (3.5 − 1).
       final byMet = 2.5 * 80.5 * 24 / 60;
       final kcal = otherWorkoutActiveKcal(
@@ -526,7 +542,12 @@ void main() {
     });
 
     test('treadmill and track work are running', () {
-      for (final t in ['treadmill', 'track_intervals', 'sprinting', 'running']) {
+      for (final t in [
+        'treadmill',
+        'track_intervals',
+        'sprinting',
+        'running',
+      ]) {
         expect(isRunType(t), isTrue, reason: t);
       }
       expect(isRunType('weight_training'), isFalse);
@@ -648,9 +669,7 @@ void main() {
         await t.pump(const Duration(milliseconds: 50));
       }
       expect(find.byType(FoodEditor), findsNothing, reason: 'saved and closed');
-      final saved = await t.runAsync(
-        () => NutritionDb.foodDef(db, 'my:bites'),
-      );
+      final saved = await t.runAsync(() => NutritionDb.foodDef(db, 'my:bites'));
       return saved;
     }
 
@@ -751,9 +770,7 @@ void main() {
       expect(portionWithWeight(1, 'scoop', def), '1 scoop · 30 g');
     });
 
-    testWidgets('a scanned "6 pieces (85 g)" opens on that serving', (
-      t,
-    ) async {
+    testWidgets('a scanned "6 pieces (85 g)" opens on that serving', (t) async {
       await open(
         t,
         existing: {
@@ -790,18 +807,17 @@ void main() {
   });
 
   group('amount control', () {
-    Future<void> pump(WidgetTester t, Map<String, Object?> def) =>
-        t.pumpWidget(
-          MaterialApp(
-            theme: buildTheme(Brightness.light),
-            home: Scaffold(
-              body: AmountInput(
-                controller: TextEditingController(text: '1'),
-                def: def,
-              ),
-            ),
+    Future<void> pump(WidgetTester t, Map<String, Object?> def) => t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: AmountInput(
+            controller: TextEditingController(text: '1'),
+            def: def,
           ),
-        );
+        ),
+      ),
+    );
 
     testWidgets('a counted food offers 1 to 4, each labelled once', (t) async {
       await pump(t, {'serving_g': 1, 'unit': 'serving'});
@@ -898,9 +914,6 @@ void main() {
         {'event_id': 7, 'ts': 1000},
       ],
     };
-    expect(
-      dayMoments(timeline: timeline, bandEvents: false),
-      isEmpty,
-    );
+    expect(dayMoments(timeline: timeline, bandEvents: false), isEmpty);
   });
 }

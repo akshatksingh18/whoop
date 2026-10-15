@@ -12,10 +12,13 @@ Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (loca
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
 Impeccable reads. Product truth stays in `CLAUDE.md` and `metrics-map.md`.
 
-Build 89 is installed and being tested; Akshat rejects Progress's information overload.
-`build-90-audit.md` proposes a shorter overview and focused detail routes, plus all-tab
-readability/action-access repairs. This is not an accepted replacement contract; the palette
-and tokens remain locked until a selected composition is approved.
+Build 90 source (merged on `build-90`, not yet installed) replaces Progress's single long page
+with Akshat's approved composition: a goal card with one closed-week verdict, its dates and the
+exact missing evidence; Weight, Waist and Strength result rows from the same weeks; a short
+inputs line; and Body, Strength and Food/training/recovery detail pages with a History range.
+Favourable colour marks only supported progress; there is no progress bar on the goal. The
+palette, tokens and kraft/cream panels are unchanged. Build 90 also clamps screen titles to
+Apple's Large Title scaling and keeps tab-bar labels at their size under large text.
 
 ## Direction
 

@@ -7,8 +7,8 @@ restoration and reconnection path on the personal iPhone build.
 
 **Current verification:** Akshat reports build `0.9.56`/`89` installed and being tested; background
 phone acceptance remains open. `build-90-audit.md` owns the current visual/source findings,
-including reproduced export and Reduce Motion defects and proposed repairs; none is fixed by
-the audit. Earlier supplied logs confirm
+including reproduced export and Reduce Motion defects; Build 90 source (merged on `build-90`,
+not yet installed) repairs them (`todo.md` Build 90). Earlier supplied logs confirm
 background transfers can succeed, but long transfer gaps, foreground-only recovery and background
 CPU-limit exits remain. Build 70 remains accepted recovery; `todo.md` owns current acceptance
 gates. The background-sync section below owns the current evidence and source findings.

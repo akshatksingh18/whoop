@@ -4,7 +4,7 @@
 source/version/checksum/ZIP/payload checks pass (`../setup.md`). The personal IPA has no app
 extension from build 81. He wants Build 89 as recovery after the whole-app audit; the cache has
 not been promoted. Current-version enrollment and remaining feature/background/refresh gates
-are in `../todo.md`; `../build-90-audit.md` owns the review and unimplemented next-build proposal.
+are in `../todo.md`; `../build-90-audit.md` owns the review; Build 90 implements it on `build-90` (no IPA yet).
 Earlier Build 86 Sideloadly enrollment is corroborated, but it does not establish Build 89
 enrollment or a natural renewal. SideStore laptop setup is reported; app handover/on-phone renewal
 remain unconfirmed. No refresh ownership or installed identity change is inferred from this report.

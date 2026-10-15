@@ -270,9 +270,10 @@ void main() {
           sleepHr: hr,
           sleepRrTsMs: const [],
           sleepRrMs: const [],
-          // One temp sample every `tempEvery` seconds; 0 is the absent sentinel.
-          sleepSkinTemp: <int>[
-            for (var i = 0; i < n; i++) i % tempEvery == 0 ? 3000 : 0,
+          // One temp sample every `tempEvery` seconds; null is absent
+          // (Build 90: unconfirmed sensor values are blank, not 0).
+          sleepSkinTemp: <int?>[
+            for (var i = 0; i < n; i++) i % tempEvery == 0 ? 3000 : null,
           ],
           sleepJson: {
             'tst_sec': n,

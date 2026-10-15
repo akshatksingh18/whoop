@@ -22,8 +22,10 @@ repairs the nightly HRV his first Build 88 nights exposed, renames everything th
 names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rate-only, reworks
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
 (`todo.md` Build 89). Build 88 was the previous install. Akshat wants Build 89 as recovery after
-the whole-app review; Build 70 remains cached recovery until that promotion. `build-90-audit.md`
-owns the current visual/source audit, reproduced export/navigation defects and proposed next-build scope.
+the whole-app review; Build 70 remains cached recovery until that promotion. Build 90
+(`0.9.57`/`90`, algorithm 95, schema 50) implements the whole `build-90-audit.md` worklist, the
+approved research verdicts and the home workout in two agent lanes, now merged on `build-90`
+(`todo.md` Build 90 owns scope, checks and gates); no Build 90 IPA is built or installed.
 Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -238,18 +240,18 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Files
 - `build-90-audit.md` — current Build 89 all-tab visual/source audit, targeted synthetic evidence,
   reliability findings, complete app-wide repair/verification/enhancement backlog,
-  feature-preserving Progress redesign and next-build options; read before
-  choosing or implementing the next build. Recommendations are not implementation approval.
+  feature-preserving Progress redesign and next-build options. Its worklist is Build 90's
+  scope, implemented on `build-90`; read it for the reasoning behind each item.
 - `build-90-research-prompt.md` — the Build 90 research brief: engine, sleep, time-zone,
   strain, decoder, background and estimate questions, the source standard and the verdict
   format. A prompt, not findings or approval.
 - `build-90-research.md` — the first Build 90 research pass (Claude, the single research
   agent): a verdict, sources and impact for every brief question, the items needing Akshat's
-  approval and the constants with no source. Read before any Build 90 engine change; it is
-  not implementation approval.
-- `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; planned for Build 90,
-  with the source audit and smallest changes in `todo.md`. Read before changing Lift Log for it.
-- `todo.md` — the decided Build 90 plan (lanes, file ownership, phases, home workout audit),
+  approval and the constants with no source. Akshat's accepted verdicts are implemented in
+  Build 90; read it before any further engine change.
+- `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; implemented in Build 90
+  source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
+- `todo.md` — Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,

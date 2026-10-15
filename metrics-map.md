@@ -75,7 +75,7 @@ Build 89 adjusts the shared beat-adjacency tolerance to WHOOP 4 record-stamped t
 `bugs.md` owns defects, `todo.md` owns implemented state and open phone gates, and
 `metrics-accuracy-research.md` preserves the research baseline. These changes do not establish
 physical accuracy or vendor-model parity. `build-88-plan.md` is the originating specification;
-`build-90-audit.md` is the unimplemented next-build proposal.
+`build-90-audit.md` is the worklist Build 90 implements (merged on `build-90`, not yet installed).
 Sleep detection/staging does not consume this field. SpO2 is already refused by the pipeline;
 the decoded red/IR counts are not sufficient for a trustworthy oxygen percentage.
 

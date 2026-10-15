@@ -79,7 +79,7 @@ void main() {
     await LocalDb.close();
   });
 
-  test('ambient_raw: 0 is absence, not a reading', () async {
+  test('ambient_raw: an unconfirmed block is absence, not a reading', () async {
     await _useFreshDb('v42_ambient_test.db');
     expect(await _columns('decoded_onehz'), contains('ambient_raw'));
 
@@ -87,7 +87,9 @@ void main() {
       [_raw(1000, 1), _raw(1001, 2), _raw(1002, 3)],
       [
         _sample(1000, 1, ambient: 412), // a real reading
-        _sample(1001, 2, ambient: 0), // unconfirmed optical block
+        // Build 90: the decoder reports an unconfirmed optical block as null
+        // itself, so a 0 is no longer a sentinel to translate at the write.
+        _sample(1001, 2, ambient: null), // unconfirmed optical block
         _sample(1002, 3), // decoder never produced one
       ],
     );
@@ -99,8 +101,7 @@ void main() {
     )).first['a'];
 
     expect(await ambientAt(1000), 412);
-    // NOT 0 — writing the sentinel through turns "we did not read the channel"
-    // into a measurement of total darkness.
+    // NOT 0 — "we did not read the channel" is not total darkness.
     expect(await ambientAt(1001), isNull);
     expect(await ambientAt(1002), isNull);
     // And it round-trips back out as absent, not zero.
@@ -112,8 +113,7 @@ void main() {
     expect(Sample.fromDecodedRow(row).ambientRaw, isNull);
   });
 
-  test('metric_series_version stamps the build that wrote the scalars',
-      () async {
+  test('metric_series_version stamps the build that wrote the scalars', () async {
     await _useFreshDb('v42_series_version_test.db');
     Future<void> put(String day, int v, double value) => LocalDb.putDayResult(
       dayId: day,
@@ -131,10 +131,7 @@ void main() {
     await put('2026-01-02', 69, 53);
 
     final rows = await LocalDb.metricSeriesVersions();
-    expect(rows.map((r) => r['date']).toList(), [
-      '2026-01-01',
-      '2026-01-02',
-    ]);
+    expect(rows.map((r) => r['date']).toList(), ['2026-01-01', '2026-01-02']);
     expect(rows.last['algo_version'], 69);
 
     // A partial pass writes no scalars, so it must not claim the stamp either.
@@ -150,133 +147,140 @@ void main() {
   });
 
   // export-provenance — the other half of the same side table.
-  test('an imported day carries its vendor tag; an unattributed day stays NULL',
-      () async {
-    await _useFreshDb('provenance_source_test.db');
-    // A WHOOP export CSV, through the real importer. Every number in it is
-    // WHOOP's own derived score, and unlabelled it is byte-identical in our
-    // export to a day this app derived from 1 Hz records.
-    final dir = Directory.systemTemp.createTempSync('whoop_csv');
-    final csv = File(p.join(dir.path, 'physiological_cycles.csv'))
-      ..writeAsStringSync(
-        'Cycle start time,Wake onset,Recovery score %,'
-        'Resting heart rate (bpm),Day Strain\n'
-        '2026-03-01 07:00:00,2026-03-01 07:00:00,61,54,11.2\n',
-      );
-    try {
-      final r = await WhoopImporter.importFiles([csv.path]);
-      expect(r.days, 1);
-    } finally {
-      dir.deleteSync(recursive: true);
-    }
-    final imported = (await LocalDb.metricSeriesVersions()).single;
-    expect(imported['source'], 'whoop_export');
+  test(
+    'an imported day carries its vendor tag; an unattributed day stays NULL',
+    () async {
+      await _useFreshDb('provenance_source_test.db');
+      // A WHOOP export CSV, through the real importer. Every number in it is
+      // WHOOP's own derived score, and unlabelled it is byte-identical in our
+      // export to a day this app derived from 1 Hz records.
+      final dir = Directory.systemTemp.createTempSync('whoop_csv');
+      final csv = File(p.join(dir.path, 'physiological_cycles.csv'))
+        ..writeAsStringSync(
+          'Cycle start time,Wake onset,Recovery score %,'
+          'Resting heart rate (bpm),Day Strain\n'
+          '2026-03-01 07:00:00,2026-03-01 07:00:00,61,54,11.2\n',
+        );
+      try {
+        final r = await WhoopImporter.importFiles([csv.path]);
+        expect(r.days, 1);
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+      final imported = (await LocalDb.metricSeriesVersions()).single;
+      expect(imported['source'], 'whoop_export');
 
-    // And the law that outranks it: a writer that does not know its own
-    // provenance writes NULL. Never retro-filled to 'band' — `csvField`
-    // already renders NULL as empty, which is the honest cell.
-    await LocalDb.putDayResult(
-      dayId: '2026-03-02',
-      algoVersion: 41,
-      payloadJson: '{}',
-      windowJson: '{}',
-      series: {'rhr': 50},
-    );
-    final rows = await LocalDb.metricSeriesVersions();
-    expect(rows.last['date'], '2026-03-02');
-    expect(rows.last['source'], isNull);
-  });
-
-  test('a strap swap is masked PER-METRIC, and only where the units differ',
-      () async {
-    await _useFreshDb('family_seam_test.db');
-    // Three gen4 nights, then the athlete swaps to a gen5. `skin_temp_adc` is
-    // ADC COUNTS on one side of that seam and CENTI-DEGREES on the other,
-    // under one key, feeding one baseline — this is live today with no second
-    // device involved.
-    for (final d in const [
-      ('2026-03-01', 'gen4'),
-      ('2026-03-02', 'gen4'),
-      ('2026-03-03', 'gen5'),
-    ]) {
+      // And the law that outranks it: a writer that does not know its own
+      // provenance writes NULL. Never retro-filled to 'band' — `csvField`
+      // already renders NULL as empty, which is the honest cell.
       await LocalDb.putDayResult(
-        dayId: d.$1,
+        dayId: '2026-03-02',
+        algoVersion: 41,
+        payloadJson: '{}',
+        windowJson: '{}',
+        series: {'rhr': 50},
+      );
+      final rows = await LocalDb.metricSeriesVersions();
+      expect(rows.last['date'], '2026-03-02');
+      expect(rows.last['source'], isNull);
+    },
+  );
+
+  test(
+    'a strap swap is masked PER-METRIC, and only where the units differ',
+    () async {
+      await _useFreshDb('family_seam_test.db');
+      // Three gen4 nights, then the athlete swaps to a gen5. `skin_temp_adc` is
+      // ADC COUNTS on one side of that seam and CENTI-DEGREES on the other,
+      // under one key, feeding one baseline — this is live today with no second
+      // device involved.
+      for (final d in const [
+        ('2026-03-01', 'gen4'),
+        ('2026-03-02', 'gen4'),
+        ('2026-03-03', 'gen5'),
+      ]) {
+        await LocalDb.putDayResult(
+          dayId: d.$1,
+          algoVersion: 76,
+          payloadJson: '{}',
+          windowJson: '{}',
+          source: 'band',
+          deviceFamily: d.$2,
+          series: {'rhr': 55, 'skin_temp_adc': 30000},
+        );
+      }
+      // Foreign = not the newest stamped family. The gen5 night is the CURRENT
+      // one, so the two gen4 nights are what a skin-temp baseline must drop.
+      expect(await LocalDb.foreignFamilyDates(), {'2026-03-01', '2026-03-02'});
+      // ...and only skin temp. RHR off a different WHOOP is the same quantity
+      // measured slightly differently — masking it would delete real history to
+      // fix a bias smaller than the window it is measured over.
+      expect(LocalDb.familySeamKeys, {'skin_temp_adc'});
+
+      // A day with NO stamp is UNKNOWN, never foreign — every day written before
+      // the column existed reads NULL, and dropping those would empty a real
+      // user's baseline.
+      await LocalDb.putDayResult(
+        dayId: '2026-03-04',
         algoVersion: 76,
         payloadJson: '{}',
         windowJson: '{}',
-        source: 'band',
-        deviceFamily: d.$2,
-        series: {'rhr': 55, 'skin_temp_adc': 30000},
+        series: {'rhr': 56},
       );
-    }
-    // Foreign = not the newest stamped family. The gen5 night is the CURRENT
-    // one, so the two gen4 nights are what a skin-temp baseline must drop.
-    expect(await LocalDb.foreignFamilyDates(), {'2026-03-01', '2026-03-02'});
-    // ...and only skin temp. RHR off a different WHOOP is the same quantity
-    // measured slightly differently — masking it would delete real history to
-    // fix a bias smaller than the window it is measured over.
-    expect(LocalDb.familySeamKeys, {'skin_temp_adc'});
+      expect(await LocalDb.foreignFamilyDates(), isNot(contains('2026-03-04')));
+    },
+  );
 
-    // A day with NO stamp is UNKNOWN, never foreign — every day written before
-    // the column existed reads NULL, and dropping those would empty a real
-    // user's baseline.
-    await LocalDb.putDayResult(
-      dayId: '2026-03-04',
-      algoVersion: 76,
-      payloadJson: '{}',
-      windowJson: '{}',
-      series: {'rhr': 56},
-    );
-    expect(await LocalDb.foreignFamilyDates(), isNot(contains('2026-03-04')));
-  });
+  test(
+    'one family is never foreign to itself — the mask moves no number today',
+    () async {
+      await _useFreshDb('family_seam_single_test.db');
+      for (final d in const ['2026-04-01', '2026-04-02']) {
+        await LocalDb.putDayResult(
+          dayId: d,
+          algoVersion: 76,
+          payloadJson: '{}',
+          windowJson: '{}',
+          source: 'band',
+          deviceFamily: 'gen4',
+          series: {'skin_temp_adc': 30000},
+        );
+      }
+      expect(await LocalDb.foreignFamilyDates(), isEmpty);
+    },
+  );
 
-  test('one family is never foreign to itself — the mask moves no number today',
-      () async {
-    await _useFreshDb('family_seam_single_test.db');
-    for (final d in const ['2026-04-01', '2026-04-02']) {
-      await LocalDb.putDayResult(
-        dayId: d,
-        algoVersion: 76,
-        payloadJson: '{}',
-        windowJson: '{}',
-        source: 'band',
-        deviceFamily: 'gen4',
-        series: {'skin_temp_adc': 30000},
+  test(
+    'the 3-day prune keeps wear/charge transitions and drops the rest',
+    () async {
+      await _useFreshDb('v42_band_events_test.db');
+      const old = 1000;
+      // Two transitions and one chatty event, all well behind the cutoff.
+      await LocalDb.insertEvent(proto.EventId.wristOff, old, 'aa01');
+      await LocalDb.insertEvent(proto.EventId.wristOn, old + 100, 'aa02');
+      await LocalDb.insertEvent(33, old + 50, 'aa03');
+
+      await LocalDb.pruneDecodedBeforeRecTs(old + 10000);
+
+      expect(
+        await _count('SELECT COUNT(*) FROM band_events WHERE event_id = 33'),
+        0,
       );
-    }
-    expect(await LocalDb.foreignFamilyDates(), isEmpty);
-  });
+      expect(
+        await _count(
+          'SELECT COUNT(*) FROM band_events WHERE event_id IN (9, 10)',
+        ),
+        2,
+      );
+      // The point of keeping them: the off-wrist span detectNaps rejects against
+      // is still reconstructable long after the substrate is gone.
+      expect(await LocalDb.wristOffSpans(old - 10, old + 200), [
+        [old, old + 100],
+      ]);
+    },
+  );
 
-  test('the 3-day prune keeps wear/charge transitions and drops the rest',
-      () async {
-    await _useFreshDb('v42_band_events_test.db');
-    const old = 1000;
-    // Two transitions and one chatty event, all well behind the cutoff.
-    await LocalDb.insertEvent(proto.EventId.wristOff, old, 'aa01');
-    await LocalDb.insertEvent(proto.EventId.wristOn, old + 100, 'aa02');
-    await LocalDb.insertEvent(33, old + 50, 'aa03');
-
-    await LocalDb.pruneDecodedBeforeRecTs(old + 10000);
-
-    expect(
-      await _count('SELECT COUNT(*) FROM band_events WHERE event_id = 33'),
-      0,
-    );
-    expect(
-      await _count(
-        'SELECT COUNT(*) FROM band_events WHERE event_id IN (9, 10)',
-      ),
-      2,
-    );
-    // The point of keeping them: the off-wrist span detectNaps rejects against
-    // is still reconstructable long after the substrate is gone.
-    expect(await LocalDb.wristOffSpans(old - 10, old + 200), [
-      [old, old + 100],
-    ]);
-  });
-
-  test('raw_archive thins to a 1-in-60 sample behind the retention edge',
-      () async {
+  test('raw_archive thins to a 1-in-60 sample behind the retention edge', () async {
     await _useFreshDb('v42_archive_thin_test.db');
     const cutoffSec = 2000000;
     for (var i = 0; i < 600; i++) {
@@ -410,22 +414,33 @@ void main() {
           for (final r in await db.query('day_result'))
             '${r['day_id']}|${r['algo_version']}': r['payload_json'],
         };
-        expect(afterDays, beforeDays,
-            reason: 'the re-key must not touch a derived number');
+        expect(
+          afterDays,
+          beforeDays,
+          reason: 'the re-key must not touch a derived number',
+        );
         final before = <String, int>{};
         for (final t in const ['decoded_onehz', 'decoded_rr', 'samples']) {
           before[t] = await _count('SELECT COUNT(*) FROM $t');
         }
         // ignore: avoid_print
-        print('[v47] ${p.basename(src)} whole ladder open: '
-            '${sw.elapsedMilliseconds} ms  rows=$before');
+        print(
+          '[v47] ${p.basename(src)} whole ladder open: '
+          '${sw.elapsedMilliseconds} ms  rows=$before',
+        );
 
         for (final t in const ['decoded_onehz', 'decoded_rr', 'samples']) {
           final info = await db.rawQuery('PRAGMA table_info($t)');
-          expect(info.firstWhere((c) => c['name'] == 'device_id')['pk'], 1,
-              reason: t);
-          expect(info.firstWhere((c) => c['name'] == 'ts_ms')['pk'], 2,
-              reason: t);
+          expect(
+            info.firstWhere((c) => c['name'] == 'device_id')['pk'],
+            1,
+            reason: t,
+          );
+          expect(
+            info.firstWhere((c) => c['name'] == 'ts_ms')['pk'],
+            2,
+            reason: t,
+          );
           // Every migrated row belongs to the primary band and carries the
           // time it always had. Nothing is rewritten, nothing is dropped.
           expect(
@@ -446,7 +461,10 @@ void main() {
           ),
           0,
         );
-        expect(await _count('SELECT COUNT(*) FROM samples WHERE ts_ms <> ts * 1000'), 0);
+        expect(
+          await _count('SELECT COUNT(*) FROM samples WHERE ts_ms <> ts * 1000'),
+          0,
+        );
 
         // Re-opening is a no-op: the rung self-skips on a table that already
         // carries device_id, so a second launch pays nothing.
@@ -455,8 +473,10 @@ void main() {
         await LocalDb.instance;
         sw2.stop();
         // ignore: avoid_print
-        print('[v47] ${p.basename(src)} second open (no ladder): '
-            '${sw2.elapsedMilliseconds} ms');
+        print(
+          '[v47] ${p.basename(src)} second open (no ladder): '
+          '${sw2.elapsedMilliseconds} ms',
+        );
 
         final health = await LocalDb.schemaHealth();
         expect(health['ok'], isTrue, reason: '$src $health');
@@ -489,8 +509,10 @@ void main() {
           'SELECT COUNT(DISTINCT day_id) FROM day_result '
           'WHERE skipped = 0 AND partial = 0',
         );
-        expect(await _count('SELECT COUNT(*) FROM metric_series_version'),
-            derived);
+        expect(
+          await _count('SELECT COUNT(*) FROM metric_series_version'),
+          derived,
+        );
 
         final before = await _count('SELECT COUNT(*) FROM raw_archive');
         final byReason = await db.rawQuery(
@@ -502,17 +524,18 @@ void main() {
         );
         final after = await _count('SELECT COUNT(*) FROM raw_archive');
         // ignore: avoid_print
-        print('[v42] ${p.basename(src)} archive $before → $after '
-            '(-$thinned) by_reason=$byReason');
+        print(
+          '[v42] ${p.basename(src)} archive $before → $after '
+          '(-$thinned) by_reason=$byReason',
+        );
         expect(after, before - thinned);
         // Nothing but the one thinned reason is touched.
         for (final r in byReason) {
           if (r['reason'] == 'undecodable_rec_v20') continue;
           expect(
-            await _count(
-              'SELECT COUNT(*) FROM raw_archive WHERE reason = ?',
-              [r['reason']],
-            ),
+            await _count('SELECT COUNT(*) FROM raw_archive WHERE reason = ?', [
+              r['reason'],
+            ]),
             r['n'],
             reason: '${r['reason']} must not be thinned',
           );

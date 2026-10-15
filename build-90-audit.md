@@ -2,7 +2,7 @@
 
 Method: independent dual-agent assessment (A: `/root/design_review`; B: `/root/technical_audit`) plus parent source tracing and targeted synthetic checks. Impeccable native critique/audit discipline; no web detector applies to Dart.
 
-**Status:** Audit and proposed next-build scope, not implementation approval. Build `0.9.56+89` is installed and being tested, as reported by Akshat. He rejects Progress's information overload and wants a whole-app improvement report. He wants Build 89 to become recovery after this review; the cache has not been promoted. Build 70 remains the accepted cached recovery build. Choose the Progress composition and enhancements, then approve implementation before production changes.
+**Status:** Audit and app-wide worklist; Akshat chose to ship the whole worklist in Build 90, now implemented and merged on `build-90` (`todo.md` Build 90 owns progress and gates). Build `0.9.56+89` is installed and being tested, as reported by Akshat. He rejects Progress's information overload and wants a whole-app improvement report. He wants Build 89 to become recovery after this review; the cache has not been promoted. Build 70 remains the accepted cached recovery build. The Progress composition and every enhancement were chosen and are implemented in Build 90.
 
 ## Evidence And Practical Limits
 

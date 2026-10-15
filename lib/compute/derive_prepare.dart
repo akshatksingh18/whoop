@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'substrate.dart';
+import '../data/day_label.dart';
 
 class PreparedDerivationDay {
   final String date;
@@ -175,7 +176,8 @@ class SleepSessionCandidate {
       dayId: m['day_id']?.toString() ?? '',
       confidence: (m['confidence'] as num?)?.toDouble() ?? 0,
       flags: strs('flags'),
-      sleepJson: ((m['sleep_json'] as Map?) ?? const {}).cast<String, dynamic>(),
+      sleepJson: ((m['sleep_json'] as Map?) ?? const {})
+          .cast<String, dynamic>(),
       hypnoStages: strs('hypno_stages'),
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
@@ -228,11 +230,7 @@ class SleepSessionCandidate {
 /// `DateTime(y, m, d + 1)` normalizes the overflow itself and
 /// `millisecondsSinceEpoch` respects local DST rules, so this is correct on the
 /// two 23 h/25 h days a year — unlike `startOfDay + 86400`.
-int localNextMidnightSecForDayLabel(String dayId) {
-  final d = DateTime.tryParse(dayId);
-  if (d == null) return 0;
-  return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
-}
+int localNextMidnightSecForDayLabel(String dayId) => localDayEndSec(dayId) ?? 0;
 
 void derivationPrepareWorker(SendPort mainSendPort) {
   final port = ReceivePort();
@@ -390,8 +388,12 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   SleepWindowOverride? override,
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
 }) {
-  final payload = prepareDerivationPayload(sub,
-      targetDay: targetDay, override: override, priorSleep: priorSleep);
+  final payload = prepareDerivationPayload(
+    sub,
+    targetDay: targetDay,
+    override: override,
+    priorSleep: priorSleep,
+  );
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
   final day = payload.days.first;
   return SleepSessionCandidate(
@@ -414,15 +416,16 @@ class _PrepareAccumulator {
   final List<double> ax = [];
   final List<double> ay = [];
   final List<double> az = [];
-  final List<int> spo2Red = [];
-  final List<int> spo2Ir = [];
-  final List<int> skinTemp = [];
-  final List<int> skinContact = [];
+  final List<int?> spo2Red = [];
+  final List<int?> spo2Ir = [];
+  final List<int?> skinTemp = [];
+  final List<int?> skinContact = [];
 
   /// Gen5 on-chip cumulative step counter, `-1` = the record carried none.
   /// See [Substrate.stepCount] for why the sentinel is not 0.
   final List<int> stepCount = [];
   final List<int> hrValid = [];
+  final List<int> rrCount = [];
 
   /// The DISTINCT non-null `device_family` stamps seen across every page fed in
   /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
@@ -454,8 +457,7 @@ class _PrepareAccumulator {
     if (v is String && v.isNotEmpty) _families.add(v);
   }
 
-  String? get deviceFamily =>
-      _families.length == 1 ? _families.first : null;
+  String? get deviceFamily => _families.length == 1 ? _families.first : null;
 
   /// Defensive numeric read. The decoded-page rows come straight out of SQLite,
   /// where a column's storage class is per-VALUE, not per-column — a row written
@@ -464,12 +466,24 @@ class _PrepareAccumulator {
   /// worker used to hang the whole engine (see [derivationPrepareWorker]).
   static num? _num(Object? v) => v is num ? v : null;
 
+  // Older unconfirmed-layout rows used zero as an ADC absence sentinel.
+  // Keep that absence when reading the old ledger; never fill missing fields.
+  static int? _optical(Object? v) {
+    final n = _num(v)?.toInt();
+    return n == 0 ? null : n;
+  }
+
   void addRawPage(List<String> hexes) {
     if (hexes.isEmpty) return;
     final sub = decodeSubstrate(hexes);
     if (sub.isEmpty) return;
     tsSec.addAll(sub.tsSec);
     hr.addAll(sub.hr);
+    rrCount.addAll(
+      sub.rrCount.length == sub.length
+          ? sub.rrCount
+          : List<int>.filled(sub.length, -1),
+    );
     rrTsMs.addAll(sub.rrTsMs);
     rrMs.addAll(sub.rrMs);
     ax.addAll(sub.ax);
@@ -481,12 +495,16 @@ class _PrepareAccumulator {
     skinContact.addAll(sub.skinContact);
     // decodeSubstrate fills -1 for the whole page (gen4 R24 has no counter),
     // but read it rather than assuming, so the arrays stay 1:1 with tsSec.
-    stepCount.addAll(sub.stepCount.length == sub.length
-        ? sub.stepCount
-        : List<int>.filled(sub.length, -1));
-    hrValid.addAll(sub.hrValid.length == sub.length
-        ? sub.hrValid
-        : List<int>.filled(sub.length, -1));
+    stepCount.addAll(
+      sub.stepCount.length == sub.length
+          ? sub.stepCount
+          : List<int>.filled(sub.length, -1),
+    );
+    hrValid.addAll(
+      sub.hrValid.length == sub.length
+          ? sub.hrValid
+          : List<int>.filled(sub.length, -1),
+    );
   }
 
   void addDecodedPage(
@@ -543,13 +561,13 @@ class _PrepareAccumulator {
       // SENTINEL, which is what every reader tests, not as a measurement:
       //   accel  → exact (0, 0, 0), read back through `Substrate.accelPresentAt`
       //            (no real sensor reads 0 g on all three axes — see that doc)
-      //   ADC    → 0, read back through the `v > 0` gate every ADC consumer uses
+      //   ADC    → NULL, including the old unconfirmed-layout zero sentinel
       // Same discipline as `stepCount`'s -1 below.
       ax.add(_num(row?['ax'])?.toDouble() ?? 0);
       ay.add(_num(row?['ay'])?.toDouble() ?? 0);
       az.add(_num(row?['az'])?.toDouble() ?? 0);
-      spo2Red.add(_num(row?['spo2_red_raw'])?.toInt() ?? 0);
-      spo2Ir.add(_num(row?['spo2_ir_raw'])?.toInt() ?? 0);
+      spo2Red.add(_optical(row?['spo2_red_raw']));
+      spo2Ir.add(_optical(row?['spo2_ir_raw']));
       // gen4 stores skin temp as a raw ADC count (`skin_temp_raw`); gen5 v18
       // decodes it to °C and stores THAT (`skin_temp_c`), leaving skin_temp_raw
       // NULL on every row. Reading only the gen4 column meant a WHOLE gen5
@@ -559,13 +577,13 @@ class _PrepareAccumulator {
       // carry whichever the row has, in centi-°C to stay integral and positive
       // through the `v > 0` gate every ADC consumer uses. A user who swaps
       // gen4 → gen5 mid-history steps the baseline once; the z re-settles.
-      final tempRaw = _num(row?['skin_temp_raw'])?.toInt();
+      final tempRaw = _optical(row?['skin_temp_raw']);
       final tempC = _num(row?['skin_temp_c'])?.toDouble();
-      skinTemp.add(tempRaw ?? (tempC == null ? 0 : (tempC * 100).round()));
+      skinTemp.add(tempRaw ?? (tempC == null ? null : (tempC * 100).round()));
       // NO skin contact on the decoded path, and no column to read: the byte the
       // name refers to is the sign+exponent half of a float32, never a contact
-      // measurement. The array stays 1:1 with tsSec, all-zero ⇒ absent.
-      skinContact.add(0);
+      // measurement. The array stays 1:1 with tsSec, NULL ⇒ absent.
+      skinContact.add(null);
       // `decoded_onehz.step_count` is NULL on every gen4 row and on any gen5
       // row decoded before schema v34. NULL is ABSENT (-1), not 0: 0 is a real
       // reading from a band that has not moved since its counter last wrapped.
@@ -582,6 +600,7 @@ class _PrepareAccumulator {
       // band id in the neutral layer (BANDAGNOSTIC C12).
       hrValid.add(_num(row?['hr_valid'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
+      rrCount.add(row == null ? -1 : beats?.length ?? 0);
       if (beats == null) continue;
       for (final beat in beats) {
         // The SAME physiological bound the raw-replay path applies
@@ -599,9 +618,11 @@ class _PrepareAccumulator {
         // out of the time base. COALESCE, never fabricate — the column is NULL
         // for every row banked before it existed and for any source with no
         // sub-second, and there the staircase is still the honest best answer.
-        rrTsMs.add(_num(beat['beat_ts_ms'])?.toDouble() ??
-            _num(beat['rr_ts_ms'])?.toDouble() ??
-            recTs * 1000.0);
+        rrTsMs.add(
+          _num(beat['beat_ts_ms'])?.toDouble() ??
+              _num(beat['rr_ts_ms'])?.toDouble() ??
+              recTs * 1000.0,
+        );
         rrMs.add(rr);
       }
     }
@@ -621,6 +642,7 @@ class _PrepareAccumulator {
     skinContact: skinContact,
     stepCount: stepCount,
     hrValid: hrValid,
+    rrCount: rrCount,
     deviceFamily: deviceFamily,
   );
 }

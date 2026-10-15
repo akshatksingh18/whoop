@@ -433,7 +433,7 @@
   "@dataExportSpreadsheets": {
     "description": "Row title."
   },
-  "dataExportSpreadsheetsSub": "{count} CSV files — daily metrics, workouts, sleep, journal, labs, and everything you typed in. Each day carries where it came from and which algorithm version scored it",
+  "dataExportSpreadsheetsSub": "{count} CSV files for analysis: daily metrics, workouts, sleep, journal and manual logs, with source and algorithm provenance. 0 photo files; this format cannot restore the app.",
   "@dataExportSpreadsheetsSub": {
     "description": "Row sub with file count.",
     "placeholders": {
@@ -446,7 +446,7 @@
   "@dataExportDatabase": {
     "description": "Row title."
   },
-  "dataExportDatabaseSub": "One .db file. Lossless, and the only format that restores onto another phone. Readable by anything that opens SQLite — including anyone who gets the file",
+  "dataExportDatabaseSub": "Restorable database, including photo references but 0 photo files. Unencrypted; anyone with the file can read it.",
   "@dataExportDatabaseSub": {
     "description": "Row sub."
   },
@@ -454,7 +454,7 @@
   "@dataExportEncrypted": {
     "description": "Row title."
   },
-  "dataExportEncryptedSub": "The same complete copy, sealed with a passphrase, for somewhere like iCloud. Forget the passphrase and that file is gone — there is no recovery, because there is no account holding a key",
+  "dataExportEncryptedSub": "Restorable database and progress photo files, sealed with a passphrase. Losing the passphrase means losing access.",
   "@dataExportEncryptedSub": {
     "description": "Row sub."
   },
@@ -3374,6 +3374,8 @@
     "description": "Fallback timeline/legend title for a workout session with no known type."
   },
   "dayTimelineBandOffWrist": "Band off your wrist",
+  "dayTimelineNotYetSynced": "Not yet synced",
+  "dayTimelineRecordingGap": "Recording gap",
   "@dayTimelineBandOffWrist": {
     "description": "Timeline title for a stretch the band was off the wrist."
   },
@@ -8120,6 +8122,7 @@
   "@sleepDetailTonightSection": {
     "description": "Section header for the one-takeaway sleep coaching card."
   },
+  "sleepDetailAtLeastDuration": "At least",
   "sleepDetailTotalSleep": "Total sleep",
   "@sleepDetailTotalSleep": {
     "description": "Caption under the big total-sleep-duration number."

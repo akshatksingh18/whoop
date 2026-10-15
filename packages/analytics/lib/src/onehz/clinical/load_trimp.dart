@@ -190,6 +190,7 @@ double? dailyQuietWakingHrr(
 /// The old map put 21 at a raw TRIMP of ~4987, i.e. ≈35 h at 80 % HRR: the top
 /// third of the scale was unreachable by any human day, so the headline number
 /// never used the range it advertised.
+// App-specific calibration, not a published physiological maximum.
 const double maximalNetTrimp = 400.0;
 
 /// Curvature of the 0–21 map; higher gives more resolution at the low end.
@@ -223,6 +224,7 @@ const double maximalNetTrimp = 400.0;
 /// 2.15, which is this table's "60 min walk" row. The quiet level is an
 /// argument now, so regenerate the table with whatever you pass, never
 /// separately.
+// App-specific display calibration; not a published physiological constant.
 const double strainCurvature = 15.0;
 
 /// The TRIMP that [wakeMinutes] of ordinary waking accrues on its own.

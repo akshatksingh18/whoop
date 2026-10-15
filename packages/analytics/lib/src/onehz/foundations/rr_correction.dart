@@ -34,6 +34,9 @@ class RrCorrectionResult {
   /// spliced out; pass the timestamps.
   final List<double> nnTimesMs;
 
+  /// Actual clock re-anchors, mapped to the retained NN list.
+  final List<bool> gapBefore;
+
   /// Per-input-beat classification (same length as the input rr).
   final List<BeatClass> classes;
 
@@ -49,6 +52,7 @@ class RrCorrectionResult {
   const RrCorrectionResult({
     required this.nn,
     required this.nnTimesMs,
+    this.gapBefore = const [],
     required this.classes,
     required this.cleanFraction,
     required this.droppedCount,
@@ -85,7 +89,8 @@ RrCorrectionResult correctRr(
   final n = rrMs.length;
   // Beat-end time for EVERY input beat, kept or not. One array, built once, so
   // every branch below reads a clock instead of advancing its own.
-  final tAll = _beatTimes(rrMs, rrTsMs, reanchorGapMs);
+  final clock = rrBeatClock(rrMs, rrTsMs: rrTsMs, reanchorGapMs: reanchorGapMs);
+  final tAll = clock.timesMs;
   if (n == 0) {
     return const RrCorrectionResult(
       nn: [],
@@ -105,15 +110,18 @@ RrCorrectionResult correctRr(
     ];
     final nn = <double>[];
     final times = <double>[];
+    final kept = <int>[];
     for (var i = 0; i < n; i++) {
       if (classes[i] == BeatClass.normal) {
         nn.add(rrMs[i]);
         times.add(tAll[i]);
+        kept.add(i);
       }
     }
     return RrCorrectionResult(
       nn: nn,
       nnTimesMs: times,
+      gapBefore: _retainedReanchors(kept, clock.reanchorBefore),
       classes: classes,
       cleanFraction: nn.length / n,
       droppedCount: n - nn.length,
@@ -189,6 +197,7 @@ RrCorrectionResult correctRr(
   final isArtifact = [for (final c in classes) c != BeatClass.normal];
   final nn = <double>[];
   final times = <double>[];
+  final kept = <int>[];
   var dropped = 0;
   var corrected = 0;
   var i = 0;
@@ -196,6 +205,7 @@ RrCorrectionResult correctRr(
     if (!isArtifact[i]) {
       nn.add(rrMs[i]);
       times.add(tAll[i]);
+      kept.add(i);
       i++;
       continue;
     }
@@ -216,6 +226,7 @@ RrCorrectionResult correctRr(
         // — 1.6 % of a night at one missed beat in sixty.
         nn.add(corr);
         times.add(tAll[i]);
+        kept.add(i);
         corrected++;
       } else {
         dropped++; // no anchors -> honest drop; the clock already elapsed
@@ -237,6 +248,7 @@ RrCorrectionResult correctRr(
   return RrCorrectionResult(
     nn: nn,
     nnTimesMs: times,
+    gapBefore: _retainedReanchors(kept, clock.reanchorBefore),
     classes: classes,
     cleanFraction: normalCount / n,
     droppedCount: dropped,
@@ -260,11 +272,14 @@ RrCorrectionResult correctRr(
 /// The slack has to be ≥ the max plausible RR (2,400 ms saturation) minus a
 /// normal beat, or ordinary quantisation would re-anchor constantly; 1,000 ms
 /// is the audit's figure and is ~1 whole quantisation step.
-List<double> _beatTimes(
-    List<double> rrMs, List<double>? rrTsMs, double reanchorGapMs) {
+({List<double> timesMs, List<bool> reanchorBefore}) rrBeatClock(
+    List<double> rrMs,
+    {List<double>? rrTsMs,
+    double reanchorGapMs = kBeatAdjacencyTolMs}) {
   final n = rrMs.length;
   final t = List<double>.filled(n, 0);
-  if (n == 0) return t;
+  final gaps = List<bool>.filled(n, false);
+  if (n == 0) return (timesMs: t, reanchorBefore: gaps);
   final wall = rrTsMs != null && rrTsMs.length == n;
   final origin = wall ? rrTsMs[0] - rrMs[0] : 0.0;
   var cur = 0.0;
@@ -287,10 +302,11 @@ List<double> _beatTimes(
     final anchored = wall ? rrTsMs[i] - origin : 0.0;
     // `> cur` keeps the clock monotonic even if timestamps arrive out of order
     // or the cumsum has run ahead of the wall — a backwards jump is never taken.
-    cur = (dropout && anchored > cur) ? anchored : cur + rrMs[i];
+    gaps[i] = dropout && anchored > cur;
+    cur = gaps[i] ? anchored : cur + rrMs[i];
     t[i] = cur;
   }
-  return t;
+  return (timesMs: t, reanchorBefore: gaps);
 }
 
 /// Time-varying threshold: alpha × QD of the SIGNED series x in a sliding
@@ -368,4 +384,17 @@ double? _splineCorrect(List<double> rr, List<bool> isArtifact, int idx) {
           (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
           (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
   return v;
+}
+
+List<bool> _retainedReanchors(List<int> kept, List<bool> reanchors) {
+  final result = <bool>[];
+  var cursor = 0;
+  for (final index in kept) {
+    var gap = false;
+    while (cursor <= index) {
+      gap |= reanchors[cursor++];
+    }
+    result.add(gap);
+  }
+  return result;
 }

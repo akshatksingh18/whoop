@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:async';
 import '../data/calculation_store.dart';
+import '../data/day_label.dart';
 import '../compute/profile.dart';
 import '../state/prefs.dart';
 
@@ -122,8 +123,10 @@ class WorkoutClock {
       ) ~/
       1000;
   List<ActiveWindow> onDay(String day, [DateTime? until]) {
-    final lo = DateTime.parse(day);
-    final endDay = DateTime(lo.year, lo.month, lo.day + 1);
+    final startSec = localDayStartSec(day), endSec = localDayEndSec(day);
+    if (startSec == null || endSec == null) return [];
+    final lo = DateTime.fromMillisecondsSinceEpoch(startSec * 1000);
+    final endDay = DateTime.fromMillisecondsSinceEpoch(endSec * 1000);
     return [
       for (final w in windows(until))
         if (w.start.isBefore(endDay) && w.end.isAfter(lo))

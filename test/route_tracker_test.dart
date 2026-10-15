@@ -23,6 +23,7 @@ GpsSample _fix(
   tsMs: i * 1000,
   accuracy: accuracy,
   speed: speed,
+  speedAccuracy: speed == null ? null : 0.5,
 );
 
 void main() {

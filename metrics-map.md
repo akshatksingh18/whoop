@@ -11,7 +11,8 @@ checks pass; full physical acceptance remains open. He rejects Progress's inform
 No proposal is implemented by that report. Build 89 still occupies testing; its recovery promotion
 is requested after the review. Build 70 remains cached recovery. `build-85-audit.md` owns earlier approved changes;
 `build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
-are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
+are unchanged; the distance comparison uses ACSM only at supported measured speeds,
+otherwise it is labelled Movement estimate using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
 
 Build 88 (`0.9.55`/`88`, algorithm 92) was installed before Build 89 (algorithm 93). Historical
@@ -99,8 +100,11 @@ One number per day. These drive every trend, baseline and "against your usual" c
 - `deep_min`, `rem_min`, `light_min` = stage minutes (they sum to `tst_min`)
 - `efficiency` = asleep while in bed
 - `sol_min` = time to fall asleep
-- `awakenings` and `longest_sleep_min`
-- `unobserved_min` = band gaps in the night
+- `awakenings` = observed wake runs of at least five minutes, excluding leading/trailing
+  wake; segmentation and stored scalars share one function. `longest_sleep_min` never
+  bridges an unobserved gap.
+- `unobserved_min` = recording gaps in the night; any gap makes the displayed sleep
+  duration an "at least" bound, with the missing duration stated.
 - `sleep_onset_sec` and `midsleep_sec` = bedtime and midpoint consistency
 - `nap_min`
 
@@ -119,7 +123,16 @@ One number per day. These drive every trend, baseline and "against your usual" c
 
 **Other**
 - `stress` = overnight autonomic stress, 0–100
-- `worn_min` = wear time
+- `worn_min` = epoch-minute buckets touched by record runs after bridging gaps up to 120 s;
+  shared by metric history and day detail. HR validity does not gate wear. Day segments
+  carry `worn`, `charging`, `off_wrist`, `missing` or `pending` states; only WRIST events
+  establish off-wrist time. Coverage excludes the tail after the committed record frontier.
+
+Build 90 decoder integrity: historical v12/v24 records accept at most four RR values;
+larger declared counts emit no beats. R10 retains an independent eight-value limit. Optical
+fields from unconfirmed layouts are NULL, including across isolate serialization; old zero
+sentinels read as absent. Metric CSV omits legacy `odi_per_hour` and `spo2` rows. This does
+not make any withheld optical output available.
 
 ### 3. Per-day bundle (`day_result`, kept forever)
 
@@ -132,8 +145,19 @@ The full analysis of each day, including curves:
   skin-temperature lanes; sleep window, cycles and wake-ups; nocturnal HR (average and lowest).
   Also the breathing-disturbance screen (heart-rate cycling, CVHR), oxygen-dip proxy fields,
   personal baselines (robust centre and spread per metric), and the illness watch.
-- **Sleep Coach** (in the cross-day rollup): sleep need, debt, minutes added for training load,
-  minutes credited from naps, and target bedtime/wake.
+- **Sleep Coach** (in the cross-day rollup): estimated baseline need plus one quarter of the
+  estimated sleep gap, less the applied nap credit, with the existing bounds retained.
+  The unsupported strain bonus is removed (`strain_bonus_min` remains 0 for compatibility).
+- **RR reporting quality:** `coverage.rr_reporting` stores reported counts, HR/60 expected-count
+  estimate, eligible record count and estimated omitted share; `rr_omitted_share` retains
+  its trend. Unknown old counts yield no estimate. This does not gate or change nightly HRV.
+- **Spectra:** HF Welch segments, respiration sub-windows and REM spectral features require
+  at least 90% measured interval coverage and exclude clock re-anchors. Scaling and segment
+  lengths remain unchanged; no surviving segment means absence.
+- **Restlessness map:** five-minute arm-angle cells flag an observed range greater than 5°;
+  absent acceleration is omitted. This replaces the uncalibrated magnitude-minus-1 g map.
+- **Cycles:** an unqualified cycle estimate or unavailable stages produce no count, including
+  legacy zero placeholders at the read boundary.
 
 ### 4. Training
 
@@ -165,7 +189,10 @@ These are still stored but no longer entered in the personal build:
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
 | `food_def.category` | the user's own category label (custom labels in Build 86; '' = Uncategorised); existing labels are preserved, and the same field feeds Foods, log-screen and saved-meal-picker filters |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
-| `body_weight` | one weight per day (latest wins); today's sets profile `weight_kg`. Build-86 source adds `unit`, `entered`, `source`, `origin_id` and `history_only`: backdated/imported rows are history only and never price a day |
+| `body_weight` | legacy daily aggregate; today's sets profile `weight_kg`. `unit`, `entered`, `source`, `origin_id` and `history_only` preserve input/provenance; backdated/imported rows never price a day. Build 90's first-reading aggregate behaviour is pending the Body lane |
+| `body_weight_reading` | Build 90 schema 50: every reading with identity, effective date, Unix-second measurement time, kg, input units/value, source/origin, history-only flag and creation time. Legacy daily rows migrate once; Body write/selection integration is pending |
+| `day_zone` / `zone_change` | Build 90 schema 50: observed IANA timeline and per-day UTC boundaries/offsets. Native inbox is acknowledged after SQLite commits; launch/foreground/sync check for missed changes. Workers use persisted context, SRI compares absolute instants 24 h apart, and travel-spanning nights are excluded from bedtime comparisons. Past travel before the first observation is unknown; the first known zone seeds older assignment context |
+| `food_day_count` / `food_entry.logged_at` | Build 90 schema 50: frozen calorie-goal/counting provenance and a separate logging timestamp. Legacy logging times remain NULL; new entries carry eaten time and separate original logging time in epoch seconds. Closed dates freeze the first known goal; manual/automatic provenance stays distinct |
 | `body_measure` | build-86 source: one tape session, inches by AkshatOS site key (unknown keys kept) |
 | `body_photo` | build-86 source: a progress-photo record; the JPEG lives in `body_photos/` (metadata stripped) |
 | `lift_log` | build-86 source: one Lift Log workout as JSON, linked to its WHOOP session (imported AkshatOS history has none) |
@@ -288,11 +315,20 @@ half the current target; explicit Complete/Incomplete overrides remain. Missing 
 exclude a calorie day. Protein averages require eligible days with complete protein coverage,
 not merely a displayed protein total or completed calorie diary. Counts/exclusions are separate
 by nutrient; the app cannot detect every forgotten food or prove a complete diary.
-Build 88 required a marked-complete past day (D13). Build 89 adds automatic counting at half the current calorie target when every item has energy, with manual overrides; the evening-entry heuristic
+Build 88 required a marked-complete past day (D13). Build 89 added automatic counting at half the current calorie target when every item has energy, with manual overrides. Build 90 freezes the qualifying target per closed date (legacy dates use the first-open goal; a hydrated missing goal stays missing) so later target edits do not reclassify old days; the evening-entry heuristic
 is gone. Meal and day totals with an unknown item say "at least"; the food/weight estimate uses a
 robust slope with a range and hides past ±300 kcal/day.
 Recorded strain stays an estimate with its prescriptive target hidden until calibrated, and all
 health findings respect app quiet hours. `build-88-plan.md` owns these choices and the version gates.
+Build 90 reads attach immutable frozen counting evidence to FoodEntry/NutritionDay, so
+Progress's existing rollup calls retain the correct dated eligibility without API renames.
+Entry edits preserve the original logging timestamp (unknown legacy values stay NULL), while
+copied entries receive a new logging timestamp and retain meal time on their destination date.
+The analysis export includes every individual body reading with source/history-only status,
+uses the shared strength best-set/score rules and load/equipment meaning, labels each partial
+nutrient total and uses a separate complete-day denominator for each weekly nutrient mean.
+Reports render off the UI isolate; they are not restore files and contain no photo bytes.
+
 All four macro rows/icons remain visible; in Build 86 an unlogged nutrient displays as unknown,
 not zero. Activity streaks accept ten active recorded purposeful-exercise minutes (including lifts
 and Other exercise) OR reaching the
@@ -388,14 +424,26 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + di
 These are estimates, not guaranteed individual physiological minima. The card includes the
 whole day's BMR plus movement and food recorded so far; it is not burn elapsed since midnight.
 ACSM uses `0.005 * kg * (0.2 * run_metres + 0.1 * walk_metres + 0.9 * trusted_run_climb
-+ 1.8 * trusted_walk_climb)`, excluding resting already. Daily ACSM maintenance uses the same
++ 1.8 * trusted_walk_climb)`, excluding resting already. The distance-equation maintenance comparison uses the same
 full-day BMR and logged-food digestion allowance, with the same run ownership and step exclusions.
-Current GPS climb is not trusted for additions. A recorded walking route replaces overlapping
+Build 90 session writers use AppState's post-commit session signal for both insights and Food
+maintenance. Repository score/movement enrichment and deferred HRR use injected callbacks;
+headless instances have no live UI callback. The shared manual-session writer also covers
+manual logging, retiming, suggestion confirmation and coach logging; those UI callers do not
+publish a second time. Train's other direct delete/edit calls belong to the UI lane. Health
+auto-imports use a separate table and do not mutate sessions.
+Historical Steps charts batch retained coverage through the same resolver used for day detail,
+with stored local-day boundaries, instead of querying once for every metric date. Retained
+series points without measured coverage stay intact; confirmed phone zero remains zero.
+
+Build 90 qualifies ACSM for walking at 50–100 m/min and running above 5 mph;
+missing moving time or other speeds retain a separately labelled Movement estimate. Daily
+step distance does not establish walking speed. Current GPS climb is not trusted for additions. A recorded walking route replaces overlapping
 phone distance; no walking-workout calorie addition exists. iPhone `CMPedometerData.distance`
 is saved beside its accepted step coverage. Remaining steps use an explicit height-based distance
 estimate when possible; absent distance/profile stays unavailable, never zero or an invented burn.
 
-Budget/ACSM are persistent paired values on Today/Food/history/Weekly, Trends/daily Steps,
+Budget and the qualified ACSM/Movement estimate comparison remain paired on Today/Food/history/Weekly, Trends/daily Steps,
 live/summary/history/share. HR is separate expandable analysis. No within-50-kcal merging or
 claim of a guaranteed upper/lower range remains. Neither model measures true individual TDEE.
 Calories eaten and fixed food targets are independent of exercise. `build-74-audit.md` owns the
@@ -417,6 +465,15 @@ source/version, ZIP and payload/extension checks pass; `setup.md` owns complete 
 Build 85 installation is confirmed by Akshat; calculation/refresh phone checks remain before
 calling the carried-forward fixes verified on the current iPhone build.
 
+Build 90's general bodyweight resistance uses 3.0 MET (Compendium 02056);
+calisthenics remains 3.8, weight training 3.5 and powerlifting 5.0. Functional's retained
+3.5 is explicitly an estimate without a matched Compendium entry. Net lifting energy is
+`(MET - 1) × kg × active hours`, displayed beside maintenance, never added inside it.
+The food/weight calibration retains its Theil–Sen trend and existing coverage/uncertainty
+gates. Before 42 elapsed days its display envelope includes 4,858–7,700 kcal/kg conversion
+uncertainty as well as the existing trend interval; this is display-only, not a target or
+an additional statistical confidence claim.
+
 **A run's or walk's own calories** (setup/live/summary/history/share):
 - Walking Method 1: exactly `(2.74 * active_session_steps * weight_kg) / 8368`, labelled From steps.
 - Running Method 1: the accepted distance equation, labelled From distance.
@@ -429,6 +486,12 @@ calling the carried-forward fixes verified on the current iPhone build.
   burn, already included in daily BMR. HR/Keytel remains in analysis with measured-minute coverage.
 - Walking is already included by daily steps and contributes no extra workout addition. Running
   substitutes its Method 1 for the Weyand energy of its covered active steps.
+- Build 90 current speed requires a fresh platform speed and finite nonnegative
+  `speedAccuracy`. Invalid or unavailable uncertainty hides it immediately; position deltas
+  do not stand in for an invalid speed. Every positive reported uncertainty is shown with
+  ± in the selected speed units (including large uncertainty), explicitly for the latest
+  GPS fix rather than the smoothed speed's error. Existing time-based smoothing, stationary
+  and stale-time rules remain; outdoor validation is still required.
 - Live cadence is measured steps/minute: fresh phone data first, then accepted recent wrist
   cadence; zero is measured stillness, absent/stale is unavailable. It does not change calorie
   coefficients or impose a universal target. Session pause stops its cadence feed. Optional
@@ -471,6 +534,16 @@ remain approximations. This estimates total expenditure for that interval: do no
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
 ## Layout Decisions (Build 89 Installed; Next Redesign Is A Proposal)
+
+Build 90 Food source replaces the tall macro list with one compact row (protein larger),
+retaining all four values/targets and explicit missing/partial totals. Accessibility text
+stacks values and actions; the week remains horizontally scrollable with the selected date
+revealed, and Counted/Logged/Empty marks have a legend. Meals and Add food appear earlier;
+single-item meals do not repeat the same totals. Food progress uses the shared Progress
+route to its Food destination. Copy a day reviews every item, portion multiplier and selection,
+then logs into the viewed date in one explicit transaction; cancel and failed writes do not
+partially copy the day. Existing calendar, portions, My foods/My meals, scanning, labels and
+meal copy/save paths remain. Windows synthetic renders/checks are not native iPhone acceptance.
 
 **Build 88 source (DESIGN.md):** light kraft ground, cream 26 pt panels with every Surface,
 family colours (recovery, sleep, strain, food, body; amber only for NEW/unavailable), a paper

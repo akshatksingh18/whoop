@@ -45,9 +45,11 @@ import '../../compute/profile.dart'
         stepCalories,
         runFloorKcal,
         acsmActiveKcal,
+        movementEquationEstimateKcal,
+        workoutEnergyMethodLabel,
         conservativeMet,
         isLiftType;
-import '../screens/log_workout.dart' show bumpInsights;
+import '../screens/log_workout.dart' show appOf;
 import '../theme.dart';
 import 'catalogue.dart';
 import '../../data/lift_log.dart' show LiftLogDb, setMarkMinutes;
@@ -269,20 +271,38 @@ class ActivityResult {
   final int? avgHr, maxHr;
   final int? _storedCalories;
   final Profile? calculationProfile;
-  double? get acsmCalories {
+  double? get acsmCalories => _movementCalories(qualified: true);
+  double? get movementEstimateCalories => _movementCalories(qualified: false);
+
+  double? _movementCalories({required bool qualified}) {
     final kg = calculationProfile?.weightKg;
-    if (isWalkType(activity.typeKey))
-      return distanceKm == null
-          ? null
-          : acsmActiveKcal(
+    if (isWalkType(activity.typeKey)) {
+      if (distanceKm == null) return null;
+      return qualified
+          ? acsmActiveKcal(
+              runMeters: 0,
+              walkMeters: distanceKm! * 1000,
+              walkMovingSeconds: movingSec?.toDouble(),
+              weightKg: kg,
+            )
+          : movementEquationEstimateKcal(
               runMeters: 0,
               walkMeters: distanceKm! * 1000,
               weightKg: kg,
             );
+    }
     final m = mix;
-    return !isRunType(activity.typeKey) || m == null
-        ? null
-        : acsmActiveKcal(
+    if (!isRunType(activity.typeKey) || m == null) return null;
+    return qualified
+        ? acsmActiveKcal(
+            runMeters: m.runM,
+            walkMeters: m.walkM,
+            runClimbMeters: m.climbM,
+            runMovingSeconds: m.runSec.toDouble(),
+            walkMovingSeconds: m.walkSec.toDouble(),
+            weightKg: kg,
+          )
+        : movementEquationEstimateKcal(
             runMeters: m.runM,
             walkMeters: m.walkM,
             runClimbMeters: m.climbM,
@@ -1089,8 +1109,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Future<void> _saveRpe(int v) async {
     final id = r.sessionId;
     if (id == null) return;
+    final app = appOf(context);
     try {
       await LocalDb.setSessionRpe(id, v.toDouble());
+      app?.publishSessionChange();
     } catch (_) {
       return; // the row is unchanged, so the card stays and says nothing false
     }
@@ -1211,12 +1233,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       MaterialPageRoute(
         builder: (_) => ActivityPicker(
           onPick: (pc, newActivity) async {
+            final app = appOf(pc);
             // The stored key everywhere else uses — `startWorkout(type:
             // a.typeKey)` is the live path's own write. `a.name` here would still
             // resolve through `activityByName`'s normalized lookup, but it would
             // store a different string than every other producer of this column.
             try {
               await LocalDb.setSessionType(id, newActivity.typeKey);
+              app?.publishSessionChange();
             } catch (_) {
               // Same rule as `_saveRpe`: the row is unchanged, so leave the
               // picker open rather than close it over a write that never
@@ -1226,7 +1250,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             }
             picked = true;
             if (!pc.mounted) return;
-            bumpInsights(pc);
             Navigator.of(pc).pop();
           },
         ),
@@ -1372,11 +1395,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     );
     if (!ok || !mounted) return;
     setState(() => _deleting = true);
+    final app = appOf(c);
     try {
       await LocalDb.deleteSession(id);
+      app?.publishSessionChange();
       forgetRun(id);
       if (!c.mounted) return;
-      bumpInsights(c);
       await Navigator.of(c).maybePop();
     } catch (_) {
       if (c.mounted) {
@@ -1511,13 +1535,19 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           tags: workoutContext(
             WorkoutClock.read(r.sessionId!, r.start).results['context'],
           ),
-          onChanged: (tags) {
+          onChanged: (tags) async {
+            final app = appOf(c);
             final clock = WorkoutClock.read(r.sessionId!, r.start);
             clock.results['context'] = tags;
-            clock.save();
+            try {
+              await clock.persist();
+            } catch (_) {
+              return;
+            }
+            app?.publishSessionChange();
+            if (!mounted) return;
             _driftComputed = false;
             setState(() {});
-            bumpInsights(c);
           },
         ),
       ],
@@ -1663,7 +1693,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         : conservativeMet(a.typeKey, a.met!).toStringAsFixed(1);
     if (r.calories != null && isLiftType(a.typeKey)) {
       // The figure is sessionActiveKcal: MET only, sets and rests together.
-      return '$met MET above resting × your weight × active time (start to '
+      return '${workoutEnergyMethodLabel(a.typeKey)}. ($met − 1) × your weight × active time (start to '
           'stop, minus pauses). Heart rate is shown, not counted: it '
           'overstates lifting. Not added to maintenance.';
     }

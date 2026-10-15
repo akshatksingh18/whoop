@@ -175,7 +175,150 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 ### Lane notes
 
 - Claude:
-- Codex:
+- Codex: Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
+  `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
+  restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.
+  Schema 50 adds `day_zone(date, zone_id, start_offset_sec, end_offset_sec, start_ts, end_ts)`
+  and `zone_change(at_ts, zone_id)` (Unix seconds, offsets east of UTC); no guessed legacy zones.
+  `body_weight_reading` has the requested fields plus preserved `unit`, `entered`, `origin_id`;
+  legacy IDs are `legacy:<date>`, `at_ts` is unchanged, `created_at` is migration time. The
+  one-time seed is guarded by `sync_cursor.name = b90_body_reading_seed`; old-file imports
+  seed legacy daily rows too. `food_entry.logged_at` is nullable for unknown old logging times.
+  `food_day_count(date, calorie_goal, basis, counted, frozen_at, updated_at)` stores frozen
+  counting provenance; task 8 now integrates first-open goal freezing and new writes. All four tables are in
+  import/salvage and full snapshots, day exports carry their scoped context, and wipe is dynamic.
+  Body's first-reading selection/writes remain Claude-owned. Task 2 implemented: historical
+  v12/v24 RR counts cap at four, R10 retains its independent eight-value limit, unconfirmed
+  optical inputs stay nullable, legacy zero sentinels read as absent, and CSV omits legacy
+  oxygen metrics. All 5 synthetic checks in `test/build90_decode_integrity_test.dart` pass.
+  Algorithm version is 95, with one changelog entry to extend for the remaining approved work.
+  Akshat also assigned `csv_export.dart`, `day_label.dart`, `local_repository_impl.dart`,
+  `day_timeline.dart` and `activity/live.dart` to Codex. No push or full local build/test run.
+  Task 2 is committed as `05d7dca2`. Task 3 now shares bridged record-minute accounting
+  across metric history and day wear; event-backed charging/off-wrist, recording gaps and
+  pending sync have distinct timeline copy. `build90_wear_test.dart` passes 4 checks and
+  `wear_coverage_test.dart` passes 12, including the actual two-reader comparison.
+  Task 3 is committed as `d5b602a7`. Task 4 now persists the native zone inbox and timeline,
+  day boundaries/offsets, worker context and dated chart anchors; SRI uses absolute 24-hour
+  separation, and bedtime history excludes travel-spanning nights. Ten timezone checks and
+  five schema/recovery checks pass, including encrypted restore/cache hydration. Native Swift
+  build and open/background phone delivery are unverified. Legacy exports cannot reconstruct
+  earlier travel: the first observed zone seeds older assignment context, explicitly an
+  assignment convention rather than historical evidence. No dependency change.
+  Claude integration needed: change the one shared `home_screen.dart:clockOfTs` implementation
+  to `DayClock.localAt(ts.round())` so all times use the persisted zone; date formatting for
+  chart instants should use `dayLabelAtSec`, while calendar-only arithmetic keeps `dayLabelOf`.
+  Other Claude-owned headers can use `DayClock.abbreviation(date, nowSec: ...)`; shared detail
+  navigation and Recovery already show differing zones. Sleep/Recovery display fixes continue
+  in task 5. Claude owns the stale top-level planned-status wording and documentation indexes.
+  Task 4 is committed as `07fff90d`. Task 5 data/compute is implemented: per-record RR-count
+  provenance and omitted-share quality (no new HRV gate), explicit re-anchor metadata and
+  90% spectral coverage for HF/respiration/REM, arm-angle restlessness, a single five-minute
+  awakening function, quarter-gap sleep need without strain bonus, absent unavailable cycles,
+  and recording-gap lower-bound wording. Eight beat-quality and seven accounting tests pass;
+  three selected Sleep widget checks also pass (gap wording, 2x and 3.1x layout).
+  Existing sleep-need clamps were retained; their
+  outstanding source review remains research work for Claude. A1 method review for Claude:
+  the quality estimate uses the documented HR/60 versus retained RR count, with denominators;
+  confirm this definition since the local-measurement paragraph supersedes recommendations
+  (b)-(c) without stating a replacement formula. This field does not gate any headline.
+  No strain formula change.
+  Task 5 is committed as `c03421f5`. Task 6 implementation uses bodyweight 3.0 MET,
+  labels functional as an estimate, qualifies ACSM by measured moving speed and retains
+  out-of-domain/unknown-speed values under Movement estimate. Shorter-than-six-week
+  food/weight displays include the 4,858–7,700 conversion envelope without changing the
+  trend/gates or feeding advice. Run/walk remain in maintenance; lifting remains separate.
+  Akshat assigned `activity/summary.dart`, `activity/run_detail.dart` and `day_steps.dart`
+  to Codex. Task 6 is committed as `7b442912`. Food quick weigh-in delegates to BodyLogDb and uses its canonical daily weight
+  for the profile; first-reading persistence still depends on Claude's Body implementation.
+  Resting HR labels name the lowest 30-minute average while asleep on all three owned details.
+  Claude integration needed: in `workout_screen.dart`'s LiveFeed constructor, keep
+  `acsmCalories: app.workoutAcsmKcal` and add
+  `movementEstimateCalories: app.workoutMovementEstimateKcal` so unsupported speeds retain
+  the explicitly labelled comparison. Also pass
+  `currentSpeedAccuracyMps: app.routeTracker?.freshSpeedAccuracyMps(DateTime.now().millisecondsSinceEpoch)`
+  beside its existing freshSpeedMps call. Live speed now requires this provenance and shows
+  the latest GPS speed uncertainty (including at large values) rather than hiding it behind
+  a position-derived fallback. Task 7 implements per-wake ids/stage timing and per-burst counts/timestamp continuity.
+  Four existing Build 88 speed checks and five focused diagnostics/speed tests pass, including interrupted wake cleanup, invalid
+  speed despite valid position fixes, retained large uncertainty and its live-screen label.
+  The existing T11 commit-before-ACK ordering regression also passes. Outdoor/overnight
+  phone measurements and Claude's two live-feed fields remain required. New EnergyComparison gallery entries are confined
+  to the marked Codex lane block. Nine focused energy checks pass, including 1x/2x/3.1x
+  layouts; two selected Build 73 dated-weight/restore regressions pass. Native iPhone
+  appearance and the merged first-reading ledger test still need Claude CI/phone verification.
+  Task 7 is committed as `96238e62`. Task 8 Food/export source now freezes the first
+  known profile goal per closed date (including confirmed absence), passes immutable counting
+  evidence through existing entry/rollup reads, keeps manual marks distinct, and preserves
+  separate eaten/logged timestamps. Seven synthetic counting tests pass, including a read
+  before profile hydration. Analysis includes all historical weigh-ins/provenance, shared
+  lift best-set rules and nutrient-specific partial totals/denominators; rendering runs off
+  the UI isolate. Ten focused export tests and four existing export regressions pass;
+  five schema checks pass, including actual encrypted backup/restore and legacy import. Generated export copies are removed after
+  share completion/cancellation/failure; result copy distinguishes unconfirmed delivery.
+  Backup descriptions distinguish database references from actual photo files, restore
+  support and in-container loss. Native share/restore and Food phone acceptance remain open.
+  Akshat assigned `log_workout.dart`, `coach_actions.dart` and `auto_workout_import.dart`
+  to Codex. The auto-import file needs no session-contract change: Health imports write
+  separate `imported_workouts`, not `sessions`.
+  Food data/exports are committed as `b1b6d786`. Task 9 is committed as `6b182095` and implemented with a compact calorie
+  summary, four macro columns (protein larger), readable stacked large-text values, a
+  week-state legend, direct Food Progress routing and no repeated singleton totals.
+  Copy day selects a source, reviews each item/portion/selection and commits only on Log.
+  Seven focused Food checks pass, including cancel/no-write, transaction rollback and
+  the full copy/portion/selection flow at 1x/2x/3.1x;
+  three actual Food phone-size render checks pass at 1x/2x/3.1x and normal text exposes the
+  first meal. The confirmed large-text week stays in one horizontal row and Log again
+  actions use full labels without a fixed-height clipping box.
+  Claude shared-UI issue: `app_shell.dart` bottom-tab labels split words at 2x/3.1x
+  (Today, Trends, Train, Progress). Screenshots are local synthetic captures under
+  `build/ui_capture/b90_codex_food_*.png`; this needs the Claude lane's tab-bar fix.
+  The targeted unknown-intake render regression also passes.
+  Session refresh/history optimization is committed as `c7c37ed0`. Owned session paths
+  now publish after successful writes: live start/stop/orphan recovery,
+  repository start/end/privacy, substrate score/movement enrichment and deferred HRR,
+  CSV/database/Lift imports, reset and detail RPE/type/delete/context edits. Two durability
+  checks cover failed-save abstention and successful retry/repository signals. Manual
+  logging, retiming, suggestion confirmation and coach logging now share the post-commit
+  notification in `_writeManualSession`; the form no longer emits its own duplicate refresh.
+  Suggestion-only dismissals refresh insights only after their write succeeds. Two focused
+  manual/retime/coach checks pass, covering successful publication and write-failure abstention;
+  all 11 existing manual-entry/suggestion-review widget and date checks also pass.
+  Claude integration: do not publish again when LogWorkout returns from a successful manual
+  save or retime; the repository already did. Keep the Train delete/edit signals for its other
+  direct database mutations.
+  Task 10 tools are committed as `35c34f93`: `tool/strain_comparison.dart` and the read-only runner
+  `tool/strain_measurement.dart` using the app's TRIMP/coverage/strain functions,
+  the fixed shipped quiet reference and the existing session floor. Both synthetic checks pass,
+  including a complete read-only export read (sleep envelope, source exclusion, coverage and
+  unchanged input-file metadata); the private case is skipped without an input path. Set
+  `WHOOP_MEASUREMENT_DB` locally and run only `test/build90_strain_measurement_test.dart`
+  to perform it; output is fixed under ignored `build/research-local/`. Set
+  `WHOOP_SYNTHETIC_PROFILE=1` for `test/build90_history_profile_test.dart`. Akshat restored
+  an export and the targeted private read-only run now passes. File length and modification
+  time are unchanged after the read. The comparison and local review stay only in ignored
+  `build/research-local/strain-comparison.json` and `strain-comparison-review.md`; no private
+  values or dates are copied here. The strain formula is unchanged.
+  Research question for Claude: D1 describes a measured quiet reference with a fallback, while
+  current engine/pipeline calls use fixed `quietWakingHrr`. Resolve that discrepancy before
+  interpreting or approving an alternate formula. No invented quiet-day labels: a date without
+  a recorded workout is only a quiet candidate, and pruned raw cannot reproduce a full day.
+  Synthetic 3-/10-year actual-reader profiling found the Steps chart's per-date measured lookup
+  as the dominant Progress cost. Food month/day and session readers did not justify caps.
+  A shared batched coverage resolver replaces the historical per-date query loop, preserves
+  every retained point, confirmed zero and multi-day coverage, and uses stored travel/DST cuts.
+  Two step-history equivalence checks pass (old series, measured zero, multi-day spans and
+  stored DST cuts), as does the existing legacy zero-width coverage reader regression. Post-change ten-year Progress reads were 0.38–0.42 s versus 1.4–1.7 s before
+  on this Windows FFI probe; with daily phone coverage they were 0.64 s. These are synthetic
+  desktop timings, not phone acceptance. Food's existing six Build-89 regressions also pass.
+  Query and timing reports stay in ignored `build/research-local/`; merged Progress needs recheck.
+  Assigned Codex implementation and measurement work is complete; merged cloud checks and
+  phone acceptance are still open. Recommendation: keep the shipped whole-day form and the
+  corrected session floor. No-recorded-workout dates are only quiet candidates; confirm labels
+  and usable coverage locally before choosing a replacement, then obtain Akshat's approval.
+  The single algorithm-95 changelog includes the approved output changes. The restored-export
+  check is measurement only. A complete copy/paste Claude handoff is local at
+  `build/research-local/claude-build-90-handoff.md`.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

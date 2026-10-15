@@ -38,6 +38,7 @@ import '../build_profile.dart';
 import '../data/db.dart';
 import '../data/nap_ledger.dart';
 import '../data/day_label.dart';
+import '../data/day_zone_store.dart';
 import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_center.dart';
@@ -1656,7 +1657,18 @@ import 'substrate.dart';
 //   strain. It was applied to the wake features after they had been copied
 //   into the day's scalars, so `scalars.strain` and `metric_series` kept the
 //   unfloored value (0.0 on low-daytime-HR days with a finished walk).
-const int kAlgoVersion = 94;
+// 94 -> 95 (Build 90 Codex lane): confirmed historical RR count capped at four;
+//   unknown optical inputs stay nullable through storage and isolate payloads;
+//   one bridged recorded-minute definition and event-backed wear states;
+//   persisted travel-day boundaries (including measured step cuts) and
+//   absolute-time sleep regularity;
+//   quarter-gap sleep need without strain bonus, angle-based restlessness,
+//   shared sustained-awakening definition and absent unqualified cycles;
+//   nightly RR reporting quality without a new HRV gate; HF/respiration/REM
+//   spectral segments require 90% coverage and exclude clock re-anchors;
+//   bodyweight resistance uses 3.0 MET and movement comparisons qualify speed.
+//   Only retained inputs re-derive; historical stored results stay versioned.
+const int kAlgoVersion = 95;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -2055,12 +2067,14 @@ class _BaselineHistoryCache {
   List<double> valuesBefore(String key, String beforeDate) {
     final d = DateTime.parse(beforeDate);
     final from = DateTime(d.year, d.month, d.day - _baselineMaxAgeDays);
-    final fromLabel = '${from.year.toString().padLeft(4, '0')}-'
+    final fromLabel =
+        '${from.year.toString().padLeft(4, '0')}-'
         '${from.month.toString().padLeft(2, '0')}-'
         '${from.day.toString().padLeft(2, '0')}';
     return _trailing([
       for (final s in _series[key] ?? const <_DatedValue>[])
-        if (s.date.compareTo(beforeDate) < 0 && s.date.compareTo(fromLabel) >= 0)
+        if (s.date.compareTo(beforeDate) < 0 &&
+            s.date.compareTo(fromLabel) >= 0)
           s,
     ]);
   }
@@ -2145,8 +2159,9 @@ class DeriveStop {
   DeriveStop._();
   static int _generation = 0;
   static String _reason = '';
-  static final StreamController<int> _changes =
-      StreamController<int>.broadcast(sync: true);
+  static final StreamController<int> _changes = StreamController<int>.broadcast(
+    sync: true,
+  );
 
   static int get generation => _generation;
   static Stream<int> get changes => _changes.stream;
@@ -2222,7 +2237,10 @@ class _AsyncLock {
 }
 
 class DerivationEngine {
-  DerivationEngine({this.log, this.background = false});
+  DerivationEngine({this.log, this.background = false, this.onSessionChanged});
+
+  /// Called only on the DB-owning isolate after a deferred session write.
+  final void Function()? onSessionChanged;
   final void Function(String)? log;
 
   /// True when this engine was constructed inside a headless/background entry
@@ -2842,8 +2860,10 @@ class DerivationEngine {
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
+    final dayContext = DayClock.snapshot();
     final (candidateJson, observationJson) = await _runIsolateCancellable(
       () {
+        DayClock.restore(dayContext);
         try {
           final p = profileJson == null
               ? null
@@ -3430,6 +3450,8 @@ class DerivationEngine {
   /// resets it, per _deriveScope.
   static const int _tzJumpThresholdMin = 180;
   Future<bool> _timezoneTravelSuspected() async {
+    // Persisted boundaries replace the former hold-on-travel workaround.
+    if (DayClock.days.isNotEmpty) return false;
     final nowOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
     final row = await LocalDb.baseline('tz_travel_guard');
     final raw = row?['payload_json'];
@@ -3687,6 +3709,7 @@ class DerivationEngine {
     // an import racing a background derive of the same day is exactly the
     // partial-overwrites-complete case the lock exists for.
     return _withRunLock(0, () async {
+      await DayZoneStore.ensureRange(sub.tsSec.first, sub.tsSec.last);
       final days = calendarDays(sub);
       final dataNowSec = sub.lastTs ?? 0;
       var done = 0;
@@ -3818,6 +3841,7 @@ class DerivationEngine {
       sleepHr: sleepSub.hr,
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
+      sleepRrCount: sleepSub.rrCount,
       sleepSkinTemp: sleepSub.skinTemp,
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
@@ -3835,7 +3859,8 @@ class DerivationEngine {
       // forced window.
       sleepSource: day.sleepSource,
     );
-    final withHistory = _attachHistory(input, history);
+    final withHistory = _attachHistory(input, history)
+      ..['day_context'] = DayClock.snapshot();
 
     // Cancellable: on timeout the isolate is KILLED, not merely abandoned to
     // keep burning a core behind the worker pool's back.
@@ -4079,8 +4104,10 @@ class DerivationEngine {
       final spanLo = day.sleepOnsetSec > 0
           ? math.min(napLo, day.sleepOnsetSec)
           : napLo;
-      final wristOffSpans = await LocalDb.wristOffSpans(spanLo, napHi);
-      final chargingSpans = await LocalDb.chargingSpans(spanLo, napHi);
+      final wearLo = math.min(spanLo, _localDayLabelToSec(day.date));
+      final wearHi = math.max(napHi, localNextMidnightSecForDayLabel(day.date));
+      final wristOffSpans = await LocalDb.wristOffSpans(wearLo, wearHi);
+      final chargingSpans = await LocalDb.chargingSpans(wearLo, wearHi);
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //
@@ -4143,8 +4170,8 @@ class DerivationEngine {
         zoneSet: trainingZones(
           age: profile.ageYears,
           deviceFamily: daySub.deviceFamily,
-          observedCeilingBpm:
-              (withHistory['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
+          observedCeilingBpm: (withHistory['observed_hr_ceiling_bpm'] as num?)
+              ?.toDouble(),
           restingHrHistory: [
             for (final v in (withHistory['rhr_history'] as List?) ?? const [])
               if (v is num) v.toDouble(),
@@ -4177,6 +4204,8 @@ class DerivationEngine {
         dayStartSec: _localDayLabelToSec(day.date),
         dayEndSec: day.endSec,
         dataNowSec: dataNowSec,
+        viewNowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        dayContext: DayClock.snapshot(),
       );
       final blocks = await _runDayBlocksCancellable(
         blocksInput,
@@ -4225,6 +4254,7 @@ class DerivationEngine {
       // DB writes + notification the pure compute deferred to us (DB-owning isolate).
       for (final w in blocks.sessionHrrWrites) {
         await LocalDb.setSessionHrr(w.$1, w.$2);
+        onSessionChanged?.call();
       }
       for (final sug in blocks.suggestionsToPersist) {
         await LocalDb.putWorkoutSuggestion({
@@ -4865,8 +4895,10 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final crossDayContext = DayClock.snapshot();
       final (bundleJson, dropped, needSec) = await _runIsolateCancellable(
         () {
+          DayClock.restore(crossDayContext);
           final bundle =
               buildCrossDayBundle(
                   days,
@@ -5312,6 +5344,10 @@ class DerivationEngine {
           ? null
           : observedSec / inBedSec,
       'hypnogram': series?['hypnogram'],
+      'day_zone': payload['day_zone'],
+      'sleep_spans_zone_change': payload['sleep_spans_zone_change'],
+      'sleep_onset_local_min': payload['sleep_onset_local_min'],
+      'sleep_wake_local_min': payload['sleep_wake_local_min'],
       // 24 local-hour means of this day's HR curve — the ONLY intraday series
       // that survives long enough to support cross-day circadian analysis.
       // `day_result` is never pruned; the 1 Hz substrate is gone after 3 days,
@@ -5722,6 +5758,9 @@ class DerivationEngine {
     required int dayStartSec,
     required int dayCalendarEndSec,
     required int dataNowSec,
+    int? viewNowSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
     double? restingHr,
     double? dynFloorG,
     int liveStepsReal = 0,
@@ -5747,6 +5786,9 @@ class DerivationEngine {
       dayStartSec: dayStartSec,
       dayCalendarEndSec: dayCalendarEndSec,
       dataNowSec: dataNowSec,
+      viewNowSec: viewNowSec,
+      wristOff: wristOff,
+      charging: charging,
       restingHr: restingHr,
       dynFloorG: dynFloorG,
       stepSpans: stepSpans,
@@ -6094,10 +6136,8 @@ class DerivationEngine {
     // 18,856 on a day the strap synced for part of).
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
-    final useBand = kBandSteps &&
-        liveStepsReal <= 0 &&
-        bandSteps != null &&
-        bandSteps > 0;
+    final useBand =
+        kBandSteps && liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
     final steps = useBand ? bandSteps : liveStepsReal;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
@@ -6319,6 +6359,9 @@ class DerivationEngine {
     required int dayStartSec,
     required int dayCalendarEndSec,
     required int dataNowSec,
+    int? viewNowSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
     double? restingHr,
     double? dynFloorG,
     List<List<int>> stepSpans = const [],
@@ -6330,6 +6373,9 @@ class DerivationEngine {
       dayStartSec: dayStartSec,
       dayCalendarEndSec: dayCalendarEndSec,
       dataNowSec: dataNowSec,
+      viewNowSec: viewNowSec,
+      wristOff: wristOff,
+      charging: charging,
     );
     final wakeSeries = _perMinuteMeanWake(
       daySub,
@@ -6741,119 +6787,25 @@ class DerivationEngine {
   /// future firmware streams off-wrist records, add a skin-temp/motion on-body
   /// gate here (the substrate carries accel + skinTemp).
   ///
-  /// THE DENOMINATOR IS THE DAY, NOT THE DATA. `coverage_pct` used to divide
-  /// worn seconds by `last sample - first sample`, so a band worn 9-11am and
-  /// nowhere else reported 100% — and `day_strain` renders that number as the
-  /// sentence "The band saw N% of this day", which was then false. The span
-  /// between the first and last record cannot answer a question about the day;
-  /// only the day can.
-  ///
-  /// WHICH day, for a day still in progress: the ELAPSED part of it, not all 24
-  /// hours. A day that is 40% over must not read as 60% missing — that would
-  /// make every morning open on "the band saw 30% of this day" and re-teach the
-  /// user to ignore the one number that is supposed to mean something. So the
-  /// window is [dayStartSec, min(dataNowSec, dayCalendarEndSec)): for a finished
-  /// past day that is the whole local day (23 h / 25 h on the two DST days,
-  /// because both bounds come from the day LABEL, never from `+86400`), and for
-  /// today it is midnight-to-now.
-  ///
-  /// [dataNowSec] is the DATA edge, not the wall clock, for the same reason
-  /// finalization is: a day whose sync stopped at 14:00 has not been observed
-  /// since, and charging the phone against wall-clock time would invent hours of
-  /// "not worn" out of hours we simply have not received yet.
-  ///
-  /// The segments follow the same window. They used to start at the first
-  /// record and stop at the last, so the hole from midnight to the first record
-  /// was invisible — which would now contradict the coverage number sitting
-  /// beside it. Leading and trailing holes are emitted as off-segments, so
-  /// `sum(on segments) / observable == coverage_pct` exactly.
+  /// Coverage uses elapsed time through the durable record frontier. Worn
+  /// minutes share metric_series' bridged record-minute definition. Only
+  /// WRIST reports establish off-wrist time; the unsynced tail is pending.
   static Map<String, dynamic> _wearBlock(
     Substrate s, {
     required int dayStartSec,
     required int dayCalendarEndSec,
     required int dataNowSec,
-  }) {
-    final observableEnd = math.min(
-      math.max(dataNowSec, dayStartSec),
-      math.max(dayCalendarEndSec, dayStartSec),
-    );
-    final observableSec = observableEnd - dayStartSec;
-    final n = s.length;
-    if (n == 0) {
-      return {
-        'segments': const [],
-        'first_on': null,
-        'last_on': null,
-        'longest_off_min': 0,
-        'worn_min': 0,
-        // Zero here is a measurement — the day was derived and held no record.
-        // Null only when there is no day to divide by at all (an unparseable
-        // label), where a percentage would be division by nothing.
-        'coverage_pct': observableSec > 0 ? 0 : null,
-      };
-    }
-    const offGapSec = 120; // a >2-min hole in the 1 Hz stream = off / not worn
-    final firstOn = s.tsSec.first;
-    final lastOn = s.tsSec.last + 1;
-
-    // On-runs first: contiguous stretches of record presence. The off-segments
-    // are then everything else inside the observable window, which is what puts
-    // the leading/trailing holes on the list.
-    final runs = <List<int>>[];
-    var runStart = s.tsSec.first;
-    var prev = s.tsSec.first;
-    for (var i = 1; i < n; i++) {
-      final ts = s.tsSec[i];
-      if (ts - prev > offGapSec) {
-        runs.add([runStart, prev + 1]);
-        runStart = ts;
-      }
-      prev = ts;
-    }
-    runs.add([runStart, prev + 1]);
-
-    final segments = <Map<String, dynamic>>[];
-    var longestOff = 0, wornSec = 0;
-    void addOff(int start, int end) {
-      if (end <= start) return;
-      segments.add({
-        'on': false,
-        'start': start,
-        'end': end,
-        'len_min': ((end - start) / 60).round(),
-      });
-      if (end - start > longestOff) longestOff = end - start;
-    }
-
-    var cursor = dayStartSec;
-    for (final r in runs) {
-      addOff(cursor, r[0]);
-      segments.add({
-        'on': true,
-        'start': r[0],
-        'end': r[1],
-        'len_min': ((r[1] - r[0]) / 60).round(),
-      });
-      wornSec += r[1] - r[0];
-      cursor = r[1];
-    }
-    addOff(cursor, observableEnd);
-
-    return {
-      'segments': segments,
-      'first_on': firstOn,
-      'last_on': lastOn,
-      'longest_off_min': (longestOff / 60).round(),
-      'worn_min': (wornSec / 60).round(),
-      // Clamped only against a substrate that reaches outside its own day —
-      // production slices `daySub` to the day, so this is a guard, not a
-      // correction, and it must never be the thing that makes the number look
-      // sane.
-      'coverage_pct': observableSec > 0
-          ? (100 * wornSec / observableSec).round().clamp(0, 100).toInt()
-          : null,
-    };
-  }
+    int? viewNowSec,
+    List<List<int>> wristOff = const [],
+    List<List<int>> charging = const [],
+  }) => ana.dayWearBlock(
+    s.tsSec,
+    startSec: dayStartSec,
+    endSec: math.min(viewNowSec ?? dataNowSec, dayCalendarEndSec),
+    frontierSec: dataNowSec + 1,
+    offWrist: wristOff,
+    charging: charging,
+  );
 
   /// Waking ultradian HRV: RMSSD over 5-min buckets of the DAY's RR that falls
   /// OUTSIDE the sleep window (the daytime autonomic rhythm). Timeline + mean.
@@ -7012,7 +6964,9 @@ class DerivationEngine {
         if (seam != null) {
           brpm = seam(nn, nnt);
         } else {
-          final est = ana.rsaRespRate(nn, nnt, artifactFraction: 0.15);
+          final clock = ana.rrBeatClock(nn, rrTsMs: nnt);
+          final est = ana.rsaRespRate(nn, clock.timesMs, artifactFraction: 0.15,
+              gapBefore: clock.reanchorBefore);
           brpm = est.present ? est.value!.brpm : null;
         }
         // Advance the cadence cursor on every ATTEMPT, not just on a successful
@@ -7041,7 +6995,7 @@ class DerivationEngine {
     final bins = <int, List<double>>{};
     for (var i = 0; i < s.skinTemp.length && i < s.tsSec.length; i++) {
       final v = s.skinTemp[i];
-      if (v > 0) (bins[s.tsSec[i] ~/ 300] ??= []).add(v.toDouble());
+      if (v != null) (bins[s.tsSec[i] ~/ 300] ??= []).add(v.toDouble());
     }
     if (bins.length < 3) return const [];
     final keys = bins.keys.toList()..sort();
@@ -7059,8 +7013,8 @@ class DerivationEngine {
 
   /// Quiet-second ENMO cut (g), per sensor package.
   ///
-  /// ENMO here is `||a|| − 1 g` — the same amplitude index `restlessness_map`
-  /// and `enmoSeries` use. A sedentary/still wrist sits at ~0.01-0.02 g and
+  /// ENMO here is `||a|| − 1 g`, the amplitude index used by `enmoSeries`.
+  /// Restlessness uses arm-angle change separately. A sedentary/still wrist sits at ~0.01-0.02 g and
   /// walking at ~0.066 g, so 0.02 g separates sitting from moving without
   /// pretending to separate postures. Listed per family because the cut is only
   /// meaningful against that family's accel scale; an unknown strap gets no cut
@@ -7820,6 +7774,7 @@ class DerivationEngine {
   /// in; DB writes + notifications are returned as descriptors for the caller
   /// to apply.
   static _DayBlocksOutput _computeDayBlocks(_DayBlocksInput inp) {
+    DayClock.restore(inp.dayContext);
     final daySub = inp.daySub;
     final sleepSub = inp.sleepSub;
     final onset = inp.onsetSec;
@@ -7845,6 +7800,9 @@ class DerivationEngine {
       // NOT `inp.dayEndSec` — that is the data edge. See `applyDayActivity`.
       dayCalendarEndSec: localNextMidnightSecForDayLabel(inp.date),
       dataNowSec: inp.dataNowSec,
+      viewNowSec: inp.viewNowSec,
+      wristOff: inp.wristOffSpans,
+      charging: inp.chargingSpans,
       restingHr: inp.rhr,
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
@@ -7855,6 +7813,12 @@ class DerivationEngine {
       zoneSet: inp.zoneSet,
     );
 
+    bundlePatch['day_zone'] = DayClock.forDate(inp.date)?.toRow();
+    bundlePatch['sleep_spans_zone_change'] = DayClock.spansZoneChange(onset, offset);
+    bundlePatch['sleep_onset_local_min'] = onset > 0
+        ? DayClock.localAt(onset).hour * 60 + DayClock.localAt(onset).minute : null;
+    bundlePatch['sleep_wake_local_min'] = offset > 0
+        ? DayClock.localAt(offset).hour * 60 + DayClock.localAt(offset).minute : null;
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
     seriesPatch['hrv_day'] = dayHrvCurve(daySub);
     seriesPatch['resp_day'] = dayRespCurve(daySub);
@@ -7929,36 +7893,10 @@ class DerivationEngine {
     _attachWristOrientation(bundlePatch, daySub, onset, offset);
     bundlePatch['advanced_sleep'] = const {'present': false};
 
-    // Feature 6: Restlessness Map (5-min ENMO heatmap of the sleep window).
-    if (sleepSub.length > 0) {
-      const bucketSec = 300; // 5 min
-      final moveSum = <int, double>{};
-      final moveCount = <int, int>{};
-      for (var i = 0; i < sleepSub.length; i++) {
-        // Absent accel would score ENMO |0 - 1| = 1.0 — maximal restlessness
-        // from no data. Skip it; a bucket with no present second is omitted.
-        if (!sleepSub.accelPresentAt(i)) continue;
-        final b = sleepSub.tsSec[i] ~/ bucketSec;
-        final ax = sleepSub.ax[i];
-        final ay = sleepSub.ay[i];
-        final az = sleepSub.az[i];
-        final mag = math.sqrt(ax * ax + ay * ay + az * az);
-        final enmo = (mag - 1.0).abs();
-        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
-        moveCount[b] = (moveCount[b] ?? 0) + 1;
-      }
-      final out = <Map<String, dynamic>>[];
-      final keys = moveSum.keys.toList()..sort();
-      for (final b in keys) {
-        final avgEnmo = moveSum[b]! / moveCount[b]!;
-        final density = math.min(1.0, avgEnmo * 10.0);
-        out.add({
-          't': b * bucketSec,
-          'density': double.parse(density.toStringAsFixed(3)),
-        });
-      }
-      bundlePatch['restlessness_map'] = out;
-    }
+    // Arm-angle range, not uncalibrated magnitude-minus-1 g. Existing
+    // relative-stillness breathing qualification is a separate concern.
+    final angleMap = ana.armAngleRestlessness(sleepSub.accelSamples());
+    if (angleMap.isNotEmpty) bundlePatch['restlessness_map'] = angleMap;
 
     // Feature 2 (fit-quality diagnostic) is GONE, not disabled. It scored band
     // tightness from `skinContact`, and there is no contact-quality field to
@@ -8364,23 +8302,8 @@ class DerivationEngine {
   }
 
   // static: pure day-label arithmetic, and `rawPruneCutoffSec` needs it.
-  static int _localDayLabelToSec(String day) {
-    final d = DateTime.tryParse(day);
-    if (d == null) return 0;
-    return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
-  }
-
-  // was `_localDayLabelToSec(day) + 86400` at every call site - assumes every
-  // local day is exactly 24h, which is wrong on the two DST-transition days a
-  // year (23h/25h). DateTime normalizes the day+1 overflow itself and
-  // .millisecondsSinceEpoch already respects local DST rules, so just asking
-  // for the START of the NEXT day gets this right without hardcoding a
-  // day length.
-  int _localNextDayLabelToSec(String day) {
-    final d = DateTime.tryParse(day);
-    if (d == null) return 0;
-    return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
-  }
+  static int _localDayLabelToSec(String day) => localDayStartSec(day) ?? 0;
+  int _localNextDayLabelToSec(String day) => localDayEndSec(day) ?? 0;
 
   String _skipReasonForError(Object error) {
     final msg = error.toString();
@@ -8562,6 +8485,8 @@ class _DayBlocksInput {
   final int dayStartSec;
   final int dayEndSec;
   final int dataNowSec;
+  final int viewNowSec;
+  final Map<String, dynamic> dayContext;
   const _DayBlocksInput({
     required this.daySub,
     required this.napSub,
@@ -8587,6 +8512,8 @@ class _DayBlocksInput {
     required this.dayStartSec,
     required this.dayEndSec,
     required this.dataNowSec,
+    required this.viewNowSec,
+    required this.dayContext,
   });
 }
 

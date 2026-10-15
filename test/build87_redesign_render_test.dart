@@ -1256,8 +1256,9 @@ void main() {
         ),
       ),
     );
-    // Build 89: an unrecorded intake reads "—" over the goal.
-    expect(find.text('— / 2,300 kcal'), findsOneWidget);
+    // Unknown intake remains explicit, separately from the user's goal.
+    expect(find.text('Not logged'), findsOneWidget);
+    expect(find.text('Goal 2,300 kcal'), findsOneWidget);
     expect(find.text('Intake not recorded'), findsOneWidget);
     expect(find.textContaining('2,300 left'), findsNothing);
     expect(find.text('Maintenance not available'), findsNothing);
@@ -1486,14 +1487,18 @@ void main() {
         await t.pumpWidget(_app(app, build(), scale, domain));
         await _settle(t);
         expect(t.takeException(), isNull);
-        await _capture(t, 'b87_${name}_$tag');
+        if(name == 'food' && width == 390 && scale == 1) {
+          expect(t.getTopLeft(find.text('Breakfast').first).dy,lessThan(height-90),
+            reason:'The first meal must be visible above the tab bar at ordinary phone text.');
+        }
+        await _capture(t, name == 'food' ? 'b90_codex_food_$tag' : 'b87_${name}_$tag');
         final scroll = find.byType(Scrollable).first;
         for (var i = 0; i < 4; i++) {
           await t.drag(scroll, const Offset(0, -500));
           await _settle(t);
           expect(t.takeException(), isNull);
         }
-        await _capture(t, 'b87_${name}_${tag}_lower');
+        await _capture(t, name == 'food' ? 'b90_codex_food_${tag}_lower' : 'b87_${name}_${tag}_lower');
         await t.pumpWidget(const SizedBox.shrink());
         await _settle(t);
       });

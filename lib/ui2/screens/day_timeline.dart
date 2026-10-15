@@ -179,18 +179,23 @@ List<Moment> dayMoments({
     ));
   }
 
-  // The band off the wrist. This is the single most useful line on the page on
-  // most people's days, because it is the reason the rest of the day is empty
-  // — and the segments already carry the exact clock times.
+  // Only WRIST reports establish off-wrist time. Gaps and the unsynced tail
+  // remain explicit unknowns, including legacy segments without a state.
   for (final w in (wear['segments'] as List?) ?? const []) {
-    if (w is! Map || w['on'] == true) continue;
+    if (w is! Map || w['state'] == 'worn' ||
+        (w['state'] == null && w['on'] == true)) continue;
     final on = asInt(w['start']), off = asInt(w['end']);
     final len = (w['len_min'] as num?) ?? (on != null && off != null ? (off - on) / 60 : null);
     if (on == null || len == null || len < kMinOffWristMin) continue;
     out.add(Moment(
       at: on,
       until: off,
-      title: l?.dayTimelineBandOffWrist ?? 'Band off your wrist',
+      title: switch (w['state']) {
+        'off_wrist' => l?.dayTimelineBandOffWrist ?? 'Band off your wrist',
+        'charging' => l?.dayTimelineChargerOn ?? 'On the charger',
+        'pending' => l?.dayTimelineNotYetSynced ?? 'Not yet synced',
+        _ => l?.dayTimelineRecordingGap ?? 'Recording gap',
+      },
       detail: '${_span(on, off)} · ${_dur(len)}',
       icon: LucideIcons.watch,
     ));

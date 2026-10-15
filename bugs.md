@@ -708,6 +708,15 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: relative stillness (within 0.02 g of the window median on 90%); SRI over observed all-day epochs; 3 h night-time fallback; correction save blocked under 50% recorded; Home bar uses last night's stored need; "In bed at" label. Kept: the approved rule lets a later night with more sleep replace the pick (a later, shorter night does not). Open: the restlessness map's |mag - 1| test, stage cutoffs (experiment), debt/wake-count and smaller items.
 
+Build 90 source supersedes the map/accounting items below: arm-angle restlessness replaces
+magnitude-minus-1 g; sleep need adds a quarter of the estimated gap and no strain bonus;
+one five-minute wake-run definition serves segmentation and scalar history; cycles are absent
+when unqualified or unstaged; Sleep names recording-gap durations as lower bounds. RR reporting
+quality is retained without a new nightly-HRV gate. HF, respiration and REM spectral windows
+require 90% coverage and exclude clock re-anchors. Eight beat-quality and seven accounting
+regressions pass. Stage smoothing/cutoffs retain their existing experimental status; validation
+against a reference recording and phone checks remain open.
+
 - **SRI is not the Phillips index.** `_crossDaySri` marks epochs valid only where a hypnogram exists
   (spot-checked), so it compares only minutes inside both nights' windows and moving bedtime barely
   changes it. The audit also found unobserved epochs counted as asleep. Hidden from UI, but stored.
@@ -751,6 +760,18 @@ stored mean is rounded to whole bpm or that a smaller floor is validated.
 
 ### Energy, Steps, Live Speed And Food/Weight Estimate Edge Cases
 
+Build 90 Codex source implements research G1/G2/G4: general bodyweight resistance is
+3.0 MET, functional is explicitly an estimate, and the distance comparison claims ACSM
+only within supported measured speed ranges. Other/unknown speeds retain the value as a
+Movement estimate. The shorter-than-six-week food/weight display includes the approved
+conversion envelope; calculation gates and calorie targets are unchanged. Food quick
+weigh-in now delegates to BodyLogDb rather than writing the daily table independently;
+first-reading persistence needs Claude's merged Body logic. Resting HR on Sleep, Recovery
+and metric detail is labelled lowest 30-minute average while asleep. Device checks remain open.
+Build 90 live-speed source additionally requires valid platform speed uncertainty and shows
+its ± value in the user's speed units. An invalid speed cannot reappear through the old
+position-difference fallback. Distance and moving-time recording remain independent.
+
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: partial run steps stay known; DST-length BMR; fabricated, over-4 h and overlapping lifts; low-HR lifts by MET; live speed over time (tau 5 s), stop detection, "—" without a fresh fix and moving-time average; Theil-Sen food/weight estimate with Sen's range, 3 weigh-ins per half, hidden past +/-300 kcal. Superseded by Build 89: steps are phone-only and high-rate live streams are off in the personal build. Open: live-speed constants need an outdoor walk and run.
 
 All documented coefficients, gates and worked examples match source. Climb terms are inert:
@@ -780,6 +801,32 @@ All documented coefficients, gates and worked examples match source. Climb terms
   target or advice.
 
 ### Food Completeness, Body Estimates, Strength Comparisons And Goal Advice
+
+Build 90 Codex source freezes closed-day calorie-goal/counting provenance, including first-open
+legacy dates, with manual overrides and separate automatic/marked labels. Reads before profile
+hydration cannot freeze an unknown target. Food writes retain eaten time separately from the
+original logging time; legacy unknown logging times remain NULL. The analysis export includes
+historical weigh-ins and provenance, shares bestSet/setScore and equipment/load meaning, and
+retains nutrient-specific coverage, partial-total labels and weekly denominators. Export rendering
+runs off the UI isolate. Temporary generated copies are cleaned after platform completion,
+cancellation or failure; share copy does not claim delivery when the result is unavailable.
+Database, encrypted media backup and analysis descriptions state restore support/photo contents;
+automatic backups explicitly do not survive container loss. Synthetic checks pass; native share,
+restore, photo-count and Food phone acceptance remain open.
+Build 90 owned workout mutations now publish the shared insights/Food signal only after
+successful persistence; failed-save/retry and repository mutation checks pass. Manual, retimed,
+suggestion-confirmed and coach-created sessions now publish in their shared repository writer;
+the form no longer increments insights separately. Suggestion-only dismissals refresh after
+successful persistence. Health auto-imports use a separate table.
+Multi-year synthetic profiling isolated repeated measured-step lookups as a Progress loading cost; the batched
+resolver retains the same source policy and old unmeasured series points without a history cap.
+
+Build 90 Food source compacts the calorie/macro summary without hiding nutrients, removes
+repeated singleton meal totals, labels week marks, adapts numeric/action layouts to large
+text and adds reviewed whole-day copying. Copying is atomic and only the explicit Log action
+writes. Past-date Quick add already used meal-clock defaults in the base; the added test
+pins that behavior alongside the new separate logging timestamp. Common bottom-tab labels
+still split at accessibility sizes in the Codex checkout; `app_shell.dart` is Claude-owned.
 
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired in Build 88: explicit completion only (D13), subsequently extended by Build 89 automatic counting with manual overrides; "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
 
@@ -858,18 +905,22 @@ or unobserved latent record shapes as established device failures.
 - Green ADC is decoded but never stored, so no historical RIIV/green respiration path can run.
 - Historical R10-lite HR goes only to legacy `samples`, not the substrate (its beats are kept).
   Prevalence is unknown.
-- Two `worn_min` definitions exist:
-  - `metric_series` counts minutes with any record (Trends/CSV);
-  - the day wear block bridges runs (the day screen).
-- Wear is record presence (a gap over 120 s means off), so off-wrist, charging and undelivered
-  data are one "off" state. WRIST/charging events feed only nap rejection and a sleep-charging
-  flag.
-- The decoder accepts up to 8 historical RR values; counts of 5–8 would read optical bytes as beats
-  (latent, unobserved).
-- Unconfirmed record versions write `skin_temp_raw`/`spo2_*` as 0 instead of NULL. Legacy
-  pre-refusal `odi_per_hour`/`spo2` rows, if present, remain in CSV metric history.
-- Travel uses the phone's current zone for retained re-derives, so day seams can overlap or gap
-  after a zone change.
+- Build 90 source uses one recorded-minute definition for `metric_series` and the day wear
+  block, bridging gaps up to 120 seconds. WRIST events establish off-wrist spans, band events
+  establish charging, and time after the committed frontier is pending sync. Other recording
+  gaps are unknown, including legacy segments; they are not labelled off-wrist.
+- Build 90 source caps historical v12/v24 records at four RR values; larger declared counts
+  yield no intervals. R10 keeps its separate eight-value bound. Unknown-layout optical fields
+  remain NULL through storage and isolate payloads, and old zero sentinels read as absent.
+  CSV excludes legacy `odi_per_hour`/`spo2` history without deleting stored rows. Five synthetic
+  regressions pass; phone verification remains open.
+- Build 90 source stores the observed IANA zone timeline and UTC day seams, including
+  westward extended days, eastward skipped labels and 23/25-hour DST days. Derivation workers
+  receive that context; SRI uses absolute 24-hour separation and bedtime comparisons exclude
+  nights spanning a zone change. Ten pure timezone checks and five schema/recovery checks pass.
+  Native notification delivery while open/backgrounded remains a phone gate. Earlier travel
+  cannot be reconstructed from legacy exports: before the first observation, the first known
+  zone seeds the assignment context; it is not evidence of the zone actually visited.
 
 ## Stale Band-Data Age And Repeated Empty Catch-Up
 

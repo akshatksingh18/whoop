@@ -40,13 +40,13 @@ class DecodedSample {
   });
 
   Map<String, dynamic> toMap() => {
-    'ts': ts,
-    'hr': hr,
-    'activity': activity,
-    'steps_inc': stepsInc,
-    'wrist_on': wristOn,
-    'rec_type': recType,
-  };
+        'ts': ts,
+        'hr': hr,
+        'activity': activity,
+        'steps_inc': stepsInc,
+        'wrist_on': wristOn,
+        'rec_type': recType,
+      };
 }
 
 /// One IMU frame's accel as ordered magnitude samples (g) + its time + sub-order.
@@ -59,7 +59,8 @@ class ImuFrame {
   final List<double>? zs;
   ImuFrame(this.ts, this.idx, this.mags, [this.xs, this.ys, this.zs]);
 
-  Map<String, dynamic> toMap() => {'ts': ts, 'idx': idx, 'mags': mags, 'xs': xs, 'ys': ys, 'zs': zs};
+  Map<String, dynamic> toMap() =>
+      {'ts': ts, 'idx': idx, 'mags': mags, 'xs': xs, 'ys': ys, 'zs': zs};
 }
 
 /// Nibble value for an ASCII hex code unit, or -1 if it is not a hex digit.
@@ -201,7 +202,7 @@ ImuFrame? frameAccelForBand(String hex) =>
 /// Returns {ts, rr_ms} or null.
 ///
 /// The declared count is untrusted on both forms and is capped at the number
-/// of R-R slots that form actually has (4 for 0x28, [kMaxRrPerRecord] for R10).
+/// of R-R slots that form actually has (4 for 0x28, [kMaxRrPerR10] for R10).
 RealtimeRrResult? realtimeRr(String hex) {
   Uint8List b;
   try {
@@ -227,9 +228,8 @@ RealtimeRrResult? realtimeRr(String hex) {
     tsOff = 7;
     cntOff = 18;
     // R10 declares its count at [18] and carries the values from [19], inside
-    // a 1920-byte record — there is genuine room for these, so the historical
-    // ceiling applies unchanged.
-    maxRr = kMaxRrPerRecord;
+    // a 1920-byte record. Its existing ceiling is independent of 1 Hz history.
+    maxRr = kMaxRrPerR10;
   } else {
     return null;
   }

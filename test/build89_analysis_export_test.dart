@@ -48,7 +48,7 @@ void main() {
   test('weekly averages use counted days only', () {
     final md = build();
     // Week of 2026-09-28 holds the 2nd (counted 2100) and 3rd (not counted).
-    expect(md, contains('| 2026-09-28 | 80.2 | 2100 | 150 | 1 |'));
+    expect(md, contains('| 2026-09-28 | 80.2 | 2100 (1/1 days) | 150 (1/1 days) |'));
   });
 
   test('food items only when given', () {

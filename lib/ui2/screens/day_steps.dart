@@ -1,3 +1,4 @@
+import '../energy_comparison.dart';
 // DAY STEPS — when the day's steps were counted, and by what.
 //
 // The day total on Home is a sum of SPANS: each stretch of the day goes to the
@@ -32,7 +33,8 @@ import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
-import '../../compute/profile.dart' show Profile, walkingEnergy, acsmActiveKcal;
+import '../../compute/profile.dart'
+    show Profile, walkingEnergy, movementEquationEstimateKcal;
 import '../../compute/day_upkeep.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -186,7 +188,7 @@ class DayStepsData {
             ),
       acsmWalking:
           upkeep.acsmParts?.steps ??
-          acsmActiveKcal(
+          movementEquationEstimateKcal(
             runMeters: 0,
             walkMeters: upkeep.walkingMeters ?? 0,
             weightKg: upkeep.walkingMeters == null
@@ -433,7 +435,11 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
                   // Each fact once, as a chip (build 85): the screen above
                   // already shows the pair when this is embedded.
                   if (!(widget.embedded && widget.calories)) ...[
-                    CaloriePair(budget: w.kcal, acsm: d.acsmWalking, note: ''),
+                    EnergyComparison(
+                      budget: w.kcal,
+                      acsm: d.acsmWalking,
+                      note: '',
+                    ),
                     const SizedBox(height: S.x3),
                   ],
                   Wrap(

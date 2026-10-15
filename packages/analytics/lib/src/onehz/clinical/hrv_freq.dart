@@ -18,6 +18,7 @@
 // RESOLVE it (ULF genuinely needs 24 h) — never a leakage-filled 0.0.
 
 import '../types.dart';
+import '../foundations/beat_quality.dart';
 import '../util.dart';
 
 class HrvFreq {
@@ -72,6 +73,7 @@ Metric<HrvFreq> hrvFreq(
   required double artifactFraction,
   double hfArtifactGate = 0.15,
   double oversample = 4.0,
+  List<bool> gapBefore = const [],
 }) {
   const inputs = ['rr_cleaned', 'beat_times'];
   if (nnMs.length < 16 || nnTimesMs.length != nnMs.length) {
@@ -101,7 +103,8 @@ Metric<HrvFreq> hrvFreq(
       _welchBandPower(tSec, nnMs, 0.0003, 0.003, oversample: oversample);
   final vlf = _welchBandPower(tSec, nnMs, 0.003, 0.04, oversample: oversample);
   final lf = _welchBandPower(tSec, nnMs, 0.04, 0.15, oversample: oversample);
-  final hfRaw = _welchBandPower(tSec, nnMs, 0.15, 0.40, oversample: oversample);
+  final hfRaw = _welchBandPower(tSec, nnMs, 0.15, 0.40,
+      oversample: oversample, rejectGaps: true, gapBefore: gapBefore);
   if (lf == null && hfRaw == null) {
     return const Metric<HrvFreq>.absent(
       tier: Tier.high,
@@ -207,6 +210,8 @@ double? _welchBandPower(
   double cyclesPerSegment = 10.0,
   double oversample = 4.0,
   int minPointsPerSegment = 16,
+  bool rejectGaps = false,
+  List<bool> gapBefore = const [],
 }) {
   if (loHz <= 0 || hiHz <= loHz || tSec.length < minPointsPerSegment)
     return null;
@@ -225,13 +230,19 @@ double? _welchBandPower(
     final end = start + segSec;
     final ts = <double>[];
     final ys = <double>[];
+    var lo = -1, hi = -1;
     for (var i = 0; i < tSec.length; i++) {
       if (tSec[i] < start) continue;
       if (tSec[i] >= end) break;
+      if (lo < 0) lo = i;
+      hi = i + 1;
       ts.add(tSec[i]);
       ys.add(y[i]);
     }
     if (ts.length < minPointsPerSegment) continue;
+    if (rejectGaps &&
+        !spectralSegmentQualified(tSec, y, lo, hi, start, end,
+            gapBefore: gapBefore)) continue;
     final ls = lombScargle(ts, ys, grid);
     if (ls == null) continue;
     final p = ls.bandPower(loHz, hiHz);

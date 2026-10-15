@@ -380,7 +380,7 @@ void main() {
         profile.toMap(),
         now: DateTime(2026, 10, 3),
       );
-      await BodyWeight.put(db, '2026-10-02', 79.5);
+      await BodyWeight.put('2026-10-02', 79.5, 'kg', historyOnly: false);
       await ProfileHistory.record(profile.toMap(), {
         ...profile.toMap(),
         'weight_kg': 81.25,
@@ -622,17 +622,22 @@ void main() {
       ];
       final days = [
         for (var i = 0; i < 14; i++)
-          rollupDay(dayLabelOf(DateTime(2026, 9, 1 + i)), [
-            FoodEntry(
-              id: 'e$i',
-              atTs: tsOf(DateTime(2026, 9, 1 + i, 20)),
-              date: dayLabelOf(DateTime(2026, 9, 1 + i)),
-              meal: 'dinner',
-              label: 'Day',
-              kcal: 2200,
-              proteinG: 150,
-            ),
-          ], today: '2026-10-04', mark: 'complete'),
+          rollupDay(
+            dayLabelOf(DateTime(2026, 9, 1 + i)),
+            [
+              FoodEntry(
+                id: 'e$i',
+                atTs: tsOf(DateTime(2026, 9, 1 + i, 20)),
+                date: dayLabelOf(DateTime(2026, 9, 1 + i)),
+                meal: 'dinner',
+                label: 'Day',
+                kcal: 2200,
+                proteinG: 150,
+              ),
+            ],
+            today: '2026-10-04',
+            mark: 'complete',
+          ),
       ];
       expect(estimatedMaintenance(weights, days)!.kcal, 2200);
       expect(maintenanceFoodCoverage(weights, days), (complete: 14, days: 14));
@@ -679,7 +684,7 @@ void main() {
   test(
     'restore includes templates, weights, coverage and calculation anchors',
     () async {
-      await BodyWeight.put(db, '2026-10-03', 80.5);
+      await BodyWeight.put('2026-10-03', 80.5, 'kg', historyOnly: false);
       await MyFoods.putMeal(
         db,
         const MealTemplate(

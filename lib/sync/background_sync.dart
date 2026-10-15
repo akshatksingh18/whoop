@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
 import '../data/db.dart';
+import '../data/day_zone_store.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import 'band_ownership.dart';
@@ -27,17 +28,19 @@ import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
 import 'file_log.dart';
+import 'wake_timing.dart';
 import '../build_profile.dart';
 
 /// One headless LOCAL drain pass. Safe to call from a background isolate. Never
 /// throws. Connects-by-id if reachable, drains whatever the band buffered to
 /// flash into local storage (non-destructive cursor — catches up everything since
 /// last time), and disconnects. No network.
-Future<bool> runHeadlessSync({
-  BandLease? lease,
-  String wake = 'background',
-}) async {
+Future<bool> runHeadlessSync({BandLease? lease, String wake = 'background'}) =>
+    WakeTiming.run(wake, () => _runHeadlessSync(lease: lease, wake: wake));
+
+Future<bool> _runHeadlessSync({BandLease? lease, required String wake}) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await DayZoneStore.check('headless_sync');
   // B88-12 (C5): the Status panel's "last background wake". Best effort.
   try {
     await LocalDb.noteBackgroundWake(wake);
@@ -69,11 +72,14 @@ Future<bool> runHeadlessSync({
       log: (l) => _bgLog('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          LocalDb.commitSyncBatch(raws, samples,
-              trimToken: trimTokenHex,
-              archives: archives,
-              deviceFamily: deviceFamily,
-              onCheckpoint: (msg) => _bgLog('[bgsync][COMMIT] $msg')),
+          LocalDb.commitSyncBatch(
+            raws,
+            samples,
+            trimToken: trimTokenHex,
+            archives: archives,
+            deviceFamily: deviceFamily,
+            onCheckpoint: (msg) => _bgLog('[bgsync][COMMIT] $msg'),
+          ),
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
       // Mark this as the background drainer: if the foreground app engine already
@@ -91,8 +97,11 @@ Future<bool> runHeadlessSync({
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
-    final connected = await engine.connectToRemoteId(paired.remoteId,
-        generationHint: paired.generation);
+    WakeTiming.current?.event('transfer_connect_start');
+    final connected = await engine.connectToRemoteId(
+      paired.remoteId,
+      generationHint: paired.generation,
+    );
     if (!connected) {
       _bgLog(
         '[bgsync] strap not reachable this cycle — will catch up next time.',
@@ -137,10 +146,14 @@ Future<bool> runHeadlessSync({
     // ~10 s budget, and drove iOS CPU-limit kills (build 86). The durable job
     // drains in the foreground or in an OS-granted background task.
     try {
-      await LocalDb.enqueueDeriveJob(type: 'derive_light', reason: 'headless_sync');
+      await LocalDb.enqueueDeriveJob(
+        type: 'derive_light',
+        reason: 'headless_sync',
+      );
     } catch (e) {
       _bgLog('[bgsync] derive queue skipped: $e');
     }
+    WakeTiming.current?.event('calculation_queued');
     _bgLog('[bgsync] done (local drain; calculation queued).');
     await checkSyncStaleness();
     return true;
@@ -193,8 +206,9 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
 
     final prefs = await SharedPreferences.getInstance();
     final lastMs = prefs.getInt(_kLastStalenessNotifiedMs);
-    final lastAt =
-        lastMs == null ? null : DateTime.fromMillisecondsSinceEpoch(lastMs);
+    final lastAt = lastMs == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(lastMs);
     final now = DateTime.now();
     if (!shouldRenotifyStaleness(lastAt, now)) return;
 
@@ -210,7 +224,8 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
         // event was actually presented.
         priority: NotifPriority.normal,
         title: "Your band hasn't synced in a while",
-        body: 'No new data for about $hoursStale hours. Open $kAppName to '
+        body:
+            'No new data for about $hoursStale hours. Open $kAppName to '
             'reconnect — background sync may have stalled.',
         date: now.toIso8601String().substring(0, 10),
         route: '/today',
@@ -225,9 +240,7 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
       return;
     }
     await prefs.setInt(_kLastStalenessNotifiedMs, now.millisecondsSinceEpoch);
-    _bgLog(
-      '[bgsync] staleness notification fired (hours_stale=$hoursStale).',
-    );
+    _bgLog('[bgsync] staleness notification fired (hours_stale=$hoursStale).');
   } catch (e) {
     _bgLog('[bgsync] staleness check skipped: $e');
   }

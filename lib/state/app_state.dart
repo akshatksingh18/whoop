@@ -54,7 +54,7 @@ import '../data/pushup_reminders.dart' show Pushups;
 import '../gps/workout_clock.dart';
 import '../gps/workout_measurements.dart';
 import '../gps/run_analysis.dart' show runMix;
-import '../gps/route_math.dart' show totalDistanceMeters;
+import '../gps/route_math.dart' show totalDistanceMeters, movingSeconds;
 import '../gps/run_voice.dart';
 import '../gps/run_history.dart' show runsChanged, isRunType, isWalkType;
 import '../data/day_label.dart';
@@ -70,6 +70,7 @@ import '../data/backup_passphrase.dart';
 import '../platform/signing_profile.dart';
 import 'prefs.dart';
 import '../data/db.dart';
+import '../data/day_zone_store.dart';
 import '../data/lift_log.dart' show LiftLogDb;
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -178,6 +179,7 @@ class AppState extends ChangeNotifier {
   late final DerivationEngine _derive = DerivationEngine(
     log: _log,
     background: _background,
+    onSessionChanged: publishSessionChange,
   );
   late final DeriveScheduler _deriveScheduler = DeriveScheduler(
     run: ({required DeriveJobKind kind}) =>
@@ -355,6 +357,7 @@ class AppState extends ChangeNotifier {
   String? get onboardChoice => _onboardChoice;
 
   Future<void> _loadProfile() async {
+    autoCountKcalGoal = null;
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kProfile);
     if (raw != null) {
@@ -469,7 +472,7 @@ class AppState extends ChangeNotifier {
     // import landed days, sessions and journal rows into a database every live
     // tab had already finished reading, and the only way to see them was to
     // relaunch the app.
-    bumpInsights();
+    publishSessionChange();
     notifyListeners();
     return res.days;
   }
@@ -498,7 +501,7 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastWhoopImport = res;
-    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
+    publishSessionChange(); // imported sessions must reach Food too
     notifyListeners();
     return res.days;
   }
@@ -517,6 +520,7 @@ class AppState extends ChangeNotifier {
     // truncated backup fails loudly; `gzip.decoder` returns partial output
     // without raising and would restore short while reporting success.
     final counts = await LocalDb.importFromDbFile(path);
+    publishSessionChange(); // committed restore, even if rollup rebuilding fails
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);
@@ -1081,6 +1085,7 @@ class AppState extends ChangeNotifier {
         throw ArgumentError('Invalid $key');
       }
     }
+    await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
     final prefs = await SharedPreferences.getInstance();
     final keys = [_kProfile, ProfileHistory.key, StepGoals.key];
     final previous = {for (final key in keys) key: prefs.getString(key)};
@@ -1282,6 +1287,7 @@ class AppState extends ChangeNotifier {
     // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
     // hand-written table list, and for the sync_cursor decision).
     await LocalDb.wipeAll();
+    publishSessionChange();
 
     // Surfaces outside the database that were still showing it.
     await NotificationService.instance.cancelAll();
@@ -1536,6 +1542,7 @@ class AppState extends ChangeNotifier {
     repo = LocalRepositoryImpl(
       getProfileMap: () => user,
       saveProfileFields: updateProfile,
+      onSessionChanged: publishSessionChange,
     );
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
@@ -2697,9 +2704,11 @@ class AppState extends ChangeNotifier {
     // on init, and a Bluetooth relaunch must not start a pass in the seconds
     // before this was known (build 86).
     await _settleLaunchKind();
+    await DayZoneStore.check('launch');
     paired = await PairedDevice.load();
     await refreshSensors();
     await _loadProfile();
+    await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
     await CalculationStore.hydrate();
     await ProfileHistory.record(user, user ?? {});
     await StepGoals.read(initial: (user?['step_goal'] as num?)?.toInt());
@@ -4936,6 +4945,7 @@ class AppState extends ChangeNotifier {
 
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
+    await DayZoneStore.check('foreground');
     // B88-05: the app IS in the foreground now, whatever the link is doing.
     // These resets used to sit below the busy/unpaired early return — the only
     // place they ran — so switching away and back during a slow connect left
@@ -5343,6 +5353,7 @@ class AppState extends ChangeNotifier {
   /// which is the bug this guards against ("strap disconnects and never
   /// tries to reconnect").
   Future<void> foregroundCatchUp() async {
+    await DayZoneStore.check('sync');
     if (!engine.isConnected) return;
     if (isLinkStale(
       engine.sinceLastRx,
@@ -5962,22 +5973,43 @@ class AppState extends ChangeNotifier {
     )?.round();
   }
 
-  int? get workoutAcsmKcal {
+  int? get workoutAcsmKcal => _workoutMovementKcal(qualified: true);
+  int? get workoutMovementEstimateKcal =>
+      _workoutMovementKcal(qualified: false);
+  int? _workoutMovementKcal({required bool qualified}) {
     final w = activeWorkout;
     if (w == null || (!isRunType(w.type) && !isWalkType(w.type))) return null;
     final points = _routeTracker?.acceptedPoints;
     if (points != null && points.length > 1) {
       final mix = runMix(points);
-      return acsmActiveKcal(
-        runMeters: isRunType(w.type) ? mix.runM : 0,
-        walkMeters: isWalkType(w.type)
-            ? totalDistanceMeters(points)
-            : mix.walkM,
-        runClimbMeters: isRunType(w.type) ? mix.climbM : 0,
+      final walking = isWalkType(w.type);
+      final runM = walking ? 0.0 : mix.runM;
+      final walkM = walking ? totalDistanceMeters(points) : mix.walkM;
+      if (qualified &&
+          (!acsmSpeedSupported(
+                running: true,
+                meters: runM,
+                movingSeconds: mix.runSec,
+              ) ||
+              !acsmSpeedSupported(
+                running: false,
+                meters: walkM,
+                movingSeconds: walking
+                    ? movingSeconds(points).toDouble()
+                    : mix.walkSec,
+              )))
+        return null;
+      return movementEquationEstimateKcal(
+        runMeters: runM,
+        walkMeters: walkM,
+        runClimbMeters: walking ? 0 : mix.climbM,
         weightKg: w.profile.weightKg,
       )?.round();
     }
-    return _workoutMeasurements?.acsm(w.type)?.round();
+    return (qualified
+            ? _workoutMeasurements?.acsm(w.type)
+            : _workoutMeasurements?.movementEstimate(w.type))
+        ?.round();
   }
 
   Future<void> _refreshWorkoutMovement({
@@ -6270,7 +6302,7 @@ class AppState extends ChangeNotifier {
       // Null when nothing is connected — unknown provenance, not gen4.
       'device_family': engine.linkDeviceFamily,
       'created_at': start.millisecondsSinceEpoch,
-    });
+    }).then((_) => publishSessionChange());
     unawaited(
       _workoutStartWrite!.catchError((Object e) {
         _log('[workout] start write failed: $e');
@@ -6564,6 +6596,7 @@ class AppState extends ChangeNotifier {
                 ? (row['end_ts_fabricated'] ?? 0)
                 : 1,
           });
+          publishSessionChange();
           _log(
             '[workout] finalized a stale live-session row from a previous run (id=${row['id']}).',
           );
@@ -6698,7 +6731,7 @@ class AppState extends ChangeNotifier {
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
       // or the weekly load until the app was restarted.
-      bumpInsights();
+      publishSessionChange();
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();

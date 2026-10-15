@@ -34,6 +34,32 @@ opening WHOOP for only two or three minutes a day to read insights. He is unsure
 the supplied afternoon gap included swiping the app away. `todo.md` owns approval and
 release gates; `bugs.md` owns the private-log findings and their attribution limits.
 
+Build 90 source records time-zone changes from the native timezone/significant-time-change
+notifications in a durable inbox, acknowledged after a SQLite transaction. Launch, foreground
+and headless/foreground sync also check the current IANA zone. Workers receive a persisted
+snapshot so re-derivation cannot silently switch to the phone's new zone. A forward date jump
+opens the new label at the change instant; a westward jump holds the current label until a
+midnight advances it. These seams partition absolute time without repeated labels. The pure
+travel/DST and storage/restore checks pass; open-app and background native delivery still need
+phone verification. No new background permission or guaranteed wake schedule is introduced.
+
+Build 90 adds local `[WAKE]` records with a wake id/reason, absolute start time and
+monotonic elapsed time. Transfer start/end, durable commit (or failure), queued calculation,
+calculation start/end and budget/native expiry share that id. Connection-total record counts
+are explicitly separate from records committed during the wake. BLE callbacks created before
+a wake are attributed only when exactly one wake is active; ambiguous attribution remains
+absent. Logging is best effort and never awaited by an ACK decision. `[BURST]` lines report
+announced versus received traffic/historical counts, buffered decoded-record timestamps, and
+continuity against the preceding received burst (contiguous, gap, overlap/replay or unknown).
+These observations do not prove loss and do not enable a stricter WHOOP 4 count gate. The
+existing commit-before-ACK, cancellation and headless ownership policies remain unchanged.
+Phone validation still requires three ordinary nights and one force-quit night; logs stay local.
+
+Session enrichment in a foreground-owned repository/derivation engine publishes AppState's
+shared session-change signal after each successful session write, including deferred HRR.
+The callback is omitted in a headless instance; no UI owner is manufactured. This does not
+move decoded-row/cursor commits or the history ACK, and native phone acceptance remains open.
+
 ## Required Behavior
 
 An isolated current-code synthetic DB/repository test reproduces the B88-05 overnight mismatch:

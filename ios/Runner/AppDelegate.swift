@@ -18,6 +18,7 @@ import flutter_local_notifications
     // CoreBluetooth state restoration — must be created here (early) so iOS can relaunch
     // us with willRestoreState when the band reappears. Wakes the app → headless sync.
     NativeLog.launch(launchOptions: launchOptions)
+    DayZoneBridge.shared.start()
     BleRestoreManager.shared.start(launchOptions: launchOptions)
 
     // Pushups (build 86): a Done/Pause tapped on a locked-screen reminder runs
@@ -87,6 +88,9 @@ import flutter_local_notifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DayZoneBridge") {
+      DayZoneBridge.shared.attach(messenger: registrar.messenger())
+    }
     // Live Activity MethodChannel (start/update/end the workout activity).
     // LiveActivityBridge lives in LiveActivityBridge.swift (Runner target).
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LiveActivityBridge") {
@@ -162,6 +166,51 @@ import flutter_local_notifications
       // (processing + light refresh).
       BackgroundTaskManager.schedule()
       BackgroundTaskManager.scheduleRefresh()
+    }
+  }
+}
+
+/// The zone inbox survives a native wake before Dart/SQLite is ready. Dart
+/// acknowledges only after the zone transaction commits.
+final class DayZoneBridge {
+  static let shared = DayZoneBridge()
+  private let key = "whoop.day-zone.inbox"
+  private var channel: FlutterMethodChannel?
+  private var tokens: [NSObjectProtocol] = []
+
+  func start() {
+    guard tokens.isEmpty else { return }
+    for name in [NSNotification.Name.NSSystemTimeZoneDidChange,
+                 UIApplication.significantTimeChangeNotification] {
+      tokens.append(NotificationCenter.default.addObserver(
+        forName: name, object: nil, queue: .main
+      ) { [weak self] _ in self?.record() })
+    }
+    record()
+  }
+  private func record() {
+    var events = UserDefaults.standard.array(forKey: key) as? [[String: Any]] ?? []
+    events.append(["at_ts": Int(Date().timeIntervalSince1970),
+                   "zone_id": TimeZone.current.identifier])
+    UserDefaults.standard.set(events, forKey: key)
+    channel?.invokeMethod("changed", arguments: nil)
+  }
+  func attach(messenger: FlutterBinaryMessenger) {
+    let ch = FlutterMethodChannel(name: "openstrap/day_zone", binaryMessenger: messenger)
+    channel = ch
+    ch.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { result(nil); return }
+      let events = UserDefaults.standard.array(forKey: self.key) as? [[String: Any]] ?? []
+      switch call.method {
+      case "events": result(events)
+      case "ack":
+        guard let through = call.arguments as? NSNumber else { result(nil); return }
+        UserDefaults.standard.set(events.filter {
+          (($0["at_ts"] as? NSNumber)?.intValue ?? 0) > through.intValue
+        }, forKey: self.key)
+        result(nil)
+      default: result(FlutterMethodNotImplemented)
+      }
     }
   }
 }

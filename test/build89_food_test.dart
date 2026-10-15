@@ -95,7 +95,8 @@ void main() {
         home: const Scaffold(body: CalorieCard(eaten: 2663, goal: 2233)),
       ),
     );
-    expect(find.text('2,663 / 2,233 kcal'), findsOneWidget);
+    expect(find.text('2,663'), findsOneWidget);
+    expect(find.text('Goal 2,233 kcal'), findsOneWidget);
     expect(find.text('430'), findsOneWidget);
     expect(find.text('over'), findsOneWidget);
     expect(find.byType(GoalBar), findsOneWidget);

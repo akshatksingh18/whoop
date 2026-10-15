@@ -15,9 +15,11 @@ Metric<SleepNeed> sleepNeed({
   required double dayStrain,
   required double napCreditSec,
 }) {
-  final strainBonusSec = (dayStrain.clamp(0.0, 21.0) / 21.0) * 45.0 * 60.0;
+  // Build 90 approved repayment convention: a quarter of the estimated gap
+  // per night. The former 45-minute strain bonus had no supporting source.
+  // Keep dayStrain in the public signature for existing callers.
   final adjusted =
-      (baselineNeedSec + sleepDebtSec + strainBonusSec - napCreditSec).clamp(
+      (baselineNeedSec + sleepDebtSec / 4 - napCreditSec).clamp(
     6 * 3600.0,
     11 * 3600.0,
   );
@@ -25,8 +27,8 @@ Metric<SleepNeed> sleepNeed({
     value: SleepNeed(adjusted),
     confidence: 0.6,
     tier: Tier.estimate,
-    inputs_used: const ['sleep_debt', 'strain', 'naps'],
-    note: 'baseline need adjusted by debt, strain, and naps',
+    inputs_used: const ['baseline_need', 'sleep_debt', 'naps'],
+    note: 'estimated baseline need plus one quarter of the sleep gap, less naps',
   );
 }
 

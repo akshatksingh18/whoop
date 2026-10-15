@@ -10,12 +10,12 @@
 // Native (BgSyncScheduler.swift) calls the `openstrap/bg_task` channel method
 // `run` when iOS opportunistically wakes the app for a background task.
 //   - BGProcessingTask (no arguments): FULL profile — runHeadlessSync()
-//     (connect → flash offload → local store → disconnect → light derive)
+//     (connect → flash offload → local store → disconnect; calculation queued)
 //     followed by a heavy DerivationEngine pass (full sleep staging + 24h
 //     spectra).
 //   - BGAppRefreshTask ({'mode': 'sync'}): LIGHT profile — headless sync only,
 //     NO heavy derivation (a refresh task's ~30 s budget can't fit it; the
-//     light per-drain derive inside runHeadlessSync still runs).
+//     queued work waits for the bounded BG-task pass).
 // Returns true to signal completion.
 //
 // iOS gives BGProcessingTask a longer wall-clock budget than BGAppRefreshTask
@@ -41,6 +41,8 @@ import 'dart:async';
 
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
+import '../data/db.dart';
+import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../ble/ios_ble_restore.dart';
 import '../data/local_repository_impl.dart';
 import '../widget/widget_service.dart';
@@ -48,10 +50,12 @@ import 'background_sync.dart';
 import 'band_ownership.dart';
 import 'headless_gate.dart';
 import 'file_log.dart';
+import 'wake_timing.dart';
 
 class IosBgTask {
   static const _ch = MethodChannel('openstrap/bg_task');
-  static const _kProfileKey = 'local_profile_json'; // matches AppState._kProfile
+  static const _kProfileKey =
+      'local_profile_json'; // matches AppState._kProfile
 
   /// When the FOREGROUND app owns the band, a BG-task wake must not open a
   /// competing headless connection — but it should still pull the flash backlog
@@ -72,6 +76,7 @@ class IosBgTask {
     if (!Platform.isIOS) return;
     _ch.setMethodCallHandler((call) async {
       if (call.method == 'expire') {
+        WakeTiming.expire({'bg_refresh', 'bg_task'});
         // iOS is ending the task: stop now rather than run into a kill.
         DeriveStop.request('ios_bg_task_expired');
         // B88-05: the headless BLE drain stops too, not only calculation.
@@ -86,63 +91,78 @@ class IosBgTask {
     });
   }
 
-  static Future<bool> _run({required bool syncOnly}) async {
+  static Future<bool> _run({required bool syncOnly}) => WakeTiming.run(
+    syncOnly ? 'bg_refresh' : 'bg_task',
+    () => _runTimed(syncOnly: syncOnly),
+  );
+
+  static Future<bool> _runTimed({required bool syncOnly}) async {
     // ONE shared gate across every headless entry point (BGProcessingTask,
     // BGAppRefreshTask, the BLE-restore wake) — see HeadlessSyncGate. A busy
     // gate means another wake is already syncing: skip, report success.
     final ran = await HeadlessSyncGate.tryRun<bool>(
-        syncOnly ? 'bg_refresh' : 'bg_task', () async {
-      try {
-        // Skip headless BLE if the foreground session already owns the band.
-        if (!IosBleRestore.foregroundActive) {
-          _bgLog('[ios-bgtask] running headless sync (syncOnly=$syncOnly)');
-          await runHeadlessSync(wake: syncOnly ? 'bg_refresh' : 'bg_task');
-        } else {
-          // The foreground app owns the band: no headless BLE (it would fight
-          // flutter_blue_plus for the peripheral) — but still use this OS-granted
-          // budget to pull the flash backlog over the app's own live connection.
-          _bgLog(
-              '[ios-bgtask] foreground owns the band — catch-up over live link');
-          try {
-            await foregroundPull?.call();
-          } catch (e) {
-            _bgLog('[ios-bgtask] foreground pull failed (ignored): $e');
-          }
-        }
-        // Calculation inside a budget: the light pass (today first) on a
-        // refresh, the heavy pass plus baseline rescan on a processing task.
-        // A stop (budget or expiration) keeps committed days and leaves the
-        // rest queued; it is not reported as a failure.
-        final budget = Timer(
-          syncOnly ? _refreshBudget : _processingBudget,
-          () => DeriveStop.request(syncOnly ? 'bg_refresh_budget' : 'bg_task_budget'),
-        );
+      syncOnly ? 'bg_refresh' : 'bg_task',
+      () async {
         try {
-          final profile = await _loadProfile();
-          final engine = DerivationEngine(
-            log: (l) => _bgLog('[ios-bgtask-derive] $l'),
-            background: true,
+          // Skip headless BLE if the foreground session already owns the band.
+          if (!IosBleRestore.foregroundActive) {
+            _bgLog('[ios-bgtask] running headless sync (syncOnly=$syncOnly)');
+            await runHeadlessSync(wake: syncOnly ? 'bg_refresh' : 'bg_task');
+          } else {
+            // The foreground app owns the band: no headless BLE (it would fight
+            // flutter_blue_plus for the peripheral) — but still use this OS-granted
+            // budget to pull the flash backlog over the app's own live connection.
+            _bgLog(
+              '[ios-bgtask] foreground owns the band — catch-up over live link',
+            );
+            try {
+              await foregroundPull?.call();
+            } catch (e) {
+              _bgLog('[ios-bgtask] foreground pull failed (ignored): $e');
+            }
+          }
+          // Calculation inside a budget: the light pass (today first) on a
+          // refresh, the heavy pass plus baseline rescan on a processing task.
+          // A stop (budget or expiration) keeps committed days and leaves the
+          // rest queued; it is not reported as a failure.
+          final budget = Timer(
+            syncOnly ? _refreshBudget : _processingBudget,
+            () {
+              WakeTiming.current?.event('calculation_budget_expiry');
+              DeriveStop.request(
+                syncOnly ? 'bg_refresh_budget' : 'bg_task_budget',
+              );
+            },
           );
-          await engine.run(profile, heavy: !syncOnly);
-          if (!syncOnly) await engine.rescanRecent(profile);
-          await _refreshWidgetSnapshot(profile);
-        } on DeriveCancelled catch (e) {
-          _bgLog('[ios-bgtask] calculation stopped: $e');
+          WakeTiming.current?.event('calculation_start');
+          try {
+            final profile = await _loadProfile();
+            final engine = DerivationEngine(
+              log: (l) => _bgLog('[ios-bgtask-derive] $l'),
+              background: true,
+            );
+            await engine.run(profile, heavy: !syncOnly);
+            if (!syncOnly) await engine.rescanRecent(profile);
+            await _refreshWidgetSnapshot(profile);
+          } on DeriveCancelled catch (e) {
+            _bgLog('[ios-bgtask] calculation stopped: $e');
+          } catch (e) {
+            _bgLog('[ios-bgtask] calculation skipped: $e');
+          } finally {
+            WakeTiming.current?.event('calculation_end');
+            budget.cancel();
+          }
+          _bgLog('[ios-bgtask] done (syncOnly=$syncOnly)');
+          return true;
         } catch (e) {
-          _bgLog('[ios-bgtask] calculation skipped: $e');
-        } finally {
-          budget.cancel();
+          _bgLog('[ios-bgtask] error (ignored): $e');
+          // Return true even on error — the non-destructive cursor means a retry
+          // is not harmful, but we don't want to spam the OS with failure signals
+          // that could cause iOS to throttle our background budget.
+          return true;
         }
-        _bgLog('[ios-bgtask] done (syncOnly=$syncOnly)');
-        return true;
-      } catch (e) {
-        _bgLog('[ios-bgtask] error (ignored): $e');
-        // Return true even on error — the non-destructive cursor means a retry
-        // is not harmful, but we don't want to spam the OS with failure signals
-        // that could cause iOS to throttle our background budget.
-        return true;
-      }
-    });
+      },
+    );
     return ran ?? true; // gate busy → another wake is already doing the work
   }
 
@@ -151,7 +171,10 @@ class IosBgTask {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kProfileKey);
       if (raw == null) return const Profile();
-      return Profile.fromMap((jsonDecode(raw) as Map).cast<String, dynamic>());
+      final values = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      autoCountKcalGoal = (values['kcal_target'] as num?)?.toDouble();
+      await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
+      return Profile.fromMap(values);
     } catch (_) {
       return const Profile();
     }

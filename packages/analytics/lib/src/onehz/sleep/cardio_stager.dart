@@ -79,6 +79,8 @@
 import 'dart:math' as math;
 import '../types.dart';
 import '../util.dart';
+import '../foundations/rr_correction.dart' show rrBeatClock;
+import '../foundations/beat_quality.dart' show spectralSegmentQualified;
 import 'accounting.dart' show SleepStage;
 import 'stager.dart' show StagerResult, consolidateSleepStages;
 
@@ -1045,7 +1047,8 @@ double _windowSdnn(List<double> rrMs, List<double> rrTsMs,
 /// [_windowRemFeatures] passes a DIFFERENT [halfWinMs] on purpose (±90 s, not
 /// ±2.5 min): its LF/HF grid and its `beats.length` abstain gate are specified
 /// against that shorter window. Do not hand it the default list.
-({List<double> beats, List<double> tsSec}) _cleanBeatsInWindow(
+({List<double> beats, List<double> tsSec, List<bool> gapBefore})
+    _cleanBeatsInWindow(
   List<double> rrMs,
   List<double> rrTsMs,
   List<AccelSample> accel,
@@ -1053,7 +1056,7 @@ double _windowSdnn(List<double> rrMs, List<double> rrTsMs,
   int t, {
   int halfWinMs = 150 * 1000,
 }) {
-  const empty = (beats: <double>[], tsSec: <double>[]);
+  const empty = (beats: <double>[], tsSec: <double>[], gapBefore: <bool>[]);
   if (rrMs.isEmpty || rrTsMs.length != rrMs.length) return empty;
   final mid = (s + t) ~/ 2;
   if (mid >= accel.length) return empty;
@@ -1077,6 +1080,16 @@ double _windowSdnn(List<double> rrMs, List<double> rrTsMs,
   }
   final beats = <double>[];
   final tsSec = <double>[];
+  final gapBefore = <bool>[];
+  var right = a;
+  while (right < rrMs.length && rrTsMs[right] <= hi) {
+    right++;
+  }
+  if (right <= a) return empty;
+  final clock =
+      rrBeatClock(rrMs.sublist(a, right), rrTsMs: rrTsMs.sublist(a, right));
+  final originMs = rrTsMs[a] - rrMs[a] - lo;
+  var previousKept = a - 1;
   double? prev;
   for (var i = a; i < rrMs.length; i++) {
     final ts = rrTsMs[i];
@@ -1099,10 +1112,16 @@ double _windowSdnn(List<double> rrMs, List<double> rrTsMs,
     // (args ~9e9 rad), which — run per 30-s epoch over a full night on the
     // main isolate — caused main-thread ANRs on Android (Crashlytics: libm.so
     // __kernel_rem_pio2 / sin / cos, 0.9.13).
-    tsSec.add((ts - lo) / 1000.0);
+    tsSec.add((clock.timesMs[i - a] + originMs) / 1000.0);
+    var gap = false;
+    for (var k = previousKept + 1; k <= i; k++) {
+      gap |= clock.reanchorBefore[k - a];
+    }
+    gapBefore.add(gap);
+    previousKept = i;
     prev = v;
   }
-  return (beats: beats, tsSec: tsSec);
+  return (beats: beats, tsSec: tsSec, gapBefore: gapBefore);
 }
 
 /// [_cleanBeatsInWindow]'s beats, exposed so the window-edge regression test
@@ -1223,7 +1242,9 @@ void _websterRescore(List<SleepStage> sm, int epochSec) {
       _cleanBeatsInWindow(rrMs, rrTsMs, accel, s, t, halfWinMs: 90 * 1000);
   final beats = win.beats; // clean RR (ms)
   final beatTsSec = win.tsSec; // matching beat times (s), rebased to window
-  if (beats.length < 16)
+  if (beats.length < 16 ||
+      !spectralSegmentQualified(beatTsSec, beats, 0, beats.length, 0, 180,
+          gapBefore: win.gapBefore))
     return (lfhf: null, rk: null); // spectral stability gate
   // R(k): mean absolute successive difference of instantaneous HR (bpm).
   var rkSum = 0.0;
@@ -1252,6 +1273,11 @@ void _websterRescore(List<SleepStage> sm, int epochSec) {
   }
   return (lfhf: lfhf, rk: rk);
 }
+
+/// Test seam for the production REM spectral window.
+({double? lfhf, double? rk}) remFeaturesForTest(List<double> rrMs,
+        List<double> rrTsMs, List<AccelSample> accel, int s, int t) =>
+    _windowRemFeatures(rrMs, rrTsMs, accel, s, t, 30);
 
 /// 3-epoch categorical median (mode) filter: flip a lone epoch whose two
 /// neighbours agree and differ from it. Removes single-epoch label flicker

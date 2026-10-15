@@ -68,6 +68,8 @@ class FoodWeekStrip extends StatefulWidget {
 
 class _FoodWeekStripState extends State<FoodWeekStrip> {
   Map<String, FoodDayMark> _marks = const {};
+  final _selectedDay = GlobalKey();
+  String? _revealed;
 
   @override
   void initState() {
@@ -105,62 +107,115 @@ class _FoodWeekStripState extends State<FoodWeekStrip> {
     final marks = widget.marks ?? _marks;
     final mon = mondayOf(widget.date);
     final today = todayLabel();
-    return Row(
-      children: [
-        for (var i = 0; i < 7; i++)
-          Expanded(
-            child: () {
-              final day = shiftDay(mon, i);
-              final future = day.compareTo(today) > 0;
-              final selected = day == widget.date;
-              final mark = future ? null : (marks[day] ?? FoodDayMark.empty);
-              return Pressable(
-                semanticLabel:
-                    '${dayTitle(day)}${switch (mark) {
-                      FoodDayMark.counted => ', counted',
-                      FoodDayMark.logged => ', food logged, not counted',
-                      FoodDayMark.empty => ', nothing logged',
-                      null => '',
-                    }}',
-                onTap: future ? null : () => widget.onDay(day),
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  padding: const EdgeInsets.symmetric(vertical: S.x2),
-                  decoration: BoxDecoration(
-                    color: selected ? p.card : null,
-                    borderRadius: R.rMd,
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        _weekdays[i],
-                        style: F.over.copyWith(
-                          color: selected ? p.ink : p.onGround,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${DateTime.parse(day).day}',
-                        style: F.body.copyWith(
-                          color: future
-                              ? p.onGround.withValues(alpha: .55)
-                              : selected
-                              ? p.ink
-                              : p.onGround,
-                          fontWeight: selected
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: S.x1),
-                      _MarkDot(mark, size: 26),
-                    ],
-                  ),
-                ),
-              );
-            }(),
+    Widget cell(int i) {
+      final day = shiftDay(mon, i);
+      final future = day.compareTo(today) > 0;
+      final selected = day == widget.date;
+      final mark = future ? null : (marks[day] ?? FoodDayMark.empty);
+      return Pressable(
+        key: selected ? _selectedDay : null,
+        semanticLabel:
+            '${dayTitle(day)}${switch (mark) {
+              FoodDayMark.counted => ', counted',
+              FoodDayMark.logged => ', food logged, not counted',
+              FoodDayMark.empty => ', nothing logged',
+              null => '',
+            }}',
+        onTap: future ? null : () => widget.onDay(day),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          padding: const EdgeInsets.symmetric(vertical: S.x2),
+          decoration: BoxDecoration(
+            color: selected ? p.card : null,
+            borderRadius: R.rMd,
           ),
+          child: Column(
+            children: [
+              Text(
+                _weekdays[i],
+                style: F.over.copyWith(color: selected ? p.ink : p.onGround),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${DateTime.parse(day).day}',
+                style: F.body.copyWith(
+                  color: future
+                      ? p.onGround.withValues(alpha: .55)
+                      : selected
+                      ? p.ink
+                      : p.onGround,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: S.x1),
+              _MarkDot(mark, size: 26),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget legend(FoodDayMark mark, String label) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _MarkDot(mark, size: 16),
+        const SizedBox(width: S.x1),
+        Text(label, style: F.over.copyWith(color: p.onGround)),
       ],
+    );
+    return LayoutBuilder(
+      builder: (c, box) {
+        final large = bigText(c);
+        final cellWidth = MediaQuery.textScalerOf(c).scale(34) + S.x3;
+        final token = '${widget.date}/${box.maxWidth}/$cellWidth';
+        if (!large) _revealed = null;
+        if (large && _revealed != token) {
+          _revealed = token;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final context = _selectedDay.currentContext;
+            final object = context?.findRenderObject();
+            if (mounted &&
+                context != null &&
+                object != null &&
+                object.attached) {
+              Scrollable.of(
+                context,
+              ).position.ensureVisible(object, alignment: .5);
+            }
+          });
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (large)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < 7; i++)
+                      SizedBox(width: cellWidth, child: cell(i)),
+                  ],
+                ),
+              )
+            else
+              Row(
+                children: [
+                  for (var i = 0; i < 7; i++) Expanded(child: cell(i)),
+                ],
+              ),
+            const SizedBox(height: S.x1),
+            Wrap(
+              spacing: S.x3,
+              runSpacing: S.x1,
+              children: [
+                legend(FoodDayMark.counted, 'Counted'),
+                legend(FoodDayMark.logged, 'Logged'),
+                legend(FoodDayMark.empty, 'Empty'),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -184,18 +239,18 @@ class _MarkDot extends StatelessWidget {
             color: p.fill(C.recovery),
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            LucideIcons.check,
-            size: size * .6,
-            color: p.inkOnFill,
-          ),
+          child: Icon(LucideIcons.check, size: size * .6, color: p.inkOnFill),
         ),
         FoodDayMark.logged => Icon(
           LucideIcons.circleDashed,
           size: size,
           color: p.ink2,
         ),
-        FoodDayMark.empty => Icon(LucideIcons.circle, size: size, color: p.ink3),
+        FoodDayMark.empty => Icon(
+          LucideIcons.circle,
+          size: size,
+          color: p.ink3,
+        ),
         null => const SizedBox.shrink(),
       },
     );
@@ -392,18 +447,18 @@ class _FoodCalendarState extends State<FoodCalendar> {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                '${DateTime.parse(day).day}',
-                style: F.body.copyWith(
-                  color: future
-                      ? p.ink3.withValues(alpha: .5)
-                      : isToday
-                      ? p.on(C.food)
-                      : p.ink,
-                  fontWeight: isToday || selected
-                      ? FontWeight.w700
-                      : FontWeight.w500,
+                  '${DateTime.parse(day).day}',
+                  style: F.body.copyWith(
+                    color: future
+                        ? p.ink3.withValues(alpha: .5)
+                        : isToday
+                        ? p.on(C.food)
+                        : p.ink,
+                    fontWeight: isToday || selected
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                  ),
                 ),
-              ),
               ),
             ),
             if (!future) _MarkDot(marks[day] ?? FoodDayMark.empty, size: 10),

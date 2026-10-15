@@ -265,6 +265,8 @@ class CoachActions {
         endTs: startTs + mins * 60,
         type: type,
       );
+      // The shared repository writer has already published the committed
+      // session to AppState, including Food maintenance.
       // Every other write path exports; without this a workout logged through
       // the coach reached the health store only if the next day-result pass
       // happened to sweep it up (#130). The seam checks `healthSyncEnabled`

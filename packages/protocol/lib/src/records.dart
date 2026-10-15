@@ -27,7 +27,7 @@ class R24 {
   final List<int> rrIntervalsMs;
 
   /// Raw green-LED PPG ADC count @ inner[29] (frame[33]).
-  final int ppgGreen;
+  final int? ppgGreen;
 
   /// A u16 read at inner[31] (frame[35]).
   ///
@@ -47,7 +47,7 @@ class R24 {
     'value is noise. Do not derive anything from it. The underlying bytes are '
     'available via rawTail.',
   )
-  final int ppgRedIr;
+  final int? ppgRedIr;
 
   /// Gravity/accel vector (g), 3x float32 @ inner[36:48] (frame[40:52]),
   /// rounded to 4 decimals.
@@ -82,7 +82,7 @@ class R24 {
     'at inner[48:52], which is why its only observed values are {0, 63-70, '
     '194-198}. There is no contact-quality field here to point at.',
   )
-  final int skinContact;
+  final int? skinContact;
 
   /// Raw red-channel ADC @ inner[64] (frame[68], WHOOP 4 v24/v12).
   ///
@@ -99,11 +99,11 @@ class R24 {
   /// `parseR24` receives the INNER record starting at packet type `0x2f`, so
   /// every frame-absolute offset is 4 bytes lower here. That is why the v24
   /// optical block is 64/66/68/70 in this file but 68/70/72/74 frame-absolute.
-  final int spo2RedRaw;
+  final int? spo2RedRaw;
 
   /// Raw IR-channel ADC @ inner[66] (frame[70], WHOOP 4 v24/v12).
   /// See [spo2RedRaw] — the two are one signal, not a red/IR pair.
-  final int spo2IrRaw;
+  final int? spo2IrRaw;
 
   /// The u16 at inner[68] (frame[72], WHOOP 4 v24/v12).
   ///
@@ -128,10 +128,10 @@ class R24 {
     'temperature field is known; the slow candidates at inner[72] and '
     'inner[88] are unconfirmed and available via rawTail.',
   )
-  final int skinTempRaw;
+  final int? skinTempRaw;
 
   /// Raw ambient-light ADC @ inner[70] (frame[74], WHOOP 4 v24/v12).
-  final int ambientRaw;
+  final int? ambientRaw;
 
   /// Untouched payload [13:] as hex — kept for re-decode as the map improves.
   ///
@@ -222,11 +222,10 @@ double _round(double v, int decimals) {
 /// bytes happen to follow (ppg, accel float32s, spo2, the optical block,
 /// ambient).
 ///
-/// This is the HISTORICAL-record ceiling only. live.dart's `realtimeRr` uses
-/// it for the R10 form, which declares its count inside a 1920-byte record,
-/// but a 0x28 realtime packet is 20 bytes with exactly four R-R slots, so that
-/// branch caps at 4 instead — see `realtimeRr`.
-const int kMaxRrPerRecord = 8;
+/// Build 90 E2: the confirmed 1 Hz v24/v12 layout is limited to four beats.
+/// R10 has its own bound; changing this cannot alter that distinct layout.
+const int kMaxRrPerRecord = 4;
+const int kMaxRrPerR10 = 8;
 
 /// Physiologically possible beat-to-beat interval bounds, ms — 2500 ms = 24 bpm,
 /// 200 ms = 300 bpm. Identical to the bound control.dart's `parseRealtimeHr`
@@ -266,7 +265,7 @@ ByteData _view(Uint8List b) =>
 ///     near-constant reads downstream as a perfectly still wrist, so emitting
 ///     it fabricated immobility — for hours a day, every day. Do not put it
 ///     back, and do not go looking for a different accel offset here.
-///   - the optical fields stay 0 — no red/IR scalar offset is solved, and no
+///   - the optical fields stay NULL — no red/IR scalar offset is solved, and no
 ///     true SpO2% decode exists.
 ///
 /// Respiratory rate, HRV, SpO2 and perfusion index were each tested against
@@ -284,19 +283,20 @@ R24? _parseV25(Uint8List inner) {
     hr: 0,
     rrCount: 0,
     rrIntervalsMs: const [],
-    ppgGreen: 0,
-    ppgRedIr: 0,
+    ppgGreen: null,
+    ppgRedIr: null,
     accelG: const [],
-    skinContact: 0,
-    spo2RedRaw: 0,
-    spo2IrRaw: 0,
-    skinTempRaw: 0,
-    ambientRaw: 0,
+    skinContact: null,
+    spo2RedRaw: null,
+    spo2IrRaw: null,
+    skinTempRaw: null,
+    ambientRaw: null,
     // COPY, not sublistView: a view aliases the caller's buffer, and rawTail
     // is now encoded lazily, so a later mutation of `inner` would change bytes
     // that were supposed to be a snapshot of parse time.
-    rawTailBytes:
-        inner.length > 13 ? Uint8List.fromList(inner.sublist(13)) : Uint8List(0),
+    rawTailBytes: inner.length > 13
+        ? Uint8List.fromList(inner.sublist(13))
+        : Uint8List(0),
   );
 }
 
@@ -320,9 +320,8 @@ const Map<int, int> _hrOffsetByVersion = {
 bool _physiologicallyPlausible(List<double> accelG, int hr) {
   if (hr < 25 || hr > 230) return false;
   if (accelG.length != 3) return false;
-  final magSq = accelG[0] * accelG[0] +
-      accelG[1] * accelG[1] +
-      accelG[2] * accelG[2];
+  final magSq =
+      accelG[0] * accelG[0] + accelG[1] * accelG[1] + accelG[2] * accelG[2];
   return magSq >= 0.25 && magSq <= 3.24; // 0.5 g .. 1.8 g
 }
 
@@ -370,7 +369,8 @@ R24? parseR24(Uint8List inner) {
   // version is a best-effort decode gated on physiological plausibility.
   final trusted = version == 24 || version == 12;
   final hrOffset = _hrOffsetByVersion[version] ?? 17;
-  return _parseV24Layout(inner, version, hrOffset: hrOffset, validate: !trusted);
+  return _parseV24Layout(inner, version,
+      hrOffset: hrOffset, validate: !trusted);
 }
 
 /// The original, hardware-validated minimum length for the v24 field map.
@@ -441,7 +441,9 @@ R24? _parseV24Layout(
   final declaredRrCount = validate ? 0 : inner[18];
   final rrIntervalsMs = <int>[];
   if (declaredRrCount <= kMaxRrPerRecord) {
-    for (int i = 0; i < declaredRrCount && 19 + 2 * i + 2 <= inner.length; i++) {
+    for (int i = 0;
+        i < declaredRrCount && 19 + 2 * i + 2 <= inner.length;
+        i++) {
       final v = view.getInt16(19 + 2 * i, Endian.little);
       if (v >= kMinRrMs && v <= kMaxRrMs) rrIntervalsMs.add(v);
     }
@@ -476,8 +478,8 @@ R24? _parseV24Layout(
   // timing and accel and nothing else — bytes at 29/31/51/64/66/68/70 on a
   // layout known to differ (v7 puts HR at 27, v18 at 14) are not the optical
   // channels, and feeding them to relative-ODI hands the user a desaturation
-  // number computed from unknown bytes. 0 is this stack's ADC-absent sentinel
-  // (every consumer gates on `v > 0`), same as _parseV25 already emits.
+  // number computed from unknown bytes. Absence stays NULL end to end;
+  // a decoded zero in a confirmed layout is still a raw byte value.
   final optical = !validate;
   return R24(
     histVersion: version,
@@ -487,19 +489,20 @@ R24? _parseV24Layout(
     hr: hr,
     rrCount: rrCount,
     rrIntervalsMs: rrIntervalsMs,
-    ppgGreen: optical ? view.getUint16(29, Endian.little) : 0,
-    ppgRedIr: optical ? view.getUint16(31, Endian.little) : 0,
+    ppgGreen: optical ? view.getUint16(29, Endian.little) : null,
+    ppgRedIr: optical ? view.getUint16(31, Endian.little) : null,
     accelG: accelG,
-    skinContact: optical ? inner[51] : 0,
-    spo2RedRaw: optical ? view.getUint16(64, Endian.little) : 0,
-    spo2IrRaw: optical ? view.getUint16(66, Endian.little) : 0,
-    skinTempRaw: optical ? view.getUint16(68, Endian.little) : 0,
-    ambientRaw: optical ? view.getUint16(70, Endian.little) : 0,
+    skinContact: optical ? inner[51] : null,
+    spo2RedRaw: optical ? view.getUint16(64, Endian.little) : null,
+    spo2IrRaw: optical ? view.getUint16(66, Endian.little) : null,
+    skinTempRaw: optical ? view.getUint16(68, Endian.little) : null,
+    ambientRaw: optical ? view.getUint16(70, Endian.little) : null,
     // COPY, not sublistView: a view aliases the caller's buffer, and rawTail
     // is now encoded lazily, so a later mutation of `inner` would change bytes
     // that were supposed to be a snapshot of parse time.
-    rawTailBytes:
-        inner.length > 13 ? Uint8List.fromList(inner.sublist(13)) : Uint8List(0),
+    rawTailBytes: inner.length > 13
+        ? Uint8List.fromList(inner.sublist(13))
+        : Uint8List(0),
   );
 }
 
@@ -533,7 +536,8 @@ final List<R24DecodeStrategy> _v24FallbackChain = [
   R24DecodeStrategy('short_frame_72b', (inner) {
     if (inner.length < 2) return null;
     final version = inner[1];
-    if (version == 25) return null; // v25 has no known length variant; handled by parseR24 alone.
+    if (version == 25)
+      return null; // v25 has no known length variant; handled by parseR24 alone.
     final trusted = version == 24 || version == 12;
     final hrOffset = _hrOffsetByVersion[version] ?? 17;
     return _parseV24Layout(
@@ -570,13 +574,15 @@ class FirmwareAwareR24Decoder {
   /// The strategy name detected so far this session, keyed by record version
   /// byte — diagnostics/telemetry only (e.g. surfacing "this band needed the
   /// 72-byte v12 fallback"). Never affects decode behavior.
-  Map<int, String> get detectedStrategies => Map.unmodifiable(_detectedByVersion);
+  Map<int, String> get detectedStrategies =>
+      Map.unmodifiable(_detectedByVersion);
 
   R24? decode(Uint8List inner) {
     if (inner.length < 2) return null;
     if (!_isRecordPacket(inner)) return null; // see parseR24
     final version = inner[1];
-    if (version == 25) return parseR24(inner); // no known firmware variant for v25 yet.
+    if (version == 25)
+      return parseR24(inner); // no known firmware variant for v25 yet.
 
     final knownName = _detectedByVersion[version];
     if (knownName != null) {

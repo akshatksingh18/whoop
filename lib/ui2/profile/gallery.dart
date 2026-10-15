@@ -52,6 +52,9 @@ import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
 // barrel test), so their components are imported by path.
 import '../screens/screens.dart';
 import '../ui2.dart';
+// Build 90 Codex lane
+import '../energy_comparison.dart';
+// End Build 90 Codex lane
 import '../screens/today_plan.dart' show PlanRow;
 import '../screens/food_calendar.dart'
     show FoodCalendar, FoodDayMark, FoodWeekStrip;
@@ -412,6 +415,10 @@ Map<String, Widget> goldenCases() => {
     ),
     action: 'History',
   ),
+  // Build 90 Codex lane
+  'energy_comparison': const Surface(child: EnergyComparison(budget: 1234, acsm: 1456)),
+  'energy_comparison_missing': const Surface(child: EnergyComparison(budget: 1234, acsm: null)),
+  // End Build 90 Codex lane
   'calorie_pair': const Surface(child: CaloriePair(budget: 1234, acsm: 1456)),
   'calorie_pair_missing': const Surface(
     child: CaloriePair(budget: 1234, acsm: null),

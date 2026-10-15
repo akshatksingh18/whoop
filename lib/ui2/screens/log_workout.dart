@@ -167,6 +167,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
     final repo = repoOf(context);
     if (repo == null || _busy) return;
     final l = AppLocalizations.of(context);
+    final app = appOf(context);
     setState(() => _busy = true);
     var message = '';
     try {
@@ -186,6 +187,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
       message = e.error.message;
       try {
         await LocalDb.dismissWorkoutSuggestion(s.id);
+        app?.bumpInsights();
       } catch (_) {/* the reason is already on screen */}
     } catch (_) {
       message = l?.logWorkoutCouldNotLog ?? 'Could not log this one — try again.';
@@ -199,9 +201,11 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   Future<void> _dismiss(Suggestion s) async {
     if (_busy) return;
     final l = AppLocalizations.of(context);
+    final app = appOf(context);
     setState(() => _busy = true);
     try {
       await LocalDb.dismissWorkoutSuggestion(s.id);
+      app?.bumpInsights();
     } catch (_) {
       if (mounted) {
         _say(l?.logWorkoutCouldNotDismiss ??
@@ -237,7 +241,6 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   Future<void> _afterAction() async {
     await _load();
     if (!mounted) return;
-    bumpInsights(context);
     if (!_failed && (_items?.isEmpty ?? false)) {
       await Navigator.maybePop(context);
     }
@@ -574,7 +577,6 @@ class _LogWorkoutState extends State<LogWorkout> {
     final repo = repoOf(context);
     if (repo == null || _saving || _invalid != null) return;
     final nav = Navigator.of(context);
-    final app = appOf(context);
     final l = AppLocalizations.of(context);
     setState(() {
       _saving = true;
@@ -594,7 +596,7 @@ class _LogWorkoutState extends State<LogWorkout> {
       // behind it — anything past the ~3-day retention, or a stretch the band
       // was off — is saved UNSCORED, and a screen that pops silently would let
       // the athlete believe a strain was computed for it.
-      app?.insightsRevision.value++;
+      // The shared repository writer already published the committed session.
       if (r['unscored'] == true) {
         if (!mounted) return;
         setState(() {
@@ -780,9 +782,9 @@ class _TypeSheetState extends State<_TypeSheet> {
 
 // ══════════════════ THE WORKOUTS-TAB ENTRY ══════════════════
 
-/// Tell the app a session was written, so the Workouts tab re-reads. Null-safe
-/// for a golden or a widget test, which have no AppState above them.
-void bumpInsights(BuildContext c) => appOf(c)?.insightsRevision.value++;
+/// Refresh non-session insight state. Session writes publish in the repository.
+/// Null-safe for a golden or widget test without AppState.
+void bumpInsights(BuildContext c) => appOf(c)?.bumpInsights();
 
 /// The AppState, or null when there is none — same shape as [repoOf].
 AppState? appOf(BuildContext c) {

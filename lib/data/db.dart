@@ -29,6 +29,7 @@ import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
+import 'day_zone_store.dart';
 import 'calculation_store.dart';
 import '../gps/workout_clock.dart';
 import 'journal_fields.dart';
@@ -148,7 +149,9 @@ class LocalDb {
     // object)` — a sustained crash burst (seen in the wild on background event
     // ingest). Reopen whenever the cached handle isn't actually open.
     if (db != null && db.isOpen) return db;
-    return _db = await _openOrRebuild();
+    final opened = await _openOrRebuild();
+    await DayZoneStore.hydrate(opened);
+    return _db = opened;
   }
 
   /// Set when [_openOrRebuild] had to quarantine an unopenable database and
@@ -179,7 +182,11 @@ class LocalDb {
     'food_def',
     'meal_template',
     'food_day_mark',
+    'food_day_count',
     'body_weight',
+    'body_weight_reading',
+    'day_zone',
+    'zone_change',
     'live_coverage',
     'med_def',
     'med_dose',
@@ -270,7 +277,11 @@ class LocalDb {
     'food_def',
     'meal_template',
     'food_day_mark',
+    'food_day_count',
     'body_weight',
+    'body_weight_reading',
+    'day_zone',
+    'zone_change',
     'live_coverage',
     'med_def',
     'med_dose',
@@ -391,6 +402,8 @@ class LocalDb {
   }
 
   static Future<void> close() async {
+    NutritionDb.resetCountingContext();
+    DayClock.install([], []);
     if (_db != null) {
       await _db!.close();
       _db = null;
@@ -444,7 +457,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 49;
+  static const int schemaVersion = 50;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1028,6 +1041,11 @@ class LocalDb {
           await _createDevice(db);
           await _ensureLiveCoverageDeviceId(db);
         }
+        if (oldV < 50) {
+          await createNutritionTables(db);
+          await BodyLogDb.createTables(db);
+          await _createBuild90Tables(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1109,6 +1127,81 @@ class LocalDb {
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  /// Build 90's additive storage contract. Units/timestamps are unchanged:
+  /// all *_ts values here are Unix seconds; offsets are seconds east of UTC.
+  static Future<void> _createBuild90Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS day_zone (
+        date TEXT PRIMARY KEY,
+        zone_id TEXT NOT NULL,
+        start_offset_sec INTEGER NOT NULL,
+        end_offset_sec INTEGER NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS day_zone_start ON day_zone(start_ts)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS zone_change (
+        at_ts INTEGER PRIMARY KEY,
+        zone_id TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS body_weight_reading (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        at_ts INTEGER NOT NULL,
+        kg REAL NOT NULL,
+        source TEXT NOT NULL,
+        history_only INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        unit TEXT NOT NULL DEFAULT 'kg',
+        entered REAL,
+        origin_id TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_body_reading_date_time '
+      'ON body_weight_reading(date, at_ts, id)',
+    );
+    await createFoodCountingTables(db);
+    await _createSyncCursor(db);
+    final seeded = await db.query(
+      'sync_cursor',
+      columns: ['name'],
+      where: 'name = ?',
+      whereArgs: ['b90_body_reading_seed'],
+    );
+    if (seeded.isEmpty) {
+      await _seedLegacyWeightReadings(db);
+      await db.insert('sync_cursor', {
+        'name': 'b90_body_reading_seed',
+        'value': 'done',
+        'updated_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+  static Future<void> _seedLegacyWeightReadings(Database db) async {
+    // Deterministic IDs make interrupted/repeated migration idempotent. The
+    // reading time and input representation are preserved verbatim. created_at
+    // dates the migration row, not an invented original creation timestamp.
+    await db.rawInsert(
+      '''
+      INSERT OR IGNORE INTO body_weight_reading
+        (id, date, at_ts, kg, source, history_only, created_at,
+         unit, entered, origin_id)
+      SELECT 'legacy:' || w.date, w.date, w.at_ts, w.kg, w.source,
+        w.history_only, ?, w.unit, w.entered, w.origin_id
+      FROM body_weight w
+      WHERE NOT EXISTS
+        (SELECT 1 FROM body_weight_reading r WHERE r.date = w.date)
+    ''',
+      [DateTime.now().millisecondsSinceEpoch ~/ 1000],
+    );
   }
 
   /// The column names [table] currently has (empty if the table is absent).
@@ -2303,8 +2396,12 @@ class LocalDb {
   /// driving while missing slow walking — O'Connell 2017,
   /// doi:10.1371/journal.pone.0169616).
   static Future<ResolvedDaySteps> resolvedStepsForDay(String day) async {
-    final d = DateTime.parse(day);
-    return resolvedStepsForWindow(d, DateTime(d.year, d.month, d.day + 1));
+    final lo = localDayStartSec(day), hi = localDayEndSec(day);
+    if (lo == null || hi == null) return ResolvedDaySteps.none;
+    return resolvedStepsForWindow(
+      DateTime.fromMillisecondsSinceEpoch(lo * 1000),
+      DateTime.fromMillisecondsSinceEpoch(hi * 1000),
+    );
   }
 
   /// Clip the same source policy to an exact active interval, including older
@@ -2322,6 +2419,55 @@ class LocalDb {
       'WHERE start_ts < ? AND MAX(end_ts,start_ts+1) > ?',
       [hi, lo],
     );
+    return _resolveStepRows(rows, lo, hi);
+  }
+
+  /// One retained-coverage read for historical charts, instead of one query
+  /// for every metric date. No history cap; the source policy is unchanged.
+  static Future<Map<String, ResolvedDaySteps>> resolvedStepsByDay() async {
+    final rows = await (await instance).rawQuery(
+      'SELECT start_ts,end_ts,steps,source,device_id FROM live_coverage',
+    );
+    final byDay = <String, List<Map<String, Object?>>>{};
+    final storedDays = DayClock.days;
+    int? nextStoredStart(int t) {
+      var lo = 0, hi = storedDays.length;
+      while (lo < hi) {
+        final mid = (lo + hi) ~/ 2;
+        if (storedDays[mid].startSec <= t) { lo = mid + 1; } else { hi = mid; }
+      }
+      return lo < storedDays.length ? storedDays[lo].startSec : null;
+    }
+    for (final row in rows) {
+      final start = (row['start_ts'] as num).toInt();
+      final end = math.max(start + 1, (row['end_ts'] as num).toInt());
+      var t = start;
+      final seen = <String>{};
+      while (t < end) {
+        final date = dayLabelAtSec(t);
+        if (seen.add(date)) (byDay[date] ??= []).add(row);
+        final assigned = DayClock.at(t);
+        final local = DateTime.fromMillisecondsSinceEpoch(t * 1000);
+        var boundary = assigned?.endSec ??
+            DateTime(local.year, local.month, local.day + 1).millisecondsSinceEpoch ~/ 1000;
+        if (assigned == null) {
+          final next = nextStoredStart(t);
+          if (next != null) boundary = math.min(boundary, next);
+        }
+        if (boundary <= t) break;
+        t = math.min(end, boundary);
+      }
+    }
+    return {
+      for (final e in byDay.entries)
+        e.key: _resolveStepRows(e.value,
+          localDayStartSec(e.key)!, localDayEndSec(e.key)!),
+    };
+  }
+
+  static ResolvedDaySteps _resolveStepRows(
+    List<Map<String, Object?>> rows, int lo, int hi,
+  ) {
     final spans = <CoverageSpan>[];
     for (final row in rows) {
       final start = (row['start_ts'] as num).toInt();
@@ -3212,6 +3358,7 @@ class LocalDb {
     // Body (build 86): tape sessions, photo records, and the in-place
     // body_weight columns that keep imported/backdated weights history only.
     await BodyLogDb.createTables(db);
+    await _createBuild90Tables(db);
     // Pushups (build 86): one JSON row per movement-break day.
     await PushupDb.createTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
@@ -3661,7 +3808,7 @@ class LocalDb {
     await db.execute('''
       CREATE VIEW v_sessions AS
       SELECT id, start_ts, end_ts,
-             strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS date,
+             ${storedDayLabelSql('sessions.start_ts')} AS date,
              type, status, calories, strain, max_hr,
              duration_min, steps, hrr_bpm, source, zone_min_json
       FROM sessions
@@ -4588,7 +4735,8 @@ class LocalDb {
 
   // Canonical LOCAL day label — shared with the UI/coach via day_label.dart so
   // every layer computes "today" identically (never in UTC).
-  static String _localDayLabel(DateTime dt) => dayLabelOf(dt);
+  static String _localDayLabel(DateTime dt) =>
+      dayLabelAtSec(dt.millisecondsSinceEpoch ~/ 1000);
 
   static String _localDayLabelFromEpoch(int epochSec) =>
       _localDayLabel(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
@@ -4780,7 +4928,7 @@ class LocalDb {
       return 0;
     }
     final recTs = _recTsFrom(raw, decoded);
-    final ambient = decoded.ambientRaw == 0 ? null : decoded.ambientRaw;
+    final ambient = decoded.ambientRaw;
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by the volatile counter). decoded_onehz is keyed
     // by rec_ts and decoded_rr by (rec_ts, beat_index). We use REPLACE, not
@@ -4846,13 +4994,8 @@ class LocalDb {
       // everything the mid-ladder backfill can replay — but omitted-when-null
       // regardless, for the same reason.
       'band_sleep_state': ?decoded.bandSleepState,
-      // 0 IS THE ABSENT SENTINEL, NOT A READING. records.dart:501 emits
-      // `ambientRaw: optical ? u16@70 : 0`, so every unconfirmed record version
-      // reports 0 — writing that through would turn "we did not read the
-      // channel" into a real measurement of total darkness on a one-sided
-      // signal where dark already means nothing. Omitted-when-null (same form
-      // as device_family) so the mid-ladder backfill can't name a column a
-      // pre-v42 rebuild has not handed back yet.
+      // Unconfirmed layouts now emit NULL; confirmed raw zero stays zero.
+      // Omit NULL for mid-ladder backfills before this column exists.
       'ambient_raw': ?ambient,
       // Which strap measured this second. Stamped from the live link; unknown
       // provenance is NULL, never a guess. See _ensureDeviceFamilyColumns.
@@ -5969,10 +6112,10 @@ class LocalDb {
         if (m is Map) {
           final a = (m['activity_computed_at'] as num?)?.toInt();
           final o = (m['overnight_computed_at'] as num?)?.toInt();
-          calculated = [?a, ?o].fold<int?>(
-            null,
-            (x, y) => x == null || y > x ? y : x,
-          );
+          calculated = [
+            ?a,
+            ?o,
+          ].fold<int?>(null, (x, y) => x == null || y > x ? y : x);
         }
       } catch (_) {}
     }
@@ -6144,11 +6287,10 @@ class LocalDb {
   static Future<Map<String, int>> decodedRecTsMaxByDay() async {
     final (lo, hi) = await firstAndLastRecordTs();
     if (lo == null || hi == null) return {};
+    await DayZoneStore.ensureRange(lo, hi);
     final db = await instance;
     final out = <String, int>{};
-    var day = dayLabelOf(
-      DateTime.fromMillisecondsSinceEpoch(lo * 1000, isUtc: true).toLocal(),
-    );
+    var day = dayLabelAtSec(lo);
     // Bounded by the number of days actually present. `localDayEndSec` returns
     // null only for a malformed label, which `dayLabelOf` cannot produce — the
     // guard is there so a future change can never spin here.
@@ -6164,9 +6306,7 @@ class LocalDb {
       final mx = rows.isEmpty ? null : (rows.first['mx'] as num?)?.toInt();
       if (mx != null) out[day] = mx;
       if (end > hi) break;
-      day = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch(end * 1000, isUtc: true).toLocal(),
-      );
+      day = dayLabelAtSec(end);
     }
     return out;
   }
@@ -6595,14 +6735,18 @@ class LocalDb {
 
   static Future<List<Map<String, dynamic>>> dataHistoryDays() async {
     final db = await instance;
-    final rawRows = await db.rawQuery(
+    final (lo, hi) = await firstAndLastRecordTs();
+    if (lo != null && hi != null) await DayZoneStore.ensureRange(lo, hi);
+    final rawRows = await db.rawQuery(DayClock.days.isNotEmpty ?
+      'SELECT z.date AS day_id, COUNT(*) AS raw_count, '
+      'MIN(d.rec_ts) AS min_rec_ts, MAX(d.rec_ts) AS max_rec_ts '
+      'FROM day_zone z JOIN decoded_onehz d ON d.rec_ts >= z.start_ts '
+      'AND d.rec_ts < z.end_ts WHERE d.rec_ts > 0 AND ${derivableSourceSql('d.source')} '
+      'GROUP BY z.date ORDER BY z.date DESC' :
       "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id, "
-      'COUNT(*) AS raw_count, '
-      'MIN(rec_ts) AS min_rec_ts, '
-      'MAX(rec_ts) AS max_rec_ts '
+      'COUNT(*) AS raw_count, MIN(rec_ts) AS min_rec_ts, MAX(rec_ts) AS max_rec_ts '
       'FROM decoded_onehz WHERE rec_ts > 0 AND ${derivableSourceSql()} '
-      'GROUP BY day_id ORDER BY day_id DESC',
-    );
+      'GROUP BY day_id ORDER BY day_id DESC');
     final derivedRows = await db.rawQuery(
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized '
       'FROM day_result r '
@@ -6614,7 +6758,7 @@ class LocalDb {
       'FROM metric_series GROUP BY date',
     );
     final sessionRows = await db.rawQuery(
-      "SELECT strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS day_id, "
+      "SELECT ${storedDayLabelSql('sessions.start_ts')} AS day_id, "
       'COUNT(*) AS session_count '
       'FROM sessions GROUP BY day_id',
     );
@@ -6880,6 +7024,21 @@ class LocalDb {
       await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
       await copyRows('journal_metric', where: 'date = ?', whereArgs: [dayId]);
       await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);
+      for (final table in const [
+        'body_weight_reading',
+        'food_day_count',
+        'day_zone',
+      ]) {
+        await copyRows(table, where: 'date = ?', whereArgs: [dayId]);
+      }
+      final (zoneStart, zoneEnd) = _localDayWindow(dayId);
+      await copyRows(
+        'zone_change',
+        where:
+            'at_ts = (SELECT MAX(at_ts) FROM zone_change WHERE at_ts <= ?) '
+            'OR (at_ts > ? AND at_ts < ?)',
+        whereArgs: [zoneStart, zoneStart, zoneEnd],
+      );
       await copyRows('notifications', where: 'date = ?', whereArgs: [dayId]);
       await copyRows(
         'sleep_session_candidates',
@@ -7050,6 +7209,7 @@ class LocalDb {
       }
     });
     await CalculationStore.clearCache();
+    DayClock.install([], []);
     return deleted;
   }
 
@@ -7534,6 +7694,13 @@ class LocalDb {
     } finally {
       await src.close();
     }
+    // Old exports have only the daily weight table. Preserve those readings
+    // when restoring into an already-migrated install; modern per-reading IDs
+    // and existing days win rather than acquiring an extra aggregate reading.
+    if ((counts['body_weight'] ?? 0) > 0 &&
+        !counts.containsKey('body_weight_reading')) {
+      await _seedLegacyWeightReadings(db);
+    }
     // An import writes day_result rows with a raw batch.insert, deliberately
     // bypassing putDayResult (and therefore the curve-encode seam), so the rows
     // arrive in whatever shape the source device stored — legacy, if it was on
@@ -7548,6 +7715,7 @@ class LocalDb {
     // walks this map in order.
     if (importedDays != null) counts['_days'] = importedDays.length;
     await CalculationStore.hydrate();
+    await DayZoneStore.hydrate(db);
     return counts;
   }
 
@@ -7712,6 +7880,10 @@ class LocalDb {
       'food_def',
       'meal_template',
       'body_weight',
+      'body_weight_reading',
+      'food_day_count',
+      'day_zone',
+      'zone_change',
       'live_coverage',
       'med_def',
       'med_dose',

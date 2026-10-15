@@ -31,6 +31,7 @@ import '../../data/body_log.dart';
 import '../../data/pushups.dart';
 import '../../data/photo_encode.dart';
 import '../../data/media_backup.dart';
+import '../../data/temporary_export.dart';
 import '../../import/backup_crypto.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -66,12 +67,37 @@ class _DataScreenState extends State<DataScreen> {
   /// a green check — a thrown FileSystemException from the export included.
   bool _noteFailed = false;
   ImportOutcome? _outcome;
+  int? _photoFiles;
 
   @override
   void initState() {
     super.initState();
     context.read<AppState>().refreshBackupPassphraseState();
+    _readPhotoCount();
   }
+
+  Future<void> _readPhotoCount() async {
+    try {
+      final count = await mediaBackupPhotoCount(
+        (await BodyLogDb.photoDir()).path,
+      );
+      if (mounted) setState(() => _photoFiles = count);
+    } catch (_) {
+      /* No count is better than an invented zero. */
+    }
+  }
+
+  _Note _shareNote(ShareResult result, String label) => switch (result.status) {
+    ShareResultStatus.success => (
+      '$label handed to the selected action.',
+      false,
+    ),
+    ShareResultStatus.dismissed => ('Sharing cancelled.', false),
+    ShareResultStatus.unavailable => (
+      'Share sheet closed. Delivery could not be confirmed.',
+      false,
+    ),
+  };
 
   void _say(String s, {bool failed = false}) {
     if (mounted) {
@@ -124,22 +150,27 @@ class _DataScreenState extends State<DataScreen> {
             )
           : (l?.dataNothingToExportYet ?? 'Nothing to export yet.', false);
     }
-    await Share.shareXFiles(
-      [for (final p in res.paths) XFile(p)],
-      subject: '$kAppName export',
-      sharePositionOrigin: origin,
+    final result = await withTemporaryExport(
+      res.paths,
+      () => Share.shareXFiles(
+        [for (final p in res.paths) XFile(p)],
+        subject: '$kAppName export',
+        sharePositionOrigin: origin,
+      ),
     );
     final n = res.paths.length;
     final failed = res.hasFailures
         ? ' ${l?.dataSetsFailed(res.failed.length, res.failed.join(', ')) ?? '${res.failed.length} set(s) failed: ${res.failed.join(', ')}.'}'
         : '';
     return (
-      (l?.dataFilesShared(n) ?? '$n file${n == 1 ? '' : 's'} shared.') + failed,
+      _shareNote(result, '$n CSV files (analysis; cannot restore the app)').$1 +
+          failed,
       res.hasFailures,
     );
   }
 
   Future<_Note> _importLiftLog() async {
+    final app = context.read<AppState>();
     final picked = await FilePicker.platform.pickFiles(type: FileType.any);
     final path = picked?.files.single.path;
     if (path == null) return ('', false);
@@ -199,6 +230,7 @@ class _DataScreenState extends State<DataScreen> {
       replaceSplits: useSplits,
       links: links,
     );
+    if (n > 0 || links.isNotEmpty) app.publishSessionChange();
     return (
       '$n workouts imported'
           '${links.isEmpty ? '' : ', ${links.length} linked to WHOOP sessions'}.',
@@ -327,15 +359,18 @@ class _DataScreenState extends State<DataScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Export for AI analysis',
-                  style: F.head.copyWith(color: P.of(s).ink)),
+              Text(
+                'Export for AI analysis',
+                style: F.head.copyWith(color: P.of(s).ink),
+              ),
               const SizedBox(height: S.x2),
               Text(
                 'One Markdown file to paste into Claude or Codex: daily diet, '
                 'weight, waist, steps, sleep, recovery, HRV, strain and '
                 'workouts, weekly averages, lifts and tape measurements. '
                 'Food items are listed for up to 3 months. Made now and '
-                'shared; nothing is kept.',
+                'offered to the share sheet, then the temporary copy is deleted. '
+                'This report has no photos and cannot restore the app.',
                 style: F.cap.copyWith(color: P.of(s).ink2),
               ),
               const SizedBox(height: S.x3),
@@ -348,8 +383,10 @@ class _DataScreenState extends State<DataScreen> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text(r.label,
-                              style: F.body.copyWith(color: P.of(s).ink)),
+                          child: Text(
+                            r.label,
+                            style: F.body.copyWith(color: P.of(s).ink),
+                          ),
                         ),
                         Icon(LucideIcons.chevronRight, color: P.of(s).ink2),
                       ],
@@ -362,26 +399,47 @@ class _DataScreenState extends State<DataScreen> {
       ),
     );
     if (range == null) return ('Export cancelled.', false);
-    final path = await writeAnalysisExport(range: range, repo: repo, user: user);
-    await Share.shareXFiles(
-      [XFile(path)],
-      subject: '$kAppName data · ${range.label}',
-      sharePositionOrigin: origin,
+    final path = await writeAnalysisExport(
+      range: range,
+      repo: repo,
+      user: user,
     );
-    return ('Analysis file shared (${range.label}).', false);
+    try {
+      final result = await withTemporaryExport(
+        [path],
+        () => Share.shareXFiles(
+          [XFile(path)],
+          subject: '$kAppName data · ${range.label}',
+          sharePositionOrigin: origin,
+        ),
+      );
+      return _shareNote(
+        result,
+        'Analysis file (${range.label}); cannot restore the app',
+      );
+    } finally {
+      try {
+        await File(path).parent.delete();
+      } catch (_) {}
+    }
   }
 
   Future<_Note> _exportBody() async {
     final origin = shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('body');
-    final f = File('${dir.path}/body-log.csv')
-      ..writeAsStringSync(await BodyLogDb.csv());
-    await Share.shareXFiles(
-      [XFile(f.path)],
-      subject: '$kAppName Body',
-      sharePositionOrigin: origin,
+    final f = File('${dir.path}/body-log.csv');
+    final result = await withTemporaryExport([f.path], () async {
+      await f.writeAsString(await BodyLogDb.csv());
+      return Share.shareXFiles(
+        [XFile(f.path)],
+        subject: '$kAppName Body',
+        sharePositionOrigin: origin,
+      );
+    });
+    return _shareNote(
+      result,
+      'Body CSV (0 photo files; cannot restore the app)',
     );
-    return ('Body CSV shared.', false);
   }
 
   Future<_Note> _importPushups() async {
@@ -426,45 +484,51 @@ class _DataScreenState extends State<DataScreen> {
   Future<_Note> _exportPushups() async {
     final origin = shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('pushups');
-    final f = File('${dir.path}/pushup-reminder.json')
-      ..writeAsStringSync(await exportPushupBackup());
-    await Share.shareXFiles(
-      [XFile(f.path)],
-      subject: '$kAppName Pushups',
-      sharePositionOrigin: origin,
-    );
-    return ('Pushups history shared.', false);
+    final f = File('${dir.path}/pushup-reminder.json');
+    final result = await withTemporaryExport([f.path], () async {
+      await f.writeAsString(await exportPushupBackup());
+      return Share.shareXFiles(
+        [XFile(f.path)],
+        subject: '$kAppName Pushups',
+        sharePositionOrigin: origin,
+      );
+    });
+    return _shareNote(result, 'Pushups history (module data; 0 photo files)');
   }
 
   Future<_Note> _exportLiftLog() async {
     final origin = shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('liftlog');
-    final json = File('${dir.path}/lift-log.json')
-      ..writeAsStringSync(await exportLiftLogBackup());
-    final csv = File('${dir.path}/lift-log.csv')
-      ..writeAsStringSync(await LiftLogDb.csv());
-    await Share.shareXFiles(
-      [XFile(json.path), XFile(csv.path)],
-      subject: '$kAppName Lift Log',
-      sharePositionOrigin: origin,
+    final json = File('${dir.path}/lift-log.json');
+    final csv = File('${dir.path}/lift-log.csv');
+    final result = await withTemporaryExport([json.path, csv.path], () async {
+      await json.writeAsString(await exportLiftLogBackup());
+      await csv.writeAsString(await LiftLogDb.csv());
+      return Share.shareXFiles(
+        [XFile(json.path), XFile(csv.path)],
+        subject: '$kAppName Lift Log',
+        sharePositionOrigin: origin,
+      );
+    });
+    return _shareNote(
+      result,
+      'Lift Log JSON and CSV (module data; 0 photo files)',
     );
-    return ('Lift Log shared.', false);
   }
 
   Future<_Note> _exportDb() async {
-    final l = AppLocalizations.of(context);
     final origin = shareOrigin(context);
     // VACUUM INTO — a transactionally consistent snapshot, not a file copy.
     final path = await LocalDb.exportCopy();
-    await Share.shareXFiles(
-      [XFile(path)],
-      subject: '$kAppName database',
-      sharePositionOrigin: origin,
+    final result = await withTemporaryExport(
+      [path],
+      () => Share.shareXFiles(
+        [XFile(path)],
+        subject: '$kAppName database',
+        sharePositionOrigin: origin,
+      ),
     );
-    return (
-      l?.dataDatabaseShared ?? 'Database shared. It is the complete copy.',
-      false,
-    );
+    return _shareNote(result, 'Database (restorable; 0 photo files)');
   }
 
   /// The same VACUUM'd snapshot as [_exportDb], sealed with AES-256-GCM under
@@ -477,17 +541,21 @@ class _DataScreenState extends State<DataScreen> {
     final pass = await askBackupPassphrase(context, creating: true);
     if (pass == null) return ('', false); // cancelled
     if (!mounted) return ('', false);
-    final l = AppLocalizations.of(context);
     final origin = shareOrigin(context);
     final plain = await LocalDb.exportCopy();
     final dest = '$plain.osbk';
     // Build 86: with progress photos to carry, the sealed payload is the
     // database plus photos (format 2); otherwise the database alone (1).
-    final photos = await BodyLogDb.photos();
-    final photoDir = (await BodyLogDb.photoDir()).path;
+    var photoCount = 0;
     String? zip;
     try {
-      if (photos.isNotEmpty) zip = await packMediaBackup(plain, photoDir);
+      final photoDir = (await BodyLogDb.photoDir()).path;
+      photoCount = await mediaBackupPhotoCount(photoDir);
+      if (photoCount > 0) {
+        final packed = await packMediaBackupWithCount(plain, photoDir);
+        zip = packed.path;
+        photoCount = packed.photos;
+      }
       final src = zip ?? plain;
       final version = zip == null
           ? kBackupFormatVersion
@@ -498,6 +566,11 @@ class _DataScreenState extends State<DataScreen> {
       await Isolate.run(
         () => encryptBackupFile(File(src), File(dest), pass, version: version),
       );
+    } catch (_) {
+      try {
+        if (await File(dest).exists()) await File(dest).delete();
+      } catch (_) {}
+      rethrow;
     } finally {
       for (final f in [plain, ?zip]) {
         try {
@@ -505,16 +578,17 @@ class _DataScreenState extends State<DataScreen> {
         } catch (_) {}
       }
     }
-    await Share.shareXFiles(
-      [XFile(dest)],
-      subject: '$kAppName encrypted backup',
-      sharePositionOrigin: origin,
+    final result = await withTemporaryExport(
+      [dest],
+      () => Share.shareXFiles(
+        [XFile(dest)],
+        subject: '$kAppName encrypted backup',
+        sharePositionOrigin: origin,
+      ),
     );
-    return (
-      l?.dataEncryptedBackupShared ??
-          'Encrypted backup shared. Without that passphrase nobody can open it — '
-              'including this app, and including us.',
-      false,
+    return _shareNote(
+      result,
+      'Encrypted database + $photoCount photo files (restorable with its passphrase)',
     );
   }
 
@@ -687,9 +761,8 @@ class _DataScreenState extends State<DataScreen> {
                       C.purple,
                       'Export for AI analysis',
                       sub:
-                          'One readable file of your diet, weight, training '
-                          'and recovery for Claude or Codex — 2 weeks to '
-                          'lifetime',
+                          'Readable diet, weigh-ins, training and recovery — 2 weeks to lifetime. '
+                          '0 photo files; analysis only, cannot restore the app.',
                       onTap: _busy ? null : () => _run(_exportAnalysis),
                     ),
                     SetRow(
@@ -698,10 +771,8 @@ class _DataScreenState extends State<DataScreen> {
                       l?.dataExportDatabase ?? 'Export the database',
                       sub:
                           l?.dataExportDatabaseSub ??
-                          'One .db file. Lossless, and the only format that '
-                              'restores onto another phone. Readable by anything '
-                              'that opens SQLite — including anyone who gets the '
-                              'file',
+                          'Restorable database, including photo references but 0 photo files. '
+                              'Unencrypted; anyone with the file can read it.',
                       onTap: _busy ? null : () => _run(_exportDb),
                     ),
                     SetRow(
@@ -709,11 +780,8 @@ class _DataScreenState extends State<DataScreen> {
                       C.purple,
                       l?.dataExportEncrypted ?? 'Export an encrypted backup',
                       sub:
-                          l?.dataExportEncryptedSub ??
-                          'The same complete copy, sealed with a passphrase, '
-                              'for somewhere like iCloud. Forget the passphrase '
-                              'and that file is gone — there is no recovery, '
-                              'because there is no account holding a key',
+                          '${l?.dataExportEncryptedSub ?? 'Restorable database and progress photo files, sealed with a passphrase. Losing the passphrase means losing access.'} '
+                          '${_photoFiles == null ? 'Photo count unavailable.' : '$_photoFiles photo files available.'}',
                       onTap: _busy ? null : () => _run(_exportEncrypted),
                     ),
                   ]),
@@ -730,8 +798,9 @@ class _DataScreenState extends State<DataScreen> {
                       sub:
                           'Writes an encrypted, checked copy to '
                           '$kBackupDirName when you open the app, keeping the '
-                          'last $kBackupsKept. It is deleted with the app, so '
-                          'copy one off the phone now and then',
+                          'last $kBackupsKept. Database only, 0 photo files. '
+                          'Losing or deleting this app container loses these backups too. '
+                          'Keep an exported encrypted copy outside the app.',
                       value: app.backupCadence.label,
                       onTap: _busy
                           ? null

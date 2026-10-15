@@ -163,13 +163,13 @@ void main() {
         runFloorKcal(runMeters: 5000, weightKg: 80.5),
         closeTo(287.7875, 1e-9),
       );
-      expect(acsmActiveKcal(runMeters: 5000, weightKg: 80.5), 402.5);
+      expect(acsmActiveKcal(runMeters: 5000, runMovingSeconds: 1800, weightKg: 80.5), 402.5);
       expect(
-        acsmActiveKcal(runMeters: 0, walkMeters: 5000, weightKg: 80.5),
+        acsmActiveKcal(runMeters: 0, walkMeters: 5000, walkMovingSeconds: 3600, weightKg: 80.5),
         201.25,
       );
       expect(
-        acsmActiveKcal(runMeters: 4600, walkMeters: 400, weightKg: 80.5),
+        acsmActiveKcal(runMeters: 4600, walkMeters: 400, runMovingSeconds: 1800, walkMovingSeconds: 300, weightKg: 80.5),
         closeTo(386.4, 1e-9),
       );
       for (final n in [-1.0, double.nan, double.infinity]) {

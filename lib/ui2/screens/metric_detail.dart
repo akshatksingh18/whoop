@@ -1,3 +1,4 @@
+import '../energy_comparison.dart';
 // The shared metric drill-down — the deepest level the app shows.
 //
 // Glance (a row on Health) → MetricDetail (your normal range, what moves it,
@@ -14,7 +15,8 @@ import 'package:provider/provider.dart';
 import '../../build_profile.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../compute/day_upkeep.dart';
-import '../../compute/profile.dart' show Profile, stepCalories, acsmActiveKcal;
+import '../../compute/profile.dart'
+    show Profile, stepCalories, movementEquationEstimateKcal;
 import '../../gps/run_history.dart' show loadRuns;
 import '../activity/day_strain.dart';
 import '../../data/day_label.dart';
@@ -79,15 +81,14 @@ class MetricSpec {
 const _specs = <String, MetricSpec>{
   'resting_hr': MetricSpec(
     chartKey: 'resting_hr',
-    title: 'Resting heart rate',
+    title: 'Resting HR · asleep',
     unit: 'bpm',
     color: C.red,
     icon: LucideIcons.heart,
     higherBetter: false,
     method:
-        'The lowest sustained sleeping heart rate of the night, taken over '
-        'a rolling window of the overnight series. Not a spot reading, and not '
-        'a daytime minimum.',
+        'The lowest 30-minute average while asleep. This is an overnight '
+        'measure, not a single lowest beat or a daytime minimum.',
     citation: 'Nocturnal heart-rate minimum; personal baseline, not population',
   ),
   'hrv': MetricSpec(
@@ -180,7 +181,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.flame,
     color: C.green,
     method:
-        'Budget: counted steps × the day’s weight (Weyand). ACSM: the same '
+        'Budget: counted steps × the day’s weight (Weyand). Movement estimate: the same '
         'walking by distance. Steps taken in runs are priced with the run. '
         'This is the walking part of maintenance; resting is separate.',
   ),
@@ -545,7 +546,7 @@ Future<({List<ChartPoint> budget, List<ChartPoint> acsm})> stepCalorieModels(
         upkeep.acsmParts?.steps ??
         (upkeep.walkingMeters == null
             ? null
-            : acsmActiveKcal(
+            : movementEquationEstimateKcal(
                 runMeters: 0,
                 walkMeters: upkeep.walkingMeters!,
                 weightKg: upkeep.profile.weightKg,
@@ -868,9 +869,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
           ? await hrvMissingReason(todayLabel())
           : null;
       if (stillNewest(#metric, token))
-        setState(
-          () => (_d = d, _why = why, _loading = false, _failed = false),
-        );
+        setState(() => (_d = d, _why = why, _loading = false, _failed = false));
     } catch (_) {
       if (stillNewest(#metric, token))
         setState(() => (_loading = false, _failed = true));
@@ -949,11 +948,11 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
             win == 1
                 ? (_why ??
                       (all.isEmpty
-                      ? (l?.metricDetailNoValueYet ??
-                            'Today has not produced a value yet.')
-                      : (l?.metricDetailNoValueYetWiderRanges ??
-                            'Today has not produced a value yet. The wider ranges '
-                                'above hold the days that did.')))
+                          ? (l?.metricDetailNoValueYet ??
+                                'Today has not produced a value yet.')
+                          : (l?.metricDetailNoValueYetWiderRanges ??
+                                'Today has not produced a value yet. The wider ranges '
+                                    'above hold the days that did.')))
                 : (l?.metricDetailNoValueInWindow ??
                       'No day in this window produced a value.'),
             // Today opens first now, so this card is what someone with months
@@ -1115,7 +1114,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.metricKey == 'step_kcal')
-            CaloriePair(
+            EnergyComparison(
               budget: mean,
               acsm: () {
                 final values = denseDays(
@@ -1247,7 +1246,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                   // The dots are already beside the big number two rows up; twice on
                   // one card reads as two different claims.
                   legend: alternate.isNotEmpty
-                      ? [('Budget', p.on(spec.color)), ('ACSM', p.on(C.teal))]
+                      ? [
+                          ('Budget', p.on(spec.color)),
+                          ('Movement estimate', p.on(C.teal)),
+                        ]
                       : rolling.isEmpty
                       ? const []
                       : [
@@ -1424,7 +1426,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
     final v = series[i];
     if (widget.metricKey == 'step_kcal') {
       final secondary = denseDays(_d?.acsmSeries ?? const [], series.length)[i];
-      return '$day · Budget ${v == null ? 'unavailable' : '${thousands(v)} kcal'} · ACSM ${secondary == null ? 'unavailable' : '${thousands(secondary)} kcal'}';
+      return '$day · Budget ${v == null ? 'unavailable' : '${thousands(v)} kcal'} · movement estimate ${secondary == null ? 'unavailable' : '${thousands(secondary)} kcal'}';
     }
     return v == null
         ? (l?.metricDetailSlotNoRecord(day) ?? '$day, no record')
@@ -2286,7 +2288,22 @@ List<Widget> dayNavRow(
   String? day,
   List<String> days,
   ValueChanged<String> onDay,
-) => [DayNav(day: day, days: days, onDay: onDay), const SizedBox(height: S.x3)];
+) {
+  final zone = day == null
+      ? null
+      : DayClock.abbreviation(
+          day,
+          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        );
+  return [
+    DayNav(day: day, days: days, onDay: onDay),
+    if (zone != null)
+      Builder(
+        builder: (c) => Text(zone, style: F.cap.copyWith(color: P.of(c).ink2)),
+      ),
+    const SizedBox(height: S.x3),
+  ];
+}
 
 /// A plain door onto another screen. Deliberately quiet: a doorway is not a
 /// card, and a metric screen that grows a second loud card stops having a

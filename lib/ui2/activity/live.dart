@@ -1,3 +1,4 @@
+import '../energy_comparison.dart';
 // The live screens.
 //
 // Same interaction grammar — one shell, one clock, one pause/stop control —
@@ -59,6 +60,7 @@ class LiveFeed {
   final int? calories;
   final int? hrActiveCalories;
   final int? acsmCalories;
+  final int? movementEstimateCalories;
   final double? strain;
   final double? distanceKm;
   final int? steps;
@@ -113,6 +115,9 @@ class LiveFeed {
   /// zero means standing still.
   final double? currentSpeedMps;
 
+  /// Latest platform fix uncertainty (m/s), not an uncertainty of the EMA.
+  final double? currentSpeedAccuracyMps;
+
   /// Moving seconds from the GPS route (stops removed), or null without one.
   /// The live average pace divides by this, not elapsed time (B88-05).
   final int? movingSec;
@@ -124,6 +129,7 @@ class LiveFeed {
     this.calories,
     this.hrActiveCalories,
     this.acsmCalories,
+    this.movementEstimateCalories,
     this.strain,
     this.distanceKm,
     this.steps,
@@ -140,6 +146,7 @@ class LiveFeed {
     this.onFixRoute,
     this.bandConnected = false,
     this.currentSpeedMps,
+    this.currentSpeedAccuracyMps,
     this.movingSec,
   });
 
@@ -1040,7 +1047,13 @@ List<Widget> _distanceStats(
       : UnitsController.formatPace(avgSec / value);
   // Current rate from a fresh fix, in the user's units per hour; a run's
   // current pace needs real movement (under 0.5 m/s there is no pace).
-  final mps = f.currentSpeedMps;
+  final accuracy = f.currentSpeedAccuracyMps;
+  final mps = accuracy == null || !accuracy.isFinite || accuracy < 0
+      ? null
+      : f.currentSpeedMps;
+  final uncertainty = accuracy == null
+      ? null
+      : (u == null ? accuracy * 3.6 : u.distanceValue(accuracy * 3600));
   final nowPerHour = mps == null
       ? null
       : (u == null ? mps * 3.6 : u.distanceValue(mps * 3600));
@@ -1098,7 +1111,11 @@ List<Widget> _distanceStats(
               MetricLine(
                 label: walk ? 'Speed now' : 'Pace now',
                 color: family,
-                note: current.$1 == '—' ? 'no fresh GPS fix' : 'GPS',
+                note: current.$1 == '—'
+                    ? 'no valid fresh GPS speed'
+                    : uncertainty != null && uncertainty > 0
+                    ? 'Latest GPS speed ±${uncertainty.toStringAsFixed(1)} $speedUnit'
+                    : 'GPS',
                 value: current.$1 == '—' ? null : current.$1,
                 unit: current.$2,
               ),
@@ -1113,11 +1130,7 @@ List<Widget> _distanceStats(
             ),
             if (f.steps != null) ...[
               Divider(color: p.line, height: 1),
-              MetricLine(
-                label: 'Steps',
-                color: C.body,
-                value: '${f.steps}',
-              ),
+              MetricLine(label: 'Steps', color: C.body, value: '${f.steps}'),
             ],
             if (f.strain != null) ...[
               Divider(color: p.line, height: 1),
@@ -1375,11 +1388,15 @@ class LiveMeasured extends StatelessWidget {
             ..._distanceStats(ctx, p, f, a, weightKg, elapsed),
             if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
               const SizedBox(height: S.x2),
-              CaloriePair(
+              EnergyComparison(
                 budget: f.calories?.toDouble(),
-                acsm: f.acsmCalories?.toDouble(),
+                acsm: (f.acsmCalories ?? f.movementEstimateCalories)
+                    ?.toDouble(),
+                equationLabel: f.acsmCalories == null
+                    ? 'Movement estimate'
+                    : 'ACSM',
                 note:
-                    'Above resting · Budget from ${isWalkType(a.typeKey) ? "steps" : "distance"}, ACSM from distance',
+                    'Above resting · Budget from ${isWalkType(a.typeKey) ? "steps" : "distance"}, distance equation estimate',
               ),
             ],
             if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[

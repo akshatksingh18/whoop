@@ -18,8 +18,21 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'day_label.dart';
+import 'body_log.dart' show BodyLogDb;
 
 // ══════════════════ SCHEMA ══════════════════
+
+/// Shared by the full schema and isolated Food stores; schema 50 owns activation.
+Future<void> createFoodCountingTables(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS food_day_count (
+    date TEXT PRIMARY KEY, calorie_goal REAL,
+    basis TEXT NOT NULL DEFAULT 'automatic', counted INTEGER NOT NULL DEFAULT 0,
+    frozen_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)''');
+  final cols = await db.rawQuery('PRAGMA table_info(food_entry)');
+  if (!cols.any((c) => c['name'] == 'logged_at')) {
+    await db.execute('ALTER TABLE food_entry ADD COLUMN logged_at INTEGER');
+  }
+}
 
 /// schemaVersion 35. Two tables: a per-entry log, and a dictionary so a
 /// repeat entry costs one row instead of re-typing the macros.
@@ -61,6 +74,7 @@ Future<void> createNutritionTables(Database db) async {
       updated_at    INTEGER NOT NULL
     )
   ''');
+  await createFoodCountingTables(db);
   await db.execute(
     'CREATE INDEX IF NOT EXISTS idx_food_entry_date ON food_entry(date, at_ts)',
   );
@@ -302,6 +316,8 @@ class FoodEntry {
     required this.meal,
     required this.label,
     this.atTs,
+    this.loggedAt,
+    this.counting,
     this.foodKey,
     this.quantity,
     this.unit = 'g',
@@ -341,6 +357,12 @@ class FoodEntry {
   /// Epoch SECONDS. Null means the time was not recorded, which costs the day
   /// its span check — see [dayLogState].
   final int? atTs;
+
+  /// Epoch seconds when first logged; NULL for pre-Build-90 unknown history.
+  final int? loggedAt;
+
+  /// Read-time provenance, never copied into another day's entry.
+  final FoodCountEvidence? counting;
   final String? foodKey;
 
   /// Null means the portion was never confirmed.
@@ -378,6 +400,8 @@ class FoodEntry {
           meal: meal,
           label: label,
           atTs: atTs,
+          loggedAt: loggedAt,
+          counting: counting,
           foodKey: foodKey,
           unit: unit,
           source: source,
@@ -417,6 +441,8 @@ class FoodEntry {
       meal: newMeal,
       label: label,
       atTs: ts,
+      loggedAt: newId == id ? loggedAt : null,
+      counting: newDate == date ? counting : null,
       foodKey: foodKey,
       quantity: quantity,
       unit: unit,
@@ -446,16 +472,30 @@ class FoodEntry {
     if (!amount.isFinite || amount <= 0 || quantity == null || quantity! <= 0) {
       throw ArgumentError('Invalid portion');
     }
-    final factor = amount / quantity!;
-    double? scale(double? v) => v == null ? null : v * factor;
+    return scaledPortion(amount / quantity!);
+  }
+
+  /// Review a portion multiplier without writing anything. Unknown nutrients
+  /// stay unknown, including quick-add entries with no reference quantity.
+  FoodEntry scaledPortion(double factor) {
+    if (!factor.isFinite || factor <= 0) throw ArgumentError('Invalid portion');
+    double? scale(double? v) {
+      if (v == null) return null;
+      final n = v * factor;
+      if (!n.isFinite) throw ArgumentError('Portion is too large');
+      return n;
+    }
+
     return FoodEntry(
       id: id,
       date: date,
       meal: meal,
       label: label,
       atTs: atTs,
+      loggedAt: loggedAt,
+      counting: counting,
       foodKey: foodKey,
-      quantity: amount,
+      quantity: quantity == null ? null : scale(quantity),
       unit: unit,
       kcal: scale(kcal),
       proteinG: scale(proteinG),
@@ -482,6 +522,7 @@ class FoodEntry {
     'id': id,
     'date': date,
     'at_ts': atTs,
+    'logged_at': loggedAt,
     'meal': meal,
     'food_key': foodKey,
     'label': label,
@@ -510,6 +551,15 @@ class FoodEntry {
     double? d(String k) => (r[k] as num?)?.toDouble();
     return FoodEntry(
       id: r['id'] as String,
+      loggedAt: (r['logged_at'] as num?)?.toInt(),
+      counting: r['_count_date'] == null
+          ? null
+          : FoodCountEvidence(
+              calorieGoal: (r['_count_goal'] as num?)?.toDouble(),
+              basis: r['_count_basis'] as String,
+              counted: r['_counted'] == 1,
+              frozenAt: (r['_count_frozen_at'] as num).toInt(),
+            ),
       date: r['date'] as String,
       meal: r['meal'] as String,
       label: r['label'] as String,
@@ -584,6 +634,28 @@ enum DayLogState {
   complete,
 }
 
+/// A frozen target and the latest counting decision for a date. A NULL target
+/// is frozen absence, not permission to borrow today's target later.
+class FoodCountEvidence {
+  const FoodCountEvidence({
+    required this.calorieGoal,
+    required this.basis,
+    required this.counted,
+    required this.frozenAt,
+  });
+  final double? calorieGoal;
+  final String basis;
+  final bool counted;
+  final int frozenAt;
+}
+
+FoodCountEvidence? _entryEvidence(List<FoodEntry> es) {
+  for (final e in es) {
+    if (e.counting != null) return e.counting;
+  }
+  return null;
+}
+
 /// One day, rolled up. Built by [rollupDay] — never by the UI.
 class NutritionDay {
   const NutritionDay({
@@ -595,11 +667,13 @@ class NutritionDay {
     required this.carbs,
     required this.fat,
     required this.fibre,
+    this.counting,
   });
 
   final String date;
   final List<FoodEntry> entries;
   final DayLogState state;
+  final FoodCountEvidence? counting;
   final NutrientTotal kcal, protein, carbs, fat, fibre;
 
   bool get logged => entries.isNotEmpty;
@@ -627,7 +701,9 @@ NutritionDay rollupDay(
   List<FoodEntry> entries, {
   required String today,
   String? mark,
+  FoodCountEvidence? counting,
 }) {
+  counting ??= _entryEvidence(entries);
   final kcal = _sum(entries, (e) => e.kcal);
   final state = dayLogState(
     date,
@@ -635,11 +711,13 @@ NutritionDay rollupDay(
     today: today,
     kcal: kcal,
     mark: mark,
+    counting: counting,
   );
   return NutritionDay(
     date: date,
     entries: entries,
     state: state,
+    counting: counting,
     kcal: kcal,
     protein: _sum(entries, (e) => e.proteinG),
     carbs: _sum(entries, (e) => e.carbsG),
@@ -672,13 +750,17 @@ DayLogState dayLogState(
   NutrientTotal? kcal,
   String? mark,
   double? kcalGoal,
+  FoodCountEvidence? counting,
 }) {
   if (entries.isEmpty) return DayLogState.none;
   if (mark == 'incomplete') return DayLogState.partial;
   final energy = kcal ?? _sum(entries, (e) => e.kcal);
   if (mark == 'complete' && energy.complete) return DayLogState.complete;
   if (date == today) return DayLogState.inProgress;
-  final goal = kcalGoal ?? autoCountKcalGoal;
+  final frozen = counting ?? _entryEvidence(entries);
+  final goal = frozen != null
+      ? frozen.calorieGoal
+      : (kcalGoal ?? autoCountKcalGoal);
   if (mark == null &&
       energy.complete &&
       goal != null &&
@@ -778,7 +860,102 @@ class NutritionDb {
   static final revision = ValueNotifier<int>(0);
   static void changed() => revision.value++;
 
+  static bool _goalKnown = false;
+  static void resetCountingContext() => _goalKnown = false;
+
   static String newId() => 'f${DateTime.now().microsecondsSinceEpoch}';
+
+  static const _countColumns =
+      'e.*, c.date AS _count_date, '
+      'c.calorie_goal AS _count_goal, c.basis AS _count_basis, '
+      'c.counted AS _counted, c.frozen_at AS _count_frozen_at';
+  static const _countJoin =
+      'food_entry e LEFT JOIN food_day_count c ON c.date=e.date';
+
+  /// Freeze each closed date once, using the first-open goal for legacy days.
+  /// SQL aggregation stays in SQLite; no multi-year item scan on the UI isolate.
+  static Future<void> freezeCounting(
+    DatabaseExecutor db, {
+    String? today,
+    double? goal,
+    String? date,
+    bool goalKnown = false,
+  }) async {
+    if (goalKnown) _goalKnown = true;
+    // A headless read before profile hydration must not freeze unknown goals.
+    if (!_goalKnown && goal == null && autoCountKcalGoal == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    today ??= todayLabel();
+    final target = goal ?? autoCountKcalGoal;
+    await db.rawInsert(
+      '''INSERT OR IGNORE INTO food_day_count
+      (date, calorie_goal, basis, counted, frozen_at, updated_at)
+      SELECT e.date, ?, CASE WHEN m.mark IS NULL THEN 'automatic' ELSE 'marked_' || m.mark END,
+      CASE WHEN m.mark='incomplete' THEN 0
+           WHEN COUNT(e.kcal) != COUNT(*) THEN 0
+           WHEN m.mark='complete' THEN 1
+           WHEN e.date < ? AND ? > 0 AND SUM(e.kcal) >= ? * ? THEN 1 ELSE 0 END,
+      ?, ? FROM food_entry e LEFT JOIN food_day_mark m ON m.date=e.date
+      WHERE (e.date < ? OR m.mark IS NOT NULL) AND (? IS NULL OR e.date=?) GROUP BY e.date''',
+      [
+        target,
+        today,
+        target,
+        target,
+        kAutoCountGoalShare,
+        now,
+        now,
+        today,
+        date,
+        date,
+      ],
+    );
+  }
+
+  static Future<void> _refreshCount(DatabaseExecutor db, String date) async {
+    await freezeCounting(db, date: date);
+    final stored = await db.query(
+      'food_day_count',
+      where: 'date=?',
+      whereArgs: [date],
+    );
+    if (stored.isEmpty)
+      return; // Today's unmarked day still follows today's goal.
+    final r = stored.single;
+    final marks = await db.query(
+      'food_day_mark',
+      where: 'date=?',
+      whereArgs: [date],
+    );
+    final mark = marks.isEmpty ? null : marks.single['mark'] as String?;
+    final entries = await db.query(
+      'food_entry',
+      where: 'date=?',
+      whereArgs: [date],
+    );
+    final state = dayLogState(
+      date,
+      [for (final e in entries) FoodEntry.fromRow(e)],
+      today: todayLabel(),
+      mark: mark,
+      counting: FoodCountEvidence(
+        calorieGoal: (r['calorie_goal'] as num?)?.toDouble(),
+        basis: r['basis'] as String,
+        counted: r['counted'] == 1,
+        frozenAt: (r['frozen_at'] as num).toInt(),
+      ),
+    );
+    await db.update(
+      'food_day_count',
+      {
+        'basis': mark == null ? 'automatic' : 'marked_$mark',
+        'counted': state == DayLogState.complete ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'date=?',
+      whereArgs: [date],
+    );
+  }
 
   /// Write one entry. [FoodEntry.sanitised] runs HERE rather than in the UI:
   /// a photo estimate must not be able to reach the table with a calorie
@@ -788,18 +965,32 @@ class NutritionDb {
     FoodEntry e, {
     bool notify = true,
   }) async {
+    if (db is Database) {
+      await db.transaction((tx) => put(tx, e, notify: false));
+      if (notify) changed();
+      return;
+    }
     // A replace would drop the entry's dragged position; carry it over.
     final kept = await db.query(
       'food_entry',
-      columns: ['pos'],
+      columns: ['pos', 'date', 'created_at', 'logged_at'],
       where: 'id = ?',
       whereArgs: [e.id],
       limit: 1,
     );
+    final now = DateTime.now().millisecondsSinceEpoch;
     await db.insert('food_entry', {
-      ...e.sanitised.toRow(DateTime.now().millisecondsSinceEpoch),
+      ...e.sanitised.toRow(now),
+      'logged_at': kept.isEmpty
+          ? (e.loggedAt ?? now ~/ 1000)
+          : kept.first['logged_at'],
+      if (kept.isNotEmpty) 'created_at': kept.first['created_at'],
       if (kept.isNotEmpty) 'pos': kept.first['pos'],
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _refreshCount(db, e.date);
+    if (kept.isNotEmpty && kept.first['date'] != e.date) {
+      await _refreshCount(db, kept.first['date'] as String);
+    }
     if (notify) changed();
   }
 
@@ -843,16 +1034,25 @@ class NutritionDb {
   }
 
   static Future<void> delete(Database db, String id) async {
-    await db.delete('food_entry', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((tx) async {
+      final old = await tx.query(
+        'food_entry',
+        columns: ['date'],
+        where: 'id=?',
+        whereArgs: [id],
+      );
+      await tx.delete('food_entry', where: 'id = ?', whereArgs: [id]);
+      if (old.isNotEmpty) await _refreshCount(tx, old.single['date'] as String);
+    });
     changed();
   }
 
   static Future<List<FoodEntry>> entriesForDay(Database db, String date) async {
-    final rows = await db.query(
-      'food_entry',
-      where: 'date = ?',
-      whereArgs: [date],
-      orderBy: 'pos IS NULL, pos ASC, at_ts ASC, created_at ASC',
+    await freezeCounting(db);
+    final rows = await db.rawQuery(
+      'SELECT $_countColumns FROM $_countJoin '
+      'WHERE e.date = ? ORDER BY e.pos IS NULL, e.pos ASC, e.at_ts ASC, e.created_at ASC',
+      [date],
     );
     return [for (final r in rows) FoodEntry.fromRow(r)];
   }
@@ -863,11 +1063,11 @@ class NutritionDb {
     Database db,
     String sinceDate,
   ) async {
-    final rows = await db.query(
-      'food_entry',
-      where: 'date >= ?',
-      whereArgs: [sinceDate],
-      orderBy: 'date ASC, at_ts ASC',
+    await freezeCounting(db);
+    final rows = await db.rawQuery(
+      'SELECT $_countColumns FROM $_countJoin '
+      'WHERE e.date >= ? ORDER BY e.date ASC, e.at_ts ASC',
+      [sinceDate],
     );
     final out = <String, List<FoodEntry>>{};
     for (final r in rows) {
@@ -992,11 +1192,11 @@ class NutritionDb {
     final start = DateTime.parse('$month-01');
     final next = DateTime(start.year, start.month + 1);
     final today = dayLabelOf(now ?? DateTime.now());
-    final rows = await db.query(
-      'food_entry',
-      where: 'date >= ? AND date < ?',
-      whereArgs: [dayLabelOf(start), dayLabelOf(next)],
-      orderBy: 'date ASC, at_ts ASC',
+    await freezeCounting(db, today: today);
+    final rows = await db.rawQuery(
+      'SELECT $_countColumns FROM $_countJoin '
+      'WHERE e.date >= ? AND e.date < ? ORDER BY e.date ASC, e.at_ts ASC',
+      [dayLabelOf(start), dayLabelOf(next)],
     );
     final byDay = <String, List<FoodEntry>>{};
     for (final row in rows) {
@@ -1017,6 +1217,26 @@ class NutritionDb {
           mark: marks[dayLabelOf(d)],
         ),
     ]);
+  }
+
+  /// One explicit reviewed-day commit. Selecting a date or editing this draft
+  /// never calls this method. Every copied item gets a fresh id/logging time.
+  static Future<int> logDayCopy(
+    Database db, {
+    required String date,
+    required List<FoodEntry> reviewed,
+  }) async {
+    await db.transaction((tx) async {
+      for (final (i, e) in reviewed.indexed) {
+        await put(
+          tx,
+          e.copyTo(date, e.meal, newId: '${newId()}_$i'),
+          notify: false,
+        );
+      }
+    });
+    if (reviewed.isNotEmpty) changed();
+    return reviewed.length;
   }
 
   /// Copy every entry of [fromMeal] on [fromDate] into [toMeal] on [toDate]
@@ -1205,8 +1425,14 @@ class NutritionDb {
   static Future<void> setDayMark(
     DatabaseExecutor db,
     String date,
-    String? mark,
-  ) async {
+    String? mark, {
+    bool notify = true,
+  }) async {
+    if (db is Database) {
+      await db.transaction((tx) => setDayMark(tx, date, mark, notify: false));
+      if (notify) changed();
+      return;
+    }
     if (mark == null) {
       await db.delete('food_day_mark', where: 'date = ?', whereArgs: [date]);
     } else {
@@ -1219,7 +1445,8 @@ class NutritionDb {
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
-    changed();
+    await _refreshCount(db, date);
+    if (notify) changed();
   }
 }
 
@@ -1822,24 +2049,17 @@ class MyFoods {
 class BodyWeight {
   BodyWeight._();
 
-  /// Record today's (or [date]'s) weight; a second reading the same day
-  /// replaces the first.
-  static Future<void> put(Database db, String date, double kg) async {
-    if (!kg.isFinite || kg <= 0 || kg > 500) {
-      throw ArgumentError.value(kg, 'kg', 'Enter a valid weight');
-    }
-    await db.insert('body_weight', {
-      'date': date,
-      'kg': kg,
-      'at_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-    NutritionDb.changed();
-  }
+  /// Use Body's reading ledger and canonical daily weight, including its
+  /// first-reading rule. [historyOnly] is normally inferred by BodyLogDb.
+  static Future<void> put(
+    String date,
+    double value,
+    String unit, {
+    bool? historyOnly,
+  }) => BodyLogDb.putWeight(date, value, unit, historyOnly: historyOnly);
 
-  static Future<void> delete(Database db, String date) async {
-    await db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
-    NutritionDb.changed();
-  }
+  static Future<void> delete(Database db, String date) =>
+      BodyLogDb.deleteWeight(date);
 
   /// Every reading on or after [sinceDate], oldest first. [calculation]
   /// keeps only calculation inputs — the food/weight maintenance estimate
@@ -1891,8 +2111,7 @@ class BodyWeight {
 
 /// Food and weight estimate, withheld if ANY aligned food day is incomplete.
 /// The fixed tissue-energy conversion remains an approximation, not a measure.
-MeasuredMaintenance?
-estimatedMaintenance(
+MeasuredMaintenance? estimatedMaintenance(
   List<({String date, double kg})> weights,
   List<NutritionDay> days,
 ) {
@@ -1968,6 +2187,24 @@ extension MeasuredMaintenanceRange on MeasuredMaintenance {
 
   /// Narrow enough to print as a number with a range.
   bool get shown => halfRange <= kMaintenanceMaxHalfRange;
+
+  // `days` includes both reading dates; the elapsed calibration span is days-1.
+  bool get shortWindow => days - 1 < 42;
+
+  /// Display-only envelope: retain the trend interval and include the approved
+  /// 4,858–7,700 kcal/kg conversion range before six weeks. It is an implied
+  /// range, not a new statistical confidence interval or a calorie target.
+  ({double low, double high}) get displayRange {
+    if (!shortWindow) return (low: low, high: high);
+    final slope = kgPerWeek / 7;
+    final eaten = kcal + slope * kKcalPerKg;
+    final slopes = [(eaten - high) / kKcalPerKg, (eaten - low) / kKcalPerKg];
+    final implied = [
+      for (final s in slopes)
+        for (final conversion in [4858.0, kKcalPerKg]) eaten - s * conversion,
+    ];
+    return (low: implied.reduce(math.min), high: implied.reduce(math.max));
+  }
 }
 
 /// Maintenance MEASURED from the scale: average food eaten minus the energy

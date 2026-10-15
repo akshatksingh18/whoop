@@ -267,11 +267,13 @@ void main() {
       t,
       SleepData(
         day: '2026-05-20',
-        night: _night(),
+        night: _night(tst: 350),
         tstHistory: _flat(20, 440),
         unobservedMin: 106, // 486 in bed, 380 watched
       ),
     );
+    expect(find.text('At least'), findsOneWidget);
+    expect(find.textContaining('recording gap; sleep in that gap is unknown'), findsOneWidget);
     expect(find.text('WATCHED'), findsOneWidget);
     expect(find.text('6h 20m'), findsOneWidget);
     expect(find.textContaining('is not a measurement'), findsOneWidget);

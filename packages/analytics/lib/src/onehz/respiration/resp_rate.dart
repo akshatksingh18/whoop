@@ -34,6 +34,7 @@
 
 import 'dart:math' as math;
 import '../types.dart';
+import '../foundations/beat_quality.dart';
 import '../util.dart';
 import '../foundations/fusion.dart';
 
@@ -141,7 +142,8 @@ Metric<RespEstimate> rsaRespRate(
   double minConsensus = 0.5,
   double maxArtifact = 0.30,
   int minSegments = 3,
-  double minSegCoverage = 0.70,
+  double minSegCoverage = 0.90,
+  List<bool> gapBefore = const [],
 }) {
   const inputs = ['rr_cleaned', 'beat_times'];
   if (nnMs.length < 20 || nnTimesMs.length != nnMs.length) {
@@ -202,12 +204,14 @@ Metric<RespEstimate> rsaRespRate(
     final hi = _lowerBound(tSec, s + segSec);
     final k = hi - lo;
     // B88-03: a sub-window qualifies when its accepted beats COVER at least
-    // [minSegCoverage] of it (so at most 30% is dropout or removed artifact).
+    // [minSegCoverage] of it (at least 90%), with no clock re-anchor.
     // A dropout in the middle leaves a periodogram that is a window function,
     // not a spectrum.
     final segNn = nnMs.sublist(lo, hi);
     final coveredSec = k == 0 ? 0.0 : segNn.reduce((a, b) => a + b) / 1000.0;
-    if (k < 30 || coveredSec < minSegCoverage * segSec) {
+    if (k < 30 ||
+        !spectralSegmentQualified(tSec, nnMs, lo, hi, s, s + segSec,
+            gapBefore: gapBefore, minCoverage: minSegCoverage)) {
       thin++;
       continue;
     }

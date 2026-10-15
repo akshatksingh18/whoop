@@ -3,10 +3,13 @@
 // Progress pushes its screens directly, so Progress can change its pages
 // without breaking the links into it.
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../state/app_state.dart';
+import 'progress_screen.dart'
+    show BodyEntryScreen, ProgressData, progressDetailPage;
 
 /// Where in Progress a link lands.
 enum ProgressDest {
@@ -20,14 +23,36 @@ enum ProgressDest {
   entry,
 }
 
-/// The destination the next Progress build should open, consumed (reset to
-/// null) by Progress. Until Build 90's detail pages land, Progress opens its
-/// overview for every destination.
-final ValueNotifier<ProgressDest?> progressDestination =
-    ValueNotifier<ProgressDest?>(null);
-
-/// Switch to the Progress tab at [dest].
-void openProgress(BuildContext c, [ProgressDest dest = ProgressDest.overview]) {
-  progressDestination.value = dest;
-  c.read<AppState>().navRequest.value = 5;
+/// Open Progress at [dest].
+///
+/// The overview switches to the Progress tab. Every other destination opens
+/// its page over the screen that asked, so Back returns there with its day,
+/// range, filter and scroll intact. [initial] lets Progress hand over what it
+/// has already read, so the page draws at once.
+Future<void> openProgress(
+  BuildContext c, [
+  ProgressDest dest = ProgressDest.overview,
+  ProgressData? initial,
+]) async {
+  if (dest == ProgressDest.overview) {
+    c.read<AppState>().navRequest.value = 5;
+    return;
+  }
+  if (dest == ProgressDest.entry) {
+    var unit = 'kg';
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (p.getString('body.unit') == 'lb') unit = 'lb';
+    } catch (_) {}
+    if (!c.mounted) return;
+    await Navigator.of(c).push(
+      MaterialPageRoute<bool>(builder: (_) => BodyEntryScreen(unit: unit)),
+    );
+    return;
+  }
+  await Navigator.of(c).push(
+    MaterialPageRoute<void>(
+      builder: (_) => progressDetailPage(dest, initial: initial),
+    ),
+  );
 }

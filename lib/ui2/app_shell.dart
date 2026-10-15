@@ -160,7 +160,7 @@ class _TabBar extends StatelessWidget {
               style: F.over.copyWith(fontWeight: FontWeight.w600),
             ),
             textDirection: Directionality.of(c),
-            textScaler: MediaQuery.textScalerOf(c),
+            textScaler: MediaQuery.textScalerOf(c).clamp(maxScaleFactor: 1),
           )..layout(
             maxWidth: MediaQuery.sizeOf(c).width / ShellDomain.values.length,
           );
@@ -236,12 +236,23 @@ class _Tab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 3),
-            Text(
-              domain.label,
-              textAlign: TextAlign.center,
-              style: F.over.copyWith(
-                color: ink,
-                fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+            // B90-08: iOS tab bar labels keep their size at every text size
+            // (the system offers the large-content view instead), so a label
+            // never breaks inside a word ("Toda y"). VoiceOver reads the full
+            // label and the selected state above.
+            MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  domain.label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: F.over.copyWith(
+                    color: ink,
+                    fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
               ),
             ),
           ],

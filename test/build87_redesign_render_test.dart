@@ -45,6 +45,7 @@ import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
+import 'package:openstrap_edge/ui2/screens/progress_routes.dart';
 import 'package:openstrap_edge/ui2/screens/progress_screen.dart';
 import 'package:openstrap_edge/ui2/screens/health_screen.dart';
 import 'package:openstrap_edge/data/body_log.dart';
@@ -1346,12 +1347,18 @@ void main() {
           BodyMeasure(date: today, recordedAt: now, inches: {'waistNavel': 34}),
           BodyMeasure(date: label(-21), recordedAt: now, inches: {'neck': 15}),
         ]);
+      // Build 90: the weekly block lives on the Body page, which Weight opens.
       await t.pumpWidget(
-        _app(app, ProgressScreen(data: d), 1, ShellDomain.progress),
+        _app(
+          app,
+          progressDetailPage(ProgressDest.weight, initial: d),
+          1,
+          ShellDomain.progress,
+          shell: false,
+        ),
       );
       await _settle(t);
       final block = find.textContaining('This week (from');
-      // Build 88: the review leads Progress, so scroll to the weight block.
       await t.scrollUntilVisible(
         block,
         200,
@@ -1466,6 +1473,23 @@ void main() {
             'progress_empty',
             ShellDomain.progress,
             () => ProgressScreen(data: _progress(empty: true)),
+          ),
+          // Build 90: the detail pages the overview's rows open.
+          (
+            'progress_body',
+            ShellDomain.progress,
+            () => progressDetailPage(ProgressDest.weight, initial: _progress()),
+          ),
+          (
+            'progress_strength',
+            ShellDomain.progress,
+            () =>
+                progressDetailPage(ProgressDest.strength, initial: _progress()),
+          ),
+          (
+            'progress_context',
+            ShellDomain.progress,
+            () => progressDetailPage(ProgressDest.food, initial: _progress()),
           ),
         ]) {
       testWidgets('$name renders whole at $tag text without overflow', (

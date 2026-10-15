@@ -630,9 +630,39 @@ class _Gated extends PageTransitionsBuilder {
     Animation<double> secondary,
     Widget child,
   ) {
-    if (!Motion.enabled(c)) return child;
+    if (!Motion.enabled(c)) {
+      // B90-03: keep the platform builder, because on iOS it also supplies
+      // the edge back gesture, and returning the bare child removed it. Its
+      // animations snap instead, so a push or pop no longer slides; a swipe
+      // back the user is driving still follows the finger.
+      Animation<double> calm(Animation<double> a) =>
+          route.popGestureInProgress ? a : _Snapped(a);
+      return inner.buildTransitions(
+        route,
+        c,
+        calm(animation),
+        calm(secondary),
+        child,
+      );
+    }
     return inner.buildTransitions(route, c, animation, secondary, child);
   }
+}
+
+/// [parent] at its destination: 1 while showing or arriving, 0 while gone or
+/// leaving, with no frames in between.
+class _Snapped extends Animation<double>
+    with AnimationWithParentMixin<double> {
+  _Snapped(this.parent);
+
+  @override
+  final Animation<double> parent;
+
+  @override
+  double get value => switch (parent.status) {
+    AnimationStatus.forward || AnimationStatus.completed => 1.0,
+    AnimationStatus.reverse || AnimationStatus.dismissed => 0.0,
+  };
 }
 
 TextTheme _readable(TextTheme t, Color ink) {

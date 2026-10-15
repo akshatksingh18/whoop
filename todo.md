@@ -174,7 +174,28 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 
 ### Lane notes
 
-- Claude:
+- Claude: implemented on `build-90-claude` (each with synthetic tests; lane CI passed; merged
+  into `build-90` with the Codex lane; not yet phone-checked):
+  - Progress overview (`goal_review.dart`: one fixed closed-week verdict with its dates and
+    exact missing evidence; Weight/Waist/Strength rows and the inputs line from the same
+    weeks), Body / Strength / Food-training-recovery detail pages with History range,
+    before → now and milestones (`progress_milestones.dart`); `openProgress` opens a detail
+    page over the asking screen so Back returns there.
+  - B90-01 body entry validates every field before writing and reports partial saves; quick
+    weigh-in layout; C3 every weigh-in kept in `body_weight_reading`, the day's weight is its
+    first reading (add or correct; readings listed and deletable). B90-04 goal save recovery.
+  - B90-03 Reduce Motion keeps iOS edge-back; B90-08 large text for the shell (tab labels keep
+    size), titles (Apple Large Title scaling), Progress, Train tiles and section actions;
+    VoiceOver selected states; MetricLine values before sparklines with tap chevrons.
+  - Home workout (Lift asks Gym or Home; Home split; blank Added weight = bodyweight;
+    variation chips; variation-aware last time); finished-set fix/delete (D5).
+  - Train order (start, suggestions, recent, week, pushups); B90-02 `publishSessionChange` on
+    workout log/edit/delete; Today plan card before the HR chart, freshness line opens
+    Status; Trends real dates and pinned favourites (D5); resting HR labelled "asleep".
+  - G6 strength estimate cap 10 reps; G5 Navy ± 3.5%.
+  - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
+    `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
+    while asleep.
 - Codex: Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
   restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.

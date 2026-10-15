@@ -712,16 +712,20 @@ class Section extends StatelessWidget {
               if (action != null)
                 Flexible(
                   child: Pressable(
+                    semanticLabel: action,
                     onTap: onAction,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: S.x2),
+                      // B90-08: wraps to a second line at large text instead
+                      // of cutting the action to "Add a past …".
                       child: Text(
                         action!,
                         style: F.cap.copyWith(
                           color: p.on(C.blue),
                           fontWeight: FontWeight.w600,
                         ),
-                        maxLines: 1,
+                        textAlign: TextAlign.end,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -2257,23 +2261,30 @@ class SubTabs extends StatelessWidget {
           separatorBuilder: (_, _) => const SizedBox(width: S.x2),
           itemBuilder: (_, i) {
             final on = i == index;
-            return Pressable(
-              onTap: () => onTap(i),
-              child: AnimatedContainer(
-                duration: motion(c, Motion.base),
-                constraints: const BoxConstraints(minWidth: S.tap),
-                padding: const EdgeInsets.symmetric(horizontal: S.x4),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: on ? p.card : const Color(0x00000000),
-                  borderRadius: R.rMd,
-                  boxShadow: on ? p.el(1) : const [],
-                ),
-                child: Text(
-                  items[i],
-                  style: F.cap.copyWith(
-                    color: on ? p.ink : p.ink2,
-                    fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+            // Build 90: VoiceOver hears which option is chosen ("3 months,
+            // selected"), not only the option names.
+            return Semantics(
+              selected: on,
+              inMutuallyExclusiveGroup: true,
+              child: Pressable(
+                semanticLabel: items[i],
+                onTap: () => onTap(i),
+                child: AnimatedContainer(
+                  duration: motion(c, Motion.base),
+                  constraints: const BoxConstraints(minWidth: S.tap),
+                  padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: on ? p.card : const Color(0x00000000),
+                    borderRadius: R.rMd,
+                    boxShadow: on ? p.el(1) : const [],
+                  ),
+                  child: Text(
+                    items[i],
+                    style: F.cap.copyWith(
+                      color: on ? p.ink : p.ink2,
+                      fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                    ),
                   ),
                 ),
               ),
@@ -2343,11 +2354,21 @@ class ScreenTitle extends StatelessWidget {
                   )
                 else if (kicker != null)
                   Text(kicker!, style: F.body.copyWith(color: p.onGround)),
-                Text(
-                  title,
-                  style: F.display.copyWith(color: p.ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                // B90-08: Apple's Large Title grows from 34 to 60 pt at the
+                // largest accessibility size (x1.76), not with body text's
+                // x3.1; past that one word cannot wrap, so it fits rather
+                // than truncating to "Prog…".
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 60 / 34,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      title,
+                      style: F.display.copyWith(color: p.ink),
+                      maxLines: 1,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -2391,7 +2412,12 @@ class GoalBar extends StatelessWidget {
 }
 
 class _GoalBarPainter extends CustomPainter {
-  _GoalBarPainter(this.f, {required this.track, required this.fill, required this.over});
+  _GoalBarPainter(
+    this.f, {
+    required this.track,
+    required this.fill,
+    required this.over,
+  });
   final double f;
   final Color track, fill, over;
 
@@ -2404,7 +2430,10 @@ class _GoalBarPainter extends CustomPainter {
     c.save();
     c.clipRRect(whole);
     if (f <= 1) {
-      c.drawRect(Rect.fromLTWH(0, 0, s.width * f, s.height), Paint()..color = fill);
+      c.drawRect(
+        Rect.fromLTWH(0, 0, s.width * f, s.height),
+        Paint()..color = fill,
+      );
     } else {
       // The goal is 1/f of the bar; a small gap separates the excess.
       final goalW = s.width / f;
@@ -3611,12 +3640,7 @@ class DayTiles extends StatelessWidget {
           size: Size.infinite,
           // Graphics, not text: the pure family colour (DESIGN.md), which
           // clears the 3:1 non-text floor on the paper it sits on.
-          painter: RangeChart(
-            values,
-            color,
-            hatch: C.hatch,
-            style: style,
-          ),
+          painter: RangeChart(values, color, hatch: C.hatch, style: style),
         ),
       ),
     );
@@ -3694,10 +3718,7 @@ class MetricLine extends StatelessWidget {
               color: p.fill(C.alert),
               borderRadius: R.rSm,
             ),
-            child: Text(
-              'NEW',
-              style: F.over.copyWith(color: p.inkOnFill),
-            ),
+            child: Text('NEW', style: F.over.copyWith(color: p.inkOnFill)),
           ),
         ],
       ],
@@ -3750,15 +3771,39 @@ class MetricLine extends StatelessWidget {
               const SizedBox(height: S.x2),
               chart,
               const SizedBox(height: S.x2),
-              Align(alignment: Alignment.centerRight, child: valueCol),
+              Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: valueCol,
+                    ),
+                  ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: S.x1),
+                    Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                  ],
+                ],
+              ),
             ] else
+              // Build 90: the value comes first. It takes the larger share
+              // of the space and the small chart gives way, so a number is
+              // never shrunk to make room for a sparkline; a row that opens
+              // something shows the chevron every tappable row shows.
               Row(
                 children: [
                   SizedBox(width: 92, child: labelCol),
                   const SizedBox(width: S.x2),
-                  SizedBox(width: 112, child: chart),
+                  Flexible(
+                    flex: 2,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 112),
+                      child: chart,
+                    ),
+                  ),
                   const SizedBox(width: S.x3),
                   Expanded(
+                    flex: 3,
                     child: Align(
                       alignment: Alignment.centerRight,
                       child: FittedBox(
@@ -3768,6 +3813,10 @@ class MetricLine extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: S.x1),
+                    Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                  ],
                 ],
               ),
             if (absent && absentWhy != null && absentWhy != note) ...[
@@ -3865,13 +3914,18 @@ class HeroStat extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel:
-          semanticLabel ?? [label, value ?? 'not measured', ...lines].join(', '),
+          semanticLabel ??
+          [label, value ?? 'not measured', ...lines].join(', '),
       child: Padding(
         padding: const EdgeInsets.only(bottom: S.x3),
         child: big
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [number, const SizedBox(height: S.x2), side],
+                children: [
+                  number,
+                  const SizedBox(height: S.x2),
+                  side,
+                ],
               )
             // The number may take up to 60% of a narrow row and scales down
             // to fit it; the labels take the rest.

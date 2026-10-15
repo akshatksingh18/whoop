@@ -137,8 +137,13 @@ Only the owner edits a file; the other lane asks through its notes block below.
   movement estimate and speed uncertainty, session writes publish once from the repository.
   The first merged analysis found five test-file nullability errors from the optical change
   and three unused imports; fixed.
-- [ ] 2b. Full GitHub tests on the merged branch; screenshot review of every changed screen
-  with Akshat (including the 2x/3.1x tab bar over Food).
+- [x] 2b. Full GitHub tests on the merged branch: Linux CI `38734578809` passes 3,853 tests
+  (437 intentional skips; 165 informational lints, no errors or warnings). Eleven older tests
+  were updated to Build 90's contracts (null for unconfirmed sensors, platform-qualified live
+  speed, the new Food card and energy labels, the shared session signal) and
+  `EnergyComparison` joined the ui2 barrel.
+- [ ] 2c. Screenshot review of every changed screen with Akshat (synthetic captures; the
+  tab bar keeps its labels whole at 2x/3.1x over Food).
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90

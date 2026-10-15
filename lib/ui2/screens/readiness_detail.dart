@@ -6,10 +6,12 @@
 // if it decomposed the first would be a small lie that is very hard to catch.
 
 import 'dart:convert' show jsonDecode;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../compute/readiness_explain.dart';
 import '../../data/db.dart';
 import '../../data/day_label.dart' show dayLabelAtSec, DayClock;
 import '../../data/local_repository.dart';
@@ -18,6 +20,7 @@ import '../../models/metric.dart';
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
+import '../recent_hrv_card.dart';
 
 /// Why [day]'s nightly HRV is missing, in plain words ([hrvWhy]), or null when
 /// it was measured, the day has no record, or the stored note gives no reason.
@@ -69,8 +72,12 @@ class ReadinessData {
   /// measured or the stored note gives no reason.
   final String? hrvNote;
 
+  /// Last night's HRV against the score's own comparison (Build 90), or null.
+  final RecentHrvView? hrv;
+
   const ReadinessData({
     this.readiness = Metric.empty,
+    this.hrv,
     this.breakdown = const [],
     this.inputsUsed = 0,
     this.heldOverNight,
@@ -131,9 +138,9 @@ class ReadinessData {
         if (d is Map && keyOf[d['label']] != null) keyOf[d['label']]!: d,
     };
     const nominal = {'hrv': 0.35, 'rhr': 0.25, 'sleep': 0.20, 'resp': 0.12};
-    return [
+    final rows = [
       for (final e in nominal.entries)
-        {
+        <String, dynamic>{
           'label': e.key,
           'weight': e.value,
           'used': byLabel.containsKey(e.key),
@@ -141,7 +148,75 @@ class ReadinessData {
           'past_mdc': false,
         },
     ];
+    // Build 90 (Akshat's option A): the points each input moved the score from
+    // a typical night, and last night's value against the same usual range the
+    // score compared it with. Missing pieces leave the older plain row.
+    final scored = [
+      for (final r in rows)
+        if (r['used'] == true && r['weighted_contribution'] is num) r,
+    ];
+    final pts = recoveryPoints([
+      for (final r in scored) (r['weighted_contribution'] as num).toDouble(),
+    ]);
+    for (var i = 0; i < scored.length; i++) {
+      scored[i]['points'] = pts[i];
+    }
+    for (final r in rows) {
+      final key = r['label'] as String;
+      final series = await _series(_seriesKey[key]!);
+      final today = series.where((s) => s.date == day).toList();
+      if (today.isEmpty) continue;
+      final v = today.last.value;
+      final scale = recoveryScale(recoveryBaseline(series, day));
+      if (scale == null) continue;
+      final usual = usualRange(scale);
+      r['value_text'] = _valueText(key, v);
+      r['usual_text'] =
+          'usual ${_rangeText(key, usual.lo, usual.hi)}';
+      r['word'] = usualWord((v - scale.centre) / scale.spread);
+    }
+    return rows;
   }
+
+  static const _seriesKey = {
+    'hrv': 'ln_rmssd_v2',
+    'rhr': 'rhr',
+    'sleep': 'tst_min',
+    'resp': 'resp_rate',
+  };
+
+  static Future<List<DatedValue>> _series(String key) async => [
+    for (final r in await LocalDb.metricSeries(key, measuredOnly: true))
+      if (r['date'] is String && r['value'] is num)
+        (date: r['date'] as String, value: (r['value'] as num).toDouble()),
+  ];
+
+  static String _hm(double minutes) {
+    final m = minutes.round();
+    return '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
+  }
+
+  static String _num(String key, double v) => switch (key) {
+    'hrv' => math.exp(v).round().toString(),
+    'rhr' => v.round().toString(),
+    'resp' => v.toStringAsFixed(1),
+    _ => _hm(v),
+  };
+
+  static String _valueText(String key, double v) =>
+      '${_num(key, v)}${switch (key) {
+        'hrv' => ' ms',
+        'rhr' => ' bpm',
+        'resp' => ' /min',
+        _ => '',
+      }}';
+
+  static String _rangeText(String key, double lo, double hi) =>
+      '${_num(key, lo)}–${_num(key, hi)}';
+
+  /// The recent-HRV card for [day], on the score's own series and window.
+  static Future<RecentHrvView?> _recentHrv(String? day) async =>
+      day == null ? null : loadRecentHrv(day);
 
   static Future<ReadinessData> load(LocalRepository repo, {String? day}) async {
     final today = await repo.getToday();
@@ -162,9 +237,9 @@ class ReadinessData {
 
     final daily = today['daily'];
     final status = today['status'] as Map?;
-    final bd = await _compositeBreakdown(
-      (status?['overnight_day'] ?? status?['today_day'])?.toString(),
-    );
+    final night = (status?['overnight_day'] ?? status?['today_day'])
+        ?.toString();
+    final bd = await _compositeBreakdown(night);
 
     final readiness = overnightMetric(
       today,
@@ -173,6 +248,7 @@ class ReadinessData {
 
     return ReadinessData(
       readiness: readiness,
+      hrv: await _recentHrv(night),
       // The composite's OWN contributions (B88-11), not the glass box.
       breakdown: bd,
       inputsUsed: bd.where((r) => r['used'] == true).length,
@@ -430,15 +506,28 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                     _advice(band.tier),
                     style: F.body.copyWith(color: p.ink2),
                   ),
+                  if (_lead(c, d) case final lead?) ...[
+                    const SizedBox(height: S.x2),
+                    Text(lead, style: F.body.copyWith(color: p.ink)),
+                  ],
                   if (d.breakdown.isNotEmpty) ...[
                     const SizedBox(height: S.x3),
                     Divider(color: p.line, height: 1),
                     const SizedBox(height: S.x3),
                     Text(
-                      'WHAT DROVE IT',
+                      _hasPoints(d) ? 'WHAT MOVED IT' : 'WHAT DROVE IT',
                       style: F.label.copyWith(color: p.ink2),
                     ),
                     _breakdown(c, p, d),
+                    if (_hasPoints(d))
+                      Padding(
+                        padding: const EdgeInsets.only(top: S.x1),
+                        child: Text(
+                          'Points each input moved the score from a typical '
+                          'night (50). A bar to the left lowers it.',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ),
                     if (d.breathingNote != null)
                       Text(
                         'Breathing rate not counted last night: ${d.breathingNote}.',
@@ -449,6 +538,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
               ),
             ),
 
+          if (v != null && d.hrv != null) ...[
+            const SizedBox(height: S.x3),
+            RecentHrvCard(d.hrv!, sharedWith: 'the HRV page'),
+          ],
           if (d.breakdown.isNotEmpty) ...[
             // A scored day shows its drivers in the hero panel above; an
             // unscored day still lists them here.
@@ -484,7 +577,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                   '35% of the weight, resting heart rate 25%, last night\'s sleep '
                   '20% and breathing rate 12%. Resting HR is the lowest 30-minute '
                   'average while asleep. Skin temperature is left out on '
-                  'this band (its sensor reading is not a temperature).',
+                  'this band (its sensor reading is not a temperature). '
+                  '"Usual" is within one typical night-to-night swing of your '
+                  'last 28 measured nights. Points walk from a typical night '
+                  '(50) to the score, biggest input first, so they add up to it.',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
               ),
@@ -670,6 +766,37 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     );
   }
 
+  static bool _hasPoints(ReadinessData d) =>
+      d.breakdown.any((r) => r['points'] is int);
+
+  /// "Mostly HRV." plus what it did, from the biggest movers (3+ points).
+  String? _lead(BuildContext c, ReadinessData d) {
+    final l = AppLocalizations.of(c);
+    final movers = [
+      for (final r in d.breakdown)
+        if (r['points'] is int && (r['points'] as int).abs() >= 3) r,
+    ]..sort((a, b) =>
+        (b['points'] as int).abs().compareTo((a['points'] as int).abs()));
+    if (!_hasPoints(d)) return null;
+    if (movers.isEmpty) return 'Every input was close to your usual.';
+    String name(Map r) {
+      final k = r['label'];
+      return k == 'rhr' ? 'Resting HR' : driverLabel(k, l);
+    }
+
+    final top = movers.first;
+    final word = (top['word'] as String?)?.toLowerCase();
+    final head = movers.length == 1
+        ? 'Mostly ${name(top)}.'
+        : 'Mostly ${name(top)}, then ${name(movers[1]).toLowerCase()}.';
+    final what = word == null
+        ? ''
+        : ' Last night\'s ${name(top) == 'HRV' ? 'HRV' : name(top).toLowerCase()} '
+              'was ${word.replaceFirst(' usual', ' your usual')}';
+    final rest = movers.length == 1 ? '; everything else was close to usual.' : '.';
+    return word == null ? head : '$head$what$rest';
+  }
+
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {
     final rows = d.breakdown;
     // THE WEIGHT THAT WAS USED, not the catalog weight. The score is
@@ -696,6 +823,153 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
   }
 
   Widget _row(BuildContext c, P p, Map<String, dynamic> r, double wsum) {
+    if (r['points'] is int || r['used'] != true) return _rowA(c, p, r);
+    return _rowOld(c, p, r, wsum);
+  }
+
+  /// Build 90 (option A): label and points; value against the usual range and
+  /// a plain word; a bar centred on "no effect". A missing input says so.
+  Widget _rowA(BuildContext c, P p, Map<String, dynamic> r) {
+    final l = AppLocalizations.of(c);
+    final key = r['label']?.toString() ?? '';
+    final name = key == 'rhr' ? 'Resting HR · asleep' : driverLabel(key, l);
+    final used = r['used'] == true;
+    final pts = r['points'] as int?;
+    final scale = math.max(
+      20,
+      _d?.breakdown.fold<int>(
+            0,
+            (m, x) => math.max(m, ((x['points'] as int?) ?? 0).abs()),
+          ) ??
+          20,
+    );
+    final lowers = pts != null && pts <= -3;
+    final tone = lowers ? p.on(C.alert) : p.ink;
+    final value = [
+      ?r['value_text'] as String?,
+      ?r['usual_text'] as String?,
+    ].join(' · ');
+    final word = !used
+        ? 'Unavailable, not counted'
+        : (r['word'] as String?) ?? '';
+    final metric = switch (key) {
+      'hrv' => 'hrv',
+      'rhr' => 'resting_hr',
+      'resp' => 'resp_rate',
+      'sleep' => 'sleep',
+      _ => null,
+    };
+    final signed = pts == null ? '' : (pts > 0 ? '+$pts' : pts < 0 ? '−${-pts}' : '0');
+    return Pressable(
+      onTap: metric == null
+          ? null
+          : () => go(c, MetricDetail.at(metric, widget.day)),
+      semanticLabel: [
+        name,
+        if (value.isNotEmpty) value,
+        if (word.isNotEmpty) word,
+        if (pts != null) '$signed points',
+      ].join(', '),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (pts != null)
+                  Text(
+                    signed,
+                    style: F.body.copyWith(
+                      color: tone,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+            if (value.isNotEmpty || word.isNotEmpty)
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                spacing: S.x2,
+                children: [
+                  if (value.isNotEmpty)
+                    Text(value, style: F.cap.copyWith(color: p.ink2)),
+                  if (word.isNotEmpty)
+                    Text(
+                      word,
+                      style: F.cap.copyWith(
+                        color: lowers ? p.on(C.alert) : p.ink2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                ],
+              ),
+            if (!used && key == 'hrv' && _d?.hrvNote != null)
+              Text(_d!.hrvNote!, style: F.cap.copyWith(color: p.ink2)),
+            if (pts != null) ...[
+              const SizedBox(height: S.x2),
+              ExcludeSemantics(
+                child: SizedBox(
+                  height: 8,
+                  child: LayoutBuilder(
+                    builder: (c, box) {
+                      final half = box.maxWidth / 2;
+                      final len = half * (pts.abs() / scale).clamp(0.0, 1.0);
+                      return Stack(
+                        children: [
+                          Positioned.fill(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: p.track,
+                                borderRadius: R.rPill,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: pts < 0 ? half - len : half,
+                            width: len,
+                            top: 0,
+                            bottom: 0,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: lowers
+                                    ? p.on(C.alert)
+                                    : p.on(C.recovery),
+                                borderRadius: R.rPill,
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: half,
+                            width: 1,
+                            top: 0,
+                            bottom: 0,
+                            child: ColoredBox(color: p.ink3),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rowOld(BuildContext c, P p, Map<String, dynamic> r, double wsum) {
     final l = AppLocalizations.of(c);
     final key = r['label']?.toString() ?? '';
     final raw = (r['weight'] as num?)?.toDouble();

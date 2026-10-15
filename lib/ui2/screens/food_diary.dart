@@ -26,6 +26,7 @@ import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'food_picker.dart';
 import 'food_group_picker.dart';
+import 'food_left.dart';
 import 'home_screen.dart' show prettyDay, thousands;
 import 'journal_compose.dart' show OsTextField;
 import 'log_food.dart' show offCredit;
@@ -327,6 +328,8 @@ Future<bool> editDiaryEntry(
         {...def, 'unit': e.unit, 'measures_json': ''},
         initial: e.quantity,
         action: 'Save',
+        date: e.date,
+        excludeId: e.id,
       );
       if (portion == null) return false;
       await NutritionDb.put(db, e.atQuantity(portion.amount));
@@ -337,6 +340,8 @@ Future<bool> editDiaryEntry(
         initial: e.quantity,
         initialUnit: e.unit,
         action: 'Save',
+        date: e.date,
+        excludeId: e.id,
       );
       if (portion == null) return false;
       await NutritionDb.put(
@@ -1901,12 +1906,33 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
 
   static String _trim(double v) => editableNumber(v);
 
+  /// The day's logged food (Build 90 "After this, today"); null until read.
+  NutritionDay? _day;
+
   @override
   void initState() {
     super.initState();
     _g.addListener(() => setState(() {}));
     _unit.addListener(() => setState(() {}));
     _loadWith();
+    loadDayIntake(widget.date).then((d) {
+      if (mounted) setState(() => _day = d);
+    });
+  }
+
+  /// Ticked companions, at the amount `_log` writes for them.
+  Nutrients? _companions() {
+    Nutrients? sum;
+    for (final w in _with) {
+      if (!_picked.contains(w['key'])) continue;
+      final g =
+          (w['usual_g'] as num?)?.toDouble() ??
+          (w['serving_g'] as num?)?.toDouble() ??
+          100;
+      final n = nutrientsFor(w, g);
+      sum = sum == null ? n : addNutrients(sum, n);
+    }
+    return sum;
   }
 
   @override
@@ -2019,21 +2045,81 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
     final grams = Typed.of(_g.text).value;
     final base = grams == null ? null : toBase(_def, grams, _unit.value);
     final n = base == null ? null : nutrientsFor(_def, base);
-    String pct(double? v, double? g) =>
-        v == null || g == null || g <= 0 ? '' : '${(v / g * 100).round()}%';
-    final macros = <(String, double?, double?, Color)>[
-      ('Calories', n?.kcal, goal('kcal_target'), C.domFood),
-      ('Protein', n?.protein, goal('protein_target'), C.red),
-      ('Carbs', n?.carbs, goal('carbs_target'), C.blue),
-      ('Fat', n?.fat, goal('fat_target'), C.yellow),
-      ('Fibre', n?.fibre, goal('fibre_target'), C.green),
+    // Build 90: this food plus any ticked companions — the whole plate the
+    // Log button writes — against what is left of the day's goals.
+    final extra = _companions();
+    double? plate(double? Function(Nutrients) pick) {
+      final own = n == null ? null : pick(n);
+      final more = extra == null ? 0.0 : (pick(extra) ?? 0.0);
+      return own == null ? null : own + more;
+    }
+
+    final day = _day;
+    String leftText(String name, double? v, double? g, NutrientTotal? eaten) {
+      final l = leftAfter(g, eaten, v);
+      if (l == null) return '';
+      final amount = name == 'Calories'
+          ? '${l.value.abs().round()}'
+          : '${l.value.abs().round()} g';
+      return l.value < 0
+          ? 'over $amount'
+          : '${l.atMost ? '≤ ' : ''}$amount left';
+    }
+
+    final macros = <(String, double?, double?, NutrientTotal?)>[
+      ('Calories', n?.kcal, goal('kcal_target'), day?.kcal),
+      ('Protein', n?.protein, goal('protein_target'), day?.protein),
+      ('Carbs', n?.carbs, goal('carbs_target'), day?.carbs),
+      ('Fat', n?.fat, goal('fat_target'), day?.fat),
+      ('Fibre', n?.fibre, goal('fibre_target'), day?.fibre),
     ];
+    final plateOf = <String, double? Function(Nutrients)>{
+      'Calories': (x) => x.kcal,
+      'Protein': (x) => x.protein,
+      'Carbs': (x) => x.carbs,
+      'Fat': (x) => x.fat,
+      'Fibre': (x) => x.fibre,
+    };
     return _body(c, [
       _sheetTitle(c, '${_def['label']}'),
       const SizedBox(height: S.x4),
       // One amount control everywhere: − / +, and chips labelled once
       // (eggs: 1 · 2 · 3 · 4; a weighed food: its measures and grams).
-      AmountInput(controller: _g, def: _def, unit: _unit),
+      AmountInput(
+        controller: _g,
+        def: _def,
+        unit: _unit,
+        // Build 90 (option B): one tap to the amount that uses up the
+        // calories left, after any ticked companions.
+        extraChip: day == null
+            ? null
+            : (u) {
+                final one = toBase(_def, 1, u);
+                final fit = fitAmount(
+                  goal: goal('kcal_target'),
+                  eaten: day.kcal,
+                  kcalPerUnit: one == null ? null : nutrientsFor(_def, one).kcal,
+                  unit: u,
+                  otherKcal: extra?.kcal ?? 0,
+                );
+                return fit == null
+                    ? null
+                    : FitChip(
+                        label: portionText(fit, u),
+                        onTap: () => _g.text = _trim(fit),
+                      );
+              },
+      ),
+      if (day != null && goal('kcal_target') != null) ...[
+        const SizedBox(height: S.x3),
+        LeftAfterCard(
+          day: day,
+          kcalGoal: goal('kcal_target'),
+          proteinGoal: goal('protein_target'),
+          thisKcal: plate((x) => x.kcal),
+          thisProtein: plate((x) => x.protein),
+        ),
+      ],
       const SizedBox(height: S.x2),
       MealGroupPicker(
         date: widget.date,
@@ -2075,8 +2161,27 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
         color: p.card2,
         child: Column(
           children: [
-            // Name left, amount and % of goal right, every row aligned.
-            for (final (name, v, g, col) in macros)
+            // Name left, this food's amount, then what is left of the goal
+            // after this log (Build 90; was "% of your daily goal").
+            if (day != null && macros.any((m) => m.$3 != null))
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x1),
+                child: Row(
+                  children: [
+                    const Spacer(),
+                    Text('THIS', style: F.over.copyWith(color: p.ink2)),
+                    SizedBox(
+                      width: 96,
+                      child: Text(
+                        'LEFT AFTER',
+                        textAlign: TextAlign.right,
+                        style: F.over.copyWith(color: p.ink2),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            for (final (name, v, g, eaten) in macros)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: S.x1),
                 child: Row(
@@ -2096,21 +2201,31 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
                       ),
                     ),
                     SizedBox(
-                      width: 48,
+                      width: 96,
                       child: Text(
-                        pct(v, g),
+                        leftText(name, plate(plateOf[name]!), g, eaten),
                         textAlign: TextAlign.right,
-                        style: F.cap.copyWith(color: p.on(col)),
+                        style: F.cap.copyWith(
+                          color:
+                              leftText(
+                                name,
+                                plate(plateOf[name]!),
+                                g,
+                                eaten,
+                              ).startsWith('over')
+                              ? p.on(C.alert)
+                              : p.ink2,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-            if (macros.any((m) => m.$3 != null))
+            if (day != null && macros.any((m) => m.$3 != null))
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  '% of your daily goal',
+                  'left of today\'s goal after this log',
                   style: F.over.copyWith(color: p.ink3),
                 ),
               ),

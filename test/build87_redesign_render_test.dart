@@ -1491,9 +1491,28 @@ void main() {
             'recovery',
             ShellDomain.home,
             () => ReadinessDetail(
-              data: const ReadinessData(
-                readiness: Metric(value: 68),
-                series: [60, 65, null, 68],
+              // Build 90 option A: points, value vs usual, a missing input
+              // and the recent-HRV card (synthetic).
+              data: ReadinessData(
+                readiness: const Metric(value: 31),
+                inputsUsed: 4,
+                breakdown: const [
+                  {'label': 'hrv', 'weight': .35, 'used': true, 'weighted_contribution': -0.70, 'points': -17, 'value_text': '41 ms', 'usual_text': 'usual 52–60', 'word': 'Well below usual'},
+                  {'label': 'rhr', 'weight': .25, 'used': true, 'weighted_contribution': -0.05, 'points': -1, 'value_text': '54 bpm', 'usual_text': 'usual 52–55', 'word': 'About usual'},
+                  {'label': 'sleep', 'weight': .20, 'used': true, 'weighted_contribution': 0.02, 'points': 1, 'value_text': '7h 20m', 'usual_text': 'usual 6h 50m–7h 40m', 'word': 'About usual'},
+                  {'label': 'resp', 'weight': .12, 'used': true, 'weighted_contribution': -0.07, 'points': -2, 'value_text': '15.6 /min', 'usual_text': 'usual 14.9–15.5', 'word': 'Above usual'},
+                ],
+                hrv: (
+                  nights: [
+                    for (final (i, ms) in const [56.0, 58.0, 54.0, 57.0, 59.0, 55.0, 53.0, 58.0, 57.0, 56.0, 54.0, 57.0, 55.0, 41.0].indexed)
+                      (date: dayLabelOf(DateTime.now().subtract(Duration(days: 13 - i))), ms: ms),
+                  ],
+                  usual: (lo: 52.0, hi: 60.0),
+                  avg7: 54.0,
+                  last: 41.0,
+                  lastDate: dayLabelOf(DateTime.now()),
+                ),
+                series: const [60, 65, null, 68, 31],
               ),
             ),
           ),

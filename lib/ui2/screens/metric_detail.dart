@@ -32,6 +32,7 @@ import 'day_timeline.dart'
 import 'home_screen.dart';
 import 'journal_compose.dart' show OsTextField;
 import 'readiness_detail.dart';
+import '../recent_hrv_card.dart' show RecentHrvSection;
 import 'sleep_detail.dart';
 
 /// The one range list Trends and every metric screen share, in days. Trends
@@ -994,6 +995,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks),
+        // Build 90: last night against the same usual range Recovery uses,
+        // on the same nightly series; the chart above keeps its longer view.
+        if (widget.metricKey == 'hrv' && widget.data == null)
+          RecentHrvSection(day: widget.day),
         if (win > 1) ..._periods(c, spec, series),
         // Today's count against the goal set on this screen's own edit
         // affordance — a trend average has no goal to be measured against, so

@@ -10,14 +10,17 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
 import '../../data/nutrition_store.dart';
 import '../../data/off_lookup.dart';
+import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
 import 'food_diary.dart' show askText;
 import 'log_food.dart';
+import 'food_left.dart';
 
 const _mealNames = {
   'breakfast': 'Breakfast',
@@ -282,7 +285,7 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 
   Future<void> _logFood(Map<String, Object?> def) async {
-    final portion = await GramsSheet.show(context, def);
+    final portion = await GramsSheet.show(context, def, date: widget.date);
     if (portion == null || !mounted) return;
     final db = await LocalDb.instance;
     await NutritionDb.put(
@@ -402,10 +405,19 @@ class GramsSheet extends StatefulWidget {
     this.initial,
     this.initialUnit,
     this.action = 'Add',
+    this.date,
+    this.excludeId,
   });
 
   final Map<String, Object?> def;
   final double? initial;
+
+  /// The day this amount is logged into (Build 90): shows what is left of
+  /// that day's goals after it. Null (a saved meal being built) shows nothing.
+  final String? date;
+
+  /// The entry being edited, left out of the day so it counts once.
+  final String? excludeId;
 
   /// The unit [initial] is in; null is the label unit.
   final String? initialUnit;
@@ -418,6 +430,8 @@ class GramsSheet extends StatefulWidget {
     double? initial,
     String? initialUnit,
     String action = 'Add',
+    String? date,
+    String? excludeId,
   }) => _sheet<Portion>(
     c,
     (_) => GramsSheet(
@@ -425,6 +439,8 @@ class GramsSheet extends StatefulWidget {
       initial: initial,
       initialUnit: initialUnit,
       action: action,
+      date: date,
+      excludeId: excludeId,
     ),
   );
 
@@ -446,11 +462,18 @@ class _GramsSheetState extends State<GramsSheet> {
         : foodUnit(widget.def),
   );
 
+  NutritionDay? _day;
+
   @override
   void initState() {
     super.initState();
     _g.addListener(() => setState(() {}));
     _unit.addListener(() => setState(() {}));
+    if (widget.date case final date?) {
+      loadDayIntake(date, excludeId: widget.excludeId).then((d) {
+        if (mounted) setState(() => _day = d);
+      });
+    }
   }
 
   @override
@@ -468,13 +491,44 @@ class _GramsSheetState extends State<GramsSheet> {
         ? null
         : toBase(widget.def, grams, _unit.value);
     final n = base == null ? null : nutrientsFor(widget.def, base);
+    final profile = () {
+      try {
+        return c.watch<AppState?>()?.user;
+      } catch (_) {
+        return null;
+      }
+    }();
+    double? goal(String k) => (profile?[k] as num?)?.toDouble();
     return _sheetBody(c, [
       Text(
         (widget.def['label'] ?? '').toString(),
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x4),
-      AmountInput(controller: _g, def: widget.def, unit: _unit),
+      AmountInput(
+        controller: _g,
+        def: widget.def,
+        unit: _unit,
+        extraChip: _day == null
+            ? null
+            : (u) {
+                final one = toBase(widget.def, 1, u);
+                final fit = fitAmount(
+                  goal: goal('kcal_target'),
+                  eaten: _day!.kcal,
+                  kcalPerUnit: one == null
+                      ? null
+                      : nutrientsFor(widget.def, one).kcal,
+                  unit: u,
+                );
+                return fit == null
+                    ? null
+                    : FitChip(
+                        label: portionText(fit, u),
+                        onTap: () => _g.text = editableNumber(fit),
+                      );
+              },
+      ),
       const SizedBox(height: S.x3),
       Text(
         n == null
@@ -488,6 +542,16 @@ class _GramsSheetState extends State<GramsSheet> {
               ),
         style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
       ),
+      if (_day != null && goal('kcal_target') != null) ...[
+        const SizedBox(height: S.x3),
+        LeftAfterCard(
+          day: _day,
+          kcalGoal: goal('kcal_target'),
+          proteinGoal: goal('protein_target'),
+          thisKcal: n?.kcal,
+          thisProtein: n?.protein,
+        ),
+      ],
       const SizedBox(height: S.x5),
       BigButton(
         widget.action,
@@ -1404,11 +1468,16 @@ class AmountInput extends StatelessWidget {
     required this.controller,
     required this.def,
     this.unit,
+    this.extraChip,
   });
 
   final TextEditingController controller;
   final Map<String, Object?> def;
   final ValueNotifier<String>? unit;
+
+  /// One more chip after the amount chips, for the unit shown (Build 90:
+  /// "Fit what's left"). Null, or a null result, adds nothing.
+  final Widget? Function(String unit)? extraChip;
 
   static bool _weight(String u) =>
       u.toLowerCase() == 'g' || u.toLowerCase() == 'ml';
@@ -1553,7 +1622,7 @@ class AmountInput extends StatelessWidget {
             },
           ),
         ],
-        if (chips.isNotEmpty) ...[
+        if (chips.isNotEmpty || extraChip?.call(unit) != null) ...[
           const SizedBox(height: S.x2),
           Wrap(
             spacing: S.x2,
@@ -1565,6 +1634,7 @@ class AmountInput extends StatelessWidget {
                   onTap: () => set(v),
                   child: Pill(label, C.n400),
                 ),
+              ?extraChip?.call(unit),
             ],
           ),
         ],

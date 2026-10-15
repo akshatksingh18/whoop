@@ -886,6 +886,11 @@ As implementation proceeds, update all affected sources in the same coherent cha
   steps, workouts) or redundant with another screen. Get Akshat's yes per item before deleting it.
   He often wants redundant features gone, but never a core metric lost by accident. Removing a UI
   surface must not stop the underlying computation or storage unless he asks for that too.
+- **Show full-page mockups before building any UI change.** Akshat reviews a visual of every
+  affected page first, shown whole from top to bottom (not only the first screen), with the
+  current page beside it, made with synthetic data, and with the open choices shown as switchable
+  options. He wants visuals that carry meaning (rings, charts, icons, patterns), not only text.
+  UI code changes start after he picks.
 - **Plan first, build on the go-ahead.** For a multi-feature request Akshat wants the plan written
   into `todo.md` (with recommendations and the decisions he must make) and no code changes until he
   says go. Once approved he prefers everything in one build. He wants calorie and step numbers

@@ -144,6 +144,20 @@ Only the owner edits a file; the other lane asks through its notes block below.
   `EnergyComparison` joined the ui2 barrel.
 - [ ] 2c. Screenshot review of every changed screen with Akshat (synthetic captures; the
   tab bar keeps its labels whole at 2x/3.1x over Food).
+  Akshat's review: Progress looks better; Today, Trends and Food look noisy and inconsistent.
+  Audit findings (not yet fixed): `MetricLine` leaves the empty chart slot's share as dead
+  space at the row's right end, so values float mid-card when a row has no history; rows
+  without a chevron (Today's Food) end further right than the others; units inline with the
+  big number make digits end at different places; the 92-pt uppercase label column wraps
+  labels and splits words ("SKIN TEMPE / RATURE"); every row uses the 30-pt number, so
+  nothing leads; coverage ("7/7 days") repeats on every complete row; Today shows steps,
+  food and maintenance two or three times; Trends' Step calories block breaks the list's
+  pattern; Food's calorie card carries about 20 numbers (eaten, goal, left, maintenance
+  gap, four macros with targets and bars), every food repeats a P/C/F/Fb line, and the
+  maintenance gap repeats in the card below. Today's "resting HR 53 asleep" (joined with
+  non-breaking spaces) now breaks mid-word in the hero card; it moves to its own line in the
+  redesign. Full-page mockups of the proposed Today, Trends, Food and Train, with the current
+  full pages beside them, are made for Akshat; UI code waits for his picks.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90

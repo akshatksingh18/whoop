@@ -403,14 +403,41 @@ void main() {
         int? private,
         int startOffsetSec = 0,
         int durationSec = 1800,
+        String? basis = 'active',
       }) =>
           {
             'start_ts': dayEnd + startOffsetSec,
             'end_ts': dayEnd + startOffsetSec + durationSec,
             'calories': calories,
+            'calories_basis': basis,
             'status': status,
             'private': private,
           };
+
+      // Build 90 (algorithm 96): only ACTIVE stored calories are credited.
+      // A pre-Build 90 row kept as 'legacy' may include resting energy, and an
+      // unexamined or vendor row is of unknown meaning; either would overstate
+      // Active Energy, so neither is added.
+      for (final basis in <String?>['legacy', null]) {
+        test('a session whose calories are not known to be active ($basis) '
+            'is not credited', () {
+          final bundle = <String, dynamic>{};
+          final scalars = <String, dynamic>{};
+          DerivationEngine.applyDayActivity(
+            bundle: bundle,
+            scalars: scalars,
+            daySub: build(),
+            profile: older,
+            sleepOnsetSec: sleepOnset,
+            sleepOffsetSec: sleepOffset,
+            dayStartSec: dayStart,
+            dayCalendarEndSec: dayEnd + 3600,
+            dataNowSec: dayEnd + 3600,
+            sessions: [session(calories: 250.0, basis: basis)],
+          );
+          expect(scalars['calories'], closeTo(661.58, 2.0));
+        });
+      }
 
       test('a session with NO HR coverage at all credits its calories in',
           () {
@@ -462,6 +489,7 @@ void main() {
               'start_ts': dayStart,
               'end_ts': hardUntil,
               'calories': 999.0,
+              'calories_basis': 'active',
               'status': 'done',
             }
           ],

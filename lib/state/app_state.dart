@@ -42,7 +42,8 @@ import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
-import '../compute/manual_session.dart' show strainFromPerMinuteHr;
+import '../compute/manual_session.dart'
+    show kCaloriesBasisActive, strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../compute/training_review.dart';
@@ -167,6 +168,9 @@ class AppState extends ChangeNotifier {
   /// compute on read). Screens still guard on `repo == null` exactly as they did
   /// on `api`.
   LocalRepository? repo;
+
+  /// Whether this process has run `repairSessionCalorieBasis` (Build 90).
+  bool _calorieBasisRepaired = false;
 
   /// The on-device compute orchestrator. Kicked (light) after every drain/flush
   /// completion, and (heavy) on foreground finalize + throttled reconnect
@@ -1808,6 +1812,15 @@ class AppState extends ChangeNotifier {
       // workout LIST is corrected too and not just a detail screen someone
       // happens to open. Monotone and idempotent — see reconcileSessionScore.
       try {
+        // Build 90: once per launch, give older workouts an honest calorie
+        // basis (active where recalculable, otherwise kept and marked legacy)
+        // BEFORE the re-score, so a gross pre-Build 90 figure cannot win its
+        // max rule. Later launches find nothing left and return at once.
+        if (!_calorieBasisRepaired && repo != null) {
+          _calorieBasisRepaired = true;
+          final n = await repo!.repairSessionCalorieBasis();
+          if (n > 0) _log('[derive] repaired calories on $n older session(s)');
+        }
         final fixed = await repo?.rescoreRecentSessions() ?? 0;
         if (fixed > 0) {
           _log('[derive] rescored $fixed session(s) from substrate');
@@ -6706,6 +6719,8 @@ class AppState extends ChangeNotifier {
       'type': w.type,
       'status': 'done',
       'calories': finalKcal,
+      // Live saves are active energy by the shown method (workoutActiveKcal).
+      'calories_basis': finalKcal == null ? null : kCaloriesBasisActive,
       'strain': w.strain,
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
       'duration_min': w.elapsed.inMinutes,
@@ -7082,8 +7097,11 @@ class LiveWorkoutState {
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
 
-  /// Live kcal for the bout so far. Zero here is ambiguous on its own — read
-  /// [caloriesOrNull] anywhere a user can see it.
+  /// Live kcal for the bout so far, by the legacy bout scorer's GROSS rates
+  /// (resting energy included). Internal: since Build 90 nothing stores or
+  /// shows it — the saved and displayed figure is `AppState.workoutActiveKcal`
+  /// (active energy). Zero here is ambiguous on its own — read
+  /// [caloriesOrNull] if it is ever surfaced.
   ///
   /// RECOMPUTED from the retained per-minute series on every sample, not
   /// accrued. Same reason [strain] is: [restingHr] is loaded asynchronously and

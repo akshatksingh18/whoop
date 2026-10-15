@@ -446,8 +446,11 @@ void main() {
       expect(find.text('1,475'), findsOneWidget);
       expect(find.textContaining('2,202'), findsOneWidget);
       expect(find.text('727'), findsOneWidget);
-      expect(find.text('left'), findsOneWidget);
-      expect(find.text('Maintenance not available'), findsOneWidget);
+      // The calm ring's caption carries the unit (Build 90 B ring).
+      expect(find.text('kcal left'), findsOneWidget);
+      // The card compares intake with the fixed goal only; maintenance has
+      // its own panel (Build 90), so the card makes no maintenance claim.
+      expect(find.textContaining('Maintenance'), findsNothing);
     });
   });
 

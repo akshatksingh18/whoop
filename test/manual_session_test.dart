@@ -262,7 +262,7 @@ void main() {
       expect(s.zoneMinutes, isEmpty);
     });
 
-    test('no resting HR → neither strain nor calories', () {
+    test('no resting HR → no strain; active calories need no RHR', () {
       final w = _flat(0, 30, 150);
       final s = computeManualSessionStats(
         hrTs: w.ts,
@@ -273,12 +273,10 @@ void main() {
       );
       // Banister carries RHR as a term in the formula — absent it, abstain.
       expect(s.strain, isNull);
-      // Keytel's own kJ/min formula takes no RHR, so it is tempting to score
-      // calories anyway. But `estimateBoutCalories` uses RHR to place the
-      // active/resting threshold that decides which seconds burn at the active
-      // rate, and reports `usedDefaultAnchors` when it had to invent one. We
-      // honour that flag rather than banking a figure built on a 60 bpm guess.
-      expect(s.calories, isNull);
+      // Build 90: calories are net Keytel minus Mifflin resting, the screens'
+      // method, which reads no resting HR and places no gate with one. The
+      // old bout scorer abstained here because it needed RHR for its gate.
+      expect(s.calories, isNotNull);
       // Raw HR observations are real regardless, and still reported.
       expect(s.avgHr, 150);
       expect(s.hrSampleCount, 30 * 60);
@@ -287,6 +285,8 @@ void main() {
     test('no ceiling → no HRmax anchor → neither strain nor calories', () {
       // No age OR an uncalibrated/unstamped strap: both make `estimatedMaxHr`
       // null, and the caller passes that null straight through (TS-03a).
+      // Calories abstain for their own reason: no age means no Keytel, and an
+      // untyped window has no MET to fall back on.
       final w = _flat(0, 30, 150);
       final s = computeManualSessionStats(
         hrTs: w.ts,
@@ -378,6 +378,148 @@ void main() {
       expect(s.calories, wornOnly.calories);
       expect(s.strain, wornOnly.strain);
       expect(s.zoneMinutes, wornOnly.zoneMinutes);
+    });
+  });
+
+  // Build 90 (algorithm 96): the stored kcal is the ACTIVE figure every screen
+  // shows. The legacy bout scorer stored gross energy (resting included, 170 cm
+  // assumed without a height) while the screens recomputed net, so the stored
+  // and shown numbers disagreed and the day's workout-gap credit added resting
+  // energy to Active Energy (Codex's independent review reproduced both).
+  group('computeManualSessionStats — Build 90 active calories', () {
+    test('a typed lift stores exactly what sessionActiveKcal shows', () {
+      final w = _flat(0, 60, 150);
+      final s = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: _profile,
+        hrMax: _hrMax,
+        restingHr: 55,
+        type: 'Weight training',
+        activeMinutes: 60,
+      );
+      final shown = sessionActiveKcal(
+        p: _profile,
+        type: 'weight_training',
+        minutes: 60,
+        meanHr: 150,
+        catalogueMet: 6.0,
+      );
+      expect(s.calories, shown);
+      // (3.5 − 1) MET × 75 kg × 1 h: MET only, heart rate not priced.
+      expect(s.calories, closeTo(187.5, 1e-9));
+    });
+
+    test('resting heart rate stores no active energy (was ~12 kcal gross)', () {
+      // Ten minutes at resting HR. The legacy scorer returned about 12.5 kcal
+      // here, exactly its resting contribution; active energy is zero.
+      final w = _flat(0, 10, 55);
+      final s = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: _profile,
+        hrMax: _hrMax,
+        restingHr: 55,
+      );
+      expect(s.calories, 0);
+    });
+
+    test('a typed session at low heart rate is priced by its MET', () {
+      // 55 bpm is far below Keytel's fitted range (57% of 187 ≈ 107 bpm), so
+      // heart rate cannot pull the session towards zero.
+      final w = _flat(0, 10, 55);
+      final s = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: _profile,
+        hrMax: _hrMax,
+        restingHr: 55,
+        type: 'Cycling',
+        activeMinutes: 10,
+      );
+      expect(s.calories, closeTo((8.0 - 1) * 75 * 10 / 60, 1e-9));
+    });
+
+    test('no height is never filled in with 170 cm', () {
+      const noHeight = Profile(ageYears: 30, weightKg: 75, sex: 'm');
+      final w = _flat(0, 30, 150);
+      // Untyped: Keytel's resting term needs Mifflin, which needs a height.
+      expect(
+        computeManualSessionStats(
+          hrTs: w.ts,
+          hrBpm: w.bpm,
+          profile: noHeight,
+          hrMax: _hrMax,
+          restingHr: 55,
+        ).calories,
+        isNull,
+      );
+      // Typed: the MET estimate needs only weight.
+      expect(
+        computeManualSessionStats(
+          hrTs: w.ts,
+          hrBpm: w.bpm,
+          profile: noHeight,
+          hrMax: _hrMax,
+          restingHr: 55,
+          type: 'Cycling',
+          activeMinutes: 30,
+        ).calories,
+        closeTo(7 * 75 * 0.5, 1e-9),
+      );
+    });
+
+    test('active minutes, not the sample span, price a paused session', () {
+      final w = _flat(0, 60, 150);
+      final s = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: _profile,
+        hrMax: _hrMax,
+        restingHr: 55,
+        type: 'Weight training',
+        activeMinutes: 45,
+      );
+      expect(s.calories, closeTo(2.5 * 75 * 0.75, 1e-9));
+    });
+  });
+
+  group('otherWorkoutActiveKcal — Keytel validity range (Build 90)', () {
+    // The independent review's synthetic probe: 80 kg, 180 cm, 40 y male,
+    // 30 min at 4 MET. Net Keytel crosses zero near 57.3 bpm; across 0.02 bpm
+    // the old minimum went from 120 kcal to 0.045 kcal.
+    const probe = Profile(ageYears: 40, weightKg: 80, heightCm: 180, sex: 'm');
+
+    test('no cliff at the zero crossing: MET stands below the range', () {
+      for (final hr in [57.29, 57.31, 80.0, 100.0]) {
+        expect(
+          otherWorkoutActiveKcal(p: probe, minutes: 30, meanHr: hr, met: 4),
+          closeTo(120, 1e-9),
+          reason: '$hr bpm is below 57% of 180 bpm',
+        );
+      }
+    });
+
+    test('inside the range the lower of heart rate and MET still applies', () {
+      // 57% of Tanaka 180 = 102.6 bpm. At 110 bpm, an 8 MET estimate is the
+      // larger, so heart rate is the session's number.
+      const byMet = 7 * 80 * 0.5;
+      final at110 = otherWorkoutActiveKcal(
+        p: probe,
+        minutes: 30,
+        meanHr: 110,
+        met: 8,
+      )!;
+      expect(at110, lessThan(byMet));
+      expect(at110, greaterThan(0.5 * byMet));
+    });
+
+    test('without an age there is no range, so MET stands', () {
+      const noAge = Profile(weightKg: 80, heightCm: 180, sex: 'm');
+      expect(
+        otherWorkoutActiveKcal(p: noAge, minutes: 30, meanHr: 150, met: 4),
+        closeTo(120, 1e-9),
+      );
     });
   });
 
@@ -489,6 +631,7 @@ void main() {
       expect(row['created_at'], 5_000_000);
       expect(row['strain'], isNotNull);
       expect(row['calories'], isNotNull);
+      expect(row['calories_basis'], kCaloriesBasisActive);
     });
 
     test('re-logging the same window is idempotent on id', () {
@@ -529,7 +672,14 @@ void main() {
         stats: const ManualSessionStats(),
         createdAtMs: 1,
       );
-      for (final k in ['calories', 'strain', 'max_hr', 'steps', 'hrr_bpm']) {
+      for (final k in [
+        'calories',
+        'calories_basis',
+        'strain',
+        'max_hr',
+        'steps',
+        'hrr_bpm',
+      ]) {
         expect(row.containsKey(k), isTrue, reason: '$k must be present');
         expect(row[k], isNull, reason: '$k must be explicitly null');
       }

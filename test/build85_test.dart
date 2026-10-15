@@ -74,6 +74,17 @@ void main() {
         minutes: 60,
         catalogueMet: 7.5,
       );
+      // Inside Keytel's fitted range (57% of Tanaka 191.9 ≈ 109 bpm and up)
+      // heart rate can be the lower estimate and win.
+      final withHr = sessionActiveKcal(
+        p: me,
+        type: 'Cycling',
+        minutes: 60,
+        catalogueMet: 7.5,
+        meanHr: 120,
+      );
+      // Build 90: below that range heart rate no longer competes, so a low
+      // reading cannot collapse the session towards zero.
       final withLowHr = sessionActiveKcal(
         p: me,
         type: 'Cycling',
@@ -82,7 +93,8 @@ void main() {
         meanHr: 80,
       );
       expect(byMet, closeTo((7.5 - 1) * 80.5, 1e-9));
-      expect(withLowHr!, lessThan(byMet!));
+      expect(withHr!, lessThan(byMet!));
+      expect(withLowHr, closeTo(byMet, 1e-9));
     });
 
     test('no weight or no time, no number', () {

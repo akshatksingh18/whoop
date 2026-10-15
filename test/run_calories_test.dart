@@ -12,19 +12,20 @@ void main() {
   const me = Profile(ageYears: 23, weightKg: 80.5, heightCm: 186.69, sex: 'm');
 
   group('Method 1, distance', () {
-    test('0.005 x kg x 0.143 x metres on the flat', () {
-      // 5.06 km at 80.5 kg.
+    test('0.005 x kg x 0.17 x metres on the flat', () {
+      // 5.06 km at 80.5 kg: 0.005 × 80.5 × 0.17 × 5060 (291.24 at 0.143).
+      expect(kRunO2PerMeter, 0.17);
       expect(
         runFloorKcal(runMeters: 5060, weightKg: 80.5),
-        closeTo(291.24, 0.01),
+        closeTo(346.23, 0.01),
       );
     });
 
     test('equals Akshat\'s four steps for any pace', () {
-      // 5,000 m in 30 min: speed 166.7 m/min, O2 23.83, kcal/h 575.5.
+      // 5,000 m in 30 min: speed 166.7 m/min, O2 28.33, kcal/h 684.2.
       const d = 5000.0, t = 30.0, kg = 80.5;
       final speed = d / t;
-      final o2 = 0.143 * speed + 0.9 * speed * 0;
+      final o2 = kRunO2PerMeter * speed + 0.9 * speed * 0;
       final perHour = o2 * kg * 0.3;
       final steps = perHour / 60 * t;
       expect(runFloorKcal(runMeters: d, weightKg: kg), closeTo(steps, 1e-9));
@@ -95,8 +96,8 @@ void main() {
         runSteps: 4835,
       )!;
       expect(m.steps, closeTo(2.74 * 10165 * 80.5 / 8368, 1e-6)); // 267.9
-      expect(m.run, closeTo(287.8, 0.1));
-      expect(m.total, closeTo(1861.8 + 267.9 + 287.8 + 194, 0.3));
+      expect(m.run, closeTo(342.1, 0.1)); // 0.005 × 80.5 × 0.17 × 5000
+      expect(m.total, closeTo(1861.8 + 267.9 + 342.1 + 194, 0.3));
     });
 
     test('without a run it is the build 68 number', () {
@@ -145,7 +146,7 @@ void main() {
       );
       expect(r.count, 1);
       expect(r.steps, 4835);
-      expect(r.kcal, closeTo(287.8, 0.1));
+      expect(r.kcal, closeTo(342.1, 0.1));
       expect(r.km, closeTo(5, 1e-9));
     });
   });

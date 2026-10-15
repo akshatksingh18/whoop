@@ -203,6 +203,12 @@ abstract class LocalRepository {
   /// to re-score from.
   Future<int> rescoreRecentSessions({int sinceDays = 3}) =>
       throw UnimplementedError('re-layer: rescoreRecentSessions');
+
+  /// Build 90 one-time repair of older workouts' stored calories: active
+  /// where the shown method's inputs are known, otherwise kept and marked
+  /// legacy. Returns how many rows were recalculated. Best-effort.
+  Future<int> repairSessionCalorieBasis() =>
+      throw UnimplementedError('re-layer: repairSessionCalorieBasis');
   Future<Map<String, dynamic>> startWorkout(String type, {String? title}) =>
       throw UnimplementedError('re-layer: startWorkout');
   Future<Map<String, dynamic>> endWorkout(String workoutId) =>

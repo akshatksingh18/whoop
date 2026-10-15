@@ -189,7 +189,10 @@ void main() {
     });
   });
 
-  test('the substrate re-score abstains on the same predicate', () {
+  // Build 90: the re-score stores ACTIVE kcal by the shown method
+  // (`sessionActiveKcal`), which needs weight plus either a MET (a typed
+  // session) or a usable net heart rate (age, sex and a height for Mifflin).
+  test('the substrate re-score abstains without the active-energy inputs', () {
     final start = DateTime(2026, 1, 1, 7).millisecondsSinceEpoch ~/ 1000;
     final ts = [for (var i = 0; i < 600; i++) start + i];
     final hr = [for (var i = 0; i < 600; i++) 140];
@@ -209,14 +212,27 @@ void main() {
           'still perfectly scoreable without a body mass',
     );
 
-    final anchored = computeManualSessionStats(
+    // [_anchored] has no height, so untyped heart-rate energy abstains
+    // rather than assuming 170 cm as the legacy scorer did.
+    final untyped = computeManualSessionStats(
       hrTs: ts,
       hrBpm: hr,
       hrMax: 185,
       profile: _anchored,
       restingHr: 55,
     );
-    expect(anchored.calories, isNotNull);
-    expect(anchored.calories, greaterThan(0));
+    expect(untyped.calories, isNull);
+
+    final typed = computeManualSessionStats(
+      hrTs: ts,
+      hrBpm: hr,
+      hrMax: 185,
+      profile: _anchored,
+      restingHr: 55,
+      type: 'Cycling',
+      activeMinutes: 10,
+    );
+    expect(typed.calories, isNotNull);
+    expect(typed.calories, greaterThan(0));
   });
 }

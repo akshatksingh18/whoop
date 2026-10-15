@@ -3391,6 +3391,7 @@ class LocalDb {
         trace_json TEXT,
         trace_samples INTEGER,
         rpe REAL,
+        calories_basis TEXT,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -3556,6 +3557,12 @@ class LocalDb {
     // A session nobody rated must read as UNRATED, not as a 7 somebody typed.
     // Skippable forever.
     await _addColumnIfMissing(db, 'sessions', 'rpe', 'REAL');
+    // Build 90: what `calories` means — 'active' (net, the shown method),
+    // 'legacy' (pre-Build 90, may include resting energy, not recalculable)
+    // or NULL (not yet examined / vendor import). Additive and nullable on the
+    // open path, no schema bump: old rows read NULL until the repair pass
+    // (`repairSessionCalorieBasis`) examines them. See `kCaloriesBasisActive`.
+    await _addColumnIfMissing(db, 'sessions', 'calories_basis', 'TEXT');
     // Private session (v40): the user's "don't surface this one" flag. NOT NULL
     // DEFAULT 0 because every session that already exists was not marked
     // private — absence here is a real answer, not a missing measurement.
@@ -9237,6 +9244,7 @@ class LocalDb {
     required double? calories,
     required int? maxHr,
     required String zoneMinJson,
+    String? caloriesBasis,
     int? avgHr,
     String? traceJson,
     int? traceSamples,
@@ -9247,6 +9255,7 @@ class LocalDb {
       {
         'strain': strain,
         'calories': calories,
+        'calories_basis': caloriesBasis,
         'max_hr': maxHr,
         'zone_min_json': zoneMinJson,
         // Only when the re-score actually measured one. Writing null over a

@@ -10,6 +10,8 @@
 
 import 'dart:math' as math;
 
+import 'hr_max.dart' show estimatedMaxHr;
+
 class Profile {
   final int? ageYears;
   final double? weightKg;
@@ -142,7 +144,13 @@ double? bmrMifflin(Profile p) {
 
 /// Net oxygen cost of running, ml/kg per metre (Akshat's Method 1, the
 /// chosen budgeting coefficient; ACSM's own running coefficient is 0.2).
-const double kRunO2PerMeter = 0.143;
+///
+/// 0.17 from Build 90 (Akshat's decision; 0.143 before): 0.85 kcal/kg/km, a
+/// conservative budgeting calibration, not a measured personal constant. It
+/// stays below the measured level-running means (Minetti 2002 ≈ 0.81 net in
+/// elite runners is the lowest found; Margaria ≈ 1.0) while 0.143 sat about
+/// 12% under even that (`build-90-research.md` K, Codex's independent review).
+const double kRunO2PerMeter = 0.17;
 
 /// Net oxygen cost of walking, ml/kg per metre (ACSM walking equation). Used
 /// for walk breaks inside a run so the budget never prices walking as running.
@@ -156,9 +164,9 @@ const double kClimbO2PerMeter = 0.9;
 /// [runMeters] at running speed, [walkMeters] at walking speed and up
 /// [climbMeters] of ascent.
 ///
-/// Akshat's four steps (speed = d/t; O₂ = 0.143·speed + 0.9·speed·incline;
-/// kcal/h = O₂ × kg × 0.3; kcal = kcal/h ÷ 60 × t) collapse to
-/// 0.005 × kg × (0.143 × metres + 0.9 × metres climbed), because speed × time
+/// Akshat's four steps (speed = d/t; O₂ = c·speed + 0.9·speed·incline, with
+/// c = [kRunO2PerMeter]; kcal/h = O₂ × kg × 0.3; kcal = kcal/h ÷ 60 × t)
+/// collapse to 0.005 × kg × (c × metres + 0.9 × metres climbed), because speed × time
 /// is distance and speed × incline × time is height gained. 0.005 is
 /// 0.3 ÷ 60: five kcal per litre of oxygen. Null without a weight.
 double? runFloorKcal({
@@ -303,18 +311,31 @@ String workoutEnergyMethodLabel(String type) {
   return '${conservativeMet(key, 0)} MET · net energy above resting';
 }
 
+/// Lowest mean heart rate, as a fraction of the age-estimated maximum
+/// (Tanaka, `208 − 0.7 · age`), at which Keytel prices a session.
+///
+/// Keytel et al. (2005) fitted their equation on exercise between about 57%
+/// and 90% of maximum heart rate. Below that the population line has no
+/// exercise data behind it, and net Keytel shrinks towards zero, so taking the
+/// lower of it and the activity estimate could price a real session at almost
+/// nothing (Build 90 review: 120 kcal → 0.045 kcal across a 0.02 bpm change).
+const double kKeytelMinHrMaxFraction = 0.57;
+
 /// Active (net) kcal for a workout that is neither walking nor running — the
 /// counterpart of the step and distance methods: energy above resting only,
-/// and the LOWER of two estimates.
+/// and the LOWER of two estimates where both are valid.
 ///
 /// - Heart rate: Keytel minus resting (BMR ÷ 1,440) at the session's mean HR
 ///   for its active minutes. Keytel is linear in HR, so the mean gives the same
 ///   total; it is known to overestimate, worst in resistance and interval work.
+///   It competes only inside its fitted range ([kKeytelMinHrMaxFraction] of
+///   Tanaka HRmax and above).
 /// - Activity: (MET − 1) × kg × hours, from [met] (see [conservativeMet]).
 ///
-/// Either alone when the other is unavailable; null with neither. Non-step
-/// workouts stay out of maintenance (Akshat's decision); this is the number a
-/// session shows.
+/// Below Keytel's range the activity estimate stands alone. Either alone when
+/// the other is unavailable; null with neither. Non-step workouts stay out of
+/// maintenance (Akshat's decision); this is the number a session shows and,
+/// from Build 90, the number a session stores.
 double? otherWorkoutActiveKcal({
   required Profile p,
   required double minutes,
@@ -336,9 +357,17 @@ double? otherWorkoutActiveKcal({
   if (byMet == null) return byHr;
   if (byHr == null) return byMet;
   // B88-06: a low mean HR makes net Keytel ≤ 0; that is "HR says nothing
-  // above resting", not "this session cost nothing". The lower of the two
-  // applies only when both are positive estimates.
-  if (byHr <= 0) return byMet;
+  // above resting", not "this session cost nothing". Build 90: the same holds
+  // anywhere below Keytel's fitted range, where a barely positive net value
+  // used to win the minimum and erase the session. The lower of the two
+  // applies only when the heart-rate estimate is inside its range.
+  // Tanaka is a population line on age alone; no strap changes it.
+  final hrMax = estimatedMaxHr(p.ageYears, null);
+  if (byHr <= 0 ||
+      hrMax == null ||
+      meanHr! < kKeytelMinHrMaxFraction * hrMax) {
+    return byMet;
+  }
   return math.min(byMet, byHr);
 }
 

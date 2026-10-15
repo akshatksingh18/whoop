@@ -21,6 +21,8 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
+import '../compute/activity_met.dart' show catalogueMetFor;
+import '../compute/day_upkeep.dart' show sessionProfile;
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart'
@@ -2899,6 +2901,10 @@ class LocalRepositoryImpl extends LocalRepository {
       // calorie anchor; the two are named separately because they can now be
       // different ceilings.
       zoneSet: _zoneSetFor(deviceFamily, await _zoneAnchors()),
+      // Priced by the shown method over the whole entered window (a manual
+      // window has no pauses), so the stored kcal is the one on screen.
+      type: type,
+      activeMinutes: (endTs - startTs) / 60,
     );
 
     final row = buildManualSessionRow(
@@ -3028,18 +3034,26 @@ class LocalRepositoryImpl extends LocalRepository {
     );
     final kcal = m.method1(type!);
     final duration = c.activeSeconds() ~/ 60;
+    // Method 1 (Budget) is active energy by construction (net O2 terms).
+    final basis = kcal == null ? null : kCaloriesBasisActive;
     if ((row['calories'] as num?)?.round() != kcal?.round() ||
-        row['duration_min'] != duration) {
+        row['duration_min'] != duration ||
+        row['calories_basis'] != basis) {
       final written = await (await LocalDb.instance).update(
         'sessions',
-        {'calories': kcal, 'duration_min': duration},
+        {'calories': kcal, 'calories_basis': basis, 'duration_min': duration},
         where: 'id = ? AND start_ts = ? AND end_ts = ?',
         whereArgs: [c.id, row['start_ts'], row['end_ts']],
       );
       if (written == 0) return await LocalDb.session(c.id) ?? row;
       onSessionChanged?.call();
     }
-    return {...row, 'calories': kcal, 'duration_min': duration};
+    return {
+      ...row,
+      'calories': kcal,
+      'calories_basis': basis,
+      'duration_min': duration,
+    };
   }
 
   Future<
@@ -3092,6 +3106,8 @@ class LocalRepositoryImpl extends LocalRepository {
           row['device_family'] as String?,
           await _zoneAnchors(),
         ),
+        type: row['type'] as String?,
+        activeMinutes: clock.activeSeconds() / 60,
       );
       // The peak is smoothed inside `computeManualSessionStats` now — one
       // definition for the manual save, this re-score and the workout list
@@ -3105,10 +3121,16 @@ class LocalRepositoryImpl extends LocalRepository {
       final complete =
           windowSec > 0 && stats.hrSampleCount >= (windowSec * 0.9).floor();
 
+      // Only an ACTIVE stored figure may compete with the re-score. A pre-
+      // Build 90 one can include resting energy, and under partial coverage
+      // the `max` rule would let that gross number win every pass.
+      final storedActive = row['calories_basis'] == kCaloriesBasisActive;
       final merged = reconcileSessionScore(
         substrateIsComplete: complete,
         liveStrain: (row['strain'] as num?)?.toDouble(),
-        liveCalories: (row['calories'] as num?)?.toDouble(),
+        liveCalories: storedActive
+            ? (row['calories'] as num?)?.toDouble()
+            : null,
         liveMaxHr: (row['max_hr'] as num?)?.toInt(),
         liveZoneMinutes: [
           for (final v in _decodeList(row['zone_min_json']))
@@ -3159,9 +3181,16 @@ class LocalRepositoryImpl extends LocalRepository {
       final movement =
           isRunType(row['type'] as String?) ||
           isWalkType(row['type'] as String?);
-      final primaryCalories = movement
-          ? (row['calories'] as num?)?.toDouble()
-          : merged.calories;
+      // Runs and walks keep Method 1 (priced above). Otherwise the re-score's
+      // active figure; with none, the stored value and its basis stay as they
+      // were rather than being erased.
+      final useMerged = !movement && merged.calories != null;
+      final primaryCalories = useMerged
+          ? merged.calories
+          : (row['calories'] as num?)?.toDouble();
+      final caloriesBasis = useMerged
+          ? kCaloriesBasisActive
+          : row['calories_basis'] as String?;
       final zoneJson = jsonEncode(
         merged.zoneMinutes.any((v) => v > 0)
             ? merged.zoneMinutes
@@ -3217,6 +3246,7 @@ class LocalRepositoryImpl extends LocalRepository {
         id,
         strain: merged.strain,
         calories: primaryCalories,
+        caloriesBasis: caloriesBasis,
         maxHr: merged.maxHr,
         zoneMinJson: zoneJson,
         avgHr: stats.avgHr,
@@ -3233,6 +3263,7 @@ class LocalRepositoryImpl extends LocalRepository {
         ...current,
         'strain': merged.strain,
         'calories': primaryCalories,
+        'calories_basis': caloriesBasis,
         'max_hr': merged.maxHr,
         'zone_min_json': zoneJson,
         if (stats.avgHr != null) 'avg_hr': stats.avgHr,
@@ -3268,6 +3299,104 @@ class LocalRepositoryImpl extends LocalRepository {
   /// the window is the raw-retention horizon (older windows are pruned and can
   /// never improve) and anything already covered by a previous pass is skipped
   /// outright, which leaves an ordinary drain doing no substrate reads at all.
+
+  /// Build 90 one-time repair: give every older workout an honest
+  /// `calories_basis`, recalculating its calories only where the inputs and
+  /// method the screens use are still known.
+  ///
+  /// Before Build 90 a manual entry or heart-rate re-score could store the
+  /// legacy bout scorer's GROSS kcal (resting energy included, 170 cm assumed
+  /// without a height) while every screen recomputed ACTIVE kcal. This pass
+  /// examines rows with no basis yet, never a vendor import (`whoop`, `cloud`
+  /// keep the figure their source reported):
+  ///
+  /// - non-run/walk: `sessionActiveKcal` over the session's dated profile,
+  ///   type, active minutes and stored mean HR — the same call the Train list
+  ///   and session screen make, so the stored number becomes the shown one;
+  /// - run/walk: the Budget (Method 1) from the stored movement record;
+  /// - otherwise (no weight, no MET or heart rate, no movement record, an
+  ///   unknown end): the stored value is KEPT as recorded and marked
+  ///   [kCaloriesBasisLegacy]. Nothing is subtracted by guesswork.
+  ///
+  /// Idempotent: a row is examined once (the basis stops it matching again),
+  /// and each UPDATE re-checks the window and the empty basis so a concurrent
+  /// retime or re-score wins. Returns how many rows were recalculated.
+  @override
+  Future<int> repairSessionCalorieBasis() async {
+    var repaired = 0;
+    try {
+      final db = await LocalDb.instance;
+      final rows = await db.query(
+        'sessions',
+        where:
+            "status = 'done' AND calories IS NOT NULL "
+            'AND calories_basis IS NULL '
+            "AND source NOT IN ('whoop', 'cloud')",
+      );
+      if (rows.isEmpty) return 0;
+      final current = Profile.fromMap(getProfileMap());
+      for (final r in rows) {
+        final id = r['id'] as String?;
+        final startTs = (r['start_ts'] as num?)?.toInt();
+        final endTs = (r['end_ts'] as num?)?.toInt();
+        if (id == null) continue;
+        final type = r['type'] as String?;
+        double? kcal;
+        try {
+          if (startTs != null &&
+              endTs != null &&
+              endTs > startTs &&
+              r['end_ts_fabricated'] != 1) {
+            final clock = _clockFor(r);
+            if (isRunType(type) || isWalkType(type)) {
+              final m = await WorkoutMeasurements.read(
+                this,
+                clock.id,
+                clock.start,
+                clock.end!,
+                current,
+                bandSteps: (r['steps'] as num?)?.toInt(),
+              );
+              kcal = m.method1(type!);
+            } else {
+              kcal = sessionActiveKcal(
+                p: await sessionProfile(
+                  id,
+                  clock.start,
+                  current,
+                  end: clock.end,
+                ),
+                type: type,
+                minutes: clock.activeSeconds() / 60,
+                meanHr: (r['avg_hr'] as num?)?.toDouble(),
+                catalogueMet: catalogueMetFor(type),
+              );
+            }
+          }
+        } catch (_) {
+          // A read failed (not "no inputs"): leave this row unexamined so the
+          // next launch retries it, rather than writing it off as legacy.
+          continue;
+        }
+        final written = await db.update(
+          'sessions',
+          kcal == null
+              ? {'calories_basis': kCaloriesBasisLegacy}
+              : {'calories': kcal, 'calories_basis': kCaloriesBasisActive},
+          where:
+              'id = ? AND start_ts IS ? AND end_ts IS ? '
+              'AND calories_basis IS NULL',
+          whereArgs: [id, startTs, endTs],
+        );
+        if (written > 0 && kcal != null) repaired++;
+      }
+      if (repaired > 0) onSessionChanged?.call();
+    } catch (_) {
+      // Best-effort: an unexamined row keeps its NULL basis and is retried on
+      // the next launch; the day's Active Energy does not credit it meanwhile.
+    }
+    return repaired;
+  }
 
   @override
   Future<int> rescoreRecentSessions({int sinceDays = 3}) async {

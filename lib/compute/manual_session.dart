@@ -31,6 +31,7 @@ import 'dart:convert';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import 'activity_met.dart' show catalogueMetFor;
 import 'hr_max.dart' show smoothedMaxHr;
 import 'profile.dart';
 
@@ -142,8 +143,11 @@ class ManualSessionStats {
   /// formula, so a missing one cannot be defaulted.
   final double? strain;
 
-  /// Keytel 2005 active kcal. Null unless HR, age, weight, sex and HRmax are
-  /// all present.
+  /// Active (net) kcal, the same number the session's screens show:
+  /// [sessionActiveKcal] over the session's type, active minutes and mean HR
+  /// (Build 90). Null when that has no inputs (no weight, or neither a MET nor
+  /// a usable heart rate). Before Build 90 this was the legacy bout scorer's
+  /// gross figure, resting energy included.
   final double? calories;
 
   /// Minutes in Z1..Z5 (5 elements), or empty with no HR.
@@ -279,16 +283,36 @@ double? strainFromPerMinuteHr(
   return score.present ? score.value : null;
 }
 
+/// `sessions.calories_basis`: what the stored `calories` means (Build 90).
+///
+/// - [kCaloriesBasisActive]: active energy above resting, by the method the
+///   session's screens show (`sessionActiveKcal` / the run-walk Budget).
+/// - [kCaloriesBasisLegacy]: written before Build 90 by a path that could
+///   include resting energy, and not recalculable now (its inputs are gone).
+///   Kept as recorded, never adjusted by guesswork; consumers that need
+///   active energy skip it.
+/// - NULL: not yet examined (an older row the repair pass has not reached), a
+///   row with no calories, or a vendor import (`whoop`, `cloud`), whose own
+///   figure is kept as the vendor reported it.
+const String kCaloriesBasisActive = 'active';
+const String kCaloriesBasisLegacy = 'legacy';
+
 /// Score a manual window from its 1 Hz HR.
 ///
 /// [hrTs]/[hrBpm] are the substrate samples INSIDE the window (ascending,
 /// same length, `hr > 0` — exactly what `LocalDb.hrSamplesInRange` returns).
 /// [restingHr] is the nightly/user RHR; [profile] supplies age/weight/sex.
 ///
-/// Uses the SAME published methods as the day-level derivation so a manual
-/// session and the day it sits in are on one scale: `ana.banisterTrimp` ->
-/// `ana.strainScoreMetric` for strain, `ana.Calories.estimateBoutCalories`
-/// (Keytel 2005) for kcal. A missing anchor makes the dependent metric null.
+/// Strain uses the SAME published method as the day-level derivation so a
+/// manual session and the day it sits in are on one scale: `ana.banisterTrimp`
+/// -> `ana.strainScoreMetric`. Calories are the session's ACTIVE energy by the
+/// one method every screen shows ([sessionActiveKcal] with the catalogue MET
+/// for [type] over [activeMinutes]), so the stored number is the shown number.
+/// It used to be `ana.Calories.estimateBoutCalories`, which bills resting
+/// energy below its activity gate and assumed 170 cm without a height, so the
+/// stored figure was gross while every screen showed net (Build 90 review).
+/// [activeMinutes] defaults to the span of the worn samples. A missing anchor
+/// makes the dependent metric null.
 ///
 /// [hrMax] is THE ceiling for this window — `estimatedMaxHr(age, family)`,
 /// resolved by the caller, which is the only layer that knows which strap
@@ -305,6 +329,8 @@ ManualSessionStats computeManualSessionStats({
   required double? hrMax,
   double? restingHr,
   ana.HeartRateZoneSet? zoneSet,
+  String? type,
+  double? activeMinutes,
 }) {
   if (hrTs.isEmpty || hrTs.length != hrBpm.length) {
     return const ManualSessionStats();
@@ -337,34 +363,20 @@ ManualSessionStats computeManualSessionStats({
   // report, rather than three producers agreeing by convention.
   final peak = smoothedMaxHr(worn, age: age?.round()) ??
       worn.reduce((a, b) => a > b ? a : b);
-  final weightKg = profile.weightKg;
-  final sex = profile.sex?.toLowerCase();
 
   final strain = strainFromPerMinuteHr(perMin,
       profile: profile, restingHr: restingHr, hrMax: hrMax);
 
-  double? calories;
-  if (profile.hasCalorieAnchors &&
-      hrMax != null &&
-      age != null &&
-      weightKg != null &&
-      sex != null) {
-    // Real anchors only — `usedDefaultAnchors` stays false, so we are never
-    // persisting a kcal figure built on a fabricated 220/60.
-    final bout = ana.Calories.estimateBoutCalories(
-      wornTs,
-      [for (final v in worn) v.toDouble()],
-      profile: ana.WorkoutUserProfile(
-        weightKg: weightKg,
-        heightCm: profile.heightCm ?? 170.0,
-        age: age,
-        sex: workoutSex(sex),
-      ),
-      hrmax: hrMax,
-      restingHr: restingHr,
-    );
-    if (!bout.usedDefaultAnchors && bout.kcal > 0) calories = bout.kcal;
-  }
+  // The mean is rounded exactly as `avg_hr` is stored, because the screens
+  // recompute from that column: same inputs, same function, same number.
+  final minutes = activeMinutes ?? (wornTs.last - wornTs.first + 1) / 60;
+  final calories = sessionActiveKcal(
+    p: profile,
+    type: type,
+    minutes: minutes,
+    meanHr: avg.round().toDouble(),
+    catalogueMet: catalogueMetFor(type),
+  );
 
   return ManualSessionStats(
     avgHr: avg.round(),
@@ -416,6 +428,7 @@ Map<String, dynamic> buildManualSessionRow({
     'type': type,
     'status': 'done',
     'calories': stats.calories,
+    'calories_basis': stats.calories == null ? null : kCaloriesBasisActive,
     'strain': stats.strain,
     'max_hr': stats.maxHr,
     // Banked, not recomputed on read: the 1 Hz window this was measured over is

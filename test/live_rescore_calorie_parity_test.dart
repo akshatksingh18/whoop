@@ -1,5 +1,10 @@
-// A live session and the substrate re-score of the SAME heart-rate stream must
-// report the same calories.
+// A live session's in-RAM calorie gauge and the legacy bout scorer
+// (`Calories.estimateBoutCalories`) must agree on the SAME heart-rate stream.
+//
+// Build 90: neither is stored or shown any more. Saved and displayed workout
+// calories are ACTIVE energy by `sessionActiveKcal` (manual_session_test,
+// Build 90 group); the history below explains why the gauge has the shape it
+// has, back when the re-score stored the bout scorer's figure.
 //
 // They did not. The live tick billed the raw Keytel active rate for every
 // second the band delivered a heart rate, with no activity gate and no resting
@@ -32,7 +37,6 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 
@@ -79,23 +83,31 @@ LiveWorkoutState _run(
   return s;
 }
 
-/// What the substrate re-score actually says about the same stream.
+/// What the legacy bout scorer says about the same stream.
 ///
-/// Deliberately the REAL entry point rather than a hand-rolled call to
-/// `estimateBoutCalories`. A stand-in only proves the live tick matches the
-/// test's idea of the re-score, and it keeps on proving that after the shipping
-/// estimator has moved underneath it. The property under test is agreement with
-/// the shipping code, so it has to call the shipping code.
+/// Build 90: the substrate re-score no longer stores this figure. Saved
+/// workouts carry ACTIVE kcal by the shown method (`sessionActiveKcal`, see
+/// manual_session_test's Build 90 group), and the live screen shows
+/// `workoutActiveKcal`. The in-RAM gauge below is internal and still runs the
+/// bout scorer's gross rates, so its own contract is pinned against the real
+/// `estimateBoutCalories` rather than a hand-rolled copy.
 double _rescore(List<int> hr, {int stepSec = 1}) {
   final base = _startedAt.millisecondsSinceEpoch ~/ 1000;
-  final s = computeManualSessionStats(
-    hrTs: [for (var i = 0; i < hr.length; i++) base + i * stepSec],
-    hrBpm: hr,
-    profile: _profile,
-    hrMax: _hrMax,
+  // Off-skin zeros dropped first, exactly as the re-score did before calling
+  // the scorer, so a contact-loss gap is a gap rather than resting seconds.
+  final worn = [for (var i = 0; i < hr.length; i++) if (hr[i] > 0) i];
+  return ana.Calories.estimateBoutCalories(
+    [for (final i in worn) base + i * stepSec],
+    [for (final i in worn) hr[i].toDouble()],
+    profile: ana.WorkoutUserProfile(
+      weightKg: _profile.weightKg!,
+      heightCm: _profile.heightCm!,
+      age: _profile.ageYears!.toDouble(),
+      sex: workoutSex(_profile.sex),
+    ),
+    hrmax: _hrMax,
     restingHr: _restingHr,
-  );
-  return s.calories!;
+  ).kcal;
 }
 
 void main() {

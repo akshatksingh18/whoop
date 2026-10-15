@@ -56,6 +56,7 @@ import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'input_reuse.dart';
 import 'step_cadence.dart';
+import 'manual_session.dart' show kCaloriesBasisActive;
 import 'profile.dart';
 import 'substrate.dart';
 
@@ -1668,7 +1669,13 @@ import 'substrate.dart';
 //   spectral segments require 90% coverage and exclude clock re-anchors;
 //   bodyweight resistance uses 3.0 MET and movement comparisons qualify speed.
 //   Only retained inputs re-derive; historical stored results stay versioned.
-const int kAlgoVersion = 95;
+// 95 -> 96 (Build 90, Akshat's calorie decisions): run/walk Budget coefficient
+//   0.143 -> 0.17 mL/kg/m; other-workout heart-rate energy competes with MET
+//   only at or above 57% of Tanaka HRmax (no near-zero cliff); stored session
+//   calories are ACTIVE by the shown method, tagged `calories_basis`, and the
+//   Active Energy workout-gap credit counts 'active' rows only (older gross
+//   rows are repaired where recalculable, otherwise kept as 'legacy').
+const int kAlgoVersion = 96;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -5816,6 +5823,11 @@ class DerivationEngine {
       for (final s in sessions) {
         if (s['status'] != 'done') continue;
         if ((s['private'] as num?)?.toInt() == 1) continue;
+        // Active energy only (Build 90, algorithm 96). A row whose stored
+        // calories are not known to be active — pre-Build 90 gross figures
+        // kept as 'legacy', unexamined rows, vendor imports — is not credited:
+        // adding resting energy to Active Energy would overstate it.
+        if (s['calories_basis'] != kCaloriesBasisActive) continue;
         final sStart = (s['start_ts'] as num?)?.toInt();
         final sEnd = (s['end_ts'] as num?)?.toInt();
         final sCal = (s['calories'] as num?)?.toDouble();

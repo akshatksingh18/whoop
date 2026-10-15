@@ -494,7 +494,7 @@ class RunStatsGrid extends StatelessWidget {
 /// The two calorie numbers for a run or walk.
 ///
 /// * Budget: the chosen lower distance estimate at the user's
-///   weight, running metres at 0.143, walk-break metres at 0.1, plus the
+///   weight, running metres at 0.17, walk-break metres at 0.1, plus the
 ///   climb. This is the one maintenance counts for a run.
 /// * From heart rate (Method 2, Keytel): what the heart rate says was burned
 ///   above resting, minute by minute.

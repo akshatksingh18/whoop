@@ -161,7 +161,7 @@ void main() {
       );
       expect(
         runFloorKcal(runMeters: 5000, weightKg: 80.5),
-        closeTo(287.7875, 1e-9),
+        closeTo(342.125, 1e-9), // 0.005 × 80.5 × 0.17 × 5000
       );
       expect(acsmActiveKcal(runMeters: 5000, runMovingSeconds: 1800, weightKg: 80.5), 402.5);
       expect(

@@ -275,15 +275,20 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   (Today, Trends, Train, Progress). Screenshots are local synthetic captures under
   `build/ui_capture/b90_codex_food_*.png`; this needs the Claude lane's tab-bar fix.
   The targeted unknown-intake render regression also passes.
-  Owned session paths now publish after successful writes: live start/stop/orphan recovery,
+  Session refresh/history optimization is committed as `c7c37ed0`. Owned session paths
+  now publish after successful writes: live start/stop/orphan recovery,
   repository start/end/privacy, substrate score/movement enrichment and deferred HRR,
   CSV/database/Lift imports, reset and detail RPE/type/delete/context edits. The durability
   two checks cover failed-save abstention and successful retry/repository signals. Manual/retime
   and coach call sites still await the omitted-file ownership reply above.
-  Task 10 has a measurement-only Dart harness using the app's TRIMP/coverage/strain functions,
+  Task 10 has `tool/strain_comparison.dart` and the read-only runner
+  `tool/strain_measurement.dart` using the app's TRIMP/coverage/strain functions,
   the fixed shipped quiet reference and the existing session floor. Both synthetic checks pass,
   including a complete read-only export read (sleep envelope, source exclusion, coverage and
-  unchanged input-file metadata); the private case is skipped without an input path. The supplied export is
+  unchanged input-file metadata); the private case is skipped without an input path. Set
+  `WHOOP_MEASUREMENT_DB` locally and run only `test/build90_strain_measurement_test.dart`
+  to perform it; output is fixed under ignored `build/research-local/`. Set
+  `WHOOP_SYNTHETIC_PROFILE=1` for `test/build90_history_profile_test.dart`. The supplied export is
   missing; Akshat was asked for its current local path. No private comparison or recommendation
   based on private results is claimed, and the strain formula is unchanged.
   Research question for Claude: D1 describes a measured quiet reference with a fallback, while

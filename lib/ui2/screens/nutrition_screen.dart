@@ -16,6 +16,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
+import '../../data/body_log.dart' show BodyLogDb;
 import '../../data/day_label.dart';
 import '../../compute/profile.dart' show Profile;
 import '../../compute/day_upkeep.dart';
@@ -26,6 +27,7 @@ import '../../data/food_day_reminder.dart' show FoodDayReminder;
 import '../../gps/run_history.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
+import '../energy_comparison.dart';
 import 'food_diary.dart';
 import 'food_picker.dart';
 import 'home_screen.dart'
@@ -343,7 +345,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     String says(int i) {
       final d = days[i];
       final mm = m[i], e = eaten[i];
-      return '${dayTitle(d.date)}${d.state == DayLogState.inProgress ? ' · so far' : ''}\n${[if (mm != null) 'Budget ${thousands(mm)}', if (acsm[i] != null) 'ACSM ${thousands(acsm[i])}', e == null ? 'no food logged' : 'ate ${thousands(e)}', if (mm != null && e != null) '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}'].join(' · ')}';
+      return '${dayTitle(d.date)}${d.state == DayLogState.inProgress ? ' · so far' : ''}\n${[if (mm != null) 'Budget ${thousands(mm)}', if (acsm[i] != null) 'Movement estimate ${thousands(acsm[i])}', e == null ? 'no food logged' : 'ate ${thousands(e)}', if (mm != null && e != null) '${e > mm ? '+' : '−'}${thousands((e - mm).abs())}'].join(' · ')}';
     }
 
     final pick = _histPick;
@@ -381,7 +383,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                   ('AVG BUDGET', thousands(mSum / counted), C.steps),
                 ]),
                 const SizedBox(height: S.x2),
-                CaloriePair(
+                EnergyComparison(
                   budget: mSum / counted,
                   acsm: acsmCount == counted ? acsmSum / counted : null,
                   compact: true,
@@ -408,7 +410,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
               readout: pick == null ? null : says(pick),
               legend: [
                 ('Budget', p.on(C.steps)),
-                ('ACSM', p.on(C.teal)),
+                ('Movement estimate', p.on(C.teal)),
                 ('Eaten', p.on(C.domFood)),
               ],
               xLabels: const ['30 days ago', 'Today'],
@@ -578,9 +580,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                 ? 'Weight is too uneven to estimate maintenance yet '
                       '(±${thousands(measured.halfRange)} kcal). More weigh-ins narrow it.'
                 : 'Estimated maintenance from food and weight: '
-                      '${thousands(measured.low)}–${thousands(measured.high)} kcal · '
+                      '${thousands(measured.displayRange.low)}–${thousands(measured.displayRange.high)} kcal · '
                       '${measured.kgPerWeek.abs() < 0.05 ? 'weight about steady' : '${measured.kgPerWeek < 0 ? 'losing' : 'gaining'} ${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week'} '
-                      '(${measured.days} days, ${measured.weighIns} weigh-ins)',
+                      '(${measured.days} days, ${measured.weighIns} weigh-ins)'
+                      '${measured.shortWindow ? ' · short-window conversion estimate' : ''}',
             style: F.cap.copyWith(
               color: measured == null || !measured.shown ? p.ink3 : p.ink2,
             ),
@@ -610,10 +613,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final v = kg == null ? null : Typed.of(kg).value;
     if (v == null || v < 30 || v > 300) return;
     try {
-      await BodyWeight.put(await LocalDb.instance, todayLabel(), v);
-      // The profile weight follows the scale, so resting energy and every
-      // calorie figure use the current weight.
-      await app.updateProfile({'weight_kg': v});
+      final date = todayLabel();
+      await BodyWeight.put(date, v, 'kg');
+      // Body owns the day's first reading. Later weigh-ins stay in its history
+      // and must not replace the canonical calculation weight.
+      final daily = await BodyLogDb.weightOn(date);
+      if (daily != null) await app.updateProfile({'weight_kg': daily.kg});
       app.bumpInsights();
       await _load();
     } catch (_) {
@@ -892,14 +897,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                 Row(
                   children: [
                     Expanded(
-                      child: PickRow(
-                        l,
-                        () {
-                          final n = foodsIn(_foods, l).length;
-                          return '$n ${n == 1 ? 'food' : 'foods'}';
-                        }(),
-                        onTap: () => Navigator.of(s).pop('rename:$l'),
-                      ),
+                      child: PickRow(l, () {
+                        final n = foodsIn(_foods, l).length;
+                        return '$n ${n == 1 ? 'food' : 'foods'}';
+                      }(), onTap: () => Navigator.of(s).pop('rename:$l')),
                     ),
                     // Build 89: remove straight from the list, left of the
                     // pencil, instead of renaming to an empty name.
@@ -1167,7 +1168,9 @@ class _NutritionDayViewState extends State<NutritionDayView>
         ? ('Missing food', () => set('incomplete'))
         : d.kcal.complete
         ? (
-            d.state == DayLogState.inProgress ? 'Mark complete' : 'Count this day',
+            d.state == DayLogState.inProgress
+                ? 'Mark complete'
+                : 'Count this day',
             () => set('complete'),
           )
         : null;
@@ -1532,9 +1535,7 @@ class _CalorieHero extends StatelessWidget {
                 children: [
                   Text(
                     side!,
-                    style: F.n34.copyWith(
-                      color: p.on(over ? C.alert : C.food),
-                    ),
+                    style: F.n34.copyWith(color: p.on(over ? C.alert : C.food)),
                   ),
                   Text(
                     sideWord,
@@ -1890,7 +1891,7 @@ class _HistoryRow extends StatelessWidget {
                 if (maintenance != null &&
                     kcal != null &&
                     day.countsTowardAverages)
-                  'Budget ${thousands(maintenance)} · ACSM ${acsmMaintenance == null ? '—' : thousands(acsmMaintenance)} · '
+                  'Budget ${thousands(maintenance)} · movement estimate ${acsmMaintenance == null ? '—' : thousands(acsmMaintenance)} · '
                       '${thousands((kcal - maintenance!).abs())} '
                       '${kcal > maintenance! ? 'over' : 'under'}',
               ].join(' · '),
@@ -2146,7 +2147,7 @@ class MaintenanceCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: S.x2),
-            CaloriePair(
+            EnergyComparison(
               budget: m.total,
               acsm: upkeep.acsmParts?.total,
               compact: true,
@@ -2190,7 +2191,11 @@ class MaintenanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: S.x3),
-          CaloriePair(budget: m.total, acsm: upkeep.acsmParts?.total, note: ''),
+          EnergyComparison(
+            budget: m.total,
+            acsm: upkeep.acsmParts?.total,
+            note: '',
+          ),
           const SizedBox(height: S.x4),
           StackedBar(budgetSegments(upkeep)),
           if (eaten > 0) ...[
@@ -2354,12 +2359,13 @@ Widget _maintenanceContents(
             ],
           ),
           const SizedBox(height: S.x5),
-          CaloriePair(
+          EnergyComparison(
             budget: m.total,
             acsm: a?.total,
             note: '',
             budgetParts: budgetParts,
             acsmParts: acsmParts,
+            equationLabel: u.comparisonLabel,
           ),
           const SizedBox(height: S.x5),
           StackedBar(budgetSegments(u)),
@@ -2431,6 +2437,9 @@ Widget _maintenanceContents(
           const SizedBox(height: S.x4),
           // Keyed: a reload that adds or drops a row above keeps it open.
           Explain(key: const ValueKey('maintenance-how'), [
+            'ACSM applies to walking at 50–100 m/min and running above 5 mph. '
+                'Unknown speeds and slower jogging are labelled movement estimates. '
+                'All-day walking speed is not established from a daily step total.',
             'Resting: Mifflin–St Jeor for the whole day, from age '
                 '${pr.ageYears}, ${pr.heightCm?.toStringAsFixed(1)} cm and '
                 '${kg(pr.weightKg)}.',
@@ -2438,21 +2447,23 @@ Widget _maintenanceContents(
                 ? 'Walking: no steps counted yet.'
                 : 'Walking, Budget: ${thousands(walked)} steps'
                       '${u.runs.steps > 0 ? ' outside your runs' : ''} × '
-                      '${kg(pr.weightKg)} (Weyand). ACSM prices the same '
-                      'walking by distance.',
+                      '${kg(pr.weightKg)} (Weyand). The movement equation prices the same '
+                      'walking by distance as an estimate when speed is unknown.',
             if (u.runs.count > 0)
               'Running: ${u.runs.km.toStringAsFixed(2)} km in ${u.runs.count} '
                   '${u.runs.count == 1 ? 'run' : 'runs'}, by distance at each '
-                  "run's recorded weight (Method 1 and ACSM).",
+                  "run's recorded weight (Budget and movement equation).",
             u.eaten > 0
                 ? 'Digestion, low end: protein 20%, carbs 5%, fat 0% '
                       '(5% for food without macros), on the '
                       '${thousands(u.eaten)} kcal logged.'
                 : 'Digestion: nothing logged yet.',
             if (lift != null)
-              'Lifting: 3.5 MET above resting × weight × active time (start '
+              'Lifting: (MET − 1) × weight × active time (start '
                   'to stop, minus pauses), less steps already counted. Heart '
-                  'rate is not used. Never added to maintenance.',
+                  'rate is not used. Bodyweight 3.0 MET, weights 3.5, calisthenics 3.8, '
+                  'powerlifting 5.0; functional 3.5 is an estimate without a matched '
+                  'Compendium entry. Never added to maintenance.',
           ]),
         ],
       ),

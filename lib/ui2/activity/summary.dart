@@ -45,6 +45,8 @@ import '../../compute/profile.dart'
         stepCalories,
         runFloorKcal,
         acsmActiveKcal,
+        movementEquationEstimateKcal,
+        workoutEnergyMethodLabel,
         conservativeMet,
         isLiftType;
 import '../screens/log_workout.dart' show bumpInsights;
@@ -269,20 +271,38 @@ class ActivityResult {
   final int? avgHr, maxHr;
   final int? _storedCalories;
   final Profile? calculationProfile;
-  double? get acsmCalories {
+  double? get acsmCalories => _movementCalories(qualified: true);
+  double? get movementEstimateCalories => _movementCalories(qualified: false);
+
+  double? _movementCalories({required bool qualified}) {
     final kg = calculationProfile?.weightKg;
-    if (isWalkType(activity.typeKey))
-      return distanceKm == null
-          ? null
-          : acsmActiveKcal(
+    if (isWalkType(activity.typeKey)) {
+      if (distanceKm == null) return null;
+      return qualified
+          ? acsmActiveKcal(
+              runMeters: 0,
+              walkMeters: distanceKm! * 1000,
+              walkMovingSeconds: movingSec?.toDouble(),
+              weightKg: kg,
+            )
+          : movementEquationEstimateKcal(
               runMeters: 0,
               walkMeters: distanceKm! * 1000,
               weightKg: kg,
             );
+    }
     final m = mix;
-    return !isRunType(activity.typeKey) || m == null
-        ? null
-        : acsmActiveKcal(
+    if (!isRunType(activity.typeKey) || m == null) return null;
+    return qualified
+        ? acsmActiveKcal(
+            runMeters: m.runM,
+            walkMeters: m.walkM,
+            runClimbMeters: m.climbM,
+            runMovingSeconds: m.runSec.toDouble(),
+            walkMovingSeconds: m.walkSec.toDouble(),
+            weightKg: kg,
+          )
+        : movementEquationEstimateKcal(
             runMeters: m.runM,
             walkMeters: m.walkM,
             runClimbMeters: m.climbM,
@@ -1663,7 +1683,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         : conservativeMet(a.typeKey, a.met!).toStringAsFixed(1);
     if (r.calories != null && isLiftType(a.typeKey)) {
       // The figure is sessionActiveKcal: MET only, sets and rests together.
-      return '$met MET above resting × your weight × active time (start to '
+      return '${workoutEnergyMethodLabel(a.typeKey)}. ($met − 1) × your weight × active time (start to '
           'stop, minus pauses). Heart rate is shown, not counted: it '
           'overstates lifting. Not added to maintenance.';
     }

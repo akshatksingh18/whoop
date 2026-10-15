@@ -85,9 +85,7 @@ Widget _noOvernightLines(BuildContext c) {
 /// Local noon of a 'YYYY-MM-DD' day, in epoch seconds — the stamp `getChart`
 /// puts on that day's stored scalar. Used to cut the history at last night, so
 /// a night is never compared against a window that contains itself.
-int? _noonOf(String? day) => day == null
-    ? null
-    : dayChartAnchorSec(day);
+int? _noonOf(String? day) => day == null ? null : dayChartAnchorSec(day);
 
 /// The middle half of the user's own nights, plus its median and its count.
 ///
@@ -304,9 +302,12 @@ class SleepData {
     final wins = await repo.sleepWindows(days: _window + 1);
     final onsets = <int>[
       for (final w in wins.reversed)
-        if (w['date'] != day && w['onset_ts'] is num &&
-            !DayClock.spansZoneChange((w['onset_ts'] as num).round(),
-                (w['wake_ts'] as num?)?.round() ?? (w['onset_ts'] as num).round()))
+        if (w['date'] != day &&
+            w['onset_ts'] is num &&
+            !DayClock.spansZoneChange(
+              (w['onset_ts'] as num).round(),
+              (w['wake_ts'] as num?)?.round() ?? (w['onset_ts'] as num).round(),
+            ))
           (w['onset_ts'] as num).round(),
     ];
 
@@ -690,12 +691,15 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           // Keep the duration legible at large text sizes; the bound is named
           // directly above it rather than shrinking a long phrase into a number.
           if (unobserved != null && unobserved > 0)
-            Text(l?.sleepDetailAtLeastDuration ?? 'At least',
-                style: F.body.copyWith(color: p.ink)),
+            Text(
+              l?.sleepDetailAtLeastDuration ?? 'At least',
+              style: F.body.copyWith(color: p.ink),
+            ),
           HeroStat(
             value: tst == null ? null : hm(tst),
-            semanticLabel: tst == null ? null :
-                '${unobserved != null && unobserved > 0 ? 'At least ' : ''}${hm(tst)} total sleep',
+            semanticLabel: tst == null
+                ? null
+                : '${unobserved != null && unobserved > 0 ? 'At least ' : ''}${hm(tst)} total sleep',
             color: C.sleep,
             label: l?.sleepDetailTotalSleep ?? 'Total sleep',
             lines: [
@@ -1482,7 +1486,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // band edges are formatted back into clock times, which is the only form
     // anyone reads a bedtime in.
     final onset = (n['onset_ts'] as num?)?.round();
-    if (onset != null && n['sleep_spans_zone_change'] != true &&
+    if (onset != null &&
+        n['sleep_spans_zone_change'] != true &&
         d.onsetHistory.isNotEmpty) {
       final rel = [for (final o in d.onsetHistory) _relMinutes(o, onset)];
       rows.add(
@@ -1793,7 +1798,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final rows = <(String, String, String, Color, List<double?>, String)>[
       if (avgHr != null || hrMean != null)
         (
-          loc?.sleepDetailHeartRate ?? 'Heart rate',
+          avgHr == null
+              ? (loc?.sleepDetailHeartRate ?? 'Heart rate')
+              : 'Resting HR · asleep',
           '${(avgHr ?? hrMean)!.round()} bpm',
           // B88-03: the first number is the lowest 30-minute average (the
           // resting HR), the second the 1st percentile — neither an average
@@ -1801,8 +1808,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           avgHr == null
               ? 'average'
               : minHr == null
-              ? 'lowest 30-min average'
-              : 'lowest 30-min average · 1st percentile ${minHr.round()}',
+              ? 'lowest 30-minute average while asleep'
+              : 'lowest 30-minute average while asleep · 1st percentile ${minHr.round()}',
           C.heart,
           hrLine,
           'resting_hr',

@@ -148,10 +148,7 @@ class ReadinessData {
     final chart = await repo.getChart('recovery');
     final currentDay = (today['status'] as Map?)?['today_day']?.toString();
     if (day != null && day != currentDay) {
-      final matches = pointsOf(chart).where(
-        (p) =>
-            dayLabelAtSec(p.t) == day,
-      );
+      final matches = pointsOf(chart).where((p) => dayLabelAtSec(p.t) == day);
       return ReadinessData(
         readiness: matches.isEmpty
             ? Metric.empty
@@ -355,8 +352,12 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     final d = _d ?? const ReadinessData();
     final v = d.readiness.value;
     final band = readinessBand(v, l);
-    final zone = widget.day == null ? null : DayClock.abbreviation(widget.day!,
-        nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    final zone = widget.day == null
+        ? null
+        : DayClock.abbreviation(
+            widget.day!,
+            nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          );
 
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
@@ -367,8 +368,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       embedded: widget.embedded,
       [
         if (widget.day != null)
-          Text('${prettyDay(widget.day, l)}${zone == null ? '' : ' · $zone'}',
-              style: F.body.copyWith(color: p.ink2)),
+          Text(
+            '${prettyDay(widget.day, l)}${zone == null ? '' : ' · $zone'}',
+            style: F.body.copyWith(color: p.ink2),
+          ),
         if (_failed)
           StatusCard(
             'Recovery could not load',
@@ -422,7 +425,10 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                       'vs your own last 28 nights, within 60 days',
                     ],
                   ),
-                  Text(_advice(band.tier), style: F.body.copyWith(color: p.ink2)),
+                  Text(
+                    _advice(band.tier),
+                    style: F.body.copyWith(color: p.ink2),
+                  ),
                   if (d.breakdown.isNotEmpty) ...[
                     const SizedBox(height: S.x3),
                     Divider(color: p.line, height: 1),
@@ -475,7 +481,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                   '${d.inputsUsed} of ${d.breakdown.length} inputs were available. '
                   'Each is compared with your own recent nights: HRV carries '
                   '35% of the weight, resting heart rate 25%, last night\'s sleep '
-                  '20% and breathing rate 12%. Skin temperature is left out on '
+                  '20% and breathing rate 12%. Resting HR is the lowest 30-minute '
+                  'average while asleep. Skin temperature is left out on '
                   'this band (its sensor reading is not a temperature).',
                   style: F.cap.copyWith(color: p.ink3, height: 1.5),
                 ),
@@ -613,7 +620,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       if (e is! Map) continue;
       final n = (e['baseline_n'] as num?)?.toInt() ?? 0;
       rows.add((
-        driverLabel(k, l),
+        k == 'rhr' ? 'Resting HR · asleep' : driverLabel(k, l),
         '${e['value'] == true ? (l?.readinessDetailMeasured ?? 'Measured') : (l?.readinessDetailNotMeasured ?? 'Not measured')} · '
             '${l?.readinessDetailNightsOfHistory(n) ?? '$n night${n == 1 ? '' : 's'} of your own history'}',
       ));
@@ -718,7 +725,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       onTap: metric == null
           ? null
           : () => go(c, MetricDetail.at(metric, widget.day)),
-      semanticLabel: '${driverLabel(key, l)}, $word',
+      semanticLabel:
+          '${key == 'rhr' ? 'Resting HR · asleep' : driverLabel(key, l)}, $word',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(
@@ -728,19 +736,21 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    driverLabel(key, l),
+                    key == 'rhr' ? 'Resting HR · asleep' : driverLabel(key, l),
                     style: F.body.copyWith(color: p.ink),
                   ),
+                  if (key == 'rhr')
+                    Text(
+                      'Lowest 30-minute average while asleep',
+                      style: F.body.copyWith(color: p.ink),
+                    ),
                   if (share != null)
                     Text(
                       '${(share * 100).round()}% of the score',
                       style: F.over.copyWith(color: p.ink3),
                     )
                   else if (!used && key == 'hrv' && _d?.hrvNote != null)
-                    Text(
-                      _d!.hrvNote!,
-                      style: F.cap.copyWith(color: p.ink2),
-                    ),
+                    Text(_d!.hrvNote!, style: F.cap.copyWith(color: p.ink2)),
                 ],
               ),
             ),

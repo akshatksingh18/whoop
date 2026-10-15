@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'day_label.dart';
+import 'body_log.dart' show BodyLogDb;
 
 // ══════════════════ SCHEMA ══════════════════
 
@@ -1822,24 +1823,17 @@ class MyFoods {
 class BodyWeight {
   BodyWeight._();
 
-  /// Record today's (or [date]'s) weight; a second reading the same day
-  /// replaces the first.
-  static Future<void> put(Database db, String date, double kg) async {
-    if (!kg.isFinite || kg <= 0 || kg > 500) {
-      throw ArgumentError.value(kg, 'kg', 'Enter a valid weight');
-    }
-    await db.insert('body_weight', {
-      'date': date,
-      'kg': kg,
-      'at_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-    NutritionDb.changed();
-  }
+  /// Use Body's reading ledger and canonical daily weight, including its
+  /// first-reading rule. [historyOnly] is normally inferred by BodyLogDb.
+  static Future<void> put(
+    String date,
+    double value,
+    String unit, {
+    bool? historyOnly,
+  }) => BodyLogDb.putWeight(date, value, unit, historyOnly: historyOnly);
 
-  static Future<void> delete(Database db, String date) async {
-    await db.delete('body_weight', where: 'date = ?', whereArgs: [date]);
-    NutritionDb.changed();
-  }
+  static Future<void> delete(Database db, String date) =>
+      BodyLogDb.deleteWeight(date);
 
   /// Every reading on or after [sinceDate], oldest first. [calculation]
   /// keeps only calculation inputs — the food/weight maintenance estimate
@@ -1891,8 +1885,7 @@ class BodyWeight {
 
 /// Food and weight estimate, withheld if ANY aligned food day is incomplete.
 /// The fixed tissue-energy conversion remains an approximation, not a measure.
-MeasuredMaintenance?
-estimatedMaintenance(
+MeasuredMaintenance? estimatedMaintenance(
   List<({String date, double kg})> weights,
   List<NutritionDay> days,
 ) {
@@ -1968,6 +1961,24 @@ extension MeasuredMaintenanceRange on MeasuredMaintenance {
 
   /// Narrow enough to print as a number with a range.
   bool get shown => halfRange <= kMaintenanceMaxHalfRange;
+
+  // `days` includes both reading dates; the elapsed calibration span is days-1.
+  bool get shortWindow => days - 1 < 42;
+
+  /// Display-only envelope: retain the trend interval and include the approved
+  /// 4,858–7,700 kcal/kg conversion range before six weeks. It is an implied
+  /// range, not a new statistical confidence interval or a calorie target.
+  ({double low, double high}) get displayRange {
+    if (!shortWindow) return (low: low, high: high);
+    final slope = kgPerWeek / 7;
+    final eaten = kcal + slope * kKcalPerKg;
+    final slopes = [(eaten - high) / kKcalPerKg, (eaten - low) / kKcalPerKg];
+    final implied = [
+      for (final s in slopes)
+        for (final conversion in [4858.0, kKcalPerKg]) eaten - s * conversion,
+    ];
+    return (low: implied.reduce(math.min), high: implied.reduce(math.max));
+  }
 }
 
 /// Maintenance MEASURED from the scale: average food eaten minus the energy

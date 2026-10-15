@@ -53,24 +53,33 @@ class WorkoutMeasurements {
       : ((motion?.activeMinutes ?? 0) * 60).round();
   double? method1(String type) =>
       workoutMethod1(type, profile, steps: steps, mix: mix);
-  double? acsm(String type) {
+  double? acsm(String type) => _equation(type, qualified: true);
+  double? movementEstimate(String type) => _equation(type, qualified: false);
+  double? _equation(String type, {required bool qualified}) {
     final m = mix;
-    if (isWalkType(type))
-      return meters == null
-          ? null
-          : acsmActiveKcal(
-              runMeters: 0,
-              walkMeters: meters!,
-              weightKg: profile.weightKg,
-            );
-    return !isRunType(type) || m == null
-        ? null
-        : acsmActiveKcal(
-            runMeters: m.runM,
-            walkMeters: m.walkM,
-            runClimbMeters: m.climbM,
-            weightKg: profile.weightKg,
-          );
+    final walking = isWalkType(type);
+    if (!walking && (!isRunType(type) || m == null)) return null;
+    final runM = walking ? 0.0 : m!.runM;
+    final walkM = walking ? meters : m!.walkM;
+    if (walkM == null) return null;
+    if (qualified &&
+        (!acsmSpeedSupported(
+              running: true,
+              meters: runM,
+              movingSeconds: m?.runSec,
+            ) ||
+            !acsmSpeedSupported(
+              running: false,
+              meters: walkM,
+              movingSeconds: walking ? movingSec.toDouble() : m?.walkSec,
+            )))
+      return null;
+    return movementEquationEstimateKcal(
+      runMeters: runM,
+      walkMeters: walkM,
+      runClimbMeters: walking ? 0 : m!.climbM,
+      weightKg: profile.weightKg,
+    );
   }
 
   static Future<WorkoutMeasurements> read(
@@ -83,7 +92,11 @@ class WorkoutMeasurements {
   }) async {
     final clock = WorkoutClock.read(id, start, end: end);
     final profile =
-        clock.profile ?? await ProfileHistory.on(dayLabelOf(start), fallback);
+        clock.profile ??
+        await ProfileHistory.on(
+          dayLabelAtSec(start.millisecondsSinceEpoch ~/ 1000),
+          fallback,
+        );
     final route = await repo.getWorkoutRoute(id);
     final points = activeTrack(route?.points ?? [], clock);
     final motion = points.length > 1

@@ -4,7 +4,8 @@
 // of maintenance. Summaries are invalidated when measurements, sessions or
 // profile inputs change; retained motion answers are backed up with the ledger.
 
-import '../compute/profile.dart' show runFloorKcal, acsmActiveKcal;
+import '../compute/profile.dart'
+    show runFloorKcal, movementEquationEstimateKcal, acsmSpeedSupported;
 import '../data/db.dart';
 import 'workout_clock.dart';
 import 'session_track.dart';
@@ -201,11 +202,18 @@ Future<RunSummary?> summariseRun(
           seconds: motion.seconds,
         );
   final byDay = <String, ({RunMix mix, int? steps, double meters})>{};
-  var day = DateTime(start.year, start.month, start.day);
+  final startSecond = start.millisecondsSinceEpoch ~/ 1000;
+  var day = DateTime.fromMillisecondsSinceEpoch(
+    (localDayStartSec(dayLabelAtSec(startSecond)) ?? startSecond) * 1000,
+  );
   var totalSteps = 0;
   var measured = false;
   while (day.isBefore(end)) {
-    final label = dayLabelOf(day);
+    final label = dayLabelAtSec(day.millisecondsSinceEpoch ~/ 1000);
+    final nextSecond = localDayEndSec(label);
+    if (nextSecond == null || nextSecond * 1000 <= day.millisecondsSinceEpoch)
+      break;
+    final dayStop = DateTime.fromMillisecondsSinceEpoch(nextSecond * 1000);
     var steps = 0;
     var known = false;
     final windows = dailyClock.onDay(label);
@@ -221,8 +229,7 @@ Future<RunSummary?> summariseRun(
     var phone = 0;
     if (motion != null) {
       for (var i = 0; i < motion.steps.length; i++) {
-        if (dayLabelOf(DateTime.fromMillisecondsSinceEpoch(motion.timeAt(i))) ==
-            label) {
+        if (dayLabelAtSec(motion.timeAt(i) ~/ 1000) == label) {
           phone += motion.steps[i];
         }
       }
@@ -236,16 +243,12 @@ Future<RunSummary?> summariseRun(
         excluded.isEmpty &&
         bandSteps != null &&
         bandSteps > 0 &&
-        dayLabelOf(start) == label &&
-        dayLabelOf(end.subtract(const Duration(milliseconds: 1))) == label) {
+        dayLabelAtSec(start.millisecondsSinceEpoch ~/ 1000) == label &&
+        dayLabelAtSec((end.millisecondsSinceEpoch - 1) ~/ 1000) == label) {
       steps = bandSteps;
       known = true;
     }
-    final dayClock = WorkoutClock(
-      id,
-      day,
-      end: DateTime(day.year, day.month, day.day + 1),
-    );
+    final dayClock = WorkoutClock(id, day, end: dayStop);
     final dayPts = activeTrack(activeTrack(points, dailyClock), dayClock);
     final dayMotion = motion?.within(windows);
     final mm = <double?>[], st = <int>[], sec = <double>[];
@@ -280,7 +283,7 @@ Future<RunSummary?> summariseRun(
     }
     totalSteps += steps;
     measured |= known;
-    day = DateTime(day.year, day.month, day.day + 1);
+    day = dayStop;
   }
   return RunSummary(
     id,
@@ -314,8 +317,9 @@ void runsChanged() {
 }
 
 /// The runs that started on [day] (a local `yyyy-MM-dd` label).
-Iterable<RunSummary> runsOnDay(List<RunSummary> runs, String day) =>
-    runs.where((r) => dayLabelOf(r.start) == day);
+Iterable<RunSummary> runsOnDay(List<RunSummary> runs, String day) => runs.where(
+  (r) => dayLabelAtSec(r.start.millisecondsSinceEpoch ~/ 1000) == day,
+);
 
 /// One day's Running row: Method 1 calories over that day's runs, the steps
 /// those runs took (never more than [daySteps]) and their distance.
@@ -334,14 +338,15 @@ RunDay runEnergyOn(
   var steps = 0;
   var count = 0;
   for (final r in runs.where(
-    (r) =>
-        r.byDay.isEmpty ? dayLabelOf(r.start) == day : r.byDay.containsKey(day),
+    (r) => r.byDay.isEmpty
+        ? dayLabelAtSec(r.start.millisecondsSinceEpoch ~/ 1000) == day
+        : r.byDay.containsKey(day),
   )) {
     final slice = r.byDay[day];
     final mix = slice?.mix ?? r.mix;
     final k =
         (acsm
-            ? acsmActiveKcal(
+            ? movementEquationEstimateKcal(
                 runMeters: mix.runM,
                 walkMeters: mix.walkM,
                 runClimbMeters: mix.climbM,
@@ -362,6 +367,30 @@ RunDay runEnergyOn(
   }
   if (daySteps != null && steps > daySteps) steps = daySteps.toInt();
   return (kcal: kcal, steps: steps, count: count, km: km);
+}
+
+/// Qualification only; the separate estimate keeps its values and label when
+/// speed or gait falls outside the documented ACSM domain.
+bool acsmRunSpeedsSupported(List<RunSummary> runs, String day) {
+  for (final r in runs) {
+    if (r.byDay.isEmpty
+        ? dayLabelAtSec(r.start.millisecondsSinceEpoch ~/ 1000) != day
+        : !r.byDay.containsKey(day))
+      continue;
+    final mix = r.byDay[day]?.mix ?? r.mix;
+    if (!acsmSpeedSupported(
+          running: true,
+          meters: mix.runM,
+          movingSeconds: mix.runSec,
+        ) ||
+        !acsmSpeedSupported(
+          running: false,
+          meters: mix.walkM,
+          movingSeconds: mix.walkSec,
+        ))
+      return false;
+  }
+  return true;
 }
 
 /// The best predicted 5K time, in seconds, from efforts of 3 km or more in

@@ -11,7 +11,8 @@ checks pass; full physical acceptance remains open. He rejects Progress's inform
 No proposal is implemented by that report. Build 89 still occupies testing; its recovery promotion
 is requested after the review. Build 70 remains cached recovery. `build-85-audit.md` owns earlier approved changes;
 `build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
-are unchanged; ACSM is a separate distance comparison using the same ledger. `todo.md` owns
+are unchanged; the distance comparison uses ACSM only at supported measured speeds,
+otherwise it is labelled Movement estimate using the same ledger. `todo.md` owns
 current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
 
 Build 88 (`0.9.55`/`88`, algorithm 92) was installed before Build 89 (algorithm 93). Historical
@@ -414,14 +415,16 @@ maintenance = BMR + step calories (steps outside runs) + running (Method 1) + di
 These are estimates, not guaranteed individual physiological minima. The card includes the
 whole day's BMR plus movement and food recorded so far; it is not burn elapsed since midnight.
 ACSM uses `0.005 * kg * (0.2 * run_metres + 0.1 * walk_metres + 0.9 * trusted_run_climb
-+ 1.8 * trusted_walk_climb)`, excluding resting already. Daily ACSM maintenance uses the same
++ 1.8 * trusted_walk_climb)`, excluding resting already. The distance-equation maintenance comparison uses the same
 full-day BMR and logged-food digestion allowance, with the same run ownership and step exclusions.
-Current GPS climb is not trusted for additions. A recorded walking route replaces overlapping
+Build 90 qualifies ACSM for walking at 50–100 m/min and running above 5 mph;
+missing moving time or other speeds retain a separately labelled Movement estimate. Daily
+step distance does not establish walking speed. Current GPS climb is not trusted for additions. A recorded walking route replaces overlapping
 phone distance; no walking-workout calorie addition exists. iPhone `CMPedometerData.distance`
 is saved beside its accepted step coverage. Remaining steps use an explicit height-based distance
 estimate when possible; absent distance/profile stays unavailable, never zero or an invented burn.
 
-Budget/ACSM are persistent paired values on Today/Food/history/Weekly, Trends/daily Steps,
+Budget and the qualified ACSM/Movement estimate comparison remain paired on Today/Food/history/Weekly, Trends/daily Steps,
 live/summary/history/share. HR is separate expandable analysis. No within-50-kcal merging or
 claim of a guaranteed upper/lower range remains. Neither model measures true individual TDEE.
 Calories eaten and fixed food targets are independent of exercise. `build-74-audit.md` owns the
@@ -442,6 +445,15 @@ with approval; Linux CI `37397127258` and macOS build `37395690305` pass. Downlo
 source/version, ZIP and payload/extension checks pass; `setup.md` owns complete evidence.
 Build 85 installation is confirmed by Akshat; calculation/refresh phone checks remain before
 calling the carried-forward fixes verified on the current iPhone build.
+
+Build 90's general bodyweight resistance uses 3.0 MET (Compendium 02056);
+calisthenics remains 3.8, weight training 3.5 and powerlifting 5.0. Functional's retained
+3.5 is explicitly an estimate without a matched Compendium entry. Net lifting energy is
+`(MET - 1) × kg × active hours`, displayed beside maintenance, never added inside it.
+The food/weight calibration retains its Theil–Sen trend and existing coverage/uncertainty
+gates. Before 42 elapsed days its display envelope includes 4,858–7,700 kcal/kg conversion
+uncertainty as well as the existing trend interval; this is display-only, not a target or
+an additional statistical confidence claim.
 
 **A run's or walk's own calories** (setup/live/summary/history/share):
 - Walking Method 1: exactly `(2.74 * active_session_steps * weight_kg) / 8368`, labelled From steps.

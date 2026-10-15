@@ -223,7 +223,23 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   confirm this definition since the local-measurement paragraph supersedes recommendations
   (b)-(c) without stating a replacement formula. This field does not gate any headline.
   No strain formula change.
-  Remaining Codex tasks: energy/estimates (6), instrumentation/speed (7), Food data/exports (8),
+  Task 5 is committed as `c03421f5`. Task 6 implementation uses bodyweight 3.0 MET,
+  labels functional as an estimate, qualifies ACSM by measured moving speed and retains
+  out-of-domain/unknown-speed values under Movement estimate. Shorter-than-six-week
+  food/weight displays include the 4,858–7,700 conversion envelope without changing the
+  trend/gates or feeding advice. Run/walk remain in maintenance; lifting remains separate.
+  Akshat assigned `activity/summary.dart`, `activity/run_detail.dart` and `day_steps.dart`
+  to Codex. Food quick weigh-in delegates to BodyLogDb and uses its canonical daily weight
+  for the profile; first-reading persistence still depends on Claude's Body implementation.
+  Resting HR labels name the lowest 30-minute average while asleep on all three owned details.
+  Claude integration needed: in `workout_screen.dart`'s LiveFeed constructor, keep
+  `acsmCalories: app.workoutAcsmKcal` and add
+  `movementEstimateCalories: app.workoutMovementEstimateKcal` so unsupported speeds retain
+  the explicitly labelled comparison. New EnergyComparison gallery entries are confined
+  to the marked Codex lane block. Nine focused energy checks pass, including 1x/2x/3.1x
+  layouts; two selected Build 73 dated-weight/restore regressions pass. Native iPhone
+  appearance and the merged first-reading ledger test still need Claude CI/phone verification.
+  Remaining Codex tasks: instrumentation/speed (7), Food data/exports (8),
   Food layout/copy-day (9), private strain comparison plus synthetic history profiles (10).
   Extend the single algorithm-95 changelog as those approved output changes land.
 

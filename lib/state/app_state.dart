@@ -54,7 +54,7 @@ import '../data/pushup_reminders.dart' show Pushups;
 import '../gps/workout_clock.dart';
 import '../gps/workout_measurements.dart';
 import '../gps/run_analysis.dart' show runMix;
-import '../gps/route_math.dart' show totalDistanceMeters;
+import '../gps/route_math.dart' show totalDistanceMeters, movingSeconds;
 import '../gps/run_voice.dart';
 import '../gps/run_history.dart' show runsChanged, isRunType, isWalkType;
 import '../data/day_label.dart';
@@ -5966,22 +5966,43 @@ class AppState extends ChangeNotifier {
     )?.round();
   }
 
-  int? get workoutAcsmKcal {
+  int? get workoutAcsmKcal => _workoutMovementKcal(qualified: true);
+  int? get workoutMovementEstimateKcal =>
+      _workoutMovementKcal(qualified: false);
+  int? _workoutMovementKcal({required bool qualified}) {
     final w = activeWorkout;
     if (w == null || (!isRunType(w.type) && !isWalkType(w.type))) return null;
     final points = _routeTracker?.acceptedPoints;
     if (points != null && points.length > 1) {
       final mix = runMix(points);
-      return acsmActiveKcal(
-        runMeters: isRunType(w.type) ? mix.runM : 0,
-        walkMeters: isWalkType(w.type)
-            ? totalDistanceMeters(points)
-            : mix.walkM,
-        runClimbMeters: isRunType(w.type) ? mix.climbM : 0,
+      final walking = isWalkType(w.type);
+      final runM = walking ? 0.0 : mix.runM;
+      final walkM = walking ? totalDistanceMeters(points) : mix.walkM;
+      if (qualified &&
+          (!acsmSpeedSupported(
+                running: true,
+                meters: runM,
+                movingSeconds: mix.runSec,
+              ) ||
+              !acsmSpeedSupported(
+                running: false,
+                meters: walkM,
+                movingSeconds: walking
+                    ? movingSeconds(points).toDouble()
+                    : mix.walkSec,
+              )))
+        return null;
+      return movementEquationEstimateKcal(
+        runMeters: runM,
+        walkMeters: walkM,
+        runClimbMeters: walking ? 0 : mix.climbM,
         weightKg: w.profile.weightKg,
       )?.round();
     }
-    return _workoutMeasurements?.acsm(w.type)?.round();
+    return (qualified
+            ? _workoutMeasurements?.acsm(w.type)
+            : _workoutMeasurements?.movementEstimate(w.type))
+        ?.round();
   }
 
   Future<void> _refreshWorkoutMovement({

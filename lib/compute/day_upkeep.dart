@@ -20,6 +20,7 @@ class DayUpkeep {
     this.walkingMeters,
     this.distanceSource = 'Distance unavailable',
     this.acsmRuns = kNoRunDay,
+    this.runSpeedsQualified = false,
     this.runWindows = const [],
     this.digestion,
     this.lifting,
@@ -33,6 +34,11 @@ class DayUpkeep {
   final double? walkingMeters;
   final String distanceSource;
   final RunDay acsmRuns;
+  final bool runSpeedsQualified;
+
+  bool get acsmQualified =>
+      walkingMeters == 0 && (runs.count == 0 || runSpeedsQualified);
+  String get comparisonLabel => acsmQualified ? 'ACSM' : 'Movement estimate';
   final List<ActiveWindow> runWindows;
 
   /// The day's summed per-entry [digestionKcal]; null prices [eaten] as food
@@ -46,18 +52,15 @@ class DayUpkeep {
 
   /// The local day's real length ÷ 24 h (DST days are 23 or 25 h).
   double get dayFraction {
-    final d = date == null ? null : DateTime.tryParse(date!);
-    if (d == null) return 1.0;
-    final start = DateTime(d.year, d.month, d.day);
-    final end = DateTime(d.year, d.month, d.day + 1);
-    return end.difference(start).inMinutes / 1440.0;
+    final seconds = date == null ? null : localDayLengthSec(date!);
+    return seconds == null ? 1.0 : seconds / 86400;
   }
 
   ({double bmr, double steps, double run, double food, double total})?
   get acsmParts {
     final m = parts;
     if (m == null || walkingMeters == null) return null;
-    final walk = acsmActiveKcal(
+    final walk = movementEquationEstimateKcal(
       runMeters: 0,
       walkMeters: walkingMeters!,
       weightKg: profile.weightKg,
@@ -221,6 +224,7 @@ class DayUpkeep {
         daySteps: steps,
         acsm: true,
       ),
+      runSpeedsQualified: acsmRunSpeedsSupported(owned, date),
       runWindows: [
         for (final r in dayRuns)
           if ((r.floorKcal(profile.weightKg) ?? 0) > 0) ...r.activeWindows,
@@ -239,7 +243,10 @@ Future<Profile> sessionProfile(
   DateTime? end,
 }) async =>
     WorkoutClock.read(id, start, end: end).profile ??
-    await ProfileHistory.on(dayLabelOf(start), fallback);
+    await ProfileHistory.on(
+      dayLabelAtSec(start.millisecondsSinceEpoch ~/ 1000),
+      fallback,
+    );
 
 /// Longest lifting session priced in the separate lifting line.
 const int kMaxLiftHours = 4;
@@ -256,8 +263,12 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   final day = DateTime.tryParse(date);
   final kg = profile.weightKg;
   if (day == null || kg == null) return null;
-  final from = DateTime(day.year, day.month, day.day);
-  final to = DateTime(day.year, day.month, day.day + 1);
+  final from = DateTime.fromMillisecondsSinceEpoch(
+    (localDayStartSec(date) ?? 0) * 1000,
+  );
+  final to = DateTime.fromMillisecondsSinceEpoch(
+    (localDayEndSec(date) ?? 0) * 1000,
+  );
   final lo = from.millisecondsSinceEpoch ~/ 1000;
   final hi = to.millisecondsSinceEpoch ~/ 1000 - 1;
   final rows = [
@@ -270,8 +281,10 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   var approximate = false;
   // B88-06: overlapping lift sessions are one stretch of lifting, priced once.
   DateTime? coveredUntil;
-  rows.sort((a, b) =>
-      ((a['start_ts'] as num?) ?? 0).compareTo((b['start_ts'] as num?) ?? 0));
+  rows.sort(
+    (a, b) =>
+        ((a['start_ts'] as num?) ?? 0).compareTo((b['start_ts'] as num?) ?? 0),
+  );
   for (final r in rows) {
     final id = r['id'] as String?;
     final startTs = (r['start_ts'] as num?)?.toInt();
@@ -336,10 +349,8 @@ Future<({double? meters, String source})> _walkingDistance(
   if (walked == null)
     return (meters: null, source: 'Walking steps unavailable');
   if (walked == 0) return (meters: 0.0, source: 'No walking steps');
-  final d = DateTime.parse(date);
-  final hi =
-      DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
-  final lo = d.millisecondsSinceEpoch ~/ 1000;
+  final hi = localDayEndSec(date) ?? 0;
+  final lo = localDayStartSec(date) ?? 0;
   final db = await LocalDb.instance;
   final rows = await db.query(
     'live_coverage',

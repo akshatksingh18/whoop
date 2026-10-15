@@ -1,3 +1,4 @@
+import '../energy_comparison.dart';
 // The live screens.
 //
 // Same interaction grammar — one shell, one clock, one pause/stop control —
@@ -59,6 +60,7 @@ class LiveFeed {
   final int? calories;
   final int? hrActiveCalories;
   final int? acsmCalories;
+  final int? movementEstimateCalories;
   final double? strain;
   final double? distanceKm;
   final int? steps;
@@ -124,6 +126,7 @@ class LiveFeed {
     this.calories,
     this.hrActiveCalories,
     this.acsmCalories,
+    this.movementEstimateCalories,
     this.strain,
     this.distanceKm,
     this.steps,
@@ -1113,11 +1116,7 @@ List<Widget> _distanceStats(
             ),
             if (f.steps != null) ...[
               Divider(color: p.line, height: 1),
-              MetricLine(
-                label: 'Steps',
-                color: C.body,
-                value: '${f.steps}',
-              ),
+              MetricLine(label: 'Steps', color: C.body, value: '${f.steps}'),
             ],
             if (f.strain != null) ...[
               Divider(color: p.line, height: 1),
@@ -1375,11 +1374,15 @@ class LiveMeasured extends StatelessWidget {
             ..._distanceStats(ctx, p, f, a, weightKg, elapsed),
             if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
               const SizedBox(height: S.x2),
-              CaloriePair(
+              EnergyComparison(
                 budget: f.calories?.toDouble(),
-                acsm: f.acsmCalories?.toDouble(),
+                acsm: (f.acsmCalories ?? f.movementEstimateCalories)
+                    ?.toDouble(),
+                equationLabel: f.acsmCalories == null
+                    ? 'Movement estimate'
+                    : 'ACSM',
                 note:
-                    'Above resting · Budget from ${isWalkType(a.typeKey) ? "steps" : "distance"}, ACSM from distance',
+                    'Above resting · Budget from ${isWalkType(a.typeKey) ? "steps" : "distance"}, distance equation estimate',
               ),
             ],
             if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[

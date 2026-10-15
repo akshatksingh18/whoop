@@ -1,3 +1,4 @@
+import '../energy_comparison.dart';
 // The run screen: an Apple Maps route, the headline numbers, best efforts
 // against every earlier run, a plain verdict, splits, and pace / heart rate /
 // elevation charts that share one finger cursor (which also moves a dot along
@@ -10,7 +11,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../compute/profile.dart'
-    show Profile, keytelActiveKcal, runFloorKcal, stepCalories, acsmActiveKcal;
+    show
+        Profile,
+        keytelActiveKcal,
+        runFloorKcal,
+        stepCalories,
+        acsmActiveKcal,
+        movementEquationEstimateKcal;
 import '../../gps/map_snapshot.dart';
 import '../../gps/route_math.dart' show kMetersPerKm;
 import '../../gps/run_analysis.dart';
@@ -519,6 +526,35 @@ class RunStatsGrid extends StatelessWidget {
 /// Legacy comparison threshold retained for callers; the UI never merges models.
 const double kCalorieAgree = 50;
 
+double? _comparisonEnergy(
+  ActivityResult r,
+  double? kg, {
+  required bool qualified,
+}) {
+  final run = isRunType(r.activity.typeKey), mix = r.mix;
+  if (run ? mix == null : r.distanceKm == null) return null;
+  final runM = run ? mix!.runM : 0.0;
+  final walkM = run ? mix!.walkM : r.distanceKm! * 1000;
+  final climb = run ? mix!.climbM : 0.0;
+  return qualified
+      ? acsmActiveKcal(
+          runMeters: runM,
+          walkMeters: walkM,
+          runClimbMeters: climb,
+          runMovingSeconds: run ? mix!.runSec.toDouble() : null,
+          walkMovingSeconds: run
+              ? mix!.walkSec.toDouble()
+              : r.movingSec?.toDouble(),
+          weightKg: kg,
+        )
+      : movementEquationEstimateKcal(
+          runMeters: runM,
+          walkMeters: walkM,
+          runClimbMeters: climb,
+          weightKg: kg,
+        );
+}
+
 class RunCaloriesCard extends StatelessWidget {
   const RunCaloriesCard(this.r, this.profile, {super.key});
 
@@ -530,8 +566,8 @@ class RunCaloriesCard extends StatelessWidget {
     final p = P.of(c);
     final cal = runCalories(r, profile);
     final floor = cal.floor, hr = cal.hr;
-    final isRun = isRunType(r.activity.typeKey);
     final mix = r.mix;
+    final isRun = isRunType(r.activity.typeKey);
     final kg = (r.calculationProfile ?? profile)?.weightKg;
     final kgText = kg == null
         ? ''
@@ -567,20 +603,17 @@ class RunCaloriesCard extends StatelessWidget {
         children: [
           Text('Active calories', style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
-          CaloriePair(
+          EnergyComparison(
             budget: floor,
-            acsm: acsmActiveKcal(
-              runMeters: isRun ? (mix?.runM ?? 0) : 0,
-              walkMeters: isRun
-                  ? (mix?.walkM ?? 0)
-                  : (r.distanceKm ?? 0) * 1000,
-              runClimbMeters: isRun ? (mix?.climbM ?? 0) : 0,
-              weightKg: (isRun ? mix != null : r.distanceKm != null)
-                  ? kg
-                  : null,
-            ),
+            acsm:
+                _comparisonEnergy(r, kg, qualified: true) ??
+                _comparisonEnergy(r, kg, qualified: false),
+            equationLabel: _comparisonEnergy(r, kg, qualified: true) == null
+                ? 'Movement estimate'
+                : 'ACSM',
             note:
-                'Above resting · Budget from ${isRun ? "distance and walk breaks" : "counted steps"}$kgText, ACSM from distance',
+                'Above resting · Budget from ${isRun ? "distance and walk breaks" : "counted steps"}$kgText. '
+                'Distance equation is an estimate outside its supported speeds or without moving time.',
           ),
           if (hr != null)
             ExpansionTile(

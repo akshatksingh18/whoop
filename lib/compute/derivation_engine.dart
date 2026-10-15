@@ -1664,7 +1664,8 @@ import 'substrate.dart';
 //   quarter-gap sleep need without strain bonus, angle-based restlessness,
 //   shared sustained-awakening definition and absent unqualified cycles;
 //   nightly RR reporting quality without a new HRV gate; HF/respiration/REM
-//   spectral segments require 90% coverage and exclude clock re-anchors.
+//   spectral segments require 90% coverage and exclude clock re-anchors;
+//   bodyweight resistance uses 3.0 MET and movement comparisons qualify speed.
 //   Only retained inputs re-derive; historical stored results stay versioned.
 const int kAlgoVersion = 95;
 

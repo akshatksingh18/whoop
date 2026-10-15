@@ -232,7 +232,8 @@ double? runFloorKcal({
 ///
 /// Strength ([isLiftType]) is priced by MET alone: (MET − 1) × kg × active
 /// hours, with [conservativeMet] (3.5 for weight training, the lowest
-/// resistance-training value in the 2024 Compendium). Heart rate is not used:
+/// multi-exercise resistance value; general bodyweight resistance is 3.0).
+/// Heart rate is not used:
 /// at a given heart rate lifting burns less than steady exercise, so it would
 /// overstate, and Keytel was built on 57-90% of max heart rate, so below that
 /// it understates. Sets and rests are priced together, as the Compendium's
@@ -258,7 +259,10 @@ double? sessionActiveKcal({
     meanHr: meanHr,
     met: catalogueMet == null || type == null
         ? null
-        : conservativeMet(type.toLowerCase().replaceAll(' ', '_'), catalogueMet),
+        : conservativeMet(
+            type.toLowerCase().replaceAll(' ', '_'),
+            catalogueMet,
+          ),
   );
 }
 
@@ -280,13 +284,24 @@ bool isLiftType(String? type) =>
 /// value, except strength work, which the 2024 Adult Compendium puts at 3.5
 /// for a typical multi-exercise session (5.0 for heavy squats/deadlifts) —
 /// the catalogue's 6.0 is its vigorous bodybuilding figure.
-double conservativeMet(String type, double catalogueMet) =>
-    switch (type.toLowerCase()) {
-      'weight_training' || 'bodyweight' || 'functional' => 3.5,
-      'calisthenics' => 3.8,
-      'powerlifting' => 5.0,
-      _ => catalogueMet,
-    };
+double conservativeMet(String type, double catalogueMet) => switch (type
+    .toLowerCase()) {
+  'weight_training' || 'functional' => 3.5,
+  'bodyweight' => 3.0, // 2024 Compendium 02056, general bodyweight resistance.
+  'calisthenics' => 3.8,
+  'powerlifting' => 5.0,
+  _ => catalogueMet,
+};
+
+/// Functional's retained coefficient is an estimate, not a matched Compendium
+/// entry. Keep that distinction available to every session detail/export.
+String workoutEnergyMethodLabel(String type) {
+  final key = type.toLowerCase().replaceAll(' ', '_');
+  if (key == 'functional')
+    return 'Functional · 3.5 MET estimate (no matched Compendium entry)';
+  if (!isLiftType(key)) return 'Activity energy estimate';
+  return '${conservativeMet(key, 0)} MET · net energy above resting';
+}
 
 /// Active (net) kcal for a workout that is neither walking nor running — the
 /// counterpart of the step and distance methods: energy above resting only,
@@ -430,9 +445,10 @@ maintenance(
   return (kcal: stepCalories(steps, w)!, km: km);
 }
 
-/// ACSM net movement estimate, approximately 5 kcal per litre of oxygen.
+/// Distance-equation extrapolation, approximately 5 kcal per litre of oxygen.
+/// Label as an estimate unless [acsmActiveKcal] qualifies its speed domain.
 /// Resting VO2 is excluded here; daily BMR must not be subtracted again.
-double? acsmActiveKcal({
+double? movementEquationEstimateKcal({
   required double runMeters,
   double walkMeters = 0,
   double runClimbMeters = 0,
@@ -451,4 +467,53 @@ double? acsmActiveKcal({
           .1 * walkMeters +
           .9 * runClimbMeters +
           1.8 * walkClimbMeters);
+}
+
+/// Approved ACSM domains: walking 50–100 m/min, running above 5 mph.
+/// Slower jogging is labelled an estimate because its gait is not established.
+bool acsmSpeedSupported({
+  required bool running,
+  required double meters,
+  double? movingSeconds,
+}) {
+  if (meters == 0) return true;
+  if (!meters.isFinite ||
+      meters < 0 ||
+      movingSeconds == null ||
+      !movingSeconds.isFinite ||
+      movingSeconds <= 0)
+    return false;
+  final speed = meters / movingSeconds * 60;
+  return running ? speed > 5 * 1609.344 / 60 : speed >= 50 && speed <= 100;
+}
+
+/// Qualified ACSM application. Unknown/out-of-domain speed is absent here;
+/// [movementEquationEstimateKcal] remains available with an explicit estimate label.
+double? acsmActiveKcal({
+  required double runMeters,
+  double walkMeters = 0,
+  double runClimbMeters = 0,
+  double walkClimbMeters = 0,
+  double? weightKg,
+  double? runMovingSeconds,
+  double? walkMovingSeconds,
+}) {
+  if (!acsmSpeedSupported(
+        running: true,
+        meters: runMeters,
+        movingSeconds: runMovingSeconds,
+      ) ||
+      !acsmSpeedSupported(
+        running: false,
+        meters: walkMeters,
+        movingSeconds: walkMovingSeconds,
+      ))
+    return null;
+  return movementEquationEstimateKcal(
+    runMeters: runMeters,
+    walkMeters: walkMeters,
+    runClimbMeters: runClimbMeters,
+    walkClimbMeters: walkClimbMeters,
+    weightKg: weightKg,
+  );
 }

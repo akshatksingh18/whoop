@@ -760,6 +760,15 @@ against a reference recording and phone checks remain open.
 
 ### Energy, Steps, Live Speed And Food/Weight Estimate Edge Cases
 
+Build 90 Codex source implements research G1/G2/G4: general bodyweight resistance is
+3.0 MET, functional is explicitly an estimate, and the distance comparison claims ACSM
+only within supported measured speed ranges. Other/unknown speeds retain the value as a
+Movement estimate. The shorter-than-six-week food/weight display includes the approved
+conversion envelope; calculation gates and calorie targets are unchanged. Food quick
+weigh-in now delegates to BodyLogDb rather than writing the daily table independently;
+first-reading persistence needs Claude's merged Body logic. Resting HR on Sleep, Recovery
+and metric detail is labelled lowest 30-minute average while asleep. Device checks remain open.
+
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: partial run steps stay known; DST-length BMR; fabricated, over-4 h and overlapping lifts; low-HR lifts by MET; live speed over time (tau 5 s), stop detection, "—" without a fresh fix and moving-time average; Theil-Sen food/weight estimate with Sen's range, 3 weigh-ins per half, hidden past +/-300 kcal. Superseded by Build 89: steps are phone-only and high-rate live streams are off in the personal build. Open: live-speed constants need an outdoor walk and run.
 
 All documented coefficients, gates and worked examples match source. Climb terms are inert:

@@ -52,11 +52,13 @@ Each family colour is used only for its own data. Alert colour never decorates.
 ## Type And Size
 
 - **Typeface:** the system face (SF Pro), with Dynamic Type respected.
-- **Food card (Build 90):** one eaten headline, quiet fixed goal and left/over, one calorie
-  bar, then four slim macro value/target rows with protein larger. All four macros remain
-  visible without expansion; missing and partial totals stay explicit. Add food follows the
-  compact block. Maintenance comparisons live in the maintenance panel. The calendar and
-  week strip retain their full behavior and a concise marks legend.
+- **Food card (Build 90, clarified selection):** B's whole calorie/macro component inside A:
+  a ring with calories left (or explicit overage), eaten and the fixed goal beside it, then four
+  slim macro value/target rows with protein larger. The arc is the known remaining fraction;
+  absent or partial balances do not imply an exact arc. Amount bounds remain explicit. The
+  plate/utensil decoration and linear calorie bar are replaced. Unknown macro tracks are hatched
+  and say not logged, not zero. All macros stay visible; large text stacks the ring and summary.
+  Add food follows; full meal, counting, calendar and maintenance flows remain.
 - **Hero number:** one primary number per card, 64 pt or 48 pt for long values in the shared
   HeroStat. Display-number scaling is bounded to keep a stable headline; supporting body,
   labels, units and actions retain full Dynamic Type. Long values scroll horizontally intact.
@@ -78,7 +80,7 @@ Each family colour is used only for its own data. Alert colour never decorates.
   input gates. Train leads with Start/Resume and history before long chart material. Progress
   keeps one fixed-week goal judgment; exploration periods cannot change it. Reasoning and
   all detailed evidence remain reachable.
-- **Illustration:** subtle authored leaf, moon and plate artwork adds visual relief without
+- **Illustration:** subtle authored leaf and moon artwork adds visual relief without
   implying data. It is excluded from accessibility semantics and may hide at large text.
   Charts, missing-data hatching and real photos retain their actual meaning.
 - **Charts:**

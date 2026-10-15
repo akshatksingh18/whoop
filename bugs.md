@@ -833,8 +833,15 @@ and Food → Foods. Reordered matches are placed back into their original slots 
 list, preserving hidden items and persistence; swipe-delete confirmation/cancellation remains.
 Synthetic gesture/persistence checks cover these paths; the phone drag check remains open.
 
-Build 90 Food source implements the selected calm A overview with B's compact macro rows:
-one eaten headline, quieter fixed goal/left-or-over, all four nutrient/target rows with slim
+The selected B calorie/macro component originally lost its ring when Codex copied only the
+macro rows. Food now restores remaining calories inside the ring, eaten/fixed goal alongside,
+and compact rows below. Missing/partial inputs do not fabricate an exact arc; over-goal copy
+remains explicit. The decorative plate/fork and linear calorie bar are replaced. The original
+24 merged-view observations have source dispositions in `build-90-audit.md` under Current Visual
+Acceptance; their remaining layouts are not claimed repaired without the required previews.
+
+Build 90 Food source implements the selected calm A overview with B's full calorie/macro card:
+remaining calories in the ring, eaten/fixed goal alongside, all four nutrient/target rows with slim
 bars, and a visible Add food action. Unknown/partial totals keep their qualifiers; maintenance
 comparison is shown in its existing panel. Diary items show calories/protein, meal headings
 show energy once, and full meal/group/entry screens retain all nutrients and edit routes.
@@ -842,8 +849,8 @@ Meal headings/actions reflow at large text; week marks are smaller with the lege
 A failed manual counting-status write now reports its error without changing the visible
 status. Existing reviewed whole-day copying remains. Copying is atomic and only the explicit Log action
 writes. Past-date Quick add already used meal-clock defaults in the base; the added test
-pins that behavior alongside the new separate logging timestamp. Common bottom-tab labels
-still split at accessibility sizes in the Codex checkout; `app_shell.dart` is Claude-owned.
+pins that behavior alongside the new separate logging timestamp. Reviewed bottom-tab labels
+retain their native-sized, intact text at accessibility sizes; phone acceptance remains open.
 
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired in Build 88: explicit completion only (D13), subsequently extended by Build 89 automatic counting with manual overrides; "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
 

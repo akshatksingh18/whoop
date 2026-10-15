@@ -27,7 +27,10 @@ owns the original visual/source findings and complete backlog. Build 90 engine/d
 (algorithm 95, schema 50) and the approved A calm framework + B compact macro rows are implemented
 on `build-90-codex`; reviewed Progress/Body/Lift workflows are retained. Akshat assigned the whole
 UI refinement to Codex. Claude retains privacy review, integration, cloud checks and release
-packaging. No new IPA or phone acceptance is established by local synthetic renders; `todo.md`
+packaging. Akshat clarified that the selected B Food component includes its calorie-balance
+ring; the correction is on Codex after `28a5dd2a` and still needs integration into the merged
+`build-90`. `build-90-audit.md` Current Visual Acceptance records the remaining 24-item review;
+other presentation changes need full-page previews under the mockup-first rule. No new IPA or phone acceptance is established by local synthetic renders; `todo.md`
 owns the current implementation/checks and outstanding gates. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
+import 'package:openstrap_edge/ui2/charts.dart';
 import 'package:openstrap_edge/ui2/screens/food_diary.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
@@ -27,6 +28,80 @@ const _entries = [
 ];
 
 void main() {
+  for (final scenario in [
+    ('remaining', 700.0, 2300.0, '1,600', 'kcal left', 1600 / 2300),
+    ('over', 2500.0, 2300.0, '200', 'kcal over', 0.0),
+    ('at goal', 2300.0, 2300.0, '0', 'kcal left', 0.0),
+    ('no goal', 700.0, null, '—', 'No goal', 0.0),
+    ('not logged', null, 2300.0, '—', 'Not logged', 0.0),
+  ]) {
+    testWidgets('selected B ring keeps ${scenario.$1} honest', (t) async {
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(
+            body: CalorieCard(eaten: scenario.$2, goal: scenario.$3),
+          ),
+        ),
+      );
+      expect(
+        t.widget<Text>(find.byKey(const ValueKey('food-balance'))).data,
+        scenario.$4,
+      );
+      expect(find.text(scenario.$5), findsWidgets);
+      final paint =
+          t
+                  .widget<CustomPaint>(
+                    find.byKey(const ValueKey('food-balance-ring')),
+                  )
+                  .painter!
+              as Ring;
+      expect(paint.v, closeTo(scenario.$6, 1e-9));
+      expect(t.takeException(), isNull);
+    });
+  }
+  testWidgets('partial calories bound remaining but never fill an exact ring', (
+    t,
+  ) async {
+    final partial = rollupDay('2025-01-05', const [
+      FoodEntry(
+        id: 'known',
+        date: '2025-01-05',
+        meal: 'lunch',
+        label: 'Synthetic soup',
+        kcal: 600,
+      ),
+      FoodEntry(
+        id: 'unknown',
+        date: '2025-01-05',
+        meal: 'lunch',
+        label: 'Synthetic extra',
+      ),
+    ], today: '2025-01-06');
+    await t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: CalorieCard(
+            eaten: partial.kcal.value,
+            goal: 2000,
+            day: partial,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('≥600'), findsOneWidget);
+    expect(find.text('kcal left, at most'), findsOneWidget);
+    final paint =
+        t
+                .widget<CustomPaint>(
+                  find.byKey(const ValueKey('food-balance-ring')),
+                )
+                .painter!
+            as Ring;
+    expect(paint.v, 0, reason: 'Unlogged calories leave an uncertain balance.');
+    expect(t.takeException(), isNull);
+  });
   for (final scale in [1.0, 2.0, 3.1]) {
     testWidgets(
       'compact Food keeps all totals honest and Add reachable at ${scale}x',
@@ -81,8 +156,8 @@ void main() {
         expect(find.textContaining('estimated maintenance'), findsNothing);
         expect(
           find.byType(GoalBar),
-          findsNWidgets(4),
-        ); // calories + 3 known macros
+          findsNWidgets(3),
+        ); // three known macros; calories use the selected balance ring
         await t.ensureVisible(find.text('Add food'));
         await t.tap(find.text('Add food'));
         expect(added, 1);

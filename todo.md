@@ -65,7 +65,8 @@ acceptance or a newly built IPA. The audit's device/operational gates remain ope
   set with progress recomputed (no adding a forgotten set; session times, HR and calories
   unchanged); dated milestones on Body and Strength (no scores or notifications). Warm-up flags
   and RPE/RIR stay out.
-- D6 Layout: accepted A calm framework with B's four slim macro rows (protein larger),
+- D6 Layout: accepted A calm framework with B's whole calorie/macro component: remaining
+  calories in a ring, eaten/fixed goal beside it, then four slim macro rows (protein larger),
   retaining all four values/targets. Today has one recovery headline, right-aligned supporting
   values, then food/weigh-in/train actions; Body and Pushups remain available. Steps, food
   and maintenance each appear once. Trends groups related rows and retains missing-day
@@ -183,10 +184,9 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 - Claude:
 - Codex: Akshat selected A overall with B's compact macro section and approved app
   implementation. This supersedes the earlier D6 single-row macro composition: Food now
-  uses four compact horizontal nutrient/target rows with thin bars (protein larger),
+  uses the selected B balance ring and four compact nutrient/target rows (protein larger),
   preserving all four nutrients. The Codex-owned Food implementation is complete in source:
-  one eaten headline, quiet goal/left-or-over, visible Add food, smaller week marks, decorative
-  plate, calorie/protein diary rows, no repeated full-macro footer, and large-text meal/action
+  remaining calories inside the ring, eaten/fixed goal beside it, visible Add food, smaller week marks, calorie/protein diary rows, no repeated full-macro footer, and large-text meal/action
   reflow. Full meal/group/entry nutrient detail and existing logging, portions, calendar,
   scanning, library, labels, copy/save, maintenance and Progress routes remain. Failed counting
   status writes report failure without falsely changing status. No metric/storage formula or
@@ -228,6 +228,18 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   bugs and metrics-map are synchronized. Root/container routing and background-sync-plan were
   checked: this UI work changes neither their routing nor background behavior, so no edit is
   needed there. No push, full local suite/build, new IPA or phone acceptance claimed.
+  Akshat clarified the missing B ring; the correction restores the full selected card rather
+  than only its rows. Ring fill is remaining / fixed goal only when exact; missing intake/goal
+  uses absence, and partial energy keeps its bound without an exact arc. Macros retain targets,
+  completeness, unknown hatching and full details. The plate/utensil and linear calorie bar are
+  replaced. Synthetic card/counting/copy checks pass (25); full Food scroll renders pass at
+  1x/2x/3.1x. Targeted analysis has no errors/warnings (four existing informational lints).
+  The quoted 24 observations are individually checked in `build-90-audit.md` under
+  Current Visual Acceptance. Except the replaced plate, their layout changes remain previews
+  to approve under the mockup-first rule; no phone or cloud acceptance is claimed.
+  Claude's merged source is `build-90` / `e7af786e`; integrate only the new Food correction
+  after `28a5dd2a`, retaining the existing combined-source integration fixes. No merge/push or
+  other-worktree edit was done by Codex. All numeric calculations/schema/version are unchanged.
   Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
   restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.

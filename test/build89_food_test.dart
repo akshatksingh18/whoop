@@ -5,7 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
-import 'package:openstrap_edge/ui2/grammar.dart';
+import 'package:openstrap_edge/ui2/charts.dart';
 import 'package:openstrap_edge/ui2/screens/food_calendar.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
@@ -48,36 +48,39 @@ void main() {
       );
     });
 
-    test('a food without calories, a missing-food mark or today never auto-counts', () {
-      expect(
-        dayLogState(
-          '2026-10-08',
-          [_e('a', kcal: 1500), _e('b')],
-          today: '2026-10-10',
-          kcalGoal: 2000,
-        ),
-        DayLogState.partial,
-      );
-      expect(
-        dayLogState(
-          '2026-10-08',
-          [_e('a', kcal: 1500)],
-          today: '2026-10-10',
-          kcalGoal: 2000,
-          mark: 'incomplete',
-        ),
-        DayLogState.partial,
-      );
-      expect(
-        dayLogState(
-          '2026-10-10',
-          [_e('a', kcal: 1500)],
-          today: '2026-10-10',
-          kcalGoal: 2000,
-        ),
-        DayLogState.inProgress,
-      );
-    });
+    test(
+      'a food without calories, a missing-food mark or today never auto-counts',
+      () {
+        expect(
+          dayLogState(
+            '2026-10-08',
+            [_e('a', kcal: 1500), _e('b')],
+            today: '2026-10-10',
+            kcalGoal: 2000,
+          ),
+          DayLogState.partial,
+        );
+        expect(
+          dayLogState(
+            '2026-10-08',
+            [_e('a', kcal: 1500)],
+            today: '2026-10-10',
+            kcalGoal: 2000,
+            mark: 'incomplete',
+          ),
+          DayLogState.partial,
+        );
+        expect(
+          dayLogState(
+            '2026-10-10',
+            [_e('a', kcal: 1500)],
+            today: '2026-10-10',
+            kcalGoal: 2000,
+          ),
+          DayLogState.inProgress,
+        );
+      },
+    );
 
     test('no goal set: nothing counts on its own', () {
       autoCountKcalGoal = null;
@@ -88,7 +91,9 @@ void main() {
     });
   });
 
-  testWidgets('the calorie card shows eaten / goal and what is over', (t) async {
+  testWidgets('the calorie card shows eaten / goal and what is over', (
+    t,
+  ) async {
     await t.pumpWidget(
       MaterialApp(
         theme: buildTheme(Brightness.light),
@@ -98,8 +103,20 @@ void main() {
     expect(find.text('2,663'), findsOneWidget);
     expect(find.text('Goal 2,233 kcal'), findsOneWidget);
     expect(find.text('430'), findsOneWidget);
-    expect(find.text('over'), findsOneWidget);
-    expect(find.byType(GoalBar), findsOneWidget);
+    expect(find.text('kcal over'), findsOneWidget);
+    final ring =
+        t
+                .widget<CustomPaint>(
+                  find.byKey(const ValueKey('food-balance-ring')),
+                )
+                .painter!
+            as Ring;
+    expect(
+      ring.v,
+      0,
+      reason:
+          'Above goal means no calories remain; overage is written, not hidden.',
+    );
   });
 
   testWidgets('the week strip marks counted and logged days', (t) async {

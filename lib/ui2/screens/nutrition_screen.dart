@@ -1476,7 +1476,9 @@ class CalorieCard extends StatelessWidget {
               sideWord: sideWord,
               soFar: soFar,
               over: over,
-              frac: !hasGoal || food == null ? null : food / g,
+              frac: !hasGoal || food == null || floor
+                  ? null
+                  : ((g - food) / g).clamp(0.0, 1.0).toDouble(),
             ),
           ),
           if (day case final d?) ...[
@@ -1503,8 +1505,8 @@ class CalorieCard extends StatelessWidget {
   }
 }
 
-/// One headline: eaten. The user's goal and left/over stay in a quieter row.
-/// Maintenance comparisons retain their full detail in MaintenanceCard.
+/// The selected B card: calories left inside the ring, eaten and goal beside it.
+/// A partial intake can bound the balance but cannot fill an exact remaining arc.
 class _CalorieHero extends StatelessWidget {
   const _CalorieHero({
     required this.eaten,
@@ -1524,133 +1526,123 @@ class _CalorieHero extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final balance = side == null
-        ? null
-        : Wrap(
-            spacing: S.x1,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                side!,
-                softWrap: false,
-                style: F.n17.copyWith(color: p.on(over ? C.alert : C.food)),
-              ),
-              Text(sideWord, style: F.cap.copyWith(color: p.ink2)),
-            ],
-          );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final large = bigText(c);
+    final scale = MediaQuery.textScalerOf(c).scale(1).clamp(1.0, 2.0);
+    final summary = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           soFar ? 'Eaten so far' : 'Eaten',
           style: F.cap.copyWith(color: p.ink2),
         ),
-        const SizedBox(height: S.x1),
-        Row(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      eaten ?? 'Not logged',
-                      softWrap: false,
-                      key: const ValueKey('food-eaten'),
-                      style: (eaten == null ? F.body : F.n34).copyWith(
-                        color: p.on(C.food),
-                      ),
+        const SizedBox(height: S.x2),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                eaten ?? 'Not logged',
+                softWrap: false,
+                key: const ValueKey('food-eaten'),
+                style: (eaten == null ? F.body : F.n30).copyWith(color: p.ink),
+              ),
+              if (eaten != null && !large) ...[
+                const SizedBox(width: S.x1),
+                Text('kcal', style: F.cap.copyWith(color: p.ink2)),
+              ],
+            ],
+          ),
+        ),
+        if (large && eaten != null)
+          Text('kcal', style: F.cap.copyWith(color: p.ink2)),
+        const SizedBox(height: S.x2),
+        Text(
+          goal == null ? 'No intake goal' : 'Goal $goal kcal',
+          style: F.cap.copyWith(color: p.ink2),
+        ),
+        if (eaten == null)
+          Text('Intake not recorded', style: F.cap.copyWith(color: p.ink2)),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (c, box) {
+        final diameter = large
+            ? (116 * scale).clamp(0.0, box.maxWidth).toDouble()
+            : box.maxWidth < 300
+            ? 104.0
+            : 116.0;
+        final label = side == null
+            ? (goal == null ? 'No goal' : 'Not logged')
+            : 'kcal $sideWord';
+        final ring = Semantics(
+          label: side == null ? label : '$side $label',
+          excludeSemantics: true,
+          child: SizedBox(
+            width: diameter,
+            height: diameter,
+            child: CustomPaint(
+              key: const ValueKey('food-balance-ring'),
+              painter: Ring(
+                frac ?? 0,
+                p.on(C.food),
+                p.on(C.food).withValues(alpha: .22),
+                stroke: 5,
+                solid: true,
+              ),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(S.x3),
+                  child: MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 2,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Text(
+                            side ?? '—',
+                            key: const ValueKey('food-balance'),
+                            softWrap: false,
+                            style: F.n24.copyWith(
+                              color: p.on(over ? C.alert : C.food),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: S.x1),
+                        Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: F.over.copyWith(color: p.ink2),
+                        ),
+                      ],
                     ),
-                    if (eaten != null) ...[
-                      const SizedBox(width: S.x2),
-                      Text('kcal', style: F.cap.copyWith(color: p.ink2)),
-                    ],
-                  ],
+                  ),
                 ),
               ),
             ),
-            if (!bigText(c))
-              ExcludeSemantics(
-                child: SizedBox(
-                  width: 64,
-                  height: 52,
-                  child: CustomPaint(painter: _FoodPlate(p.on(C.food), p.line)),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: S.x1),
-        if (bigText(c)) ...[
-          Text(
-            goal == null ? 'No intake goal' : 'Goal $goal kcal',
-            style: F.cap.copyWith(color: p.ink2),
           ),
-          ?balance,
-        ] else
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  goal == null ? 'No intake goal' : 'Goal $goal kcal',
-                  style: F.cap.copyWith(color: p.ink2),
-                ),
-              ),
-              if (balance != null) ...[const SizedBox(width: S.x2), balance],
-            ],
-          ),
-        if (eaten == null)
-          Text('Intake not recorded', style: F.cap.copyWith(color: p.ink2)),
-        if (frac case final f?) ...[
-          const SizedBox(height: S.x3),
-          GoalBar(f, color: p.on(C.food), height: 5),
-        ],
-      ],
+        );
+        return large
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(alignment: Alignment.centerLeft, child: ring),
+                  const SizedBox(height: S.x3),
+                  summary,
+                ],
+              )
+            : Row(
+                children: [
+                  ring,
+                  const SizedBox(width: S.x4),
+                  Expanded(child: summary),
+                ],
+              );
+      },
     );
   }
-}
-
-/// A decorative plate, not a chart or an image of the logged meal.
-class _FoodPlate extends CustomPainter {
-  const _FoodPlate(this.ink, this.rule);
-  final Color ink, rule;
-  @override
-  void paint(Canvas c, Size size) {
-    c.save();
-    c.scale(size.width / 64, size.height / 52);
-    c.drawOval(const Rect.fromLTWH(9, 3, 46, 46), Paint()..color = rule);
-    c.drawOval(
-      const Rect.fromLTWH(13, 7, 38, 38),
-      Paint()..color = ink.withValues(alpha: .09),
-    );
-    c.drawPath(
-      Path()
-        ..moveTo(22, 18)
-        ..quadraticBezierTo(39, 9, 43, 23)
-        ..quadraticBezierTo(31, 33, 22, 18),
-      Paint()..color = ink.withValues(alpha: .32),
-    );
-    c.drawPath(
-      Path()
-        ..moveTo(19, 33)
-        ..quadraticBezierTo(31, 24, 40, 35)
-        ..quadraticBezierTo(27, 45, 19, 33),
-      Paint()..color = ink.withValues(alpha: .5),
-    );
-    c.drawLine(
-      const Offset(8, 12),
-      const Offset(8, 41),
-      Paint()
-        ..color = ink.withValues(alpha: .6)
-        ..strokeWidth = 1.5
-        ..strokeCap = StrokeCap.round,
-    );
-    c.restore();
-  }
-
-  @override
-  bool shouldRepaint(_FoodPlate old) => old.ink != ink || old.rule != rule;
 }
 
 /// All four nutrients remain visible. Compact bars describe the real target;
@@ -1674,21 +1666,38 @@ class _Macros extends StatelessWidget {
       final amount = total.value == null
           ? '—'
           : '${total.isFloor ? '≥' : ''}${thousands(total.value!)}';
-      final value = Text(
-        target != null && target > 0
-            ? '$amount / ${thousands(target)} g'
-            : '$amount g',
+      final value = Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: amount,
+              style: (i == 0 ? F.n17 : F.body).copyWith(
+                color: i == 0 ? p.on(C.food) : p.ink,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            TextSpan(
+              text: target != null && target > 0
+                  ? ' / ${thousands(target)} g'
+                  : ' g',
+            ),
+          ],
+        ),
         key: ValueKey('food-macro-$name'),
         softWrap: false,
-        style: (i == 0 ? F.n17 : F.cap).copyWith(
-          color: i == 0 ? p.on(C.food) : p.ink,
-          fontWeight: FontWeight.w600,
+        style: F.cap.copyWith(
+          color: p.ink2,
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
       );
       final bar = target != null && target > 0 && total.value != null
           ? GoalBar(total.value! / target, color: p.on(C.food), height: 3)
-          : const SizedBox(height: 3);
+          : SizedBox(
+              height: 3,
+              child: CustomPaint(
+                painter: RangeChart(const [null], p.on(C.food), hatch: C.hatch),
+              ),
+            );
       return Padding(
         padding: const EdgeInsets.only(top: S.x2),
         child: bigText(c)
@@ -1727,7 +1736,8 @@ class _Macros extends StatelessWidget {
           const SizedBox(height: S.x2),
           Text(
             [
-              if (rows.any((r) => r.$2.value == null)) '— not logged',
+              if (rows.any((r) => r.$2.value == null))
+                '— not logged · not zero',
               if (rows.any((r) => r.$2.isFloor)) '≥ partial total',
             ].join(' · '),
             style: F.over.copyWith(color: p.ink2),

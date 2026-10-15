@@ -10,6 +10,87 @@ qualified; they do not override the accepted design in `DESIGN.md`. Local synthe
 not establish phone/native or final cloud acceptance. Build 89 remains installed/testing,
 not cache-promoted; Build 70 remains cached recovery.
 
+## Current Visual Acceptance
+
+Akshat clarified that **A overall + B's macro card means the whole B calorie/macro composition**:
+calories remaining inside a ring, eaten and the fixed goal beside it, followed by four compact
+macro rows. The earlier Codex source copied only B's rows and missed the selected ring. The
+Food correction restores that component, removes the decorative plate/fork and redundant linear
+calorie bar, and retains explicit over-goal, absent-goal, absent-intake and partial-total states.
+The ring encodes the known remaining fraction of the fixed intake goal. Unknown/partial balances
+do not draw an exact arc; the amount retains its bound. Exercise is not added to the intake goal.
+Unknown nutrient bars are hatched and labelled not logged, not zero. Existing data/routes remain.
+
+The rest of the quoted 24-item review is **not marked fixed**. Source checks apply to the Codex
+UI carried into merged `build-90` (`e7af786e`); the correction stays on `build-90-codex` for Claude
+to integrate. Akshat's mockup-first rule still governs further layout changes: show the proposed
+whole affected pages beside current pages, including lower sections, before implementing them.
+Keep large-text verification even when the main visual review uses standard text.
+
+Findings retain Claude's original numbers:
+
+1. **Confirmed layout:** Today action slots are Expanded, but Pressable's inner Align sizes the
+   visible containers to content. Make the visible action fills occupy equal slots in the preview.
+2. **Confirmed consistency:** Today's Food/Protein denominators use different unit copy and Steps
+   omits its known target. Preview one consistent value/goal convention without inventing goals.
+3. **Confirmed layout:** SubTabs uses content-width scrolling items even when three short options
+   fit. Preview equal-width segments when they fit; retain scrolling when they do not.
+4. **Confirmed type hierarchy:** EnergyComparison renders an absent estimate's word in the numeric
+   style. Use a quiet absent-state label; retain the reason and other available method.
+5. **Presentation choice:** Pin favourites is a standalone Align/Pill above Trends. Preview it in
+   the header/section controls; retain pin selection and edit behavior.
+6. **Confirmed layout:** Trends step-energy places the second estimate in MetricLine's narrow value
+   column. Give the comparison full-width context; retain both methods, coverage and detail route.
+7. **Confirmed wrapping risk:** estimate and missing-day coverage share one small string. Preview
+   separate context lines or keep the count/unit together; never hide incomplete coverage.
+8. **Resolved by the selected B card correction:** the thin plate line was an authored utensil,
+   not lost data. The plate and utensil are removed with the old hero composition.
+9. **Intentional current behavior, not a missing total:** meal headings show totals only for
+   multi-item meals; a singleton shows its calories on its only item to avoid repetition. A
+   consistent all-meal-heading alternative needs a preview that preserves each item's detail.
+10. **Presentation choice:** Copy a day and Food progress remain functional standalone actions.
+    Preview an anchored secondary-action group; do not remove either flow.
+11. **Profile-gated, not a proved personal-build bug:** Training review is behind
+    `!kPersonalSideload`. Confirm the actual personal build flag/native render before changing it.
+12. **Evidence gap, not permission to invent dots:** week count reads repository sessions;
+    streak dots read the local session/step ledger and require qualifying activity. The render
+    harness injects repository workouts separately from that ledger. Align synthetic fixture
+    sources and check real qualifying sessions on the phone; short/non-exercise sessions can
+    legitimately count as logged sessions without earning a streak dot.
+13. **Confirmed spacing:** the week panel leaves a divider after the streak even without a
+    following run row. Preview conditional separators and tighter empty trailing space.
+14. **Confirmed spacing:** Train wraps an embedded Pushups PlanRow in a normally padded Surface,
+    adding padding to the row's own. Preview a compact wrapper with the same actions and touch size.
+15. **Confirmed shared-source spacing:** the nonpersonal import card has no leading section gap.
+    Add spacing in its preview; that card is excluded from the personal profile.
+16. **Platform/fixture difference:** storeName uses `Platform.isIOS` and already says Apple Health
+    on iOS. Windows renders take the Health Connect branch. The personal profile also hides this
+    import card. Verify a native/profile capture; do not replace the shared Android label globally.
+17. **Confirmed affordance issue:** Add body entry is active but uses BigButton's soft style.
+    Preview a clearly active primary treatment; its save/navigation route remains present.
+18. **Confirmed hierarchy issue:** Progress inputs are joined into one Text. Preview short labelled
+    groups with explicit coverage, retaining all input facts and the context detail route.
+19. **Confirmed layout:** Body comparison combines verbose dates/counts in one flexible column
+    with a long before/after value in another. Preview full-width comparison rows with intact
+    figures, dates and denominators at ordinary and large text.
+20. **Precision choice:** Body milestone copy formats stored readings to two decimal places.
+    Those are recorded values, not fabricated precision. Preview consistent overview rounding
+    while preserving exact readings, comparison logic and history/edit precision.
+21. **Confirmed unit inconsistency:** Progress context and input copy append % to recovery,
+    whereas the shared recovery view presents the same 0–100 score without %. Correct display
+    units consistently in the preview; do not change the stored score or calculation.
+22. **Confirmed terminology:** Recovery uses readinessDetailTitle in its navigation/history copy.
+    Preview Recovery consistently, retaining internal model names and all driver/method detail.
+23. **Fixture plus copy issue:** the Sleep fixture includes aggregate stage totals without timed
+    stage samples. Those are distinct capabilities. The current empty-hypnogram message claims an
+    input was missing without proving that cause. Preview honest timeline-unavailable wording,
+    keeping available aggregate totals, and separately verify native timeline availability.
+24. **Presentation choice:** Fix sleep times is intentionally last and folded outside a panel.
+    Preview it in a clear correction surface, preserving expand/collapse, validation and save.
+
+No device-only outcome, reference staging accuracy or final build acceptance follows from this
+review. The remaining presentation previews, cloud/native checks and phone matrix stay open.
+
 ## Evidence And Practical Limits
 
 Source reviewed: app/packaging source `77d6a365`, documentation HEAD `ee2dd55c`, algorithm 93, schema 49; personal iPhone profile. Source verification and targeted checks: 2026-10-14. No actual health database, photograph, private log or recording was needed for the audit or sent anywhere.

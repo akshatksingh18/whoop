@@ -536,11 +536,12 @@ movement or food digestion again. No automatic HR hybrid or coefficient adjustme
 ## Layout Decisions (Build 89 Installed; Build 90 Implementation)
 
 Akshat selected the calm A framework with B's compact macro section and approved
-implementation. Build 90 Food source now leads with one eaten total, a quieter goal/left-or-over
-line and four slim macro rows (protein larger). All four values/targets and explicit
+implementation. Akshat clarified that B includes its circular calorie-balance display: Food now
+shows calories left/over in the ring, eaten and the fixed goal beside it, then four slim macro
+rows (protein larger). A partial balance keeps its bound and withholds an exact arc. All four values/targets and explicit
 missing/partial labels remain visible; maintenance comparisons live in their own panel.
-A small decorative plate is excluded from accessibility semantics and does not represent a
-logged food or a metric. Diary items show calories and protein; full meal, group and entry
+The former decorative plate/utensil and linear calorie bar are replaced by that selected ring.
+Unlogged nutrient bars are hatched with explicit not-zero copy. Diary items show calories and protein; full meal, group and entry
 views retain all nutrients, portions and edit/delete/copy/save routes. Accessibility text
 stacks values and actions; the week remains horizontally scrollable with the selected date
 revealed, and Counted/Logged/Empty marks have a legend. Meals and Add food appear earlier;
@@ -563,7 +564,7 @@ strain/running and full Lift Log. Progress keeps one fixed-window goal check, ou
 inputs; reasoning/next steps and every Body/Strength/context detail, photo, reading, entry,
 configuration and eight-period control remain. Shared metric rows align values independent of
 charts or chevrons; large text stacks labels/comparisons and permits full detail titles.
-Leaf/moon/plate illustrations are decorative, excluded from semantics, and encode no metric.
+Leaf/moon illustrations are decorative, excluded from semantics, and encode no metric.
 Sleep/Recovery retain stages, corrections, missing-input/gap wording and all prior details.
 Food library and log pickers now allow hold-drag in search/category results: visible matches
 exchange their existing slots; hidden items and complete saved orders remain. Swipe deletion

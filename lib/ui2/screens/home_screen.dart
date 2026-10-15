@@ -36,6 +36,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../compute/profile.dart' show Profile, stepCalories;
 import '../../data/day_label.dart' show todayLabel;
+import '../../data/day_zone_rules.dart' show DayClock;
 import '../../data/db.dart' show DbRebuild, LocalDb;
 import '../../data/nutrition_store.dart' show NutritionDb;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -52,6 +53,7 @@ import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard;
 import 'today_plan.dart' show TodayPlanCard;
+import 'log_workout.dart' show appOf;
 import '../profile/status.dart' show StatusScreen;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
@@ -590,7 +592,9 @@ String clock(num? minOfDay) =>
 /// Epoch seconds → "11:08 PM" in the device zone.
 String clockOfTs(num? ts) {
   if (ts == null) return '';
-  final d = DateTime.fromMillisecondsSinceEpoch(ts.round() * 1000);
+  // The recorded zone of that instant, so a night before a flight still
+  // reads in the clock it was lived in (Build 90 travel days).
+  final d = DayClock.localAt(ts.round());
   final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
   return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'AM' : 'PM'}';
 }
@@ -953,11 +957,11 @@ class _TodayPanel extends StatelessWidget {
     List<double?> wk(String k) => d.week[k] ?? const [];
     final sleepMin = d.sleepMin.value;
     final eaten = d.upkeep?.eaten;
-    final parts = d.upkeep?.parts, acsm = d.upkeep?.acsmParts;
     final hero = HeroStat(
       value: v == null ? null : '${v.round()}',
       color: C.recovery,
       label: l?.homeRingRecovery ?? 'Recovery',
+      illustration: const CalmIllustration(),
       fresh: fresh,
       onTap: () => onOpen(HomeRingKind.recovery),
       semanticLabel: rec.spoken,
@@ -967,7 +971,10 @@ class _TodayPanel extends StatelessWidget {
               band.label,
               [
                 if (hrv != null) 'HRV ${hrv.round()} ms',
-                if (rhr != null) 'resting HR ${rhr.round()}',
+                // The lowest 30-minute average while asleep (nocturnal resting
+                // HR), not an awake seated reading, which runs higher.
+                // Non-breaking spaces keep the phrase on one line.
+                if (rhr != null) 'resting HR ${rhr.round()} asleep',
               ].join(' · '),
             ],
     );
@@ -997,6 +1004,7 @@ class _TodayPanel extends StatelessWidget {
         value: eaten == null || eaten <= 0 ? null : thousands(eaten),
         unit: d.kcalTarget == null ? 'kcal' : '/${thousands(d.kcalTarget)}',
         absentWhy: eaten == null || eaten <= 0 ? 'nothing logged yet' : null,
+        onTap: () => appOf(c)?.navRequest.value = 6,
       ),
       if (d.proteinTarget case final t?)
         MetricLine(
@@ -1006,6 +1014,7 @@ class _TodayPanel extends StatelessWidget {
           unit: '/${t.round()} g',
           progress: d.proteinToday == null ? null : d.proteinToday! / t,
           absentWhy: d.proteinToday == null ? 'not logged yet' : null,
+          onTap: () => appOf(c)?.navRequest.value = 6,
         ),
       MetricLine(
         label: 'Steps',
@@ -1023,31 +1032,6 @@ class _TodayPanel extends StatelessWidget {
         children: [
           hero,
           for (final r in rows) ...[Divider(color: p.line, height: 1), r],
-          if (parts != null) ...[
-            Divider(color: p.line, height: 1),
-            Padding(
-              padding: const EdgeInsets.only(top: S.x3),
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: 'Maintenance ',
-                      style: F.body.copyWith(
-                        color: p.ink,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    TextSpan(
-                      text:
-                          'Budget ${thousands(parts.total)}'
-                          '${acsm == null ? '' : ' · ACSM ${thousands(acsm.total)}'} kcal',
-                      style: F.body.copyWith(color: p.ink2),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -1875,16 +1859,28 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                       const SizedBox(height: S.x1),
                       // When these numbers were calculated, so an old number
                       // never passes for a current one.
-                      Wrap(
-                        spacing: S.x2,
-                        runSpacing: S.x1,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          if (widget.data == null) UpdatedStamp(d.updatedAt),
-                          // What is happening right now, beside when the
-                          // numbers were last worked out.
-                          const _WorkLine(),
-                        ],
+                      // Build 90: the freshness line opens Status, where the
+                      // band-data age and sync health are explained.
+                      Pressable(
+                        semanticLabel: 'Data freshness. Opens Status',
+                        onTap: () => go(c, const StatusScreen()),
+                        child: Wrap(
+                          spacing: S.x2,
+                          runSpacing: S.x1,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            if (widget.data == null) UpdatedStamp(d.updatedAt),
+                            // What is happening right now, beside when the
+                            // numbers were last worked out.
+                            const _WorkLine(),
+                            if (widget.data == null)
+                              Icon(
+                                LucideIcons.chevronRight,
+                                size: 14,
+                                color: p.onGround,
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -1992,15 +1988,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             // ── the rollup was withheld, not absent ──
             if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
-            // Latest recorded heart-rate trace before daily actions.
-            const SizedBox(height: S.x3),
-            _HeartCard(
-              graph: d.graph,
-              recorded: d.recentHr,
-              failed: d.recentHrFailed,
-              graphFailed: d.graphFailed,
-              onRetry: _load,
-            ),
+            // Build 90 (D6): the day's actions (Steps, Log food, Weigh in,
+            // Pushups, Start or Resume) come straight after the summary; the
+            // larger heart-rate explorer follows them.
             const SizedBox(height: S.x3),
             TodayPlanCard(
               steps: d.steps.value?.round(),
@@ -2008,6 +1998,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               eaten: d.upkeep?.eaten,
               budget: d.upkeep?.parts?.total.toDouble(),
               full: widget.data == null,
+              overviewHasTotals: true,
+            ),
+            const SizedBox(height: S.x3),
+            _HeartCard(
+              graph: d.graph,
+              recorded: d.recentHr,
+              failed: d.recentHrFailed,
+              graphFailed: d.graphFailed,
+              onRetry: _load,
             ),
 
             // Maintenance so far: the same card Food shows, both methods, the
@@ -2200,6 +2199,7 @@ class _HeartCardState extends State<_HeartCard> {
           ? '${at}not recorded'
           : '$at${v.round()} bpm';
     }
+
     return Surface(
       onTap: () => go(c, const DayTimelineScreen()),
       semanticLabel: 'Heart rate${range == null ? '' : ', $range'}',

@@ -7,13 +7,14 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../state/app_state.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'home_screen.dart' show thousands;
 import 'metric_detail.dart' show MetricDetail;
-import 'progress_screen.dart' show TodayBodyRow;
+import 'progress_screen.dart' show TodayBodyRow, BodyEntryScreen;
 import 'pushups_screen.dart' show TodayPushupRow;
 import 'workout_screen.dart' show SessionDestination;
 
@@ -113,6 +114,7 @@ class TodayPlanCard extends StatelessWidget {
     this.eaten,
     this.budget,
     this.full = true,
+    this.overviewHasTotals = false,
   });
 
   final int? steps;
@@ -122,6 +124,7 @@ class TodayPlanCard extends StatelessWidget {
   /// The rows that read their own stores (Body, Pushups, workout). Off in
   /// goldens, which have no database.
   final bool full;
+  final bool overviewHasTotals;
 
   @override
   Widget build(BuildContext c) {
@@ -138,42 +141,46 @@ class TodayPlanCard extends StatelessWidget {
     final s = steps;
     final food = eaten ?? 0;
     final rows = <Widget>[
-      PlanRow(
-        icon: LucideIcons.footprints,
-        color: C.green,
-        title: s == null ? 'Steps' : '${thousands(s)} steps',
-        sub: s == null
-            ? 'Not recorded yet'
-            : stepGoal > 0
-            ? s >= stepGoal
-                  ? 'Goal of ${thousands(stepGoal)} reached'
-                  : '${thousands(stepGoal - s)} to your ${thousands(stepGoal)} goal'
-            : 'No step goal set',
-        frac: s == null || stepGoal <= 0 ? null : s / stepGoal,
-        onTap: () => Navigator.of(c).push(
-          MaterialPageRoute<void>(builder: (_) => const MetricDetail('steps')),
+      if (!overviewHasTotals) ...[
+        PlanRow(
+          icon: LucideIcons.footprints,
+          color: C.green,
+          title: s == null ? 'Steps' : '${thousands(s)} steps',
+          sub: s == null
+              ? 'Not recorded yet'
+              : stepGoal > 0
+              ? s >= stepGoal
+                    ? 'Goal of ${thousands(stepGoal)} reached'
+                    : '${thousands(stepGoal - s)} to your ${thousands(stepGoal)} goal'
+              : 'No step goal set',
+          frac: s == null || stepGoal <= 0 ? null : s / stepGoal,
+          onTap: () => Navigator.of(c).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const MetricDetail('steps'),
+            ),
+          ),
         ),
-      ),
-      PlanRow(
-        icon: LucideIcons.utensils,
-        color: C.domFood,
-        title: food <= 0 ? 'Food' : '${thousands(food)} kcal eaten',
-        sub: goal != null && goal > 0
-            ? food <= goal
-                  ? '${thousands(goal - food)} left of ${thousands(goal)}'
-                  : '${thousands(food - goal)} over your ${thousands(goal)} goal'
-            : budget != null
-            ? 'Budget ${thousands(budget!)} so far'
-            : 'Nothing logged yet',
-        frac: goal != null && goal > 0 ? food / goal : null,
-        action: 'Log',
-        onAction: app == null ? null : () => app.navRequest.value = 6,
-        onTap: app == null ? null : () => app.navRequest.value = 6,
-      ),
+        PlanRow(
+          icon: LucideIcons.utensils,
+          color: C.domFood,
+          title: food <= 0 ? 'Food' : '${thousands(food)} kcal eaten',
+          sub: goal != null && goal > 0
+              ? food <= goal
+                    ? '${thousands(goal - food)} left of ${thousands(goal)}'
+                    : '${thousands(food - goal)} over your ${thousands(goal)} goal'
+              : budget != null
+              ? 'Budget ${thousands(budget!)} so far'
+              : 'Nothing logged yet',
+          frac: goal != null && goal > 0 ? food / goal : null,
+          action: 'Log',
+          onAction: app == null ? null : () => app.navRequest.value = 6,
+          onTap: app == null ? null : () => app.navRequest.value = 6,
+        ),
+      ],
       if (full) ...[
         const TodayBodyRow(embedded: true),
         const TodayPushupRow(embedded: true),
-        if (live != null)
+        if (!overviewHasTotals && live != null)
           PlanRow(
             icon: LucideIcons.dumbbell,
             color: C.purple,
@@ -188,7 +195,7 @@ class TodayPlanCard extends StatelessWidget {
               ),
             ),
           )
-        else
+        else if (!overviewHasTotals)
           PlanRow(
             icon: LucideIcons.dumbbell,
             color: C.purple,
@@ -200,6 +207,97 @@ class TodayPlanCard extends StatelessWidget {
           ),
       ],
     ];
+    if (overviewHasTotals) {
+      Widget action(IconData icon, String title, VoidCallback? onTap) =>
+          Pressable(
+            onTap: onTap,
+            semanticLabel: title,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 72),
+              padding: const EdgeInsets.all(S.x3),
+              decoration: BoxDecoration(color: p.card, borderRadius: R.rMd),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 21, color: p.on(C.recovery)),
+                  const SizedBox(height: S.x1),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: F.cap.copyWith(color: p.ink),
+                  ),
+                ],
+              ),
+            ),
+          );
+      final actions = [
+        action(
+          LucideIcons.scale,
+          'Weigh in',
+          !full
+              ? null
+              : () async {
+                  final unit =
+                      (await SharedPreferences.getInstance()).getString(
+                        'body.unit',
+                      ) ??
+                      'kg';
+                  if (!c.mounted) return;
+                  await Navigator.of(c).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => BodyEntryScreen(unit: unit),
+                    ),
+                  );
+                },
+        ),
+        action(
+          LucideIcons.utensils,
+          'Log food',
+          app == null ? null : () => app.navRequest.value = 6,
+        ),
+        action(
+          LucideIcons.dumbbell,
+          live == null ? 'Train' : 'Resume',
+          app == null
+              ? null
+              : () {
+                  if (live == null) {
+                    app.navRequest.value = 4;
+                  } else {
+                    Navigator.of(c).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SessionDestination(null),
+                      ),
+                    );
+                  }
+                },
+        ),
+      ];
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (bigText(c))
+            for (final a in actions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x2),
+                child: a,
+              )
+          else
+            Row(
+              children: [
+                for (var i = 0; i < actions.length; i++) ...[
+                  if (i > 0) const SizedBox(width: S.x2),
+                  Expanded(child: actions[i]),
+                ],
+              ],
+            ),
+          if (rows.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            Surface(child: Column(children: rows)),
+          ],
+        ],
+      );
+    }
     return Surface(
       framed: false,
       pad: const EdgeInsets.symmetric(vertical: S.x1),

@@ -45,12 +45,15 @@ import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
+import 'package:openstrap_edge/ui2/screens/progress_routes.dart';
 import 'package:openstrap_edge/ui2/screens/progress_screen.dart';
 import 'package:openstrap_edge/ui2/screens/health_screen.dart';
 import 'package:openstrap_edge/data/body_log.dart';
 import 'package:openstrap_edge/ui2/screens/home_screen.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
+import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
+import 'package:openstrap_edge/ui2/screens/readiness_detail.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 const _profile = <String, dynamic>{
@@ -248,6 +251,9 @@ HomeData _home() {
       tier: MetricTier.estimate,
     ),
     stepGoal: 10000,
+    kcalTarget: 2300,
+    proteinTarget: 160,
+    proteinToday: 108,
     graph: DayGraph(hr: hr, dayStartSec: _ts(DateTime.parse(todayLabel()))),
     recentHr: [
       for (var i = 0; i < 60; i++)
@@ -1346,12 +1352,18 @@ void main() {
           BodyMeasure(date: today, recordedAt: now, inches: {'waistNavel': 34}),
           BodyMeasure(date: label(-21), recordedAt: now, inches: {'neck': 15}),
         ]);
+      // Build 90: the weekly block lives on the Body page, which Weight opens.
       await t.pumpWidget(
-        _app(app, ProgressScreen(data: d), 1, ShellDomain.progress),
+        _app(
+          app,
+          progressDetailPage(ProgressDest.weight, initial: d),
+          1,
+          ShellDomain.progress,
+          shell: false,
+        ),
       );
       await _settle(t);
       final block = find.textContaining('This week (from');
-      // Build 88: the review leads Progress, so scroll to the weight block.
       await t.scrollUntilVisible(
         block,
         200,
@@ -1443,6 +1455,40 @@ void main() {
         in <(String, ShellDomain, Widget Function())>[
           ('today', ShellDomain.home, () => HomeScreen(data: _home(), hour: 9)),
           ('food', ShellDomain.nutrition, () => const NutritionScreen()),
+          (
+            'sleep',
+            ShellDomain.home,
+            () => SleepDetail(
+              data: SleepData(
+                day: todayLabel(),
+                night: {
+                  'duration_min': 443,
+                  'in_bed_min': 486,
+                  'awake_min': 43,
+                  'efficiency': 443 / 486,
+                  'light_min': 263,
+                  'deep_min': 85,
+                  'rem_min': 95,
+                  'onset_ts': _ts(
+                    DateTime.now().subtract(const Duration(hours: 9)),
+                  ),
+                  'wake_ts': _ts(
+                    DateTime.now().subtract(const Duration(minutes: 54)),
+                  ),
+                },
+              ),
+            ),
+          ),
+          (
+            'recovery',
+            ShellDomain.home,
+            () => ReadinessDetail(
+              data: const ReadinessData(
+                readiness: Metric(value: 68),
+                series: [60, 65, null, 68],
+              ),
+            ),
+          ),
           ('train', ShellDomain.workout, () => const WorkoutScreen()),
           ('trends', ShellDomain.health, () => HealthScreen(data: _trends())),
           // Build 88: the 30-day line + 7-day average and the 3-month weekly
@@ -1467,6 +1513,23 @@ void main() {
             ShellDomain.progress,
             () => ProgressScreen(data: _progress(empty: true)),
           ),
+          // Build 90: the detail pages the overview's rows open.
+          (
+            'progress_body',
+            ShellDomain.progress,
+            () => progressDetailPage(ProgressDest.weight, initial: _progress()),
+          ),
+          (
+            'progress_strength',
+            ShellDomain.progress,
+            () =>
+                progressDetailPage(ProgressDest.strength, initial: _progress()),
+          ),
+          (
+            'progress_context',
+            ShellDomain.progress,
+            () => progressDetailPage(ProgressDest.food, initial: _progress()),
+          ),
         ]) {
       testWidgets('$name renders whole at $tag text without overflow', (
         t,
@@ -1487,18 +1550,76 @@ void main() {
         await t.pumpWidget(_app(app, build(), scale, domain));
         await _settle(t);
         expect(t.takeException(), isNull);
-        if(name == 'food' && width == 390 && scale == 1) {
-          expect(t.getTopLeft(find.text('Breakfast').first).dy,lessThan(height-90),
-            reason:'The first meal must be visible above the tab bar at ordinary phone text.');
+        if (name == 'food' && width == 390 && scale == 1) {
+          expect(
+            t.getTopLeft(find.text('Breakfast').first).dy,
+            lessThan(height - 90),
+            reason:
+                'The first meal must be visible above the tab bar at ordinary phone text.',
+          );
         }
-        await _capture(t, name == 'food' ? 'b90_codex_food_$tag' : 'b87_${name}_$tag');
-        final scroll = find.byType(Scrollable).first;
-        for (var i = 0; i < 4; i++) {
+        await _capture(
+          t,
+          name == 'food' ? 'b90_codex_food_$tag' : 'b87_${name}_$tag',
+        );
+        var checkedStats = false;
+        void checkStats() {
+          if (scale <= 1.3 ||
+              !['progress_body', 'progress_context'].contains(name))
+            return;
+          final first = find.text(
+            name == 'progress_body' ? 'Start' : 'Calories',
+          );
+          final second = find.text(
+            name == 'progress_body' ? 'Latest' : 'Protein',
+          );
+          if (first.evaluate().isEmpty || second.evaluate().isEmpty) return;
+          expect(
+            t.getTopLeft(second).dy,
+            greaterThan(t.getTopLeft(first).dy),
+            reason: 'Comparison stats must stack at large text.',
+          );
+          checkedStats = true;
+        }
+
+        checkStats();
+        final scroll = find
+            .byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            )
+            .first;
+        final position = t.state<ScrollableState>(scroll).position;
+        for (var i = 0; i < 60 && position.extentAfter > .5; i++) {
           await t.drag(scroll, const Offset(0, -500));
           await _settle(t);
           expect(t.takeException(), isNull);
+          checkStats();
+          await _capture(
+            t,
+            name == 'food'
+                ? 'b90_codex_food_${tag}_scroll_$i'
+                : 'b87_${name}_${tag}_scroll_$i',
+          );
         }
-        await _capture(t, name == 'food' ? 'b90_codex_food_${tag}_lower' : 'b87_${name}_${tag}_lower');
+        expect(
+          position.extentAfter,
+          lessThanOrEqualTo(.5),
+          reason: 'Review must reach the actual end of the page.',
+        );
+        if (scale > 1.3 &&
+            ['progress_body', 'progress_context'].contains(name)) {
+          expect(
+            checkedStats,
+            isTrue,
+            reason: 'Review reached the comparison stats.',
+          );
+        }
+        await _capture(
+          t,
+          name == 'food'
+              ? 'b90_codex_food_${tag}_lower'
+              : 'b87_${name}_${tag}_lower',
+        );
         await t.pumpWidget(const SizedBox.shrink());
         await _settle(t);
       });

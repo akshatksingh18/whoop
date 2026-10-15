@@ -566,47 +566,43 @@ class _ProgressDetailState extends State<_ProgressDetail>
               ),
               const SizedBox(height: S.x2),
               if (summary != null)
-                Row(
-                  children: [
-                    _stat(
-                      p,
-                      'Start',
-                      '${_num(summary.start.value)} ${m.unit}',
-                      _md(summary.start.date),
-                    ),
-                    _stat(
-                      p,
-                      'Latest',
-                      '${_num(summary.latest.value)} ${m.unit}',
-                      _md(summary.latest.date),
-                    ),
-                    _stat(
-                      p,
-                      'Change',
-                      summary.count < 2
-                          ? '—'
-                          : '${summary.change >= 0 ? '+' : '−'}${_num(summary.change.abs())} ${m.unit}',
-                      '${summary.count} ${summary.count == 1 ? 'reading' : 'readings'}',
-                    ),
-                  ],
-                ),
+                _stats(c, [
+                  _stat(
+                    p,
+                    'Start',
+                    '${_num(summary.start.value)} ${m.unit}',
+                    _md(summary.start.date),
+                  ),
+                  _stat(
+                    p,
+                    'Latest',
+                    '${_num(summary.latest.value)} ${m.unit}',
+                    _md(summary.latest.date),
+                  ),
+                  _stat(
+                    p,
+                    'Change',
+                    summary.count < 2
+                        ? '—'
+                        : '${summary.change >= 0 ? '+' : '−'}${_num(summary.change.abs())} ${m.unit}',
+                    '${summary.count} ${summary.count == 1 ? 'reading' : 'readings'}',
+                  ),
+                ]),
               if (steps != null)
-                Row(
-                  children: [
-                    _stat(
-                      p,
-                      'Total',
-                      thousands(steps.total),
-                      '${steps.days} days measured',
-                    ),
-                    _stat(
-                      p,
-                      'Average',
-                      steps.average == null ? '—' : thousands(steps.average!),
-                      'per measured day',
-                    ),
-                  ],
-                ),
+                _stats(c, [
+                  _stat(
+                    p,
+                    'Total',
+                    thousands(steps.total),
+                    '${steps.days} days measured',
+                  ),
+                  _stat(
+                    p,
+                    'Average',
+                    steps.average == null ? '—' : thousands(steps.average!),
+                    'per measured day',
+                  ),
+                ]),
               if (m is WeightMetric && d.weights.isNotEmpty)
                 if (BodyLogDb.sevenDayMean(d.weights, today) case final mean?)
                   Padding(
@@ -976,22 +972,20 @@ class _ProgressDetailState extends State<_ProgressDetail>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  _stat(
-                    p,
-                    'Calories',
-                    f.kcal == null ? '—' : thousands(f.kcal!),
-                    '${f.kcalDays} of ${f.windowDays} days',
-                  ),
-                  _stat(
-                    p,
-                    'Protein',
-                    f.protein == null ? '—' : '${f.protein!.round()} g',
-                    '${f.proteinDays} complete days',
-                  ),
-                ],
-              ),
+              _stats(c, [
+                _stat(
+                  p,
+                  'Calories',
+                  f.kcal == null ? '—' : thousands(f.kcal!),
+                  '${f.kcalDays} of ${f.windowDays} days',
+                ),
+                _stat(
+                  p,
+                  'Protein',
+                  f.protein == null ? '—' : '${f.protein!.round()} g',
+                  '${f.proteinDays} complete days',
+                ),
+              ]),
             ],
           ),
         ),
@@ -1030,39 +1024,35 @@ class _ProgressDetailState extends State<_ProgressDetail>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  _stat(
-                    p,
-                    'Workouts',
-                    '${ss.length}',
-                    '$lifts lift · $runs run · $walks walk · ${ss.length - lifts - runs - walks} other',
-                  ),
-                  _stat(
-                    p,
-                    'Steps',
-                    st.average == null ? '—' : thousands(st.average!),
-                    '${st.days} days measured',
-                  ),
-                ],
-              ),
+              _stats(c, [
+                _stat(
+                  p,
+                  'Workouts',
+                  '${ss.length}',
+                  '$lifts lift · $runs run · $walks walk · ${ss.length - lifts - runs - walks} other',
+                ),
+                _stat(
+                  p,
+                  'Steps',
+                  st.average == null ? '—' : thousands(st.average!),
+                  '${st.days} days measured',
+                ),
+              ]),
               const SizedBox(height: S.x3),
-              Row(
-                children: [
-                  _stat(
-                    p,
-                    'Sleep',
-                    sm == null ? '—' : '${sm ~/ 60}h ${(sm % 60).round()}m',
-                    '${sleep.length} nights',
-                  ),
-                  _stat(
-                    p,
-                    'Recovery',
-                    rm == null ? '—' : '${rm.round()}%',
-                    '${rec.length} days',
-                  ),
-                ],
-              ),
+              _stats(c, [
+                _stat(
+                  p,
+                  'Sleep',
+                  sm == null ? '—' : '${sm ~/ 60}h ${(sm % 60).round()}m',
+                  '${sleep.length} nights',
+                ),
+                _stat(
+                  p,
+                  'Recovery',
+                  rm == null ? '—' : '${rm.round()}%',
+                  '${rec.length} days',
+                ),
+              ]),
             ],
           ),
         ),

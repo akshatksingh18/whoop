@@ -34,7 +34,8 @@ import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/screens/food_diary.dart';
-import 'package:openstrap_edge/ui2/screens/food_calendar.dart' show FoodWeekStrip;
+import 'package:openstrap_edge/ui2/screens/food_calendar.dart'
+    show FoodWeekStrip;
 import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
@@ -42,6 +43,7 @@ import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
 import 'package:openstrap_edge/ui2/screens/readiness_detail.dart';
 import 'package:openstrap_edge/ui2/screens/day_steps.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
+import 'package:openstrap_edge/ui2/screens/today_plan.dart';
 import 'package:openstrap_edge/ui2/screens/week_card.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -1629,9 +1631,150 @@ void main() {
     },
   );
 
-  testWidgets('Food → Foods searches saved meals and foods by name', (
-    t,
-  ) async {
+  testWidgets(
+    'Today quick actions open Food, Train and the real quick weigh-in',
+    (t) async {
+      final app = AppState.forTesting()
+        ..repo = _Repo()
+        ..user = {..._profile};
+      addTearDown(app.dispose);
+      t.view.physicalSize = const Size(390, 1700);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(
+        _app(
+          app,
+          const SingleChildScrollView(
+            child: TodayPlanCard(
+              steps: 5000,
+              stepGoal: 10000,
+              overviewHasTotals: true,
+            ),
+          ),
+        ),
+      );
+      await _until(t, () => find.text('Weigh in').evaluate().isNotEmpty);
+      await t.tap(find.text('Log food'));
+      expect(app.navRequest.value, 6);
+      await t.tap(find.text('Train').first);
+      expect(app.navRequest.value, 4);
+      await t.tap(find.text('Weigh in').first);
+      await _until(t, () => find.text('Save').evaluate().isNotEmpty);
+      expect(find.text('Save'), findsOneWidget);
+      expect(t.takeException(), isNull);
+      await _unmount(t);
+    },
+  );
+
+  for (final mode in ['log foods', 'log meals', 'library']) {
+    testWidgets(
+      'filtered $mode supports hold-drag, persists all items and still swipes',
+      (t) async {
+        t.view.physicalSize = const Size(390, 1700);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        final app = AppState.forTesting()
+          ..repo = _Repo()
+          ..user = {..._profile};
+        addTearDown(app.dispose);
+        const keys = ['hidden-a', 'match-a', 'hidden-b', 'match-b', 'hidden-c'];
+        final meal = mode == 'log meals';
+        await t.runAsync(() async {
+          for (final key in keys) {
+            if (meal) {
+              await MyFoods.putMeal(
+                db,
+                MealTemplate(
+                  key: key,
+                  label: 'Synthetic $key',
+                  meal: 'breakfast',
+                  items: const [],
+                ),
+              );
+            } else {
+              await NutritionDb.putFoodDef(
+                db,
+                myFoodDef(
+                  key: key,
+                  label: 'Synthetic $key',
+                  refGrams: 100,
+                  kcal: 100,
+                ),
+              );
+            }
+          }
+          if (meal) {
+            await MyFoods.reorderMeals(db, keys);
+          } else {
+            await MyFoods.reorderFoods(db, keys);
+          }
+        });
+        await t.pumpWidget(
+          _app(
+            app,
+            mode == 'library'
+                ? const NutritionScreen()
+                : LogFoodScreen(date: todayLabel(), meal: 'breakfast'),
+          ),
+        );
+        if (mode == 'library') {
+          await _until(t, () => find.text('Foods').evaluate().isNotEmpty);
+          await t.tap(find.text('Foods'));
+        } else if (meal) {
+          await _until(t, () => find.text('My meals').evaluate().isNotEmpty);
+          await t.tap(find.text('My meals'));
+        }
+        await _until(
+          t,
+          () => find.text('Synthetic match-b').evaluate().isNotEmpty,
+        );
+        await t.enterText(_field('Search'), 'match');
+        await t.pumpAndSettle();
+        expect(find.text('Synthetic hidden-a'), findsNothing);
+        final first = find.text('Synthetic match-a');
+        final second = find.text('Synthetic match-b');
+        final target = t.getCenter(first);
+        final gesture = await t.startGesture(t.getCenter(second));
+        await t.pump(const Duration(milliseconds: 650));
+        await gesture.moveBy(const Offset(0, -10));
+        await t.pump(const Duration(milliseconds: 50));
+        await gesture.moveTo(target);
+
+        await t.pump(const Duration(milliseconds: 400));
+        await gesture.up();
+        await t.pumpAndSettle();
+        await _until(t, () => t.getTopLeft(second).dy < t.getTopLeft(first).dy);
+        final order = await t.runAsync(
+          () async => meal
+              ? (await MyFoods.meals(db)).map((m) => m.key).toList()
+              : (await MyFoods.all(db)).map((f) => f['key']).toList(),
+        );
+        expect(order, [
+          'hidden-a',
+          'match-b',
+          'hidden-b',
+          'match-a',
+          'hidden-c',
+        ]);
+        await t.enterText(_field('Search'), '');
+        await t.pumpAndSettle();
+        expect(find.text('Synthetic hidden-a'), findsOneWidget);
+        expect(find.text('Synthetic hidden-c'), findsOneWidget);
+        await t.enterText(_field('Search'), 'match');
+        await t.pumpAndSettle();
+        await t.drag(second, const Offset(-330, 0));
+        await t.pumpAndSettle();
+        expect(find.text('Keep it'), findsOneWidget);
+        await t.tap(find.text('Keep it'));
+        await t.pumpAndSettle();
+        expect(second, findsOneWidget);
+        expect(t.takeException(), isNull);
+        await _unmount(t);
+      },
+    );
+  }
+
+  testWidgets('Food → Foods searches saved meals and foods by name', (t) async {
     t.view.physicalSize = const Size(390, 1600);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);

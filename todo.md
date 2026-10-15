@@ -2,8 +2,8 @@
 
 **State:** Akshat reports Build `0.9.56`/`89` installed and being tested. Build 88 was the previous
 install. Build 89 works on his phone and becomes the cached recovery build before Build 90 installs;
-until then Build 70 remains cached recovery. Build 90's decided plan is below, awaiting the
-final go-ahead.
+until then Build 70 remains cached recovery. Build 90's engine/data and approved A + compact B interface are implemented in local source;
+integration, full cloud checks and native/device acceptance remain open.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -33,13 +33,14 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 90 (`0.9.57`/`90`): Plan Decided, Awaiting Final Go-Ahead
+## Build 90 (`0.9.57`/`90`): Source Implementation And Verification
 
-**State:** planning only; no Build 90 code exists. Akshat chose to ship the whole backlog in
-`build-90-audit.md` ("Complete App-Wide Worklist") in this one build, including the full engine
-depth, plus a home bodyweight workout (`home-workout-proposal.md`). Work is split between two
-agents in two lanes that never edit the same file; Claude integrates, pushes and runs every
-GitHub check. Implementation starts on Akshat's go-ahead for this plan.
+**State:** implementation approved. Engine/data source and the reviewed Progress/Body/Lift
+workflows exist; Akshat selected A overall with B's compact macro section, then assigned the
+whole interface implementation to Codex on `build-90-codex`. The earlier lane split below is
+historical for those UI files. Claude retains privacy review, integration, publishing, full
+GitHub checks and release packaging. Local synthetic checks do not establish native iPhone
+acceptance or a newly built IPA. The audit's device/operational gates remain open.
 
 ### Decisions (Akshat, Build 89 review)
 
@@ -64,9 +65,12 @@ GitHub check. Implementation starts on Akshat's go-ahead for this plan.
   set with progress recomputed (no adding a forgotten set; session times, HR and calories
   unchanged); dated milestones on Body and Strength (no scores or notifications). Warm-up flags
   and RPE/RIR stay out.
-- D6 Layout: Food keeps all four macros visible in one compact row (protein larger). Today:
-  Recovery/Sleep/Strain, then Log food · Weigh in · Start/Resume · Pushups, then the HR chart,
-  then steps/food/maintenance, then Body. Train: Pushups becomes one compact row with Start.
+- D6 Layout: accepted A calm framework with B's four slim macro rows (protein larger),
+  retaining all four values/targets. Today has one recovery headline, right-aligned supporting
+  values, then food/weigh-in/train actions; Body and Pushups remain available. Steps, food
+  and maintenance each appear once. Trends groups related rows and retains missing-day
+  context. Train leads with Start/Resume. Progress retains one fixed-window goal verdict,
+  with outcomes and inputs opening the full details and all eight exploration periods.
 - D7 Fallback: Build 89 works on Akshat's phone; it becomes the cached recovery build before
   Build 90 (which changes the database) is installed, after an off-phone encrypted export.
 - D8 Process: Claude writes Codex's brief; Codex commits on its own branch and never pushes;
@@ -75,7 +79,11 @@ GitHub check. Implementation starts on Akshat's go-ahead for this plan.
 
 ### Lanes and file ownership
 
-Only the owner edits a file; the other lane asks through its notes block below.
+The original split below governed the first engine/UI implementation. Akshat subsequently
+assigned the entire approved A + compact B UI task and related documentation to Codex;
+Today, Trends, Train, Progress, shared components and their tests are now included. Existing
+reviewed features are retained from `1ceba06b`. Claude still handles integration, privacy review,
+pushes, cloud checks and release metadata; Codex never pushes or edits another worktree.
 
 - **Claude lane (`build-90-claude`, separate worktree):** Progress overview and Body / Strength /
   context details, History range, quick weigh-in, milestones (B90-01, B90-04, B90-09); Today
@@ -88,8 +96,7 @@ Only the owner edits a file; the other lane asks through its notes block below.
   `workout_screen.dart`, `lift_log.dart`, `lift_log_ui.dart`, `lift_progress.dart`,
   `theme.dart`, `grammar.dart`, `app_shell.dart`, the widget gallery, `pubspec.yaml` and
   version metadata.
-- **Codex lane (`build-90-codex`, main checkout):** all engine/data work and all research
-  (D2, D3); workout-deletion publication (B90-02 data side); analysis export (B90-05..07);
+- **Codex lane (`build-90-codex`, main checkout):** all engine/data work (D2; Claude owns research D3); workout-deletion publication (B90-02 data side); analysis export (B90-05..07);
   backup/export wording (B90-11); frozen food counting (B90-10); Food redesign, Food large text
   and Food's Progress link; whole-day food copy; performance profiling and bounded queries.
   Files: `packages/protocol`, `packages/analytics`, `lib/compute/` (including
@@ -100,9 +107,8 @@ Only the owner edits a file; the other lane asks through its notes block below.
   `openProgress(context, destination)` entry, a session-change publication hook in AppState,
   and additive-only changes to the food-window/rollup functions Progress reads. Codex keeps new
   Food widgets private to its own files; any public widget it adds is registered in the
-  gallery in a marked Codex block. Each lane updates only its own tabs' cases in shared render
-  tests. Docs: each lane writes only its notes block below; Claude synchronises `CLAUDE.md`,
-  `setup.md`, `README.md` and the guides at merge. Small targeted local checks only; full
+  gallery in a marked Codex block. Codex updates the full approved UI render cases and affected current-state design/docs.
+  Claude records cloud/release evidence in `setup.md` and guides at integration. Small targeted local checks only; full
   suites run on GitHub.
 
 ### Phases
@@ -125,11 +131,11 @@ Only the owner edits a file; the other lane asks through its notes block below.
   maintenance range under 6 weeks, G6 the 10-rep cap). C3: the day's weight is the first
   reading of the day; every reading is kept with its time. Exercise energy stays at the low end of its source and beside maintenance, never
   inside it: lifting and home workouts already use (MET − 1) × weight × time on a separate
-  line. Runs and walks enter maintenance through the step and distance formula; whether
-  that should change is an open question to Akshat. D1's strain form is chosen later by
-  running the app's own functions over the export.
-- [ ] 1. Lanes in parallel, on Akshat's go-ahead. Claude sends the early Progress preview;
-  approved research verdicts are implemented in the engine lane.
+  line. Runs and walks enter maintenance through the step and distance formula, as confirmed
+  by Akshat. D1's local measurement is complete (Codex notes below); the whole-day strain form
+  remains unless Akshat approves a change. No strain-form change is part of this UI work.
+- [x] 1. Engine/data and reviewed UI source implemented; approved A + compact B refinement
+  is on Codex. Remaining integration, final cloud checks and phone gates are below.
 - [ ] 2. Merge (Claude): Codex lane, then Claude lane; `0.9.57+90`; one `kAlgoVersion`
   decision with its changelog; full GitHub tests; screenshot review of every changed screen.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
@@ -196,10 +202,32 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   implementation; no push, Git merge/rebase/branch switch or other-worktree edit is authorized.
   Reviewed Build 90 Progress/Body/Lift workflows and their models are carried forward from
   `1ceba06b` into this checkout so the layout refinement retains those features.
-  Claude integration: apply A's overview/illustration/alignment framework, keep fixed goal review
-  and all detail routes, fix shared right-edge/chevron/unit layout in MetricLine, retain every
-  source feature/gate, and reconcile DESIGN/CLAUDE/audit/D6 to the accepted A+B selection.
-  Keep this source distinct from the old static PDF/prototype and from built/phone acceptance.
+  UI source now applies that framework across Today, Trends, Train, Progress, Sleep and
+  Recovery. Shared rows align digits with a stable action gutter; units sit below; full
+  comparison labels/values and detail titles reflow at large text. Trends groups related
+  metrics and prints missing-day counts only when needed; both energy methods remain.
+  Today keeps its real data/status, HR chart, Body, Pushups and weekly card, with early
+  Log food / Weigh in / Train-or-Resume actions and no duplicate totals. Train keeps Gym/Home,
+  history/options, imports, week/rest/streak and full Lift Log. Small leaf/moon artwork is
+  decoration only. Progress keeps its fixed review verdict, all reasoning/next steps, dates,
+  missing evidence, eight detail periods, weight/tape/photo history, strength and context.
+  Log Food and Food → Foods now permit hold-drag while searching/filtering. Reordered
+  matches occupy their existing slots; hidden items keep their positions and the full order
+  is saved. My foods and My meals retain swipe-to-delete and cancellation.
+  Source commits: Food `f9190e48`; reviewed workflows `b11fa463`; the calm whole-UI
+  refinement and filtered-order repair are committed together in the current change.
+  Final checks: 20 main/detail cases at 1x/3.1x reach the actual bottom, with every intermediate
+  viewport captured; four affected Body/context rerenders pass, then two 3.1x regressions
+  explicitly confirm stacked comparison groups. Common layout (4), quick Body entry (3),
+  iOS Reduce Motion back (3), Home workout meanings (4), filtered gesture/order/swipe (3),
+  existing Foods search (1), Today quick actions (1) and fixed goal review (5) pass.
+  Targeted analysis of six changed paths has no errors/warnings (10 informational lints).
+  The ignored `build/ui_capture/calm-ui-review.html` gallery includes the lower/intermediate
+  sections, not only top views; `build/research-local/claude-a-b-ui-handoff.md` is updated with
+  full progress, ownership grants and integration/device gates. DESIGN, CLAUDE, README, audit,
+  bugs and metrics-map are synchronized. Root/container routing and background-sync-plan were
+  checked: this UI work changes neither their routing nor background behavior, so no edit is
+  needed there. No push, full local suite/build, new IPA or phone acceptance claimed.
   Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
   restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.
@@ -212,11 +240,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   `food_day_count(date, calorie_goal, basis, counted, frozen_at, updated_at)` stores frozen
   counting provenance; task 8 now integrates first-open goal freezing and new writes. All four tables are in
   import/salvage and full snapshots, day exports carry their scoped context, and wipe is dynamic.
-  Body's first-reading selection/writes remain Claude-owned. Task 2 implemented: historical
+  Body's first-reading selection/writes are retained from the reviewed UI source. Task 2 implemented: historical
   v12/v24 RR counts cap at four, R10 retains its independent eight-value limit, unconfirmed
   optical inputs stay nullable, legacy zero sentinels read as absent, and CSV omits legacy
   oxygen metrics. All 5 synthetic checks in `test/build90_decode_integrity_test.dart` pass.
-  Algorithm version is 95, with one changelog entry to extend for the remaining approved work.
+  Algorithm version is 95, with one changelog entry for the approved analytics-output changes.
   Akshat also assigned `csv_export.dart`, `day_label.dart`, `local_repository_impl.dart`,
   `day_timeline.dart` and `activity/live.dart` to Codex. No push or full local build/test run.
   Task 2 is committed as `05d7dca2`. Task 3 now shares bridged record-minute accounting
@@ -1289,7 +1317,7 @@ later asked for build 82 to be built. Implemented:
   (Discard / Keep editing) when something was typed, on every way out (pull, handle, ✕, tap
   above); an untouched sheet closes at once. The food sheets' route drag is off so nothing skips
   the question.
-- **Food → Foods search:** filters saved meals and My foods by name (and brand); dragging is off
+- **Food → Foods search:** filters saved meals and My foods by name (and brand); Build 90 supersedes the original filtered-drag restriction; dragging was off
   while searching, as on the log screen.
 - **Saved meals, made consistent with foods:**
   - The editor's "Add a food" picker searches, shows each food's own serving line ("1 egg: 70

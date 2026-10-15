@@ -1642,39 +1642,47 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
       f['key'] as String,
       false,
     );
-    // Dragging needs the whole list, so a filtered list is plain.
-    final searching = q.isNotEmpty || (_tab == 0 && _cat != null);
     final list = <Widget>[
       if (_tab == 1) ...[
         if (meals.isEmpty)
           _empty(p, 'Save a meal from its ⋯ menu to log it in one tap.'),
-        if (searching)
-          for (final m in meals) mealRow(m)
-        else
-          DragList(
-            length: meals.length,
-            itemBuilder: (_, i) => mealRow(meals[i]),
-            onReorder: (from, to) => _reorderSaved(
-              meal: true,
-              keys: [for (final m in reordered(meals, from, to)) m.key],
-            ),
+        DragList(
+          length: meals.length,
+          itemBuilder: (_, i) => mealRow(meals[i]),
+          onReorder: (from, to) => _reorderSaved(
+            meal: true,
+            keys: [
+              for (final m in reorderedVisible(
+                _meals,
+                meals,
+                from,
+                to,
+                (m) => m.key,
+              ))
+                m.key,
+            ],
           ),
+        ),
       ],
       if (_tab == 0) ...[
         if (foods.isEmpty) _empty(p, 'Create a food once from its label.'),
-        if (searching)
-          for (final f in foods) foodRow(f)
-        else
-          DragList(
-            length: foods.length,
-            itemBuilder: (_, i) => foodRow(foods[i]),
-            onReorder: (from, to) => _reorderSaved(
-              meal: false,
-              keys: [
-                for (final f in reordered(foods, from, to)) f['key'] as String,
-              ],
-            ),
+        DragList(
+          length: foods.length,
+          itemBuilder: (_, i) => foodRow(foods[i]),
+          onReorder: (from, to) => _reorderSaved(
+            meal: false,
+            keys: [
+              for (final f in reorderedVisible(
+                _foods,
+                foods,
+                from,
+                to,
+                (f) => f['key'] as String,
+              ))
+                f['key'] as String,
+            ],
           ),
+        ),
       ],
     ];
 

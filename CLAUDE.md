@@ -23,8 +23,12 @@ names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rat
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
 (`todo.md` Build 89). Build 88 was the previous install. Akshat wants Build 89 as recovery after
 the whole-app review; Build 70 remains cached recovery until that promotion. `build-90-audit.md`
-owns the current visual/source audit, reproduced export/navigation defects and proposed next-build scope.
-Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
+owns the original visual/source findings and complete backlog. Build 90 engine/data source
+(algorithm 95, schema 50) and the approved A calm framework + B compact macro rows are implemented
+on `build-90-codex`; reviewed Progress/Body/Lift workflows are retained. Akshat assigned the whole
+UI refinement to Codex. Claude retains privacy review, integration, cloud checks and release
+packaging. No new IPA or phone acceptance is established by local synthetic renders; `todo.md`
+owns the current implementation/checks and outstanding gates. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
 Build 87 checklist. Akshat approved implementation, including a peaceful warm palette. Published
@@ -545,7 +549,7 @@ The personal artifact must have these properties:
     Readiness entry and no findings screen; a rough-night card on Sleep states the measurements and
     never asks for tags. `journal_compose.dart` stays only because it hosts shared input widgets
     (`OsTextField`, `FieldStepper`).
-  - **Build 86/87 UI history** (superseded by installed Build 89; current design is in `DESIGN.md`, next proposal in `build-90-audit.md`):
+  - **Build 86/87 UI history** (superseded by installed Build 89; current design is in `DESIGN.md`, Build 90 source/gates in `todo.md`):
     - **Tabs:** Today · Trends · Food · Train · Progress, each one scrolling page (`ShellDomain`
       keeps the internal names). Local Build 87 has flat navigation and unframed numeric/diary
       sections, replacing installed Build 86's rounded floating-pill/card composition.

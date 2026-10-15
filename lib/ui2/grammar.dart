@@ -675,61 +675,58 @@ class Section extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final large = bigText(c);
+    final heading = Text(
+      title,
+      style: F.section.copyWith(color: p.onGround),
+      maxLines: large ? null : 2,
+      overflow: large ? null : TextOverflow.ellipsis,
+    );
+    final actionWidget = action == null
+        ? null
+        : Pressable(
+            semanticLabel: action,
+            onTap: onAction,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x2),
+              child: Text(
+                action!,
+                textAlign: TextAlign.end,
+                style: F.cap.copyWith(
+                  color: p.on(C.blue),
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: large ? null : 2,
+                overflow: large ? null : TextOverflow.ellipsis,
+              ),
+            ),
+          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(S.x1, S.x6, S.x1, S.x3),
-          child: Row(
-            // spaceBetween owns the gap, so the action sits on the right edge
-            // however short the title is. Previously the title was Expanded
-            // and the action Flexible — both default to flex: 1, so they split
-            // the row 50/50 and the action started at the midpoint instead of
-            // being anchored. Making the action a plain child fixes the anchor
-            // but overflows on a long title, so the TITLE is the half that
-            // gives: Flexible, two lines, ellipsised.
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+          child: large
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // A short bar marks a chapter of the page (build 85).
-                    // Build 88: a section head sits on the kraft ground in
-                    // the on-ground ink. Titles stay as written — several
-                    // are sentences, which capitals would make shout.
-                    Flexible(
-                      child: Text(
-                        title,
-                        style: F.section.copyWith(color: p.onGround),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                    heading,
+                    if (actionWidget != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: actionWidget,
                       ),
-                    ),
+                    if (actions != null) actions!,
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(child: heading),
+                    if (actionWidget != null) Flexible(child: actionWidget),
+                    if (actions != null) Flexible(child: actions!),
                   ],
                 ),
-              ),
-              if (action != null)
-                Flexible(
-                  child: Pressable(
-                    onTap: onAction,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: S.x2),
-                      child: Text(
-                        action!,
-                        style: F.cap.copyWith(
-                          color: p.on(C.blue),
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ),
-              if (actions != null) Flexible(child: actions!),
-            ],
-          ),
         ),
         child,
       ],
@@ -1811,54 +1808,39 @@ class InlineMetrics extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Row(
+    Widget metric((String, String, Color) e) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final e in items)
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: p.on(e.$3),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: S.x1),
-                    Flexible(
-                      child: Text(
-                        e.$1,
-                        style: F.over.copyWith(color: p.ink3),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: S.x1),
-                // scaleDown, NOT ellipsis. These are measurements sharing
-                // one row, so the slot is a third of a card and a two-digit
-                // fixture fits where a real one does not: at 2x text the
-                // journey summary printed '+642…' and '−618…' where the
-                // numbers are +642 m and −618 m. A shrunk measurement is
-                // still the measurement; a truncated one is a different
-                // number.
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Text(
-                    e.$2,
-                    style: F.n17.copyWith(color: p.on(e.$3)),
-                    maxLines: 1,
-                  ),
-                ),
-              ],
-            ),
+        Text(e.$1, style: F.cap.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x1),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Text(
+            e.$2,
+            style: F.n17.copyWith(color: p.on(e.$3)),
+            softWrap: false,
           ),
+        ),
+      ],
+    );
+    if (bigText(c)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: S.x3),
+            metric(items[i]),
+          ],
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: S.x2),
+          Expanded(child: metric(items[i])),
+        ],
       ],
     );
   }
@@ -2257,23 +2239,30 @@ class SubTabs extends StatelessWidget {
           separatorBuilder: (_, _) => const SizedBox(width: S.x2),
           itemBuilder: (_, i) {
             final on = i == index;
-            return Pressable(
-              onTap: () => onTap(i),
-              child: AnimatedContainer(
-                duration: motion(c, Motion.base),
-                constraints: const BoxConstraints(minWidth: S.tap),
-                padding: const EdgeInsets.symmetric(horizontal: S.x4),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: on ? p.card : const Color(0x00000000),
-                  borderRadius: R.rMd,
-                  boxShadow: on ? p.el(1) : const [],
-                ),
-                child: Text(
-                  items[i],
-                  style: F.cap.copyWith(
-                    color: on ? p.ink : p.ink2,
-                    fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+            // Build 90: VoiceOver hears which option is chosen ("3 months,
+            // selected"), not only the option names.
+            return Semantics(
+              selected: on,
+              inMutuallyExclusiveGroup: true,
+              child: Pressable(
+                semanticLabel: items[i],
+                onTap: () => onTap(i),
+                child: AnimatedContainer(
+                  duration: motion(c, Motion.base),
+                  constraints: const BoxConstraints(minWidth: S.tap),
+                  padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: on ? p.card : const Color(0x00000000),
+                    borderRadius: R.rMd,
+                    boxShadow: on ? p.el(1) : const [],
+                  ),
+                  child: Text(
+                    items[i],
+                    style: F.cap.copyWith(
+                      color: on ? p.ink : p.ink2,
+                      fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                    ),
                   ),
                 ),
               ),
@@ -2343,11 +2332,21 @@ class ScreenTitle extends StatelessWidget {
                   )
                 else if (kicker != null)
                   Text(kicker!, style: F.body.copyWith(color: p.onGround)),
-                Text(
-                  title,
-                  style: F.display.copyWith(color: p.ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                // B90-08: Apple's Large Title grows from 34 to 60 pt at the
+                // largest accessibility size (x1.76), not with body text's
+                // x3.1; past that one word cannot wrap, so it fits rather
+                // than truncating to "Prog…".
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 60 / 34,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      title,
+                      style: F.display.copyWith(color: p.ink),
+                      maxLines: 1,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -2391,7 +2390,12 @@ class GoalBar extends StatelessWidget {
 }
 
 class _GoalBarPainter extends CustomPainter {
-  _GoalBarPainter(this.f, {required this.track, required this.fill, required this.over});
+  _GoalBarPainter(
+    this.f, {
+    required this.track,
+    required this.fill,
+    required this.over,
+  });
   final double f;
   final Color track, fill, over;
 
@@ -2404,7 +2408,10 @@ class _GoalBarPainter extends CustomPainter {
     c.save();
     c.clipRRect(whole);
     if (f <= 1) {
-      c.drawRect(Rect.fromLTWH(0, 0, s.width * f, s.height), Paint()..color = fill);
+      c.drawRect(
+        Rect.fromLTWH(0, 0, s.width * f, s.height),
+        Paint()..color = fill,
+      );
     } else {
       // The goal is 1/f of the bar; a small gap separates the excess.
       final goalW = s.width / f;
@@ -3434,7 +3441,7 @@ class NavBar extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return ConstrainedBox(
+    final controls = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 52),
       child: Row(
         children: [
@@ -3454,24 +3461,26 @@ class NavBar extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: F.head.copyWith(color: p.ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (sub.isNotEmpty)
-                  Text(
-                    sub,
-                    style: F.over.copyWith(color: p.ink3),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            child: bigText(c)
+                ? const SizedBox.shrink()
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: F.head.copyWith(color: p.ink),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (sub.isNotEmpty)
+                        Text(
+                          sub,
+                          style: F.over.copyWith(color: p.ink3),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
                   ),
-              ],
-            ),
           ),
           SizedBox(
             width: trailingWidth,
@@ -3479,6 +3488,16 @@ class NavBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (!bigText(c)) return controls;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        controls,
+        Text(title, style: F.head.copyWith(color: p.ink)),
+        if (sub.isNotEmpty) Text(sub, style: F.cap.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x2),
+      ],
     );
   }
 }
@@ -3611,20 +3630,15 @@ class DayTiles extends StatelessWidget {
           size: Size.infinite,
           // Graphics, not text: the pure family colour (DESIGN.md), which
           // clears the 3:1 non-text floor on the paper it sits on.
-          painter: RangeChart(
-            values,
-            color,
-            hatch: C.hatch,
-            style: style,
-          ),
+          painter: RangeChart(values, color, hatch: C.hatch, style: style),
         ),
       ),
     );
   }
 }
 
-/// One Build 88 metric row: an uppercase label, its day chart, then the value
-/// (DESIGN.md "label, 7-day mini chart, then the value"). An absent value is
+/// A calm metric row: sentence-case label, optional real series and a value
+/// anchored to the same edge with or without a chart or action. An absent value is
 /// "—" in the alert colour with its one-line reason; [fresh] adds the amber
 /// NEW marker until the value has been seen; [progress] (0…1) draws a single
 /// value's progress bar in place of the chart.
@@ -3666,71 +3680,55 @@ class MetricLine extends StatelessWidget {
     final p = P.of(c);
     final absent = value == null;
     final big = bigText(c);
-    final chart = note != null
-        ? Text(
-            note!,
-            style: F.cap.copyWith(color: absent ? p.on(C.alert) : p.ink2),
-          )
-        : progress != null
-        // Build 89: past the target the bar turns striped, like the
-        // calorie bar, instead of sitting full and saying nothing.
-        ? GoalBar(progress!, color: color, height: 10)
-        : values.isEmpty
-        ? const SizedBox.shrink()
+    final hasChart = note == null && (progress != null || values.isNotEmpty);
+    final chart = progress != null
+        ? GoalBar(progress!, color: color, height: 4)
         : DayTiles(values, color, style: style);
     final labelCol = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label.toUpperCase(),
-          style: F.label.copyWith(color: absent ? p.on(C.alert) : p.ink2),
-        ),
-        if (fresh) ...[
-          const SizedBox(height: S.x1),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: 2),
-            decoration: BoxDecoration(
-              color: p.fill(C.alert),
-              borderRadius: R.rSm,
-            ),
-            child: Text(
-              'NEW',
-              style: F.over.copyWith(color: p.inkOnFill),
-            ),
+        Text(label, style: F.body.copyWith(color: p.ink2)),
+        if (note != null) Text(note!, style: F.cap.copyWith(color: p.ink2)),
+        if (fresh)
+          Padding(
+            padding: const EdgeInsets.only(top: S.x1),
+            child: Pill('NEW', C.alert),
           ),
-        ],
       ],
     );
     final valueCol = Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (absent)
-          Text('—', style: F.n30.copyWith(color: p.on(C.alert)))
-        else
-          Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text: value,
-                  style: F.n30.copyWith(color: p.ink),
-                ),
-                if (unit.isNotEmpty)
-                  TextSpan(
-                    text: ' $unit',
-                    style: F.cap.copyWith(
-                      color: p.ink2,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-              ],
-            ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          reverse: true,
+          child: Text(
+            value ?? '—',
+            softWrap: false,
+            style: F.n24.copyWith(color: p.on(absent ? C.alert : color)),
+          ),
+        ),
+        if (unit.isNotEmpty && !absent)
+          Text(
+            unit,
             textAlign: TextAlign.end,
+            style: F.over.copyWith(color: p.ink2),
           ),
         if (sub != null && !absent)
-          Text(sub!, style: F.over.copyWith(color: p.ink2)),
+          Text(
+            sub!,
+            textAlign: TextAlign.end,
+            style: F.over.copyWith(color: p.ink2),
+          ),
       ],
+    );
+    final trailing = SizedBox(
+      width: 20,
+      child: onTap == null
+          ? null
+          : Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
     );
     return Pressable(
       onTap: onTap,
@@ -3738,6 +3736,7 @@ class MetricLine extends StatelessWidget {
         label,
         absent ? 'not measured' : '$value $unit'.trim(),
         ?sub,
+        ?note,
         ?absentWhy,
       ].join(', '),
       child: Padding(
@@ -3748,26 +3747,24 @@ class MetricLine extends StatelessWidget {
             if (big) ...[
               labelCol,
               const SizedBox(height: S.x2),
-              chart,
-              const SizedBox(height: S.x2),
-              Align(alignment: Alignment.centerRight, child: valueCol),
+              Row(
+                children: [
+                  Expanded(child: valueCol),
+                  trailing,
+                ],
+              ),
+              if (hasChart) ...[const SizedBox(height: S.x2), chart],
             ] else
               Row(
                 children: [
-                  SizedBox(width: 92, child: labelCol),
-                  const SizedBox(width: S.x2),
-                  SizedBox(width: 112, child: chart),
+                  Expanded(child: labelCol),
+                  if (hasChart) ...[
+                    const SizedBox(width: S.x2),
+                    SizedBox(width: 52, child: chart),
+                  ],
                   const SizedBox(width: S.x3),
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: valueCol,
-                      ),
-                    ),
-                  ),
+                  Expanded(child: valueCol),
+                  trailing,
                 ],
               ),
             if (absent && absentWhy != null && absentWhy != note) ...[
@@ -3781,9 +3778,9 @@ class MetricLine extends StatelessWidget {
   }
 }
 
-/// The Build 88 hero (DESIGN.md): one big light number in its family colour,
-/// an uppercase label and up to two detail lines beside it — stacked under it
-/// at large text sizes. A null [value] is "—" in the alert colour.
+/// One primary number in its family colour with quiet context and optional
+/// decorative artwork. It keeps display scaling separate from body text;
+/// absent input is "—", never a substituted value.
 class HeroStat extends StatelessWidget {
   final String? value;
   final Color color;
@@ -3792,6 +3789,7 @@ class HeroStat extends StatelessWidget {
   final bool fresh;
   final VoidCallback? onTap;
   final String? semanticLabel;
+  final Widget? illustration;
 
   const HeroStat({
     super.key,
@@ -3802,6 +3800,7 @@ class HeroStat extends StatelessWidget {
     this.fresh = false,
     this.onTap,
     this.semanticLabel,
+    this.illustration,
   });
 
   @override
@@ -3809,16 +3808,14 @@ class HeroStat extends StatelessWidget {
     final p = P.of(c);
     final big = bigText(c);
     final long = (value ?? '').length > 3;
-    final number = FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.centerLeft,
+    final number = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       child: Text(
         value ?? '—',
-        // Large text: the pure family colour clears 3:1 on the paper.
-        style: (long ? F.heroLong : F.hero).copyWith(
-          // The contrast-solved ink of the family colour: the raw accent is
-          // a fill colour (food gold is 3.5:1 on paper) and read faint as text.
-          color: value == null ? p.on(C.alert) : p.on(color),
+        softWrap: false,
+        style: F.hero.copyWith(
+          fontSize: long ? 48 : 64,
+          color: p.on(value == null ? C.alert : color),
         ),
       ),
     );
@@ -3830,10 +3827,7 @@ class HeroStat extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Flexible(
-              child: Text(
-                label.toUpperCase(),
-                style: F.label.copyWith(color: p.ink2),
-              ),
+              child: Text(label, style: F.body.copyWith(color: p.ink2)),
             ),
             if (fresh && value != null) ...[
               const SizedBox(width: S.x2),
@@ -3865,23 +3859,32 @@ class HeroStat extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel:
-          semanticLabel ?? [label, value ?? 'not measured', ...lines].join(', '),
+          semanticLabel ??
+          [label, value ?? 'not measured', ...lines].join(', '),
       child: Padding(
         padding: const EdgeInsets.only(bottom: S.x3),
-        child: big
-            ? Column(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [number, const SizedBox(height: S.x2), side],
-              )
-            // The number may take up to 60% of a narrow row and scales down
-            // to fit it; the labels take the rest.
-            : Row(
                 children: [
-                  Flexible(flex: 3, child: number),
-                  const SizedBox(width: S.x4),
-                  Flexible(flex: 2, fit: FlexFit.tight, child: side),
+                  MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 60 / 34,
+                    child: number,
+                  ),
+                  const SizedBox(height: S.x2),
+                  side,
                 ],
               ),
+            ),
+            if (!big && illustration != null) ...[
+              const SizedBox(width: S.x3),
+              illustration!,
+            ],
+          ],
+        ),
       ),
     );
   }

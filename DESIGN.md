@@ -1,4 +1,4 @@
-# WHOOP App Design System (Build 88)
+# WHOOP App Design System
 
 **Status:** locked by Akshat on 2026-10-12 after reviewing the full screen set: Today, Trends
 (7 days, 30 days, 3 months), Food, Train, Progress, Sleep, Recovery and Live run. Implemented in
@@ -12,10 +12,11 @@ Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (loca
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
 Impeccable reads. Product truth stays in `CLAUDE.md` and `metrics-map.md`.
 
-Build 89 is installed and being tested; Akshat rejects Progress's information overload.
-`build-90-audit.md` proposes a shorter overview and focused detail routes, plus all-tab
-readability/action-access repairs. This is not an accepted replacement contract; the palette
-and tokens remain locked until a selected composition is approved.
+Build 89 is installed and being tested. Akshat selected the calm A framework with B's
+compact macro rows and approved whole-interface implementation for Build 90. This composition
+is implemented in local source; full cloud/native screenshot and phone acceptance remain open.
+The kraft/cream palette and metric-family colours stay locked. `build-90-audit.md` and `todo.md`
+retain the feature, correctness and device gates.
 
 ## Direction
 
@@ -51,27 +52,42 @@ Each family colour is used only for its own data. Alert colour never decorates.
 ## Type And Size
 
 - **Typeface:** the system face (SF Pro), with Dynamic Type respected.
-- **Food card (Build 89, Akshat's reference):** eaten over the goal and what is left (or over,
-  in the alert colour) at the same size on one line, with a `GoalBar` that stripes past the goal;
-  Food's date opens a month calendar and a week strip marks each day's state.
-- **Hero number:** semibold, about 116 pt; 84-96 pt for long values such as 1,920, 80.4 or
-  4.21, in the family colour's contrast-solved ink (never the raw fill colour). Build 89 changed
-  it from light weight after Akshat found the thin gold food number hard to read.
-- **Row values:** 30 pt semibold; 22 pt on dense screens. Tabular figures throughout.
-- **Labels:** 12.5 pt semibold uppercase with 0.10 em tracking. Body and caption text (13-15 pt)
-  is medium weight, never regular, and Material text follows the same floor.
+- **Food card (Build 90):** one eaten headline, quiet fixed goal and left/over, one calorie
+  bar, then four slim macro value/target rows with protein larger. All four macros remain
+  visible without expansion; missing and partial totals stay explicit. Add food follows the
+  compact block. Maintenance comparisons live in the maintenance panel. The calendar and
+  week strip retain their full behavior and a concise marks legend.
+- **Hero number:** one primary number per card, 64 pt or 48 pt for long values in the shared
+  HeroStat. Display-number scaling is bounded to keep a stable headline; supporting body,
+  labels, units and actions retain full Dynamic Type. Long values scroll horizontally intact.
+- **Row values:** 24 pt semibold in MetricLine, with units and qualified context below;
+  tabular figures. Normal rows share a right edge independent of a chart or chevron.
+- **Labels:** metric labels use sentence case and body size. Small section markers retain
+  the existing uppercase style. Supporting text uses the existing medium-weight floor.
+- **Large text:** rows reflow to full-width labels and intact values; comparison groups stack.
+  Detail titles use their own full-width line. No metric ellipsis, digit wrapping or FittedBox
+  shrinking in the shared metric/comparison primitives; vertical scrolling is expected.
 
 ## Shape And Layout
 
 - **Panels:** 26 pt continuous corners, 12 pt side margin and a soft shadow.
-- **Rows:** label, 7-day mini chart, then the value.
+- **Rows:** flexible label, optional real-history mini chart, right-anchored value, and a
+  stable action gutter. Units sit under the value. Charts have no empty placeholder slot.
+- **Composition:** Today leads with Recovery and early daily actions, with unique totals shown
+  once. Trends groups recovery/sleep, heart/breathing and activity/wear, retaining pins and
+  input gates. Train leads with Start/Resume and history before long chart material. Progress
+  keeps one fixed-week goal judgment; exploration periods cannot change it. Reasoning and
+  all detailed evidence remain reachable.
+- **Illustration:** subtle authored leaf, moon and plate artwork adds visual relief without
+  implying data. It is excluded from accessibility semantics and may hide at large text.
+  Charts, missing-data hatching and real photos retain their actual meaning.
 - **Charts:**
   - Today and details use 7-day tiles.
   - Trends at 7 days uses bar charts.
   - Trends at 30 days uses a thin daily line plus a bold 7-day average line.
   - Trends at 3 months uses weekly-average points with a soft low-high band.
   - Missing data breaks the line and shows a hatched gap; a line never bridges a gap.
-  - Single values use a progress bar.
+  - Target bars require a real target. Recomposition has no invented percentage or endpoint.
 - **Navigation:** the system tab bar (Today, Trends, Food, Train, Progress); standard
   back navigation; segmented controls for ranges.
 - **Estimates and absence:** estimates are labelled ("estimate"). Absent values are "—" with

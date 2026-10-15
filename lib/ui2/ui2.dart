@@ -7,9 +7,12 @@
 
 export 'app_shell.dart';
 export 'charts.dart';
+export 'energy_comparison.dart';
 export 'grammar.dart';
 export 'live_hr.dart';
 export 'paint_activity.dart';
 export 'revision.dart';
 export 'scroll_hint.dart';
 export 'theme.dart';
+
+export 'calm_illustration.dart';

@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../build_profile.dart';
+import '../../data/lift_log.dart' show LiftLogDb;
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
@@ -38,7 +39,8 @@ import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
-import '../activity/lift_log_ui.dart' show finishLiftLogFor, reconcileLiftLogs;
+import '../activity/lift_log_ui.dart'
+    show LiftChoice, LiftSplitChoice, finishLiftLogFor, reconcileLiftLogs;
 import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
@@ -253,6 +255,112 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// Open a screen that can write a session, then re-read. Every write path on
   /// this tab goes through here: `RevisionReload` covers the writers that bump
   /// `AppState.insightsRevision`, and this covers the ones that do not.
+  /// Build 90 (H3): Lift asks Gym or Home. Home is the Bodyweight type
+  /// (Compendium 02056, the lowest match for the routine) with the Home split
+  /// chosen; Gym is weight training as before.
+  /// Run, Walk, Lift and Other. At large text they go two by two, so each
+  /// label stays whole ("R…" and "Li…" at 2x in Build 89; B90-08).
+  Widget _startTiles(
+    BuildContext c,
+    void Function(Activity) start,
+    Activity Function(String) act,
+    _WorkoutData d,
+  ) {
+    final tiles = [
+      _QuickTile(
+        LucideIcons.footprints,
+        C.run,
+        'Run',
+        () => start(act('Running')),
+      ),
+      _QuickTile(
+        LucideIcons.personStanding,
+        C.steps,
+        'Walk',
+        () => start(act('Walking')),
+      ),
+      _QuickTile(
+        LucideIcons.dumbbell,
+        C.sleepInk,
+        'Lift',
+        () => _chooseLift(c, start, act),
+      ),
+      _QuickTile(
+        LucideIcons.ellipsis,
+        C.food,
+        'Other',
+        () => _openPicker(c, d),
+      ),
+    ];
+    Widget row(List<Widget> ts) => Row(
+      children: [
+        for (var i = 0; i < ts.length; i++) ...[
+          if (i > 0) const SizedBox(width: S.x2),
+          Expanded(child: ts[i]),
+        ],
+      ],
+    );
+    if (MediaQuery.textScalerOf(c).scale(10) <= 13) return row(tiles);
+    return Column(
+      children: [
+        row(tiles.sublist(0, 2)),
+        const SizedBox(height: S.x2),
+        row(tiles.sublist(2)),
+      ],
+    );
+  }
+
+  Future<void> _chooseLift(
+    BuildContext c,
+    void Function(Activity) start,
+    Activity Function(String) act,
+  ) async {
+    final p = P.of(c);
+    final pick = await showModalBottomSheet<String>(
+      context: c,
+      useSafeArea: true,
+      sheetAnimationStyle: sheetMotion(c),
+      backgroundColor: p.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (sc) => Padding(
+        padding: const EdgeInsets.all(S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Lift', style: F.head.copyWith(color: p.ink)),
+            const SizedBox(height: S.x3),
+            BigButton(
+              'Gym',
+              icon: LucideIcons.dumbbell,
+              color: C.purple,
+              onTap: () => Navigator.of(sc).pop('gym'),
+            ),
+            const SizedBox(height: S.x2),
+            BigButton(
+              'Home · bodyweight',
+              icon: LucideIcons.house,
+              color: C.purple,
+              soft: true,
+              onTap: () => Navigator.of(sc).pop('home'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (pick == null || !c.mounted) return;
+    if (pick == 'gym') return start(act('Weight training'));
+    try {
+      final home = await LiftLogDb.homeSplit();
+      await LiftChoice.remember(LiftSplitChoice(home));
+    } catch (_) {
+      // Setup still offers every split; Home just is not preselected.
+    }
+    if (c.mounted) start(act('Bodyweight'));
+  }
+
   Future<void> _push(BuildContext c, Widget w) async {
     await Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
     if (mounted) reload();
@@ -297,6 +405,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     void start(Activity a) =>
         _push(c, ActivitySetup(a, weightKg: d.weightKg, host: _host(d)));
     return [
+      if (_live(c) case final live?)
+        _ResumeCard(live, onTap: () => _push(c, const SessionDestination(null)))
+      else
+        _startTiles(c, start, act, d),
+      const SizedBox(height: S.x3),
+      // Build 90: Start/Resume, then anything to act on, then your recent
+      // workouts, before the tall week and strain material (B90 audit).
+      ..._suggestionCards(c, d),
       // The fortnight review is hidden in the personal build (Akshat, build
       // 78): his runs are occasional, so it was mostly an empty screen. Its
       // computation and the sessions it reads are unchanged.
@@ -310,48 +426,53 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         ),
         const SizedBox(height: S.x3),
       ],
-      if (_live(c) case final live?)
-        _ResumeCard(live, onTap: () => _push(c, const SessionDestination(null)))
-      else
-        Row(
-          children: [
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.footprints,
-                C.run,
-                'Run',
-                () => start(act('Running')),
+      Section(
+        'Recent',
+        d.workouts.isEmpty
+            ? StatusCard(
+                loc?.workoutNoSessionsTitle ?? 'No sessions recorded yet',
+                'Start one above.',
+                icon: LucideIcons.dumbbell,
+              )
+            : Surface(
+                pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x3),
+                child: Column(
+                  children: [
+                    // The last five as one-line rows; a tap opens one in place.
+                    // Everything older lives on the history page, so this
+                    // section never grows with the month.
+                    for (var i = 0; i < d.workouts.length.clamp(0, 5); i++) ...[
+                      if (i == 0 ||
+                          dayLabelOf(d.workouts[i].start) !=
+                              dayLabelOf(d.workouts[i - 1].start))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: S.x2),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              dayNavLabel(dayLabelOf(d.workouts[i].start)),
+                              style: F.over.copyWith(color: p.ink3),
+                            ),
+                          ),
+                        ),
+                      _sessionRow(c, d, d.workouts[i]),
+                      const SizedBox(height: S.x2),
+                    ],
+                    const SizedBox(height: S.x1),
+                    detailLinkRow(
+                      c,
+                      LucideIcons.history,
+                      'All workouts',
+                      'Every session, by month',
+                      () =>
+                          _push(c, WorkoutHistoryScreen(weightKg: d.weightKg)),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.personStanding,
-                C.steps,
-                'Walk',
-                () => start(act('Walking')),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.dumbbell,
-                C.sleepInk,
-                'Lift',
-                () => start(act('Weight training')),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-            Expanded(
-              child: _QuickTile(
-                LucideIcons.ellipsis,
-                C.food,
-                'Other',
-                () => _openPicker(c, d),
-              ),
-            ),
-          ],
-        ),
+        action: 'Add a past one',
+        onAction: () => _push(c, const LogWorkout()),
+      ),
       const SizedBox(height: S.x3),
       // Your week first (build 86 redesign): the streak, the seven days and
       // what this week holds, then the movement breaks.
@@ -365,53 +486,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       // row sat on the kraft ground and blended into it.
       const Surface(child: TodayPushupRow(embedded: true, showWhenEmpty: true)),
       const SizedBox(height: S.x3),
-      ..._suggestionCards(c, d),
-      Section(
-        'Recent',
-        d.workouts.isEmpty
-            ? StatusCard(
-                loc?.workoutNoSessionsTitle ?? 'No sessions recorded yet',
-                'Start one above.',
-                icon: LucideIcons.dumbbell,
-              )
-            : Surface(
-                pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x3),
-                child: Column(
-                children: [
-                  // The last five as one-line rows; a tap opens one in place.
-                  // Everything older lives on the history page, so this
-                  // section never grows with the month.
-                  for (var i = 0; i < d.workouts.length.clamp(0, 5); i++) ...[
-                    if (i == 0 ||
-                        dayLabelOf(d.workouts[i].start) !=
-                            dayLabelOf(d.workouts[i - 1].start))
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: S.x2),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            dayNavLabel(dayLabelOf(d.workouts[i].start)),
-                            style: F.over.copyWith(color: p.ink3),
-                          ),
-                        ),
-                      ),
-                    _sessionRow(c, d, d.workouts[i]),
-                    const SizedBox(height: S.x2),
-                  ],
-                  const SizedBox(height: S.x1),
-                  detailLinkRow(
-                    c,
-                    LucideIcons.history,
-                    'All workouts',
-                    'Every session, by month',
-                    () => _push(c, WorkoutHistoryScreen(weightKg: d.weightKg)),
-                  ),
-                ],
-                ),
-              ),
-        action: 'Add a past one',
-        onAction: () => _push(c, const LogWorkout()),
-      ),
       if (d.strain7.any((v) => v != null)) ...[
         const SizedBox(height: S.x3),
         _strainWeek(c, p, d),
@@ -625,7 +699,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       if (i >= 0) km[i] = (km[i] ?? 0) + r.meters / 1000;
     }
     final weekKm = km.whereType<double>().fold<double>(0, (a, b) => a + b);
-    final today = d.strain7.isEmpty ? null : d.strain7.last;
+    if (d.streak == null && d.runs.isEmpty) return const SizedBox.shrink();
     return Surface(
       pad: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, S.x3),
       child: Column(
@@ -635,15 +709,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             _streakCard(c, p, d.streak!, d),
             Divider(color: p.line, height: 1),
           ],
-          MetricLine(
-            label: 'Strain',
-            values: d.strain7,
-            color: C.strain,
-            value: today?.toStringAsFixed(1),
-            sub: 'estimate',
-            absentWhy: today == null ? 'nothing scored today yet' : null,
-            onTap: () => _push(c, const DayStrainDetail()),
-          ),
           if (d.runs.isNotEmpty) ...[
             Divider(color: p.line, height: 1),
             MetricLine(
@@ -666,7 +731,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('STREAK', style: F.label.copyWith(color: p.ink2)),
+          Text(
+            'This week',
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: S.x2),
           Wrap(
             spacing: S.x3,
@@ -782,12 +850,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       reload();
     }
 
+    // Build 90: the streak's actions look like actions (they were grey text
+    // that read as a caption).
     Widget link(String label, VoidCallback onTap) => Pressable(
       semanticLabel: label,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.only(top: S.x2, right: S.x4),
-        child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+        padding: const EdgeInsets.only(top: S.x2, right: S.x2),
+        child: Pill(label, C.steps),
       ),
     );
     final todayKept =
@@ -1095,7 +1165,10 @@ class _QuickTile extends StatelessWidget {
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rMd),
+            decoration: BoxDecoration(
+              color: p.fill(color),
+              borderRadius: R.rMd,
+            ),
             child: Icon(icon, size: 22, color: p.inkOnFill),
           ),
           const SizedBox(height: S.x2),
@@ -1519,6 +1592,7 @@ LiveFeed _feedOf(AppState app) {
     calories: app.workoutActiveKcal,
     hrActiveCalories: app.workoutHrActiveKcal,
     acsmCalories: app.workoutAcsmKcal,
+    movementEstimateCalories: app.workoutMovementEstimateKcal,
     strain: w?.strain,
     steps: app.workoutStepCount,
     cadence: app.workoutCadence?.spm,
@@ -1534,6 +1608,10 @@ LiveFeed _feedOf(AppState app) {
     hrCurve: _curveOverSession(w),
     distanceKm: app.liveDistanceKm,
     currentSpeedMps: app.routeTracker?.freshSpeedMps(
+      DateTime.now().millisecondsSinceEpoch,
+    ),
+    // Without its platform uncertainty a speed is withheld (Build 90).
+    currentSpeedAccuracyMps: app.routeTracker?.freshSpeedAccuracyMps(
       DateTime.now().millisecondsSinceEpoch,
     ),
     movingSec: app.routeTracker?.movingSeconds,
@@ -2564,6 +2642,9 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
   } else {
     await LocalDb.deleteSession(w.id);
   }
+  // B90-02: after the delete commits, every open tab re-reads; a failed
+  // delete throws above and changes nothing.
+  if (c.mounted) appOf(c)?.publishSessionChange();
   return true;
 }
 

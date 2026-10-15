@@ -80,7 +80,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   }
 
   /// Search over Foods (saved meals and My foods). While it holds text the
-  /// lists are filtered and plain; dragging to reorder needs the full list.
+  /// lists show matches; dragging preserves the hidden items’ positions.
   late final _foodQuery = TextEditingController()
     ..addListener(() => setState(() {}));
 
@@ -664,7 +664,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     if (_foodCat != null && !foodCategoriesIn(_foods).contains(_foodCat)) {
       _foodCat = null;
     }
-    // Filtered lists are plain: dragging to reorder needs the full list.
+    // Matches can be dragged within their slots in the full saved order.
     final searching = q.isNotEmpty || _foodCat != null;
     final defs = {for (final f in _foods) f['key'] as String: f};
     final meals = searching
@@ -701,10 +701,6 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         trailing: LucideIcons.chevronRight,
         onTap: () => edit(() => FoodEditor.show(c, existing: f)),
       ),
-    );
-    Widget none() => Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x4),
-      child: Text('No matches', style: F.cap.copyWith(color: p.ink3)),
     );
 
     return Column(
@@ -745,35 +741,35 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             'Saved meals',
             Surface(
               pad: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: searching
-                  ? Column(
-                      children: meals.isEmpty
-                          ? [none()]
-                          : [for (final m in meals) mealTile(m)],
-                    )
-                  : _meals.isEmpty
+              child: meals.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: S.x4),
                       child: Text(
-                        'A saved meal is your usual breakfast or lunch, logged in '
-                        'one tap.',
+                        searching
+                            ? 'No matches'
+                            : 'A saved meal is your usual breakfast or lunch, logged in one tap.',
                         style: F.cap.copyWith(color: p.ink3),
                       ),
                     )
                   : DragList(
-                      length: _meals.length,
+                      length: meals.length,
                       onReorder: (from, to) => edit(() async {
-                        final keys = [
-                          for (final m in reordered(_meals, from, to)) m.key,
-                        ];
-                        setState(() => _meals = reordered(_meals, from, to));
+                        final arranged = reorderedVisible(
+                          _meals,
+                          meals,
+                          from,
+                          to,
+                          (m) => m.key,
+                        );
+                        final keys = [for (final m in arranged) m.key];
+                        setState(() => _meals = arranged);
                         await MyFoods.reorderMeals(
                           await LocalDb.instance,
                           keys,
                         );
                         return null;
                       }),
-                      itemBuilder: (_, i) => mealTile(_meals[i]),
+                      itemBuilder: (_, i) => mealTile(meals[i]),
                     ),
             ),
             action: 'New',
@@ -783,32 +779,34 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           'My foods',
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: searching
-                ? Column(
-                    children: foods.isEmpty
-                        ? [none()]
-                        : [for (final f in foods) foodTile(f)],
-                  )
-                : _foods.isEmpty
+            child: foods.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.symmetric(vertical: S.x4),
                     child: Text(
-                      'Add a food once from its label; log any amount after.',
+                      searching
+                          ? 'No matches'
+                          : 'Add a food once from its label; log any amount after.',
                       style: F.cap.copyWith(color: p.ink3),
                     ),
                   )
                 : DragList(
-                    length: _foods.length,
+                    length: foods.length,
                     onReorder: (from, to) => edit(() async {
+                      final arranged = reorderedVisible(
+                        _foods,
+                        foods,
+                        from,
+                        to,
+                        (f) => f['key'] as String,
+                      );
                       final keys = [
-                        for (final f in reordered(_foods, from, to))
-                          f['key'] as String,
+                        for (final f in arranged) f['key'] as String,
                       ];
-                      setState(() => _foods = reordered(_foods, from, to));
+                      setState(() => _foods = arranged);
                       await MyFoods.reorderFoods(await LocalDb.instance, keys);
                       return null;
                     }),
-                    itemBuilder: (_, i) => foodTile(_foods[i]),
+                    itemBuilder: (_, i) => foodTile(foods[i]),
                   ),
           ),
           actions: Wrap(

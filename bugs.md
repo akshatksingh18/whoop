@@ -821,6 +821,18 @@ successful persistence. Health auto-imports use a separate table.
 Multi-year synthetic profiling isolated repeated measured-step lookups as a Progress loading cost; the batched
 resolver retains the same source policy and old unmeasured series points without a history cap.
 
+Build 90 UI source repairs the shared value-alignment defect: optional history and actions no
+longer leave values floating in the middle. Units sit below digits, labels use sentence case,
+and large-text comparison groups/detail titles reflow. Today removes duplicate totals while
+keeping daily actions and all unique cards; Trends groups related rows and retains missing-day
+coverage and both energy estimates. Progress retains one fixed-window verdict and full details.
+
+**Filtered saved-food/meal drag:** a search/category filter previously substituted plain rows
+while still advertising hold-drag. Build 90 keeps DragList active in Log Food (My foods/My meals)
+and Food → Foods. Reordered matches are placed back into their original slots in the complete
+list, preserving hidden items and persistence; swipe-delete confirmation/cancellation remains.
+Synthetic gesture/persistence checks cover these paths; the phone drag check remains open.
+
 Build 90 Food source implements the selected calm A overview with B's compact macro rows:
 one eaten headline, quieter fixed goal/left-or-over, all four nutrient/target rows with slim
 bars, and a visible Add food action. Unknown/partial totals keep their qualifiers; maintenance

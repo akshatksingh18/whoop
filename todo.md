@@ -294,9 +294,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   unchanged input-file metadata); the private case is skipped without an input path. Set
   `WHOOP_MEASUREMENT_DB` locally and run only `test/build90_strain_measurement_test.dart`
   to perform it; output is fixed under ignored `build/research-local/`. Set
-  `WHOOP_SYNTHETIC_PROFILE=1` for `test/build90_history_profile_test.dart`. The supplied export is
-  deleted; Akshat will restore it. No private comparison or recommendation
-  based on private results is claimed, and the strain formula is unchanged.
+  `WHOOP_SYNTHETIC_PROFILE=1` for `test/build90_history_profile_test.dart`. Akshat restored
+  an export and the targeted private read-only run now passes. File length and modification
+  time are unchanged after the read. The comparison and local review stay only in ignored
+  `build/research-local/strain-comparison.json` and `strain-comparison-review.md`; no private
+  values or dates are copied here. The strain formula is unchanged.
   Research question for Claude: D1 describes a measured quiet reference with a fallback, while
   current engine/pipeline calls use fixed `quietWakingHrr`. Resolve that discrepancy before
   interpreting or approving an alternate formula. No invented quiet-day labels: a date without
@@ -310,10 +312,13 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   on this Windows FFI probe; with daily phone coverage they were 0.64 s. These are synthetic
   desktop timings, not phone acceptance. Food's existing six Build-89 regressions also pass.
   Query and timing reports stay in ignored `build/research-local/`; merged Progress needs recheck.
-  Remaining Codex task: run the private read-only comparison when Akshat restores the export.
-  Keep the shipped strain form until the private comparison, confirmed quiet/workout labels
-  and Akshat's approval are available. The single algorithm-95 changelog includes the approved
-  output changes; the remaining comparison is measurement only.
+  Assigned Codex implementation and measurement work is complete; merged cloud checks and
+  phone acceptance are still open. Recommendation: keep the shipped whole-day form and the
+  corrected session floor. No-recorded-workout dates are only quiet candidates; confirm labels
+  and usable coverage locally before choosing a replacement, then obtain Akshat's approval.
+  The single algorithm-95 changelog includes the approved output changes. The restored-export
+  check is measurement only. A complete copy/paste Claude handoff is local at
+  `build/research-local/claude-build-90-handoff.md`.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

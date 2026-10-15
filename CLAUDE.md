@@ -29,8 +29,9 @@ reviewed Progress/Body/Lift workflows and A overall with B's whole calorie/macro
 priced only inside its fitted heart-rate range, and stored workout calories that are the
 active figure the screens show (`sessions.calories_basis`, with a selective repair of older
 rows). The remaining Build 90 UI audit items are fixed. Claude now carries all remaining Build 90
-work (Codex is no longer needed). Two additions wait on Akshat's pick of the mockups: a recovery
-explanation with a labelled recent HRV trend, and "left after this" on the food amount sheet.
+work (Codex is no longer needed). Akshat's mockup picks are built: Recovery explains each input's
+points against its usual range with a Recent HRV card (shared with the HRV page), and the food
+screen shows what is left of the day after the amount being chosen, with "Fit what's left".
 `todo.md` and `build-90-audit.md` own checks and the full-page review. No Build 90 IPA is built or installed; local synthetic renders establish no phone
 acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,

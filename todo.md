@@ -216,17 +216,26 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   title/copy; body-colour Add body entry; one-line Trends kicker; unknown intake said once;
   Food tightened so the first meal clears the tab bar at 1.0x; tile hero sizes are tokens.
   Single-item meals keep calories only in the meal heading (Codex's deliberate de-duplication).
-- [ ] 2g. Mockups for Akshat's pick (design canvas, `RecoveryWhy` and `FoodFit` boards):
-  - Recovery explanation: A (rows with value vs usual and the points each input moved the
-    score) or B (waterfall from a typical night to the score), both with a labelled recent
-    HRV card (usual range, 7-night average). Also fixes the "About usual" bug: the composite
-    breakdown hard-codes `past_mdc: false`, so every measured input reads "About usual".
-    Needs the HRV page on the same `ln_rmssd_v2` 28-night window.
-  - Food amount sheet "left after this" (Akshat's new request: no more manual
-    goal − eaten − this-food arithmetic): A (calories and protein left after this, live as
-    the amount changes, with an eaten/this/left bar) or B (A plus a "Fit what's left" chip
-    that sets the amount using up the remaining calories). Covers add, meal and edit sheets;
-    an edited entry counts once.
+- [x] 2g. Akshat picked from the design canvas (`RecoveryWhy`, `FoodFit` boards); built in
+  `ce8264db`:
+  - Recovery, option A: each input shows last night against the score's own usual range
+    (28 measured nights within 60 days, one robust spread), a plain word and the points it
+    moved the score from a typical night (walked largest-first through the logistic, they
+    add up to the score); a lead sentence names the biggest mover. This replaces the
+    breakdown that read "About usual" for every measured input (`past_mdc` was hard-coded).
+    `lib/compute/readiness_explain.dart`, `readiness_explain_test.dart`.
+  - Recent HRV card (last 14 nights, usual band, labelled 7-night average, one sentence) on
+    Recovery and the HRV page, from the same `ln_rmssd_v2` measured series and window; the
+    HRV page keeps its longer chart. `lib/ui2/recent_hrv_card.dart`.
+  - Food, option B (Akshat's request: no more manual goal − eaten − this-food arithmetic):
+    on the food screen he logs from (`FoodDetailSheet`) and the amount sheet (`GramsSheet`,
+    add from My foods and edit), an "After this, today" card under the amount (calories left
+    or "Over by", eaten/this/free bar, protein left), the nutrient panel's right column
+    "left after" (was "% of your daily goal"), and a "Fit what's left" chip that sets the
+    amount using up the calories left (rounded down: whole g/ml, half units). Ticked
+    companions count; an edited entry counts once; no goal hides it; an unknown item makes
+    it "at most". `lib/ui2/screens/food_left.dart`, `build90_food_left_test.dart`.
+- [ ] 2h. Full-page re-render of every page for Akshat's approval, then step 3.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90

@@ -533,13 +533,21 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout Decisions (Build 89 Installed; Next Redesign Is A Proposal)
+## Layout Decisions (Build 89 Installed; Build 90 Implementation)
 
-Build 90 Food source replaces the tall macro list with one compact row (protein larger),
-retaining all four values/targets and explicit missing/partial totals. Accessibility text
+Akshat selected the calm A framework with B's compact macro section and approved
+implementation. Build 90 Food source now leads with one eaten total, a quieter goal/left-or-over
+line and four slim macro rows (protein larger). All four values/targets and explicit
+missing/partial labels remain visible; maintenance comparisons live in their own panel.
+A small decorative plate is excluded from accessibility semantics and does not represent a
+logged food or a metric. Diary items show calories and protein; full meal, group and entry
+views retain all nutrients, portions and edit/delete/copy/save routes. Accessibility text
 stacks values and actions; the week remains horizontally scrollable with the selected date
 revealed, and Counted/Logged/Empty marks have a legend. Meals and Add food appear earlier;
-single-item meals do not repeat the same totals. Food progress uses the shared Progress
+single-item meals do not repeat the same totals. Multi-item meal headings show calories once,
+and the overview's repeated full-macro footer is gone; full details still retain it.
+Failed counting-status writes show an error and leave the displayed status unchanged.
+Food progress uses the shared Progress
 route to its Food destination. Copy a day reviews every item, portion multiplier and selection,
 then logs into the viewed date in one explicit transaction; cancel and failed writes do not
 partially copy the day. Existing calendar, portions, My foods/My meals, scanning, labels and

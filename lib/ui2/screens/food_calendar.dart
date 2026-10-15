@@ -148,7 +148,7 @@ class _FoodWeekStripState extends State<FoodWeekStrip> {
                 ),
               ),
               const SizedBox(height: S.x1),
-              _MarkDot(mark, size: 26),
+              _MarkDot(mark, size: 14),
             ],
           ),
         ),
@@ -158,7 +158,7 @@ class _FoodWeekStripState extends State<FoodWeekStrip> {
     Widget legend(FoodDayMark mark, String label) => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _MarkDot(mark, size: 16),
+        _MarkDot(mark, size: 10),
         const SizedBox(width: S.x1),
         Text(label, style: F.over.copyWith(color: p.onGround)),
       ],

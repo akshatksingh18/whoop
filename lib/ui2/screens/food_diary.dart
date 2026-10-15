@@ -167,66 +167,72 @@ class MealCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final summary = _energyProteinOf(entries);
+    final total = rollupDay('', entries, today: '').kcal;
+    final summary = total.value == null
+        ? 'Calories unknown'
+        : '${total.isFloor ? '≥' : ''}${thousands(total.value!)} kcal';
+    final heading = Pressable(
+      semanticLabel: 'Open ${mealName(meal)}',
+      onTap: () => openMeal(c, date, meal, onChanged),
+      child: Row(
+        children: [
+          Icon(mealIcon(meal), size: 18, color: p.on(C.domFood)),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: Text(
+              mealName(meal),
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (entries.length > 1 && !bigText(c)) ...[
+            const SizedBox(width: S.x2),
+            Text(summary, style: F.cap.copyWith(color: p.ink3)),
+          ],
+        ],
+      ),
+    );
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: '${mealName(meal)} options',
+          onPressed: () => mealMenu(c, date, meal, entries, onChanged),
+          icon: const Icon(LucideIcons.ellipsis),
+        ),
+        IconButton(
+          tooltip: 'Log ${mealName(meal)}',
+          onPressed: () => openLog(c, date, meal, onChanged),
+          icon: Icon(LucideIcons.plus, color: p.on(C.domFood)),
+        ),
+      ],
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: S.x3),
-        Row(
-          children: [
-            Expanded(
-              child: Pressable(
-                semanticLabel: 'Open ${mealName(meal)}',
-                onTap: () => openMeal(c, date, meal, onChanged),
-                child: Row(
-                  children: [
-                    Icon(mealIcon(meal), size: 18, color: p.on(C.domFood)),
-                    const SizedBox(width: S.x2),
-                    Flexible(
-                      child: Text(
-                        mealName(meal),
-                        style: F.body.copyWith(
-                          color: p.ink,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: S.x2),
-                    Flexible(
-                      child: Text(
-                        entries.length > 1 ? summary : '',
-                        textAlign: TextAlign.end,
-                        style: F.cap.copyWith(color: p.ink3),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            IconButton(
-              tooltip: '${mealName(meal)} options',
-              onPressed: () => mealMenu(c, date, meal, entries, onChanged),
-              icon: const Icon(LucideIcons.ellipsis),
-            ),
-            IconButton(
-              tooltip: 'Log ${mealName(meal)}',
-              onPressed: () => openLog(c, date, meal, onChanged),
-              icon: Icon(LucideIcons.plus, color: p.on(C.domFood)),
-            ),
-          ],
-        ),
+        if (bigText(c)) ...[
+          heading,
+          if (entries.length > 1)
+            Text(summary, style: F.cap.copyWith(color: p.ink3)),
+          Align(alignment: Alignment.centerRight, child: actions),
+        ] else
+          Row(
+            children: [
+              Expanded(child: heading),
+              actions,
+            ],
+          ),
         if (entries.isEmpty)
           Text('Nothing logged', style: F.cap.copyWith(color: p.ink3))
         else ...[
           for (final e in entries)
             _EntryRow(
               e,
+              compact: true,
               onTap: () async {
                 if (await editDiaryEntry(c, e) && c.mounted) onChanged();
               },
             ),
-          if (entries.length > 1)
-            Text(mealTotals(entries), style: F.over.copyWith(color: p.ink3)),
         ],
         const SizedBox(height: S.x2),
         Divider(color: p.line, height: 1),
@@ -1219,9 +1225,10 @@ class _MealPageState extends State<MealPage> with RevisionReload {
 }
 
 class _EntryRow extends StatelessWidget {
-  const _EntryRow(this.e, {this.onTap, this.def});
+  const _EntryRow(this.e, {this.onTap, this.def, this.compact = false});
   final FoodEntry e;
   final VoidCallback? onTap;
+  final bool compact;
 
   /// The saved food, when known, so "3 links" also reads "· 213 g".
   final Map<String, Object?>? def;
@@ -1232,12 +1239,17 @@ class _EntryRow extends StatelessWidget {
     final detail = [
       if (e.quantity != null)
         portionWithWeight(e.quantity!, e.unit, conversionDef(e, def)),
-      ...macroParts(
-        protein: e.proteinG,
-        carbs: e.carbsG,
-        fat: e.fatG,
-        fibre: e.fibreG,
-      ),
+      if (compact)
+        e.proteinG == null
+            ? 'Protein not logged'
+            : '${e.proteinG!.round()} g protein'
+      else
+        ...macroParts(
+          protein: e.proteinG,
+          carbs: e.carbsG,
+          fat: e.fatG,
+          fibre: e.fibreG,
+        ),
     ].join(' · ');
     final information = Column(
       crossAxisAlignment: CrossAxisAlignment.start,

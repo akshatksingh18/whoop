@@ -175,7 +175,29 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 ### Lane notes
 
 - Claude:
-- Codex: Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
+- Codex: Akshat selected A overall with B's compact macro section and approved app
+  implementation. This supersedes the earlier D6 single-row macro composition: Food now
+  uses four compact horizontal nutrient/target rows with thin bars (protein larger),
+  preserving all four nutrients. The Codex-owned Food implementation is complete in source:
+  one eaten headline, quiet goal/left-or-over, visible Add food, smaller week marks, decorative
+  plate, calorie/protein diary rows, no repeated full-macro footer, and large-text meal/action
+  reflow. Full meal/group/entry nutrient detail and existing logging, portions, calendar,
+  scanning, library, labels, copy/save, maintenance and Progress routes remain. Failed counting
+  status writes report failure without falsely changing status. No metric/storage formula or
+  dependency/version change. The ignored preview now defaults to the selected A+B blend;
+  its 38-group preservation map distinguishes demos/specifications from production proof.
+  Checks pass: `build90_calm_food_test.dart` (6), `build90_food_ui_test.dart` (7),
+  `build89_food_test.dart` (6), and three selected full Food renders at 1x/2x/3.1x (3).
+  Targeted analysis has no errors/warnings; existing curly-brace style infos remain.
+  Rendered Food top/lower views were inspected; this is synthetic Windows evidence, not phone
+  acceptance. Shared tab labels still split at 3.1x in this checkout; the shell is Claude-owned.
+  An ownership clarification is pending before Codex edits Today/Trends/Train/Progress or shared
+  components. Until then their implementation remains with Claude under the original contract.
+  Claude integration: apply A's overview/illustration/alignment framework, keep fixed goal review
+  and all detail routes, fix shared right-edge/chevron/unit layout in MetricLine, retain every
+  source feature/gate, and reconcile DESIGN/CLAUDE/audit/D6 to the accepted A+B selection.
+  Keep this source distinct from the old static PDF/prototype and from built/phone acceptance.
+  Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
   restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.
   Schema 50 adds `day_zone(date, zone_id, start_offset_sec, end_offset_sec, start_ts, end_ts)`

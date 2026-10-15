@@ -2396,8 +2396,12 @@ class LocalDb {
   /// driving while missing slow walking — O'Connell 2017,
   /// doi:10.1371/journal.pone.0169616).
   static Future<ResolvedDaySteps> resolvedStepsForDay(String day) async {
-    final d = DateTime.parse(day);
-    return resolvedStepsForWindow(d, DateTime(d.year, d.month, d.day + 1));
+    final lo = localDayStartSec(day), hi = localDayEndSec(day);
+    if (lo == null || hi == null) return ResolvedDaySteps.none;
+    return resolvedStepsForWindow(
+      DateTime.fromMillisecondsSinceEpoch(lo * 1000),
+      DateTime.fromMillisecondsSinceEpoch(hi * 1000),
+    );
   }
 
   /// Clip the same source policy to an exact active interval, including older
@@ -2415,6 +2419,55 @@ class LocalDb {
       'WHERE start_ts < ? AND MAX(end_ts,start_ts+1) > ?',
       [hi, lo],
     );
+    return _resolveStepRows(rows, lo, hi);
+  }
+
+  /// One retained-coverage read for historical charts, instead of one query
+  /// for every metric date. No history cap; the source policy is unchanged.
+  static Future<Map<String, ResolvedDaySteps>> resolvedStepsByDay() async {
+    final rows = await (await instance).rawQuery(
+      'SELECT start_ts,end_ts,steps,source,device_id FROM live_coverage',
+    );
+    final byDay = <String, List<Map<String, Object?>>>{};
+    final storedDays = DayClock.days;
+    int? nextStoredStart(int t) {
+      var lo = 0, hi = storedDays.length;
+      while (lo < hi) {
+        final mid = (lo + hi) ~/ 2;
+        if (storedDays[mid].startSec <= t) { lo = mid + 1; } else { hi = mid; }
+      }
+      return lo < storedDays.length ? storedDays[lo].startSec : null;
+    }
+    for (final row in rows) {
+      final start = (row['start_ts'] as num).toInt();
+      final end = math.max(start + 1, (row['end_ts'] as num).toInt());
+      var t = start;
+      final seen = <String>{};
+      while (t < end) {
+        final date = dayLabelAtSec(t);
+        if (seen.add(date)) (byDay[date] ??= []).add(row);
+        final assigned = DayClock.at(t);
+        final local = DateTime.fromMillisecondsSinceEpoch(t * 1000);
+        var boundary = assigned?.endSec ??
+            DateTime(local.year, local.month, local.day + 1).millisecondsSinceEpoch ~/ 1000;
+        if (assigned == null) {
+          final next = nextStoredStart(t);
+          if (next != null) boundary = math.min(boundary, next);
+        }
+        if (boundary <= t) break;
+        t = math.min(end, boundary);
+      }
+    }
+    return {
+      for (final e in byDay.entries)
+        e.key: _resolveStepRows(e.value,
+          localDayStartSec(e.key)!, localDayEndSec(e.key)!),
+    };
+  }
+
+  static ResolvedDaySteps _resolveStepRows(
+    List<Map<String, Object?>> rows, int lo, int hi,
+  ) {
     final spans = <CoverageSpan>[];
     for (final row in rows) {
       final start = (row['start_ts'] as num).toInt();

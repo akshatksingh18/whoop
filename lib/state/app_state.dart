@@ -179,6 +179,7 @@ class AppState extends ChangeNotifier {
   late final DerivationEngine _derive = DerivationEngine(
     log: _log,
     background: _background,
+    onSessionChanged: publishSessionChange,
   );
   late final DeriveScheduler _deriveScheduler = DeriveScheduler(
     run: ({required DeriveJobKind kind}) =>
@@ -471,7 +472,7 @@ class AppState extends ChangeNotifier {
     // import landed days, sessions and journal rows into a database every live
     // tab had already finished reading, and the only way to see them was to
     // relaunch the app.
-    bumpInsights();
+    publishSessionChange();
     notifyListeners();
     return res.days;
   }
@@ -500,7 +501,7 @@ class AppState extends ChangeNotifier {
       onProgress: onProgress,
     );
     lastWhoopImport = res;
-    bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
+    publishSessionChange(); // imported sessions must reach Food too
     notifyListeners();
     return res.days;
   }
@@ -519,6 +520,7 @@ class AppState extends ChangeNotifier {
     // truncated backup fails loudly; `gzip.decoder` returns partial output
     // without raising and would restore short while reporting success.
     final counts = await LocalDb.importFromDbFile(path);
+    publishSessionChange(); // committed restore, even if rollup rebuilding fails
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);
@@ -1285,6 +1287,7 @@ class AppState extends ChangeNotifier {
     // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
     // hand-written table list, and for the sync_cursor decision).
     await LocalDb.wipeAll();
+    publishSessionChange();
 
     // Surfaces outside the database that were still showing it.
     await NotificationService.instance.cancelAll();
@@ -1539,6 +1542,7 @@ class AppState extends ChangeNotifier {
     repo = LocalRepositoryImpl(
       getProfileMap: () => user,
       saveProfileFields: updateProfile,
+      onSessionChanged: publishSessionChange,
     );
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
@@ -6298,7 +6302,7 @@ class AppState extends ChangeNotifier {
       // Null when nothing is connected — unknown provenance, not gen4.
       'device_family': engine.linkDeviceFamily,
       'created_at': start.millisecondsSinceEpoch,
-    });
+    }).then((_) => publishSessionChange());
     unawaited(
       _workoutStartWrite!.catchError((Object e) {
         _log('[workout] start write failed: $e');
@@ -6592,6 +6596,7 @@ class AppState extends ChangeNotifier {
                 ? (row['end_ts_fabricated'] ?? 0)
                 : 1,
           });
+          publishSessionChange();
           _log(
             '[workout] finalized a stale live-session row from a previous run (id=${row['id']}).',
           );
@@ -6726,7 +6731,7 @@ class AppState extends ChangeNotifier {
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
       // or the weekly load until the app was restarted.
-      bumpInsights();
+      publishSessionChange();
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();

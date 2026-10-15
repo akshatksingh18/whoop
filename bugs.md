@@ -813,6 +813,12 @@ cancellation or failure; share copy does not claim delivery when the result is u
 Database, encrypted media backup and analysis descriptions state restore support/photo contents;
 automatic backups explicitly do not survive container loss. Synthetic checks pass; native share,
 restore, photo-count and Food phone acceptance remain open.
+Build 90 owned workout mutations now publish the shared insights/Food signal only after
+successful persistence; failed-save/retry and repository mutation checks pass. Manual/retime
+and coach call sites remain pending lane ownership. Health auto-imports use a separate table.
+Multi-year synthetic profiling isolated repeated measured-step lookups as a Progress loading cost; the batched
+resolver retains the same source policy and old unmeasured series points without a history cap.
+
 Build 90 Food source compacts the calorie/macro summary without hiding nutrients, removes
 repeated singleton meal totals, labels week marks, adapts numeric/action layouts to large
 text and adds reviewed whole-day copying. Copying is atomic and only the explicit Log action

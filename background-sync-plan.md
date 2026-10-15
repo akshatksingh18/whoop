@@ -55,6 +55,11 @@ These observations do not prove loss and do not enable a stricter WHOOP 4 count 
 existing commit-before-ACK, cancellation and headless ownership policies remain unchanged.
 Phone validation still requires three ordinary nights and one force-quit night; logs stay local.
 
+Session enrichment in a foreground-owned repository/derivation engine publishes AppState's
+shared session-change signal after each successful session write, including deferred HRR.
+The callback is omitted in a headless instance; no UI owner is manufactured. This does not
+move decoded-row/cursor commits or the history ACK, and native phone acceptance remains open.
+
 ## Required Behavior
 
 An isolated current-code synthetic DB/repository test reproduces the B88-05 overnight mismatch:

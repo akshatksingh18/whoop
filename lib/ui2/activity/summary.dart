@@ -49,7 +49,7 @@ import '../../compute/profile.dart'
         workoutEnergyMethodLabel,
         conservativeMet,
         isLiftType;
-import '../screens/log_workout.dart' show bumpInsights;
+import '../screens/log_workout.dart' show appOf;
 import '../theme.dart';
 import 'catalogue.dart';
 import '../../data/lift_log.dart' show LiftLogDb, setMarkMinutes;
@@ -1109,8 +1109,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Future<void> _saveRpe(int v) async {
     final id = r.sessionId;
     if (id == null) return;
+    final app = appOf(context);
     try {
       await LocalDb.setSessionRpe(id, v.toDouble());
+      app?.publishSessionChange();
     } catch (_) {
       return; // the row is unchanged, so the card stays and says nothing false
     }
@@ -1231,12 +1233,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       MaterialPageRoute(
         builder: (_) => ActivityPicker(
           onPick: (pc, newActivity) async {
+            final app = appOf(pc);
             // The stored key everywhere else uses — `startWorkout(type:
             // a.typeKey)` is the live path's own write. `a.name` here would still
             // resolve through `activityByName`'s normalized lookup, but it would
             // store a different string than every other producer of this column.
             try {
               await LocalDb.setSessionType(id, newActivity.typeKey);
+              app?.publishSessionChange();
             } catch (_) {
               // Same rule as `_saveRpe`: the row is unchanged, so leave the
               // picker open rather than close it over a write that never
@@ -1246,7 +1250,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             }
             picked = true;
             if (!pc.mounted) return;
-            bumpInsights(pc);
             Navigator.of(pc).pop();
           },
         ),
@@ -1392,11 +1395,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     );
     if (!ok || !mounted) return;
     setState(() => _deleting = true);
+    final app = appOf(c);
     try {
       await LocalDb.deleteSession(id);
+      app?.publishSessionChange();
       forgetRun(id);
       if (!c.mounted) return;
-      bumpInsights(c);
       await Navigator.of(c).maybePop();
     } catch (_) {
       if (c.mounted) {
@@ -1531,13 +1535,19 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           tags: workoutContext(
             WorkoutClock.read(r.sessionId!, r.start).results['context'],
           ),
-          onChanged: (tags) {
+          onChanged: (tags) async {
+            final app = appOf(c);
             final clock = WorkoutClock.read(r.sessionId!, r.start);
             clock.results['context'] = tags;
-            clock.save();
+            try {
+              await clock.persist();
+            } catch (_) {
+              return;
+            }
+            app?.publishSessionChange();
+            if (!mounted) return;
             _driftComputed = false;
             setState(() {});
-            bumpInsights(c);
           },
         ),
       ],

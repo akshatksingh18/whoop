@@ -259,9 +259,10 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   Backup descriptions distinguish database references from actual photo files, restore
   support and in-container loss. Native share/restore and Food phone acceptance remain open.
   Session-change publication remains part of task 8; Akshat was asked about the omitted
-  `log_workout.dart`, `coach_actions.dart` and `auto_workout_import.dart` ownership so all
-  non-Train mutation paths can use the same post-commit signal.
-  Food data/exports are committed as `b1b6d786`. Task 9 is implemented with a compact calorie
+  `log_workout.dart` and `coach_actions.dart` ownership so all non-Train session mutation
+  paths can use the same post-commit signal. The initially requested auto-import file is
+  not needed for this contract: Health imports write separate `imported_workouts`, not `sessions`.
+  Food data/exports are committed as `b1b6d786`. Task 9 is committed as `6b182095` and implemented with a compact calorie
   summary, four macro columns (protein larger), readable stacked large-text values, a
   week-state legend, direct Food Progress routing and no repeated singleton totals.
   Copy day selects a source, reviews each item/portion/selection and commits only on Log.
@@ -274,8 +275,33 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   (Today, Trends, Train, Progress). Screenshots are local synthetic captures under
   `build/ui_capture/b90_codex_food_*.png`; this needs the Claude lane's tab-bar fix.
   The targeted unknown-intake render regression also passes.
-  Remaining Codex tasks: session mutation signals (8),
-  private strain comparison plus synthetic history profiles (10).
+  Owned session paths now publish after successful writes: live start/stop/orphan recovery,
+  repository start/end/privacy, substrate score/movement enrichment and deferred HRR,
+  CSV/database/Lift imports, reset and detail RPE/type/delete/context edits. The durability
+  two checks cover failed-save abstention and successful retry/repository signals. Manual/retime
+  and coach call sites still await the omitted-file ownership reply above.
+  Task 10 has a measurement-only Dart harness using the app's TRIMP/coverage/strain functions,
+  the fixed shipped quiet reference and the existing session floor. Both synthetic checks pass,
+  including a complete read-only export read (sleep envelope, source exclusion, coverage and
+  unchanged input-file metadata); the private case is skipped without an input path. The supplied export is
+  missing; Akshat was asked for its current local path. No private comparison or recommendation
+  based on private results is claimed, and the strain formula is unchanged.
+  Research question for Claude: D1 describes a measured quiet reference with a fallback, while
+  current engine/pipeline calls use fixed `quietWakingHrr`. Resolve that discrepancy before
+  interpreting or approving an alternate formula. No invented quiet-day labels: a date without
+  a recorded workout is only a quiet candidate, and pruned raw cannot reproduce a full day.
+  Synthetic 3-/10-year actual-reader profiling found the Steps chart's per-date measured lookup
+  as the dominant Progress cost. Food month/day and session readers did not justify caps.
+  A shared batched coverage resolver replaces the historical per-date query loop, preserves
+  every retained point, confirmed zero and multi-day coverage, and uses stored travel/DST cuts.
+  Two step-history equivalence checks pass (old series, measured zero, multi-day spans and
+  stored DST cuts), as does the existing legacy zero-width coverage reader regression. Post-change ten-year Progress reads were 0.38–0.42 s versus 1.4–1.7 s before
+  on this Windows FFI probe; with daily phone coverage they were 0.64 s. These are synthetic
+  desktop timings, not phone acceptance. Food's existing six Build-89 regressions also pass.
+  Query and timing reports stay in ignored `build/research-local/`; merged Progress needs recheck.
+  Remaining Codex tasks: finish omitted session callers when ownership is granted; run the
+  private read-only comparison when the export is available. Keep the shipped strain form until
+  the private comparison, confirmed quiet/workout labels and Akshat's approval are available.
   Extend the single algorithm-95 changelog as those approved output changes land.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open

@@ -1660,7 +1660,8 @@ import 'substrate.dart';
 // 94 -> 95 (Build 90 Codex lane): confirmed historical RR count capped at four;
 //   unknown optical inputs stay nullable through storage and isolate payloads;
 //   one bridged recorded-minute definition and event-backed wear states;
-//   persisted travel-day boundaries and absolute-time sleep regularity;
+//   persisted travel-day boundaries (including measured step cuts) and
+//   absolute-time sleep regularity;
 //   quarter-gap sleep need without strain bonus, angle-based restlessness,
 //   shared sustained-awakening definition and absent unqualified cycles;
 //   nightly RR reporting quality without a new HRV gate; HF/respiration/REM
@@ -2236,7 +2237,10 @@ class _AsyncLock {
 }
 
 class DerivationEngine {
-  DerivationEngine({this.log, this.background = false});
+  DerivationEngine({this.log, this.background = false, this.onSessionChanged});
+
+  /// Called only on the DB-owning isolate after a deferred session write.
+  final void Function()? onSessionChanged;
   final void Function(String)? log;
 
   /// True when this engine was constructed inside a headless/background entry
@@ -4250,6 +4254,7 @@ class DerivationEngine {
       // DB writes + notification the pure compute deferred to us (DB-owning isolate).
       for (final w in blocks.sessionHrrWrites) {
         await LocalDb.setSessionHrr(w.$1, w.$2);
+        onSessionChanged?.call();
       }
       for (final sug in blocks.suggestionsToPersist) {
         await LocalDb.putWorkoutSuggestion({

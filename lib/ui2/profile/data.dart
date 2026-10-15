@@ -170,6 +170,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<_Note> _importLiftLog() async {
+    final app = context.read<AppState>();
     final picked = await FilePicker.platform.pickFiles(type: FileType.any);
     final path = picked?.files.single.path;
     if (path == null) return ('', false);
@@ -229,6 +230,7 @@ class _DataScreenState extends State<DataScreen> {
       replaceSplits: useSplits,
       links: links,
     );
+    if (n > 0 || links.isNotEmpty) app.publishSessionChange();
     return (
       '$n workouts imported'
           '${links.isEmpty ? '' : ', ${links.length} linked to WHOOP sessions'}.',

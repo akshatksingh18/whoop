@@ -45,7 +45,14 @@ import 'profile_history.dart';
 import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
-  LocalRepositoryImpl({required this.getProfileMap, this.saveProfileFields});
+  LocalRepositoryImpl({
+    required this.getProfileMap,
+    this.saveProfileFields,
+    this.onSessionChanged,
+  });
+
+  /// AppState's post-commit session signal; absent in a headless process.
+  final void Function()? onSessionChanged;
 
   /// Reads the live AppState profile map (age/weight/height/sex/step_goal…).
   final Map<String, dynamic>? Function() getProfileMap;
@@ -875,8 +882,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'timeline': (_sub(b, 'series')?['hrv_timeline'] as List?) ?? const [],
       'date': b['date'],
       'day_zone': b['day_zone'],
-      'zone_abbreviation': DayClock.abbreviation(b['date'] as String? ?? date,
-          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      'zone_abbreviation': DayClock.abbreviation(
+        b['date'] as String? ?? date,
+        nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ),
       'rmssd': _scalar(b, 'rmssd'),
       'sdnn': _scalar(b, 'sdnn'),
       'ln_rmssd': _scalar(b, 'ln_rmssd'),
@@ -1055,8 +1064,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'has_sleep': true,
       'day_zone': b['day_zone'],
       'sleep_spans_zone_change': b['sleep_spans_zone_change'],
-      'zone_abbreviation': DayClock.abbreviation(napDay,
-          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      'zone_abbreviation': DayClock.abbreviation(
+        napDay,
+        nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ),
       'sleep_source': sleepSource,
       'duration_min': (tst / 60).round(),
       'in_bed_min': spt == null ? null : (spt / 60).round(),
@@ -1119,9 +1130,12 @@ class LocalRepositoryImpl extends LocalRepository {
       // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
       // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
       'cycles': _sub(b, 'sleep')?['cycles'] ?? const [],
-      'cycle_count': (acct?['nrem_sec'] is num && acct?['rem_sec'] is num &&
-          _sub(b, 'sleep.cycles_metric')?['value'] is Map)
-          ? (_sub(b, 'sleep')?['cycle_count'] as num?)?.toInt() : null,
+      'cycle_count':
+          (acct?['nrem_sec'] is num &&
+              acct?['rem_sec'] is num &&
+              _sub(b, 'sleep.cycles_metric')?['value'] is Map)
+          ? (_sub(b, 'sleep')?['cycle_count'] as num?)?.toInt()
+          : null,
       'cycles_mean_min': _cyclesMeanMin(b),
       // The graph plots the continuous z-RMSSD wave [{t,z}] — NOT the cycle spans.
       'cycle_series': _sub(b, 'sleep')?['cycle_series'] ?? const [],
@@ -1364,8 +1378,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'worn_min': wornMin,
       'date': b['date'],
       'day_zone': b['day_zone'],
-      'zone_abbreviation': DayClock.abbreviation(b['date'] as String? ?? date,
-          nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      'zone_abbreviation': DayClock.abbreviation(
+        b['date'] as String? ?? date,
+        nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ),
       // MISSING IS NOT 100% either. This used to read `hrSamples > 0 ? 100 : 0`,
       // so one HR sample claimed the band was worn for the whole day and the
       // row printed "Wear time 20m · 100% of the day". The engine wear block is
@@ -2065,23 +2081,22 @@ class LocalRepositoryImpl extends LocalRepository {
     if (key == 'steps') {
       // Measured counts can change without a derive, including old dates.
       // Retained coverage also supplies days which never had a derived row.
-      final coverage = await (await LocalDb.instance).rawQuery(
-        "SELECT ${storedDayLabelSql('live_coverage.start_ts')} AS date "
-        'FROM live_coverage WHERE end_ts > start_ts UNION '
-        "SELECT ${storedDayLabelSql('live_coverage.end_ts - 1')} AS date "
-        'FROM live_coverage WHERE end_ts > start_ts',
-      );
-      final dates = {
-        ...rows.map((r) => r['date'] as String),
-        ...coverage.map((r) => r['date'] as String),
-        today,
+      final measured = await LocalDb.resolvedStepsByDay();
+      final positions = <int, int>{
+        for (var i = 0; i < points.length; i++) points[i]['t'] as int: i,
       };
-      for (final date in dates.where((d) => d.compareTo(today) <= 0)) {
-        final steps = await getMeasuredDaySteps(date);
-        if (steps == null) continue;
-        final t = _dateToEpoch(date);
-        points.removeWhere((p) => p['t'] == t);
-        points.add({'t': t, 'v': steps});
+      for (final e in measured.entries) {
+        if (e.key.compareTo(today) > 0) continue;
+        final r = e.value;
+        if (r.total <= 0 && !r.hasPhoneCoverage) continue;
+        final t = _dateToEpoch(e.key);
+        final point = {'t': t, 'v': r.total};
+        final index = positions[t];
+        if (index == null) {
+          points.add(point);
+        } else {
+          points[index] = point;
+        }
       }
       points.sort((a, b) => (a['t'] as int).compareTo(b['t'] as int));
     }
@@ -2704,8 +2719,10 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
 
   @override
-  Future<void> setWorkoutPrivate(String id, bool private) async =>
-      LocalDb.setSessionPrivate(id, private);
+  Future<void> setWorkoutPrivate(String id, bool private) async {
+    await LocalDb.setSessionPrivate(id, private);
+    onSessionChanged?.call();
+  }
 
   @override
   Future<Map<String, dynamic>> startWorkout(
@@ -2723,6 +2740,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'source': 'manual',
       'created_at': nowMs,
     });
+    onSessionChanged?.call();
     return {'workout_id': id, 'type': type};
   }
 
@@ -2741,6 +2759,7 @@ class LocalRepositoryImpl extends LocalRepository {
         where: 'id = ? AND status != ?',
         whereArgs: [workoutId, 'done'],
       );
+      onSessionChanged?.call();
       // This is the choke point the AI coach's `end_workout` tool reaches
       // directly (bypassing AppState.stopWorkout, the only other place this
       // used to happen) — without it a coach-ended workout never reached
@@ -3018,6 +3037,7 @@ class LocalRepositoryImpl extends LocalRepository {
         whereArgs: [c.id, row['start_ts'], row['end_ts']],
       );
       if (written == 0) return await LocalDb.session(c.id) ?? row;
+      onSessionChanged?.call();
     }
     return {...row, 'calories': kcal, 'duration_min': duration};
   }
@@ -3203,6 +3223,7 @@ class LocalRepositoryImpl extends LocalRepository {
         traceJson: traceJson,
         traceSamples: needsTrace ? stats.hrSampleCount : null,
       );
+      onSessionChanged?.call();
       // CV-01 / TS-07 — freeze the per-km splits on the SAME improvement pass
       // as the trace, and for the same reason: `avg_hr` per split is a join
       // against `decoded_onehz`, which is gone at ~3 days, so a split not

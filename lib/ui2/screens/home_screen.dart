@@ -49,7 +49,8 @@ import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
 import '../ui2.dart';
 import '../profile/settings.dart' show MoreSettings;
-import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
+import 'day_timeline.dart'
+    show DayGraph, DayTimelineScreen, dayGraph, latestRecordedHeartSlot;
 import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard;
 import 'today_plan.dart' show TodayPlanCard;
@@ -1002,7 +1003,9 @@ class _TodayPanel extends StatelessWidget {
         values: wk('food'),
         color: C.food,
         value: eaten == null || eaten <= 0 ? null : thousands(eaten),
-        unit: d.kcalTarget == null ? 'kcal' : '/${thousands(d.kcalTarget)}',
+        unit: d.kcalTarget == null
+            ? 'kcal'
+            : 'of ${thousands(d.kcalTarget)} kcal',
         absentWhy: eaten == null || eaten <= 0 ? 'nothing logged yet' : null,
         onTap: () => appOf(c)?.navRequest.value = 6,
       ),
@@ -1011,7 +1014,7 @@ class _TodayPanel extends StatelessWidget {
           label: 'Protein',
           color: C.food,
           value: d.proteinToday == null ? null : '${d.proteinToday!.round()}',
-          unit: '/${t.round()} g',
+          unit: 'of ${t.round()} g',
           progress: d.proteinToday == null ? null : d.proteinToday! / t,
           absentWhy: d.proteinToday == null ? 'not logged yet' : null,
           onTap: () => appOf(c)?.navRequest.value = 6,
@@ -1021,6 +1024,7 @@ class _TodayPanel extends StatelessWidget {
         values: wk('steps'),
         color: C.body,
         value: d.steps.value == null ? null : thousands(d.steps.value),
+        unit: d.stepGoal > 0 ? 'of ${thousands(d.stepGoal)}' : '',
         absentWhy: d.steps.value == null ? 'not counted yet' : null,
         onTap: onSteps,
       ),
@@ -2167,7 +2171,19 @@ class _HeartCardState extends State<_HeartCard> {
       now,
       minutes: _window == 0 ? 10 : 60,
     );
-    final points = _window == 2 ? g.hr : recent.values;
+    final source = _window == 2 ? g.hr : recent.values;
+    final start = _window == 2 ? g.dayStartSec : recent.startSec;
+    final last = latestRecordedHeartSlot(source, startSec: start, now: now);
+    final limit = last == null ? 0.0 : last / math.max(1, source.length - 1);
+    // Retain the full time axis and internal gaps, but never draw/select an
+    // unrecorded tail or a future minute. Live bpm is a separate RAM-only line.
+    final points = [
+      for (final (i, v) in source.indexed)
+        last != null && i <= last && v != null && v.isFinite && v > 0
+            ? v
+            : null,
+    ];
+    final scrub = _scrub?.clamp(0.0, limit);
     final vals = [
       for (final v in points)
         if (v != null && v.isFinite) v,
@@ -2182,7 +2198,6 @@ class _HeartCardState extends State<_HeartCard> {
           '${t.minute.toString().padLeft(2, '0')}';
     }
 
-    final start = _window == 2 ? g.dayStartSec : recent.startSec;
     final end = _window == 2 && start != null
         ? start + g.hr.length * 60
         : recent.endSec;
@@ -2269,8 +2284,10 @@ class _HeartCardState extends State<_HeartCard> {
                 semanticLabel: 'Heart rate chart',
                 onTap: () {},
                 child: Scrubber(
-                  value: _scrub,
-                  onChanged: (v) => setState(() => _scrub = v),
+                  value: scrub,
+                  maxValue: limit,
+                  onChanged: (v) =>
+                      setState(() => _scrub = v.clamp(0.0, limit)),
                   label: 'Heart rate chart',
                   describe: (f) => scrubText(f),
                   step: 1 / math.max(1, points.length - 1),
@@ -2288,7 +2305,7 @@ class _HeartCardState extends State<_HeartCard> {
                             ),
                           ),
                         ),
-                        if (_scrub case final f?)
+                        if (scrub case final f?)
                           Align(
                             alignment: Alignment(f * 2 - 1, 0),
                             child: SizedBox(
@@ -2303,7 +2320,7 @@ class _HeartCardState extends State<_HeartCard> {
                 ),
               ),
             ),
-            if (_scrub case final f?) ...[
+            if (scrub case final f?) ...[
               const SizedBox(height: S.x2),
               Text(
                 scrubText(f),

@@ -1339,18 +1339,9 @@ class _NutritionDayViewState extends State<NutritionDayView>
                   onChanged: _changed,
                 ),
               if (d.logged) _completeLine(c, d),
+              const SizedBox(height: S.x2),
+              _dayActions(c),
             ],
-          ),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => _copyDay(c),
-            icon: const Icon(LucideIcons.copy, size: 16),
-            label: Text(
-              'Copy a day',
-              style: F.cap.copyWith(color: P.of(c).on(C.food)),
-            ),
           ),
         ),
         if (_recent.isNotEmpty) ...[
@@ -1365,19 +1356,37 @@ class _NutritionDayViewState extends State<NutritionDayView>
             compact: true,
           ),
         ],
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => openProgress(c, ProgressDest.food),
-            icon: const Icon(LucideIcons.trendingUp, size: 16),
-            label: Text(
-              'Food progress',
-              style: F.cap.copyWith(color: P.of(c).on(C.food)),
-            ),
-          ),
-        ),
       ],
     );
+  }
+
+  Widget _dayActions(BuildContext c) {
+    final buttons = [
+      TextButton.icon(
+        onPressed: () => _copyDay(c),
+        icon: const Icon(LucideIcons.copy, size: 16),
+        label: Text(
+          'Copy a day',
+          style: F.cap.copyWith(color: P.of(c).on(C.food)),
+        ),
+      ),
+      TextButton.icon(
+        onPressed: () => openProgress(c, ProgressDest.food),
+        icon: const Icon(LucideIcons.trendingUp, size: 16),
+        label: Text(
+          'Food progress',
+          style: F.cap.copyWith(color: P.of(c).on(C.food)),
+        ),
+      ),
+    ];
+    return bigText(c)
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: buttons,
+          )
+        : Row(
+            children: [for (final button in buttons) Expanded(child: button)],
+          );
   }
 }
 

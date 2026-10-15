@@ -837,8 +837,18 @@ The selected B calorie/macro component originally lost its ring when Codex copie
 macro rows. Food now restores remaining calories inside the ring, eaten/fixed goal alongside,
 and compact rows below. Missing/partial inputs do not fabricate an exact arc; over-goal copy
 remains explicit. The decorative plate/fork and linear calorie bar are replaced. The original
-24 merged-view observations have source dispositions in `build-90-audit.md` under Current Visual
-Acceptance; their remaining layouts are not claimed repaired without the required previews.
+24 merged-view observations have individual dispositions in `build-90-audit.md` under Current Visual
+Acceptance. The six approved presentation choices and explicit fixes are implemented: consistent
+Today target sub-lines/equal actions, intact Trends coverage and full-width movement context,
+anchored pins/Food actions, all-meal totals without singleton duplication, grouped Progress
+inputs, an active Add body entry button, full-width Body comparison rows and a single Sleep
+correction card. Milestones cannot describe identical rounded values as a decrease: they retain
+a second decimal or show the actual difference. Exact stored readings and metric logic are unchanged.
+Today's 10-minute/hour/day HR previously allowed selection past the last recorded data; day
+detail capped only at the clock. Both now share the latest-real-minute cap, excluding future
+samples/trailing gaps, with the same limit for pointer and accessibility input and retained cursors.
+Internal gaps stay absent and live bpm remains separate. Targeted checks and device gates are in
+todo.md; open observations are not marked repaired merely by this source change.
 
 Build 90 Food source implements the selected calm A overview with B's full calorie/macro card:
 remaining calories in the ring, eaten/fixed goal alongside, all four nutrient/target rows with slim

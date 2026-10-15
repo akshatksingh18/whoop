@@ -545,7 +545,7 @@ Unlogged nutrient bars are hatched with explicit not-zero copy. Diary items show
 views retain all nutrients, portions and edit/delete/copy/save routes. Accessibility text
 stacks values and actions; the week remains horizontally scrollable with the selected date
 revealed, and Counted/Logged/Empty marks have a legend. Meals and Add food appear earlier;
-single-item meals do not repeat the same totals. Multi-item meal headings show calories once,
+single-item meals do not repeat the same totals. Every meal heading shows calories or absence,
 and the overview's repeated full-macro footer is gone; full details still retain it.
 Failed counting-status writes show an error and leave the displayed status unchanged.
 Food progress uses the shared Progress
@@ -557,15 +557,23 @@ meal copy/save paths remain. Windows synthetic renders/checks are not native iPh
 **Build 90 shared UI source:** Today uses one Recovery headline and right-aligned supporting
 values, then early food/weigh-in/Train-or-Resume actions. Body, Pushups, HR explorer, freshness,
 findings and week context remain; duplicated steps/food/maintenance lines are removed. Trends
-groups related metrics; pins appear once, missing-day counts remain and full-coverage repetition
-is removed. Budget and Movement estimates remain paired. Train leads with Start/Resume and
+groups related metrics; the header owns Pin favourites/Edit pins, missing-day counts stay on one
+intact line and full-coverage repetition is removed. Budget and Movement estimates remain paired,
+with the second method in full-width context. Train leads with Start/Resume and
 retains Gym/Home, all activities, session history/edit/delete/import, Pushups, week/rest/streak,
 strain/running and full Lift Log. Progress keeps one fixed-window goal check, outcome rows and
-inputs; reasoning/next steps and every Body/Strength/context detail, photo, reading, entry,
+inputs grouped as Food/Training/Recovery with denominators; reasoning/next steps and every
+Body/Strength/context detail, photo, reading, entry,
 configuration and eight-period control remain. Shared metric rows align values independent of
 charts or chevrons; large text stacks labels/comparisons and permits full detail titles.
 Leaf/moon illustrations are decorative, excluded from semantics, and encode no metric.
 Sleep/Recovery retain stages, corrections, missing-input/gap wording and all prior details.
+Sleep correction is one collapsible card. Body comparisons use full-width rows; summary readings
+use one decimal while milestones retain a second decimal or show the difference when rounding
+would tie. Exact history/edit values remain. Food's Copy a day/Progress actions share one panel group.
+Today's 10-minute/hour/day recorded HR and day detail stop scrubbing at the latest real minute,
+capped by now; future/trailing unrecorded minutes cannot be selected. Internal gaps remain gaps,
+accessibility uses the same cap, and live bpm stays separate. No metric computation changes.
 Food library and log pickers now allow hold-drag in search/category results: visible matches
 exchange their existing slots; hidden items and complete saved orders remain. Swipe deletion
 still confirms and cancellation keeps the item. This is source/check evidence, not a new IPA.

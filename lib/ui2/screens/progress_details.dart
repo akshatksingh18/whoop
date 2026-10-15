@@ -205,16 +205,23 @@ class _ProgressDetailState extends State<_ProgressDetail>
     double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
     final ws = weightSeries(d.weights, unit: 'kg');
     final wb = weightWindow(ws, before), wa = weightWindow(ws, after);
-    String line(double? a, double? b, String unit, int places) =>
-        a == null || b == null
-        ? '—'
-        : '${_num(a, places)} → ${_num(b, places)} $unit '
-              '(${b - a >= 0 ? '+' : '−'}${_num((b - a).abs(), places)})';
+    String line(double a, double b, String unit) {
+      final places = bodyComparisonPlaces(a, b);
+      final delta = (b - a).abs();
+      final change =
+          delta != 0 &&
+              delta.toStringAsFixed(places) == 0.toStringAsFixed(places)
+          ? delta.toStringAsPrecision(2)
+          : _num(delta, places);
+      return '${_num(a, places)} → ${_num(b, places)} $unit '
+          '(${b - a >= 0 ? '+' : '−'}$change)';
+    }
+
     final rows = <(String, String, String)>[
       if (wa.mean != null && wb.mean != null)
         (
           'Average weight',
-          line(u(wb.mean!), u(wa.mean!), _unit, 1),
+          line(u(wb.mean!), u(wa.mean!), _unit),
           '${wb.count} and ${wa.count} weigh-ins',
         )
       // A known average stays visible when there is nothing to compare.
@@ -239,7 +246,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
       if (a == null || b == null || a.date == b.date) continue;
       rows.add((
         site.title,
-        line(b.value, a.value, 'in', 2),
+        line(b.value, a.value, 'in'),
         '${_md(b.date)} → ${_md(a.date)}',
       ));
     }
@@ -254,26 +261,20 @@ class _ProgressDetailState extends State<_ProgressDetail>
           for (final (k, v, sub) in rows)
             Padding(
               padding: const EdgeInsets.only(top: S.x3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(k, style: F.body.copyWith(color: p.ink)),
-                        Text(sub, style: F.cap.copyWith(color: p.ink3)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: S.x2),
-                  Flexible(
+                  Text(k, style: F.body.copyWith(color: p.ink)),
+                  const SizedBox(height: S.x1),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
                     child: Text(
                       v,
-                      textAlign: TextAlign.end,
+                      softWrap: false,
                       style: F.n17.copyWith(color: p.ink),
                     ),
                   ),
+                  Text(sub, style: F.cap.copyWith(color: p.ink3)),
                 ],
               ),
             ),
@@ -1049,7 +1050,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
                 _stat(
                   p,
                   'Recovery',
-                  rm == null ? '—' : '${rm.round()}%',
+                  rm == null ? '—' : '${rm.round()}',
                   '${rec.length} days',
                 ),
               ]),

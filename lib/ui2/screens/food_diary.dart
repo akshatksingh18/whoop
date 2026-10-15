@@ -168,7 +168,9 @@ class MealCard extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final total = rollupDay('', entries, today: '').kcal;
-    final summary = total.value == null
+    final summary = entries.isEmpty
+        ? '—'
+        : total.value == null
         ? 'Calories unknown'
         : '${total.isFloor ? '≥' : ''}${thousands(total.value!)} kcal';
     final heading = Pressable(
@@ -184,7 +186,7 @@ class MealCard extends StatelessWidget {
               style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
             ),
           ),
-          if (entries.length > 1 && !bigText(c)) ...[
+          if (!bigText(c)) ...[
             const SizedBox(width: S.x2),
             Text(summary, style: F.cap.copyWith(color: p.ink3)),
           ],
@@ -212,8 +214,7 @@ class MealCard extends StatelessWidget {
         const SizedBox(height: S.x3),
         if (bigText(c)) ...[
           heading,
-          if (entries.length > 1)
-            Text(summary, style: F.cap.copyWith(color: p.ink3)),
+          Text(summary, style: F.cap.copyWith(color: p.ink3)),
           Align(alignment: Alignment.centerRight, child: actions),
         ] else
           Row(
@@ -229,6 +230,7 @@ class MealCard extends StatelessWidget {
             _EntryRow(
               e,
               compact: true,
+              showEnergy: entries.length > 1,
               onTap: () async {
                 if (await editDiaryEntry(c, e) && c.mounted) onChanged();
               },
@@ -1225,10 +1227,16 @@ class _MealPageState extends State<MealPage> with RevisionReload {
 }
 
 class _EntryRow extends StatelessWidget {
-  const _EntryRow(this.e, {this.onTap, this.def, this.compact = false});
+  const _EntryRow(
+    this.e, {
+    this.onTap,
+    this.def,
+    this.compact = false,
+    this.showEnergy = true,
+  });
   final FoodEntry e;
   final VoidCallback? onTap;
-  final bool compact;
+  final bool compact, showEnergy;
 
   /// The saved food, when known, so "3 links" also reads "· 213 g".
   final Map<String, Object?>? def;
@@ -1274,15 +1282,13 @@ class _EntryRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   information,
-                  const SizedBox(height: S.x1),
-                  energy,
+                  if (showEnergy) ...[const SizedBox(height: S.x1), energy],
                 ],
               )
             : Row(
                 children: [
                   Expanded(child: information),
-                  const SizedBox(width: S.x3),
-                  energy,
+                  if (showEnergy) ...[const SizedBox(width: S.x3), energy],
                 ],
               ),
       ),

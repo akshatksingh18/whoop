@@ -3711,16 +3711,26 @@ class MetricLine extends StatelessWidget {
           ),
         ),
         if (unit.isNotEmpty && !absent)
-          Text(
-            unit,
-            textAlign: TextAlign.end,
-            style: F.over.copyWith(color: p.ink2),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Text(
+              unit,
+              softWrap: false,
+              textAlign: TextAlign.end,
+              style: F.over.copyWith(color: p.ink2),
+            ),
           ),
         if (sub != null && !absent)
-          Text(
-            sub!,
-            textAlign: TextAlign.end,
-            style: F.over.copyWith(color: p.ink2),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Text(
+              sub!,
+              softWrap: false,
+              textAlign: TextAlign.end,
+              style: F.over.copyWith(color: p.ink2),
+            ),
           ),
       ],
     );

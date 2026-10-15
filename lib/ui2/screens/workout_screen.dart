@@ -900,6 +900,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final p = P.of(c);
     final loc = AppLocalizations.of(c);
     return [
+      const SizedBox(height: S.x3),
       Surface(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

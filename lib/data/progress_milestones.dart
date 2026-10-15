@@ -20,8 +20,14 @@ String _md(String day) {
   return '${m[d.month - 1]} ${d.day}';
 }
 
-String _in(double v) {
-  final s = v.toStringAsFixed(2);
+/// Summary precision only; stored readings and exact detail values stay intact.
+int bodyComparisonPlaces(double before, double after) =>
+    before != after && before.toStringAsFixed(1) == after.toStringAsFixed(1)
+    ? 2
+    : 1;
+
+String _in(double v, [int places = 1]) {
+  final s = v.toStringAsFixed(places);
   return s.replaceFirst(RegExp(r'\.?0+$'), '');
 }
 
@@ -42,12 +48,20 @@ List<String> bodyMilestones(
   for (final r in s) {
     count++;
     first ??= r;
-    if (low != null && r.value < low.value && r.date.compareTo(from) >= 0 &&
+    if (low != null &&
+        r.value < low.value &&
+        r.date.compareTo(from) >= 0 &&
         r.date.compareTo(to) <= 0) {
+      final places = bodyComparisonPlaces(low.value, r.value);
+      final indistinguishable =
+          low.value.toStringAsFixed(places) == r.value.toStringAsFixed(places);
+      final comparison = indistinguishable
+          ? '${(low.value - r.value).toStringAsPrecision(2)} in lower than the previous lowest on ${_md(low.date)}'
+          : 'previous lowest ${_in(low.value, places)} in, ${_md(low.date)}';
       out.add(
-        '${BodySite.waistNavel.title} ${_in(r.value)} in on ${_md(r.date)}: '
+        '${BodySite.waistNavel.title} ${_in(r.value, places)} in on ${_md(r.date)}: '
         'the lowest of $count readings since ${_md(first.date)} '
-        '(previous lowest ${_in(low.value)} in, ${_md(low.date)}).',
+        '($comparison).',
       );
     }
     if (low == null || r.value < low.value) low = r;

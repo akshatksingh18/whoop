@@ -9,8 +9,8 @@
 > promotion is requested after the whole-app review; Build 70 remains cached recovery meanwhile.
 > [`build-90-audit.md`](build-90-audit.md) owns the original visual/source findings. Build 90
 > (`0.9.57`) contains the engine/data work and selected A + B interface; the integrated source
-> and B calorie-balance ring are combined on `build-90-codex`. The approved follow-up UI fixes
-> are in progress. Full-page review, cloud/native checks and physical acceptance remain open;
+> and B calorie-balance ring are combined on `build-90-codex`. The six approved follow-up choices, explicit layout fixes and HR scrub-boundary repair
+> are implemented locally. Full-page review, cloud/native checks and physical acceptance remain open;
 > no Build 90 IPA is built or installed. `todo.md` owns source and verification status.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;

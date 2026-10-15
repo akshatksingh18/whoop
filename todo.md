@@ -252,7 +252,8 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   acceptance. The reviewed shared tab-label and Reduce Motion fixes are retained for the full UI.
   Akshat explicitly assigned the whole approved UI task to Codex, including Today, Trends,
   Train, Progress and shared components. The earlier file split is superseded for this UI
-  implementation; no push, Git merge/rebase/branch switch or other-worktree edit is authorized.
+  implementation; no push, rebase/branch switch or other-worktree edit is authorized. Akshat
+  later explicitly authorized the regular merge of integrated `build-90` into this branch.
   Reviewed Build 90 Progress/Body/Lift workflows and their models are carried forward from
   `1ceba06b` into this checkout so the layout refinement retains those features.
   UI source now applies that framework across Today, Trends, Train, Progress, Sleep and
@@ -288,12 +289,32 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   replaced. Synthetic card/counting/copy checks pass (25); full Food scroll renders pass at
   1x/2x/3.1x. Targeted analysis has no errors/warnings (four existing informational lints).
   The quoted 24 observations are individually checked in `build-90-audit.md` under
-  Current Visual Acceptance. Except the replaced plate, their layout changes remain previews
-  to approve under the mockup-first rule; no phone or cloud acceptance is claimed.
+  Current Visual Acceptance. Akshat approved the six presentation choices and explicit fixes;
+  other observations keep their individual open/profile/fixture dispositions there. No phone
+  or cloud acceptance is claimed.
   Akshat approved a regular local merge after the requested fast-forward proved impossible
   (`c8ddfb73` and `e7af786e` diverged). Both histories and the integration fixes are preserved
-  on Codex. The six presentation choices and explicit fixes are approved for implementation;
-  Claude will re-render full pages, privacy-review, push and run cloud checks afterward.
+  in merge `8ab9c756` on Codex. The six presentation choices and explicit fixes are implemented:
+  consistent Today `of <goal>` sub-lines and equal action fills; Trends pins in the header,
+  intact coverage and full-width Movement context; every meal's energy in its heading with
+  singleton duplication removed; Copy a day/Progress grouped in the meals panel; Food/Training/
+  Recovery input groups retaining every denominator; active Add body entry; full-width Body
+  comparison rows; and a collapsible Sleep correction card. Body summaries use one decimal;
+  milestones use two decimals or the actual difference when rounding would tie. Exact stored
+  readings/editing and all routes remain. Progress recovery uses a plain score, not a percent.
+  Akshat also requested a thorough Today HR scrub check. All three ranges and day detail now
+  use the last finite positive recorded minute at or before now; trailing gaps/future samples
+  cannot be selected. Range changes clear selection, retained cursors clamp to new limits,
+  pointer/VoiceOver share the limit, and internal gaps remain. Live bpm stays separate. No
+  acquisition or metric/storage formula change. Current targeted checks pass: compact Food
+  (15, including all-meal/singleton/unknown states at 1x/2x/3.1x), milestones (6, including both
+  rounding-tie cases), shared layout (4), Sleep correction expand/collapse/actions (1), and
+  real Today HR range/gesture/accessibility plus data-boundary/DST cases (7). Seven affected
+  whole-page renders pass at 1x; Food, Sleep, 30-day Trends, Progress and Body also reach their
+  real bottoms at 3.1x without overflow (5). Total: 45 targeted checks; no full local suite/build.
+  Targeted analysis of nine affected paths has no errors/warnings; informational style lints
+  remain. Normal-size captures were visually inspected across top/lower sections. Claude will re-render
+  full pages, privacy-review, push and run cloud checks afterward.
   No reset/rebase, push or other-worktree edit was done. Analytics and schema remain unchanged.
   Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot

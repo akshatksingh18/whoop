@@ -370,7 +370,6 @@ class _ProgressScreenState extends State<ProgressScreen>
               'Add body entry',
               icon: LucideIcons.plus,
               color: C.teal,
-              soft: true,
               onTap: () => _addEntry(c, d),
             ),
           ),
@@ -575,7 +574,7 @@ class _ProgressScreenState extends State<ProgressScreen>
     );
     final latest = r.waistLatest;
     final waist = (
-      value: latest == null ? '—' : '${_num(latest.value, 2)} in',
+      value: latest == null ? '—' : '${_num(latest.value, 1)} in',
       sub: latest == null
           ? 'No waist reading yet'
           : r.waistFrom != null && r.waistTo != null
@@ -712,42 +711,75 @@ class _ProgressScreenState extends State<ProgressScreen>
 
   Widget _inputs(BuildContext c, P p, GoalReview r) {
     final f = r.food;
-    final parts = <String>[
-      f.kcal == null
-          ? 'Food: no counted day'
-          : '${thousands(f.kcal!)} kcal (${f.kcalDays} ${f.kcalDays == 1 ? 'day' : 'days'})',
-      if (f.protein != null)
-        '${f.protein!.round()} g protein (${f.proteinDays} ${f.proteinDays == 1 ? 'day' : 'days'})',
-      '${r.workouts.total} ${r.workouts.total == 1 ? 'workout' : 'workouts'}',
-      if (r.steps.average != null)
-        '${thousands(r.steps.average!)} steps a day (${r.steps.days} days)',
-      if (r.sleep.minutes case final m?)
-        'sleep ${m ~/ 60}h ${(m % 60).round()}m (${r.sleep.nights} nights)',
-      if (r.recovery.pct case final v?)
-        'recovery ${v.round()}% (${r.recovery.days} days)',
+    final groups = <(String, List<String>)>[
+      (
+        'Food',
+        [
+          f.kcal == null
+              ? 'No counted food days'
+              : '${thousands(f.kcal!)} kcal · ${f.kcalDays} counted ${f.kcalDays == 1 ? 'day' : 'days'}',
+          f.protein == null
+              ? 'No complete protein days'
+              : '${f.protein!.round()} g protein · ${f.proteinDays} complete ${f.proteinDays == 1 ? 'day' : 'days'}',
+        ],
+      ),
+      (
+        'Training',
+        [
+          '${r.workouts.total} ${r.workouts.total == 1 ? 'workout' : 'workouts'}',
+          r.steps.average == null
+              ? 'Steps not recorded'
+              : '${thousands(r.steps.average!)} steps a day · ${r.steps.days} measured days',
+        ],
+      ),
+      (
+        'Recovery',
+        [
+          if (r.sleep.minutes case final m?)
+            '${m ~/ 60}h ${(m % 60).round()}m sleep · ${r.sleep.nights} nights'
+          else
+            'Sleep not recorded',
+          if (r.recovery.pct case final v?)
+            '${v.round()} recovery score · ${r.recovery.days} measured days'
+          else
+            'Recovery not recorded',
+        ],
+      ),
     ];
     return Surface(
       onTap: () => openProgress(c, ProgressDest.food, _d),
-      semanticLabel: 'What went in: ${parts.join(', ')}. Details',
-      child: Row(
+      semanticLabel:
+          'What went in: ${groups.map((g) => '${g.$1}: ${g.$2.join(', ')}').join('. ')}. Details',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'What went in · ${reviewWeekLabel(r.after.from, r.after.to)}',
-                  style: F.cap.copyWith(
-                    color: p.ink2,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'What went in',
+                  style: F.body.copyWith(
+                    color: p.ink,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: S.x1),
-                Text(parts.join(' · '), style: F.body.copyWith(color: p.ink)),
-              ],
-            ),
+              ),
+              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+            ],
           ),
-          Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+          Text(
+            reviewWeekLabel(r.after.from, r.after.to),
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+          for (final (label, facts) in groups) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              label,
+              style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
+            ),
+            for (final fact in facts)
+              Text(fact, style: F.body.copyWith(color: p.ink)),
+          ],
         ],
       ),
     );

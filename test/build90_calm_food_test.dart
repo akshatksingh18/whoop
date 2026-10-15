@@ -168,6 +168,72 @@ void main() {
       },
     );
     testWidgets(
+      'every meal heading has a total without repeating a singleton at ${scale}x',
+      (t) async {
+        t.view.physicalSize = const Size(1170, 2532);
+        t.view.devicePixelRatio = 3;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(Brightness.light),
+            builder: (c, child) => MediaQuery(
+              data: MediaQuery.of(
+                c,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      for (final meal in [
+                        'breakfast',
+                        'lunch',
+                        'dinner',
+                        'snack',
+                      ])
+                        MealCard(
+                          date: '2025-01-05',
+                          meal: meal,
+                          entries: meal == 'breakfast'
+                              ? [_entries.first]
+                              : meal == 'lunch'
+                              ? [_entries.last]
+                              : meal == 'dinner'
+                              ? const [
+                                  FoodEntry(
+                                    id: 'unknown',
+                                    date: '2025-01-05',
+                                    meal: 'dinner',
+                                    label: 'Synthetic unknown',
+                                  ),
+                                ]
+                              : const [],
+                          onChanged: () {},
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        expect(find.text('400 kcal'), findsOneWidget);
+        expect(find.text('300 kcal'), findsOneWidget);
+        expect(find.text('Calories unknown'), findsOneWidget);
+        expect(find.text('—'), findsOneWidget);
+        expect(find.text('20 g protein'), findsOneWidget);
+        for (final meal in ['Breakfast', 'Lunch', 'Dinner', 'Snacks']) {
+          expect(find.text(meal), findsOneWidget);
+          expect(find.byTooltip('Log $meal'), findsOneWidget);
+          expect(find.byTooltip('$meal options'), findsOneWidget);
+        }
+        expect(t.takeException(), isNull);
+      },
+    );
+    testWidgets(
       'meal overview stays readable with its edit and menu routes at ${scale}x',
       (t) async {
         t.view.physicalSize = const Size(1170, 2532);

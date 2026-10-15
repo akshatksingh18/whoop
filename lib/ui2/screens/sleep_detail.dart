@@ -632,26 +632,35 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         // sits last and folded rather than between the chart and the stages.
         if (_windowCard(c, p, d, n) case final fix?) ...[
           const SizedBox(height: S.x5),
-          Pressable(
-            onTap: () => setState(() => _showFix = !_showFix),
-            semanticLabel: 'Fix sleep times',
-            child: Row(
+          Surface(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Text(
-                    'Fix sleep times',
-                    style: F.cap.copyWith(color: p.ink2),
+                Pressable(
+                  onTap: () => setState(() => _showFix = !_showFix),
+                  semanticLabel: 'Fix sleep times',
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Fix sleep times',
+                          style: F.body.copyWith(color: p.ink2),
+                        ),
+                      ),
+                      Icon(
+                        _showFix
+                            ? LucideIcons.chevronUp
+                            : LucideIcons.chevronDown,
+                        size: 16,
+                        color: p.ink3,
+                      ),
+                    ],
                   ),
                 ),
-                Icon(
-                  _showFix ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                  size: 16,
-                  color: p.ink3,
-                ),
+                if (_showFix) ...fix,
               ],
             ),
           ),
-          if (_showFix) ...fix,
         ],
 
         // Across nights, never one: kept one tap down so it cannot read as a
@@ -772,111 +781,109 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final busy = _saving;
     return [
       const SizedBox(height: S.x3),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  mine ? LucideIcons.userCheck : LucideIcons.wandSparkles,
-                  size: 16,
-                  color: p.ink3,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                mine ? LucideIcons.userCheck : LucideIcons.wandSparkles,
+                size: 16,
+                color: p.ink3,
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  mine
+                      ? (l?.sleepDetailWindowMine ?? 'You set this window')
+                      : fallback
+                      ? (l?.sleepDetailWindowFallback ??
+                            'This window was inferred from heart rate')
+                      : (l?.sleepDetailWindowAuto ??
+                            'This window was staged from the signals'),
+                  style: F.body.copyWith(color: p.ink),
                 ),
-                const SizedBox(width: S.x2),
-                Expanded(
-                  child: Text(
-                    mine
-                        ? (l?.sleepDetailWindowMine ?? 'You set this window')
-                        : fallback
-                        ? (l?.sleepDetailWindowFallback ??
-                              'This window was inferred from heart rate')
-                        : (l?.sleepDetailWindowAuto ??
-                              'This window was staged from the signals'),
-                    style: F.body.copyWith(color: p.ink),
-                  ),
-                ),
-              ],
-            ),
-            if (fallback) ...[
-              const SizedBox(height: S.x2),
-              Text(
-                l?.sleepDetailWindowFallbackBody ??
-                    'Staging could not find the edges, so the times are a best '
-                        'guess.',
-                style: F.cap.copyWith(color: p.ink3),
               ),
             ],
-            // SLP-02 — settling time, and ONLY here. On the auto path the window
-            // is built from stillness gated on a sleep-ish heart rate, so it
-            // cannot begin before you are already lying quiet: the 40 minutes of
-            // tossing falls outside it and the latency would come out near zero.
-            // On a window the user asserted, the number means what people think
-            // it means. The pipeline abstains for both reasons; this only draws
-            // what it published.
-            if (mine && d.solMin != null) ...[
-              const SizedBox(height: S.x2),
-              Text(
-                l?.sleepDetailWindowSol(_solBand(c, d.solMin!)) ??
-                    'From the start of your window to asleep: '
-                        '${_solBand(c, d.solMin!)}.',
-                style: F.cap.copyWith(color: p.ink3),
-              ),
-            ],
+          ),
+          if (fallback) ...[
             const SizedBox(height: S.x2),
-            Wrap(
-              spacing: S.x2,
-              children: [
-                if (fallback)
-                  TextButton(
-                    onPressed: busy ? null : () => _confirmWindow(day),
-                    child: Text(
-                      l?.sleepDetailConfirmTimes ?? 'These times are right',
-                    ),
-                  ),
-                TextButton(
-                  onPressed: busy ? null : () => _editWindow(day, t0, t1),
-                  child: Text(
-                    mine
-                        ? (l?.sleepDetailChangeTimes ?? 'Change the times')
-                        : (l?.sleepDetailSetTimesMyself ??
-                              'Set the times myself'),
-                  ),
-                ),
-                if (mine)
-                  TextButton(
-                    onPressed: busy ? null : () => _clearWindow(day),
-                    child: Text(
-                      l?.sleepDetailBackToAutomatic ?? 'Back to automatic',
-                    ),
-                  ),
-                // The missing third answer next to "Looks right"/"Edit": naps
-                // already have a reject action (sleep_nap source='rejected');
-                // a whole-night main-sleep session didn't (edge#248).
-                TextButton(
-                  onPressed: busy ? null : () => _rejectWindow(day),
-                  child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
-                ),
-              ],
+            Text(
+              l?.sleepDetailWindowFallbackBody ??
+                  'Staging could not find the edges, so the times are a best '
+                      'guess.',
+              style: F.cap.copyWith(color: p.ink3),
             ),
-            if (busy) ...[
-              const SizedBox(height: S.x2),
-              Text(
-                l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
-                style: F.cap.copyWith(color: p.ink3),
-              ),
-            ],
-            if (!busy && _overrideFailed != null) ...[
-              const SizedBox(height: S.x3),
-              StatusCard(
-                l?.sleepDetailCorrectionFailedTitle ??
-                    'That correction has not been applied',
-                _overrideFailed!,
-                icon: LucideIcons.triangleAlert,
-              ),
-            ],
           ],
-        ),
+          // SLP-02 — settling time, and ONLY here. On the auto path the window
+          // is built from stillness gated on a sleep-ish heart rate, so it
+          // cannot begin before you are already lying quiet: the 40 minutes of
+          // tossing falls outside it and the latency would come out near zero.
+          // On a window the user asserted, the number means what people think
+          // it means. The pipeline abstains for both reasons; this only draws
+          // what it published.
+          if (mine && d.solMin != null) ...[
+            const SizedBox(height: S.x2),
+            Text(
+              l?.sleepDetailWindowSol(_solBand(c, d.solMin!)) ??
+                  'From the start of your window to asleep: '
+                      '${_solBand(c, d.solMin!)}.',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ],
+          const SizedBox(height: S.x2),
+          Wrap(
+            spacing: S.x2,
+            children: [
+              if (fallback)
+                TextButton(
+                  onPressed: busy ? null : () => _confirmWindow(day),
+                  child: Text(
+                    l?.sleepDetailConfirmTimes ?? 'These times are right',
+                  ),
+                ),
+              TextButton(
+                onPressed: busy ? null : () => _editWindow(day, t0, t1),
+                child: Text(
+                  mine
+                      ? (l?.sleepDetailChangeTimes ?? 'Change the times')
+                      : (l?.sleepDetailSetTimesMyself ??
+                            'Set the times myself'),
+                ),
+              ),
+              if (mine)
+                TextButton(
+                  onPressed: busy ? null : () => _clearWindow(day),
+                  child: Text(
+                    l?.sleepDetailBackToAutomatic ?? 'Back to automatic',
+                  ),
+                ),
+              // The missing third answer next to "Looks right"/"Edit": naps
+              // already have a reject action (sleep_nap source='rejected');
+              // a whole-night main-sleep session didn't (edge#248).
+              TextButton(
+                onPressed: busy ? null : () => _rejectWindow(day),
+                child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
+              ),
+            ],
+          ),
+          if (busy) ...[
+            const SizedBox(height: S.x2),
+            Text(
+              l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+          ],
+          if (!busy && _overrideFailed != null) ...[
+            const SizedBox(height: S.x3),
+            StatusCard(
+              l?.sleepDetailCorrectionFailedTitle ??
+                  'That correction has not been applied',
+              _overrideFailed!,
+              icon: LucideIcons.triangleAlert,
+            ),
+          ],
+        ],
       ),
     ];
   }

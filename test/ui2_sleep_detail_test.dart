@@ -61,6 +61,34 @@ Future<void> _pump(WidgetTester t, SleepData d, {double scale = 1}) async {
 }
 
 void main() {
+  testWidgets(
+    'sleep correction stays in one card and opens its existing actions',
+    (t) async {
+      await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+      final label = find.text('Fix sleep times');
+      await t.ensureVisible(label);
+      final card = find.ancestor(of: label, matching: find.byType(Surface));
+      expect(card, findsOneWidget);
+      expect(find.text('Set the times myself'), findsNothing);
+      await t.tap(label);
+      await t.pumpAndSettle();
+      expect(
+        find.descendant(of: card, matching: find.text('Set the times myself')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('Not sleep')),
+        findsOneWidget,
+      );
+      await t.ensureVisible(label);
+      await t.tap(label);
+      await t.pumpAndSettle();
+      expect(find.text('Set the times myself'), findsNothing);
+      expect(t.takeException(), isNull);
+    },
+  );
+
+
   testWidgets('a measure inside the middle half of your nights is typical',
       (t) async {
     await _pump(

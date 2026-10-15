@@ -381,6 +381,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           r,
     ];
 
+    final pinControl = _d == null
+        ? null
+        : TextButton.icon(
+            onPressed: () => _editPins(c, rows),
+            icon: const Icon(LucideIcons.pin, size: 16),
+            label: Text(
+              _pinned.isEmpty ? 'Pin favourites' : 'Edit pins',
+              style: F.cap.copyWith(color: p.on(C.blue)),
+            ),
+          );
+
     return RefreshIndicator(
       onRefresh: () => pullToRefresh(c, _load),
       child: ListView(
@@ -399,7 +410,22 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                       : '${_dates(win)} · daily averages, measured days only',
                   style: F.body.copyWith(color: p.onGround),
                 ),
-                Text('Trends', style: F.display.copyWith(color: p.ink)),
+                if (bigText(c)) ...[
+                  Text('Trends', style: F.display.copyWith(color: p.ink)),
+                  if (pinControl != null)
+                    Align(alignment: Alignment.centerRight, child: pinControl),
+                ] else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Trends',
+                          style: F.display.copyWith(color: p.ink),
+                        ),
+                      ),
+                      ?pinControl,
+                    ],
+                  ),
               ],
             ),
           ),
@@ -451,26 +477,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                     ],
                   ),
                 ),
-                action: 'Edit',
-                onAction: () => _editPins(c, rows),
               ),
               const SizedBox(height: S.x4),
-            ] else
-              Align(
-                alignment: Alignment.centerRight,
-                child: Pressable(
-                  semanticLabel: 'Pin favourite metrics',
-                  onTap: () => _editPins(c, rows),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: S.x2),
-                    child: Pill(
-                      'Pin favourites',
-                      C.blue,
-                      icon: LucideIcons.pin,
-                    ),
-                  ),
-                ),
-              ),
+            ],
             for (final group in const [
               ('Recovery and sleep', ['recovery', 'sleep']),
               ('Heart and breathing', ['hrv', 'resting_hr', 'resp_rate']),
@@ -572,30 +581,38 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       final movement = paired.length == vals.length
           ? paired.reduce((a, b) => a + b) / paired.length
           : null;
-      return MetricLine(
-        label: r.label,
-        values: win == 1 ? const [] : dense,
-        style: style,
-        color: r.color,
-        value: budget.round().toString(),
-        unit: 'kcal · Budget',
-        sub: movement == null
-            ? 'Movement estimate unavailable'
-            : 'Movement estimate ${movement.round()} kcal',
-        note: vals.length < win
-            ? '${vals.length} of $win days · runs excluded'
-            : 'Runs excluded',
-        onTap: open,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          MetricLine(
+            label: r.label,
+            values: win == 1 ? const [] : dense,
+            style: style,
+            color: r.color,
+            value: budget.round().toString(),
+            unit: 'kcal · Budget',
+            sub: vals.length < win ? '${vals.length}/$win days' : null,
+            onTap: open,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: S.x3),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Text(
+                '${movement == null ? 'Movement estimate unavailable' : 'Movement estimate ${movement.round()} kcal'} · runs excluded',
+                softWrap: false,
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+            ),
+          ),
+        ],
       );
     }
     // The number IS the range: today's value on Today, otherwise the daily
     // average over the measured days in the range. It used to be the newest
     // reading in every range, so switching ranges changed nothing.
     final mean = vals.reduce((a, b) => a + b) / vals.length;
-    final sub = [
-      if (r.key == 'strain') 'estimate',
-      if (vals.length < win) '${vals.length}/$win days',
-    ].join(' · ');
+    final sub = vals.length < win ? '${vals.length}/$win days' : null;
     return MetricLine(
       label: r.label,
       // One day is not a chart; the value carries it.
@@ -603,8 +620,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       color: r.color,
       style: style,
       value: _fmt(r, mean),
-      unit: unit,
-      sub: sub.isEmpty ? null : sub,
+      unit: r.key == 'strain' ? 'estimate' : unit,
+      sub: sub,
       onTap: open,
     );
   }

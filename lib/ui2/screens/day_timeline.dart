@@ -375,6 +375,27 @@ List<DayNote> dayNotes({
 /// makes every lane share one axis without any of them being resampled.
 const int kDayMinutes = 1440;
 
+/// Last real heart-rate minute at or before now. Trailing gaps are unavailable,
+/// not an invitation to select a later timestamp. Absolute instants also cover
+/// DST days; no 24-hour/day-length assumption is involved.
+int? latestRecordedHeartSlot(
+  List<double?> values, {
+  int? startSec,
+  DateTime? now,
+}) {
+  var end = values.length - 1;
+  if (startSec != null) {
+    final nowSec = (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000;
+    if (nowSec < startSec) return null;
+    end = math.min(end, (nowSec - startSec) ~/ 60);
+  }
+  for (var i = end; i >= 0; i--) {
+    final v = values[i];
+    if (v != null && v.isFinite && v > 0) return i;
+  }
+  return null;
+}
+
 /// The day, drawn. All four lanes on one time base, built once.
 @immutable
 class DayGraph {
@@ -717,13 +738,14 @@ class _DayHeartCardState extends State<DayHeartCard> {
   int _slot(double v) =>
       (v * (widget.g.slots - 1)).round().clamp(0, widget.g.slots - 1);
 
-  /// How far right the finger may go: the current minute on today, the whole
-  /// day otherwise. Minutes that have not happened yet are not "not recorded".
+  /// The data boundary, capped by now: old/missing records never extend the
+  /// selectable timeline, even when the rest of the day is drawn as context.
   double get _limit {
-    final start = widget.g.dayStartSec;
-    if (start == null || widget.g.slots < 2) return 1;
-    final m = (DateTime.now().millisecondsSinceEpoch ~/ 1000 - start) / 60;
-    return m >= widget.g.slots ? 1 : (m / (widget.g.slots - 1)).clamp(0.0, 1.0);
+    final last = latestRecordedHeartSlot(
+      widget.g.hr,
+      startSec: widget.g.dayStartSec,
+    );
+    return last == null || widget.g.slots < 2 ? 0 : last / (widget.g.slots - 1);
   }
 
   String _clock(int slot) {
@@ -739,7 +761,14 @@ class _DayHeartCardState extends State<DayHeartCard> {
     final hr = widget.g.hr;
     for (var d = 0; d <= 5; d++) {
       for (final i in [slot - d, slot + d]) {
-        if (i >= 0 && i < hr.length && i <= (_limit * (widget.g.slots - 1)).floor() && hr[i] != null) return (i, hr[i]!);
+        if (i >= 0 &&
+            i < hr.length &&
+            i <= (_limit * (widget.g.slots - 1)).round() &&
+            hr[i] != null &&
+            hr[i]!.isFinite &&
+            hr[i]! > 0) {
+          return (i, hr[i]!);
+        }
       }
     }
     return null;
@@ -756,7 +785,7 @@ class _DayHeartCardState extends State<DayHeartCard> {
   }
 
   String _describe(double v) {
-    final slot = _slot(v);
+    final slot = _slot(v.clamp(0.0, _limit));
     final hit = _nearest(slot);
     if (hit == null) return '${_clock(slot)}, not recorded';
     final st = _state(hit.$1);
@@ -770,8 +799,12 @@ class _DayHeartCardState extends State<DayHeartCard> {
     final l = AppLocalizations.of(c);
     final n = g.slots;
     double at(int m) => n <= 0 ? 0 : m / n;
-    final last = (_limit * (g.slots - 1)).floor();
-    final shown = [for (var i = 0; i < g.hr.length; i++) i <= last ? g.hr[i] : null];
+    final last = (_limit * (g.slots - 1)).round();
+    final scrub = _scrub?.clamp(0.0, _limit);
+    final shown = [
+      for (final (i, v) in g.hr.indexed)
+        i <= last && v != null && v.isFinite && v > 0 ? v : null,
+    ];
     final vals = [for (final v in shown) ?v];
     final axis = AxisSpec.of(vals, ticks: 3);
     // A day with no recorded minute draws nothing — a frame with an axis and
@@ -783,76 +816,96 @@ class _DayHeartCardState extends State<DayHeartCard> {
 
     final asleep = p.on(C.blue), workout = p.on(C.orange);
     final gaps = g.unmeasured;
-    final readout = _scrub == null
+    final readout = scrub == null
         ? 'Low $lo · average $avg · high $hi bpm'
-        : _describe(_scrub!);
+        : _describe(scrub);
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        ChartFrame(
-          title: l?.dayTimelineHeartRateTitle ?? 'Heart rate',
-          unit: 'bpm',
-          height: 200,
-          yAxis: axis,
-          xLabels: [
-            l?.dayTimelineMidnight ?? 'Midnight',
-            l?.dayTimelineNoon ?? 'Noon',
-            l?.dayTimelineMidnight ?? 'Midnight',
-          ],
-          legend: [
-            if (g.rest.isNotEmpty) (l?.dayTimelineAsleep ?? 'Asleep', asleep),
-            if (g.work.isNotEmpty) (l?.dayTimelineWorkout ?? 'Workout', workout),
-            if (g.movement.any((v) => v != null))
-              (l?.dayTimelineMoving ?? 'Moving', p.on(C.domMove)),
-            if (gaps.isNotEmpty)
-              (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
-          ],
-          series: shown,
-          child: Scrubber(
-            value: _scrub,
-            maxValue: _limit,
-            onChanged: (v) => setState(() => _scrub = math.min(v, _limit)),
-            label: 'Heart rate through the day',
-            describe: _describe,
-            step: 1 / 96, // a quarter-hour per accessibility step
-            child: Stack(children: [
-              Positioned.fill(
-                child: CustomPaint(
-                  size: Size.infinite,
-                  painter: DayLanes(
-                    p: p,
-                    gaps: [for (final (a, b) in gaps) (at(a), at(b))],
-                    rest: [for (final (a, b, _) in g.rest) (at(a), at(b), asleep)],
-                    work: [
-                      for (final (a, b, _) in g.work) (at(a), at(b), workout),
-                    ],
-                    movement: g.movement,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ChartFrame(
+            title: l?.dayTimelineHeartRateTitle ?? 'Heart rate',
+            unit: 'bpm',
+            height: 200,
+            yAxis: axis,
+            xLabels: [
+              l?.dayTimelineMidnight ?? 'Midnight',
+              l?.dayTimelineNoon ?? 'Noon',
+              l?.dayTimelineMidnight ?? 'Midnight',
+            ],
+            legend: [
+              if (g.rest.isNotEmpty) (l?.dayTimelineAsleep ?? 'Asleep', asleep),
+              if (g.work.isNotEmpty)
+                (l?.dayTimelineWorkout ?? 'Workout', workout),
+              if (g.movement.any((v) => v != null))
+                (l?.dayTimelineMoving ?? 'Moving', p.on(C.domMove)),
+              if (gaps.isNotEmpty)
+                (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
+            ],
+            series: shown,
+            child: Scrubber(
+              value: scrub,
+              maxValue: _limit,
+              onChanged: (v) => setState(() => _scrub = math.min(v, _limit)),
+              label: 'Heart rate through the day',
+              describe: _describe,
+              step: 1 / 96, // a quarter-hour per accessibility step
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      size: Size.infinite,
+                      painter: DayLanes(
+                        p: p,
+                        gaps: [for (final (a, b) in gaps) (at(a), at(b))],
+                        rest: [
+                          for (final (a, b, _) in g.rest)
+                            (at(a), at(b), asleep),
+                        ],
+                        work: [
+                          for (final (a, b, _) in g.work)
+                            (at(a), at(b), workout),
+                        ],
+                        movement: g.movement,
+                      ),
+                    ),
                   ),
-                ),
+                  Positioned.fill(
+                    child: CustomPaint(
+                      size: Size.infinite,
+                      painter: LineChart(
+                        shown,
+                        p.on(C.red),
+                        fill: false,
+                        axis: axis,
+                      ),
+                    ),
+                  ),
+                  if (scrub != null)
+                    Align(
+                      alignment: Alignment(scrub * 2 - 1, 0),
+                      child: SizedBox(
+                        width: 2,
+                        height: double.infinity,
+                        child: ColoredBox(color: p.ink),
+                      ),
+                    ),
+                ],
               ),
-              Positioned.fill(
-                child: CustomPaint(
-                  size: Size.infinite,
-                  painter: LineChart(shown, p.on(C.red), fill: false, axis: axis),
-                ),
-              ),
-              if (_scrub != null)
-                Align(
-                  alignment: Alignment(_scrub! * 2 - 1, 0),
-                  child: SizedBox(
-                      width: 2,
-                      height: double.infinity,
-                      child: ColoredBox(color: p.ink)),
-                ),
-            ]),
+            ),
           ),
-        ),
-        const SizedBox(height: S.x3),
-        Text(readout,
-            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-        if (_scrub == null)
-          Text('Touch and drag across the chart to read any minute.',
-              style: F.over.copyWith(color: p.ink3)),
-      ]),
+          const SizedBox(height: S.x3),
+          Text(
+            readout,
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+          if (_scrub == null)
+            Text(
+              'Touch and drag across the chart to read any minute.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+        ],
+      ),
     );
   }
 }

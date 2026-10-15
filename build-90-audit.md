@@ -4,7 +4,8 @@ Method: independent dual-agent assessment (A: `/root/design_review`; B: `/root/t
 
 **Status:** original Build 89 audit plus the complete Build 90 worklist. Akshat approved
 implementation and selected A overall with B's compact macro rows; engine/data, the Claude lane
-and the full approved UI are implemented and merged on `build-90`. `todo.md` owns implementation,
+and the full approved UI are implemented. The integration plus approved UI follow-ups are on
+`build-90-codex`, not yet pushed. `todo.md` owns implementation,
 commits and outstanding gates. Findings below describe the audited Build 89 unless explicitly
 qualified; they do not override the accepted design in `DESIGN.md`. Local synthetic captures do
 not establish phone/native or final cloud acceptance. Build 89 remains installed/testing,
@@ -21,75 +22,65 @@ The ring encodes the known remaining fraction of the fixed intake goal. Unknown/
 do not draw an exact arc; the amount retains its bound. Exercise is not added to the intake goal.
 Unknown nutrient bars are hatched and labelled not logged, not zero. Existing data/routes remain.
 
-The rest of the quoted 24-item review is **not marked fixed**. Source checks apply to the Codex
-UI carried into merged `build-90` (`e7af786e`); the correction stays on `build-90-codex` for Claude
-to integrate. Akshat's mockup-first rule still governs further layout changes: show the proposed
-whole affected pages beside current pages, including lower sections, before implementing them.
-Keep large-text verification even when the main visual review uses standard text.
+The integrated source (`e7af786e`) and B-ring correction (`c8ddfb73`) are both ancestors of
+Codex's approved regular merge `8ab9c756`. Akshat approved the six presentation choices and
+explicit layout fixes below; these are implemented on `build-90-codex`, pending Claude's new
+full-page review and cloud/native checks. Large-text verification remains required even when
+visual acceptance uses standard text. Other observations keep their individual dispositions.
 
 Findings retain Claude's original numbers:
 
-1. **Confirmed layout:** Today action slots are Expanded, but Pressable's inner Align sizes the
-   visible containers to content. Make the visible action fills occupy equal slots in the preview.
-2. **Confirmed consistency:** Today's Food/Protein denominators use different unit copy and Steps
-   omits its known target. Preview one consistent value/goal convention without inventing goals.
-3. **Confirmed layout:** SubTabs uses content-width scrolling items even when three short options
-   fit. Preview equal-width segments when they fit; retain scrolling when they do not.
-4. **Confirmed type hierarchy:** EnergyComparison renders an absent estimate's word in the numeric
-   style. Use a quiet absent-state label; retain the reason and other available method.
-5. **Presentation choice:** Pin favourites is a standalone Align/Pill above Trends. Preview it in
-   the header/section controls; retain pin selection and edit behavior.
-6. **Confirmed layout:** Trends step-energy places the second estimate in MetricLine's narrow value
-   column. Give the comparison full-width context; retain both methods, coverage and detail route.
-7. **Confirmed wrapping risk:** estimate and missing-day coverage share one small string. Preview
-   separate context lines or keep the count/unit together; never hide incomplete coverage.
-8. **Resolved by the selected B card correction:** the thin plate line was an authored utensil,
-   not lost data. The plate and utensil are removed with the old hero composition.
-9. **Intentional current behavior, not a missing total:** meal headings show totals only for
-   multi-item meals; a singleton shows its calories on its only item to avoid repetition. A
-   consistent all-meal-heading alternative needs a preview that preserves each item's detail.
-10. **Presentation choice:** Copy a day and Food progress remain functional standalone actions.
-    Preview an anchored secondary-action group; do not remove either flow.
+1. **Implemented:** Today action fills occupy their equal-width slots; the existing actions remain.
+2. **Implemented:** Food, Protein and Steps use `of <goal>` sub-lines with the relevant units.
+   Only actual known targets are shown.
+3. **Open layout observation:** short SubTabs controls leave unused space. An equal-width
+   treatment when options fit still needs its whole-page preview; scrolling must remain for overflow.
+4. **Open type observation:** an unavailable maintenance estimate still uses the numeric style.
+5. **Implemented, approved choice:** Pin favourites/Edit pins is a small Trends header control.
+   Pin selection, editing and the pinned section remain.
+6. **Implemented:** Trends Budget retains its right-aligned value; Movement estimate and the
+   runs-excluded qualification sit in full-width context, with the existing detail route.
+7. **Implemented:** missing-day coverage is one intact `28/30 days` line; strain's estimate
+   label has its own line. Unit/coverage text cannot split into extra lines.
+8. **Implemented by the B correction:** the old decorative plate/utensil is removed. The
+   selected calorie ring and four macro rows remain.
+9. **Implemented, approved choice:** every meal heading shows its energy (or explicit absence).
+   A singleton does not repeat calories on its only row; portions/protein and full item editing remain.
+10. **Implemented, approved choice:** Copy a day and Food progress share an action group inside
+    the meals panel. At large text the actions stack, with the same callbacks.
 11. **Profile-gated, not a proved personal-build bug:** Training review is behind
     `!kPersonalSideload`. Confirm the actual personal build flag/native render before changing it.
-12. **Evidence gap, not permission to invent dots:** week count reads repository sessions;
-    streak dots read the local session/step ledger and require qualifying activity. The render
-    harness injects repository workouts separately from that ledger. Align synthetic fixture
-    sources and check real qualifying sessions on the phone; short/non-exercise sessions can
-    legitimately count as logged sessions without earning a streak dot.
-13. **Confirmed spacing:** the week panel leaves a divider after the streak even without a
-    following run row. Preview conditional separators and tighter empty trailing space.
-14. **Confirmed spacing:** Train wraps an embedded Pushups PlanRow in a normally padded Surface,
-    adding padding to the row's own. Preview a compact wrapper with the same actions and touch size.
-15. **Confirmed shared-source spacing:** the nonpersonal import card has no leading section gap.
-    Add spacing in its preview; that card is excluded from the personal profile.
-16. **Platform/fixture difference:** storeName uses `Platform.isIOS` and already says Apple Health
-    on iOS. Windows renders take the Health Connect branch. The personal profile also hides this
-    import card. Verify a native/profile capture; do not replace the shared Android label globally.
-17. **Confirmed affordance issue:** Add body entry is active but uses BigButton's soft style.
-    Preview a clearly active primary treatment; its save/navigation route remains present.
-18. **Confirmed hierarchy issue:** Progress inputs are joined into one Text. Preview short labelled
-    groups with explicit coverage, retaining all input facts and the context detail route.
-19. **Confirmed layout:** Body comparison combines verbose dates/counts in one flexible column
-    with a long before/after value in another. Preview full-width comparison rows with intact
-    figures, dates and denominators at ordinary and large text.
-20. **Precision choice:** Body milestone copy formats stored readings to two decimal places.
-    Those are recorded values, not fabricated precision. Preview consistent overview rounding
-    while preserving exact readings, comparison logic and history/edit precision.
-21. **Confirmed unit inconsistency:** Progress context and input copy append % to recovery,
-    whereas the shared recovery view presents the same 0–100 score without %. Correct display
-    units consistently in the preview; do not change the stored score or calculation.
-22. **Confirmed terminology:** Recovery uses readinessDetailTitle in its navigation/history copy.
-    Preview Recovery consistently, retaining internal model names and all driver/method detail.
-23. **Fixture plus copy issue:** the Sleep fixture includes aggregate stage totals without timed
-    stage samples. Those are distinct capabilities. The current empty-hypnogram message claims an
-    input was missing without proving that cause. Preview honest timeline-unavailable wording,
-    keeping available aggregate totals, and separately verify native timeline availability.
-24. **Presentation choice:** Fix sleep times is intentionally last and folded outside a panel.
-    Preview it in a clear correction surface, preserving expand/collapse, validation and save.
+12. **Evidence gap:** repository session counts and qualifying streak dots read different fixture
+    sources. Align the synthetic ledgers and verify qualifying sessions on the phone; never invent dots.
+13. **Open spacing observation:** the week panel may leave a divider without a following run row.
+14. **Open spacing observation:** the embedded Pushups row still has padding from its wrapper.
+15. **Implemented:** the nonpersonal Import card includes a leading section gap, only when shown.
+16. **Platform/fixture difference:** iOS already uses Apple Health; Windows takes Health Connect.
+    The personal profile hides the import card. Native/profile verification remains open.
+17. **Implemented:** Add body entry uses the active filled primary treatment, with its route intact.
+18. **Implemented, approved choice:** What went in has Food, Training and Recovery groups,
+    retaining the real review dates, each input, its denominator and the detail route.
+19. **Implemented:** Body comparisons use full-width label/value/coverage rows, preserving actual
+    dates and counts. Long values stay intact and can be scrolled at accessibility sizes.
+20. **Implemented, approved precision rule:** summaries use one decimal; exact readings/editing
+    remain intact. A milestone whose one-decimal values tie shows two decimals; if those also tie,
+    it states the actual difference rather than claiming the same displayed value is lower.
+21. **Implemented:** Progress overview/context use the plain recovery score, without a percent sign.
+22. **Open terminology observation:** Recovery still uses readinessDetailTitle in navigation/history.
+23. **Fixture plus open copy observation:** timed hypnogram samples and aggregate stage totals are
+    distinct. The empty-timeline cause copy still needs correction and native timeline verification.
+24. **Implemented, approved choice:** Fix sleep times is one collapsible correction card. Existing
+    confirmation/edit/reset/reject, validation and save/error behavior remain inside it.
+
+**Today HR scrub follow-up:** all three ranges (10 min, 1 hour, Day) and the opened day-detail
+heart chart share a last-real-record boundary capped by the current instant. Future samples and
+trailing unrecorded minutes are neither plotted as HR nor selectable. Pointer and accessibility
+input share the cap; retained cursors are clamped when data changes, and changing the range clears
+the selection. Internal missing minutes stay gaps. Live RAM-only bpm remains separate from recorded
+minute averages. This changes chart interaction/display only, not stored metrics or live acquisition.
 
 No device-only outcome, reference staging accuracy or final build acceptance follows from this
-review. The remaining presentation previews, cloud/native checks and phone matrix stay open.
+review. Items explicitly marked open, cloud/native checks and the phone matrix remain open.
 
 ## Evidence And Practical Limits
 

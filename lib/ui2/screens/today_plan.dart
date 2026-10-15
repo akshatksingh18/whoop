@@ -213,6 +213,7 @@ class TodayPlanCard extends StatelessWidget {
             onTap: onTap,
             semanticLabel: title,
             child: Container(
+              width: double.infinity,
               constraints: const BoxConstraints(minHeight: 72),
               padding: const EdgeInsets.all(S.x3),
               decoration: BoxDecoration(color: p.card, borderRadius: R.rMd),

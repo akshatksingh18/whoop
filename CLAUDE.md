@@ -27,7 +27,8 @@ the whole-app review; Build 70 remains cached recovery until that promotion. Bui
 reviewed Progress/Body/Lift workflows and A overall with B's whole calorie/macro card. Codex
 has combined the integrated `build-90` state (`e7af786e`) with its B-ring correction (`c8ddfb73`)
 on `build-90-codex`. Akshat approved the six follow-up presentation choices and explicit UI
-fixes; their implementation/checks and the remaining full-page review are in `todo.md` and
+fixes, now implemented along with the latest-real-reading HR scrub boundary. Checks and the
+remaining full-page review are in `todo.md` and
 `build-90-audit.md`. Claude retains privacy review, cloud checks, integration and release
 packaging. No Build 90 IPA is built or installed; local synthetic renders establish no phone
 acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;

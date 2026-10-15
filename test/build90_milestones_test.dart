@@ -44,6 +44,49 @@ void main() {
     expect(notes.single, contains('previous lowest 34 in, Sep 2'));
   });
 
+  test('a milestone keeps the second decimal when one decimal would tie', () {
+    final note = bodyMilestones(
+      [_waist('2026-09-02', 37.24), _waist('2026-10-09', 37.21)],
+      '2026-10-01',
+      '2026-10-14',
+    ).single;
+    expect(note, contains('37.21 in on Oct 9'));
+    expect(note, contains('previous lowest 37.24 in'));
+    expect(note, isNot(contains('previous lowest 37.2 in')));
+  });
+
+  test(
+    'a milestone states the difference when even two decimals would tie',
+    () {
+      final note = bodyMilestones(
+        [_waist('2026-09-02', 38.214), _waist('2026-10-09', 38.211)],
+        '2026-10-01',
+        '2026-10-14',
+      ).single;
+      expect(note, contains('38.21 in on Oct 9'));
+      expect(
+        note,
+        contains('0.0030 in lower than the previous lowest on Sep 2'),
+      );
+      expect(note, isNot(contains('previous lowest 38.21 in')));
+    },
+  );
+
+  test(
+    'ordinary milestone summaries use one decimal without changing comparison',
+    () {
+      final note = bodyMilestones(
+        [_waist('2026-09-02', 36.78), _waist('2026-10-09', 36.64)],
+        '2026-10-01',
+        '2026-10-14',
+      ).single;
+      expect(note, contains('36.6 in on Oct 9'));
+      expect(note, contains('previous lowest 36.8 in'));
+      expect(bodyComparisonPlaces(36.78, 36.64), 1);
+      expect(bodyComparisonPlaces(37.24, 37.21), 2);
+    },
+  );
+
   test('a better best set on the same setup is a milestone; another setup is not', () {
     final notes = liftMilestones(
       [

@@ -12,14 +12,24 @@ Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (loca
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
 Impeccable reads. Product truth stays in `CLAUDE.md` and `metrics-map.md`.
 
-Build 90 source (merged on `build-90`, not yet installed) applies the calm framework Akshat
-selected (A) with B's compact macro rows across every tab, and Progress's approved composition:
+Build 90 source (integrated on `build-90-codex`, not yet installed) applies the calm framework
+Akshat selected (A), with B's full calorie-ring/compact-macro card on Food, and Progress's approved composition:
 a goal card with one closed-week verdict, its dates and the exact missing evidence; Weight,
 Waist and Strength results from the same weeks; and Body, Strength and Food/training/recovery
 detail pages with a History range. The kraft/cream palette and metric-family colours stay
 locked. Screen titles clamp to Apple's Large Title scaling and tab-bar labels keep their size
 under large text. Native screenshot and phone acceptance remain open; `build-90-audit.md` and
 `todo.md` retain the feature, correctness and device gates.
+
+The approved follow-up keeps targets under Today values in a consistent `of <goal>` format.
+Trends places pins in its header and keeps units/coverage intact; the second energy method gets
+full-width context. Food puts calories in every meal heading without repeating a singleton's
+energy, and groups Copy a day/Progress inside the meals panel. Progress inputs have three labelled
+groups with coverage, Add body entry is a filled action, and Body comparisons use the card width.
+Body summaries use one decimal unless a milestone needs the second decimal or actual difference
+to avoid a misleading tie; full readings/editing keep their precision. Sleep correction stays inside
+one collapsible card. HR chart selection ends at the latest actual reading at or before now, in
+all three Today ranges and day detail; unrecorded/future tails cannot acquire a cursor.
 
 ## Direction
 

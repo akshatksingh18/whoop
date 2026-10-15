@@ -416,8 +416,12 @@ Map<String, Widget> goldenCases() => {
     action: 'History',
   ),
   // Build 90 Codex lane
-  'energy_comparison': const Surface(child: EnergyComparison(budget: 1234, acsm: 1456)),
-  'energy_comparison_missing': const Surface(child: EnergyComparison(budget: 1234, acsm: null)),
+  'energy_comparison': const Surface(
+    child: EnergyComparison(budget: 1234, acsm: 1456),
+  ),
+  'energy_comparison_missing': const Surface(
+    child: EnergyComparison(budget: 1234, acsm: null),
+  ),
   // End Build 90 Codex lane
   'calorie_pair': const Surface(child: CaloriePair(budget: 1234, acsm: 1456)),
   'calorie_pair_missing': const Surface(
@@ -472,7 +476,12 @@ Map<String, Widget> goldenCases() => {
         label: 'Eaten so far',
         lines: ['goal 2,400 · 480 left'],
       ),
-      HeroStat(value: null, color: C.sleep, label: 'Asleep', lines: ['no night']),
+      HeroStat(
+        value: null,
+        color: C.sleep,
+        label: 'Asleep',
+        lines: ['no night'],
+      ),
     ],
   ),
   'metric_line_note': const MetricLine(
@@ -724,7 +733,10 @@ Map<String, Widget> _nutritionAndWellnessCases() {
     ),
     'food_calendar': const FoodCalendar(
       current: '2026-10-13',
-      marks: {'2026-10-01': FoodDayMark.counted, '2026-10-02': FoodDayMark.logged},
+      marks: {
+        '2026-10-01': FoodDayMark.counted,
+        '2026-10-02': FoodDayMark.logged,
+      },
     ),
     'goal_bar': Column(
       children: const [
@@ -734,6 +746,9 @@ Map<String, Widget> _nutritionAndWellnessCases() {
       ],
     ),
     // Calories left against a typed goal; exercise never added back.
+    // Build 90 Codex lane
+    'calm_recovery': const CalmIllustration(),
+    'calm_sleep': const CalmIllustration(sleep: true, color: C.sleep),
     'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
     'calorie_card_over': const CalorieCard(eaten: 2210, goal: 2000),
     'calorie_card_no_goal': const CalorieCard(eaten: 820, goal: null),

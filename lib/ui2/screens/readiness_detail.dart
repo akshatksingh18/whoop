@@ -417,6 +417,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   HeroStat(
+                    illustration: const CalmIllustration(),
                     value: '${v.round()}',
                     color: C.recovery,
                     label: l?.homeRingRecovery ?? 'Recovery',

@@ -14,3 +14,5 @@ export 'paint_activity.dart';
 export 'revision.dart';
 export 'scroll_hint.dart';
 export 'theme.dart';
+
+export 'calm_illustration.dart';

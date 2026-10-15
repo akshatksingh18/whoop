@@ -21,7 +21,9 @@ following owning sources before analysis or design:
 - [Design brief](ui-design-research-prompt.md): confirmed audience, workflows, complete feature
   inventory and rejected-versus-desired experience. The user wants a structural redesign.
 - [Metric map](metrics-map.md): current visible/hidden metrics and input limitations.
-- [Build 88 plan](build-88-plan.md): selected presentation decisions and proposed work packages.
+- [Design system](DESIGN.md): locked palette and accepted Build 90 A + compact B composition.
+- [Build 90 audit](build-90-audit.md): original findings and complete backlog; TODO owns source/acceptance status.
+- [Build 88 plan](build-88-plan.md): earlier presentation and engine contracts.
 - [Build TODO](todo.md): implementation and acceptance gates.
 - [Impeccable setup](impeccable-setup.md): executable/hook provenance, native limits and scope.
 

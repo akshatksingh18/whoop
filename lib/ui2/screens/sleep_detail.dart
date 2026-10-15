@@ -696,6 +696,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               style: F.body.copyWith(color: p.ink),
             ),
           HeroStat(
+            illustration: const CalmIllustration(sleep: true, color: C.sleep),
             value: tst == null ? null : hm(tst),
             semanticLabel: tst == null
                 ? null

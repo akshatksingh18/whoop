@@ -405,6 +405,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     void start(Activity a) =>
         _push(c, ActivitySetup(a, weightKg: d.weightKg, host: _host(d)));
     return [
+      if (_live(c) case final live?)
+        _ResumeCard(live, onTap: () => _push(c, const SessionDestination(null)))
+      else
+        _startTiles(c, start, act, d),
+      const SizedBox(height: S.x3),
+      // Build 90: Start/Resume, then anything to act on, then your recent
+      // workouts, before the tall week and strain material (B90 audit).
+      ..._suggestionCards(c, d),
       // The fortnight review is hidden in the personal build (Akshat, build
       // 78): his runs are occasional, so it was mostly an empty screen. Its
       // computation and the sessions it reads are unchanged.
@@ -418,14 +426,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         ),
         const SizedBox(height: S.x3),
       ],
-      if (_live(c) case final live?)
-        _ResumeCard(live, onTap: () => _push(c, const SessionDestination(null)))
-      else
-        _startTiles(c, start, act, d),
-      const SizedBox(height: S.x3),
-      // Build 90: Start/Resume, then anything to act on, then your recent
-      // workouts, before the tall week and strain material (B90 audit).
-      ..._suggestionCards(c, d),
       Section(
         'Recent',
         d.workouts.isEmpty
@@ -699,7 +699,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       if (i >= 0) km[i] = (km[i] ?? 0) + r.meters / 1000;
     }
     final weekKm = km.whereType<double>().fold<double>(0, (a, b) => a + b);
-    final today = d.strain7.isEmpty ? null : d.strain7.last;
+    if (d.streak == null && d.runs.isEmpty) return const SizedBox.shrink();
     return Surface(
       pad: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, S.x3),
       child: Column(
@@ -709,15 +709,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             _streakCard(c, p, d.streak!, d),
             Divider(color: p.line, height: 1),
           ],
-          MetricLine(
-            label: 'Strain',
-            values: d.strain7,
-            color: C.strain,
-            value: today?.toStringAsFixed(1),
-            sub: 'estimate',
-            absentWhy: today == null ? 'nothing scored today yet' : null,
-            onTap: () => _push(c, const DayStrainDetail()),
-          ),
           if (d.runs.isNotEmpty) ...[
             Divider(color: p.line, height: 1),
             MetricLine(
@@ -740,7 +731,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('STREAK', style: F.label.copyWith(color: p.ink2)),
+          Text(
+            'This week',
+            style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: S.x2),
           Wrap(
             spacing: S.x3,

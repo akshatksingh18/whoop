@@ -80,7 +80,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   }
 
   /// Search over Foods (saved meals and My foods). While it holds text the
-  /// lists are filtered and plain; dragging to reorder needs the full list.
+  /// lists show matches; dragging preserves the hidden items’ positions.
   late final _foodQuery = TextEditingController()
     ..addListener(() => setState(() {}));
 
@@ -236,7 +236,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             (i) => setState(() => _tab = i),
             color: C.domFood,
           ),
-          const SizedBox(height: S.x5),
+          const SizedBox(height: S.x3),
           if (_failed)
             StatusCard(
               'Food could not load',
@@ -664,7 +664,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     if (_foodCat != null && !foodCategoriesIn(_foods).contains(_foodCat)) {
       _foodCat = null;
     }
-    // Filtered lists are plain: dragging to reorder needs the full list.
+    // Matches can be dragged within their slots in the full saved order.
     final searching = q.isNotEmpty || _foodCat != null;
     final defs = {for (final f in _foods) f['key'] as String: f};
     final meals = searching
@@ -701,10 +701,6 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         trailing: LucideIcons.chevronRight,
         onTap: () => edit(() => FoodEditor.show(c, existing: f)),
       ),
-    );
-    Widget none() => Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x4),
-      child: Text('No matches', style: F.cap.copyWith(color: p.ink3)),
     );
 
     return Column(
@@ -745,35 +741,35 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             'Saved meals',
             Surface(
               pad: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: searching
-                  ? Column(
-                      children: meals.isEmpty
-                          ? [none()]
-                          : [for (final m in meals) mealTile(m)],
-                    )
-                  : _meals.isEmpty
+              child: meals.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: S.x4),
                       child: Text(
-                        'A saved meal is your usual breakfast or lunch, logged in '
-                        'one tap.',
+                        searching
+                            ? 'No matches'
+                            : 'A saved meal is your usual breakfast or lunch, logged in one tap.',
                         style: F.cap.copyWith(color: p.ink3),
                       ),
                     )
                   : DragList(
-                      length: _meals.length,
+                      length: meals.length,
                       onReorder: (from, to) => edit(() async {
-                        final keys = [
-                          for (final m in reordered(_meals, from, to)) m.key,
-                        ];
-                        setState(() => _meals = reordered(_meals, from, to));
+                        final arranged = reorderedVisible(
+                          _meals,
+                          meals,
+                          from,
+                          to,
+                          (m) => m.key,
+                        );
+                        final keys = [for (final m in arranged) m.key];
+                        setState(() => _meals = arranged);
                         await MyFoods.reorderMeals(
                           await LocalDb.instance,
                           keys,
                         );
                         return null;
                       }),
-                      itemBuilder: (_, i) => mealTile(_meals[i]),
+                      itemBuilder: (_, i) => mealTile(meals[i]),
                     ),
             ),
             action: 'New',
@@ -783,32 +779,34 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           'My foods',
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: searching
-                ? Column(
-                    children: foods.isEmpty
-                        ? [none()]
-                        : [for (final f in foods) foodTile(f)],
-                  )
-                : _foods.isEmpty
+            child: foods.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.symmetric(vertical: S.x4),
                     child: Text(
-                      'Add a food once from its label; log any amount after.',
+                      searching
+                          ? 'No matches'
+                          : 'Add a food once from its label; log any amount after.',
                       style: F.cap.copyWith(color: p.ink3),
                     ),
                   )
                 : DragList(
-                    length: _foods.length,
+                    length: foods.length,
                     onReorder: (from, to) => edit(() async {
+                      final arranged = reorderedVisible(
+                        _foods,
+                        foods,
+                        from,
+                        to,
+                        (f) => f['key'] as String,
+                      );
                       final keys = [
-                        for (final f in reordered(_foods, from, to))
-                          f['key'] as String,
+                        for (final f in arranged) f['key'] as String,
                       ];
-                      setState(() => _foods = reordered(_foods, from, to));
+                      setState(() => _foods = arranged);
                       await MyFoods.reorderFoods(await LocalDb.instance, keys);
                       return null;
                     }),
-                    itemBuilder: (_, i) => foodTile(_foods[i]),
+                    itemBuilder: (_, i) => foodTile(foods[i]),
                   ),
           ),
           actions: Wrap(
@@ -1195,11 +1193,8 @@ class _NutritionDayViewState extends State<NutritionDayView>
     final p = P.of(c);
     final say = switch (d.state) {
       DayLogState.complete =>
-        _mark == 'complete'
-            ? 'Marked complete · counts in averages'
-            : 'Counted automatically · counts in averages',
-      DayLogState.inProgress =>
-        'Counts on its own after today if it reaches half your goal',
+        _mark == 'complete' ? 'Marked complete' : 'Counted automatically',
+      DayLogState.inProgress => 'Today · in progress',
       _ =>
         _mark == 'incomplete'
             ? 'Marked as missing food · left out of averages'
@@ -1208,7 +1203,17 @@ class _NutritionDayViewState extends State<NutritionDayView>
             : 'Left out of averages: a food has no calories',
     };
     Future<void> set(String? m) async {
-      await NutritionDb.setDayMark(await LocalDb.instance, widget.date, m);
+      try {
+        await NutritionDb.setDayMark(await LocalDb.instance, widget.date, m);
+      } catch (_) {
+        if (!c.mounted) return;
+        ScaffoldMessenger.of(c).showSnackBar(
+          const SnackBar(
+            content: Text('Day status could not be saved. Try again.'),
+          ),
+        );
+        return;
+      }
       await _changed();
     }
 
@@ -1342,7 +1347,10 @@ class _NutritionDayViewState extends State<NutritionDayView>
           child: TextButton.icon(
             onPressed: () => _copyDay(c),
             icon: const Icon(LucideIcons.copy, size: 16),
-            label: const Text('Copy a day'),
+            label: Text(
+              'Copy a day',
+              style: F.cap.copyWith(color: P.of(c).on(C.food)),
+            ),
           ),
         ),
         if (_recent.isNotEmpty) ...[
@@ -1362,7 +1370,10 @@ class _NutritionDayViewState extends State<NutritionDayView>
           child: TextButton.icon(
             onPressed: () => openProgress(c, ProgressDest.food),
             icon: const Icon(LucideIcons.trendingUp, size: 16),
-            label: const Text('Food progress'),
+            label: Text(
+              'Food progress',
+              style: F.cap.copyWith(color: P.of(c).on(C.food)),
+            ),
           ),
         ),
       ],
@@ -1413,8 +1424,8 @@ class CalorieCard extends StatelessWidget {
 
   final double? eaten, goal;
 
-  /// The day's Budget maintenance estimate, or null when it is unknown. It
-  /// decides the warning colour; the goal only decides "left" or "over".
+  /// Retained for existing callers. Maintenance comparisons live in the
+  /// maintenance panel; this card compares intake with the user's fixed goal.
   final double? maintenance;
   final VoidCallback? onTap;
 
@@ -1425,7 +1436,7 @@ class CalorieCard extends StatelessWidget {
   /// One line under the macros, such as the evening protein still to eat.
   final String? note;
 
-  /// A fixed Add in the card's header, so logging is always one tap away.
+  /// Add food stays visible below the totals, using the existing logging route.
   final String? addLabel;
   final VoidCallback? onAdd;
 
@@ -1439,24 +1450,8 @@ class CalorieCard extends StatelessWidget {
     // but never "below" maintenance or how much of the goal is left.
     final floor = day?.kcal.isFloor ?? false;
     final soFar = day?.state == DayLogState.inProgress;
-    var status = intakeStatus(food, maintenance);
-    if (floor && status == IntakeStatus.withinMaintenance) {
-      status = IntakeStatus.unknown;
-    }
-    final balance = food == null || maintenance == null
-        ? null
-        : maintenance! - food;
-    // Build 88 (DESIGN.md, mock `3-food`): the day's intake as the hero in the
-    // food colour, goal and maintenance beside it, the four macros as
-    // progress lines under it.
-    // Build 89 (Akshat): the hero is what is LEFT of the goal — the number
-    // he opens Food to read — with eaten and the goal beside it and a bar of
-    // eaten against the goal under it. No goal: the hero stays eaten.
     final hasGoal = g != null && g > 0;
     final over = hasGoal && food != null && food > g;
-    // Build 89 (Akshat's reference): eaten over the goal on the left, what is
-    // left (or over) as large on the right, and a bar under both that stripes
-    // past the goal.
     final eatenText = food == null
         ? null
         : '${floor ? '≥' : ''}${thousands(food)}';
@@ -1466,49 +1461,11 @@ class CalorieCard extends StatelessWidget {
     final sideWord = over
         ? (floor ? 'over, at least' : 'over')
         : (floor ? 'left, at most' : 'left');
-    final heroLabel = soFar ? 'Calories so far' : 'Calories';
-    final heroLines = <String>[
-      !hasGoal
-          ? 'No intake goal'
-          : food == null
-          ? 'Goal ${thousands(g)} · intake not recorded'
-          : 'goal ${thousands(g)}',
-      food == null
-          ? 'Intake not recorded'
-          : balance == null
-          ? 'Maintenance not available'
-          : floor && balance >= 0
-          ? 'A food has no calories, so this cannot be compared with maintenance'
-          : '${floor ? 'At least ' : ''}${thousands(balance.abs())} kcal ${balance < 0 ? 'above' : 'below'} estimated maintenance${soFar ? ' so far' : ''}',
-    ];
     return Surface(
-      pad: const EdgeInsets.fromLTRB(S.x5, S.x3, S.x5, S.x2),
+      pad: const EdgeInsets.all(S.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: S.x3,
-            children: [
-              Text(
-                heroLabel,
-                style: F.body.copyWith(
-                  color: p.ink,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (onAdd != null)
-                TextButton.icon(
-                  onPressed: onAdd,
-                  icon: const Icon(LucideIcons.plus, size: 18),
-                  label: Text(
-                    'Add food',
-                    style: F.cap.copyWith(color: p.on(C.food)),
-                  ),
-                ),
-            ],
-          ),
           Pressable(
             onTap: onTap,
             semanticLabel: 'View food for the day',
@@ -1517,14 +1474,13 @@ class CalorieCard extends StatelessWidget {
               goal: hasGoal ? thousands(g) : null,
               side: sideValue,
               sideWord: sideWord,
-              label: heroLabel,
-              lines: heroLines,
-              status: status,
+              soFar: soFar,
               over: over,
               frac: !hasGoal || food == null ? null : food / g,
             ),
           ),
           if (day case final d?) ...[
+            const SizedBox(height: S.x3),
             Divider(color: p.line, height: 1),
             _Macros(day: d, profile: profile),
           ],
@@ -1532,122 +1488,178 @@ class CalorieCard extends StatelessWidget {
             const SizedBox(height: S.x2),
             Text(line, style: F.cap.copyWith(color: p.ink2)),
           ],
+          if (onAdd != null) ...[
+            const SizedBox(height: S.x3),
+            BigButton(
+              'Add food',
+              icon: LucideIcons.plus,
+              color: C.food,
+              onTap: onAdd,
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// The Food hero (Build 89, Akshat's reference): eaten over the goal on the
-/// left, what is left — or over, in the alert colour — just as large on the
-/// right, a bar of eaten against the goal under both, then the maintenance
-/// line in the warning colour when intake is above it.
+/// One headline: eaten. The user's goal and left/over stay in a quieter row.
+/// Maintenance comparisons retain their full detail in MaintenanceCard.
 class _CalorieHero extends StatelessWidget {
   const _CalorieHero({
     required this.eaten,
     required this.goal,
     required this.side,
     required this.sideWord,
-    required this.label,
-    required this.lines,
-    required this.status,
+    required this.soFar,
     this.over = false,
     this.frac,
   });
 
-  /// Eaten, formatted; null when intake is not recorded.
-  final String? eaten;
-
-  /// The goal, formatted; null when none is set.
-  final String? goal;
-
-  /// What is left of the goal (or over it), formatted; null without both.
-  final String? side;
+  final String? eaten, goal, side;
   final String sideWord;
-  final String label;
-  final List<String> lines;
-  final IntakeStatus status;
-  final bool over;
+  final bool soFar, over;
   final double? frac;
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final warn = status == IntakeStatus.aboveMaintenance;
-    Widget amount(String name, String? value, {String? sub, Color? color}) =>
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(name, style: F.cap.copyWith(color: p.ink2)),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Text(
-                value ?? 'Not logged',
-                softWrap: false,
-                style: (value == null ? F.body : F.n34).copyWith(
-                  color: color ?? p.ink,
-                ),
-              ),
-            ),
-            if (sub != null) Text(sub, style: F.cap.copyWith(color: p.ink2)),
-          ],
-        );
-    final eatenColumn = amount(
-      'Eaten',
-      eaten,
-      sub: goal == null ? 'No intake goal' : 'Goal $goal kcal',
-    );
-    final leftColumn = side == null
+    final balance = side == null
         ? null
-        : amount(
-            sideWord,
-            side,
-            color: p.on(over ? C.alert : C.food),
-            sub: 'kcal',
+        : Wrap(
+            spacing: S.x1,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                side!,
+                softWrap: false,
+                style: F.n17.copyWith(color: p.on(over ? C.alert : C.food)),
+              ),
+              Text(sideWord, style: F.cap.copyWith(color: p.ink2)),
+            ],
           );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          soFar ? 'Eaten so far' : 'Eaten',
+          style: F.cap.copyWith(color: p.ink2),
+        ),
+        const SizedBox(height: S.x1),
+        Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      eaten ?? 'Not logged',
+                      softWrap: false,
+                      key: const ValueKey('food-eaten'),
+                      style: (eaten == null ? F.body : F.n34).copyWith(
+                        color: p.on(C.food),
+                      ),
+                    ),
+                    if (eaten != null) ...[
+                      const SizedBox(width: S.x2),
+                      Text('kcal', style: F.cap.copyWith(color: p.ink2)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (!bigText(c))
+              ExcludeSemantics(
+                child: SizedBox(
+                  width: 64,
+                  height: 52,
+                  child: CustomPaint(painter: _FoodPlate(p.on(C.food), p.line)),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: S.x1),
         if (bigText(c)) ...[
-          eatenColumn,
-          if (leftColumn != null) ...[const SizedBox(height: S.x2), leftColumn],
+          Text(
+            goal == null ? 'No intake goal' : 'Goal $goal kcal',
+            style: F.cap.copyWith(color: p.ink2),
+          ),
+          ?balance,
         ] else
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: eatenColumn),
-              if (leftColumn != null) ...[
-                const SizedBox(width: S.x3),
-                Expanded(child: leftColumn),
-              ],
+              Expanded(
+                child: Text(
+                  goal == null ? 'No intake goal' : 'Goal $goal kcal',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              ),
+              if (balance != null) ...[const SizedBox(width: S.x2), balance],
             ],
           ),
+        if (eaten == null)
+          Text('Intake not recorded', style: F.cap.copyWith(color: p.ink2)),
         if (frac case final f?) ...[
-          const SizedBox(height: S.x2),
-          GoalBar(f, color: p.on(C.food), height: 6),
+          const SizedBox(height: S.x3),
+          GoalBar(f, color: p.on(C.food), height: 5),
         ],
-        const SizedBox(height: S.x2),
-        Text(
-          lines.last,
-          style: F.cap.copyWith(color: warn ? p.on(C.red) : p.ink2),
-        ),
-        const SizedBox(height: S.x2),
       ],
     );
   }
 }
 
-/// Protein, carbs, fat and fibre against their targets, four columns with a
-/// thin bar each. Always all four, fibre included.
+/// A decorative plate, not a chart or an image of the logged meal.
+class _FoodPlate extends CustomPainter {
+  const _FoodPlate(this.ink, this.rule);
+  final Color ink, rule;
+  @override
+  void paint(Canvas c, Size size) {
+    c.save();
+    c.scale(size.width / 64, size.height / 52);
+    c.drawOval(const Rect.fromLTWH(9, 3, 46, 46), Paint()..color = rule);
+    c.drawOval(
+      const Rect.fromLTWH(13, 7, 38, 38),
+      Paint()..color = ink.withValues(alpha: .09),
+    );
+    c.drawPath(
+      Path()
+        ..moveTo(22, 18)
+        ..quadraticBezierTo(39, 9, 43, 23)
+        ..quadraticBezierTo(31, 33, 22, 18),
+      Paint()..color = ink.withValues(alpha: .32),
+    );
+    c.drawPath(
+      Path()
+        ..moveTo(19, 33)
+        ..quadraticBezierTo(31, 24, 40, 35)
+        ..quadraticBezierTo(27, 45, 19, 33),
+      Paint()..color = ink.withValues(alpha: .5),
+    );
+    c.drawLine(
+      const Offset(8, 12),
+      const Offset(8, 41),
+      Paint()
+        ..color = ink.withValues(alpha: .6)
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+    c.restore();
+  }
+
+  @override
+  bool shouldRepaint(_FoodPlate old) => old.ink != ink || old.rule != rule;
+}
+
+/// All four nutrients remain visible. Compact bars describe the real target;
+/// unknown and partial totals keep their labels rather than becoming zero.
 class _Macros extends StatelessWidget {
   const _Macros({required this.day, required this.profile});
-
   final NutritionDay day;
   final Map<String, dynamic> profile;
 
-  /// Build 88 (mock `3-food`): one progress line per macro in the food
-  /// colour, the value against its target. Always all four, fibre included;
-  /// an unlogged macro says so instead of showing zero.
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
@@ -1659,71 +1671,68 @@ class _Macros extends StatelessWidget {
     ];
     Widget macro(int i) {
       final (name, total, target) = rows[i];
-      final value = total.value == null
-          ? 'Not logged'
-          : '${total.isFloor ? '≥' : ''}${total.value!.round()}';
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(name, style: F.cap.copyWith(color: p.ink2)),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.end,
-            spacing: S.x1,
-            children: [
-              Text(
-                value,
-                softWrap: false,
-                style:
-                    (total.value == null
-                            ? F.cap
-                            : i == 0
-                            ? F.n24
-                            : F.n17)
-                        .copyWith(color: p.ink),
+      final amount = total.value == null
+          ? '—'
+          : '${total.isFloor ? '≥' : ''}${thousands(total.value!)}';
+      final value = Text(
+        target != null && target > 0
+            ? '$amount / ${thousands(target)} g'
+            : '$amount g',
+        key: ValueKey('food-macro-$name'),
+        softWrap: false,
+        style: (i == 0 ? F.n17 : F.cap).copyWith(
+          color: i == 0 ? p.on(C.food) : p.ink,
+          fontWeight: FontWeight.w600,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      );
+      final bar = target != null && target > 0 && total.value != null
+          ? GoalBar(total.value! / target, color: p.on(C.food), height: 3)
+          : const SizedBox(height: 3);
+      return Padding(
+        padding: const EdgeInsets.only(top: S.x2),
+        child: bigText(c)
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(name, style: F.cap.copyWith(color: p.ink2)),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: value,
+                  ),
+                  const SizedBox(height: S.x1),
+                  bar,
+                ],
+              )
+            : Row(
+                children: [
+                  SizedBox(
+                    width: 56,
+                    child: Text(name, style: F.cap.copyWith(color: p.ink2)),
+                  ),
+                  Expanded(child: bar),
+                  const SizedBox(width: S.x3),
+                  value,
+                ],
               ),
-              if (total.value != null)
-                Text('g', style: F.over.copyWith(color: p.ink3)),
-            ],
-          ),
-          if (target != null && target > 0)
-            Text(
-              'of ${thousands(target)} g',
-              style: F.over.copyWith(color: p.ink3),
-            ),
-          if (target != null && target > 0 && total.value != null) ...[
-            const SizedBox(height: S.x1),
-            GoalBar(total.value! / target, color: p.on(C.food), height: 3),
-          ],
-        ],
       );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: S.x2),
-        if (bigText(c)) ...[
-          for (var i = 0; i < rows.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: S.x2),
-              child: macro(i),
-            ),
-        ] else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < rows.length; i++) ...[
-                if (i > 0) const SizedBox(width: S.x2),
-                Expanded(child: macro(i)),
-              ],
-            ],
-          ),
-        const SizedBox(height: S.x2),
-        if (rows.any((r) => r.$2.isFloor))
+        for (var i = 0; i < rows.length; i++) macro(i),
+        if (rows.any((r) => r.$2.value == null) ||
+            rows.any((r) => r.$2.isFloor)) ...[
+          const SizedBox(height: S.x2),
           Text(
-            '≥ means a partial total',
-            style: F.over.copyWith(color: p.ink3),
+            [
+              if (rows.any((r) => r.$2.value == null)) '— not logged',
+              if (rows.any((r) => r.$2.isFloor)) '≥ partial total',
+            ].join(' · '),
+            style: F.over.copyWith(color: p.ink2),
           ),
+        ],
       ],
     );
   }

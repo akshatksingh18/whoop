@@ -7,8 +7,8 @@ complete physical-device acceptance is pending.
 
 **Status:** Akshat reports Build 89 installed and being tested. Recorded Linux/macOS and artifact
 checks pass; full physical acceptance remains open. He rejects Progress's information overload;
-`build-90-audit.md` owns the current all-tab audit and proposed feature-preserving redesign.
-No proposal is implemented by that report. Build 89 still occupies testing; its recovery promotion
+`build-90-audit.md` retains the all-tab findings. The accepted A + compact B interface is
+implemented in Build 90 local source; `todo.md` records checks and outstanding integration/device gates. Build 89 still occupies testing; its recovery promotion
 is requested after the review. Build 70 remains cached recovery. `build-85-audit.md` owns earlier approved changes;
 `build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
 are unchanged; the distance comparison uses ACSM only at supported measured speeds,
@@ -75,7 +75,7 @@ Build 89 adjusts the shared beat-adjacency tolerance to WHOOP 4 record-stamped t
 `bugs.md` owns defects, `todo.md` owns implemented state and open phone gates, and
 `metrics-accuracy-research.md` preserves the research baseline. These changes do not establish
 physical accuracy or vendor-model parity. `build-88-plan.md` is the originating specification;
-`build-90-audit.md` is the worklist Build 90 implements (merged on `build-90`, not yet installed).
+`build-90-audit.md` retains the original findings; `todo.md` tracks the Build 90 source merged on `build-90` and its outstanding acceptance gates.
 Sleep detection/staging does not consume this field. SpO2 is already refused by the pipeline;
 the decoded red/IR counts are not sufficient for a trustworthy oxygen percentage.
 
@@ -189,8 +189,8 @@ These are still stored but no longer entered in the personal build:
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
 | `food_def.category` | the user's own category label (custom labels in Build 86; '' = Uncategorised); existing labels are preserved, and the same field feeds Foods, log-screen and saved-meal-picker filters |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
-| `body_weight` | legacy daily aggregate; today's sets profile `weight_kg`. `unit`, `entered`, `source`, `origin_id` and `history_only` preserve input/provenance; backdated/imported rows never price a day. Build 90's first-reading aggregate behaviour is pending the Body lane |
-| `body_weight_reading` | Build 90 schema 50: every reading with identity, effective date, Unix-second measurement time, kg, input units/value, source/origin, history-only flag and creation time. Legacy daily rows migrate once; Body write/selection integration is pending |
+| `body_weight` | legacy daily aggregate; today's sets profile `weight_kg`. `unit`, `entered`, `source`, `origin_id` and `history_only` preserve input/provenance; backdated/imported rows never price a day. Build 90 uses the first reading of each day; all readings remain in Body history |
+| `body_weight_reading` | Build 90 schema 50: every reading with identity, effective date, Unix-second measurement time, kg, input units/value, source/origin, history-only flag and creation time. Legacy daily rows migrate once; Body and Food quick-weigh-in use BodyLogDb and rebuild the daily aggregate |
 | `day_zone` / `zone_change` | Build 90 schema 50: observed IANA timeline and per-day UTC boundaries/offsets. Native inbox is acknowledged after SQLite commits; launch/foreground/sync check for missed changes. Workers use persisted context, SRI compares absolute instants 24 h apart, and travel-spanning nights are excluded from bedtime comparisons. Past travel before the first observation is unknown; the first known zone seeds older assignment context |
 | `food_day_count` / `food_entry.logged_at` | Build 90 schema 50: frozen calorie-goal/counting provenance and a separate logging timestamp. Legacy logging times remain NULL; new entries carry eaten time and separate original logging time in epoch seconds. Closed dates freeze the first known goal; manual/automatic provenance stays distinct |
 | `body_measure` | build-86 source: one tape session, inches by AkshatOS site key (unknown keys kept) |
@@ -533,17 +533,41 @@ omitted macros do not disqualify calorie coverage. Least-squares weight slope an
 remain approximations. This estimates total expenditure for that interval: do not add BMR,
 movement or food digestion again. No automatic HR hybrid or coefficient adjustment is adopted.
 
-## Layout Decisions (Build 89 Installed; Next Redesign Is A Proposal)
+## Layout Decisions (Build 89 Installed; Build 90 Implementation)
 
-Build 90 Food source replaces the tall macro list with one compact row (protein larger),
-retaining all four values/targets and explicit missing/partial totals. Accessibility text
+Akshat selected the calm A framework with B's compact macro section and approved
+implementation. Build 90 Food source now leads with one eaten total, a quieter goal/left-or-over
+line and four slim macro rows (protein larger). All four values/targets and explicit
+missing/partial labels remain visible; maintenance comparisons live in their own panel.
+A small decorative plate is excluded from accessibility semantics and does not represent a
+logged food or a metric. Diary items show calories and protein; full meal, group and entry
+views retain all nutrients, portions and edit/delete/copy/save routes. Accessibility text
 stacks values and actions; the week remains horizontally scrollable with the selected date
 revealed, and Counted/Logged/Empty marks have a legend. Meals and Add food appear earlier;
-single-item meals do not repeat the same totals. Food progress uses the shared Progress
+single-item meals do not repeat the same totals. Multi-item meal headings show calories once,
+and the overview's repeated full-macro footer is gone; full details still retain it.
+Failed counting-status writes show an error and leave the displayed status unchanged.
+Food progress uses the shared Progress
 route to its Food destination. Copy a day reviews every item, portion multiplier and selection,
 then logs into the viewed date in one explicit transaction; cancel and failed writes do not
 partially copy the day. Existing calendar, portions, My foods/My meals, scanning, labels and
 meal copy/save paths remain. Windows synthetic renders/checks are not native iPhone acceptance.
+
+**Build 90 shared UI source:** Today uses one Recovery headline and right-aligned supporting
+values, then early food/weigh-in/Train-or-Resume actions. Body, Pushups, HR explorer, freshness,
+findings and week context remain; duplicated steps/food/maintenance lines are removed. Trends
+groups related metrics; pins appear once, missing-day counts remain and full-coverage repetition
+is removed. Budget and Movement estimates remain paired. Train leads with Start/Resume and
+retains Gym/Home, all activities, session history/edit/delete/import, Pushups, week/rest/streak,
+strain/running and full Lift Log. Progress keeps one fixed-window goal check, outcome rows and
+inputs; reasoning/next steps and every Body/Strength/context detail, photo, reading, entry,
+configuration and eight-period control remain. Shared metric rows align values independent of
+charts or chevrons; large text stacks labels/comparisons and permits full detail titles.
+Leaf/moon/plate illustrations are decorative, excluded from semantics, and encode no metric.
+Sleep/Recovery retain stages, corrections, missing-input/gap wording and all prior details.
+Food library and log pickers now allow hold-drag in search/category results: visible matches
+exchange their existing slots; hidden items and complete saved orders remain. Swipe deletion
+still confirms and cancellation keeps the item. This is source/check evidence, not a new IPA.
 
 **Build 88 source (DESIGN.md):** light kraft ground, cream 26 pt panels with every Surface,
 family colours (recovery, sleep, strain, food, body; amber only for NEW/unavailable), a paper

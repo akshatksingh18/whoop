@@ -1744,6 +1744,26 @@ List<T> reordered<T>(List<T> list, int from, int to) {
   return out;
 }
 
+/// Reorder matches within their existing slots. Hidden items keep their place,
+/// and callers persist the complete order rather than just the search results.
+List<T> reorderedVisible<T>(
+  List<T> all,
+  List<T> visible,
+  int from,
+  int to,
+  Object Function(T) keyOf,
+) {
+  final keys = visible.map(keyOf).toSet();
+  final moved = reordered(visible, from, to).iterator;
+  return [
+    for (final item in all)
+      if (keys.contains(keyOf(item)) && moved.moveNext())
+        moved.current
+      else
+        item,
+  ];
+}
+
 /// Swipe either way to delete, the same on every food list. [onDelete]
 /// confirms, writes and removes the row from its owner's state; the swipe
 /// itself never removes it, so a cancelled or failed delete keeps the row.

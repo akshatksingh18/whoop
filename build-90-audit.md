@@ -2,7 +2,13 @@
 
 Method: independent dual-agent assessment (A: `/root/design_review`; B: `/root/technical_audit`) plus parent source tracing and targeted synthetic checks. Impeccable native critique/audit discipline; no web detector applies to Dart.
 
-**Status:** Audit and app-wide worklist; Akshat chose to ship the whole worklist in Build 90, now implemented and merged on `build-90` (`todo.md` Build 90 owns progress and gates). Build `0.9.56+89` is installed and being tested, as reported by Akshat. He rejects Progress's information overload and wants a whole-app improvement report. He wants Build 89 to become recovery after this review; the cache has not been promoted. Build 70 remains the accepted cached recovery build. The Progress composition and every enhancement were chosen and are implemented in Build 90.
+**Status:** original Build 89 audit plus the complete Build 90 worklist. Akshat approved
+implementation and selected A overall with B's compact macro rows; engine/data, the Claude lane
+and the full approved UI are implemented and merged on `build-90`. `todo.md` owns implementation,
+commits and outstanding gates. Findings below describe the audited Build 89 unless explicitly
+qualified; they do not override the accepted design in `DESIGN.md`. Local synthetic captures do
+not establish phone/native or final cloud acceptance. Build 89 remains installed/testing,
+not cache-promoted; Build 70 remains cached recovery.
 
 ## Evidence And Practical Limits
 
@@ -190,7 +196,7 @@ Keep the grouped metric rows and qualified measured-day averages. Show actual ra
 
 ### Food: Meals Should Reach The First Screen
 
-Keep the accepted eaten/goal + left/over pair, all four macros, fixed targets, maintenance pair, dates/week strip, direct portion edits, My foods/My meals, label/barcode review and copy/save flows. Reduce the height of the calorie/macro area; make the first meal and Add food visible sooner. Protein can be prominent while Carbs/Fat/Fibre remain in a compact expandable total row. Moving detail into an expansion is proposed presentation, not authority to remove nutrients.
+Keep the accepted eaten/goal + left/over pair, all four macros, fixed targets, maintenance pair, dates/week strip, direct portion edits, My foods/My meals, label/barcode review and copy/save flows. Reduce the height of the calorie/macro area; make the first meal and Add food visible sooner. Protein can be prominent while Carbs/Fat/Fibre remain in four slim value/target rows. The accepted A + compact B composition keeps all four macros visible without expansion; full item detail remains reachable.
 
 The week-state circles need a discoverable short legend or tap explanation. Keep automatic/manual counting controls but shorten the status line. Singleton meals should not repeat the same totals in header, item and footer. Preserve every nutrient in detail. At large text stack numeric values and actions. Source: `nutrition_screen.dart:1251`–`:1299`, `:1416`–`:1548`, `:1578`; `food_diary.dart:170`–`:228`.
 
@@ -200,8 +206,9 @@ Keep Run/Walk/Lift/Other, with a responsive two-column/full-width layout at larg
 
 ### Progress: Three Outcome Rows And One Goal Verdict (Recommended)
 
-The revised recommendation prioritises goal outcomes over supporting inputs. It is still a
-proposal awaiting Akshat's selection and implementation go-ahead. Keep the locked light palette.
+The accepted composition prioritises goal outcomes over supporting inputs and uses the
+fixed closed-week verdict. It is implemented in Build 90 source; native/device acceptance remains
+open. The locked light palette stays.
 
 1. **One goal card:** goal, days since activation, exact review/comparison dates, one verdict
    from the existing phase-specific closed-week goal check, and one short reason or actual
@@ -555,4 +562,4 @@ After these are settled, implementation still needs the explicit go-ahead requir
 
 Impeccable native `shape`/`distill`/`layout`/`clarify` provide the design workflow; `harden`/`adapt` cover error/accessibility repairs, followed by a bounded `polish` pass after approved implementation. No browser overlay or web-detector pass is claimed. The pinned engine context ran directly after checksum verification; the PowerShell helper was blocked. It reported an outdated minimal product adapter, which remains a separate tooling choice, not an app blocker; no adapter/hook/trust changes were made.
 
-Questions deferred to the delivered report: choose the concrete Progress/Food compositions above before implementation. This audit does not reopen formulas, remove features, cut over AkshatOS ownership, move signing ownership or publish anything.
+Resolved composition: A calm framework with B compact macro rows; all UI source is assigned to Codex. Implementation and acceptance status live in `todo.md` and `DESIGN.md`. This audit does not reopen formulas, remove features, cut over AkshatOS ownership, move signing ownership or publish anything.

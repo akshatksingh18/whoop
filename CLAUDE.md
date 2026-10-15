@@ -24,8 +24,10 @@ Progress and the Food card, counts food days automatically and adds an AI-analys
 (`todo.md` Build 89). Build 88 was the previous install. Akshat wants Build 89 as recovery after
 the whole-app review; Build 70 remains cached recovery until that promotion. Build 90
 (`0.9.57`/`90`, algorithm 95, schema 50) implements the whole `build-90-audit.md` worklist, the
-approved research verdicts and the home workout in two agent lanes, now merged on `build-90`
-(`todo.md` Build 90 owns scope, checks and gates); no Build 90 IPA is built or installed.
+approved research verdicts, the home workout and the calm interface Akshat selected (A overall
+with B's compact macro rows, built by Codex, which he assigned the whole UI). All of it is
+merged on `build-90` (`todo.md` Build 90 owns scope, checks and gates); no Build 90 IPA is built
+or installed, and local synthetic renders establish no phone acceptance.
 Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -547,7 +549,7 @@ The personal artifact must have these properties:
     Readiness entry and no findings screen; a rough-night card on Sleep states the measurements and
     never asks for tags. `journal_compose.dart` stays only because it hosts shared input widgets
     (`OsTextField`, `FieldStepper`).
-  - **Build 86/87 UI history** (superseded by installed Build 89; current design is in `DESIGN.md`, next proposal in `build-90-audit.md`):
+  - **Build 86/87 UI history** (superseded by installed Build 89; current design is in `DESIGN.md`, Build 90 source/gates in `todo.md`):
     - **Tabs:** Today · Trends · Food · Train · Progress, each one scrolling page (`ShellDomain`
       keeps the internal names). Local Build 87 has flat navigation and unframed numeric/diary
       sections, replacing installed Build 86's rounded floating-pill/card composition.

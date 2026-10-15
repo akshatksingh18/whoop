@@ -420,12 +420,6 @@ class _ProgressScreenState extends State<ProgressScreen>
     final days = r.daysOnGoal;
     final lines = unavailable
         ? const ['Review unavailable until the records refresh.']
-        : a.verdict == GoalVerdict.needMore
-        ? [
-            ...a.because.take(3),
-            if (a.because.length > 3)
-              'and ${a.because.length - 3} more · Details',
-          ]
         : a.because.take(1).toList();
     return Surface(
       onTap: () => _goalDetails(c, d, r),
@@ -483,13 +477,11 @@ class _ProgressScreenState extends State<ProgressScreen>
               padding: const EdgeInsets.only(top: S.x1),
               child: Text(line, style: F.body.copyWith(color: p.ink2)),
             ),
-          if (a.next != null && !unavailable) ...[
-            const SizedBox(height: S.x2),
-            Text(
-              'Next: ${a.next!}',
-              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-            ),
-          ],
+          const SizedBox(height: S.x2),
+          Text(
+            'Reasoning, missing data and next step',
+            style: F.cap.copyWith(color: p.on(C.recovery)),
+          ),
         ],
       ),
     );
@@ -660,11 +652,9 @@ class _ProgressScreenState extends State<ProgressScreen>
     onTap: () => openProgress(c, dest, _d),
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: bigText(c)
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   label,
@@ -673,16 +663,48 @@ class _ProgressScreenState extends State<ProgressScreen>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                const SizedBox(height: S.x1),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Text(
+                          value,
+                          style: F.n17.copyWith(color: p.ink),
+                          softWrap: false,
+                        ),
+                      ),
+                    ),
+                    Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+                  ],
+                ),
                 Text(sub, style: F.cap.copyWith(color: p.ink2)),
               ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: F.body.copyWith(
+                          color: p.ink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(sub, style: F.cap.copyWith(color: p.ink2)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: S.x3),
+                Text(value, style: F.n17.copyWith(color: p.ink)),
+                const SizedBox(width: S.x1),
+                Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+              ],
             ),
-          ),
-          const SizedBox(width: S.x3),
-          Text(value, style: F.n17.copyWith(color: p.ink)),
-          const SizedBox(width: S.x1),
-          Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
-        ],
-      ),
     ),
   );
 
@@ -840,15 +862,31 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
     ],
   );
 
-  Widget _stat(P p, String k, String v, String sub) => Expanded(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(k.toUpperCase(), style: F.over.copyWith(color: p.ink3)),
-        Text(v, style: F.n17.copyWith(color: p.ink)),
-        Text(sub, style: F.over.copyWith(color: p.ink3)),
-      ],
-    ),
+  Widget _stats(BuildContext c, List<Widget> items) => bigText(c)
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(height: S.x3),
+              items[i],
+            ],
+          ],
+        )
+      : Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final item in items) Expanded(child: item)],
+        );
+
+  Widget _stat(P p, String k, String v, String sub) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(k, style: F.cap.copyWith(color: p.ink3)),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Text(v, softWrap: false, style: F.n17.copyWith(color: p.ink)),
+      ),
+      Text(sub, style: F.cap.copyWith(color: p.ink3)),
+    ],
   );
   // ── entry and settings sheets ──
 

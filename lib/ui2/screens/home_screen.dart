@@ -53,6 +53,7 @@ import 'day_timeline.dart' show DayGraph, DayTimelineScreen, dayGraph;
 import 'metric_detail.dart';
 import 'nutrition_screen.dart' show DayUpkeep, MaintenanceCard;
 import 'today_plan.dart' show TodayPlanCard;
+import 'log_workout.dart' show appOf;
 import '../profile/status.dart' show StatusScreen;
 import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
@@ -956,11 +957,11 @@ class _TodayPanel extends StatelessWidget {
     List<double?> wk(String k) => d.week[k] ?? const [];
     final sleepMin = d.sleepMin.value;
     final eaten = d.upkeep?.eaten;
-    final parts = d.upkeep?.parts, acsm = d.upkeep?.acsmParts;
     final hero = HeroStat(
       value: v == null ? null : '${v.round()}',
       color: C.recovery,
       label: l?.homeRingRecovery ?? 'Recovery',
+      illustration: const CalmIllustration(),
       fresh: fresh,
       onTap: () => onOpen(HomeRingKind.recovery),
       semanticLabel: rec.spoken,
@@ -1003,6 +1004,7 @@ class _TodayPanel extends StatelessWidget {
         value: eaten == null || eaten <= 0 ? null : thousands(eaten),
         unit: d.kcalTarget == null ? 'kcal' : '/${thousands(d.kcalTarget)}',
         absentWhy: eaten == null || eaten <= 0 ? 'nothing logged yet' : null,
+        onTap: () => appOf(c)?.navRequest.value = 6,
       ),
       if (d.proteinTarget case final t?)
         MetricLine(
@@ -1012,6 +1014,7 @@ class _TodayPanel extends StatelessWidget {
           unit: '/${t.round()} g',
           progress: d.proteinToday == null ? null : d.proteinToday! / t,
           absentWhy: d.proteinToday == null ? 'not logged yet' : null,
+          onTap: () => appOf(c)?.navRequest.value = 6,
         ),
       MetricLine(
         label: 'Steps',
@@ -1029,31 +1032,6 @@ class _TodayPanel extends StatelessWidget {
         children: [
           hero,
           for (final r in rows) ...[Divider(color: p.line, height: 1), r],
-          if (parts != null) ...[
-            Divider(color: p.line, height: 1),
-            Padding(
-              padding: const EdgeInsets.only(top: S.x3),
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: 'Maintenance ',
-                      style: F.body.copyWith(
-                        color: p.ink,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    TextSpan(
-                      text:
-                          'Budget ${thousands(parts.total)}'
-                          '${acsm == null ? '' : ' · ACSM ${thousands(acsm.total)}'} kcal',
-                      style: F.body.copyWith(color: p.ink2),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -2020,6 +1998,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               eaten: d.upkeep?.eaten,
               budget: d.upkeep?.parts?.total.toDouble(),
               full: widget.data == null,
+              overviewHasTotals: true,
             ),
             const SizedBox(height: S.x3),
             _HeartCard(

@@ -467,6 +467,12 @@ an additional statistical confidence claim.
   burn, already included in daily BMR. HR/Keytel remains in analysis with measured-minute coverage.
 - Walking is already included by daily steps and contributes no extra workout addition. Running
   substitutes its Method 1 for the Weyand energy of its covered active steps.
+- Build 90 current speed requires a fresh platform speed and finite nonnegative
+  `speedAccuracy`. Invalid or unavailable uncertainty hides it immediately; position deltas
+  do not stand in for an invalid speed. Every positive reported uncertainty is shown with
+  ± in the selected speed units (including large uncertainty), explicitly for the latest
+  GPS fix rather than the smoothed speed's error. Existing time-based smoothing, stationary
+  and stale-time rules remain; outdoor validation is still required.
 - Live cadence is measured steps/minute: fresh phone data first, then accepted recent wrist
   cadence; zero is measured stillness, absent/stale is unavailable. It does not change calorie
   coefficients or impose a universal target. Session pause stops its cadence feed. Optional

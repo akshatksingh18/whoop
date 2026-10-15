@@ -43,6 +43,18 @@ midnight advances it. These seams partition absolute time without repeated label
 travel/DST and storage/restore checks pass; open-app and background native delivery still need
 phone verification. No new background permission or guaranteed wake schedule is introduced.
 
+Build 90 adds local `[WAKE]` records with a wake id/reason, absolute start time and
+monotonic elapsed time. Transfer start/end, durable commit (or failure), queued calculation,
+calculation start/end and budget/native expiry share that id. Connection-total record counts
+are explicitly separate from records committed during the wake. BLE callbacks created before
+a wake are attributed only when exactly one wake is active; ambiguous attribution remains
+absent. Logging is best effort and never awaited by an ACK decision. `[BURST]` lines report
+announced versus received traffic/historical counts, buffered decoded-record timestamps, and
+continuity against the preceding received burst (contiguous, gap, overlap/replay or unknown).
+These observations do not prove loss and do not enable a stricter WHOOP 4 count gate. The
+existing commit-before-ACK, cancellation and headless ownership policies remain unchanged.
+Phone validation still requires three ordinary nights and one force-quit night; logs stay local.
+
 ## Required Behavior
 
 An isolated current-code synthetic DB/repository test reproduces the B88-05 overnight mismatch:

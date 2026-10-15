@@ -35,6 +35,8 @@
 // fires a debounced `onDataStored` callback after records are persisted (coalescing
 // bursts), so the compute trigger survives the move to continuous listening.
 
+import '../sync/wake_timing.dart';
+import 'burst_diagnostics.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -1212,6 +1214,7 @@ class BleEngine {
   // (we keep ACKing HISTORY_END markers as they arrive, even after the first
   // HISTORY_COMPLETE — a later strap-triggered offload reuses it).
   DrainController? _drain;
+  final BurstDiagnostics _burstDiagnostics = BurstDiagnostics();
   bool _liveEnabled = false;
   // Background live downgrade: only the compact realtime-HR stream is armed
   // (no high-rate R10/R11 + IMU + optical flood). Set by [enableHrOnlyLive].
@@ -5870,6 +5873,7 @@ class BleEngine {
       '${frame.inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
     );
     if (m.sub == SyncMeta.historyStart) {
+      WakeTiming.forTransfer?.event('transfer_start');
       final d = _drain;
       if (_offloadActive && d != null && d.bufferedRecords > 0) {
         _log(
@@ -5941,6 +5945,10 @@ class BleEngine {
         return;
       }
       final expected = m.expectedPacketCount;
+      _log(_burstDiagnostics.observe(announced: expected,
+          traffic: d.currentBurstTrafficCount,
+          historical: d.currentBurstHistoricalPacketCount,
+          records: d.bufferedRecords, range: d.bufferedRecTsRange));
       // Records the plausibility gate silently rejected THIS burst (stale/
       // wandering-clock block — by design, "neither stored nor counted",
       // see RecordGate.admit) DO reach onUndecodableRecord as
@@ -6152,7 +6160,11 @@ class BleEngine {
       // once the ACK is link-layer confirmed, so a crash before the ACK
       // re-delivers the chunk. Echo the 8-byte slice the band acks verbatim —
       // a mangled echo is the "Groundhog Day" re-flood bug.
+      final timing = WakeTiming.forTransfer;
+      final committingRecords = d.bufferedRecords;
+      timing?.event('commit_start', records: committingRecords);
       final durable = await d.commit(m.token); // raw+samples+cursor, atomic
+      timing?.event(durable ? 'commit' : 'commit_failed', records: committingRecords);
       // The task ended while the commit was parked (idle-watchdog abort above
       // all): the rows are durable — that is never undone — but this
       // continuation may not ACK for a task that is over. The band was told to
@@ -6684,6 +6696,7 @@ class BleEngine {
       isLinkUp: () => session.connected,
       timeout: timeout,
     );
+    WakeTiming.forTransfer?.event('transfer_end', connectionRecords: report.records);
     _lastSyncReport = report;
     await LocalDb.upsertSyncLedgerEntry(
       status: report.complete

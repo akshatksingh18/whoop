@@ -115,6 +115,9 @@ class LiveFeed {
   /// zero means standing still.
   final double? currentSpeedMps;
 
+  /// Latest platform fix uncertainty (m/s), not an uncertainty of the EMA.
+  final double? currentSpeedAccuracyMps;
+
   /// Moving seconds from the GPS route (stops removed), or null without one.
   /// The live average pace divides by this, not elapsed time (B88-05).
   final int? movingSec;
@@ -143,6 +146,7 @@ class LiveFeed {
     this.onFixRoute,
     this.bandConnected = false,
     this.currentSpeedMps,
+    this.currentSpeedAccuracyMps,
     this.movingSec,
   });
 
@@ -1043,7 +1047,13 @@ List<Widget> _distanceStats(
       : UnitsController.formatPace(avgSec / value);
   // Current rate from a fresh fix, in the user's units per hour; a run's
   // current pace needs real movement (under 0.5 m/s there is no pace).
-  final mps = f.currentSpeedMps;
+  final accuracy = f.currentSpeedAccuracyMps;
+  final mps = accuracy == null || !accuracy.isFinite || accuracy < 0
+      ? null
+      : f.currentSpeedMps;
+  final uncertainty = accuracy == null
+      ? null
+      : (u == null ? accuracy * 3.6 : u.distanceValue(accuracy * 3600));
   final nowPerHour = mps == null
       ? null
       : (u == null ? mps * 3.6 : u.distanceValue(mps * 3600));
@@ -1101,7 +1111,11 @@ List<Widget> _distanceStats(
               MetricLine(
                 label: walk ? 'Speed now' : 'Pace now',
                 color: family,
-                note: current.$1 == '—' ? 'no fresh GPS fix' : 'GPS',
+                note: current.$1 == '—'
+                    ? 'no valid fresh GPS speed'
+                    : uncertainty != null && uncertainty > 0
+                    ? 'Latest GPS speed ±${uncertainty.toStringAsFixed(1)} $speedUnit'
+                    : 'GPS',
                 value: current.$1 == '—' ? null : current.$1,
                 unit: current.$2,
               ),

@@ -79,9 +79,7 @@ class RouteTracker {
     paused = on;
     _last = null;
     _breakNext = true;
-    currentSpeedMps.value = null;
-    _speedAtMs = null;
-    _lastRawMps = null;
+    _clearSpeed();
     stalled.value = false;
     _lastFixAt = clock.now();
   }
@@ -136,11 +134,23 @@ class RouteTracker {
   final ValueNotifier<double> distanceMeters = ValueNotifier<double>(0);
 
   /// Smoothed instantaneous speed (m/s) — see [rmath.emaSpeedOverTime]. Null until the
-  /// first usable fix (platform speed or a fallback derived from two fixes).
+  /// first platform speed fix with a reported valid uncertainty.
   final ValueNotifier<double?> currentSpeedMps = ValueNotifier<double?>(null);
 
   /// When [currentSpeedMps] was last fed a usable reading (fix time, ms).
   int? _speedAtMs;
+  double? _speedAccuracyMps;
+
+  /// Uncertainty of the latest platform fix, not of the smoothed average.
+  double? freshSpeedAccuracyMps(int nowMs) =>
+      freshSpeedMps(nowMs) == null ? null : _speedAccuracyMps;
+
+  void _clearSpeed() {
+    currentSpeedMps.value = null;
+    _speedAtMs = null;
+    _lastRawMps = null;
+    _speedAccuracyMps = null;
+  }
 
   /// The last unsmoothed reading, for stop detection.
   double? _lastRawMps;
@@ -162,22 +172,35 @@ class RouteTracker {
     final at = _speedAtMs;
     if (at == null || stalled.value || error.value != null) return null;
     final age = nowMs - at;
-    if (age > maxAge.inMilliseconds) return null;
+    if (age < 0 || age > maxAge.inMilliseconds) return null;
     if (age >= stopAfter.inMilliseconds && (_lastRawMps ?? 1) < 0.5) {
       return 0;
     }
     return currentSpeedMps.value;
   }
 
-  /// The platform's own speed when its uncertainty allows it: negative
-  /// accuracy is Apple's "invalid", and a reading less certain than ±2 m/s
-  /// cannot tell a walk from standing still.
+  /// Only platform speed with a finite, nonnegative uncertainty is current
+  /// speed. Position differences cannot repair an invalid CLLocation speed.
   static double? _platformSpeed(GpsSample s) {
-    final v = s.speed;
-    if (v == null || !v.isFinite || v < 0) return null;
-    final acc = s.speedAccuracy;
-    if (acc != null && (acc < 0 || acc > 2.0)) return null;
+    final v = s.speed, acc = s.speedAccuracy;
+    if (v == null ||
+        !v.isFinite ||
+        v < 0 ||
+        acc == null ||
+        !acc.isFinite ||
+        acc < 0)
+      return null;
     return v;
+  }
+
+  void _updatePlatformSpeed(GpsSample s) {
+    final v = _platformSpeed(s);
+    if (v == null) {
+      _clearSpeed();
+      return;
+    }
+    _feedSpeed(v, s.tsMs);
+    _speedAccuracyMps = s.speedAccuracy;
   }
 
   void _feedSpeed(double raw, int tsMs) {
@@ -300,8 +323,7 @@ class RouteTracker {
         // captured, coarsely, once it clears the floor — see [minMovementM].
         // Its speed still counts: standing still is a real current speed,
         // and skipping it left the last walking speed on screen (B86-02).
-        final still = _platformSpeed(s);
-        if (still != null) _feedSpeed(still, s.tsMs);
+        _updatePlatformSpeed(s);
         return;
       } else {
         _rejectStreak = 0;
@@ -311,32 +333,10 @@ class RouteTracker {
       }
     }
 
-    // Prefer the platform's own (Doppler-derived) speed; fall back to a
-    // fix-to-fix derivation only when the platform doesn't report one. A
-    // fresh segment anchor (gapBefore) has no meaningful "speed since last
-    // point" — don't let a big time/distance gap produce a bogus spike.
-    if (gapBefore) {
-      currentSpeedMps.value = null;
-      _speedAtMs = null;
-      _lastRawMps = null;
-    }
-    final rawSpeed =
-        _platformSpeed(s) ??
-        (gapBefore
-            ? null
-            : rmath.fallbackSpeedMps(
-                prev,
-                RoutePoint(seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng),
-              ));
-    if (rawSpeed != null && rawSpeed.isFinite && rawSpeed >= 0) {
-      // Clamp before smoothing, not just after: a single wild Doppler/
-      // multipath spike (or a fallback speed inflated by two fixes arriving
-      // unusually close together) shouldn't get to pull the EMA toward it
-      // AT ALL beyond this ceiling, even damped — a real user report of a
-      // transient implausible live pace (e.g. "1:45/km" mid-jog) showed a
-      // single such reading still visibly swayed the displayed number.
-      _feedSpeed(rawSpeed, s.tsMs);
-    }
+    // Current speed and its uncertainty come from the same platform fix.
+    // Distance/moving time still use the accepted position segments below.
+    if (gapBefore) _clearSpeed();
+    _updatePlatformSpeed(s);
 
     _breakNext = false;
     if (gapBefore) _seq++;

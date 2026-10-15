@@ -229,17 +229,25 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   food/weight displays include the 4,858–7,700 conversion envelope without changing the
   trend/gates or feeding advice. Run/walk remain in maintenance; lifting remains separate.
   Akshat assigned `activity/summary.dart`, `activity/run_detail.dart` and `day_steps.dart`
-  to Codex. Food quick weigh-in delegates to BodyLogDb and uses its canonical daily weight
+  to Codex. Task 6 is committed as `7b442912`. Food quick weigh-in delegates to BodyLogDb and uses its canonical daily weight
   for the profile; first-reading persistence still depends on Claude's Body implementation.
   Resting HR labels name the lowest 30-minute average while asleep on all three owned details.
   Claude integration needed: in `workout_screen.dart`'s LiveFeed constructor, keep
   `acsmCalories: app.workoutAcsmKcal` and add
   `movementEstimateCalories: app.workoutMovementEstimateKcal` so unsupported speeds retain
-  the explicitly labelled comparison. New EnergyComparison gallery entries are confined
+  the explicitly labelled comparison. Also pass
+  `currentSpeedAccuracyMps: app.routeTracker?.freshSpeedAccuracyMps(DateTime.now().millisecondsSinceEpoch)`
+  beside its existing freshSpeedMps call. Live speed now requires this provenance and shows
+  the latest GPS speed uncertainty (including at large values) rather than hiding it behind
+  a position-derived fallback. Task 7 implements per-wake ids/stage timing and per-burst counts/timestamp continuity.
+  Four existing Build 88 speed checks and five focused diagnostics/speed tests pass, including interrupted wake cleanup, invalid
+  speed despite valid position fixes, retained large uncertainty and its live-screen label.
+  The existing T11 commit-before-ACK ordering regression also passes. Outdoor/overnight
+  phone measurements and Claude's two live-feed fields remain required. New EnergyComparison gallery entries are confined
   to the marked Codex lane block. Nine focused energy checks pass, including 1x/2x/3.1x
   layouts; two selected Build 73 dated-weight/restore regressions pass. Native iPhone
   appearance and the merged first-reading ledger test still need Claude CI/phone verification.
-  Remaining Codex tasks: instrumentation/speed (7), Food data/exports (8),
+  Remaining Codex tasks: Food data/exports (8),
   Food layout/copy-day (9), private strain comparison plus synthetic history profiles (10).
   Extend the single algorithm-95 changelog as those approved output changes land.
 

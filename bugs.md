@@ -768,6 +768,9 @@ conversion envelope; calculation gates and calorie targets are unchanged. Food q
 weigh-in now delegates to BodyLogDb rather than writing the daily table independently;
 first-reading persistence needs Claude's merged Body logic. Resting HR on Sleep, Recovery
 and metric detail is labelled lowest 30-minute average while asleep. Device checks remain open.
+Build 90 live-speed source additionally requires valid platform speed uncertainty and shows
+its ± value in the user's speed units. An invalid speed cannot reappear through the old
+position-difference fallback. Distance and moving-time recording remain independent.
 
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired: partial run steps stay known; DST-length BMR; fabricated, over-4 h and overlapping lifts; low-HR lifts by MET; live speed over time (tau 5 s), stop detection, "—" without a fresh fix and moving-time average; Theil-Sen food/weight estimate with Sen's range, 3 weigh-ins per half, hidden past +/-300 kcal. Superseded by Build 89: steps are phone-only and high-rate live streams are off in the personal build. Open: live-speed constants need an outdoor walk and run.
 

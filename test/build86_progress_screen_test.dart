@@ -102,8 +102,21 @@ void main() {
       await t.scrollUntilVisible(find.text('Weight'), 150, scrollable: list);
       await t.tap(find.text('Weight'));
       await _until(t, () => find.text('HISTORY RANGE').evaluate().isNotEmpty);
-      final page = find.byType(Scrollable).last;
-      await t.scrollUntilVisible(find.text('LATEST'), 200, scrollable: page);
+      // The Body page's own vertical scroll view: the nearest Scrollable
+      // around its header, not whichever horizontal strip happens to be built
+      // last (Build 90: a segmented control that fits is a Row now).
+      // Resolved once, while the header is built: a lazy list drops it after
+      // the first scroll step, but the Scrollable element itself stays.
+      final pageElement = t.element(
+        find
+            .ancestor(
+              of: find.text('HISTORY RANGE'),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final page = find.byElementPredicate((e) => identical(e, pageElement));
+      await t.scrollUntilVisible(find.text('Latest'), 200, scrollable: page);
       expect(t.takeException(), isNull);
       final waist = find.text('Waist (navel)');
       await t.scrollUntilVisible(waist.first, 150, scrollable: page);

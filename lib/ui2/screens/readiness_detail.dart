@@ -364,7 +364,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     // today's number with somebody else's day.
     return detailScaffold(
       c,
-      l?.readinessDetailTitle ?? 'Readiness',
+      l?.readinessDetailTitle ?? 'Recovery',
       embedded: widget.embedded,
       [
         if (widget.day != null)
@@ -389,7 +389,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
             // built from that record — a sentence written here was competing
             // with the real answer one line down and winning.
             StatusCard.forMetric(
-                  l?.readinessDetailNotScoredTitle ?? 'Readiness is not scored',
+                  l?.readinessDetailNotScoredTitle ?? 'Recovery is not scored',
                   d.readiness,
                   // Where the data stops, appended to whatever the pipeline
                   // said. Not a substitute for the reason and not a reading —
@@ -565,7 +565,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     // is in the readout. Point i sits at i/(n-1).
     int at(double f) => n < 2 ? 0 : (f * (n - 1)).round().clamp(0, n - 1);
     return ChartFrame(
-      title: l?.readinessDetailTitle ?? 'Readiness',
+      title: l?.readinessDetailTitle ?? 'Recovery',
       unit: l?.readinessDetailUnit ?? '/100',
       height: 120,
       yAxis: axis,

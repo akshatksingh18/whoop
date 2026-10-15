@@ -34,17 +34,21 @@ class EnergyComparison extends StatelessWidget {
           style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: S.x2),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Text(
-            value == null ? 'Unavailable' : thousands(value),
-            softWrap: false,
-            style: (compact ? F.n17 : F.n24).copyWith(
-              color: value == null ? p.ink3 : p.on(color),
+        // A missing figure is a quiet word, never dressed as a number: the
+        // big numeral style is for measured values only (Build 90 audit).
+        if (value == null)
+          Text('Unavailable', style: F.body.copyWith(color: p.ink3))
+        else ...[
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Text(
+              thousands(value),
+              softWrap: false,
+              style: (compact ? F.n17 : F.n24).copyWith(color: p.on(color)),
             ),
           ),
-        ),
-        if (value != null) Text('kcal', style: F.cap.copyWith(color: p.ink2)),
+          Text('kcal', style: F.cap.copyWith(color: p.ink2)),
+        ],
         for (final part in parts)
           Padding(
             padding: const EdgeInsets.only(top: S.x1),

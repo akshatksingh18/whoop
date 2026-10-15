@@ -407,7 +407,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 Text(
                   win == 1
                       ? 'Today'
-                      : '${_dates(win)} · daily averages, measured days only',
+                      // One line at 390 pt (Build 90 audit: the longer
+                      // "daily averages, measured days only" wrapped).
+                      : '${_dates(win)} · averages of measured days',
                   style: F.body.copyWith(color: p.onGround),
                 ),
                 if (bigText(c)) ...[

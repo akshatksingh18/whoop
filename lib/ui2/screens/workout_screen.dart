@@ -705,12 +705,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (d.streak != null) ...[
-            _streakCard(c, p, d.streak!, d),
-            Divider(color: p.line, height: 1),
-          ],
+          if (d.streak != null) _streakCard(c, p, d.streak!, d),
+          // One rule between the two parts, and only when both are present
+          // (Build 90 audit: a lone trailing rule, or two stacked ones).
           if (d.runs.isNotEmpty) ...[
-            Divider(color: p.line, height: 1),
+            if (d.streak != null) Divider(color: p.line, height: 1),
             MetricLine(
               label: 'Run km',
               values: km,

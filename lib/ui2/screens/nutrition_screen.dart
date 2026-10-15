@@ -236,7 +236,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             (i) => setState(() => _tab = i),
             color: C.domFood,
           ),
-          const SizedBox(height: S.x3),
+          // Build 90: tighter gaps above the diary so the first meal clears
+          // the tab bar at ordinary text on a 390 × 844 phone.
+          const SizedBox(height: S.x2),
           if (_failed)
             StatusCard(
               'Food could not load',
@@ -290,7 +292,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                 ),
               ),
             ),
-          const SizedBox(height: S.x3),
+          const SizedBox(height: S.x2),
           NutritionDayView(
             key: ValueKey('$day#$_dayKey'),
             date: day,
@@ -1491,7 +1493,7 @@ class CalorieCard extends StatelessWidget {
             ),
           ),
           if (day case final d?) ...[
-            const SizedBox(height: S.x3),
+            const SizedBox(height: S.x2),
             Divider(color: p.line, height: 1),
             _Macros(day: d, profile: profile),
           ],
@@ -1500,7 +1502,7 @@ class CalorieCard extends StatelessWidget {
             Text(line, style: F.cap.copyWith(color: p.ink2)),
           ],
           if (onAdd != null) ...[
-            const SizedBox(height: S.x3),
+            const SizedBox(height: S.x2),
             BigButton(
               'Add food',
               icon: LucideIcons.plus,
@@ -1571,8 +1573,6 @@ class _CalorieHero extends StatelessWidget {
           goal == null ? 'No intake goal' : 'Goal $goal kcal',
           style: F.cap.copyWith(color: p.ink2),
         ),
-        if (eaten == null)
-          Text('Intake not recorded', style: F.cap.copyWith(color: p.ink2)),
       ],
     );
     return LayoutBuilder(
@@ -1582,8 +1582,10 @@ class _CalorieHero extends StatelessWidget {
             : box.maxWidth < 300
             ? 104.0
             : 116.0;
+        // Unknown intake is said once, under Eaten; the ring then reads
+        // "— kcal left" (left is unknown), not a second "Not logged".
         final label = side == null
-            ? (goal == null ? 'No goal' : 'Not logged')
+            ? (goal == null ? 'No goal' : 'kcal left')
             : 'kcal $sideWord';
         final ring = Semantics(
           label: side == null ? label : '$side $label',
@@ -1742,7 +1744,7 @@ class _Macros extends StatelessWidget {
         for (var i = 0; i < rows.length; i++) macro(i),
         if (rows.any((r) => r.$2.value == null) ||
             rows.any((r) => r.$2.isFloor)) ...[
-          const SizedBox(height: S.x2),
+          const SizedBox(height: S.x1),
           Text(
             [
               if (rows.any((r) => r.$2.value == null))

@@ -1902,11 +1902,11 @@
   "@napsNotANapLabel": {
     "description": "Visible button label to reject a detector-found nap."
   },
-  "readinessDetailTitle": "Readiness",
+  "readinessDetailTitle": "Recovery",
   "@readinessDetailTitle": {
     "description": "Readiness detail screen title, also used as the history chart title."
   },
-  "readinessDetailNotScoredTitle": "Readiness is not scored",
+  "readinessDetailNotScoredTitle": "Recovery is not scored",
   "@readinessDetailNotScoredTitle": {
     "description": "Status card title when readiness has no score for today."
   },
@@ -7170,7 +7170,7 @@
       }
     }
   },
-  "homeReadinessNotScoredTitle": "Readiness is not scored today",
+  "homeReadinessNotScoredTitle": "Recovery is not scored today",
   "@homeReadinessNotScoredTitle": {
     "description": "Title of the card shown when readiness has no score today."
   },

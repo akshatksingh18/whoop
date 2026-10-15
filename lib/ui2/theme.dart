@@ -439,6 +439,27 @@ class F {
     fontFeatures: _tab,
   );
 
+  /// Build 90 calm summary tiles: the hero's face at a tile's size, 64 pt,
+  /// and 48 pt for values longer than three characters.
+  static const heroTile = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 64,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -2,
+    fontFeatures: _tab,
+  );
+  static const heroTileLong = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 48,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -2,
+    fontFeatures: _tab,
+  );
+
   /// The hero for long values such as 1,920, 80.4 or 4.21.
   static const heroLong = TextStyle(
     fontFamily: _f,

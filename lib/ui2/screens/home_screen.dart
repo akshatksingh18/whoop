@@ -1971,7 +1971,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                   final need = needMessageFromNote(d.readiness.note);
                   return StatusCard(
                     l?.homeReadinessNotScoredTitle ??
-                        'Readiness is not scored today',
+                        'Recovery is not scored today',
                     need != null
                         ? (l?.homeReadinessNeedBody(need) ??
                               '$need to know what normal looks like for you.')

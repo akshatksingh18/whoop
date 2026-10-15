@@ -500,7 +500,7 @@ void main() {
           ),
         ),
       );
-      expect(find.text('Readiness is not scored today'), findsOneWidget);
+      expect(find.text('Recovery is not scored today'), findsOneWidget);
       expect(find.text('See what was missing'), findsOneWidget);
     });
 

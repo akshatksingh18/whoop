@@ -1105,7 +1105,9 @@ class _TodayPushupRowState extends State<TodayPushupRow> {
         color: C.orange,
         title: 'Pushups · ${s.today}${goal == null ? '' : ' of $goal'}',
         sub: sub,
-        frac: goal == null ? null : s.today / goal,
+        // No bar before the day starts: an empty 0-of-goal bar only added a
+        // blank band under the words (Build 90 audit, Train Pushups card).
+        frac: goal == null || a == null ? null : s.today / goal,
         action: a == null ? 'Start' : 'Done',
         onAction: () async {
           await (a == null ? Pushups.start() : Pushups.done());

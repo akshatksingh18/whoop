@@ -106,7 +106,7 @@ const _specs = <String, MetricSpec>{
   ),
   'readiness': MetricSpec(
     chartKey: 'recovery',
-    title: 'Readiness',
+    title: 'Recovery',
     color: C.green,
     icon: LucideIcons.batteryCharging,
     // The weights are DATA — `readiness_glassbox` emits one per input and the

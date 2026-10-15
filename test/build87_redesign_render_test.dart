@@ -887,6 +887,13 @@ void main() {
         ),
       );
       await _settle(t);
+      // Build 90: the meal page opens on its totals panel, so at large text
+      // the group subtotals start below the first screen.
+      await t.scrollUntilVisible(
+        find.text('567 kcal · at least 40 g protein'),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('567 kcal · at least 40 g protein'), findsOneWidget);
       await t.scrollUntilVisible(
         find.text('200 kcal · 20 g protein'),
@@ -1262,10 +1269,11 @@ void main() {
         ),
       ),
     );
-    // Unknown intake remains explicit, separately from the user's goal.
+    // Unknown intake remains explicit, separately from the user's goal, and
+    // is said once (Build 90): the ring's remaining figure is a dash.
     expect(find.text('Not logged'), findsOneWidget);
     expect(find.text('Goal 2,300 kcal'), findsOneWidget);
-    expect(find.text('Intake not recorded'), findsOneWidget);
+    expect(find.text('—'), findsOneWidget);
     expect(find.textContaining('2,300 left'), findsNothing);
     expect(find.text('Maintenance not available'), findsNothing);
   });
@@ -1574,9 +1582,11 @@ void main() {
             name == 'progress_body' ? 'Latest' : 'Protein',
           );
           if (first.evaluate().isEmpty || second.evaluate().isEmpty) return;
+          // Build 90: Body shows more than one comparison block, so compare
+          // the first pair rather than an ambiguous single match.
           expect(
-            t.getTopLeft(second).dy,
-            greaterThan(t.getTopLeft(first).dy),
+            t.getTopLeft(second.first).dy,
+            greaterThan(t.getTopLeft(first.first).dy),
             reason: 'Comparison stats must stack at large text.',
           );
           checkedStats = true;

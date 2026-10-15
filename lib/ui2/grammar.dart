@@ -2232,42 +2232,79 @@ class SubTabs extends StatelessWidget {
       // it is entirely off-screen in both tab sets, and above 1.0x text every
       // set overflows even a 430 pt screen. ScrollHint draws nothing at all
       // while the row fits, and scales with how much is left to scroll.
-      child: ScrollHint(
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: items.length,
-          separatorBuilder: (_, _) => const SizedBox(width: S.x2),
-          itemBuilder: (_, i) {
-            final on = i == index;
-            // Build 90: VoiceOver hears which option is chosen ("3 months,
-            // selected"), not only the option names.
-            return Semantics(
-              selected: on,
-              inMutuallyExclusiveGroup: true,
-              child: Pressable(
-                semanticLabel: items[i],
-                onTap: () => onTap(i),
-                child: AnimatedContainer(
-                  duration: motion(c, Motion.base),
-                  constraints: const BoxConstraints(minWidth: S.tap),
-                  padding: const EdgeInsets.symmetric(horizontal: S.x4),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: on ? p.card : const Color(0x00000000),
-                    borderRadius: R.rMd,
-                    boxShadow: on ? p.el(1) : const [],
-                  ),
-                  child: Text(
-                    items[i],
-                    style: F.cap.copyWith(
-                      color: on ? p.ink : p.ink2,
-                      fontWeight: on ? FontWeight.w600 : FontWeight.w500,
-                    ),
-                  ),
-                ),
+      //
+      // Build 90: when every option fits at its natural width, the options
+      // share the track equally (the system segmented control), instead of
+      // packing left and leaving an empty strip at the right end.
+      child: LayoutBuilder(
+        builder: (c, box) {
+          final scaler = MediaQuery.textScalerOf(c);
+          final dir = Directionality.of(c);
+          var natural = S.x2 * (items.length - 1);
+          for (final t in items) {
+            final tp = TextPainter(
+              text: TextSpan(
+                text: t,
+                style: F.cap.copyWith(fontWeight: FontWeight.w600),
               ),
+              textDirection: dir,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            natural += math.max(S.tap, tp.width + 2 * S.x4);
+            tp.dispose();
+          }
+          if (box.maxWidth.isFinite && natural <= box.maxWidth) {
+            return Row(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(width: S.x2),
+                  Expanded(child: _segment(c, p, i)),
+                ],
+              ],
             );
-          },
+          }
+          return ScrollHint(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: S.x2),
+              itemBuilder: (_, i) => _segment(c, p, i),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _segment(BuildContext c, P p, int i) {
+    final on = i == index;
+    // Build 90: VoiceOver hears which option is chosen ("3 months,
+    // selected"), not only the option names.
+    return Semantics(
+      selected: on,
+      inMutuallyExclusiveGroup: true,
+      child: Pressable(
+        semanticLabel: items[i],
+        onTap: () => onTap(i),
+        child: AnimatedContainer(
+          duration: motion(c, Motion.base),
+          constraints: const BoxConstraints(minWidth: S.tap),
+          padding: const EdgeInsets.symmetric(horizontal: S.x4),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? p.card : const Color(0x00000000),
+            borderRadius: R.rMd,
+            boxShadow: on ? p.el(1) : const [],
+          ),
+          child: Text(
+            items[i],
+            maxLines: 1,
+            style: F.cap.copyWith(
+              color: on ? p.ink : p.ink2,
+              fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
         ),
       ),
     );
@@ -3823,8 +3860,7 @@ class HeroStat extends StatelessWidget {
       child: Text(
         value ?? '—',
         softWrap: false,
-        style: F.hero.copyWith(
-          fontSize: long ? 48 : 64,
+        style: (long ? F.heroTileLong : F.heroTile).copyWith(
           color: p.on(value == null ? C.alert : color),
         ),
       ),

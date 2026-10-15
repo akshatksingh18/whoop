@@ -369,7 +369,9 @@ class _ProgressScreenState extends State<ProgressScreen>
             child: BigButton(
               'Add body entry',
               icon: LucideIcons.plus,
-              color: C.teal,
+              // The body family colour (DESIGN.md token), not an off-palette
+              // teal (Build 90 audit).
+              color: C.body,
               onTap: () => _addEntry(c, d),
             ),
           ),
@@ -1547,7 +1549,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                   const SizedBox(height: S.x4),
                   BigButton(
                     _busy ? 'Saving' : 'Save',
-                    color: C.teal,
+                    color: C.body,
                     onTap: _busy ? null : _save,
                   ),
                   const SizedBox(height: S.x5),

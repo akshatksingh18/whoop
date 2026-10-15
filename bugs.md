@@ -802,6 +802,18 @@ All documented coefficients, gates and worked examples match source. Climb terms
 
 ### Food Completeness, Body Estimates, Strength Comparisons And Goal Advice
 
+Build 90 Codex source freezes closed-day calorie-goal/counting provenance, including first-open
+legacy dates, with manual overrides and separate automatic/marked labels. Reads before profile
+hydration cannot freeze an unknown target. Food writes retain eaten time separately from the
+original logging time; legacy unknown logging times remain NULL. The analysis export includes
+historical weigh-ins and provenance, shares bestSet/setScore and equipment/load meaning, and
+retains nutrient-specific coverage, partial-total labels and weekly denominators. Export rendering
+runs off the UI isolate. Temporary generated copies are cleaned after platform completion,
+cancellation or failure; share copy does not claim delivery when the result is unavailable.
+Database, encrypted media backup and analysis descriptions state restore support/photo contents;
+automatic backups explicitly do not survive container loss. Synthetic checks pass; native share,
+restore, photo-count and Food phone acceptance remain open.
+
 **Build 88 source (`0.9.55`/`88`, algorithm 92; previously installed, superseded by installed Build 89; complete phone verification open):** repaired in Build 88: explicit completion only (D13), subsequently extended by Build 89 automatic counting with manual overrides; "at least" totals and day-state calorie card; unknown protein never 0; Navy male-only, neck within 30 days, 3-50%, both dated; waist/tape from a reading within 7 days of the start; protein advice needs 5 complete days; no step without a calorie goal; Monday weight weeks; recomposition needs waist and a comparable lift.
 
 All documented phase bands, protein ranges, review gates, step sizes, floor formula, streak

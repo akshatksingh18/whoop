@@ -356,6 +356,7 @@ class AppState extends ChangeNotifier {
   String? get onboardChoice => _onboardChoice;
 
   Future<void> _loadProfile() async {
+    autoCountKcalGoal = null;
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kProfile);
     if (raw != null) {
@@ -1082,6 +1083,7 @@ class AppState extends ChangeNotifier {
         throw ArgumentError('Invalid $key');
       }
     }
+    await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
     final prefs = await SharedPreferences.getInstance();
     final keys = [_kProfile, ProfileHistory.key, StepGoals.key];
     final previous = {for (final key in keys) key: prefs.getString(key)};
@@ -2702,6 +2704,7 @@ class AppState extends ChangeNotifier {
     paired = await PairedDevice.load();
     await refreshSensors();
     await _loadProfile();
+    await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
     await CalculationStore.hydrate();
     await ProfileHistory.record(user, user ?? {});
     await StepGoals.read(initial: (user?['step_goal'] as num?)?.toInt());

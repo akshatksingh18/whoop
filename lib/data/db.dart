@@ -402,6 +402,7 @@ class LocalDb {
   }
 
   static Future<void> close() async {
+    NutritionDb.resetCountingContext();
     DayClock.install([], []);
     if (_db != null) {
       await _db!.close();
@@ -1166,19 +1167,7 @@ class LocalDb {
       'CREATE INDEX IF NOT EXISTS idx_body_reading_date_time '
       'ON body_weight_reading(date, at_ts, id)',
     );
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS food_day_count (
-        date TEXT PRIMARY KEY,
-        calorie_goal REAL,
-        basis TEXT NOT NULL DEFAULT 'automatic',
-        counted INTEGER NOT NULL DEFAULT 0,
-        frozen_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      )
-    ''');
-    // Unknown historical logging time stays unknown; do not relabel eaten time
-    // as logging time. New writes populate logged_at separately.
-    await _addColumnIfMissing(db, 'food_entry', 'logged_at', 'INTEGER');
+    await createFoodCountingTables(db);
     await _createSyncCursor(db);
     final seeded = await db.query(
       'sync_cursor',

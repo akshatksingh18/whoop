@@ -185,7 +185,7 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   one-time seed is guarded by `sync_cursor.name = b90_body_reading_seed`; old-file imports
   seed legacy daily rows too. `food_entry.logged_at` is nullable for unknown old logging times.
   `food_day_count(date, calorie_goal, basis, counted, frozen_at, updated_at)` stores frozen
-  counting provenance; first-open goal freezing follows in task 8. All four tables are in
+  counting provenance; task 8 now integrates first-open goal freezing and new writes. All four tables are in
   import/salvage and full snapshots, day exports carry their scoped context, and wipe is dynamic.
   Body's first-reading selection/writes remain Claude-owned. Task 2 implemented: historical
   v12/v24 RR counts cap at four, R10 retains its independent eight-value limit, unconfirmed
@@ -247,7 +247,21 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   to the marked Codex lane block. Nine focused energy checks pass, including 1x/2x/3.1x
   layouts; two selected Build 73 dated-weight/restore regressions pass. Native iPhone
   appearance and the merged first-reading ledger test still need Claude CI/phone verification.
-  Remaining Codex tasks: Food data/exports (8),
+  Task 7 is committed as `96238e62`. Task 8 Food/export source now freezes the first
+  known profile goal per closed date (including confirmed absence), passes immutable counting
+  evidence through existing entry/rollup reads, keeps manual marks distinct, and preserves
+  separate eaten/logged timestamps. Seven synthetic counting tests pass, including a read
+  before profile hydration. Analysis includes all historical weigh-ins/provenance, shared
+  lift best-set rules and nutrient-specific partial totals/denominators; rendering runs off
+  the UI isolate. Ten focused export tests and four existing export regressions pass;
+  five schema checks pass, including actual encrypted backup/restore and legacy import. Generated export copies are removed after
+  share completion/cancellation/failure; result copy distinguishes unconfirmed delivery.
+  Backup descriptions distinguish database references from actual photo files, restore
+  support and in-container loss. Native share/restore and Food phone acceptance remain open.
+  Session-change publication remains part of task 8; Akshat was asked about the omitted
+  `log_workout.dart`, `coach_actions.dart` and `auto_workout_import.dart` ownership so all
+  non-Train mutation paths can use the same post-commit signal.
+  Remaining Codex tasks: session mutation signals (8),
   Food layout/copy-day (9), private strain comparison plus synthetic history profiles (10).
   Extend the single algorithm-95 changelog as those approved output changes land.
 

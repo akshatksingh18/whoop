@@ -19,11 +19,29 @@ const kMediaBackupDbName = 'openstrap.db';
 const kMediaBackupPhotoDir = 'body_photos';
 final _photoName = RegExp(r'^[0-9A-Za-z-]{8,64}\.jpg$');
 
+/// Count exactly the filename family the media packer carries, not DB references.
+Future<int> mediaBackupPhotoCount(String photoDir) => Isolate.run(() async {
+  final dir = Directory(photoDir);
+  if (!await dir.exists()) return 0;
+  return (await dir.list().toList())
+      .whereType<File>()
+      .where((f) => _photoName.hasMatch(p.basename(f.path)))
+      .length;
+});
+
 /// Zip [dbPath] and every JPEG in [photoDir] into `[dbPath].zip`.
-Future<String> packMediaBackup(String dbPath, String photoDir) =>
-    Isolate.run(() async {
-      final out = '$dbPath.zip';
-      final enc = ZipFileEncoder()..create(out, level: 0);
+Future<String> packMediaBackup(String dbPath, String photoDir) async =>
+    (await packMediaBackupWithCount(dbPath, photoDir)).path;
+
+Future<({String path, int photos})> packMediaBackupWithCount(
+  String dbPath,
+  String photoDir,
+) => Isolate.run(() async {
+  final out = '$dbPath.zip';
+  final enc = ZipFileEncoder()..create(out, level: 0);
+  var photos = 0;
+  try {
+    try {
       await enc.addFile(File(dbPath), kMediaBackupDbName);
       final dir = Directory(photoDir);
       if (await dir.exists()) {
@@ -31,12 +49,21 @@ Future<String> packMediaBackup(String dbPath, String photoDir) =>
           final name = p.basename(f.path);
           if (_photoName.hasMatch(name)) {
             await enc.addFile(f, '$kMediaBackupPhotoDir/$name');
+            photos++;
           }
         }
       }
+    } finally {
       await enc.close();
-      return out;
-    });
+    }
+  } catch (_) {
+    try {
+      if (await File(out).exists()) await File(out).delete();
+    } catch (_) {}
+    rethrow;
+  }
+  return (path: out, photos: photos);
+});
 
 /// Unpack a decrypted version-2 payload: the database to [dbDest], and each
 /// photo into [photoDir] unless a file of that name is already there. Only

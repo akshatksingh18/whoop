@@ -41,6 +41,8 @@ import 'dart:async';
 
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
+import '../data/db.dart';
+import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../ble/ios_ble_restore.dart';
 import '../data/local_repository_impl.dart';
 import '../widget/widget_service.dart';
@@ -169,7 +171,10 @@ class IosBgTask {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kProfileKey);
       if (raw == null) return const Profile();
-      return Profile.fromMap((jsonDecode(raw) as Map).cast<String, dynamic>());
+      final values = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      autoCountKcalGoal = (values['kcal_target'] as num?)?.toDouble();
+      await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
+      return Profile.fromMap(values);
     } catch (_) {
       return const Profile();
     }

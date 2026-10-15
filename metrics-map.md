@@ -192,7 +192,7 @@ These are still stored but no longer entered in the personal build:
 | `body_weight` | legacy daily aggregate; today's sets profile `weight_kg`. `unit`, `entered`, `source`, `origin_id` and `history_only` preserve input/provenance; backdated/imported rows never price a day. Build 90's first-reading aggregate behaviour is pending the Body lane |
 | `body_weight_reading` | Build 90 schema 50: every reading with identity, effective date, Unix-second measurement time, kg, input units/value, source/origin, history-only flag and creation time. Legacy daily rows migrate once; Body write/selection integration is pending |
 | `day_zone` / `zone_change` | Build 90 schema 50: observed IANA timeline and per-day UTC boundaries/offsets. Native inbox is acknowledged after SQLite commits; launch/foreground/sync check for missed changes. Workers use persisted context, SRI compares absolute instants 24 h apart, and travel-spanning nights are excluded from bedtime comparisons. Past travel before the first observation is unknown; the first known zone seeds older assignment context |
-| `food_day_count` / `food_entry.logged_at` | Build 90 schema 50: frozen calorie-goal/counting provenance and a separate logging timestamp. Legacy logging times remain NULL; counting-policy and new-write integration follow in the engine lane |
+| `food_day_count` / `food_entry.logged_at` | Build 90 schema 50: frozen calorie-goal/counting provenance and a separate logging timestamp. Legacy logging times remain NULL; new entries carry eaten time and separate original logging time in epoch seconds. Closed dates freeze the first known goal; manual/automatic provenance stays distinct |
 | `body_measure` | build-86 source: one tape session, inches by AkshatOS site key (unknown keys kept) |
 | `body_photo` | build-86 source: a progress-photo record; the JPEG lives in `body_photos/` (metadata stripped) |
 | `lift_log` | build-86 source: one Lift Log workout as JSON, linked to its WHOOP session (imported AkshatOS history has none) |
@@ -315,11 +315,20 @@ half the current target; explicit Complete/Incomplete overrides remain. Missing 
 exclude a calorie day. Protein averages require eligible days with complete protein coverage,
 not merely a displayed protein total or completed calorie diary. Counts/exclusions are separate
 by nutrient; the app cannot detect every forgotten food or prove a complete diary.
-Build 88 required a marked-complete past day (D13). Build 89 adds automatic counting at half the current calorie target when every item has energy, with manual overrides; the evening-entry heuristic
+Build 88 required a marked-complete past day (D13). Build 89 added automatic counting at half the current calorie target when every item has energy, with manual overrides. Build 90 freezes the qualifying target per closed date (legacy dates use the first-open goal; a hydrated missing goal stays missing) so later target edits do not reclassify old days; the evening-entry heuristic
 is gone. Meal and day totals with an unknown item say "at least"; the food/weight estimate uses a
 robust slope with a range and hides past ±300 kcal/day.
 Recorded strain stays an estimate with its prescriptive target hidden until calibrated, and all
 health findings respect app quiet hours. `build-88-plan.md` owns these choices and the version gates.
+Build 90 reads attach immutable frozen counting evidence to FoodEntry/NutritionDay, so
+Progress's existing rollup calls retain the correct dated eligibility without API renames.
+Entry edits preserve the original logging timestamp (unknown legacy values stay NULL), while
+copied entries receive a new logging timestamp and retain meal time on their destination date.
+The analysis export includes every individual body reading with source/history-only status,
+uses the shared strength best-set/score rules and load/equipment meaning, labels each partial
+nutrient total and uses a separate complete-day denominator for each weekly nutrient mean.
+Reports render off the UI isolate; they are not restore files and contain no photo bytes.
+
 All four macro rows/icons remain visible; in Build 86 an unlogged nutrient displays as unknown,
 not zero. Activity streaks accept ten active recorded purposeful-exercise minutes (including lifts
 and Other exercise) OR reaching the

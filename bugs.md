@@ -814,8 +814,10 @@ Database, encrypted media backup and analysis descriptions state restore support
 automatic backups explicitly do not survive container loss. Synthetic checks pass; native share,
 restore, photo-count and Food phone acceptance remain open.
 Build 90 owned workout mutations now publish the shared insights/Food signal only after
-successful persistence; failed-save/retry and repository mutation checks pass. Manual/retime
-and coach call sites remain pending lane ownership. Health auto-imports use a separate table.
+successful persistence; failed-save/retry and repository mutation checks pass. Manual, retimed,
+suggestion-confirmed and coach-created sessions now publish in their shared repository writer;
+the form no longer increments insights separately. Suggestion-only dismissals refresh after
+successful persistence. Health auto-imports use a separate table.
 Multi-year synthetic profiling isolated repeated measured-step lookups as a Progress loading cost; the batched
 resolver retains the same source policy and old unmeasured series points without a history cap.
 

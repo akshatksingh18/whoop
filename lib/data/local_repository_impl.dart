@@ -2917,6 +2917,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // INSERT-OR-REPLACE, so omitting it would blank an edit's existing stamp.
     row['device_family'] = deviceFamily;
     await LocalDb.putSession(row);
+    onSessionChanged?.call();
 
     // Retire the fragment(s) this window supersedes, so the athlete isn't
     // asked "did you work out?" about the session they just logged.

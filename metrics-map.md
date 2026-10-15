@@ -428,9 +428,10 @@ ACSM uses `0.005 * kg * (0.2 * run_metres + 0.1 * walk_metres + 0.9 * trusted_ru
 full-day BMR and logged-food digestion allowance, with the same run ownership and step exclusions.
 Build 90 session writers use AppState's post-commit session signal for both insights and Food
 maintenance. Repository score/movement enrichment and deferred HRR use injected callbacks;
-headless instances have no live UI callback. Train's delete/edit calls belong to the UI lane;
-manual/retime and coach callers still require their ownership integration. Health auto-imports
-use a separate table and do not mutate sessions.
+headless instances have no live UI callback. The shared manual-session writer also covers
+manual logging, retiming, suggestion confirmation and coach logging; those UI callers do not
+publish a second time. Train's other direct delete/edit calls belong to the UI lane. Health
+auto-imports use a separate table and do not mutate sessions.
 Historical Steps charts batch retained coverage through the same resolver used for day detail,
 with stored local-day boundaries, instead of querying once for every metric date. Retained
 series points without measured coverage stay intact; confirmed phone zero remains zero.

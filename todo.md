@@ -258,10 +258,9 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   share completion/cancellation/failure; result copy distinguishes unconfirmed delivery.
   Backup descriptions distinguish database references from actual photo files, restore
   support and in-container loss. Native share/restore and Food phone acceptance remain open.
-  Session-change publication remains part of task 8; Akshat was asked about the omitted
-  `log_workout.dart` and `coach_actions.dart` ownership so all non-Train session mutation
-  paths can use the same post-commit signal. The initially requested auto-import file is
-  not needed for this contract: Health imports write separate `imported_workouts`, not `sessions`.
+  Akshat assigned `log_workout.dart`, `coach_actions.dart` and `auto_workout_import.dart`
+  to Codex. The auto-import file needs no session-contract change: Health imports write
+  separate `imported_workouts`, not `sessions`.
   Food data/exports are committed as `b1b6d786`. Task 9 is committed as `6b182095` and implemented with a compact calorie
   summary, four macro columns (protein larger), readable stacked large-text values, a
   week-state legend, direct Food Progress routing and no repeated singleton totals.
@@ -278,10 +277,17 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   Session refresh/history optimization is committed as `c7c37ed0`. Owned session paths
   now publish after successful writes: live start/stop/orphan recovery,
   repository start/end/privacy, substrate score/movement enrichment and deferred HRR,
-  CSV/database/Lift imports, reset and detail RPE/type/delete/context edits. The durability
-  two checks cover failed-save abstention and successful retry/repository signals. Manual/retime
-  and coach call sites still await the omitted-file ownership reply above.
-  Task 10 has `tool/strain_comparison.dart` and the read-only runner
+  CSV/database/Lift imports, reset and detail RPE/type/delete/context edits. Two durability
+  checks cover failed-save abstention and successful retry/repository signals. Manual
+  logging, retiming, suggestion confirmation and coach logging now share the post-commit
+  notification in `_writeManualSession`; the form no longer emits its own duplicate refresh.
+  Suggestion-only dismissals refresh insights only after their write succeeds. Two focused
+  manual/retime/coach checks pass, covering successful publication and write-failure abstention;
+  all 11 existing manual-entry/suggestion-review widget and date checks also pass.
+  Claude integration: do not publish again when LogWorkout returns from a successful manual
+  save or retime; the repository already did. Keep the Train delete/edit signals for its other
+  direct database mutations.
+  Task 10 tools are committed as `35c34f93`: `tool/strain_comparison.dart` and the read-only runner
   `tool/strain_measurement.dart` using the app's TRIMP/coverage/strain functions,
   the fixed shipped quiet reference and the existing session floor. Both synthetic checks pass,
   including a complete read-only export read (sleep envelope, source exclusion, coverage and
@@ -289,7 +295,7 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   `WHOOP_MEASUREMENT_DB` locally and run only `test/build90_strain_measurement_test.dart`
   to perform it; output is fixed under ignored `build/research-local/`. Set
   `WHOOP_SYNTHETIC_PROFILE=1` for `test/build90_history_profile_test.dart`. The supplied export is
-  missing; Akshat was asked for its current local path. No private comparison or recommendation
+  deleted; Akshat will restore it. No private comparison or recommendation
   based on private results is claimed, and the strain formula is unchanged.
   Research question for Claude: D1 describes a measured quiet reference with a fallback, while
   current engine/pipeline calls use fixed `quietWakingHrr`. Resolve that discrepancy before
@@ -304,10 +310,10 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   on this Windows FFI probe; with daily phone coverage they were 0.64 s. These are synthetic
   desktop timings, not phone acceptance. Food's existing six Build-89 regressions also pass.
   Query and timing reports stay in ignored `build/research-local/`; merged Progress needs recheck.
-  Remaining Codex tasks: finish omitted session callers when ownership is granted; run the
-  private read-only comparison when the export is available. Keep the shipped strain form until
-  the private comparison, confirmed quiet/workout labels and Akshat's approval are available.
-  Extend the single algorithm-95 changelog as those approved output changes land.
+  Remaining Codex task: run the private read-only comparison when Akshat restores the export.
+  Keep the shipped strain form until the private comparison, confirmed quiet/workout labels
+  and Akshat's approval are available. The single algorithm-95 changelog includes the approved
+  output changes; the remaining comparison is measurement only.
 
 ## Build 89 (`0.9.56`/`89`): Installed, Testing And Acceptance Open
 

@@ -105,7 +105,8 @@ The unsourced constants this pass found are collected at the end.
 8. **Confidence:** medium. The bound is a derivation; the share in real WHOOP 4 data needs a
    local count.
 
-**Local measurement (supersedes recommendations (b)-(c) above).** Two weeks of retained
+**Local measurement (supersedes recommendation (c) above; (b)'s HR/60 estimate becomes the
+stored quality field).** Two weeks of retained
 nights were checked on this PC.
 - **Every night drops a similar share of beats, and it is above 10%.** Reported intervals
   cover visibly less time than the sleep window, so the band drops beats together with their
@@ -120,7 +121,11 @@ nights were checked on this PC.
 - **So the bias is small and not one-sided.** Keep the current pairing and drop the
   withholding rule.
 - **Recommendation:** store each night's omitted-beat share as a quality field, so a band or
-  firmware change that raises it becomes visible. No headline change, so no approval needed.
+  firmware change that raises it becomes visible. The share is (b)'s estimate: expected
+  beats = Σ HR/60 over the night's records, reported = retained intervals, with both counts
+  stored as its denominators. Because a dropped beat leaves no interval and no timestamp
+  mark, a count against HR is the only available measure. No headline change, so no
+  approval needed.
 
 ### A2. Frequency-domain methods under gaps
 
@@ -237,8 +242,13 @@ choice.
   - Add gap ÷ 4 per night.
   - Remove the strain bonus until a source supports it, since an unsourced number is an
     assumption.
-  - Keep the clamp only once it is checked against a population recommendation (not verified
-    in this pass).
+  - Keep the clamps (checked below).
+- **Clamp check.** AASM/SRS (Watson 2015) recommends 7 h or more for adults 18–60, and says
+  more than 9 h may suit young adults and people recovering from sleep debt; the NSF panel
+  (Hirshkowitz 2015) recommends 7–9 h for adults. The baseline clamp (7–9.5 h) starts at the
+  7 h floor both give and ends within the AASM allowance above 9 h. The 6–11 h clamp on the
+  night's need applies after nap credit and a quarter of the gap, so it is a guard on that
+  sum rather than a recommendation; it is kept and labelled as calibration.
 - **Impact.** Sleep need, the recommended bedtime and sleep performance. **Needs approval.**
   `kAlgoVersion` must change. Confidence: low-medium (one small study).
 
@@ -390,9 +400,11 @@ exact, so no threshold has to be invented.
 
 1. **Question.** What baseline should day strain subtract, and is a personal one better?
 2. **Current behaviour.**
-   - Net TRIMP = whole-day Banister TRIMP − waking minutes × *q*·*y*(*q*), where *q* is the
-     day's measured quiet heart-rate reserve (`dailyQuietWakingHrr`, clamped). The fallback
-     is 0.20.
+   - Net TRIMP = whole-day Banister TRIMP − waking minutes × *q*·*y*(*q*). Every shipped call
+     site (day, workout, manual session, backfill) passes the fixed reference
+     `quietWakingHrr = 0.20`, the level the anchor table was generated at. The personal
+     measurement `dailyQuietWakingHrr` exists but is not wired in (upstream edge#226), so no
+     measured level or fallback is in use.
    - It is mapped to 0–21 with `maximalNetTrimp = 400` and `strainCurvature = 15`
      (`clinical/load_trimp.dart`).
    - Build 89 added a floor from finished workouts' net TRIMP.
@@ -416,7 +428,10 @@ exact, so no threshold has to be invented.
 5. **Recommendation.**
    - Keep the Build 89 session floor.
    - On retained local days, compute both forms against labelled quiet and workout days, and
-     choose the form whose quiet days stay low and whose workout days order correctly.
+     choose the form whose quiet days stay low and whose workout days order correctly. The
+     baseline level (fixed 0.20 versus a personal rolling level) is a separate choice and is
+     compared the same way; wiring a personal level changes the headline, so it also needs
+     approval.
    - Verify the women's coefficient against Banister's own publication before relying on it.
    - The strain target stays withheld.
 6. **Impact.** Day strain (headline). Any change **needs approval** after the measurement.
@@ -701,9 +716,9 @@ These need a source, a derivation, or removal (or a clear "estimate" label) befo
 | Constant | Where | Status |
 |---|---|---|
 | Strain bonus to sleep need, up to 45 min, linear in strain | `human/coaching.dart` | No source; recommend removal (B2b) |
-| Sleep need clamp 6–11 h and baseline clamp 7–9.5 h | `coaching.dart`, `crossday_pipeline.dart` | Not verified against a population recommendation in this pass |
+| Sleep need clamp 6–11 h and baseline clamp 7–9.5 h | `coaching.dart`, `crossday_pipeline.dart` | Baseline matches AASM/SRS and NSF (7 h floor; above 9 h allowed for young adults); the 6–11 h need clamp is a calibration guard (B2b) |
 | `maximalNetTrimp = 400`, `strainCurvature = 15` | `load_trimp.dart` | The app's own anchor table, not literature; label as calibration |
-| `quietWakingHrr = 0.20` fallback | `load_trimp.dart` | Population placeholder; the measured personal level is used when present |
+| `quietWakingHrr = 0.20` | `load_trimp.dart` | Population placeholder used at every call site; the personal level (`dailyQuietWakingHrr`) is not wired in (D1) |
 | "Functional" 3.5 MET | `profile.dart` | No matching Compendium code found |
 
 ## Sources
@@ -731,6 +746,10 @@ summary rather than the full text.
   https://discovery-pp.ucl.ac.uk/10055119/1/s41598-018-31266-z.pdf (secondary).
 - Bakrania K et al. ENMO and MAD thresholds. *PLOS ONE* 2016.
   https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5051724/ (secondary).
+- Watson NF et al. Recommended amount of sleep for a healthy adult (AASM/SRS consensus).
+  *Sleep* 2015. https://www.aasm.org/resources/pdf/adultsleepdurationconsensus.pdf (secondary).
+- Hirshkowitz M et al. National Sleep Foundation's updated sleep duration recommendations.
+  *Sleep Health* 2015. https://discover.luc.edu/works/26111 (secondary).
 - Chinoy ED et al. Seven consumer sleep trackers vs PSG. *Sleep* 2021;44:zsaa291.
   https://pmc.ncbi.nlm.nih.gov/articles/PMC8343587 (secondary).
 - Miller DJ et al. WHOOP sleep validation (2020) and six wearables (*Sensors* 2022;22:6317).

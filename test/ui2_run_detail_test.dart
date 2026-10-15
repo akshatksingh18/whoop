@@ -101,7 +101,12 @@ void main() {
       expect(find.text('Moving time'), findsOneWidget);
       // The primary pair never merges; HR is explicit optional analysis.
       expect(find.text('Budget'), findsOneWidget);
-      expect(find.text('ACSM'), findsOneWidget);
+      // Build 90: ACSM is named only inside its supported speeds; outside
+      // them the same line reads "Movement estimate".
+      expect(
+        find.textContaining(RegExp(r'^(ACSM|Movement estimate)$')),
+        findsOneWidget,
+      );
       await t.ensureVisible(find.text('Heart-rate analysis'));
       await t.pumpAndSettle();
       await t.tap(find.text('Heart-rate analysis'));

@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../data/db.dart';
-import '../../data/day_label.dart' show dayLabelOf, dayLabelAtSec, DayClock;
+import '../../data/day_label.dart' show dayLabelAtSec, DayClock;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';

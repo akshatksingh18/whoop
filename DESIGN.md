@@ -12,11 +12,14 @@ Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (loca
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
 Impeccable reads. Product truth stays in `CLAUDE.md` and `metrics-map.md`.
 
-Build 89 is installed and being tested. Akshat selected the calm A framework with B's
-compact macro rows and approved whole-interface implementation for Build 90. This composition
-is implemented in local source; full cloud/native screenshot and phone acceptance remain open.
-The kraft/cream palette and metric-family colours stay locked. `build-90-audit.md` and `todo.md`
-retain the feature, correctness and device gates.
+Build 90 source (merged on `build-90`, not yet installed) applies the calm framework Akshat
+selected (A) with B's compact macro rows across every tab, and Progress's approved composition:
+a goal card with one closed-week verdict, its dates and the exact missing evidence; Weight,
+Waist and Strength results from the same weeks; and Body, Strength and Food/training/recovery
+detail pages with a History range. The kraft/cream palette and metric-family colours stay
+locked. Screen titles clamp to Apple's Large Title scaling and tab-bar labels keep their size
+under large text. Native screenshot and phone acceptance remain open; `build-90-audit.md` and
+`todo.md` retain the feature, correctness and device gates.
 
 ## Direction
 

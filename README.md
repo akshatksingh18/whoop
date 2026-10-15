@@ -7,11 +7,11 @@
 > enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 89 candidate
 > (0.9.56), installed and being tested as reported by Akshat, superseding Build 88. Recovery-cache
 > promotion is requested after the whole-app review; Build 70 remains cached recovery meanwhile.
-> [`build-90-audit.md`](build-90-audit.md) owns the current visual/source findings and next-build
-> backlog. Build 90 engine/data and the accepted calm A + compact B interface are implemented
-> in local source; integration, cloud checks, native UI acceptance and physical background/renewal
-> checks remain open. The selected B Food card includes its remaining-calorie ring; its correction
-> and the remaining merged-view presentation review are tracked in `todo.md` and `build-90-audit.md`.
+> [`build-90-audit.md`](build-90-audit.md) owns the original visual/source findings. Build 90
+> (`0.9.57`) contains the engine/data work and selected A + B interface; the integrated source
+> and B calorie-balance ring are combined on `build-90-codex`. The approved follow-up UI fixes
+> are in progress. Full-page review, cloud/native checks and physical acceptance remain open;
+> no Build 90 IPA is built or installed. `todo.md` owns source and verification status.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
 > Builds 86/87 showed it. Build 88 (0.9.55, algorithm 92) and installed Build 89 gate temperature, qualify HRV,

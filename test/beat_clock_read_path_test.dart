@@ -137,12 +137,20 @@ void main() {
         _beat(_t0 + 2, 0, 905, beatTsMs: (_t0 + 2) * 1000 + 200),
       ],
     );
-    expect(sub.tsSec, [_t0, _t0 + 1, _t0 + 2], reason: 'union, still ascending');
+    expect(sub.tsSec, [
+      _t0,
+      _t0 + 1,
+      _t0 + 2,
+    ], reason: 'union, still ascending');
     expect(sub.rrMs.length, 3, reason: 'the orphan beat survived');
     // The beat-only second carries no measurement — the absent sentinels only.
     expect(sub.accelPresentAt(1), isFalse);
     expect(sub.hr[1], 0);
-    expect(sub.skinTemp[1], 0);
+    expect(
+      sub.skinTemp[1],
+      isNull,
+      reason: 'absent, not a 0 reading (Build 90)',
+    );
     // …and the frame-backed seconds are untouched.
     expect(sub.accelPresentAt(0), isTrue);
     expect(sub.hr[0], 58);

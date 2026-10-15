@@ -3,8 +3,8 @@
 Method: independent dual-agent assessment (A: `/root/design_review`; B: `/root/technical_audit`) plus parent source tracing and targeted synthetic checks. Impeccable native critique/audit discipline; no web detector applies to Dart.
 
 **Status:** original Build 89 audit plus the complete Build 90 worklist. Akshat approved
-implementation and selected A overall with B's compact macro rows; engine/data and the full
-approved UI are implemented in local source on `build-90-codex`. `todo.md` owns implementation,
+implementation and selected A overall with B's compact macro rows; engine/data, the Claude lane
+and the full approved UI are implemented and merged on `build-90`. `todo.md` owns implementation,
 commits and outstanding gates. Findings below describe the audited Build 89 unless explicitly
 qualified; they do not override the accepted design in `DESIGN.md`. Local synthetic captures do
 not establish phone/native or final cloud acceptance. Build 89 remains installed/testing,

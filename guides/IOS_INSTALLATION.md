@@ -8,7 +8,7 @@ The single testing candidate is
 `../../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365` (Linux CI `38494407678`, personal
 macOS build `38495939393`; source/version/checksum/ZIP/payload checks pass). It replaces the
 Build 88 cache. `../todo.md` Build 89 owns scope and phone gates; `../build-90-audit.md` owns the
-current whole-app review and unimplemented next-build proposal. Akshat wants Build 89 as recovery
+current whole-app review whose worklist Build 90 implements (merged on `build-90`; no IPA yet). Akshat wants Build 89 as recovery
 after this review; the cache is not yet promoted. Confirm an off-phone encrypted export,
 identity/data/pairing, foreground/background behavior and current-version refresh enrollment
 before promotion. Natural unattended renewal remains unconfirmed.

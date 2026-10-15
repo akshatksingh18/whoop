@@ -168,7 +168,8 @@ void main() {
       return (rr: rr, t: t);
     }
 
-    test('RSA: an 8-hour night resolves its time-median rate, not a noise spike',
+    test(
+        'RSA: an 8-hour night resolves its time-median rate, not a noise spike',
         () {
       // Measured, same three noise seeds: OLD published 18.48 / 16.94 / 16.06 —
       // three different answers to the same signal, each passing its own
@@ -193,8 +194,7 @@ void main() {
       final s = rsaNight(11);
       final corr = correctRr(s.rr, rrTsMs: s.t);
       final shuffled = [...corr.nn]..shuffle(math.Random(3));
-      final m =
-          rsaRespRate(shuffled, corr.nnTimesMs, artifactFraction: 0);
+      final m = rsaRespRate(shuffled, corr.nnTimesMs, artifactFraction: 0);
       expect(m.present, isFalse, reason: 'got ${m.value?.brpm}');
       expect(m.confidence, 0);
       expect(m.note, contains('sub-windows'));
@@ -487,9 +487,13 @@ void main() {
         for (final rr in r.rrIntervalsMs) {
           if (rr > 0) rrMs.add(rr.toDouble());
         }
-        green.add(r.ppgGreen.toDouble());
-        red.add(r.spo2RedRaw.toDouble());
-        ir.add(r.spo2IrRaw.toDouble());
+        // Unconfirmed optical inputs read as absent (Build 90); skip them
+        // rather than feed a zero into the optical series.
+        final g = r.ppgGreen, rd = r.spo2RedRaw, irv = r.spo2IrRaw;
+        if (g == null || rd == null || irv == null) continue;
+        green.add(g.toDouble());
+        red.add(rd.toDouble());
+        ir.add(irv.toDouble());
         ts.add((r.tsEpoch - firstTs).toDouble());
       }
       final spanSec = lastTs - firstTs;

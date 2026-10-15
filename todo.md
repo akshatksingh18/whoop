@@ -33,14 +33,16 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
   and controlled expiry recovery. The previously forced-due refresh and current-version enrollment
   do not prove the long-term schedule.
 
-## Build 90 (`0.9.57`/`90`): Source Implementation And Verification
+## Build 90 (`0.9.57`/`90`): All Work Merged, Visual Review Then Release
 
-**State:** implementation approved. Engine/data source and the reviewed Progress/Body/Lift
-workflows exist; Akshat selected A overall with B's compact macro section, then assigned the
-whole interface implementation to Codex on `build-90-codex`. The earlier lane split below is
-historical for those UI files. Claude retains privacy review, integration, publishing, full
-GitHub checks and release packaging. Local synthetic checks do not establish native iPhone
-acceptance or a newly built IPA. The audit's device/operational gates remain open.
+**State:** the Claude lane, the Codex engine/data lane and the calm interface Akshat selected
+(A overall with B's compact macro rows, built by Codex after he assigned it the whole UI) are
+merged on `build-90` (version `0.9.57+90`, algorithm 95, schema 50); no Build 90 IPA is built
+or installed. Akshat chose to ship the whole backlog in `build-90-audit.md` ("Complete
+App-Wide Worklist") in this one build, including the full engine depth, plus a home bodyweight
+workout (`home-workout-proposal.md`). Claude integrates, pushes and runs every GitHub check.
+Next: Akshat's visual approval of the merged pages, the full cloud run, then the release phase.
+Local synthetic checks do not establish native iPhone acceptance.
 
 ### Decisions (Akshat, Build 89 review)
 
@@ -132,13 +134,43 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   maintenance range under 6 weeks, G6 the 10-rep cap). C3: the day's weight is the first
   reading of the day; every reading is kept with its time. Exercise energy stays at the low end of its source and beside maintenance, never
   inside it: lifting and home workouts already use (MET − 1) × weight × time on a separate
-  line. Runs and walks enter maintenance through the step and distance formula, as confirmed
-  by Akshat. D1's local measurement is complete (Codex notes below); the whole-day strain form
-  remains unless Akshat approves a change. No strain-form change is part of this UI work.
-- [x] 1. Engine/data and reviewed UI source implemented; approved A + compact B refinement
-  is on Codex. Remaining integration, final cloud checks and phone gates are below.
-- [ ] 2. Merge (Claude): Codex lane, then Claude lane; `0.9.57+90`; one `kAlgoVersion`
-  decision with its changelog; full GitHub tests; screenshot review of every changed screen.
+  line. Runs and walks stay inside maintenance through the step and distance formula
+  (Akshat: walking is normal daily movement, which that formula was built to include). D1's strain form is chosen later by
+  running the app's own functions over the export.
+- [x] 1. Lanes in parallel: Claude lane on `build-90-claude`, Codex lane on
+  `build-90-codex` (both lane notes below); the early Progress preview was sent.
+- [x] 2a. Merge (Claude): Codex's commits privacy-reviewed, then Codex lane and Claude lane
+  merged into `build-90`; `0.9.57+90`; one `kAlgoVersion` bump (94 → 95, Codex's combined
+  changelog). Integration: Today's clock labels read the recorded zone, LiveFeed takes the
+  movement estimate and speed uncertainty, session writes publish once from the repository.
+  The first merged analysis found five test-file nullability errors from the optical change
+  and three unused imports; fixed.
+- [x] 2b. Full GitHub tests on the merged branch: Linux CI `38734578809` passes 3,853 tests
+  (437 intentional skips; 165 informational lints, no errors or warnings). Eleven older tests
+  were updated to Build 90's contracts (null for unconfirmed sensors, platform-qualified live
+  speed, the new Food card and energy labels, the shared session signal) and
+  `EnergyComparison` joined the ui2 barrel.
+- [x] 2c. First screenshot review (superseded by the calm UI): synthetic captures; the tab
+  bar keeps its labels whole at 2x/3.1x over Food.
+  Akshat's review: Progress looks better; Today, Trends and Food look noisy and inconsistent.
+  Audit findings (not yet fixed): `MetricLine` leaves the empty chart slot's share as dead
+  space at the row's right end, so values float mid-card when a row has no history; rows
+  without a chevron (Today's Food) end further right than the others; units inline with the
+  big number make digits end at different places; the 92-pt uppercase label column wraps
+  labels and splits words ("SKIN TEMPE / RATURE"); every row uses the 30-pt number, so
+  nothing leads; coverage ("7/7 days") repeats on every complete row; Today shows steps,
+  food and maintenance two or three times; Trends' Step calories block breaks the list's
+  pattern; Food's calorie card carries about 20 numbers (eaten, goal, left, maintenance
+  gap, four macros with targets and bars), every food repeats a P/C/F/Fb line, and the
+  maintenance gap repeats in the card below. Today's "resting HR 53 asleep" (joined with
+  non-breaking spaces) now breaks mid-word in the hero card; it moves to its own line in the
+  redesign. Full-page mockups of the proposed Today, Trends, Food and Train, with the current
+  full pages beside them, were made; Akshat then selected Codex's A + compact B composition,
+  which addresses these findings, and assigned the whole UI to Codex.
+- [ ] 2d. Calm UI merged into `build-90` (Codex `f9190e48`, `b11fa463`, `28a5dd2a`): Codex's
+  UI files carry the reviewed Claude-lane source from `1ceba06b`, so the merge takes them
+  whole and keeps the integration fixes. Next: Akshat's visual approval of the merged full
+  pages, then the full GitHub run.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
@@ -181,7 +213,28 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
 
 ### Lane notes
 
-- Claude:
+- Claude: implemented on `build-90-claude` (each with synthetic tests; lane CI passed; merged
+  into `build-90` with the Codex lane; not yet phone-checked):
+  - Progress overview (`goal_review.dart`: one fixed closed-week verdict with its dates and
+    exact missing evidence; Weight/Waist/Strength rows and the inputs line from the same
+    weeks), Body / Strength / Food-training-recovery detail pages with History range,
+    before → now and milestones (`progress_milestones.dart`); `openProgress` opens a detail
+    page over the asking screen so Back returns there.
+  - B90-01 body entry validates every field before writing and reports partial saves; quick
+    weigh-in layout; C3 every weigh-in kept in `body_weight_reading`, the day's weight is its
+    first reading (add or correct; readings listed and deletable). B90-04 goal save recovery.
+  - B90-03 Reduce Motion keeps iOS edge-back; B90-08 large text for the shell (tab labels keep
+    size), titles (Apple Large Title scaling), Progress, Train tiles and section actions;
+    VoiceOver selected states; MetricLine values before sparklines with tap chevrons.
+  - Home workout (Lift asks Gym or Home; Home split; blank Added weight = bodyweight;
+    variation chips; variation-aware last time); finished-set fix/delete (D5).
+  - Train order (start, suggestions, recent, week, pushups); B90-02 `publishSessionChange` on
+    workout log/edit/delete; Today plan card before the HR chart, freshness line opens
+    Status; Trends real dates and pinned favourites (D5); resting HR labelled "asleep".
+  - G6 strength estimate cap 10 reps; G5 Navy ± 3.5%.
+  - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
+    `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
+    while asleep.
 - Codex: Akshat selected A overall with B's compact macro section and approved app
   implementation. This supersedes the earlier D6 single-row macro composition: Food now
   uses the selected B balance ring and four compact nutrient/target rows (protein larger),
@@ -237,9 +290,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   The quoted 24 observations are individually checked in `build-90-audit.md` under
   Current Visual Acceptance. Except the replaced plate, their layout changes remain previews
   to approve under the mockup-first rule; no phone or cloud acceptance is claimed.
-  Claude's merged source is `build-90` / `e7af786e`; integrate only the new Food correction
-  after `28a5dd2a`, retaining the existing combined-source integration fixes. No merge/push or
-  other-worktree edit was done by Codex. All numeric calculations/schema/version are unchanged.
+  Akshat approved a regular local merge after the requested fast-forward proved impossible
+  (`c8ddfb73` and `e7af786e` diverged). Both histories and the integration fixes are preserved
+  on Codex. The six presentation choices and explicit fixes are approved for implementation;
+  Claude will re-render full pages, privacy-review, push and run cloud checks afterward.
+  No reset/rebase, push or other-worktree edit was done. Analytics and schema remain unchanged.
   Task 1 committed as `22d8003f`, ready for Claude: schema 50 implemented; all 4 targeted checks in
   `test/build90_schema_test.dart` pass (v49 migration/idempotency, encrypted full snapshot
   restore/wipe, legacy-export restore, and scoped day export). No full local suite or build.
@@ -364,9 +419,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   time are unchanged after the read. The comparison and local review stay only in ignored
   `build/research-local/strain-comparison.json` and `strain-comparison-review.md`; no private
   values or dates are copied here. The strain formula is unchanged.
-  Research question for Claude: D1 describes a measured quiet reference with a fallback, while
-  current engine/pipeline calls use fixed `quietWakingHrr`. Resolve that discrepancy before
-  interpreting or approving an alternate formula. No invented quiet-day labels: a date without
+  D1 research discrepancy resolved: the shipped code uses the fixed `quietWakingHrr` 0.20 at
+  every call site (the personal level is not wired in), and `build-90-research.md` now says so.
+  The baseline level is a separate approval-gated choice from the whole-day/per-minute form.
+  A1's quality method (HR/60 expected versus retained count) and the sleep-need clamps are
+  confirmed there too. No invented quiet-day labels: a date without
   a recorded workout is only a quiet candidate, and pruned raw cannot reproduce a full day.
   Synthetic 3-/10-year actual-reader profiling found the Steps chart's per-date measured lookup
   as the dominant Progress cost. Food month/day and session readers did not justify caps.

@@ -1,6 +1,6 @@
 # Home Workout In Train (proposal)
 
-**Status:** Planned for Build 90 (Claude lane), awaiting the build's go-ahead; no code exists.
+**Status:** Implemented in Build 90 source (Claude lane, merged on `build-90`); phone check open.
 The source audit and the smallest changes are in `todo.md` ("Home bodyweight workout"), which
 supersede points 2 and 3 below: variations live inside one exercise through its existing setup
 note, now labelled Variation, and a blank Added weight logs a bodyweight-only set, with no new

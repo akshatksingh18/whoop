@@ -22,16 +22,15 @@ repairs the nightly HRV his first Build 88 nights exposed, renames everything th
 names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rate-only, reworks
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
 (`todo.md` Build 89). Build 88 was the previous install. Akshat wants Build 89 as recovery after
-the whole-app review; Build 70 remains cached recovery until that promotion. `build-90-audit.md`
-owns the original visual/source findings and complete backlog. Build 90 engine/data source
-(algorithm 95, schema 50) and the approved A calm framework + B compact macro rows are implemented
-on `build-90-codex`; reviewed Progress/Body/Lift workflows are retained. Akshat assigned the whole
-UI refinement to Codex. Claude retains privacy review, integration, cloud checks and release
-packaging. Akshat clarified that the selected B Food component includes its calorie-balance
-ring; the correction is on Codex after `28a5dd2a` and still needs integration into the merged
-`build-90`. `build-90-audit.md` Current Visual Acceptance records the remaining 24-item review;
-other presentation changes need full-page previews under the mockup-first rule. No new IPA or phone acceptance is established by local synthetic renders; `todo.md`
-owns the current implementation/checks and outstanding gates. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
+the whole-app review; Build 70 remains cached recovery until that promotion. Build 90
+(`0.9.57`/`90`, algorithm 95, schema 50) contains the engine/data work, approved research,
+reviewed Progress/Body/Lift workflows and A overall with B's whole calorie/macro card. Codex
+has combined the integrated `build-90` state (`e7af786e`) with its B-ring correction (`c8ddfb73`)
+on `build-90-codex`. Akshat approved the six follow-up presentation choices and explicit UI
+fixes; their implementation/checks and the remaining full-page review are in `todo.md` and
+`build-90-audit.md`. Claude retains privacy review, cloud checks, integration and release
+packaging. No Build 90 IPA is built or installed; local synthetic renders establish no phone
+acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
 Build 87 checklist. Akshat approved implementation, including a peaceful warm palette. Published
@@ -245,18 +244,18 @@ are phone-verified; the broader lifecycle and signing gates remain open.
 ## Files
 - `build-90-audit.md` — current Build 89 all-tab visual/source audit, targeted synthetic evidence,
   reliability findings, complete app-wide repair/verification/enhancement backlog,
-  feature-preserving Progress redesign and next-build options; read before
-  choosing or implementing the next build. Recommendations are not implementation approval.
+  feature-preserving Progress redesign and next-build options. Its worklist is Build 90's
+  scope, implemented on `build-90`; read it for the reasoning behind each item.
 - `build-90-research-prompt.md` — the Build 90 research brief: engine, sleep, time-zone,
   strain, decoder, background and estimate questions, the source standard and the verdict
   format. A prompt, not findings or approval.
 - `build-90-research.md` — the first Build 90 research pass (Claude, the single research
   agent): a verdict, sources and impact for every brief question, the items needing Akshat's
-  approval and the constants with no source. Read before any Build 90 engine change; it is
-  not implementation approval.
-- `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; planned for Build 90,
-  with the source audit and smallest changes in `todo.md`. Read before changing Lift Log for it.
-- `todo.md` — the decided Build 90 plan (lanes, file ownership, phases, home workout audit),
+  approval and the constants with no source. Akshat's accepted verdicts are implemented in
+  Build 90; read it before any further engine change.
+- `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; implemented in Build 90
+  source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
+- `todo.md` — Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,
@@ -891,6 +890,11 @@ As implementation proceeds, update all affected sources in the same coherent cha
   steps, workouts) or redundant with another screen. Get Akshat's yes per item before deleting it.
   He often wants redundant features gone, but never a core metric lost by accident. Removing a UI
   surface must not stop the underlying computation or storage unless he asks for that too.
+- **Show full-page mockups before building any UI change.** Akshat reviews a visual of every
+  affected page first, shown whole from top to bottom (not only the first screen), with the
+  current page beside it, made with synthetic data, and with the open choices shown as switchable
+  options. He wants visuals that carry meaning (rings, charts, icons, patterns), not only text.
+  UI code changes start after he picks.
 - **Plan first, build on the go-ahead.** For a multi-feature request Akshat wants the plan written
   into `todo.md` (with recommendations and the decisions he must make) and no code changes until he
   says go. Once approved he prefers everything in one build. He wants calorie and step numbers

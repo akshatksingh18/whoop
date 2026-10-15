@@ -190,9 +190,12 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   `build89_food_test.dart` (6), and three selected full Food renders at 1x/2x/3.1x (3).
   Targeted analysis has no errors/warnings; existing curly-brace style infos remain.
   Rendered Food top/lower views were inspected; this is synthetic Windows evidence, not phone
-  acceptance. Shared tab labels still split at 3.1x in this checkout; the shell is Claude-owned.
-  An ownership clarification is pending before Codex edits Today/Trends/Train/Progress or shared
-  components. Until then their implementation remains with Claude under the original contract.
+  acceptance. The reviewed shared tab-label and Reduce Motion fixes are retained for the full UI.
+  Akshat explicitly assigned the whole approved UI task to Codex, including Today, Trends,
+  Train, Progress and shared components. The earlier file split is superseded for this UI
+  implementation; no push, Git merge/rebase/branch switch or other-worktree edit is authorized.
+  Reviewed Build 90 Progress/Body/Lift workflows and their models are carried forward from
+  `1ceba06b` into this checkout so the layout refinement retains those features.
   Claude integration: apply A's overview/illustration/alignment framework, keep fixed goal review
   and all detail routes, fix shared right-edge/chevron/unit layout in MetricLine, retain every
   source feature/gate, and reconcile DESIGN/CLAUDE/audit/D6 to the accepted A+B selection.

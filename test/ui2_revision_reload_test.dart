@@ -227,9 +227,10 @@ void main() {
       // The method body, to its `return` — long enough to hold the whole of
       // any of the three, short enough not to reach the next one.
       final body = src.substring(at, at + 2600);
+      // publishSessionChange() raises the same signal plus Food's (B90-02).
       expect(
         body,
-        contains('bumpInsights()'),
+        matches(RegExp(r'bumpInsights\(\)|publishSessionChange\(\)')),
         reason: '$m writes durable rows and no screen is told',
       );
     }

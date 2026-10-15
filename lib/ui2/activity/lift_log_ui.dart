@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/lift_log.dart';
@@ -20,6 +21,7 @@ import '../../data/lift_progress.dart';
 import '../../data/lift_reminders.dart';
 export '../../data/lift_reminders.dart';
 import '../../gps/workout_clock.dart';
+import '../../state/app_state.dart';
 import '../charts.dart' show LineChart;
 import '../grammar.dart';
 import '../theme.dart';
@@ -180,18 +182,38 @@ class LiftLogController extends ChangeNotifier {
     final w = workout;
     if (w == null) return;
     for (final e in w.exercises) {
-      final k = '${liftNameKey(e.name)}|${e.loadMode.name}';
+      final k = _lastKey(e);
       if (last.containsKey(k)) continue;
       last[k] = await LiftLogDb.lastPerformance(
         e.name,
         e.loadMode,
+        note: e.equipmentNote,
         excludingId: w.id,
       );
     }
   }
 
-  LiftPerformance? lastFor(LiftExercise e) =>
-      last['${liftNameKey(e.name)}|${e.loadMode.name}'];
+  /// Build 90: name, load meaning AND variation, so "last time" and Repeat
+  /// only ever show the same variation.
+  static String _lastKey(LiftExercise e) =>
+      '${liftNameKey(e.name)}|${e.loadMode.name}|${liftNameKey(e.equipmentNote)}';
+
+  LiftPerformance? lastFor(LiftExercise e) => last[_lastKey(e)];
+
+  /// Variations used before for [name] (newest first), for the chips.
+  List<String> variationsOf(String name) =>
+      LiftLogDb.variationsOf(name, history);
+
+  /// Change the variation of an exercise with no sets yet.
+  Future<void> setVariation(String exerciseId, String note) => mutate((w) {
+    final e = w.exercises.firstWhere((x) => x.id == exerciseId);
+    if (e.sets.isNotEmpty) {
+      throw const LiftLogError(
+        'Sets are logged on this variation; add the other variation instead.',
+      );
+    }
+    e.equipmentNote = note.trim();
+  }, activity: false);
 
   /// Earlier sessions of [e] on the same setup, newest first.
   List<ExerciseSession> historyFor(LiftExercise e) =>
@@ -285,11 +307,20 @@ class LiftLogController extends ChangeNotifier {
       _serial(() async {
         final cur = workout;
         if (cur == null) return;
-        if (cur.exercises.any((e) => sameLiftName(e.name, name))) {
+        // Build 90: a second variation of an exercise may be added (push-ups,
+        // then feet-raised push-ups); the same variation twice may not.
+        if (cur.exercises.any(
+          (e) =>
+              sameLiftName(e.name, name) &&
+              liftNameKey(e.equipmentNote) == liftNameKey(note),
+        )) {
           throw LiftLogError('${name.trim()} is already in this workout.');
         }
+        final variationOfOne = cur.exercises.any(
+          (e) => sameLiftName(e.name, name),
+        );
         String? link;
-        final s = split?.copy();
+        final s = variationOfOne ? null : split?.copy();
         if (s != null) {
           final existing = s.exercises
               .where((e) => sameLiftName(e.name, name))
@@ -535,16 +566,26 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
         ? e.sets.last
         : ctl.lastFor(e)?.exercise.sets.firstOrNull;
     if (s == null) return;
-    _load(e.id).text = liftWeightText(s.load);
+    _load(e.id).text = e.loadMode == LiftLoadMode.addedWeight && s.load == 0
+        ? ''
+        : liftWeightText(s.load);
     _reps(e.id).text = '${s.reps}';
     setState(() {});
   }
 
   Future<void> _log(LiftExercise e) async {
-    final load = double.tryParse(_load(e.id).text.trim().replaceAll(',', '.'));
+    final loadText = _load(e.id).text.trim().replaceAll(',', '.');
+    // Build 90: in Added weight a blank weight is a bodyweight set.
+    final load = loadText.isEmpty && e.loadMode == LiftLoadMode.addedWeight
+        ? 0.0
+        : double.tryParse(loadText);
     final reps = int.tryParse(_reps(e.id).text.trim());
     if (load == null || reps == null) {
-      _say('Enter the weight and the reps.');
+      _say(
+        e.loadMode == LiftLoadMode.addedWeight
+            ? 'Enter the reps (leave the weight blank for bodyweight).'
+            : 'Enter the weight and the reps.',
+      );
       return;
     }
     await ctl.logSet(e.id, reps: reps, load: load);
@@ -877,6 +918,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                 ),
               ],
             ),
+            if (open) _variations(c, p, e),
             if (lastP != null) ...[
               const SizedBox(height: S.x2),
               Text(
@@ -973,7 +1015,9 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
                   Expanded(
                     child: OsTextField(
                       controller: _load(e.id),
-                      label: e.loadMode.shortUnit,
+                      label: e.loadMode == LiftLoadMode.addedWeight
+                          ? 'lb added · blank for bodyweight'
+                          : e.loadMode.shortUnit,
                       keyboard: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -1029,6 +1073,87 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// Build 90: the exercise's variations as one-tap chips, so a harder
+  /// version stays one exercise ("Push-up · Feet raised") and compares only
+  /// with itself. Before any set a chip switches this entry's variation;
+  /// after sets it adds the other variation as its own entry, so logged sets
+  /// never change meaning.
+  Widget _variations(BuildContext c, P p, LiftExercise e) {
+    final current = e.equipmentNote.trim();
+    final seen = <String>{liftNameKey(current)};
+    final options = <String>[
+      current,
+      if (current.isNotEmpty && seen.add('')) '',
+      for (final v in ctl.variationsOf(e.name))
+        if (seen.add(liftNameKey(v))) v,
+    ];
+    String label(String v) => v.isEmpty ? 'No variation' : v;
+    Future<void> choose(String v) async {
+      if (liftNameKey(v) == liftNameKey(current)) return;
+      if (e.sets.isEmpty) {
+        await ctl.setVariation(e.id, v);
+      } else {
+        await ctl.addExercise(e.name, e.loadMode, v);
+      }
+      if (ctl.message != null) _say(ctl.message!);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x2),
+      child: Wrap(
+        spacing: S.x2,
+        runSpacing: S.x2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final v in options)
+            Pressable(
+              semanticLabel: liftNameKey(v) == liftNameKey(current)
+                  ? '${label(v)}, selected'
+                  : 'Variation ${label(v)}',
+              onTap: () => choose(v),
+              child: Pill(
+                label(v),
+                liftNameKey(v) == liftNameKey(current) ? C.purple : C.n400,
+              ),
+            ),
+          Pressable(
+            semanticLabel: 'New variation of ${e.name}',
+            onTap: () async {
+              final v = await _askVariation(c, e.name);
+              if (v != null && v.isNotEmpty) await choose(v);
+            },
+            child: Pill('New variation', C.n400, icon: LucideIcons.plus),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _askVariation(BuildContext c, String name) {
+    final t = TextEditingController();
+    return showDialog<String>(
+      context: c,
+      builder: (dc) => AlertDialog(
+        title: Text('New variation of $name'),
+        content: OsTextField(
+          controller: t,
+          label: 'Variation',
+          hint: 'Feet raised, close grip, backpack',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dc).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dc).pop(t.text.trim()),
+            child: const Text('Use it'),
+          ),
+        ],
       ),
     );
   }
@@ -1392,7 +1517,7 @@ Future<LiftSplitExercise?> editLiftExercise(
                 const SizedBox(height: S.x3),
                 OsTextField(
                   controller: note,
-                  label: 'Equipment note (optional)',
+                  label: 'Variation or setup (optional)',
                   hint: 'Which machine, or base resistance unknown',
                 ),
                 const SizedBox(height: S.x5),
@@ -1449,6 +1574,107 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
     } catch (_) {}
   }
 
+  /// Fix or delete one set of this finished log, then tell every open tab.
+  Future<void> _fix(
+    BuildContext c,
+    LiftWorkout w,
+    LiftExercise e,
+    LiftSet s,
+  ) async {
+    final bodyweight = e.loadMode == LiftLoadMode.addedWeight;
+    final load = TextEditingController(
+      text: bodyweight && s.load == 0 ? '' : liftWeightText(s.load),
+    );
+    final reps = TextEditingController(text: '${s.reps}');
+    final r = await _sheet<String>(
+      c,
+      (sc) => [
+        Text('Fix set', style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x1),
+        Text(
+          '${e.name} · logged ${_hm(s.completedAt)}. Only the weight and reps '
+          'change.',
+          style: F.cap.copyWith(color: P.of(sc).ink3),
+        ),
+        const SizedBox(height: S.x4),
+        OsTextField(
+          controller: load,
+          label: bodyweight
+              ? 'lb added · blank for bodyweight'
+              : e.loadMode.shortUnit,
+          keyboard: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        const SizedBox(height: S.x3),
+        OsTextField(
+          controller: reps,
+          label: 'Reps',
+          keyboard: TextInputType.number,
+        ),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Save',
+          color: C.purple,
+          onTap: () => Navigator.of(sc).pop('save'),
+        ),
+        const SizedBox(height: S.x2),
+        BigButton(
+          'Delete set',
+          icon: LucideIcons.trash2,
+          color: C.red,
+          soft: true,
+          onTap: () => Navigator.of(sc).pop('delete'),
+        ),
+      ],
+    );
+    if (r == null || !c.mounted) return;
+    final next = w.copy();
+    try {
+      if (r == 'save') {
+        final text = load.text.trim().replaceAll(',', '.');
+        final l = text.isEmpty && bodyweight ? 0.0 : double.tryParse(text);
+        final n = int.tryParse(reps.text.trim());
+        if (l == null || n == null) {
+          _note(c, 'Enter the weight and the reps.');
+          return;
+        }
+        next.correctFinishedSet(e.id, s.id, reps: n, load: l);
+      } else {
+        final ok = await confirmRemove(
+          c,
+          title: 'Delete this set?',
+          body:
+              '${e.name}: ${e.setText(s)}. Progress comparisons update; the '
+              "workout's time, heart rate and calories do not change.",
+          remove: 'Delete',
+          keep: 'Keep it',
+        );
+        if (!ok) return;
+        next.deleteFinishedSet(e.id, s.id);
+      }
+      if (next.setCount == 0) {
+        await LiftLogDb.delete(next.id);
+      } else {
+        await LiftLogDb.save(next);
+      }
+    } on LiftLogError catch (err) {
+      if (c.mounted) _note(c, err.message);
+      return;
+    } catch (_) {
+      if (c.mounted) _note(c, 'That was not saved. Please try again.');
+      return;
+    }
+    try {
+      if (c.mounted) c.read<AppState>().bumpInsights();
+    } catch (_) {
+      /* no app state above this card (tests, gallery) */
+    }
+    await _load();
+  }
+
+  void _note(BuildContext c, String t) => ScaffoldMessenger.maybeOf(c)
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(t), duration: Motion.notice));
+
   @override
   Widget build(BuildContext c) {
     final w = _w;
@@ -1479,15 +1705,34 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
             ),
             for (final e in w.exercises) ...[
               const SizedBox(height: S.x3),
-              Text(e.name, style: F.body.copyWith(color: p.ink)),
               Text(
-                [
+                e.equipmentNote.isEmpty
+                    ? e.name
+                    : '${e.name} · ${e.equipmentNote}',
+                style: F.body.copyWith(color: p.ink),
+              ),
+              const SizedBox(height: S.x1),
+              // Build 90 (D5): a mistaken set can be fixed after the workout.
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                children: [
                   for (var i = 0; i < e.sets.length; i++)
-                    'S${i + 1} ${e.setText(e.sets[i])}',
-                ].join(' · '),
-                style: F.cap.copyWith(color: p.ink3),
+                    Pressable(
+                      semanticLabel:
+                          'Set ${i + 1}: ${e.setText(e.sets[i])}. Fix',
+                      onTap: () => _fix(c, w, e, e.sets[i]),
+                      child: Pill('S${i + 1} ${e.setText(e.sets[i])}', C.n400),
+                    ),
+                ],
               ),
             ],
+            const SizedBox(height: S.x2),
+            Text(
+              'Tap a set to fix a mistake. Times, heart rate and calories stay '
+              'as recorded.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
             if (_records.isNotEmpty) ...[
               const SizedBox(height: S.x4),
               Text('NEW BESTS', style: F.over.copyWith(color: p.ink3)),

@@ -30,7 +30,6 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
-import 'day_zone_store.dart';
 import 'db.dart';
 import '../health/health_export.dart';
 import 'journal_fields.dart';

@@ -548,7 +548,20 @@ void main() {
       // is asserted as a refusal in its own test below. The rescue itself is
       // unchanged; only a baseline with resolvable dispersion reaches it.
       final tightBase = <double>[
-        52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 49, 55, 53
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        52,
+        49,
+        55,
+        53
       ];
       // minInputs:1 — the subject here is the MAD==0 rescue, not the RD-04
       // minimum-inputs gate (which has its own test below).
@@ -572,8 +585,9 @@ void main() {
       // The measured production failure: [58,58,59] bpm + a 52 bpm night =>
       // MAD 0 => mean/SD fallback on an SD of 0.577 bpm => z = -10.97 =>
       // readiness 99.949 at confidence 0.60. Maximal recovery out of 6 bpm.
-      final m = readinessComposite([rhrInput(52.0, <double>[58, 58, 59])],
-          minInputs: 1, minWeightSum: 0.0);
+      final m = readinessComposite([
+        rhrInput(52.0, <double>[58, 58, 59])
+      ], minInputs: 1, minWeightSum: 0.0);
       expect(m.present, isFalse, reason: 'was: 99.949 at confidence 0.60');
       expect(m.note, contains('need_baseline:have=3,need=14'));
     });
@@ -586,7 +600,20 @@ void main() {
       // clamp (a bounded-but-wrong score at confidence 0.60 is harder to catch
       // than an absurd one).
       final base = <double>[
-        58, 58, 58, 58, 58, 58, 58, 58, 58, 58, 58, 58, 58, 59
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        58,
+        59
       ];
       final m = readinessComposite([rhrInput(52.0, base)],
           minInputs: 1, minWeightSum: 0.0);
@@ -639,7 +666,8 @@ void main() {
         if (firstTs == 0) firstTs = r.tsEpoch;
         lastTs = r.tsEpoch;
         final tMs = r.tsEpoch * 1000.0 + r.tsSubsec;
-        temp.add(AdcSample(tMs, r.skinTempRaw.toDouble()));
+        final skin = r.skinTempRaw; // absent when unconfirmed (Build 90)
+        if (skin != null) temp.add(AdcSample(tMs, skin.toDouble()));
         final a = r.accelG;
         if (a.length == 3) accel.add(AccelSample(tMs, a[0], a[1], a[2]));
       }
@@ -786,7 +814,20 @@ void main() {
       // so the baseline still has more than 1 bpm of SD — below that the input
       // is refused outright rather than scored (A4).
       final base = <double>[
-        55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 58, 51
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        55,
+        58,
+        51
       ];
       final m = readinessComposite([rhrInput(60, base)],
           minInputs: 1, minWeightSum: 0.0);
@@ -798,7 +839,20 @@ void main() {
 
     test('a dispersed baseline still discloses robust-z (median+MAD)', () {
       final base = <double>[
-        50, 52, 54, 56, 58, 60, 62, 51, 53, 55, 57, 59, 61, 63
+        50,
+        52,
+        54,
+        56,
+        58,
+        60,
+        62,
+        51,
+        53,
+        55,
+        57,
+        59,
+        61,
+        63
       ];
       final m = readinessComposite([rhrInput(70, base)],
           minInputs: 1, minWeightSum: 0.0);

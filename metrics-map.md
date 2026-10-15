@@ -509,7 +509,7 @@ an additional statistical confidence claim.
   Metric prefills and food quantity/nutrient editors retain all supplied decimals.
   Sub-minute movement allocation from older minute-level records remains proportional; the
   app cannot reconstruct an exact step timestamp that was never recorded.
-- **Session calories, one number everywhere (build 85, `sessionActiveKcal`):** strength sessions
+- **Main workout UI calories (build 85, `sessionActiveKcal`):** strength sessions
   are (MET − 1) × kg × active hours (3.5 MET weight training, the lowest resistance-training
   Compendium value; heart rate shown as context, never priced, because it overstates lifting and
   Keytel's 57-90% HRmax range does not cover a lifting session's average). Sets and rests are
@@ -521,6 +521,14 @@ an additional statistical confidence claim.
   excluded from this maintenance budget. Treadmill, track intervals, sprinting and hurdles are
   running (distance method, phone motion distance without GPS; best efforts GPS-only).
   Stored daily HR/cadence `calories` and `calories_total` are separate analytics, not Method 1.
+  **Open source discrepancies:** legacy manual/substrate session scoring can persist gross
+  (rest-inclusive) energy in `sessions.calories`, including a 170 cm missing-height assumption,
+  rather than the net estimate recomputed by the main UI. Stored-calorie consumers need a
+  provenance-aware reconciliation; not every historical row has the same meaning. Separately,
+  the other-workout HR/MET selector falls back to MET at zero HR energy but can collapse to
+  almost zero immediately above that boundary. Both are synthetically reproduced, not repaired;
+  see `bugs.md` and `energy-recovery-independent-review.md`. Research recommendations do not
+  change the current 0.143 running coefficient, resting/digestion policy or recovery formula.
 
 **Apple Health:** not used. Steps come from the iPhone's own motion sensor when **This phone →
 Steps** is on; HealthKit stays excluded from the personal build.

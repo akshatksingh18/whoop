@@ -708,6 +708,113 @@ the export (a local test harness), which belongs to Build 90's engine work.
   wrist wake specificity is low (Chinoy). No change.
 - **New stress or spectral thresholds:** no new evidence; no change.
 
+## J. Recovery score sensitivity (second pass, Akshat's review)
+
+Prompted by a real night (values only in the git-ignored local notes): one night's HRV,
+below every night in its baseline, with resting HR, breathing and sleep normal, scored a
+low recovery.
+
+### J1. How the app scores it today
+
+- `readinessComposite` (`packages/analytics/.../wellness/readiness_composite.dart`): each input
+  is a robust z (median and MAD × 1.4826) against its own trailing baseline. The HRV baseline
+  is `ln_rmssd_v2` before the date, at most 28 nights (`_baselineWindowDays`), at least 14.
+- Weights HRV 0.35, RHR 0.25, sleep 0.20, RR 0.12, temp 0.08, renormalised over present
+  inputs. No bound on any input's z except sleep's surplus cap of +1.
+- Score = 100 / (1 + e^(−z̄)), so z̄ = −1 → 27, 0 → 50, +1 → 73.
+- The stored drivers reproduce the score exactly, so this is a property of the method, not a
+  calculation fault. One HRV night at about −2.5 σ carries nearly all of it.
+- The HRV metric page uses the older `rmssd` history, a different and longer series, so it
+  described the same night as mildly low. The two screens disagree by construction.
+
+### J2. Evidence
+
+- **Day-to-day noise of nocturnal HRV.** WHOOP-derived nocturnal lnRMSSD in elite athletes
+  varies about 5.4% week by week (CV; 16 weeks, PMC9505647); ~5–7% in elite endurance athletes
+  and ~10% in recreational runners (Plews-group figures quoted in secondary sources). Buchheit
+  (2014) gives 10–20% for short morning recordings.
+- **Averaging.** Correlations with performance appear only with an average of at least 3–4
+  days; averaging four measures halves the noise (Buchheit 2014). One-week averages tracked
+  adaptation far better than single days (r −0.76 vs −0.17; Plews thesis). Plews et al. 2014
+  (IJSPP): at least 3 valid nights per week. A single day can still carry an acute signal
+  (single-day HRV correlated with next-day HR recovery, PMC7479577; Altini: "today we are
+  down" justifies a small same-week adjustment).
+- **Baselines used in practice.**
+  - HRV-guided training (Kiviniemi, Vesterinen 2016, Javaloyes 2018): a 7-day rolling lnRMSSD
+    against a normal range of mean ± 0.5 SD from a 4-week baseline.
+  - WHOOP: today's HRV against a 30-day baseline; recovery 0–100 with red 0–33, yellow 34–66,
+    green 67–100; member average about 58.
+  - Oura: HRV Balance compares a 14-day weighted average (last 2–5 days weighted more) with a
+    two-month baseline.
+  - Garmin: a 7-night average against a baseline formed over three weeks.
+  - HRV4Training: 7-day moving average; normal band ± 0.5 SD (0.75 SD in Pro); trends over
+    40–60 days.
+- **Composite weights and scale.** No vendor publishes them; no validated public formula
+  exists (I1). The logistic slope of 1 is the app's own calibration.
+
+### J3. Answer and options (decision: Akshat; headline change)
+
+**Answer: Conditional.** A low HRV night is a real signal, so below-average recovery is
+correct, but a single night against a short, tight baseline with an unbounded z produces a
+larger swing than any published practice would act on. The baseline lengthens on its own to
+28 nights as repaired-HRV nights accumulate.
+
+Options, each changing the headline number:
+1. **Recent-night blend for HRV (Oura-like).** HRV input from a recency-weighted mean of the
+   last 3 nights (most weight on last night), against the same baseline. Grounded in the
+   averaging evidence; keeps last night dominant.
+2. **Bound any one input** (for example |z| ≤ 2, the edge of the usual 95% band), so one
+   signal cannot alone move the score past the red line.
+3. **One HRV history everywhere.** The HRV page uses the same `ln_rmssd_v2` 28-night baseline
+   and states the same deviation recovery uses. A consistency fix, no headline change.
+4. **Keep the method; wait for 28 nights.**
+
+Recommendation (revised with Codex's review): options 1 and 2 are not validated settings, and
+the score must not be tuned merely to read higher. Do 3 now, keep the nightly observation as
+the headline, and show the drivers and a labelled recent HRV trend beside it so a low score
+says why. Revisit a headline change once the baseline reaches 28 nights, judged against
+recorded outcomes rather than the score's height.
+
+## K. End-to-end energy verification (second pass)
+
+Akshat's standard: active (above-resting) calories, at the low end but realistic.
+
+| Item | App | Sources | Verdict |
+|---|---|---|---|
+| Resting (BMR) | Mifflin–St Jeor | Frankenfield 2005: most reliable of four equations, within 10% for most non-obese adults, narrowest error | Keep |
+| Walking (steps) | 2.74 J/kg per stride (Weyand 2010), steps ÷ 2, basal subtracted → about 1.9 J/kg/m | Weyand 2010: 2.74 ± 0.12 J/kg/stride net of BMR, 0.4–1.9 m/s; meta-analysis: young adults 2.4 ± 0.4 J/kg/m net (Sci Rep 2019); 2.17 at 1.34 m/s | Low end, inside measured values: keep |
+| Running (Budget, Method 1) | 0.143 mL/kg/m ≈ 0.72 kcal/kg/km | Margaria 1963 ≈ 1 kcal/kg/km; trained runners 1.01–1.07; track 4.20 J/kg/m; ACSM 0.2 within ~4% of measured 1,600 m runs (Hall et al. 2004) | **Very conservative.** About 12% below Minetti 2002's level-running mean (3.40 J/kg/m ≈ 0.81 kcal/kg/km, ten elite mountain runners) and about 28% below Margaria's ≈1. 0.17 mL/kg/m (0.85 kcal/kg/km) is a reasonable conservative candidate (Codex's independent review agrees). Akshat's decision |
+| Running/walking (Movement estimate) | ACSM 0.2 / 0.1 / 0.9 / 1.8, qualified to its speeds | ACSM; Hall 2004; ACSM running can overestimate (88% of 33 adults in one study) | Keep as the second estimate |
+| Run climb | 0.9 mL/kg per vertical metre | ACSM running grade term; walking's is 1.8 | Low end: keep |
+| Lifting | (MET − 1) × kg × h; 3.5 multi-exercise, 3.0 bodyweight, 5.0 squats/deadlift, 3.8 calisthenics | 2024 Compendium 02054 3.5, 02056 3.0, 02052 5.0, 02022 3.8. 1 MET ≈ 1 kcal/kg/h; with a true RMR below 3.5 mL/kg/min, subtracting 1 MET understates net slightly | Verified, low end: keep |
+| Other workouts | lower of Keytel net and (MET − 1) | Keytel 2005 derived on treadmill/cycle at 35–80% VO₂max; mode-sensitive | Keep the lower-of rule |
+| Digestion | 20% protein, 5% carbohydrate, 0% fat, 5% unknown, cap 20% | Tappy 1996 ranges 20–30 / 5–10 / 0–3; mixed diet 5–15% (Westerterp 2004) | Low end: keep |
+| Weight-trend maintenance | 4,858–7,700 kcal/kg under 6 weeks | CALERIE 4,858 (week 4) → 6,041 (week 6) | Keep |
+| **Day total (Budget)** | BMR + net steps + runs + digestion | FAO/WHO/UNU 2004: the lowest lifestyle band (sedentary) is PAL 1.40–1.69; PAL 1.21 is "too low" even for relief feeding; sitting office work PAR 1.5; measured sitting 1.33–1.45 MET (PMC4448542) | **Below realistic.** Nothing prices being awake and upright beyond lying rest, so a typical day lands near PAL 1.2–1.25 |
+
+Recommendations, revised after Codex's independent review
+(`energy-recovery-independent-review.md`):
+1. **No awake multiplier (withdrawn).** Mifflin predicts resting expenditure measured awake;
+   sitting quietly is only slightly above lying (Levine 2000; Miles-Chan 2013), while
+   fidgeting and movement vary widely. The measured 1.33–1.45 MET sitting values are relative
+   to the 3.5 mL/kg/min standard, not to an individual's RMR, so they do not justify a
+   universal 1.2 × BMR. The day total stays a conservative component budget (it omits non-step
+   movement and lifting by design) and must be labelled so; the weight-trend estimate is the
+   realistic total once enough weigh-ins exist.
+2. **Running Budget coefficient to 0.17 mL/kg/m** (from 0.143); the Movement estimate stays
+   ACSM's 0.2. Akshat's approval.
+3. **Two correctness bugs (Codex reproduced; the first confirmed in source):**
+   - `otherWorkoutActiveKcal` returns the MET value when net Keytel ≤ 0 but the smaller of the
+     two as soon as Keytel is barely positive, so a tiny heart-rate change can collapse a
+     session to near zero. It needs a validity rule (Keytel only inside its fitted intensity
+     range, otherwise MET), never a near-zero boundary value.
+   - The legacy stored bout scorer (`packages/analytics/.../workout/calories.dart`) adds a
+     revised Harris–Benedict resting floor and assumes 170 cm when height is missing, so stored
+     workout calories are gross while screens recompute net; stored values feed gap crediting
+     and health export. Stored and shown values should be the same active number.
+4. Steps, Mifflin, lifting and the weight-trend range stay. Digestion stays; fat at 0% and
+   incomplete logging are omissions, not errors.
+
 ## Constants With No Source Found In This Pass
 
 These need a source, a derivation, or removal (or a clear "estimate" label) before Akshat's
@@ -720,11 +827,34 @@ These need a source, a derivation, or removal (or a clear "estimate" label) befo
 | `maximalNetTrimp = 400`, `strainCurvature = 15` | `load_trimp.dart` | The app's own anchor table, not literature; label as calibration |
 | `quietWakingHrr = 0.20` | `load_trimp.dart` | Population placeholder used at every call site; the personal level (`dailyQuietWakingHrr`) is not wired in (D1) |
 | "Functional" 3.5 MET | `profile.dart` | No matching Compendium code found |
+| Recovery score = logistic(z̄) with slope 1; readiness weights 0.35/0.25/0.20/0.12/0.08 | `readiness_composite.dart` | The app's own calibration; no published vendor formula (J) |
+| Running Budget 0.143 mL/kg/m | `profile.dart` | Akshat's chosen coefficient; below measured means (K) |
 
 ## Sources
 
 All accessed 2026-10-14. "Secondary" marks a figure read through an abstract, index or
 summary rather than the full text.
+
+- Second pass (J, K), accessed 2026-10-15:
+  - Nakamura/WHOOP water polo CV study, PMC9505647 (pmc.ncbi.nlm.nih.gov/articles/PMC9505647).
+  - Buchheit M. Monitoring training status with HR measures. *Front Physiol* 2014;5:73.
+  - Plews DJ et al. *Eur J Appl Physiol* 2012 (pubmed 22367011); Plews 2014 *IJSPP* compliance
+    (secondary); Plews thesis, AUT (secondary).
+  - Single vs multi-day HRV and HR recovery, PMC7479577.
+  - Vesterinen 2016 and Javaloyes 2018 HRV-guided training (secondary descriptions).
+  - WHOOP developer docs (developer.whoop.com/docs/developing/user-data/recovery) and The
+    Locker "How does WHOOP recovery work".
+  - Oura Readiness Score support article (support.ouraring.com/hc/en-us/articles/360025589793).
+  - Garmin HRV status manual page; HRV4Training "Interpreting HRV trends" and Altini posts.
+  - Weyand PG et al. *J Exp Biol* 2010;213:3972 (abstract via ResearchGate/ARS).
+  - Metabolic cost of walking meta-analysis, *Sci Rep* 2019 (PMC6620279).
+  - Margaria R et al. *J Appl Physiol* 1963;18:367; cost of transport review figures.
+  - Hall C et al. *Med Sci Sports Exerc* 2004;36:2128 (pubmed 15570150).
+  - Frankenfield D et al. *J Am Diet Assoc* 2005;105:775.
+  - 2024 Adult Compendium (pacompendium.com conditioning exercise; PMC10818145).
+  - FAO/WHO/UNU Human energy requirements 2004, ch. 5 (fao.org/4/y5686e/y5686e07.htm).
+  - Mansoubi et al. sitting/standing MET, PMC4448542.
+  - Keytel LR et al. *J Sports Sci* 2005 (pubmed 15966347).
 
 - Task Force of the ESC/NASPE. Heart rate variability: standards of measurement. *Circulation*
   1996;93:1043–65. https://pubmed.ncbi.nlm.nih.gov/8598068/ (citation only).

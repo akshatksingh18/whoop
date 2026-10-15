@@ -59,6 +59,9 @@ Local synthetic checks do not establish native iPhone acceptance.
   implementation follows its verdicts. Queries never contain Akshat's data. A finding that changes a headline formula (sleep staging, readiness,
   strain baseline) is summarised for Akshat's per-item approval before it merges; findings
   that need phone measurements ship instrumentation and a safe default.
+  Akshat subsequently requested Codex's independent internet review of calories and recovery;
+  this explicit exception is recorded in `energy-recovery-independent-review.md`. Its new
+  recommendations are research only, not additional formula approval.
 - D4 Food counting (B90-10): each counted day keeps the calorie goal it was judged against;
   days before Build 90 freeze at the goal on Build 90's first open (no older goal history
   exists). Manual marks win; "Counted automatically" is labelled apart from "Marked complete".
@@ -171,6 +174,31 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   UI files carry the reviewed Claude-lane source from `1ceba06b`, so the merge takes them
   whole and keeps the integration fixes. Next: Akshat's visual approval of the merged full
   pages, then the full GitHub run.
+  Claude's visual audit of the merged full pages (synthetic, 1x) found, before approval:
+  Today's quick actions are uneven, Food/Steps sub-lines differ ("/2,300", none), the HR range
+  control leaves a gap, maintenance shows "Unavailable" as a number; Trends' Step calories
+  value wraps over three lines and coverage orphans "days" at 30 days; a stray line beside
+  Food's plate, meal totals only on multi-item meals; Train shows Training review, empty
+  week dots beside "2 sessions this week", leftover space under This week and Pushups, and
+  the Import card touching the strain card, still named Health Connect; Progress's Add body
+  entry looks disabled; Body's average-weight card is cramped and milestones show 2-decimal
+  inches; context shows recovery as "72%"; the Recovery page is titled Readiness; Sleep says
+  no hypnogram while listing stages and leaves Fix sleep times outside a card.
+- [ ] Recovery sensitivity (Akshat's Build 89 phone, reported in review; decision open):
+  one night's HRV, below every night in the 14-night repaired-HRV baseline while the other
+  inputs were normal, scored recovery in the high 20s ("Take it easy"). The cause is in the
+  formula, not a calculation fault: the HRV input is a robust z against only 14 nights with
+  a tight spread, it is unbounded, and the composite maps z through an unscaled logistic, so
+  one input at about −2.5 σ carries the score alone. The HRV detail page uses a different,
+  longer history, so it called the same night ordinary. Options for Akshat (headline change,
+  needs his approval and research): a longer or rolling-mean HRV baseline (Plews-style),
+  a bound on any one input's z, and the HRV page using the same window as recovery. The
+  baseline lengthens on its own as repaired-HRV nights accumulate.
+  Researched in `build-90-research.md` J (recovery: recent-night HRV blend, a bound on one
+  input, one HRV history everywhere) and K (energy end to end: steps, Mifflin, lifting,
+  Keytel and digestion verified at the low end; the running Budget coefficient and the
+  day total sit below realistic, with an awake-time cost and 0.17 mL/kg/m proposed). Each
+  headline change waits for Akshat's choice.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
@@ -235,7 +263,18 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: Akshat selected A overall with B's compact macro section and approved app
+- Codex: Independent calorie/recovery review is complete in
+  `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.
+  Two synthetic reproductions remain open: legacy stored workout kcal includes resting energy
+  (and assumes 170 cm when height is missing), and the other-workout HR/MET minimum has a
+  discontinuity around zero net HR. `bugs.md` and `metrics-map.md` qualify those paths.
+  Running 0.17 is a reasonable conservative candidate; a universal awake 1.2 multiplier and
+  exact three-night/two-z recovery tuning are not established by the supplied justification.
+  Existing targeted energy tests pass (28); an ignored synthetic semantics probe passes (1)
+  while reproducing both issues. No private export, formula, schema, algorithm version or
+  dependency changed; no full build/suite, commit, push or phone validation in this review.
+  New numerical behavior remains subject to Akshat's approval.
+  Akshat selected A overall with B's compact macro section and approved app
   implementation. This supersedes the earlier D6 single-row macro composition: Food now
   uses the selected B balance ring and four compact nutrient/target rows (protein larger),
   preserving all four nutrients. The Codex-owned Food implementation is complete in source:

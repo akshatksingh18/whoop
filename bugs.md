@@ -53,6 +53,31 @@ assuming correct):**
 range-loss cases. If the iPhone path fails, fix that path or surface an honest recovery prompt.
 Do not reopen or patch the Android-specific hypotheses above as part of the iPhone work.
 
+## Calorie semantics and HR/MET fallback (open; independently reproduced)
+
+Source examined: `9170201b`, algorithm 95. Research and recommended decisions live in
+`energy-recovery-independent-review.md`; no calculation repair is implemented by that review.
+
+- **Stored workout gross/net mismatch:** `computeManualSessionStats` calls
+  `Calories.estimateBoutCalories`, which includes resting energy below its activity threshold
+  and gross HR energy above it. Manual saves and non-movement substrate re-scoring can persist
+  this in `sessions.calories`, while the main Train/detail UI generally recomputes net energy
+  through `sessionActiveKcal`. Workout-gap credit and health-export code consume stored values;
+  Health export is disabled in the personal build. A synthetic ten-minute resting-HR bout
+  returns about 12.48 kcal, exactly its resting contribution. The legacy call also supplies
+  170 cm when height is unknown. Define provenance and reconcile consumers before any migration;
+  do not subtract resting energy indiscriminately from historical rows already containing net kcal.
+- **Other-workout near-zero cliff:** `otherWorkoutActiveKcal` falls back to MET at nonpositive
+  net HR but selects the smaller estimate as soon as net HR is positive. For a synthetic
+  80 kg, 180 cm, 40-year-old male, 30-minute 4-MET session, a 0.02 bpm increase around the
+  equation's zero crossing changes 120 kcal to about 0.045 kcal. This is a mathematical
+  reproduction, not a personal measurement. A coherent HR validity/fallback policy is required;
+  always choosing the smaller positive estimate is not a realistic lower bound.
+
+Evidence: the ignored `build/research-local/calorie-semantics-probe_test.dart` reproduces both
+behaviors (one passing probe); 28 existing targeted energy checks also pass, demonstrating that
+those arithmetic tests do not validate consistent semantics or physiological accuracy.
+
 ## Build 89 day-strain floor never reached the stored day strain (repaired in Build 90 source)
 
 **Found by the Build 90 local measurement (read-only export, two weeks of retained data).**

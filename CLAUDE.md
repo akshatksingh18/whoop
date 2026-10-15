@@ -254,6 +254,10 @@ are phone-verified; the broader lifecycle and signing gates remain open.
   agent): a verdict, sources and impact for every brief question, the items needing Akshat's
   approval and the constants with no source. Akshat's accepted verdicts are implemented in
   Build 90; read it before any further engine change.
+- `energy-recovery-independent-review.md` — requested independent verification of calorie and
+  recovery research against the current source and additional primary evidence; reproduced
+  gross/net persistence and HR/MET selector issues, qualified recommendations and approval gates.
+  Research only: these recommendations have not changed app formulas.
 - `home-workout-proposal.md` — Akshat's home bodyweight routine analysis; implemented in Build 90
   source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
 - `todo.md` — Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),

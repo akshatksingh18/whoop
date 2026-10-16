@@ -14,8 +14,9 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification: Akshat reports Build `0.9.56`/`89` installed and being tested on
-his iPhone 17 (iOS `26.6.2`). Build 89 (algorithm 93, source `77d6a365`) is published; Linux CI
+**Status:** Active iPhone verification: Akshat reports Build `0.9.57`/`90` installed and being tested on
+his iPhone 17 (iOS `26.6.2`), replacing Build 89; his first Build 90 findings are fixed on `build-90`
+(`todo.md` 3c) for a later build. Build 89 (algorithm 93, source `77d6a365`) is published; Linux CI
 `38494407678` and personal macOS build `38495939393` pass; its IPA left the testing slot when Build 90's
 validated candidate replaced it (reproducible from that run; moved to the Windows Recycle Bin, not
 hard-deleted). It
@@ -35,7 +36,7 @@ points against its usual range with a Recent HRV card (shared with the HRV page)
 screen shows what is left of the day after the amount being chosen, with "Fit what's left".
 `todo.md` and `build-90-audit.md` own checks and the full-page review. Build 90 is published to
 `main` and its validated IPA is the single testing candidate
-`final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57` (source `381dce57` on `main`, Linux CI `38842188574` (3,924 tests, 461 intentional skips), personal macOS build `38846696668`; downloaded IPA SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`, source/version manifest, ZIP CRC and personal payload validation pass); it is not installed yet; local synthetic renders establish no phone
+`final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57` (source `381dce57` on `main`, Linux CI `38842188574` (3,924 tests, 461 intentional skips), personal macOS build `38846696668`; downloaded IPA SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`, source/version manifest, ZIP CRC and personal payload validation pass); Akshat reports it installed. Local synthetic renders establish no phone
 acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -404,7 +405,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds the Build 90 candidate awaiting install (installed Build 89 was not promotable: its phone acceptance and current-version enrollment are unconfirmed), and older candidates are reproducible from their workflow
+`testing\` holds installed Build 90 pending acceptance (Build 89 was not promotable: its phone acceptance and current-version enrollment are unconfirmed), and older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health

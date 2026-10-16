@@ -47,7 +47,8 @@ Personal macOS run `38846696668` passes. Downloaded `whoop-personal-381dce578dd3
 (19,302,243 bytes), SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`,
 matches its source/version manifest and checksum; full ZIP CRC and personal payload validation
 pass (one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57`, not yet installed. Build 89's testing
+`../final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57`; Akshat reports it installed, replacing
+Build 89 on the phone. Current-version automatic-refresh enrollment is not yet confirmed. Build 89's testing
 folder was moved to the Windows Recycle Bin. Build 89 was not promoted to `backup\` because its
 phone acceptance and current-version enrollment are unconfirmed; Build 70 remains accepted recovery.
 

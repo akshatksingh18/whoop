@@ -4,14 +4,14 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`. Build 89 (0.9.56) is installed and being
-> tested as reported by Akshat; it was not cache-promoted (phone acceptance and current-version
-> enrollment unconfirmed), so Build 70 remains cached recovery.
+> enrollment). It is cached in `final-ipas/whoop/backup`. Build 90 (0.9.57) is installed and being
+> tested as reported by Akshat; Build 89 was not cache-promoted (phone acceptance and
+> current-version enrollment unconfirmed), so Build 70 remains cached recovery.
 > [`build-90-audit.md`](build-90-audit.md) owns the original visual/source findings. Build 90
 > (`0.9.57`, algorithm 96) adds the engine/data work, the selected calm interface, Akshat's
 > calorie decisions, the Recovery explanation and the food "After this, today" card; it is
-> published on `main` (`381dce57`) and its validated IPA is the `testing` candidate, not yet
-> installed. Physical acceptance remains open. `todo.md` owns source and verification status.
+> published on `main` (`381dce57`) and its validated IPA is the installed `testing` candidate.
+> Physical acceptance remains open. `todo.md` owns source and verification status.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
 > Builds 86/87 showed it. Build 88 (0.9.55, algorithm 92) and installed Build 89 gate temperature, qualify HRV,

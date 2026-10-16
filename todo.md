@@ -248,9 +248,15 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   run `38495939393`). Build 89 was NOT promoted to `backup\`: `final-ipas/README.md` requires full
   phone acceptance and current-version automatic-refresh enrollment first, neither confirmed, so
   accepted Build 70 stays. D7 waits on those confirmations.
-- [ ] 3b. Install: Akshat makes an encrypted export and copies it to Windows, then installs the
-  testing IPA with Sideloadly over the same identity (`com.akshat.personal.whoop.5564K8D4SV`).
-  Signing of the installed build expires 2026-10-17 17:51.
+- [x] 3b. Install: Akshat reports Build 90 installed on his iPhone (the install renewed signing).
+  Still to confirm: current-version automatic-refresh enrollment for 0.9.57 at
+  `com.akshat.personal.whoop.5564K8D4SV`.
+- [ ] 3c. First Build 90 phone findings, fixed on `build-90` (`853d6b6d`) for the next build
+  (0.9.58+91, kAlgoVersion 97 because detection output changed): his own walk offered as an
+  unlogged effort (suggestions overlapping a done or live session are no longer active); Train
+  card ACSM "Unavailable" vs detail Movement estimate (same fallback and label now); Food
+  calorie card touching the meals panel; Food history This week card vanishing on reload and
+  repeating the Budget figure.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

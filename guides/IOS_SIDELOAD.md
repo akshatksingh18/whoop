@@ -13,7 +13,7 @@ Build `0.9.37`/`70` remains the accepted recovery build: its phone check and com
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.57-build90-381dce57` holds the Build 90 candidate, not yet installed; installed
+`testing\WHOOP-0.9.57-build90-381dce57` holds Build 90, which Akshat reports installed (enrollment to be confirmed); the earlier
 Build 89's folder (run `38495939393`) went to the Recycle Bin and it was not promoted. Build 88's
 (run `38329490196`, superseded on the phone), Build 87's (run `38156663594`) and
 Build 86's former folders were replaced; Build 86's original

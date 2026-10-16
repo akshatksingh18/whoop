@@ -105,7 +105,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
           ? IconButton(
               tooltip: 'Add body entry',
               onPressed: () => _addEntry(c, d),
-              icon: Icon(LucideIcons.plus, color: P.of(c).on(C.teal)),
+              icon: Icon(LucideIcons.plus, color: P.of(c).on(C.body)),
             )
           : null,
     );
@@ -425,7 +425,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     : 'Chart $label',
                 onTap: () => _setMetric(key),
                 child: Center(
-                  child: Pill(label, _metricKey == key ? C.teal : C.n400),
+                  child: Pill(label, _metricKey == key ? C.body : C.n400),
                 ),
               ),
             ),
@@ -504,7 +504,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
                         _trend = i == 1;
                         _cursor = null;
                       }),
-                      color: C.teal,
+                      color: C.body,
                     ),
                   ),
                   const SizedBox(width: S.x2),
@@ -520,7 +520,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(S.x2),
-                      child: Pill(_unit, C.teal),
+                      child: Pill(_unit, C.body),
                     ),
                   ),
                 ],
@@ -556,7 +556,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     size: Size.infinite,
                     painter: LineChart(
                       points,
-                      p.on(C.teal),
+                      p.on(C.body),
                       axis: axis,
                       cursor: cursor,
                       fill: false,

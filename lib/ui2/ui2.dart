@@ -11,6 +11,7 @@ export 'energy_comparison.dart';
 export 'grammar.dart';
 export 'live_hr.dart';
 export 'paint_activity.dart';
+export 'recent_hrv_card.dart';
 export 'revision.dart';
 export 'scroll_hint.dart';
 export 'theme.dart';

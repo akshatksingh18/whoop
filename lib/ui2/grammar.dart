@@ -2240,7 +2240,8 @@ class SubTabs extends StatelessWidget {
         builder: (c, box) {
           final scaler = MediaQuery.textScalerOf(c);
           final dir = Directionality.of(c);
-          var natural = S.x2 * (items.length - 1);
+          // Each option's natural width (label + padding, at least a tap).
+          final widths = <double>[];
           for (final t in items) {
             final tp = TextPainter(
               text: TextSpan(
@@ -2251,15 +2252,27 @@ class SubTabs extends StatelessWidget {
               textScaler: scaler,
               maxLines: 1,
             )..layout();
-            natural += math.max(S.tap, tp.width + 2 * S.x4);
+            widths.add(math.max(S.tap, tp.width + 2 * S.x4));
             tp.dispose();
           }
+          final natural =
+              widths.fold<double>(0, (a, w) => a + w) +
+              S.x2 * (items.length - 1);
           if (box.maxWidth.isFinite && natural <= box.maxWidth) {
+            // Each option keeps its natural width plus an equal share of
+            // what is spare, so no label is ever squeezed ("3 months" was cut
+            // to "3" when the track was split into equal parts). Floored so
+            // rounding can never overflow the row.
+            final spare = ((box.maxWidth - natural) / items.length)
+                .floorToDouble();
             return Row(
               children: [
                 for (var i = 0; i < items.length; i++) ...[
                   if (i > 0) const SizedBox(width: S.x2),
-                  Expanded(child: _segment(c, p, i)),
+                  SizedBox(
+                    width: widths[i] + spare,
+                    child: _segment(c, p, i),
+                  ),
                 ],
               ],
             );

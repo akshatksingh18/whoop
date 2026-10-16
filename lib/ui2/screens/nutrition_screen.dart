@@ -11,6 +11,8 @@
 //   · History: a trailing chart and calendar-month groups of retained entries.
 //   · Foods: the foods and saved meals you log from.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -1672,34 +1674,55 @@ class _Macros extends StatelessWidget {
       ('Fat', day.fat, _targetOf(profile, 'fat_target')),
       ('Fibre', day.fibre, _targetOf(profile, 'fibre_target')),
     ];
-    Widget macro(int i) {
-      final (name, total, target) = rows[i];
+    final valueStyle = F.cap.copyWith(
+      color: p.ink2,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    TextSpan spanOf(int i) {
+      final (_, total, target) = rows[i];
       final amount = total.value == null
           ? '—'
           : '${total.isFloor ? '≥' : ''}${thousands(total.value!)}';
+      return TextSpan(
+        style: valueStyle,
+        children: [
+          TextSpan(
+            text: amount,
+            style: (i == 0 ? F.n17 : F.body).copyWith(
+              color: i == 0 ? p.on(C.food) : p.ink,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          TextSpan(
+            text: target != null && target > 0
+                ? ' / ${thousands(target)} g'
+                : ' g',
+          ),
+        ],
+      );
+    }
+
+    // One value column for all four rows, as wide as the widest value, so
+    // every bar ends at the same x (Build 90 review: the tracks were as long
+    // as each row's own value allowed, so they ended at four places).
+    var valueWidth = 0.0;
+    for (var i = 0; i < rows.length; i++) {
+      final tp = TextPainter(
+        text: spanOf(i),
+        textDirection: Directionality.of(c),
+        textScaler: MediaQuery.textScalerOf(c),
+        maxLines: 1,
+      )..layout();
+      valueWidth = math.max(valueWidth, tp.width.ceilToDouble());
+      tp.dispose();
+    }
+
+    Widget macro(int i) {
+      final (name, total, target) = rows[i];
       final value = Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: amount,
-              style: (i == 0 ? F.n17 : F.body).copyWith(
-                color: i == 0 ? p.on(C.food) : p.ink,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            TextSpan(
-              text: target != null && target > 0
-                  ? ' / ${thousands(target)} g'
-                  : ' g',
-            ),
-          ],
-        ),
+        spanOf(i),
         key: ValueKey('food-macro-$name'),
         softWrap: false,
-        style: F.cap.copyWith(
-          color: p.ink2,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
       );
       final bar = target != null && target > 0 && total.value != null
           ? GoalBar(total.value! / target, color: p.on(C.food), height: 3)
@@ -1732,7 +1755,10 @@ class _Macros extends StatelessWidget {
                   ),
                   Expanded(child: bar),
                   const SizedBox(width: S.x3),
-                  value,
+                  SizedBox(
+                    width: valueWidth,
+                    child: Align(alignment: Alignment.centerRight, child: value),
+                  ),
                 ],
               ),
       );

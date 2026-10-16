@@ -195,6 +195,9 @@ void main() {
 /// this list fails the test above, so the choice has to be made rather than
 /// drifted into.
 const _notComponents = {
+  // Build 90: loads its own nights from the database; the card it draws,
+  // RecentHrvCard, is in the gallery.
+  'RecentHrvSection',
   // Pushups (build 86): each reads the Pushups store or the Home bridge;
   // `build86_pushups_test` covers the domain and the screen.
   'PushupsScreen', 'PushupDayScreen', 'PushupHistoryScreen',

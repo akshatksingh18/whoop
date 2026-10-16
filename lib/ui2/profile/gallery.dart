@@ -55,6 +55,7 @@ import '../ui2.dart';
 // Build 90 Codex lane
 import '../energy_comparison.dart';
 // End Build 90 Codex lane
+import '../screens/food_left.dart' show FitChip, LeftAfterCard;
 import '../screens/today_plan.dart' show PlanRow;
 import '../screens/food_calendar.dart'
     show FoodCalendar, FoodDayMark, FoodWeekStrip;
@@ -423,6 +424,17 @@ Map<String, Widget> goldenCases() => {
     child: EnergyComparison(budget: 1234, acsm: null),
   ),
   // End Build 90 Codex lane
+  // Build 90: Recovery's recent-HRV card (synthetic nights).
+  'recent_hrv_card': RecentHrvCard((
+    nights: [
+      for (final (i, ms) in const [56.0, 58.0, 54.0, 57.0, 59.0, 55.0, 53.0, 58.0, 57.0, 56.0, 54.0, 57.0, 55.0, 41.0].indexed)
+        (date: '2026-08-${(i + 1).toString().padLeft(2, '0')}', ms: ms),
+    ],
+    usual: (lo: 52.0, hi: 60.0),
+    avg7: 54.0,
+    last: 41.0,
+    lastDate: '2026-08-14',
+  )),
   'calorie_pair': const Surface(child: CaloriePair(budget: 1234, acsm: 1456)),
   'calorie_pair_missing': const Surface(
     child: CaloriePair(budget: 1234, acsm: null),
@@ -752,6 +764,22 @@ Map<String, Widget> _nutritionAndWellnessCases() {
     'calorie_card': const CalorieCard(eaten: 1540, goal: 2000),
     'calorie_card_over': const CalorieCard(eaten: 2210, goal: 2000),
     'calorie_card_no_goal': const CalorieCard(eaten: 820, goal: null),
+    // Build 90: the food screen's "After this, today" and its fit chip.
+    'left_after_card': LeftAfterCard(
+      day: rollupDay('2026-08-14', const [known, bare], today: '2026-08-15'),
+      kcalGoal: 2000,
+      proteinGoal: 140,
+      thisKcal: 232,
+      thisProtein: 18,
+    ),
+    'left_after_card_over': LeftAfterCard(
+      day: rollupDay('2026-08-14', const [known], today: '2026-08-15'),
+      kcalGoal: 600,
+      proteinGoal: null,
+      thisKcal: 480,
+      thisProtein: null,
+    ),
+    'fit_chip': FitChip(label: '243 g', onTap: () {}),
     // One row of Today's plan (build 86): progress and its one action.
     'plan_row': Surface(
       child: PlanRow(

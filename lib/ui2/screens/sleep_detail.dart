@@ -1317,7 +1317,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           const SizedBox(width: S.x3),
           Expanded(child: name),
           const SizedBox(width: S.x3),
-          Flexible(child: value),
+          // The name takes the spare room, so values end at the right edge
+          // (as a Flexible it took half the row and floated mid-card).
+          value,
         ],
       );
     }

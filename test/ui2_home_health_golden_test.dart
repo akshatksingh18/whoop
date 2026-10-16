@@ -643,6 +643,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('Too few clean beats'), findsOneWidget);
-    expect(find.text('Not measured'), findsOneWidget);
+    // Build 90 (D8): a missing input says so, in the approved words.
+    expect(find.text('Unavailable, not counted'), findsOneWidget);
   });
 }

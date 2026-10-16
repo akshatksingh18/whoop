@@ -1021,7 +1021,7 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
           : '${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit';
       return PlanRow(
         icon: LucideIcons.scale,
-        color: C.teal,
+        color: C.body,
         title: _tapeDue
             ? 'Measurement day'
             : _today
@@ -1067,7 +1067,7 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
                 if (_tapeDue)
                   Text(
                     'Measurement day: take your tape today',
-                    style: F.cap.copyWith(color: p.on(C.teal)),
+                    style: F.cap.copyWith(color: p.on(C.body)),
                   ),
               ],
             ),
@@ -1083,7 +1083,7 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
                 );
                 if (changed == true) reload();
               },
-              child: Pill('Measure', C.teal, icon: LucideIcons.ruler),
+              child: Pill('Measure', C.body, icon: LucideIcons.ruler),
             ),
           if (!_today)
             Pressable(
@@ -1096,7 +1096,7 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
                 );
                 if (changed == true) reload();
               },
-              child: Pill('Weigh in', C.teal, icon: LucideIcons.plus),
+              child: Pill('Weigh in', C.body, icon: LucideIcons.plus),
             ),
           const SizedBox(width: S.x2),
           Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
@@ -1536,7 +1536,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                         }),
                         child: Padding(
                           padding: const EdgeInsets.all(S.x3),
-                          child: Pill(_unit, C.teal),
+                          child: Pill(_unit, C.body),
                         ),
                       ),
                     ],
@@ -1622,7 +1622,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                             onTap: () => _addPhoto(pose, camera: true),
                             child: Pill(
                               'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
-                              C.teal,
+                              C.body,
                               icon: LucideIcons.camera,
                             ),
                           ),
@@ -1679,7 +1679,7 @@ class _Thumb extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: R.rMd,
                 border: Border.all(
-                  color: selected ? p.on(C.teal) : p.line,
+                  color: selected ? p.on(C.body) : p.line,
                   width: selected ? 2 : 1,
                 ),
               ),
@@ -1758,7 +1758,7 @@ class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
                 decoration: BoxDecoration(
                   borderRadius: R.rLg,
                   border: Border.all(
-                    color: _active == side ? p.on(C.teal) : p.line,
+                    color: _active == side ? p.on(C.body) : p.line,
                     width: _active == side ? 2 : 1,
                   ),
                 ),
@@ -1841,7 +1841,7 @@ class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
                     Pressable(
                       semanticLabel: 'Show $label',
                       onTap: () => setState(() => _pose = k),
-                      child: Pill(label, _pose == k ? C.teal : C.n400),
+                      child: Pill(label, _pose == k ? C.body : C.n400),
                     ),
                   Text(
                     'Picking for the ${_active == 0 ? 'left' : 'right'}',
@@ -2284,7 +2284,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                         ),
                         Pill(
                           _reminder ? 'On' : 'Off',
-                          _reminder ? C.teal : C.n400,
+                          _reminder ? C.body : C.n400,
                         ),
                       ],
                     ),
@@ -2304,7 +2304,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                               setState(() => _hour = h);
                               await _setReminder(true);
                             },
-                            child: Pill('$h:00', _hour == h ? C.teal : C.n400),
+                            child: Pill('$h:00', _hour == h ? C.body : C.n400),
                           ),
                       ],
                     ),
@@ -2438,7 +2438,7 @@ class _GoalScreenState extends State<GoalScreen> {
                 Icon(
                   on ? LucideIcons.circleDot : LucideIcons.circle,
                   size: 18,
-                  color: on ? p.on(C.teal) : p.ink3,
+                  color: on ? p.on(C.body) : p.ink3,
                 ),
                 const SizedBox(width: S.x3),
                 Expanded(
@@ -2559,7 +2559,7 @@ class _GoalScreenState extends State<GoalScreen> {
             : _saveError != null
             ? 'Try again'
             : 'Use this goal from today',
-        color: C.teal,
+        color: C.body,
         onTap: _saving ? null : () => _save(c),
       ),
     ]);

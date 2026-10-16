@@ -566,9 +566,16 @@ class CaloriePair extends StatelessWidget {
     this.compact = false,
     this.budgetParts = const [],
     this.acsmParts = const [],
+    this.acsmQualified = true,
   });
   final double? budget, acsm;
   final String note;
+
+  /// Whether [acsm] is the ACSM equation inside its supported speeds. False
+  /// labels it a Movement estimate (same equation, outside them), exactly as
+  /// the session detail does (Build 90: the Train card said "ACSM ·
+  /// Unavailable" beside a detail page showing the estimate).
+  final bool acsmQualified;
   final bool compact;
   final List<(String, double)> budgetParts, acsmParts;
   @override
@@ -643,7 +650,13 @@ class CaloriePair extends StatelessWidget {
           children: [
             column('Budget', 'Method 1 · steps', budget, C.green, budgetParts),
             const SizedBox(width: S.x5),
-            column('ACSM', 'Standard · distance', acsm, C.teal, acsmParts),
+            column(
+              acsmQualified ? 'ACSM' : 'Movement estimate',
+              acsmQualified ? 'Standard · distance' : 'Estimate · distance',
+              acsm,
+              C.teal,
+              acsmParts,
+            ),
           ],
         ),
         if (note.isNotEmpty) ...[

@@ -7975,7 +7975,15 @@ class DerivationEngine {
       final savedSpans = <ana.SavedWorkoutSpan>[
         for (final r in saved)
           if (r['start_ts'] is int && r['end_ts'] is int)
-            ana.SavedWorkoutSpan(r['start_ts'] as int, r['end_ts'] as int),
+            ana.SavedWorkoutSpan(r['start_ts'] as int, r['end_ts'] as int)
+          // Build 90: a workout still running has no end yet; it covers
+          // everything from its start up to the data edge, so its own effort
+          // is never offered back as "spotted but not logged".
+          else if (r['start_ts'] is int && r['end_ts'] == null)
+            ana.SavedWorkoutSpan(
+              r['start_ts'] as int,
+              math.max(r['start_ts'] as int, dataNowSec),
+            ),
       ];
       final rhr = rhrScalar?.round();
       // Auto-detection needs a real resting-HR baseline. Without one the detector

@@ -3633,12 +3633,23 @@ class LocalDb {
   }
 
   /// Active (not-yet-dismissed, not-yet-confirmed) suggestions, newest first.
+  ///
+  /// Build 90: a suggestion whose window overlaps any logged session — done
+  /// or still live — is not active. The detector skips saved windows, but a
+  /// derive that ran DURING a live workout (no end yet) could still file the
+  /// workout's own effort as "spotted but not logged", and stopping the
+  /// workout never retired it. Filtering here clears those, including rows
+  /// already stored, for the list, the review screen and the notification.
   static Future<List<Map<String, dynamic>>> activeWorkoutSuggestions() async {
     final db = await instance;
-    return db.query(
-      'workout_suggestions',
-      where: 'dismissed = 0',
-      orderBy: 'start_ts DESC',
+    return db.rawQuery(
+      'SELECT w.* FROM workout_suggestions w '
+      'WHERE w.dismissed = 0 AND NOT EXISTS ('
+      '  SELECT 1 FROM sessions s '
+      '  WHERE s.start_ts < w.end_ts '
+      '    AND (s.end_ts IS NULL OR s.end_ts > w.start_ts)'
+      ') '
+      'ORDER BY w.start_ts DESC',
     );
   }
 

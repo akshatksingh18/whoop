@@ -1364,6 +1364,7 @@ class _HistoryRow extends StatelessWidget {
             CaloriePair(
               budget: w.calories?.toDouble(),
               acsm: w.acsmCalories,
+              acsmQualified: w.acsmQualified,
               compact: true,
               note:
                   'Active calories above resting; counted once in maintenance.',
@@ -1473,7 +1474,7 @@ class _HistoryRow extends StatelessWidget {
               (caloriesLabel, grouped(w.calories!), 'kcal'),
             if (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
               (
-                'ACSM · active',
+                w.acsmQualified ? 'ACSM · active' : 'Movement estimate · active',
                 w.acsmCalories == null ? '—' : grouped(w.acsmCalories!),
                 'kcal',
               ),
@@ -2176,6 +2177,10 @@ class _PastWorkout {
   final int? calories, avgHr, maxHr;
   final double? acsmCalories;
 
+  /// [acsmCalories] is ACSM inside its supported speeds (else the same
+  /// equation as a Movement estimate, as the session detail labels it).
+  final bool acsmQualified;
+
   /// `sessions.hrr_bpm` — the bpm drop in the 60 s after the session. Carried
   /// from the list row because that is where the repository already serves it.
   final int? hrr60;
@@ -2216,6 +2221,7 @@ class _PastWorkout {
     this.strain,
     this.calories,
     this.acsmCalories,
+    this.acsmQualified = true,
     this.avgHr,
     this.maxHr,
     this.hrr60,
@@ -2436,7 +2442,10 @@ Future<List<_PastWorkout>> _pastWorkouts(
                     meanHr: (r['avg_hr'] as num?)?.toDouble(),
                     catalogueMet: a.met,
                   )?.round(),
-            acsmCalories: measured?.acsm(a.typeKey),
+            acsmCalories:
+                measured?.acsm(a.typeKey) ??
+                measured?.movementEstimate(a.typeKey),
+            acsmQualified: measured?.acsm(a.typeKey) != null,
             // The session's mean over its own HR stream, computed by the repo
             // — not the last sample anybody happened to see.
             avgHr: (r['avg_hr'] as num?)?.round(),

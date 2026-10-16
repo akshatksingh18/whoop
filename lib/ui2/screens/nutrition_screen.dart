@@ -144,8 +144,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         _historyMonths = months;
         _foods = foods;
         _meals = meals;
-        _maintenance = {};
-        _acsmMaintenance = {};
+        // The previous estimates stay on screen until the new ones land
+        // (Build 90 phone review: clearing them here made the This week card
+        // and the chart's maintenance lines vanish on every reload).
         _runs = runs;
         _weights = weights;
         _loading = false;
@@ -359,7 +360,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _weightCard(c, p, pr, days),
-        if (_calorieLoading)
+        if (_calorieLoading && _maintenance.isEmpty)
           Text(
             'Updating historical calorie estimates…',
             style: F.cap.copyWith(color: p.ink3),
@@ -379,9 +380,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
               children: [
                 Text('This week', style: F.over.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x2),
+                // Build 90 review: each number once, each label saying what it
+                // is. The Budget/Movement pair under it repeated AVG BUDGET
+                // without saying it was an average.
                 InlineMetrics([
                   (
-                    deficit >= 0 ? 'DEFICIT' : 'SURPLUS',
+                    deficit >= 0 ? 'WEEK DEFICIT' : 'WEEK SURPLUS',
                     thousands(deficit.abs()),
                     deficit >= 0 ? C.green : C.red,
                   ),
@@ -389,16 +393,16 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                   ('AVG BUDGET', thousands(mSum / counted), C.steps),
                 ]),
                 const SizedBox(height: S.x2),
-                EnergyComparison(
-                  budget: mSum / counted,
-                  acsm: acsmCount == counted ? acsmSum / counted : null,
-                  compact: true,
-                  note: 'Average maintenance on these completed days.',
-                ),
                 Text(
-                  '$counted completed day${counted == 1 ? '' : 's'} · estimated maintenance. '
-                  'Today and detectably incomplete logs are excluded.',
-                  style: F.cap.copyWith(color: p.ink3),
+                  [
+                    'Per day on $counted completed '
+                        'day${counted == 1 ? '' : 's'}; the deficit is their total.',
+                    if (acsmCount == counted)
+                      'Movement estimate averages '
+                          '${thousands(acsmSum / counted)} kcal a day on the same days.',
+                    'Today and detectably incomplete logs are excluded.',
+                  ].join(' '),
+                  style: F.cap.copyWith(color: p.ink2, height: 1.4),
                 ),
               ],
             ),
@@ -1328,6 +1332,9 @@ class _NutritionDayViewState extends State<NutritionDayView>
             if (mounted) await _changed();
           },
         ),
+        // The same gap as every other card pair (Akshat's Build 90 phone
+        // review: the meals panel sat flush against the calorie card).
+        const SizedBox(height: S.x3),
         // Build 88 (mock `3-food`): the meals as rows of one panel, the day's
         // completion line closing it, and log-again under it.
         Surface(

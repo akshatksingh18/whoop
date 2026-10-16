@@ -257,6 +257,16 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   card ACSM "Unavailable" vs detail Movement estimate (same fallback and label now); Food
   calorie card touching the meals panel; Food history This week card vanishing on reload and
   repeating the Budget figure.
+- [ ] 3d. Progress time rule (Akshat, Build 90 phone): the overview judges the last 2 closed
+  weeks against the 2 before and ignores the current week ("No weigh-in in Sep 28–Oct 11"
+  while this week has weigh-ins); the detail pages say "Last week vs the week before" but
+  show one period, and their ranges mix closed weeks, the previous calendar month and
+  rolling days to today; the goal card leads with "Not enough to judge" and says "judged
+  after two weeks (8 more days)" although the check needs 4 closed weeks of 5 weigh-ins and
+  5 food days. Proposal on the canvas (`ProgressFix.dc.html`): a compact goal card (first
+  check date from real data, this week's evidence), one time rule that includes today with
+  both numbers side by side, A calendar week so far vs the same days last week, or B rolling
+  7/28/90 days. The goal check rules stay. Waiting on Akshat's pick.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

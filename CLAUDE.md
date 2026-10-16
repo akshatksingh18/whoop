@@ -16,8 +16,9 @@ remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification: Akshat reports Build `0.9.56`/`89` installed and being tested on
 his iPhone 17 (iOS `26.6.2`). Build 89 (algorithm 93, source `77d6a365`) is published; Linux CI
-`38494407678` and personal macOS build `38495939393` pass and its validated IPA is the single
-candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, installed but not yet cache-promoted. It
+`38494407678` and personal macOS build `38495939393` pass; its IPA left the testing slot when Build 90's
+validated candidate replaced it (reproducible from that run; moved to the Windows Recycle Bin, not
+hard-deleted). It
 repairs the nightly HRV his first Build 88 nights exposed, renames everything the app shows or
 names from OpenStrap to WHOOP, makes steps phone-only and live streams heart-rate-only, reworks
 Progress and the Food card, counts food days automatically and adds an AI-analysis export
@@ -32,7 +33,9 @@ rows). The remaining Build 90 UI audit items are fixed. Claude now carries all r
 work (Codex is no longer needed). Akshat's mockup picks are built: Recovery explains each input's
 points against its usual range with a Recent HRV card (shared with the HRV page), and the food
 screen shows what is left of the day after the amount being chosen, with "Fit what's left".
-`todo.md` and `build-90-audit.md` own checks and the full-page review. No Build 90 IPA is built or installed; local synthetic renders establish no phone
+`todo.md` and `build-90-audit.md` own checks and the full-page review. Build 90 is published to
+`main` and its validated IPA is the single testing candidate
+`final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57` (source `381dce57` on `main`, Linux CI `38842188574` (3,924 tests, 461 intentional skips), personal macOS build `38846696668`; downloaded IPA SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`, source/version manifest, ZIP CRC and personal payload validation pass); it is not installed yet; local synthetic renders establish no phone
 acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the
@@ -147,7 +150,7 @@ Accepted `0.9.37`/`70` (commit `d8fc8eea`) is **installed and phone-accepted**
 (Linux tests and the macOS workflow passed; the IPA matches its SHA-256 and passes the validator;
 cached under `final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`). Akshat confirmed the
 phone check, including build 69's, and completed automatic-refresh enrollment for `0.9.37` at
-`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds installed Build 89 pending promotion; earlier candidates are superseded.
+`com.akshat.personal.whoop.5564K8D4SV` with no install error. `testing\` now holds the uninstalled Build 90 candidate; earlier candidates are superseded.
 It adds:
 - **Charts:** the 30-day drag bug is fixed. The dotted version marks sat on top of the chart and
   swallowed touches. In the personal build those marks, the locked-range line and the Worn bars are
@@ -401,7 +404,7 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds installed Build 89 pending acceptance and the requested recovery promotion, and older candidates are reproducible from their workflow
+`testing\` holds the Build 90 candidate awaiting install (installed Build 89 was not promotable: its phone acceptance and current-version enrollment are unconfirmed), and older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health

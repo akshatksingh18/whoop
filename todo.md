@@ -242,8 +242,15 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   spacing audit on every page (section headings had 39-53 pt above them against 12 pt
   between cards; heading padding 24/12 → 12/8 and duplicate spacers removed, now about
   16-29 pt). Canvas board `FinalReview.dc.html` holds the current renders.
-- [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
-  validation and the single testing candidate.
+- [x] 3. Release build: Akshat approved ("get the IPA"); `build-90` fast-forwarded to `main`
+  at `381dce57`; source `381dce57` on `main`, Linux CI `38842188574` (3,924 tests, 461 intentional skips), personal macOS build `38846696668`; downloaded IPA SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`, source/version manifest, ZIP CRC and personal payload validation pass. Single testing candidate `final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57`.
+  Build 89's testing folder went to the Windows Recycle Bin (one-candidate rule; rebuildable from
+  run `38495939393`). Build 89 was NOT promoted to `backup\`: `final-ipas/README.md` requires full
+  phone acceptance and current-version automatic-refresh enrollment first, neither confirmed, so
+  accepted Build 70 stays. D7 waits on those confirmations.
+- [ ] 3b. Install: Akshat makes an encrypted export and copies it to Windows, then installs the
+  testing IPA with Sideloadly over the same identity (`com.akshat.personal.whoop.5564K8D4SV`).
+  Signing of the installed build expires 2026-10-17 17:51.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
@@ -555,7 +562,7 @@ whatever their interval. The Build 88 250 ms adjacency rule rejected most succes
 real nights the nightly HRV was absent on 6 and biased low on the other 7. At 1000 ms (one record)
 all 13 qualify and agree closely with algorithm 91. Published as source `77d6a365`
 (algorithm 93); Linux CI `38494407678` (3,719 tests, 427 intentional skips) and personal macOS
-build `38495939393` pass, and the validated IPA is the single candidate in `final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`
+build `38495939393` pass; its validated IPA was the testing candidate until Build 90 replaced it
 (`setup.md`). Akshat reports it installed and is testing it. The requested recovery promotion
 follows the whole-app audit; Build 70 remains cached recovery in the meantime.
 

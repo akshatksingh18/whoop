@@ -35,6 +35,22 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 90 Candidate
+
+Source `381dce578dd372a2db2227d34ab1e74a98c064dc`, version `0.9.57+90`, algorithm 96, schema 50,
+is published to `akshatksingh18/whoop` (`main`, fast-forwarded from `build-90`) with Akshat's
+go-ahead. Linux CI `38842188574` passes 3,924 tests (461 intentional skips) with no analysis
+errors or warnings; the personal-iOS check and its 9 contract tests pass. Fixtures are synthetic
+and the outgoing history was scanned for personal data.
+
+Personal macOS run `38846696668` passes. Downloaded `whoop-personal-381dce578dd3-unsigned.ipa`
+(19,302,243 bytes), SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`,
+matches its source/version manifest and checksum; full ZIP CRC and personal payload validation
+pass (one `Runner.app`, no extension, no Watch app). It is the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57`, not yet installed. Build 89's testing
+folder was moved to the Windows Recycle Bin. Build 89 was not promoted to `backup\` because its
+phone acceptance and current-version enrollment are unconfirmed; Build 70 remains accepted recovery.
+
 ## Build 89 Candidate
 
 Source `77d6a3658f58a50f90d7193fec5b638ec40dd0cd`, version `0.9.56+89`, is published to
@@ -50,7 +66,7 @@ Personal macOS run `38495939393` passes. Downloaded
 `whoop-personal-77d6a3658f58-unsigned.ipa` (19,114,834 bytes), SHA-256
 `cdf3d195346dd334d8215a18d7c25e9667a6dcb9aca537256b1a2907b00a9674`, matches its source/version manifest and checksum.
 Full ZIP CRC and personal payload validation pass. The single testing candidate is
-`../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365`, replacing Build 88's folder after validation.
+`../final-ipas/whoop/testing/WHOOP-0.9.56-build89-77d6a365` until Build 90's candidate replaced it.
 Akshat reports Build 89 installed and being tested, superseding Build 88. He wants it to become
 recovery after the whole-app audit; the cache remains unchanged, with Build 70 accepted recovery.
 Current-version enrollment, identity/data continuity, remaining feature/soak/refresh gates and

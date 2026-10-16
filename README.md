@@ -4,14 +4,14 @@
 > personal target is an iPhone-only minimal release/AOT IPA installed directly with Sideloadly. Its
 > deterministic build profile and public manual workflow produced the accepted build `0.9.37` build
 > `70` (installed over build 69; Akshat confirmed the phone check and current-version refresh
-> enrollment). It is cached in `final-ipas/whoop/backup`; `testing` holds the Build 89 candidate
-> (0.9.56), installed and being tested as reported by Akshat, superseding Build 88. Recovery-cache
-> promotion is requested after the whole-app review; Build 70 remains cached recovery meanwhile.
+> enrollment). It is cached in `final-ipas/whoop/backup`. Build 89 (0.9.56) is installed and being
+> tested as reported by Akshat; it was not cache-promoted (phone acceptance and current-version
+> enrollment unconfirmed), so Build 70 remains cached recovery.
 > [`build-90-audit.md`](build-90-audit.md) owns the original visual/source findings. Build 90
-> (`0.9.57`) contains the engine/data work and selected A + B interface; the integrated source
-> and B calorie-balance ring are combined on `build-90-codex`. The six approved follow-up choices, explicit layout fixes and HR scrub-boundary repair
-> are implemented locally. Full-page review, cloud/native checks and physical acceptance remain open;
-> no Build 90 IPA is built or installed. `todo.md` owns source and verification status.
+> (`0.9.57`, algorithm 96) adds the engine/data work, the selected calm interface, Akshat's
+> calorie decisions, the Recovery explanation and the food "After this, today" card; it is
+> published on `main` (`381dce57`) and its validated IPA is the `testing` candidate, not yet
+> installed. Physical acceptance remains open. `todo.md` owns source and verification status.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;
 > Builds 86/87 showed it. Build 88 (0.9.55, algorithm 92) and installed Build 89 gate temperature, qualify HRV,

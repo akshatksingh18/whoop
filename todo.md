@@ -235,7 +235,13 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     amount using up the calories left (rounded down: whole g/ml, half units). Ticked
     companions count; an edited entry counts once; no goal hides it; an unknown item makes
     it "at most". `lib/ui2/screens/food_left.dart`, `build90_food_left_test.dart`.
-- [ ] 2h. Full-page re-render of every page for Akshat's approval, then step 3.
+- [ ] 2h. Full-page re-render of every page for Akshat's approval, then step 3. Review fixes so
+  far: segmented controls keep every label whole ("3 months" had rendered as "3"; natural
+  width plus an equal share of the spare, `subtabs_fit_test.dart`); Food macro bars end at
+  one x; Sleep stage values right-aligned; Progress/Body in the body colour (was teal);
+  spacing audit on every page (section headings had 39-53 pt above them against 12 pt
+  between cards; heading padding 24/12 → 12/8 and duplicate spacers removed, now about
+  16-29 pt). Canvas board `FinalReview.dc.html` holds the current renders.
 - [ ] 3. Release: promote Build 89 to `final-ipas/whoop/backup/` (D7); personal macOS build,
   validation and the single testing candidate.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90

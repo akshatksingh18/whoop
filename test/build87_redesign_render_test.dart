@@ -1595,10 +1595,10 @@ void main() {
               !['progress_body', 'progress_context'].contains(name))
             return;
           final first = find.text(
-            name == 'progress_body' ? 'Start' : 'Calories',
+            name == 'progress_body' ? 'Start' : 'Calories / day',
           );
           final second = find.text(
-            name == 'progress_body' ? 'Latest' : 'Protein',
+            name == 'progress_body' ? 'Latest' : 'Protein / day',
           );
           if (first.evaluate().isEmpty || second.evaluate().isEmpty) return;
           // Build 90: Body shows more than one comparison block, so compare

@@ -185,9 +185,9 @@ class _ProgressDetailState extends State<_ProgressDetail>
           ..._liftMilestones(c, p, d, from, to),
         ],
         _DetailKind.context => [
-          ..._foodSection(c, p, d, from, to),
+          ..._foodSection(c, p, d, from, to, _comparable(per)),
           // The next Section brings its own space above its heading.
-          ..._activitySection(c, p, d, from, to),
+          ..._activitySection(c, p, d, from, to, _comparable(per)),
         ],
       },
     ];
@@ -348,7 +348,9 @@ class _ProgressDetailState extends State<_ProgressDetail>
   /// The page's one period: four tabs, the rest under More.
   Widget _periodPicker(BuildContext c, P p) => SubTabs(
     // "Start" here; the line under the tabs says what it compares.
-    const ['Week', 'Month', '3 months', 'Start'],
+    // "Start" fits the four in one row; the line under the tabs says
+    // "Since …" with the date.
+    const ['7 days', '30 days', '3 months', 'Start'],
     _mainPeriods.indexOf(_range),
     (i) {
       setState(() {
@@ -952,12 +954,29 @@ class _ProgressDetailState extends State<_ProgressDetail>
 
   // ── food ──
 
+  /// The equal-length period before the one shown, or null where the page
+  /// shows a span that has no equal "before" (Since start, All).
+  DayWindow? _comparable(ProgressPeriod per) =>
+      _range == ProgressRange.sinceStart || _range == ProgressRange.all
+      ? null
+      : per.before;
+
+  PeriodInputs _inputsOf(ProgressData d, DayWindow w) => periodInputs(
+    w,
+    food: d.food,
+    steps: d.steps,
+    sleepMin: d.sleepMin,
+    recovery: d.recovery,
+    sessions: d.sessions,
+  );
+
   List<Widget> _foodSection(
     BuildContext c,
     P p,
     ProgressData d,
     String from,
     String today,
+    DayWindow? before,
   ) {
     final w = (
       from: from,
@@ -966,6 +985,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
       partial: true,
     );
     final f = foodWindow(d.food, w);
+    final b = before == null ? null : foodWindow(d.food, before);
     return [
       Section(
         'Food',
@@ -978,15 +998,25 @@ class _ProgressDetailState extends State<_ProgressDetail>
               _stats(c, [
                 _stat(
                   p,
-                  'Calories',
+                  'Calories / day',
                   f.kcal == null ? '—' : thousands(f.kcal!),
-                  '${f.kcalDays} of ${f.windowDays} days',
+                  '${f.kcalDays} of ${f.windowDays} days counted',
+                  was: b == null
+                      ? null
+                      : b.kcal == null
+                      ? 'no counted days'
+                      : thousands(b.kcal!),
                 ),
                 _stat(
                   p,
-                  'Protein',
+                  'Protein / day',
                   f.protein == null ? '—' : '${f.protein!.round()} g',
                   '${f.proteinDays} complete days',
+                  was: b == null
+                      ? null
+                      : b.protein == null
+                      ? 'no complete days'
+                      : '${b.protein!.round()} g',
                 ),
               ]),
             ],
@@ -1004,20 +1034,23 @@ class _ProgressDetailState extends State<_ProgressDetail>
     ProgressData d,
     String from,
     String today,
+    DayWindow? before,
   ) {
-    final ss = [
-      for (final s in d.sessions)
-        if (s.date.compareTo(from) >= 0 && s.date.compareTo(today) <= 0) s,
-    ];
-    final lifts = ss.where((s) => isLiftType(s.type)).length;
-    final runs = ss.where((s) => isRunType(s.type)).length;
-    final walks = ss.where((s) => isWalkType(s.type)).length;
-    final st = stepsSummary(inRange(d.steps, from, today));
-    double? mean(List<DatedValue> v) =>
-        v.isEmpty ? null : v.fold<double>(0, (a, x) => a + x.value) / v.length;
-    final sleep = inRange(d.sleepMin, from, today);
-    final rec = inRange(d.recovery, from, today);
-    final sm = mean(sleep), rm = mean(rec);
+    final now = _inputsOf(d, (
+      from: from,
+      to: today,
+      days: daysBetween(from, today).length,
+      partial: true,
+    ));
+    final was = before == null ? null : _inputsOf(d, before);
+    String sleep(({double? minutes, int nights}) x) => x.minutes == null
+        ? '—'
+        : '${x.minutes! ~/ 60}h ${(x.minutes! % 60).round()}m';
+    String rec(({double? pct, int days}) x) =>
+        x.pct == null ? '—' : '${x.pct!.round()}';
+    String steps(StepsSummary x) =>
+        x.average == null ? '—' : thousands(x.average!);
+    final w = now.workouts;
     return [
       Section(
         'Activity and recovery',
@@ -1031,29 +1064,38 @@ class _ProgressDetailState extends State<_ProgressDetail>
                 _stat(
                   p,
                   'Workouts',
-                  '${ss.length}',
-                  '$lifts lift · $runs run · $walks walk · ${ss.length - lifts - runs - walks} other',
+                  '${w.total}',
+                  [
+                    if (w.lift > 0) '${w.lift} lift',
+                    if (w.run > 0) '${w.run} run',
+                    if (w.walk > 0) '${w.walk} walk',
+                    if (w.other > 0) '${w.other} other',
+                  ].join(' · '),
+                  was: was == null ? null : '${was.workouts.total}',
                 ),
                 _stat(
                   p,
-                  'Steps',
-                  st.average == null ? '—' : thousands(st.average!),
-                  '${st.days} days measured',
+                  'Steps / day',
+                  steps(now.steps),
+                  '${now.steps.days} days measured',
+                  was: was == null ? null : steps(was.steps),
                 ),
               ]),
               const SizedBox(height: S.x3),
               _stats(c, [
                 _stat(
                   p,
-                  'Sleep',
-                  sm == null ? '—' : '${sm ~/ 60}h ${(sm % 60).round()}m',
-                  '${sleep.length} nights',
+                  'Sleep / night',
+                  sleep(now.sleep),
+                  '${now.sleep.nights} nights',
+                  was: was == null ? null : sleep(was.sleep),
                 ),
                 _stat(
                   p,
                   'Recovery',
-                  rm == null ? '—' : '${rm.round()}',
-                  '${rec.length} days',
+                  rec(now.recovery),
+                  '${now.recovery.days} days',
+                  was: was == null ? null : rec(was.recovery),
                 ),
               ]),
             ],

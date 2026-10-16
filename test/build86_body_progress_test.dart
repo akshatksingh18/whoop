@@ -311,16 +311,16 @@ void main() {
       expect(mb.days, 31);
     });
 
-    test('since start pairs the first week with the last closed week', () {
+    test('since start pairs the first 7 days with the last 7 (Build 90)', () {
       final (first, last) = sinceStartWindows('2026-09-01', '2026-10-10')!;
       expect(first.from, '2026-09-01');
       expect(first.to, '2026-09-07');
-      expect(last.from, '2026-09-28');
+      expect(last.from, '2026-10-04');
+      expect(last.to, '2026-10-10');
       expect(
-        sinceStartWindows('2026-09-27', '2026-10-10'),
+        sinceStartWindows('2026-09-29', '2026-10-10'),
         isNull,
-        reason:
-            'a first week that reaches the last closed week is not a comparison',
+        reason: 'a first 7 days that reaches the last 7 is not a comparison',
       );
     });
 

@@ -70,9 +70,10 @@ void main() {
       await t.pumpWidget(_app(app, scale));
       await _until(t, () => find.text('Add body entry').evaluate().isNotEmpty);
       expect(t.takeException(), isNull);
-      // Build 90: one goal verdict on the goal's closed weeks, three results
-      // and what went in. With no records the verdict waits and says why.
-      expect(find.text('Not yet'), findsOneWidget);
+      // Build 90: while the goal check cannot judge, the card says when it
+      // first can and shows this week's evidence, not a "Not yet" verdict.
+      expect(find.text('THIS WEEK SO FAR'), findsOneWidget);
+      expect(find.text('Not yet'), findsNothing);
       await t.scrollUntilVisible(
         find.text('No waist reading yet'),
         150,
@@ -126,7 +127,7 @@ void main() {
       await t.pumpAndSettle();
       await t.drag(page, const Offset(0, 5000));
       await t.pumpAndSettle();
-      await t.tap(find.text('Month').first);
+      await t.tap(find.text('30 days').first);
       await t.pumpAndSettle();
       await t.tap(find.byTooltip('More periods'));
       await t.pumpAndSettle();
@@ -140,7 +141,7 @@ void main() {
       await t.drag(find.byType(Scrollable).first, const Offset(0, 5000));
       await t.pumpAndSettle();
       expect(find.text('Add body entry'), findsOneWidget);
-      expect(find.text('Not yet'), findsOneWidget);
+      expect(find.text('THIS WEEK SO FAR'), findsOneWidget);
     });
   }
 }

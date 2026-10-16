@@ -301,6 +301,11 @@ the one before; for a two-week phase, compare the last two closed weeks with the
 Keep all existing waiting, coverage, nutrient and comparability gates. This is a presentation/
 model-reuse proposal, not approval for a new goal formula or relaxed eligibility.
 
+**Superseded on Akshat's Build 90 phone review (`todo.md` 3d):** outside the verdict, Progress
+uses the last N days up to today against the N before, with both numbers shown; the verdict
+keeps its closed weeks and, while it cannot judge, the card shows its first-check date and this
+week's evidence.
+
 **History range is exploration:** retain all eight periods for charts and before/now detail
 comparisons. Put a clearly labelled History range control with the exploration/detail area,
 rather than presenting a header date picker that appears to change the goal verdict. Arbitrary

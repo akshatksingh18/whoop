@@ -16,7 +16,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../compute/profile.dart' show isLiftType, Profile, bmrMifflin;
+import '../../compute/profile.dart' show Profile, bmrMifflin;
 import '../../data/body_log.dart';
 import '../../data/calculation_store.dart';
 import '../../data/day_label.dart';
@@ -29,7 +29,6 @@ import '../../data/nutrition_store.dart';
 import '../../data/photo_encode.dart';
 import '../../data/progress_milestones.dart';
 import '../../data/progress_review.dart';
-import '../../gps/run_history.dart' show isRunType, isWalkType;
 import '../../notify/notification_event.dart' show NotifCategory;
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
@@ -174,6 +173,20 @@ class ProgressData {
     currentGoal: (user['kcal_target'] as num?)?.toDouble(),
     restingKcal: bmrMifflin(Profile.fromMap(user)),
     female: (user['sex'] as String?)?.toLowerCase().startsWith('f') ?? false,
+  );
+
+  /// Build 90: the overview's body and inputs, last 7 days against the 7
+  /// before — the same rule as the detail pages and Trends.
+  RollingReview rolling(String today) => rollingReview(
+    today: today,
+    weights: weights,
+    measures: measures,
+    lifts: lifts,
+    food: food,
+    steps: steps,
+    sleepMin: sleepMin,
+    recovery: recovery,
+    sessions: sessions,
   );
 
   static Future<ProgressData> load(
@@ -362,6 +375,7 @@ class _ProgressScreenState extends State<ProgressScreen>
   List<Widget> _overview(BuildContext c, ProgressData d) {
     final p = P.of(c);
     final r = d.review(todayLabel());
+    final rr = d.rolling(todayLabel());
     return [
       Row(
         children: [
@@ -386,9 +400,12 @@ class _ProgressScreenState extends State<ProgressScreen>
       const SizedBox(height: S.x3),
       _goalCard(c, p, d, r),
       const SizedBox(height: S.x4),
-      Section('Results', _outcomes(c, p, d, r)),
+      Section(
+        'Body · last 7 days vs the 7 before',
+        _outcomes(c, p, d, rr),
+      ),
       const SizedBox(height: S.x4),
-      _inputs(c, p, r),
+      _inputs(c, p, rr),
       const SizedBox(height: S.x4),
       _photoStrip(c, p, d),
     ];
@@ -419,6 +436,9 @@ class _ProgressScreenState extends State<ProgressScreen>
             GoalVerdict.needMore => ('Not yet', C.n400),
           };
     final days = r.daysOnGoal;
+    if (!unavailable && a.verdict == GoalVerdict.needMore) {
+      return _goalCardWaiting(c, p, d, r);
+    }
     final lines = unavailable
         ? const ['Review unavailable until the records refresh.']
         : a.because.take(1).toList();
@@ -457,7 +477,7 @@ class _ProgressScreenState extends State<ProgressScreen>
           ),
           const SizedBox(height: S.x1),
           Text(
-            '${reviewWeekLabel(r.after.from, r.after.to)} vs '
+            'Full weeks ${reviewWeekLabel(r.after.from, r.after.to)} vs '
             '${reviewWeekLabel(r.before.from, r.before.to)}',
             style: F.cap.copyWith(color: p.ink2),
           ),
@@ -488,6 +508,115 @@ class _ProgressScreenState extends State<ProgressScreen>
     );
   }
 
+  /// Build 90 (Akshat's phone review): until the check can judge, the card
+  /// says when it first can and what this week has towards it, instead of a
+  /// large "Not enough to judge" over a list of past weeks that cannot change.
+  Widget _goalCardWaiting(
+    BuildContext c,
+    P p,
+    ProgressData d,
+    GoalReview r,
+  ) {
+    final today = todayLabel();
+    final ev = thisWeekEvidence(
+      today: today,
+      weights: d.weights,
+      food: d.food,
+    );
+    final weeks = r.plan.windowWeeks;
+    final days = r.daysOnGoal;
+    Widget dots(String label, int n) {
+      final shown = n.clamp(0, kReviewWeekMinimum);
+      // A Wrap, so at large text the count drops under the dots instead of
+      // overflowing the card.
+      return Padding(
+        padding: const EdgeInsets.only(top: S.x2),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          runSpacing: S.x1,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 112),
+              child: Text(label, style: F.body.copyWith(color: p.ink)),
+            ),
+            for (var i = 0; i < kReviewWeekMinimum; i++)
+              Padding(
+                padding: const EdgeInsets.only(right: S.x1),
+                child: Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i < shown ? p.on(C.body) : null,
+                    border: Border.all(color: p.on(C.body), width: 1.5),
+                  ),
+                ),
+              ),
+            const SizedBox(width: S.x2),
+            Text(
+              '$n of $kReviewWeekMinimum',
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final first = r.firstCheck;
+    return Surface(
+      onTap: () => _goalDetails(c, d, r),
+      semanticLabel:
+          'Goal ${r.plan.phase.title}. '
+          '${first == null ? 'Not judged yet' : 'First check ${_md(first)}'}. '
+          'This week: ${ev.weighIns} weigh-ins, ${ev.foodDays} food days, '
+          '${ev.proteinDays} protein days. Details',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: S.x3,
+            runSpacing: S.x1,
+            children: [
+              Text(
+                [
+                  r.plan.phase.title,
+                  if (days != null) 'day ${days + 1}',
+                ].join(' · '),
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                first == null ? 'Not judged yet' : 'First check ${_md(first)}',
+                style: F.cap.copyWith(color: p.ink2),
+              ),
+            ],
+          ),
+          const SizedBox(height: S.x1),
+          Text(
+            'The check compares ${weeks == 1 ? 'one full week with the one' : '$weeks full weeks with the $weeks'} '
+            'before (Monday to Sunday). Each week needs '
+            '$kReviewWeekMinimum weigh-ins and $kReviewWeekMinimum fully '
+            'logged food days.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.4),
+          ),
+          const SizedBox(height: S.x3),
+          Text('THIS WEEK SO FAR', style: F.label.copyWith(color: p.ink2)),
+          dots('Weigh-ins', ev.weighIns),
+          dots('Food days', ev.foodDays),
+          dots('Protein days', ev.proteinDays),
+          const SizedBox(height: S.x3),
+          Text(
+            'How the check works',
+            style: F.cap.copyWith(color: p.on(C.recovery)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _goalDetails(
     BuildContext c,
     ProgressData d,
@@ -509,7 +638,8 @@ class _ProgressScreenState extends State<ProgressScreen>
               for (final line in [
                 'Compares ${reviewWeekLabel(r.after.from, r.after.to)} with '
                     '${reviewWeekLabel(r.before.from, r.before.to)}: the last '
-                    '${g.windowWeeks == 1 ? 'closed week with the one' : '${g.windowWeeks} closed weeks with the ${g.windowWeeks}'} before.',
+                    '${g.windowWeeks == 1 ? 'full Monday-to-Sunday week with the one' : '${g.windowWeeks} full Monday-to-Sunday weeks with the ${g.windowWeeks}'} before. '
+                    'The rest of Progress uses the last 7 days.',
                 'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein '
                     '${band.proteinLow}–${band.proteinHigh} g/kg',
                 if (g.since != null) 'Since ${_md(g.since!)}',
@@ -558,7 +688,7 @@ class _ProgressScreenState extends State<ProgressScreen>
 
   // ── the three results ──
 
-  Widget _outcomes(BuildContext c, P p, ProgressData d, GoalReview r) {
+  Widget _outcomes(BuildContext c, P p, ProgressData d, RollingReview r) {
     double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
     String signed(double v, String unit, [int places = 1]) =>
         '${v >= 0 ? '+' : '−'}${_num(v.abs(), places)} $unit';
@@ -582,8 +712,7 @@ class _ProgressScreenState extends State<ProgressScreen>
           : r.waistFrom != null && r.waistTo != null
           ? '${signed(r.waistTo!.value - r.waistFrom!.value, 'in', 2)} · '
                 '${_md(r.waistFrom!.date)} → ${_md(r.waistTo!.date)}'
-          : 'Latest ${_md(latest.date)} · no reading near '
-                '${_md(r.before.from)} to compare',
+          : 'Latest ${_md(latest.date)} · none in $before to compare',
     );
     final comparable = [
       for (final x in r.lifts)
@@ -711,47 +840,48 @@ class _ProgressScreenState extends State<ProgressScreen>
 
   // ── what went in ──
 
-  Widget _inputs(BuildContext c, P p, GoalReview r) {
-    final f = r.food;
-    final groups = <(String, List<String>)>[
-      (
-        'Food',
-        [
-          f.kcal == null
-              ? 'No counted food days'
-              : '${thousands(f.kcal!)} kcal · ${f.kcalDays} counted ${f.kcalDays == 1 ? 'day' : 'days'}',
-          f.protein == null
-              ? 'No complete protein days'
-              : '${f.protein!.round()} g protein · ${f.proteinDays} complete ${f.proteinDays == 1 ? 'day' : 'days'}',
-        ],
-      ),
-      (
-        'Training',
-        [
-          '${r.workouts.total} ${r.workouts.total == 1 ? 'workout' : 'workouts'}',
-          r.steps.average == null
-              ? 'Steps not recorded'
-              : '${thousands(r.steps.average!)} steps a day · ${r.steps.days} measured days',
-        ],
-      ),
-      (
-        'Recovery',
-        [
-          if (r.sleep.minutes case final m?)
-            '${m ~/ 60}h ${(m % 60).round()}m sleep · ${r.sleep.nights} nights'
-          else
-            'Sleep not recorded',
-          if (r.recovery.pct case final v?)
-            '${v.round()} recovery score · ${r.recovery.days} measured days'
-          else
-            'Recovery not recorded',
-        ],
-      ),
+  /// Build 90 (Akshat's phone review): what went in over the last 7 days
+  /// beside the 7 before, so a comparison always shows both numbers.
+  Widget _inputs(BuildContext c, P p, RollingReview r) {
+    String kcal(PeriodInputs x) =>
+        x.food.kcal == null ? '—' : thousands(x.food.kcal!);
+    String protein(PeriodInputs x) =>
+        x.food.protein == null ? '—' : '${x.food.protein!.round()} g';
+    String steps(PeriodInputs x) =>
+        x.steps.average == null ? '—' : thousands(x.steps.average!);
+    String sleep(PeriodInputs x) => x.sleep.minutes == null
+        ? '—'
+        : '${x.sleep.minutes! ~/ 60}h ${(x.sleep.minutes! % 60).round()}m';
+    String rec(PeriodInputs x) =>
+        x.recovery.pct == null ? '—' : '${x.recovery.pct!.round()}';
+    final rows = <(String, String, String)>[
+      ('Calories / day', kcal(r.now), kcal(r.was)),
+      ('Protein / day', protein(r.now), protein(r.was)),
+      ('Steps / day', steps(r.now), steps(r.was)),
+      ('Sleep / night', sleep(r.now), sleep(r.was)),
+      ('Recovery', rec(r.now), rec(r.was)),
+      ('Workouts', '${r.now.workouts.total}', '${r.was.workouts.total}'),
     ];
+    final span =
+        '${reviewWeekLabel(r.after.from, r.after.to)} vs '
+        '${reviewWeekLabel(r.before.from, r.before.to)}';
+    Widget cell(String t, {bool strong = false}) => SizedBox(
+      width: 92,
+      child: Text(
+        t,
+        textAlign: TextAlign.right,
+        style: (strong ? F.body : F.cap).copyWith(
+          color: strong ? p.ink : p.ink2,
+          fontWeight: strong ? FontWeight.w600 : null,
+        ),
+      ),
+    );
+    final large = bigText(c);
     return Surface(
       onTap: () => openProgress(c, ProgressDest.food, _d),
       semanticLabel:
-          'What went in: ${groups.map((g) => '${g.$1}: ${g.$2.join(', ')}').join('. ')}. Details',
+          'What went in, $span: '
+          '${rows.map((x) => '${x.$1} ${x.$2}, before ${x.$3}').join('. ')}. Details',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -769,19 +899,63 @@ class _ProgressScreenState extends State<ProgressScreen>
               Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
             ],
           ),
-          Text(
-            reviewWeekLabel(r.after.from, r.after.to),
-            style: F.cap.copyWith(color: p.ink3),
-          ),
-          for (final (label, facts) in groups) ...[
-            const SizedBox(height: S.x3),
-            Text(
-              label,
-              style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
+          Text(span, style: F.cap.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
+          if (!large)
+            Row(
+              children: [
+                const Spacer(),
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    'LAST 7 DAYS',
+                    textAlign: TextAlign.right,
+                    style: F.over.copyWith(color: p.ink2),
+                  ),
+                ),
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    '7 DAYS BEFORE',
+                    textAlign: TextAlign.right,
+                    style: F.over.copyWith(color: p.ink2),
+                  ),
+                ),
+              ],
             ),
-            for (final fact in facts)
-              Text(fact, style: F.body.copyWith(color: p.ink)),
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(color: p.line, height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x2),
+              child: large
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(rows[i].$1, style: F.body.copyWith(color: p.ink)),
+                        Text(
+                          '${rows[i].$2} · before ${rows[i].$3}',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            rows[i].$1,
+                            style: F.body.copyWith(color: p.ink),
+                          ),
+                        ),
+                        cell(rows[i].$2, strong: true),
+                        cell(rows[i].$3),
+                      ],
+                    ),
+            ),
           ],
+          Text(
+            'Calories over counted food days; protein over complete days.',
+            style: F.over.copyWith(color: p.ink3),
+          ),
         ],
       ),
     );
@@ -911,7 +1085,9 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
           children: [for (final item in items) Expanded(child: item)],
         );
 
-  Widget _stat(P p, String k, String v, String sub) => Column(
+  /// [was] is the same figure over the period before (Build 90: a
+  /// comparison always shows both numbers).
+  Widget _stat(P p, String k, String v, String sub, {String? was}) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(k, style: F.cap.copyWith(color: p.ink3)),
@@ -920,6 +1096,8 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
         child: Text(v, softWrap: false, style: F.n17.copyWith(color: p.ink)),
       ),
       Text(sub, style: F.cap.copyWith(color: p.ink3)),
+      if (was != null)
+        Text('Before: $was', style: F.cap.copyWith(color: p.ink2)),
     ],
   );
   // ── entry and settings sheets ──

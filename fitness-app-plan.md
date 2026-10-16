@@ -248,8 +248,10 @@ and shows its own coverage; missing data in one family must not hide all the oth
   and raw start/latest change alongside smoothing. Historical weekly-only imports can yield
   one observed reading in a window, not seven new measurements or a confident weekly slope.
   Compare explicitly labelled endpoint windows, not the first/last raw value relabelled Average.
-- **Weekly:** the last closed Monday-Sunday against the prior closed week is selectable
-  on any day. A current-week matched elapsed-day combined review remains a future extension,
+- **Weekly (superseded in Build 90):** Progress now uses one rolling rule outside the goal
+  check: the last 7 / 30 / 90 days up to today against the same length before, both shown
+  (`todo.md` 3d). The goal check alone keeps closed Monday-Sunday weeks. Originally: the last
+  closed Monday-Sunday against the prior closed week, selectable on any day. A current-week matched elapsed-day combined review remains a future extension,
   not a Build 86/87 review mode; current measurements and dated raw ranges remain available.
   Combine weight means/raw readings, waist/site changes at actual dates, same-
   context lift comparisons, completed sessions/activity, eligible calories/protein and measured

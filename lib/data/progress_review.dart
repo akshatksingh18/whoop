@@ -18,8 +18,10 @@ import 'lift_progress.dart' show SetVerdict, bestSet, compareSet;
 
 /// The range menu on Progress.
 enum ProgressRange {
-  week('1 week', 7),
-  month('1 month', 30),
+  // Build 90: every range is the last N days up to today against the N days
+  // before (like Trends); "week" and "month" were closed calendar periods.
+  week('7 days', 7),
+  month('30 days', 30),
   twoMonths('2 months', 61),
   threeMonths('3 months', 91),
   sixMonths('6 months', 182),
@@ -168,11 +170,17 @@ typedef DayWindow = ({String from, String to, int days, bool partial});
   return (week(1), week(2));
 }
 
-/// The first week from [start] and the last closed week, for the
-/// since-start review. Null until the two no longer overlap, so a short
+/// The first 7 days from [start] and the last 7 days, for the since-start
+/// review (Build 90: the last 7 days, like every other range). Null until the two no longer overlap, so a short
 /// history never compares a week with itself.
 (DayWindow, DayWindow)? sinceStartWindows(String start, String today) {
-  final (last, _) = closedWeeks(today);
+  final t = DateTime.parse(today);
+  final last = (
+    from: dayLabelOf(DateTime(t.year, t.month, t.day - 6)),
+    to: today,
+    days: 7,
+    partial: false,
+  );
   final s = DateTime.parse(start);
   final first = (
     from: start,
@@ -237,29 +245,6 @@ ProgressPeriod progressPeriod(
 
   String span(DayWindow w) => '${md(w.from)}–${md(w.to)}';
   switch (r) {
-    case ProgressRange.week:
-      final (after, before) = closedWeeks(today);
-      return (
-        before: before,
-        after: after,
-        shownFrom: after.from,
-        shownTo: after.to,
-        words: 'Last week (${span(after)}) vs the week before (${span(before)})',
-      );
-    case ProgressRange.month:
-      final (after, before) = closedMonths(today);
-      const names = [
-        'January', 'February', 'March', 'April', 'May', 'June', 'July', //
-        'August', 'September', 'October', 'November', 'December',
-      ];
-      String name(DayWindow w) => names[DateTime.parse(w.from).month - 1];
-      return (
-        before: before,
-        after: after,
-        shownFrom: after.from,
-        shownTo: after.to,
-        words: '${name(after)} vs ${name(before)}',
-      );
     case ProgressRange.sinceStart:
     case ProgressRange.all:
       final start = r == ProgressRange.sinceStart
@@ -275,8 +260,10 @@ ProgressPeriod progressPeriod(
         words: w == null
             ? '${r == ProgressRange.all ? 'Everything' : 'Since ${md(from)}'} — '
                   'too early to compare a first and a last week'
-            : 'Your first week (${span(w.$1)}) vs last week (${span(w.$2)})',
+            : 'Your first 7 days (${span(w.$1)}) vs the last 7 (${span(w.$2)})',
       );
+    case ProgressRange.week:
+    case ProgressRange.month:
     case ProgressRange.twoMonths:
     case ProgressRange.threeMonths:
     case ProgressRange.sixMonths:
@@ -300,7 +287,7 @@ ProgressPeriod progressPeriod(
         after: after,
         shownFrom: after.from,
         shownTo: today,
-        words: 'Last ${r.label} (${span(after)}) vs the ${r.label} before',
+        words: 'Last ${r.label} (${span(after)}) vs the ${r.label} before (${span(before)})',
       );
   }
 }

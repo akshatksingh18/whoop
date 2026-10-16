@@ -46,6 +46,11 @@ typedef GoalReview = ({
   /// cannot judge yet.
   GoalAdvice advice,
 
+  /// Build 90: the earliest Monday the check can judge, assuming every week
+  /// from now meets its minimum; null once it can judge (or when the reason
+  /// it cannot is not the evidence count).
+  String? firstCheck,
+
   /// Weigh-ins in each half (kg), and the change between their means.
   WeightWindow weightBefore,
   WeightWindow weightAfter,
@@ -187,11 +192,20 @@ GoalReview goalReview({
     daysOnGoal: daysOnGoal,
     female: female,
   );
+  final firstCheck = advice.verdict == GoalVerdict.needMore
+      ? firstCheckDate(
+          weeks: weeks,
+          today: today,
+          windowWeeks: n,
+          since: plan.since,
+        )
+      : null;
   if (advice.verdict == GoalVerdict.needMore) {
     advice = _exactMissing(
       advice,
       plan: plan,
       weeks: weeks,
+      firstCheck: firstCheck,
       daysOnGoal: daysOnGoal,
       waistPair: waistPair,
       before: before,
@@ -200,18 +214,14 @@ GoalReview goalReview({
           cmp.where((x) => x.change != SetVerdict.incomparable).length,
     );
   }
-  double? mean(List<DatedValue> v) =>
-      v.isEmpty ? null : v.fold<double>(0, (s, x) => s + x.value) / v.length;
-  final sl = inRange(sleepMin, after.from, after.to);
-  final rc = inRange(recovery, after.from, after.to);
-  final ss = [
-    for (final s in sessions)
-      if (s.date.compareTo(after.from) >= 0 && s.date.compareTo(after.to) <= 0)
-        s,
-  ];
-  final lift = ss.where((s) => isLiftType(s.type)).length;
-  final run = ss.where((s) => isRunType(s.type)).length;
-  final walk = ss.where((s) => isWalkType(s.type)).length;
+  final inputs = periodInputs(
+    after,
+    food: food,
+    steps: steps,
+    sleepMin: sleepMin,
+    recovery: recovery,
+    sessions: sessions,
+  );
   return (
     plan: plan,
     daysOnGoal: daysOnGoal,
@@ -219,6 +229,7 @@ GoalReview goalReview({
     before: before,
     weeks: weeks,
     advice: advice,
+    firstCheck: firstCheck,
     weightBefore: b,
     weightAfter: a,
     weightChangeKg: a.mean == null || b.mean == null ? null : a.mean! - b.mean!,
@@ -227,7 +238,67 @@ GoalReview goalReview({
     waistTo: waistPair ? wa : null,
     lifts: cmp,
     food: fl,
-    steps: stepsSummary(inRange(steps, after.from, after.to)),
+    steps: inputs.steps,
+    sleep: inputs.sleep,
+    recovery: inputs.recovery,
+    workouts: inputs.workouts,
+  );
+}
+
+// ── Build 90: one time rule for everything except the goal check ─────────
+
+/// The last [days] days up to and including [today], and the same number of
+/// days just before them. Progress's one comparison everywhere outside the
+/// goal check (Akshat: "last 7 days vs the 7 days before" reads at a glance,
+/// matches Trends, and never shrinks to one day on a Monday).
+(DayWindow, DayWindow) rollingWindows(String today, int days) {
+  final t = DateTime.parse(today);
+  final after = (
+    from: dayLabelOf(DateTime(t.year, t.month, t.day - (days - 1))),
+    to: today,
+    days: days,
+    partial: false,
+  );
+  final before = (
+    from: dayLabelOf(DateTime(t.year, t.month, t.day - (2 * days - 1))),
+    to: dayLabelOf(DateTime(t.year, t.month, t.day - days)),
+    days: days,
+    partial: false,
+  );
+  return (after, before);
+}
+
+/// What went in over one window, each with its own measured count.
+typedef PeriodInputs = ({
+  FoodWindow food,
+  StepsSummary steps,
+  ({double? minutes, int nights}) sleep,
+  ({double? pct, int days}) recovery,
+  ({int total, int lift, int run, int walk, int other}) workouts,
+});
+
+PeriodInputs periodInputs(
+  DayWindow w, {
+  required List<FoodDay> food,
+  required List<DatedValue> steps,
+  required List<DatedValue> sleepMin,
+  required List<DatedValue> recovery,
+  required List<({String date, String type})> sessions,
+}) {
+  double? mean(List<DatedValue> v) =>
+      v.isEmpty ? null : v.fold<double>(0, (s, x) => s + x.value) / v.length;
+  final sl = inRange(sleepMin, w.from, w.to);
+  final rc = inRange(recovery, w.from, w.to);
+  final ss = [
+    for (final s in sessions)
+      if (s.date.compareTo(w.from) >= 0 && s.date.compareTo(w.to) <= 0) s,
+  ];
+  final lift = ss.where((s) => isLiftType(s.type)).length;
+  final run = ss.where((s) => isRunType(s.type)).length;
+  final walk = ss.where((s) => isWalkType(s.type)).length;
+  return (
+    food: foodWindow(food, w),
+    steps: stepsSummary(inRange(steps, w.from, w.to)),
     sleep: (minutes: mean(sl), nights: sl.length),
     recovery: (pct: mean(rc), days: rc.length),
     workouts: (
@@ -240,12 +311,138 @@ GoalReview goalReview({
   );
 }
 
+/// The overview's body and inputs over the last [days] days against the
+/// [days] before (the goal check keeps its own full weeks).
+typedef RollingReview = ({
+  DayWindow after,
+  DayWindow before,
+  PeriodInputs now,
+  PeriodInputs was,
+  WeightWindow weightAfter,
+  WeightWindow weightBefore,
+  double? weightChangeKg,
+  DatedValue? waistLatest,
+  DatedValue? waistFrom,
+  DatedValue? waistTo,
+  List<LiftComparison> lifts,
+});
+
+RollingReview rollingReview({
+  required String today,
+  int days = 7,
+  required List<BodyWeightRow> weights,
+  required List<BodyMeasure> measures,
+  required List<LiftWorkout> lifts,
+  required List<FoodDay> food,
+  required List<DatedValue> steps,
+  required List<DatedValue> sleepMin,
+  required List<DatedValue> recovery,
+  required List<({String date, String type})> sessions,
+}) {
+  final (after, before) = rollingWindows(today, days);
+  final ws = weightSeries(weights, unit: 'kg');
+  final a = weightWindow(ws, after), b = weightWindow(ws, before);
+  final waist = siteSeries(measures, BodySite.waistNavel);
+  final latest = inRange(waist, '0000-00-00', today).lastOrNull;
+  final wa = inRange(waist, after.from, after.to).lastOrNull;
+  final wb = inRange(waist, before.from, before.to).lastOrNull;
+  final pair = wa != null && wb != null && wa.date != wb.date;
+  PeriodInputs inputs(DayWindow w) => periodInputs(
+    w,
+    food: food,
+    steps: steps,
+    sleepMin: sleepMin,
+    recovery: recovery,
+    sessions: sessions,
+  );
+  return (
+    after: after,
+    before: before,
+    now: inputs(after),
+    was: inputs(before),
+    weightAfter: a,
+    weightBefore: b,
+    weightChangeKg: a.mean == null || b.mean == null ? null : a.mean! - b.mean!,
+    waistLatest: latest,
+    waistFrom: pair ? wb : null,
+    waistTo: pair ? wa : null,
+    lifts: liftComparisons(lifts, before, after),
+  );
+}
+
+/// The earliest Monday the goal check can judge, if every week from now on
+/// meets the minimum: the check needs 2 × [windowWeeks] closed Monday–Sunday
+/// weeks that each hold [kReviewWeekMinimum] weigh-ins and fully logged food
+/// days, and a goal at least 14 days old. [weeks] is newest first (the
+/// review's closed weeks). Null when the closed weeks already qualify (the
+/// check is waiting on something else).
+///
+/// Build 90 phone review: the card said "judged after two weeks (8 more
+/// days)" while every one of the four review weeks was short, so no verdict
+/// could come for weeks.
+String? firstCheckDate({
+  required List<ReviewWeek> weeks,
+  required String today,
+  required int windowWeeks,
+  String? since,
+}) {
+  final need = 2 * windowWeeks;
+  var good = 0;
+  for (final w in weeks) {
+    if (w.weighIns < kReviewWeekMinimum || w.foodDays < kReviewWeekMinimum) {
+      break;
+    }
+    good++;
+  }
+  final t = DateTime.parse(today);
+  final nextMonday = DateTime(t.year, t.month, t.day + (8 - t.weekday));
+  // The current week is the first of the weeks still needed.
+  final stillNeeded = need - good;
+  if (stillNeeded <= 0) return null;
+  var at = DateTime(
+    nextMonday.year,
+    nextMonday.month,
+    nextMonday.day + 7 * (stillNeeded - 1),
+  );
+  // And the goal must be 14 days old: the first Monday on or after day 14.
+  final start = since == null ? null : DateTime.tryParse(since);
+  if (start != null) {
+    final old = DateTime(start.year, start.month, start.day + 14);
+    final m = DateTime(old.year, old.month, old.day + ((8 - old.weekday) % 7));
+    if (m.isAfter(at)) at = m;
+  }
+  return dayLabelOf(at);
+}
+
+/// This Monday-to-today week's evidence for the goal check.
+({int weighIns, int foodDays, int proteinDays}) thisWeekEvidence({
+  required String today,
+  required List<BodyWeightRow> weights,
+  required List<FoodDay> food,
+}) {
+  final t = DateTime.parse(today);
+  final monday = DateTime(t.year, t.month, t.day - (t.weekday - 1));
+  final w = (
+    from: dayLabelOf(monday),
+    to: today,
+    days: t.weekday,
+    partial: true,
+  );
+  final f = foodWindow(food, w);
+  return (
+    weighIns: weightWindow(weightSeries(weights, unit: 'kg'), w).count,
+    foodDays: f.kcalDays,
+    proteinDays: f.proteinDays,
+  );
+}
+
 /// The goal check's "not enough yet", rewritten to name each short week and
 /// what can still fix it. The verdict and its rules are unchanged.
 GoalAdvice _exactMissing(
   GoalAdvice advice, {
   required GoalPlan plan,
   required List<ReviewWeek> weeks,
+  required String? firstCheck,
   required int? daysOnGoal,
   required bool waistPair,
   required DayWindow before,
@@ -253,11 +450,13 @@ GoalAdvice _exactMissing(
   required int liftsComparable,
 }) {
   final lines = <String>[];
-  if (daysOnGoal != null && daysOnGoal < 14) {
-    final left = 14 - daysOnGoal;
+  // Build 90: the date the check can first judge, worked out from the
+  // weeks themselves (it said "judged after two weeks" while every review
+  // week was short).
+  if (firstCheck != null) {
     lines.add(
-      'This goal is $daysOnGoal ${daysOnGoal == 1 ? 'day' : 'days'} old; '
-      'it is judged after two weeks ($left more ${left == 1 ? 'day' : 'days'}).',
+      'First check ${_md(firstCheck)}, if every week from now has '
+      '$kReviewWeekMinimum weigh-ins and $kReviewWeekMinimum fully logged food days.',
     );
   }
   for (final w in weeks.reversed) {

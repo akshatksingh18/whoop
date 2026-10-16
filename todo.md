@@ -266,7 +266,13 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   5 food days. Proposal on the canvas (`ProgressFix.dc.html`): a compact goal card (first
   check date from real data, this week's evidence), one time rule that includes today with
   both numbers side by side, A calendar week so far vs the same days last week, or B rolling
-  7/28/90 days. The goal check rules stay. Waiting on Akshat's pick.
+  7/28/90 days. The goal check rules stay. Akshat: "go with whatever you recommend"; Claude
+  chose B (matches Trends, never a one-day week, self-explanatory). Built: `rollingWindows`,
+  `periodInputs`, `rollingReview`, `firstCheckDate`, `thisWeekEvidence` (`goal_review.dart`);
+  ranges 7 days / 30 days / 3 months / Start, all ending today vs the same length before
+  (`progress_review.dart`); overview Body and What went in over the last 7 days vs the 7
+  before with both columns; compact waiting goal card; detail stats with a Before line;
+  `build90_progress_time_rule_test.dart`. Renders pass at every size.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

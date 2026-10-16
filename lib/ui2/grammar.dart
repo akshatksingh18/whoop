@@ -704,8 +704,12 @@ class Section extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Build 90 review: 24 pt above every heading, on top of the previous
+        // block's own tap-height rows, opened 40-53 pt gaps between sections
+        // while cards sat 12 pt apart. One step above the heading, a half
+        // step below, so a heading sits with the block it names.
         Padding(
-          padding: const EdgeInsets.fromLTRB(S.x1, S.x6, S.x1, S.x3),
+          padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x2),
           child: large
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

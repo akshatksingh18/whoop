@@ -424,7 +424,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           'Compare the last two fortnights using measured sessions',
           () => _push(c, const TrainingReviewScreen()),
         ),
-        const SizedBox(height: S.x3),
       ],
       Section(
         'Recent',

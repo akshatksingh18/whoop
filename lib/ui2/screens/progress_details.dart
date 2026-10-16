@@ -122,6 +122,8 @@ class _ProgressDetailState extends State<_ProgressDetail>
     );
     final from = per.shownFrom, to = per.shownTo;
     return [
+      // Clear of the title bar above (Build 90 spacing audit).
+      const SizedBox(height: S.x3),
       Text('HISTORY RANGE', style: F.label.copyWith(color: p.onGround)),
       const SizedBox(height: S.x1),
       _periodPicker(c, p),
@@ -137,7 +139,9 @@ class _ProgressDetailState extends State<_ProgressDetail>
           _morePeriods(c, p),
         ],
       ),
-      const SizedBox(height: S.x3),
+      // The More button's tap height already spaces this row from what
+      // follows (Build 90 spacing audit).
+      const SizedBox(height: S.x1),
       ...switch (kind) {
         _DetailKind.body => [
           _beforeNow(c, p, d, per),
@@ -182,7 +186,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
         ],
         _DetailKind.context => [
           ..._foodSection(c, p, d, from, to),
-          const SizedBox(height: S.x5),
+          // The next Section brings its own space above its heading.
           ..._activitySection(c, p, d, from, to),
         ],
       },
@@ -295,7 +299,6 @@ class _ProgressDetailState extends State<_ProgressDetail>
     final notes = bodyMilestones(d.measures, from, to);
     if (notes.isEmpty) return const [];
     return [
-      const SizedBox(height: S.x5),
       Section(
         'Milestones',
         Surface(
@@ -324,7 +327,6 @@ class _ProgressDetailState extends State<_ProgressDetail>
     final notes = liftMilestones(d.lifts, from, to);
     if (notes.isEmpty) return const [];
     return [
-      const SizedBox(height: S.x5),
       Section(
         'Milestones',
         Surface(

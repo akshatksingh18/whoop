@@ -525,6 +525,7 @@ class _GramsSheetState extends State<GramsSheet> {
                     ? null
                     : FitChip(
                         label: portionText(fit, u),
+                        atMost: fitIsCeiling(_day!.kcal),
                         onTap: () => _g.text = editableNumber(fit),
                       );
               },
@@ -550,6 +551,7 @@ class _GramsSheetState extends State<GramsSheet> {
           proteinGoal: goal('protein_target'),
           thisKcal: n?.kcal,
           thisProtein: n?.protein,
+          date: widget.date,
         ),
       ],
       const SizedBox(height: S.x5),

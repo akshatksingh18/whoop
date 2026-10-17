@@ -23,7 +23,8 @@ enum ProgressRange {
   week('7 days', 7),
   month('30 days', 30),
   twoMonths('2 months', 61),
-  threeMonths('3 months', 91),
+  // 90 days, as on Trends (Build 91: it was 91 here, 90 there).
+  threeMonths('3 months', 90),
   sixMonths('6 months', 182),
   year('1 year', 365),
   sinceStart('Since start', null),
@@ -287,7 +288,8 @@ ProgressPeriod progressPeriod(
         after: after,
         shownFrom: after.from,
         shownTo: today,
-        words: 'Last ${r.label} (${span(after)}) vs the ${r.label} before (${span(before)})',
+        words:
+            'Last ${r.label} (${span(after)}) vs the ${r.label} before (${span(before)})',
       );
   }
 }

@@ -8,7 +8,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../compute/readiness_explain.dart' show RecentHrvView, recentHrv;
+import '../data/day_label.dart' show todayLabel;
 import '../data/db.dart';
+import 'revision.dart';
+import 'screens/home_screen.dart' show prettyDay;
 import 'grammar.dart';
 import 'theme.dart';
 
@@ -19,7 +22,10 @@ export '../compute/readiness_explain.dart' show RecentHrvView;
 /// Null when there is no night to show.
 Future<RecentHrvView?> loadRecentHrv(String? day) async {
   final series = [
-    for (final r in await LocalDb.metricSeries('ln_rmssd_v2', measuredOnly: true))
+    for (final r in await LocalDb.metricSeries(
+      'ln_rmssd_v2',
+      measuredOnly: true,
+    ))
       if (r['date'] is String && r['value'] is num)
         (date: r['date'] as String, value: (r['value'] as num).toDouble()),
   ];
@@ -37,14 +43,32 @@ class RecentHrvSection extends StatefulWidget {
   State<RecentHrvSection> createState() => _RecentHrvSectionState();
 }
 
-class _RecentHrvSectionState extends State<RecentHrvSection> {
+class _RecentHrvSectionState extends State<RecentHrvSection>
+    with RevisionReload {
   RecentHrvView? _view;
 
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  // Build 91 (Codex audit F08): re-read when new nights land or the page
+  // moves to another day, like the chart above it; a failed read keeps what
+  // is shown rather than blanking it.
+  @override
+  void reload() => _load();
+
+  @override
+  void didUpdateWidget(RecentHrvSection old) {
+    super.didUpdateWidget(old);
+    if (old.day != widget.day) _load();
+  }
+
+  void _load() {
+    final t = beginRead(#recentHrv);
     loadRecentHrv(widget.day).then((v) {
-      if (mounted) setState(() => _view = v);
+      if (stillNewest(#recentHrv, t)) setState(() => _view = v);
     }, onError: (_) {});
   }
 
@@ -65,25 +89,41 @@ class RecentHrvCard extends StatelessWidget {
   /// The other page that reads the same nights and window.
   final String sharedWith;
 
-  /// One plain sentence for last night against the band and the week.
-  static String sentence(RecentHrvView v) {
+  /// One plain sentence for the night against the band and the week.
+  ///
+  /// Build 91 (Codex audit F08): "last night" only for today's view (an
+  /// older day names its date), and the 7-night average's side is judged on
+  /// its own, never borrowed from the night.
+  static String sentence(RecentHrvView v, {String? today}) {
     final last = v.last, band = v.usual, avg = v.avg7;
-    if (last == null) return 'No HRV measured last night.';
-    final ms = '${last.round()} ms last night';
+    final current = v.day == (today ?? todayLabel());
+    final when = current ? 'last night' : 'on ${prettyDay(v.day)}';
+    if (last == null) {
+      return current
+          ? 'No HRV measured last night.'
+          : 'No HRV measured for ${prettyDay(v.day)}.';
+    }
+    final ms = '${last.round()} ms $when';
     if (band == null) {
       return '$ms. Your usual range appears after 14 measured nights.';
     }
     final range = '${band.lo.round()}–${band.hi.round()}';
-    final inside = last >= band.lo && last <= band.hi;
-    if (inside) return '$ms, inside your usual $range.';
-    final side = last < band.lo ? 'below' : 'above';
+    String sideOf(double x) =>
+        x < band.lo ? 'below' : (x > band.hi ? 'above' : 'inside');
+    final side = sideOf(last);
+    if (side == 'inside') return '$ms, inside your usual $range.';
     if (avg == null) return '$ms, $side your usual $range.';
-    final avgInside = avg >= band.lo && avg <= band.hi;
-    return avgInside
-        ? '$ms, $side your usual $range. The 7-night average, '
-              '${avg.round()} ms, is still inside it: one night, not a trend yet.'
-        : '$ms, $side your usual $range. The 7-night average, '
-              '${avg.round()} ms, is $side it too: several nights, not one.';
+    final avgSide = sideOf(avg);
+    final week = 'The 7-night average, ${avg.round()} ms,';
+    if (avgSide == 'inside') {
+      return '$ms, $side your usual $range. $week is still inside it: '
+          'one night, not a trend yet.';
+    }
+    if (avgSide == side) {
+      return '$ms, $side your usual $range. $week is $side it too: '
+          'several nights, not one.';
+    }
+    return '$ms, $side your usual $range. $week is $avgSide it.';
   }
 
   @override
@@ -320,8 +360,18 @@ class _RecentHrvPainter extends CustomPainter {
     }
     String md(String d) {
       const m = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       final p = DateTime.parse(d);
       return '${m[p.month - 1]} ${p.day}';

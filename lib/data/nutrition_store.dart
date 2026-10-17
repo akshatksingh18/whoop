@@ -477,7 +477,14 @@ class FoodEntry {
 
   /// Review a portion multiplier without writing anything. Unknown nutrients
   /// stay unknown, including quick-add entries with no reference quantity.
-  FoodEntry scaledPortion(double factor) {
+  ///
+  /// [newQuantity]/[newUnit] replace the scaled amount when the portion was
+  /// re-entered in another unit (the factor already carries the conversion).
+  FoodEntry scaledPortion(
+    double factor, {
+    double? newQuantity,
+    String? newUnit,
+  }) {
     if (!factor.isFinite || factor <= 0) throw ArgumentError('Invalid portion');
     double? scale(double? v) {
       if (v == null) return null;
@@ -495,8 +502,8 @@ class FoodEntry {
       loggedAt: loggedAt,
       counting: counting,
       foodKey: foodKey,
-      quantity: quantity == null ? null : scale(quantity),
-      unit: unit,
+      quantity: newQuantity ?? (quantity == null ? null : scale(quantity)),
+      unit: newUnit ?? unit,
       kcal: scale(kcal),
       proteinG: scale(proteinG),
       carbsG: scale(carbsG),
@@ -1757,6 +1764,33 @@ FoodEntry entryFromFood(
     source: FoodSource.repeat,
     confirmed: true,
     conv: conversionSnapshot(def),
+  );
+}
+
+/// Build 91 (Codex audit F02): [def]'s units with [e]'s OWN recorded
+/// nutrition per 100 label units, and the entry's amount in label units, so
+/// re-portioning an old entry scales what was logged rather than today's
+/// saved food. Null when the entry's amount cannot be read in label units.
+({Map<String, Object?> def, double base})? recordedDef(
+  FoodEntry e,
+  Map<String, Object?> def,
+) {
+  final q = e.quantity;
+  if (q == null || q <= 0) return null;
+  final conv = conversionDef(e, def) ?? def;
+  final base = toBase(conv, q, e.unit);
+  if (base == null || !base.isFinite || base <= 0) return null;
+  double? per100(double? v) => v == null ? null : v / base * 100;
+  return (
+    def: {
+      ...conv,
+      'kcal_100': per100(e.kcal),
+      'protein_g_100': per100(e.proteinG),
+      'carbs_g_100': per100(e.carbsG),
+      'fat_g_100': per100(e.fatG),
+      'fibre_g_100': per100(e.fibreG),
+    },
+    base: base,
   );
 }
 

@@ -31,7 +31,9 @@ String _label(DateTime d) =>
 /// [day] and no older than 60 calendar days. [series] is oldest → newest.
 List<double> recoveryBaseline(List<DatedValue> series, String day) {
   final d = DateTime.parse(day);
-  final from = _label(DateTime(d.year, d.month, d.day - kRecoveryBaselineMaxAgeDays));
+  final from = _label(
+    DateTime(d.year, d.month, d.day - kRecoveryBaselineMaxAgeDays),
+  );
   final eligible = [
     for (final s in series)
       if (s.date.compareTo(day) < 0 && s.date.compareTo(from) >= 0) s.value,
@@ -96,8 +98,11 @@ List<int> recoveryPoints(List<double> contributions) {
   var rest = target - out.fold<int>(0, (a, b) => a + b);
   // Largest remainder in the direction still owed.
   final byRemainder = [for (var i = 0; i < raw.length; i++) i]
-    ..sort((a, b) => ((raw[b] - out[b]) * rest.sign)
-        .compareTo((raw[a] - out[a]) * rest.sign));
+    ..sort(
+      (a, b) => ((raw[b] - out[b]) * rest.sign).compareTo(
+        (raw[a] - out[a]) * rest.sign,
+      ),
+    );
   for (final i in byRemainder) {
     if (rest == 0) break;
     out[i] += rest.sign;
@@ -108,6 +113,8 @@ List<int> recoveryPoints(List<double> contributions) {
 
 /// What the recent-HRV card draws (see [recentHrv]).
 typedef RecentHrvView = ({
+  /// The day the view is for (the morning after the night it ends on).
+  String day,
   List<({String date, double ms})> nights,
   ({double lo, double hi})? usual,
   double? avg7,
@@ -119,7 +126,11 @@ typedef RecentHrvView = ({
 /// ms, the usual band (ms) from the baseline before [day], and the 7-night
 /// average (ms, mean of the nights' ln values exponentiated). [lnSeries] is
 /// `ln_rmssd_v2`, oldest → newest.
-RecentHrvView recentHrv(List<DatedValue> lnSeries, String day, {int nights = 14}) {
+RecentHrvView recentHrv(
+  List<DatedValue> lnSeries,
+  String day, {
+  int nights = 14,
+}) {
   final upTo = [
     for (final s in lnSeries)
       if (s.date.compareTo(day) <= 0) s,
@@ -130,11 +141,14 @@ RecentHrvView recentHrv(List<DatedValue> lnSeries, String day, {int nights = 14}
   final band = scale == null ? null : usualRange(scale);
   final week = upTo.sublist(math.max(0, upTo.length - 7));
   return (
+    day: day,
     nights: [for (final s in shown) (date: s.date, ms: math.exp(s.value))],
     usual: band == null ? null : (lo: math.exp(band.lo), hi: math.exp(band.hi)),
     avg7: week.length < 3
         ? null
-        : math.exp(week.map((s) => s.value).reduce((a, b) => a + b) / week.length),
+        : math.exp(
+            week.map((s) => s.value).reduce((a, b) => a + b) / week.length,
+          ),
     last: lastIsDay ? math.exp(upTo.last.value) : null,
     lastDate: lastIsDay ? day : null,
   );

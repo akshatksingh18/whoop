@@ -179,7 +179,10 @@ class GraphRepo extends LocalRepository {
     ],
   };
   @override
-  Future<List<Map<String, dynamic>>> sleepWindows({int days = 7}) async => [];
+  Future<List<Map<String, dynamic>>> sleepWindows({
+    int days = 7,
+    String? before,
+  }) async => [];
   @override
   Future<Map<String, dynamic>> getDayHrv(String day) async => {
     'timeline': [

@@ -30,7 +30,9 @@ void main() {
     expect(s.centre, 52);
     expect(s.spread, closeTo(1 * 1.4826, 1e-9));
     expect(recoveryScale([1, 2, 3]), isNull, reason: 'fewer than 14');
-    final q = recoveryScale([for (var i = 0; i < 14; i++) i < 10 ? 58.0 : 59.0])!;
+    final q = recoveryScale([
+      for (var i = 0; i < 14; i++) i < 10 ? 58.0 : 59.0,
+    ])!;
     expect(q.centre, closeTo(58 + 4 / 14, 1e-9), reason: 'mean, as z() uses');
     expect(q.spread, greaterThan(0), reason: 'mean/SD fallback');
   });
@@ -52,19 +54,22 @@ void main() {
     expect(score, 31);
     expect(pts.reduce((a, b) => a + b), score - 50);
     expect(pts[0], -17, reason: 'HRV carries most of it');
-    expect(pts[0].abs(), greaterThan(pts.skip(1).map((p) => p.abs()).reduce(math.max)));
+    expect(
+      pts[0].abs(),
+      greaterThan(pts.skip(1).map((p) => p.abs()).reduce(math.max)),
+    );
     expect(recoveryPoints(const []), isEmpty);
     // A good night adds up the other way.
     final up = recoveryPoints([0.8, 0.3, 0.1]);
-    expect(up.reduce((a, b) => a + b), (100 / (1 + math.exp(-1.2))).round() - 50);
+    expect(
+      up.reduce((a, b) => a + b),
+      (100 / (1 + math.exp(-1.2))).round() - 50,
+    );
   });
 
   test('recent HRV: last night, its usual band and the 7-night average', () {
     final start = DateTime(2026, 9, 1);
-    final ms = [
-      for (var i = 0; i < 29; i++) 52.0 + (i * 7 % 9),
-      41.0,
-    ];
+    final ms = [for (var i = 0; i < 29; i++) 52.0 + (i * 7 % 9), 41.0];
     final series = [
       for (var i = 0; i < ms.length; i++)
         (date: _d(start.add(Duration(days: i))), value: math.log(ms[i])),
@@ -78,10 +83,20 @@ void main() {
     expect(v.usual!.lo, greaterThan(41));
     expect(v.avg7, isNotNull);
     expect(
-      RecentHrvCard.sentence(v),
+      RecentHrvCard.sentence(v, today: day),
       contains('41 ms last night, below your usual'),
     );
-    expect(RecentHrvCard.sentence(v), contains('one night, not a trend'));
+    expect(
+      RecentHrvCard.sentence(v, today: day),
+      contains('one night, not a trend'),
+    );
+    // Build 91 (F08): an older day names its date, never "last night".
+    final later = _d(DateTime.parse(day).add(const Duration(days: 3)));
+    expect(
+      RecentHrvCard.sentence(v, today: later),
+      isNot(contains('last night')),
+    );
+    expect(RecentHrvCard.sentence(v, today: later), contains('41 ms on '));
   });
 
   test('a missing night or a short history says so, never a number', () {
@@ -95,6 +110,26 @@ void main() {
     expect(RecentHrvCard.sentence(v), contains('after 14 measured nights'));
     final skipped = recentHrv(series, _d(start.add(const Duration(days: 9))));
     expect(skipped.last, isNull);
-    expect(RecentHrvCard.sentence(skipped), 'No HRV measured last night.');
+    expect(
+      RecentHrvCard.sentence(skipped, today: skipped.day),
+      'No HRV measured last night.',
+    );
+  });
+
+  test('the 7-night average is judged on its own side (Build 91, F08)', () {
+    RecentHrvView view(double last, double avg) => (
+      day: '2026-09-20',
+      nights: [(date: '2026-09-20', ms: last)],
+      usual: (lo: 50.0, hi: 60.0),
+      avg7: avg,
+      last: last,
+      lastDate: '2026-09-20',
+    );
+    final opposite = RecentHrvCard.sentence(view(40, 70), today: '2026-09-20');
+    expect(opposite, contains('40 ms last night, below your usual 50–60'));
+    expect(opposite, contains('70 ms, is above it'));
+    expect(opposite, isNot(contains('below it too')));
+    final both = RecentHrvCard.sentence(view(40, 45), today: '2026-09-20');
+    expect(both, contains('is below it too'));
   });
 }

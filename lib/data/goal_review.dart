@@ -167,9 +167,11 @@ GoalReview goalReview({
   final since = plan.since == null ? null : DateTime.tryParse(plan.since!);
   final daysOnGoal = since == null
       ? null
-      : DateTime.utc(t.year, t.month, t.day)
-            .difference(DateTime.utc(since.year, since.month, since.day))
-            .inDays;
+      : DateTime.utc(
+          t.year,
+          t.month,
+          t.day,
+        ).difference(DateTime.utc(since.year, since.month, since.day)).inDays;
   var advice = goalAdvice(
     plan: plan,
     weeklyPct: weekly,
@@ -198,6 +200,11 @@ GoalReview goalReview({
           today: today,
           windowWeeks: n,
           since: plan.since,
+          thisWeekCanQualify: thisWeekCanQualify(
+            today: today,
+            weights: weights,
+            food: food,
+          ),
         )
       : null;
   if (advice.verdict == GoalVerdict.needMore) {
@@ -210,8 +217,9 @@ GoalReview goalReview({
       waistPair: waistPair,
       before: before,
       lastWeek: weekWindows[0],
-      liftsComparable:
-          cmp.where((x) => x.change != SetVerdict.incomparable).length,
+      liftsComparable: cmp
+          .where((x) => x.change != SetVerdict.incomparable)
+          .length,
     );
   }
   final inputs = periodInputs(
@@ -385,6 +393,7 @@ String? firstCheckDate({
   required String today,
   required int windowWeeks,
   String? since,
+  bool thisWeekCanQualify = true,
 }) {
   final need = 2 * windowWeeks;
   var good = 0;
@@ -396,13 +405,16 @@ String? firstCheckDate({
   }
   final t = DateTime.parse(today);
   final nextMonday = DateTime(t.year, t.month, t.day + (8 - t.weekday));
-  // The current week is the first of the weeks still needed.
+  // The current week is the first of the weeks still needed, unless it can
+  // no longer reach the minimum (Build 91, Codex audit F06: on a Sunday with
+  // nothing logged the date came a week early). Then the run of qualifying
+  // weeks starts again next Monday and needs all of them.
   final stillNeeded = need - good;
   if (stillNeeded <= 0) return null;
   var at = DateTime(
     nextMonday.year,
     nextMonday.month,
-    nextMonday.day + 7 * (stillNeeded - 1),
+    nextMonday.day + 7 * (thisWeekCanQualify ? stillNeeded - 1 : need),
   );
   // And the goal must be 14 days old: the first Monday on or after day 14.
   final start = since == null ? null : DateTime.tryParse(since);
@@ -412,6 +424,29 @@ String? firstCheckDate({
     if (m.isAfter(at)) at = m;
   }
   return dayLabelOf(at);
+}
+
+/// Whether this Monday-to-Sunday week can still reach [kReviewWeekMinimum]
+/// weigh-ins and fully logged food days: what Monday to yesterday holds plus
+/// one per day left, today included. Never assumes a back-filled day.
+bool thisWeekCanQualify({
+  required String today,
+  required List<BodyWeightRow> weights,
+  required List<FoodDay> food,
+}) {
+  final t = DateTime.parse(today);
+  final left = 8 - t.weekday; // today through Sunday
+  if (t.weekday == DateTime.monday) return left >= kReviewWeekMinimum;
+  final w = (
+    from: dayLabelOf(DateTime(t.year, t.month, t.day - (t.weekday - 1))),
+    to: dayLabelOf(DateTime(t.year, t.month, t.day - 1)),
+    days: t.weekday - 1,
+    partial: false,
+  );
+  final weighIns = weightWindow(weightSeries(weights, unit: 'kg'), w).count;
+  final foodDays = foodWindow(food, w).kcalDays;
+  return weighIns + left >= kReviewWeekMinimum &&
+      foodDays + left >= kReviewWeekMinimum;
 }
 
 /// This Monday-to-today week's evidence for the goal check.
@@ -462,9 +497,7 @@ GoalAdvice _exactMissing(
   for (final w in weeks.reversed) {
     final label = reviewWeekLabel(w.from, w.to);
     if (w.weighIns < kReviewWeekMinimum) {
-      lines.add(
-        '$label: ${w.weighIns} of $kReviewWeekMinimum weigh-ins.',
-      );
+      lines.add('$label: ${w.weighIns} of $kReviewWeekMinimum weigh-ins.');
     }
     if (w.foodDays < kReviewWeekMinimum) {
       lines.add(

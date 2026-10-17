@@ -299,7 +299,9 @@ class SleepData {
     } catch (_) {
       naps = const [];
     }
-    final wins = await repo.sleepWindows(days: _window + 1);
+    // The nights before this one only, like the comparisons above: a past
+    // night is never measured against nights after it (Build 91, F07).
+    final wins = await repo.sleepWindows(days: _window, before: day);
     final onsets = <int>[
       for (final w in wins.reversed)
         if (w['date'] != day &&

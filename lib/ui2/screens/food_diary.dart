@@ -334,9 +334,13 @@ Future<bool> editDiaryEntry(
       if (portion == null) return false;
       await NutritionDb.put(db, e.atQuantity(portion.amount));
     } else {
+      // Build 91 (Codex audit F02): a changed portion scales what was
+      // recorded, so a later correction to the saved food never reprices an
+      // old entry. The sheet previews the entry's own nutrition per unit.
+      final at = recordedDef(e, def);
       final portion = await GramsSheet.show(
         c,
-        def,
+        at?.def ?? def,
         initial: e.quantity,
         initialUnit: e.unit,
         action: 'Save',
@@ -346,16 +350,22 @@ Future<bool> editDiaryEntry(
       if (portion == null) return false;
       await NutritionDb.put(
         db,
-        entryFromFood(
-          def,
-          portion.base,
-          id: e.id,
-          date: e.date,
-          meal: e.meal,
-          atTs: e.atTs,
-          amount: portion.amount,
-          unit: portion.unit,
-        ).inGroup(e.group),
+        at == null
+            ? entryFromFood(
+                def,
+                portion.base,
+                id: e.id,
+                date: e.date,
+                meal: e.meal,
+                atTs: e.atTs,
+                amount: portion.amount,
+                unit: portion.unit,
+              ).inGroup(e.group)
+            : e.scaledPortion(
+                portion.base / at.base,
+                newQuantity: portion.amount,
+                newUnit: portion.unit,
+              ),
       );
     }
     return true;
@@ -1935,6 +1945,16 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
     return sum;
   }
 
+  /// A ticked companion has no value for the nutrient [pick] reads, so the
+  /// plate's figure is a floor (Build 91, Codex audit F01).
+  bool _companionMissing(double? Function(Nutrients) pick) {
+    for (final w in _with) {
+      if (!_picked.contains(w['key'])) continue;
+      if (pick(nutrientsFor(w, 100)) == null) return true;
+    }
+    return false;
+  }
+
   @override
   void dispose() {
     _g.dispose();
@@ -2054,16 +2074,25 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
       return own == null ? null : own + more;
     }
 
+    final plateOf = <String, double? Function(Nutrients)>{
+      'Calories': (x) => x.kcal,
+      'Protein': (x) => x.protein,
+      'Carbs': (x) => x.carbs,
+      'Fat': (x) => x.fat,
+      'Fibre': (x) => x.fibre,
+    };
+
     final day = _day;
     String leftText(String name, double? v, double? g, NutrientTotal? eaten) {
       final l = leftAfter(g, eaten, v);
       if (l == null) return '';
+      final ceiling = l.atMost || _companionMissing(plateOf[name]!);
       final amount = name == 'Calories'
           ? '${l.value.abs().round()}'
           : '${l.value.abs().round()} g';
       return l.value < 0
           ? 'over $amount'
-          : '${l.atMost ? '≤ ' : ''}$amount left';
+          : '${ceiling ? '≤ ' : ''}$amount left';
     }
 
     final macros = <(String, double?, double?, NutrientTotal?)>[
@@ -2073,13 +2102,6 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
       ('Fat', n?.fat, goal('fat_target'), day?.fat),
       ('Fibre', n?.fibre, goal('fibre_target'), day?.fibre),
     ];
-    final plateOf = <String, double? Function(Nutrients)>{
-      'Calories': (x) => x.kcal,
-      'Protein': (x) => x.protein,
-      'Carbs': (x) => x.carbs,
-      'Fat': (x) => x.fat,
-      'Fibre': (x) => x.fibre,
-    };
     return _body(c, [
       _sheetTitle(c, '${_def['label']}'),
       const SizedBox(height: S.x4),
@@ -2098,7 +2120,9 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
                 final fit = fitAmount(
                   goal: goal('kcal_target'),
                   eaten: day.kcal,
-                  kcalPerUnit: one == null ? null : nutrientsFor(_def, one).kcal,
+                  kcalPerUnit: one == null
+                      ? null
+                      : nutrientsFor(_def, one).kcal,
                   unit: u,
                   otherKcal: extra?.kcal ?? 0,
                 );
@@ -2106,6 +2130,10 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
                     ? null
                     : FitChip(
                         label: portionText(fit, u),
+                        atMost: fitIsCeiling(
+                          day.kcal,
+                          otherUnknown: _companionMissing((x) => x.kcal),
+                        ),
                         onTap: () => _g.text = _trim(fit),
                       );
               },
@@ -2118,6 +2146,9 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
           proteinGoal: goal('protein_target'),
           thisKcal: plate((x) => x.kcal),
           thisProtein: plate((x) => x.protein),
+          thisKcalPartial: _companionMissing((x) => x.kcal),
+          thisProteinPartial: _companionMissing((x) => x.protein),
+          date: widget.date,
         ),
       ],
       const SizedBox(height: S.x2),

@@ -400,10 +400,7 @@ class _ProgressScreenState extends State<ProgressScreen>
       const SizedBox(height: S.x3),
       _goalCard(c, p, d, r),
       const SizedBox(height: S.x4),
-      Section(
-        'Body · last 7 days vs the 7 before',
-        _outcomes(c, p, d, rr),
-      ),
+      Section('Body · last 7 days vs the 7 before', _outcomes(c, p, d, rr)),
       const SizedBox(height: S.x4),
       _inputs(c, p, rr),
       const SizedBox(height: S.x4),
@@ -511,18 +508,9 @@ class _ProgressScreenState extends State<ProgressScreen>
   /// Build 90 (Akshat's phone review): until the check can judge, the card
   /// says when it first can and what this week has towards it, instead of a
   /// large "Not enough to judge" over a list of past weeks that cannot change.
-  Widget _goalCardWaiting(
-    BuildContext c,
-    P p,
-    ProgressData d,
-    GoalReview r,
-  ) {
+  Widget _goalCardWaiting(BuildContext c, P p, ProgressData d, GoalReview r) {
     final today = todayLabel();
-    final ev = thisWeekEvidence(
-      today: today,
-      weights: d.weights,
-      food: d.food,
-    );
+    final ev = thisWeekEvidence(today: today, weights: d.weights, food: d.food);
     final weeks = r.plan.windowWeeks;
     final days = r.daysOnGoal;
     Widget dots(String label, int n) {
@@ -1318,6 +1306,36 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   late bool _showTape = widget.measure != null;
   bool _showPhotos = false;
 
+  /// Build 91 (Codex audit F11): what the fields held when the screen
+  /// opened, so Back or an edge swipe asks before dropping typed values.
+  String _weightAtOpen = '';
+  late final Map<BodySite, String> _sitesAtOpen;
+
+  /// Set once the screen is leaving on purpose (Save, or Discard confirmed).
+  bool _leaving = false;
+
+  bool get _dirty =>
+      _weight.text.trim() != _weightAtOpen.trim() ||
+      BodySite.values.any(
+        (s) => _sites[s]!.text.trim() != _sitesAtOpen[s]!.trim(),
+      );
+
+  Future<void> _onBack(bool didPop, Object? result) async {
+    if (didPop || _leaving) return;
+    final leave =
+        !_dirty ||
+        await confirmRemove(
+          context,
+          title: 'Discard changes?',
+          body: 'What you typed here has not been saved.',
+          remove: 'Discard',
+          keep: 'Keep editing',
+        );
+    if (!leave || !mounted) return;
+    _leaving = true;
+    Navigator.of(context).pop(result);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1328,6 +1346,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         if (v != null) _sites[s]!.text = _num(v, 2);
       }
     }
+    _sitesAtOpen = {for (final s in BodySite.values) s: _sites[s]!.text};
     _loadDay();
   }
 
@@ -1352,6 +1371,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         _weight.text = w.entered != null && w.unit == _unit
             ? _num(w.entered!)
             : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
+        _weightAtOpen = _weight.text;
       }
     });
   }
@@ -1452,7 +1472,10 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         saved.add('tape');
       }
       app.bumpInsights();
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        _leaving = true;
+        Navigator.of(context).pop(true);
+      }
     } on BodyLogError catch (e) {
       if (mounted) setState(() => _error = _partial(saved, e.message));
     } catch (_) {
@@ -1647,180 +1670,186 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Scaffold(
-      backgroundColor: p.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: NavBar(
-                widget.date == null ? 'Add entry' : 'Edit ${_md(_date)}',
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: _onBack,
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: NavBar(
+                  widget.date == null ? 'Add entry' : 'Edit ${_md(_date)}',
+                ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-                children: [
-                  Surface(
-                    onTap: _pickDate,
-                    semanticLabel: 'Day ${_md(_date)}. Change',
-                    child: Row(
-                      children: [
-                        Icon(LucideIcons.calendar, size: 18, color: p.ink2),
-                        const SizedBox(width: S.x3),
-                        Expanded(
-                          child: Text(
-                            _date == todayLabel() ? 'Today' : _md(_date),
-                            style: F.body.copyWith(color: p.ink),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                  children: [
+                    Surface(
+                      onTap: _pickDate,
+                      semanticLabel: 'Day ${_md(_date)}. Change',
+                      child: Row(
+                        children: [
+                          Icon(LucideIcons.calendar, size: 18, color: p.ink2),
+                          const SizedBox(width: S.x3),
+                          Expanded(
+                            child: Text(
+                              _date == todayLabel() ? 'Today' : _md(_date),
+                              style: F.body.copyWith(color: p.ink),
+                            ),
                           ),
-                        ),
-                        Text('Change', style: F.cap.copyWith(color: p.ink2)),
-                      ],
-                    ),
-                  ),
-                  if (_date != todayLabel())
-                    Padding(
-                      padding: const EdgeInsets.only(top: S.x2),
-                      child: Text(
-                        'A past day is kept as history: it does not change that day\'s calories or your current weight.',
-                        style: F.over.copyWith(color: p.ink3),
+                          Text('Change', style: F.cap.copyWith(color: p.ink2)),
+                        ],
                       ),
                     ),
-                  const SizedBox(height: S.x4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: OsTextField(
-                          controller: _weight,
-                          label: 'Weight ($_unit)',
+                    if (_date != todayLabel())
+                      Padding(
+                        padding: const EdgeInsets.only(top: S.x2),
+                        child: Text(
+                          'A past day is kept as history: it does not change that day\'s calories or your current weight.',
+                          style: F.over.copyWith(color: p.ink3),
+                        ),
+                      ),
+                    const SizedBox(height: S.x4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: OsTextField(
+                            controller: _weight,
+                            label: 'Weight ($_unit)',
+                            keyboard: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: S.x2),
+                        Pressable(
+                          semanticLabel:
+                              'Use ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
+                          onTap: () => setState(() {
+                            final v = double.tryParse(_weight.text.trim());
+                            _unit = _unit == 'kg' ? 'lb' : 'kg';
+                            if (v != null)
+                              _weight.text = _num(
+                                _unit == 'lb' ? v * kLbPerKg : v / kLbPerKg,
+                              );
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.all(S.x3),
+                            child: Pill(_unit, C.body),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_readings.isNotEmpty) _readingList(p),
+                    if (_error != null) ...[
+                      const SizedBox(height: S.x3),
+                      Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
+                    ],
+                    const SizedBox(height: S.x4),
+                    BigButton(
+                      _busy ? 'Saving' : 'Save',
+                      color: C.body,
+                      onTap: _busy ? null : _save,
+                    ),
+                    const SizedBox(height: S.x5),
+                    _section(
+                      p,
+                      'Measurements',
+                      'Tape, in inches. Optional.',
+                      _showTape,
+                      () => setState(() => _showTape = !_showTape),
+                    ),
+                    if (_showTape) ...[
+                      const SizedBox(height: S.x2),
+                      // B88-12 (C6): what makes two tape readings comparable.
+                      Text(
+                        'Same spot and same time of day each time, relaxed, tape '
+                        'snug but not pressing. Measured twice? Enter both, like '
+                        '34.5 34.75, and the average is kept.',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                      const SizedBox(height: S.x2),
+                      for (final s in BodySite.values) ...[
+                        OsTextField(
+                          controller: _sites[s]!,
+                          label: s.title,
+                          hint: s.guidance,
+                          // Signed numbers open iOS's numbers-and-punctuation
+                          // keyboard, which has the space a second reading needs.
                           keyboard: const TextInputType.numberWithOptions(
                             decimal: true,
+                            signed: true,
                           ),
                         ),
-                      ),
-                      const SizedBox(width: S.x2),
-                      Pressable(
-                        semanticLabel:
-                            'Use ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
-                        onTap: () => setState(() {
-                          final v = double.tryParse(_weight.text.trim());
-                          _unit = _unit == 'kg' ? 'lb' : 'kg';
-                          if (v != null)
-                            _weight.text = _num(
-                              _unit == 'lb' ? v * kLbPerKg : v / kLbPerKg,
-                            );
-                        }),
-                        child: Padding(
-                          padding: const EdgeInsets.all(S.x3),
-                          child: Pill(_unit, C.body),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_readings.isNotEmpty) _readingList(p),
-                  if (_error != null) ...[
-                    const SizedBox(height: S.x3),
-                    Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
-                  ],
-                  const SizedBox(height: S.x4),
-                  BigButton(
-                    _busy ? 'Saving' : 'Save',
-                    color: C.body,
-                    onTap: _busy ? null : _save,
-                  ),
-                  const SizedBox(height: S.x5),
-                  _section(
-                    p,
-                    'Measurements',
-                    'Tape, in inches. Optional.',
-                    _showTape,
-                    () => setState(() => _showTape = !_showTape),
-                  ),
-                  if (_showTape) ...[
-                    const SizedBox(height: S.x2),
-                    // B88-12 (C6): what makes two tape readings comparable.
-                    Text(
-                      'Same spot and same time of day each time, relaxed, tape '
-                      'snug but not pressing. Measured twice? Enter both, like '
-                      '34.5 34.75, and the average is kept.',
-                      style: F.cap.copyWith(color: p.ink3),
-                    ),
-                    const SizedBox(height: S.x2),
-                    for (final s in BodySite.values) ...[
-                      OsTextField(
-                        controller: _sites[s]!,
-                        label: s.title,
-                        hint: s.guidance,
-                        // Signed numbers open iOS's numbers-and-punctuation
-                        // keyboard, which has the space a second reading needs.
-                        keyboard: const TextInputType.numberWithOptions(
-                          decimal: true,
-                          signed: true,
-                        ),
-                      ),
-                      const SizedBox(height: S.x3),
-                    ],
-                  ],
-                  const SizedBox(height: S.x3),
-                  _section(
-                    p,
-                    'Photos',
-                    _photos.isEmpty
-                        ? 'Optional. Each photo saves the moment you add it.'
-                        : '${_photos.length} for this day. Each photo saves the moment you add it.',
-                    _showPhotos,
-                    () => setState(() => _showPhotos = !_showPhotos),
-                  ),
-                  if (_showPhotos) ...[
-                    const SizedBox(height: S.x2),
-                    if (_photos.isNotEmpty)
-                      SizedBox(
-                        height:
-                            96 +
-                            MediaQuery.textScalerOf(c).scale(F.over.fontSize!) *
-                                2,
-                        child: ListView(
-                          scrollDirection: Axis.horizontal,
-                          children: [
-                            for (final ph in _photos)
-                              _Thumb(ph, size: 96, label: ph.pose),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: S.x2),
-                    Wrap(
-                      spacing: S.x2,
-                      runSpacing: S.x2,
-                      children: [
-                        for (final pose in const ['front', 'side']) ...[
-                          Pressable(
-                            semanticLabel: 'Take a $pose photo',
-                            onTap: () => _addPhoto(pose, camera: true),
-                            child: Pill(
-                              'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
-                              C.body,
-                              icon: LucideIcons.camera,
-                            ),
-                          ),
-                          Pressable(
-                            semanticLabel: 'Choose a $pose photo',
-                            onTap: () => _addPhoto(pose, camera: false),
-                            child: Pill(
-                              'Photos · ${pose == 'front' ? 'Front' : 'Side'}',
-                              C.n400,
-                              icon: LucideIcons.image,
-                            ),
-                          ),
-                        ],
+                        const SizedBox(height: S.x3),
                       ],
+                    ],
+                    const SizedBox(height: S.x3),
+                    _section(
+                      p,
+                      'Photos',
+                      _photos.isEmpty
+                          ? 'Optional. Each photo saves the moment you add it.'
+                          : '${_photos.length} for this day. Each photo saves the moment you add it.',
+                      _showPhotos,
+                      () => setState(() => _showPhotos = !_showPhotos),
                     ),
+                    if (_showPhotos) ...[
+                      const SizedBox(height: S.x2),
+                      if (_photos.isNotEmpty)
+                        SizedBox(
+                          height:
+                              96 +
+                              MediaQuery.textScalerOf(
+                                    c,
+                                  ).scale(F.over.fontSize!) *
+                                  2,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            children: [
+                              for (final ph in _photos)
+                                _Thumb(ph, size: 96, label: ph.pose),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: S.x2),
+                      Wrap(
+                        spacing: S.x2,
+                        runSpacing: S.x2,
+                        children: [
+                          for (final pose in const ['front', 'side']) ...[
+                            Pressable(
+                              semanticLabel: 'Take a $pose photo',
+                              onTap: () => _addPhoto(pose, camera: true),
+                              child: Pill(
+                                'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
+                                C.body,
+                                icon: LucideIcons.camera,
+                              ),
+                            ),
+                            Pressable(
+                              semanticLabel: 'Choose a $pose photo',
+                              onTap: () => _addPhoto(pose, camera: false),
+                              child: Pill(
+                                'Photos · ${pose == 'front' ? 'Front' : 'Side'}',
+                                C.n400,
+                                icon: LucideIcons.image,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

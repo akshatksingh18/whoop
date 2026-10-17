@@ -1,9 +1,9 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat reports Build `0.9.56`/`89` installed and being tested. Build 88 was the previous
-install. Build 89 works on his phone and becomes the cached recovery build before Build 90 installs;
-until then Build 70 remains cached recovery. Build 90's engine/data and approved A + compact B interface are implemented in local source;
-integration, full cloud checks and native/device acceptance remain open.
+**State:** Akshat reports Build `0.9.57`/`90` installed and being tested; Build 89 was the previous
+install and Build 70 remains cached recovery until a later build is accepted and enrolled. Fixes
+for his first Build 90 findings and the triaged Codex audit (Build 90 items 3c-3e) wait for
+Build `0.9.58`/`91`; phone acceptance remains open.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -38,11 +38,11 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 **State:** the Claude lane, the Codex engine/data lane and the calm interface Akshat selected
 (A overall with B's compact macro rows, built by Codex) are merged on `build-90` (version
 `0.9.57+90`, algorithm 96, schema 50), with Akshat's calorie decisions (D8) and the remaining
-UI audit fixes; no Build 90 IPA is built or installed. Claude now carries every remaining
+UI audit fixes; its validated IPA is installed on Akshat's iPhone (item 3b). Claude now carries every remaining
 Build 90 step, including UI (Akshat: Codex is not needed from here). Akshat chose to ship the whole backlog in `build-90-audit.md` ("Complete
 App-Wide Worklist") in this one build, including the full engine depth, plus a home bodyweight
 workout (`home-workout-proposal.md`). Claude integrates, pushes and runs every GitHub check.
-Next: Akshat's visual approval of the merged pages, the full cloud run, then the release phase.
+Next: Build 91 from items 3c-3e when Akshat says, then the phone acceptance in item 4.
 Local synthetic checks do not establish native iPhone acceptance.
 
 ### Decisions (Akshat, Build 89 review)
@@ -273,6 +273,24 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   (`progress_review.dart`); overview Body and What went in over the last 7 days vs the 7
   before with both columns; compact waiting goal card; detail stats with a Before line;
   `build90_progress_time_rule_test.dart`. Renders pass at every size.
+- [ ] 3e. Codex whole-app audit of `3200c154` (local report
+  `build/research-local/app-audit-3200c154.md`, synthetic only). Claude traced every finding
+  in source; all twelve are real, none is data loss or a wrong stored metric. For Build 91:
+  - Logic (no UI decision): Fit chip ignores unknown-calorie items and ticked companions
+    with unknown calories count as 0 (qualify or withhold, keep "at most"); editing an old
+    diary portion rebuilds it from today's saved food (scale the entry's own recorded
+    nutrition); `bestSet` is order-dependent when sets above 10 reps mix with scored sets
+    (one stable rule plus a permutation test); first-check date assumes the current week
+    can still qualify (add a week when it cannot); Sleep bedtime consistency for a past night
+    uses later nights (window ending at that night); Recent HRV says the 7-night average is on
+    the same side as last night (judge each), calls an old night "last night" (show its
+    date) and does not reload on new data; Body entry has no unsaved-changes guard;
+    "After this, today" on a past diary date; Progress "3 months" is 91 days vs Trends' 90.
+  - Needs mockups first: overview taps open the detail page on its own remembered range
+    (open on 7 days to match the number); waiting goal card does not name the real blocker
+    for Recomposition (waist pair, comparable lifts) and shows no date then; What went in
+    shows no day counts (1 logged day reads like 7); large-text hierarchy (Train "Other"
+    ellipsised, Today/Food actions pushed down).
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

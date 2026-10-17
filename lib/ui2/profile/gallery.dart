@@ -426,8 +426,24 @@ Map<String, Widget> goldenCases() => {
   // End Build 90 Codex lane
   // Build 90: Recovery's recent-HRV card (synthetic nights).
   'recent_hrv_card': RecentHrvCard((
+    day: '2026-08-14',
     nights: [
-      for (final (i, ms) in const [56.0, 58.0, 54.0, 57.0, 59.0, 55.0, 53.0, 58.0, 57.0, 56.0, 54.0, 57.0, 55.0, 41.0].indexed)
+      for (final (i, ms) in const [
+        56.0,
+        58.0,
+        54.0,
+        57.0,
+        59.0,
+        55.0,
+        53.0,
+        58.0,
+        57.0,
+        56.0,
+        54.0,
+        57.0,
+        55.0,
+        41.0,
+      ].indexed)
         (date: '2026-08-${(i + 1).toString().padLeft(2, '0')}', ms: ms),
     ],
     usual: (lo: 52.0, hi: 60.0),

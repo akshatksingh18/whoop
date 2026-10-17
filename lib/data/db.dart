@@ -1142,7 +1142,9 @@ class LocalDb {
         end_ts INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS day_zone_start ON day_zone(start_ts)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS day_zone_start ON day_zone(start_ts)',
+    );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS zone_change (
         at_ts INTEGER PRIMARY KEY,
@@ -2434,10 +2436,15 @@ class LocalDb {
       var lo = 0, hi = storedDays.length;
       while (lo < hi) {
         final mid = (lo + hi) ~/ 2;
-        if (storedDays[mid].startSec <= t) { lo = mid + 1; } else { hi = mid; }
+        if (storedDays[mid].startSec <= t) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
       }
       return lo < storedDays.length ? storedDays[lo].startSec : null;
     }
+
     for (final row in rows) {
       final start = (row['start_ts'] as num).toInt();
       final end = math.max(start + 1, (row['end_ts'] as num).toInt());
@@ -2448,8 +2455,14 @@ class LocalDb {
         if (seen.add(date)) (byDay[date] ??= []).add(row);
         final assigned = DayClock.at(t);
         final local = DateTime.fromMillisecondsSinceEpoch(t * 1000);
-        var boundary = assigned?.endSec ??
-            DateTime(local.year, local.month, local.day + 1).millisecondsSinceEpoch ~/ 1000;
+        var boundary =
+            assigned?.endSec ??
+            DateTime(
+                  local.year,
+                  local.month,
+                  local.day + 1,
+                ).millisecondsSinceEpoch ~/
+                1000;
         if (assigned == null) {
           final next = nextStoredStart(t);
           if (next != null) boundary = math.min(boundary, next);
@@ -2460,13 +2473,18 @@ class LocalDb {
     }
     return {
       for (final e in byDay.entries)
-        e.key: _resolveStepRows(e.value,
-          localDayStartSec(e.key)!, localDayEndSec(e.key)!),
+        e.key: _resolveStepRows(
+          e.value,
+          localDayStartSec(e.key)!,
+          localDayEndSec(e.key)!,
+        ),
     };
   }
 
   static ResolvedDaySteps _resolveStepRows(
-    List<Map<String, Object?>> rows, int lo, int hi,
+    List<Map<String, Object?>> rows,
+    int lo,
+    int hi,
   ) {
     final spans = <CoverageSpan>[];
     for (final row in rows) {
@@ -6610,15 +6628,21 @@ class LocalDb {
   /// (`{value: {onset_ms, offset_ms, …}, confidence, tier, …}`) in its own
   /// column, so onset/offset are one small projected read — no bundle decode,
   /// no per-day round trip. Rows: `{day_id, window_json}`.
-  static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit) async {
+  /// [before] (a day label) keeps only nights before that day, so a past
+  /// night's comparison never reads later nights (Build 91, Codex audit F07).
+  static Future<List<Map<String, dynamic>>> sleepWindowRows(
+    int limit, {
+    String? before,
+  }) async {
     final db = await instance;
     return db.rawQuery(
       'SELECT r.day_id AS day_id, r.window_json AS window_json '
       'FROM day_result r '
       '$_servedDayJoin '
       'WHERE r.skipped = 0 '
+      '${before == null ? '' : 'AND r.day_id < ? '}'
       'ORDER BY r.day_id DESC LIMIT ?',
-      [limit],
+      [?before, limit],
     );
   }
 
@@ -6755,16 +6779,18 @@ class LocalDb {
     final db = await instance;
     final (lo, hi) = await firstAndLastRecordTs();
     if (lo != null && hi != null) await DayZoneStore.ensureRange(lo, hi);
-    final rawRows = await db.rawQuery(DayClock.days.isNotEmpty ?
-      'SELECT z.date AS day_id, COUNT(*) AS raw_count, '
-      'MIN(d.rec_ts) AS min_rec_ts, MAX(d.rec_ts) AS max_rec_ts '
-      'FROM day_zone z JOIN decoded_onehz d ON d.rec_ts >= z.start_ts '
-      'AND d.rec_ts < z.end_ts WHERE d.rec_ts > 0 AND ${derivableSourceSql('d.source')} '
-      'GROUP BY z.date ORDER BY z.date DESC' :
-      "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id, "
-      'COUNT(*) AS raw_count, MIN(rec_ts) AS min_rec_ts, MAX(rec_ts) AS max_rec_ts '
-      'FROM decoded_onehz WHERE rec_ts > 0 AND ${derivableSourceSql()} '
-      'GROUP BY day_id ORDER BY day_id DESC');
+    final rawRows = await db.rawQuery(
+      DayClock.days.isNotEmpty
+          ? 'SELECT z.date AS day_id, COUNT(*) AS raw_count, '
+                'MIN(d.rec_ts) AS min_rec_ts, MAX(d.rec_ts) AS max_rec_ts '
+                'FROM day_zone z JOIN decoded_onehz d ON d.rec_ts >= z.start_ts '
+                'AND d.rec_ts < z.end_ts WHERE d.rec_ts > 0 AND ${derivableSourceSql('d.source')} '
+                'GROUP BY z.date ORDER BY z.date DESC'
+          : "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id, "
+                'COUNT(*) AS raw_count, MIN(rec_ts) AS min_rec_ts, MAX(rec_ts) AS max_rec_ts '
+                'FROM decoded_onehz WHERE rec_ts > 0 AND ${derivableSourceSql()} '
+                'GROUP BY day_id ORDER BY day_id DESC',
+    );
     final derivedRows = await db.rawQuery(
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized '
       'FROM day_result r '

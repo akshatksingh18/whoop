@@ -4,18 +4,20 @@
 // logs from (`FoodDetailSheet`) and the amount sheet (`GramsSheet`).
 //
 // Nothing is guessed: no goal hides the card, an item with unknown calories
-// makes the day's left an "at most", and a food without calories offers no fit.
+// (logged, or ticked to log alongside) makes what is left an "at most", and
+// the fit then says "at most" too (Build 91, Codex audit F01); a food without
+// calories offers no fit.
 
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../../data/day_label.dart' show todayLabel;
+import '../../data/day_label.dart' show dayLabelOf, todayLabel;
 import '../../data/db.dart';
 import '../../data/nutrition_store.dart';
 import '../ui2.dart';
-import 'home_screen.dart' show thousands;
+import 'home_screen.dart' show prettyDay, thousands;
 
 /// One food's nutrients, as `nutrientsFor` returns them.
 typedef Nutrients = ({
@@ -57,6 +59,12 @@ Nutrients addNutrients(Nutrients a, Nutrients b) {
   );
 }
 
+/// Whether a fit or "left" figure is only a ceiling: some logged item, or a
+/// ticked companion ([otherUnknown]), has no calories, so they may already
+/// have used some of what looks free.
+bool fitIsCeiling(NutrientTotal? eaten, {bool otherUnknown = false}) =>
+    otherUnknown || (eaten?.unknown ?? 0) > 0;
+
 /// The amount of a food, in its current unit, that uses up the calories left
 /// after the day's [eaten] and [otherKcal] (ticked companions), rounded DOWN
 /// (whole grams or millilitres, half units otherwise) so it never goes over.
@@ -95,17 +103,30 @@ Future<NutritionDay?> loadDayIntake(String date, {String? excludeId}) async {
   }
 }
 
-/// The "Fit what's left · 243 g" chip.
+/// The "Fit what's left · 243 g" chip; "at most 243 g" when [atMost].
 class FitChip extends StatelessWidget {
-  const FitChip({super.key, required this.label, required this.onTap});
+  const FitChip({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.atMost = false,
+  });
   final String label;
   final VoidCallback onTap;
+  final bool atMost;
   @override
-  Widget build(BuildContext c) => Pressable(
-    semanticLabel: 'Fit what is left, $label',
-    onTap: onTap,
-    child: Pill('Fit what\'s left · $label', C.domFood, icon: LucideIcons.target),
-  );
+  Widget build(BuildContext c) {
+    final amount = atMost ? 'at most $label' : label;
+    return Pressable(
+      semanticLabel: 'Fit what is left, $amount',
+      onTap: onTap,
+      child: Pill(
+        'Fit what\'s left · $amount',
+        C.domFood,
+        icon: LucideIcons.target,
+      ),
+    );
+  }
 }
 
 /// The card under the amount: calories left (or over) after this food, an
@@ -118,10 +139,32 @@ class LeftAfterCard extends StatelessWidget {
     required this.proteinGoal,
     required this.thisKcal,
     required this.thisProtein,
+    this.thisKcalPartial = false,
+    this.thisProteinPartial = false,
+    this.date,
   });
+
+  /// The diary day the food goes on; null means today. The heading names it
+  /// ("After this, yesterday"), never claiming today for another day
+  /// (Build 91, Codex audit F12).
+  final String? date;
+
+  static String _dayWord(String? date) {
+    final today = todayLabel();
+    if (date == null || date == today) return 'today';
+    final t = DateTime.parse(today);
+    if (date == dayLabelOf(DateTime(t.year, t.month, t.day - 1))) {
+      return 'yesterday';
+    }
+    return prettyDay(date);
+  }
 
   final NutritionDay? day;
   final double? kcalGoal, proteinGoal, thisKcal, thisProtein;
+
+  /// Part of this plate (a ticked companion) has no value for the nutrient,
+  /// so what is left after it is only a ceiling.
+  final bool thisKcalPartial, thisProteinPartial;
 
   @override
   Widget build(BuildContext c) {
@@ -136,8 +179,10 @@ class LeftAfterCard extends StatelessWidget {
         ? 'This food\'s calories are unknown'
         : over
         ? 'Over by ${thousands(-left.value)} kcal'
-        : '${left!.atMost ? 'At most ' : ''}${thousands(left.value)} kcal left';
+        : '${left!.atMost || thisKcalPartial ? 'At most ' : ''}'
+              '${thousands(left.value)} kcal left';
     final protein = leftAfter(proteinGoal, d.protein, thisProtein);
+    final proteinCeiling = (protein?.atMost ?? false) || thisProteinPartial;
     final eatenFrac = (eaten / goal).clamp(0.0, 1.0).toDouble();
     final thisFrac = ((thisKcal ?? 0) / goal)
         .clamp(0.0, 1.0 - eatenFrac)
@@ -146,7 +191,8 @@ class LeftAfterCard extends StatelessWidget {
     final eatenColor = p.on(C.food).withValues(alpha: .55);
     return Semantics(
       container: true,
-      label: 'After this, today: $big'
+      label:
+          'After this, ${_dayWord(date)}: $big'
           '${protein == null ? '' : ', protein ${protein.value.round()} grams left'}',
       excludeSemantics: true,
       child: Container(
@@ -161,7 +207,7 @@ class LeftAfterCard extends StatelessWidget {
               spacing: S.x2,
               children: [
                 Text(
-                  'After this, today',
+                  'After this, ${_dayWord(date)}',
                   style: F.cap.copyWith(
                     color: p.ink2,
                     fontWeight: FontWeight.w600,
@@ -208,12 +254,20 @@ class LeftAfterCard extends StatelessWidget {
               spacing: S.x3,
               runSpacing: S.x1,
               children: [
-                _key(p, eatenColor,
-                    'eaten ${d.kcal.isFloor ? 'at least ' : ''}${thousands(eaten)}'),
-                _key(p, thisColor,
-                    'this ${thisKcal == null ? '–' : thousands(thisKcal)}'),
-                Text('goal ${thousands(goal)}',
-                    style: F.cap.copyWith(color: p.ink2)),
+                _key(
+                  p,
+                  eatenColor,
+                  'eaten ${d.kcal.isFloor ? 'at least ' : ''}${thousands(eaten)}',
+                ),
+                _key(
+                  p,
+                  thisColor,
+                  'this ${thisKcal == null ? '–' : thousands(thisKcal)}',
+                ),
+                Text(
+                  'goal ${thousands(goal)}',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
               ],
             ),
             if (protein != null) ...[
@@ -221,7 +275,7 @@ class LeftAfterCard extends StatelessWidget {
               Text(
                 protein.value < 0
                     ? 'Protein goal met'
-                    : 'Protein: ${protein.atMost ? 'at most ' : ''}'
+                    : 'Protein: ${proteinCeiling ? 'at most ' : ''}'
                           '${protein.value.round()} g left of '
                           '${proteinGoal!.round()}',
                 style: F.body.copyWith(color: p.ink),
@@ -242,7 +296,9 @@ class LeftAfterCard extends StatelessWidget {
         decoration: BoxDecoration(color: color, borderRadius: R.rSm),
       ),
       const SizedBox(width: S.x1),
-      Flexible(child: Text(label, style: F.cap.copyWith(color: p.ink2))),
+      Flexible(
+        child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+      ),
     ],
   );
 }

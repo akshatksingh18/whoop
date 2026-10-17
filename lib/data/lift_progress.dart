@@ -43,24 +43,36 @@ bool _comparable(LiftExercise a, LiftExercise b) =>
     a.loadMode == b.loadMode &&
     liftNameKey(a.equipmentNote) == liftNameKey(b.equipmentNote);
 
-/// The best set of [sets]: the highest estimate, else the most reps at the
-/// heaviest load.
+/// The best set of [sets], whatever order they were logged in: the highest
+/// estimate among sets the estimate covers; a set beyond its rep range wins
+/// only when it is at least as heavy with at least as many reps (it then did
+/// strictly more work); with no estimable set, the most reps at the heaviest
+/// load.
+///
+/// Build 91 (Codex audit F03): the pairwise rule switched between estimate
+/// and raw load, so 100×10, 110×15, 120×1 picked 120×1 in that order and
+/// 110×15 when 120×1 came first.
 LiftSet bestSet(List<LiftSet> sets) {
-  LiftSet? best;
+  bool heavier(LiftSet a, LiftSet b) =>
+      a.load > b.load || (a.load == b.load && a.reps > b.reps);
+  LiftSet? scored, raw;
+  double? top;
   for (final s in sets) {
-    if (best == null) {
-      best = s;
-      continue;
-    }
-    final a = setScore(s), b = setScore(best);
-    if (a != null && b != null) {
-      if (a > b) best = s;
-    } else if (s.load > best.load ||
-        (s.load == best.load && s.reps > best.reps)) {
-      best = s;
+    final v = setScore(s);
+    if (v != null) {
+      if (top == null || v > top || (v == top && heavier(s, scored!))) {
+        top = v;
+        scored = s;
+      }
+    } else if (raw == null || heavier(s, raw)) {
+      raw = s;
     }
   }
-  return best!;
+  if (scored == null) return raw!;
+  if (raw != null && raw.load >= scored.load && raw.reps >= scored.reps) {
+    return raw;
+  }
+  return scored;
 }
 
 /// Comparable finished sessions of [e], newest first.
@@ -119,7 +131,8 @@ enum LiftTrend { tooFew, up, flat, down, incomparable }
   if (w.length < 2) {
     return (
       trend: LiftTrend.incomparable,
-      text: 'Not comparable yet: your earlier best sets were at a different '
+      text:
+          'Not comparable yet: your earlier best sets were at a different '
           'weight. Repeat a weight to see a trend.',
     );
   }
@@ -155,8 +168,18 @@ enum LiftTrend { tooFew, up, flat, down, incomparable }
   }
   // B88-07: the trend names its dates, not only a session count.
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   String day(DateTime d) => '${d.day} ${months[d.month - 1]}';
   final span =

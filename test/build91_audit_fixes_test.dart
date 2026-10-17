@@ -2,6 +2,7 @@
 // with the audit's own synthetic example. Synthetic data only.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/body_log.dart';
+import 'package:openstrap_edge/data/goal_plan.dart';
 import 'package:openstrap_edge/data/goal_review.dart';
 import 'package:openstrap_edge/data/lift_log.dart';
 import 'package:openstrap_edge/data/lift_progress.dart';
@@ -146,5 +147,85 @@ void main() {
       '2026-11-09',
       reason: 'when the week can still qualify it counts as the first',
     );
+  });
+
+  test('F05: recomposition names what it waits for, with one date', () {
+    // Goal from Oct 10; this week (from Mon Oct 12) has 5 weigh-ins and 5
+    // food days, one waist reading on Oct 16 and no lifts.
+    final days = [
+      '2026-10-12',
+      '2026-10-13',
+      '2026-10-14',
+      '2026-10-15',
+      '2026-10-16',
+    ];
+    final measures = [
+      BodyMeasure(
+        date: '2026-10-16',
+        recordedAt: DateTime(2026, 10, 16, 8),
+        inches: {BodySite.waistNavel.name: 33.5},
+      ),
+    ];
+    final r = goalReview(
+      plan: GoalPlan(phase: GoalPhase.recomp, since: '2026-10-10'),
+      today: '2026-10-16',
+      weights: [for (final d in days) _w(d)],
+      measures: measures,
+      lifts: const [],
+      food: [for (final d in days) _f(d)],
+      steps: const [],
+      sleepMin: const [],
+      recovery: const [],
+      sessions: const [],
+    );
+    expect(r.firstCheck, '2026-11-09');
+    final needs = goalNeeds(
+      r,
+      today: '2026-10-16',
+      weights: [for (final d in days) _w(d)],
+      food: [for (final d in days) _f(d)],
+      measures: measures,
+      lifts: const [],
+    );
+    expect(needs.map((n) => n.kind), [
+      GoalNeedKind.evidence,
+      GoalNeedKind.waist,
+      GoalNeedKind.lift,
+    ]);
+    expect(needs[0].state, NeedState.partly);
+    expect(needs[1].state, NeedState.partly);
+    expect(needs[1].sub, contains('Start: logged Oct 16'));
+    expect(needs[1].sub, contains('End: one in Nov 2–8'));
+    expect(needs[2].state, NeedState.none);
+    expect(needs[2].sub, contains('Oct 12–25'));
+  });
+
+  test('F05: a passed waist or lift window moves the first check on', () {
+    // Sunday Nov 1, nothing logged: the Nov 9 check's first half (Oct 12-25)
+    // has no lift and its waist window (Oct 5-19) closed without a reading.
+    expect(
+      recompCheckDate(
+        from: '2026-11-09',
+        today: '2026-11-01',
+        windowWeeks: 2,
+        waist: const [],
+        lifts: const [],
+      ),
+      '2026-11-23',
+    );
+    // With a waist reading near Oct 12 and nothing else open, the lift rule
+    // alone moves it a week.
+    expect(
+      recompCheckDate(
+        from: '2026-11-09',
+        today: '2026-11-01',
+        windowWeeks: 2,
+        waist: const [(date: '2026-10-13', value: 33.5)],
+        lifts: const [],
+      ),
+      '2026-11-16',
+    );
+    expect(checkWindows('2026-11-09', 2).before.from, '2026-10-12');
+    expect(checkWindows('2026-11-09', 2).after.to, '2026-11-08');
   });
 }

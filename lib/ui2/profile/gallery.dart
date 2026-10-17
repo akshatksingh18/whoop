@@ -448,6 +448,7 @@ Map<String, Widget> goldenCases() => {
     ],
     usual: (lo: 52.0, hi: 60.0),
     avg7: 54.0,
+    before: 56.0,
     last: 41.0,
     lastDate: '2026-08-14',
   )),

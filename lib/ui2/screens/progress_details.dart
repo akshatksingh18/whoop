@@ -8,8 +8,14 @@ part of 'progress_screen.dart';
 
 /// The page [dest] opens on. Weight and Waist share the Body page with the
 /// matching measurement selected; food, training and recovery share one.
-Widget progressDetailPage(ProgressDest dest, {ProgressData? initial}) =>
-    _ProgressDetail(dest: dest, initial: initial);
+/// [range], when given, opens the page on that period and leaves the
+/// remembered history range alone (Build 91, Codex audit F04: a 7-day
+/// number on the overview opens on the same 7 days).
+Widget progressDetailPage(
+  ProgressDest dest, {
+  ProgressData? initial,
+  ProgressRange? range,
+}) => _ProgressDetail(dest: dest, initial: initial, range: range);
 
 enum _DetailKind { body, strength, context }
 
@@ -22,16 +28,17 @@ _DetailKind _kindOf(ProgressDest d) => switch (d) {
 };
 
 class _ProgressDetail extends StatefulWidget {
-  const _ProgressDetail({required this.dest, this.initial});
+  const _ProgressDetail({required this.dest, this.initial, this.range});
   final ProgressDest dest;
   final ProgressData? initial;
+  final ProgressRange? range;
   @override
   State<_ProgressDetail> createState() => _ProgressDetailState();
 }
 
 class _ProgressDetailState extends State<_ProgressDetail>
     with RevisionReload, _ProgressCommon {
-  ProgressRange _range = ProgressRange.threeMonths;
+  late ProgressRange _range = widget.range ?? ProgressRange.threeMonths;
   late String _metricKey = widget.dest == ProgressDest.waist
       ? BodySite.waistNavel.name
       : 'weight';
@@ -51,11 +58,13 @@ class _ProgressDetailState extends State<_ProgressDetail>
   @override
   void _prefsLoaded(SharedPreferences p) {
     setState(() {
-      _range =
-          ProgressRange.values
-              .where((r) => r.name == p.getString('progress.range'))
-              .firstOrNull ??
-          _range;
+      if (widget.range == null) {
+        _range =
+            ProgressRange.values
+                .where((r) => r.name == p.getString('progress.range'))
+                .firstOrNull ??
+            _range;
+      }
       // A link names its measurement; the plain Body page keeps the last one.
       if (widget.dest == ProgressDest.overview ||
           widget.dest == ProgressDest.entry) {
@@ -357,7 +366,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
         _range = _mainPeriods[i];
         _cursor = null;
       });
-      _save('progress.range', _mainPeriods[i].name);
+      if (widget.range == null) _save('progress.range', _mainPeriods[i].name);
     },
     color: C.body,
   );
@@ -383,7 +392,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
           _range = r;
           _cursor = null;
         });
-        _save('progress.range', r.name);
+        if (widget.range == null) _save('progress.range', r.name);
       },
       itemBuilder: (_) => [
         for (final r in more) PopupMenuItem(value: r, child: Text(r.label)),

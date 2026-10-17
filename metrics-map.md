@@ -605,7 +605,14 @@ switch per health-alert kind. From Build 89 source: Food's date opens a month ca
 week strip marks each day counted, logged or empty; its card reads eaten / goal with what is left
 or over beside it and a bar that stripes past the goal; Progress has one period selector for every
 card, the answer first and one Body card; Settings → Your data → Export for AI analysis writes one
-Markdown file (2 weeks to lifetime, food items up to 3 months). Before that, Food led with the
+Markdown file (2 weeks to lifetime, food items up to 3 months). From Build 91 source: Progress's
+goal card, until the check can judge, shows the first-check date and a checklist of what it
+waits for (weekly weigh-ins and food with this week's dots; for recomposition a waist reading at
+each end and one lift repeated on the same setup), with Log waist / Open Train buttons; Body and
+What went in compare the last 7 days with the 7 before, What went in shows day counts where an
+average rests on fewer than 7, the weight row is "Average weight" with the latest reading, and a
+row opens its page on the same 7 days. Food's evening protein-left line sits under the goal
+beside the ring. Before that, Food led with the
 intake hero and four macro progress lines, then
 one meal panel closed by the day's completion line; Train has four family start tiles, a week
 panel (streak, strain, run km) and Recent in a panel; Progress leads with the Week/Month/Since

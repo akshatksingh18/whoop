@@ -1675,7 +1675,11 @@ import 'substrate.dart';
 //   calories are ACTIVE by the shown method, tagged `calories_basis`, and the
 //   Active Energy workout-gap credit counts 'active' rows only (older gross
 //   rows are repaired where recalculable, otherwise kept as 'legacy').
-const int kAlgoVersion = 96;
+// 96 -> 97 (Build 91, Akshat's Build 90 phone check): effort detection treats
+//   a workout still running (no end yet) as saved up to the data edge, so a
+//   derive during a live walk no longer files that walk as an unlogged
+//   effort; stored `workout_suggestions` change for days with a live session.
+const int kAlgoVersion = 97;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

@@ -122,14 +122,36 @@ void main() {
       nights: [(date: '2026-09-20', ms: last)],
       usual: (lo: 50.0, hi: 60.0),
       avg7: avg,
+      before: avg,
       last: last,
       lastDate: '2026-09-20',
     );
     final opposite = RecentHrvCard.sentence(view(40, 70), today: '2026-09-20');
     expect(opposite, contains('40 ms last night, below your usual 50–60'));
-    expect(opposite, contains('70 ms, is above it'));
+    expect(opposite, contains('averaged 70 ms, above it'));
     expect(opposite, isNot(contains('below it too')));
     final both = RecentHrvCard.sentence(view(40, 45), today: '2026-09-20');
-    expect(both, contains('is below it too'));
+    expect(both, contains('below it too'));
+  });
+
+  test('one crash night reads as one night, not several (Build 91)', () {
+    // 40 steady nights around 60 ms, then 30 ms: the 7-night average
+    // including the crash falls under the band, the nights before do not.
+    final start = DateTime(2026, 9, 1);
+    final series = [
+      for (var i = 0; i < 40; i++)
+        (
+          date: _d(start.add(Duration(days: i))),
+          value: math.log(i.isEven ? 58.0 : 63.0),
+        ),
+      (date: _d(start.add(const Duration(days: 40))), value: math.log(30.0)),
+    ];
+    final day = series.last.date;
+    final v = recentHrv(series, day);
+    expect(v.before, closeTo(60.4, 1.5));
+    final s = RecentHrvCard.sentence(v, today: day);
+    expect(s, contains('30 ms last night, below your usual'));
+    expect(s, contains('one night, not a trend yet'));
+    expect(s, isNot(contains('several nights')));
   });
 }

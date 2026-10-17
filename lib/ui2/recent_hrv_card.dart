@@ -95,7 +95,7 @@ class RecentHrvCard extends StatelessWidget {
   /// older day names its date), and the 7-night average's side is judged on
   /// its own, never borrowed from the night.
   static String sentence(RecentHrvView v, {String? today}) {
-    final last = v.last, band = v.usual, avg = v.avg7;
+    final last = v.last, band = v.usual, avg = v.before;
     final current = v.day == (today ?? todayLabel());
     final when = current ? 'last night' : 'on ${prettyDay(v.day)}';
     if (last == null) {
@@ -114,16 +114,18 @@ class RecentHrvCard extends StatelessWidget {
     if (side == 'inside') return '$ms, inside your usual $range.';
     if (avg == null) return '$ms, $side your usual $range.';
     final avgSide = sideOf(avg);
-    final week = 'The 7-night average, ${avg.round()} ms,';
+    // Build 91: judged on the nights BEFORE this one. A 7-night average that includes a single crash can sit below
+    // the band and wrongly read as "several nights".
+    final week = 'The nights before averaged ${avg.round()} ms,';
     if (avgSide == 'inside') {
-      return '$ms, $side your usual $range. $week is still inside it: '
+      return '$ms, $side your usual $range. $week inside it: '
           'one night, not a trend yet.';
     }
     if (avgSide == side) {
-      return '$ms, $side your usual $range. $week is $side it too: '
+      return '$ms, $side your usual $range. $week $side it too: '
           'several nights, not one.';
     }
-    return '$ms, $side your usual $range. $week is $avgSide it.';
+    return '$ms, $side your usual $range. $week $avgSide it.';
   }
 
   @override

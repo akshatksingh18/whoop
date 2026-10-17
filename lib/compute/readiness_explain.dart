@@ -118,6 +118,11 @@ typedef RecentHrvView = ({
   List<({String date, double ms})> nights,
   ({double lo, double hi})? usual,
   double? avg7,
+
+  /// Build 91: the average of up to 6 measured nights before the view's
+  /// night (at least 3), so "one night or several" is judged without the
+  /// night itself dragging the average.
+  double? before,
   double? last,
   String? lastDate,
 });
@@ -140,6 +145,9 @@ RecentHrvView recentHrv(
   final scale = recoveryScale(recoveryBaseline(lnSeries, day));
   final band = scale == null ? null : usualRange(scale);
   final week = upTo.sublist(math.max(0, upTo.length - 7));
+  final prior = lastIsDay
+      ? upTo.sublist(math.max(0, upTo.length - 7), upTo.length - 1)
+      : const <DatedValue>[];
   return (
     day: day,
     nights: [for (final s in shown) (date: s.date, ms: math.exp(s.value))],
@@ -148,6 +156,11 @@ RecentHrvView recentHrv(
         ? null
         : math.exp(
             week.map((s) => s.value).reduce((a, b) => a + b) / week.length,
+          ),
+    before: prior.length < 3
+        ? null
+        : math.exp(
+            prior.map((s) => s.value).reduce((a, b) => a + b) / prior.length,
           ),
     last: lastIsDay ? math.exp(upTo.last.value) : null,
     lastDate: lastIsDay ? day : null,

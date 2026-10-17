@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -1566,6 +1567,7 @@ void main() {
                   ],
                   usual: (lo: 52.0, hi: 60.0),
                   avg7: 54.0,
+                  before: 56.0,
                   last: 41.0,
                   lastDate: dayLabelOf(DateTime.now()),
                 ),
@@ -1634,14 +1636,6 @@ void main() {
         await t.pumpWidget(_app(app, build(), scale, domain));
         await _settle(t);
         expect(t.takeException(), isNull);
-        if (name == 'food' && width == 390 && scale == 1) {
-          expect(
-            t.getTopLeft(find.text('Breakfast').first).dy,
-            lessThan(height - 90),
-            reason:
-                'The first meal must be visible above the tab bar at ordinary phone text.',
-          );
-        }
         await _capture(
           t,
           name == 'food' ? 'b90_codex_food_$tag' : 'b87_${name}_$tag',
@@ -1710,5 +1704,39 @@ void main() {
         await _settle(t);
       });
     }
+  }
+
+  // The first meal shows above the tab bar at ordinary phone text, by day
+  // and in the evening (after 5 PM the card adds the protein-left line).
+  // Pinned to fixed times: this check used to depend on when CI ran.
+  for (final hour in [13, 20]) {
+    testWidgets('food first meal is above the tab bar at $hour:00', (t) async {
+      t.view.physicalSize = const Size(390 * 1.5, 844 * 1.5);
+      t.view.devicePixelRatio = 1.5;
+      addTearDown(t.view.reset);
+      final now = DateTime.now();
+      await withClock(
+        Clock.fixed(DateTime(now.year, now.month, now.day, hour)),
+        () async {
+          final app = AppState.forTesting()
+            ..repo = _Repo()
+            ..user = {..._profile};
+          addTearDown(app.dispose);
+          await t.pumpWidget(
+            _app(app, const NutritionScreen(), 1.0, ShellDomain.nutrition),
+          );
+          await _settle(t);
+          expect(t.takeException(), isNull);
+          await _capture(t, 'b91_food_${hour}h');
+          expect(
+            t.getTopLeft(find.text('Breakfast').first).dy,
+            lessThan(844 - 90),
+            reason:
+                'The first meal must be visible above the tab bar at ordinary '
+                'phone text, at $hour:00.',
+          );
+        },
+      );
+    });
   }
 }

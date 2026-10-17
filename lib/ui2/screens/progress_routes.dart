@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../data/progress_review.dart' show ProgressRange;
 import '../../state/app_state.dart';
 import 'progress_screen.dart'
     show BodyEntryScreen, ProgressData, progressDetailPage;
@@ -33,6 +34,7 @@ Future<void> openProgress(
   BuildContext c, [
   ProgressDest dest = ProgressDest.overview,
   ProgressData? initial,
+  ProgressRange? range,
 ]) async {
   if (dest == ProgressDest.overview) {
     c.read<AppState>().navRequest.value = 5;
@@ -52,7 +54,7 @@ Future<void> openProgress(
   }
   await Navigator.of(c).push(
     MaterialPageRoute<void>(
-      builder: (_) => progressDetailPage(dest, initial: initial),
+      builder: (_) => progressDetailPage(dest, initial: initial, range: range),
     ),
   );
 }

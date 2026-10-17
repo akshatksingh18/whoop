@@ -194,7 +194,7 @@ GoalReview goalReview({
     daysOnGoal: daysOnGoal,
     female: female,
   );
-  final firstCheck = advice.verdict == GoalVerdict.needMore
+  final evidenceCheck = advice.verdict == GoalVerdict.needMore
       ? firstCheckDate(
           weeks: weeks,
           today: today,
@@ -207,6 +207,22 @@ GoalReview goalReview({
           ),
         )
       : null;
+  // Build 91 (Codex audit F05): the check has a date whenever it cannot
+  // judge yet, even when the weekly evidence already qualifies, and for
+  // recomposition the date also allows for the waist and lift requirements.
+  String? firstCheck;
+  if (advice.verdict == GoalVerdict.needMore) {
+    firstCheck = evidenceCheck ?? earliestCheckDay(today, plan.since);
+    if (plan.phase == GoalPhase.recomp) {
+      firstCheck = recompCheckDate(
+        from: firstCheck,
+        today: today,
+        windowWeeks: n,
+        waist: siteSeries(measures, BodySite.waistNavel),
+        lifts: lifts,
+      );
+    }
+  }
   if (advice.verdict == GoalVerdict.needMore) {
     advice = _exactMissing(
       advice,
@@ -426,6 +442,191 @@ String? firstCheckDate({
   return dayLabelOf(at);
 }
 
+/// The next Monday after [today], and no earlier than the first Monday on
+/// or after day 14 of a goal started on [since].
+String earliestCheckDay(String today, String? since) {
+  final t = DateTime.parse(today);
+  var at = DateTime(t.year, t.month, t.day + (8 - t.weekday));
+  final s = since == null ? null : DateTime.tryParse(since);
+  if (s != null) {
+    final old = DateTime(s.year, s.month, s.day + 14);
+    final m = DateTime(old.year, old.month, old.day + ((8 - old.weekday) % 7));
+    if (m.isAfter(at)) at = m;
+  }
+  return dayLabelOf(at);
+}
+
+/// The two halves a check on Monday [check] compares: the [windowWeeks]
+/// full weeks before it, and the [windowWeeks] before those.
+({DayWindow before, DayWindow after}) checkWindows(
+  String check,
+  int windowWeeks,
+) {
+  final f = DateTime.parse(check);
+  DayWindow span(int fromBack, int toBack) => (
+    from: dayLabelOf(DateTime(f.year, f.month, f.day - fromBack)),
+    to: dayLabelOf(DateTime(f.year, f.month, f.day - toBack)),
+    days: fromBack - toBack + 1,
+    partial: false,
+  );
+  final n = 7 * windowWeeks;
+  return (before: span(2 * n, n + 1), after: span(n, 1));
+}
+
+/// Build 91 (Codex audit F05): the first Monday from [from] on which a
+/// recomposition check could still have its waist pair and a repeated lift.
+/// A check whose start already passed with no waist reading near it, or
+/// whose first half already ended with no lift logged, cannot judge, so the
+/// date moves on a week at a time. Never assumes a back-filled entry.
+String recompCheckDate({
+  required String from,
+  required String today,
+  required int windowWeeks,
+  required List<DatedValue> waist,
+  required List<LiftWorkout> lifts,
+}) {
+  final t = DateTime.parse(today);
+  final now = DateTime(t.year, t.month, t.day);
+  var f = DateTime.parse(from);
+  for (var i = 0; i < 52; i++) {
+    final w = checkWindows(dayLabelOf(f), windowWeeks);
+    final start = DateTime.parse(w.before.from);
+    final waistOk =
+        readingNear(waist, w.before.from) != null ||
+        !DateTime(start.year, start.month, start.day + 7).isBefore(now);
+    final liftOk =
+        !DateTime.parse(w.before.to).isBefore(now) ||
+        lifts.any((x) {
+          final d = dayLabelOf(x.startedAt);
+          return d.compareTo(w.before.from) >= 0 &&
+              d.compareTo(w.before.to) <= 0 &&
+              x.exercises.any((e) => e.sets.isNotEmpty);
+        });
+    if (waistOk && liftOk) break;
+    f = DateTime(f.year, f.month, f.day + 7);
+  }
+  return dayLabelOf(f);
+}
+
+/// How far one requirement of the goal check has got.
+enum NeedState { met, partly, none }
+
+/// The requirement a [GoalNeed] describes.
+enum GoalNeedKind { evidence, waist, lift }
+
+typedef GoalNeed = ({
+  GoalNeedKind kind,
+  NeedState state,
+  String title,
+  String sub,
+});
+
+/// Build 91 (Codex audit F05): what the goal check still waits for, for the
+/// waiting card: the weekly evidence and, for recomposition, the waist pair
+/// and a repeated lift, each against the windows of the first check
+/// ([GoalReview.firstCheck]). Empty once the check can judge.
+List<GoalNeed> goalNeeds(
+  GoalReview r, {
+  required String today,
+  required List<BodyWeightRow> weights,
+  required List<FoodDay> food,
+  required List<BodyMeasure> measures,
+  required List<LiftWorkout> lifts,
+}) {
+  final check = r.firstCheck;
+  if (r.advice.verdict != GoalVerdict.needMore || check == null)
+    return const [];
+  final n = r.plan.windowWeeks;
+  final w = checkWindows(check, n);
+  final c = DateTime.parse(check);
+  final lastWeek = (
+    from: dayLabelOf(DateTime(c.year, c.month, c.day - 7)),
+    to: dayLabelOf(DateTime(c.year, c.month, c.day - 1)),
+  );
+  final weeksOk = r.weeks.every(
+    (x) => x.weighIns >= kReviewWeekMinimum && x.foodDays >= kReviewWeekMinimum,
+  );
+  final ev = thisWeekEvidence(today: today, weights: weights, food: food);
+  final out = <GoalNeed>[
+    (
+      kind: GoalNeedKind.evidence,
+      state: weeksOk
+          ? NeedState.met
+          : ev.weighIns + ev.foodDays > 0 ||
+                r.weeks.any(
+                  (x) =>
+                      x.weighIns >= kReviewWeekMinimum &&
+                      x.foodDays >= kReviewWeekMinimum,
+                )
+          ? NeedState.partly
+          : NeedState.none,
+      title: 'Weigh-ins and food, every week',
+      sub: weeksOk
+          ? 'Every week has $kReviewWeekMinimum of each.'
+          : '$kReviewWeekMinimum of each, Monday to Sunday, every week until '
+                '${_md(lastWeek.to)}.',
+    ),
+  ];
+  if (r.plan.phase != GoalPhase.recomp) return out;
+
+  final waist = [
+    for (final x in siteSeries(measures, BodySite.waistNavel))
+      if (x.date.compareTo(today) <= 0) x,
+  ];
+  final startAt = DateTime.parse(w.before.from);
+  final start = readingNear(waist, w.before.from);
+  final end = inRange(waist, lastWeek.from, lastWeek.to).lastOrNull;
+  String day(int d) =>
+      _md(dayLabelOf(DateTime(startAt.year, startAt.month, startAt.day + d)));
+  out.add((
+    kind: GoalNeedKind.waist,
+    state: start != null && end != null
+        ? NeedState.met
+        : start != null || end != null
+        ? NeedState.partly
+        : NeedState.none,
+    title: 'Waist at both ends',
+    sub:
+        'Start: ${start == null ? 'one between ${day(-7)} and ${day(7)}' : 'logged ${_md(start.date)}'}. '
+        'End: ${end == null ? 'one in ${reviewWeekLabel(lastWeek.from, lastWeek.to)}' : 'logged ${_md(end.date)}'}.',
+  ));
+
+  final comparable = liftComparisons(
+    lifts,
+    w.before,
+    w.after,
+  ).where((x) => x.change != SetVerdict.incomparable).isNotEmpty;
+  final names = <String>[];
+  for (final x in lifts) {
+    final d = dayLabelOf(x.startedAt);
+    if (d.compareTo(w.before.from) < 0 || d.compareTo(w.before.to) > 0)
+      continue;
+    for (final e in x.exercises) {
+      if (e.sets.isEmpty || names.any((m) => sameLiftName(m, e.name))) continue;
+      names.add(e.name);
+    }
+  }
+  final first = reviewWeekLabel(w.before.from, w.before.to);
+  final second = reviewWeekLabel(w.after.from, w.after.to);
+  out.add((
+    kind: GoalNeedKind.lift,
+    state: comparable
+        ? NeedState.met
+        : names.isNotEmpty
+        ? NeedState.partly
+        : NeedState.none,
+    title: 'The same lift twice',
+    sub: comparable
+        ? 'A lift on the same setup in both halves.'
+        : names.isNotEmpty
+        ? 'Logged in $first: ${names.take(2).join(', ')}'
+              '${names.length > 2 ? ' and ${names.length - 2} more' : ''}. '
+              'Repeat one on the same setup in $second.'
+        : 'One exercise on the same setup in $first, and again in $second.',
+  ));
+  return out;
+}
+
 /// Whether this Monday-to-Sunday week can still reach [kReviewWeekMinimum]
 /// weigh-ins and fully logged food days: what Monday to yesterday holds plus
 /// one per day left, today included. Never assumes a back-filled day.
@@ -491,7 +692,8 @@ GoalAdvice _exactMissing(
   if (firstCheck != null) {
     lines.add(
       'First check ${_md(firstCheck)}, if every week from now has '
-      '$kReviewWeekMinimum weigh-ins and $kReviewWeekMinimum fully logged food days.',
+      '$kReviewWeekMinimum weigh-ins and $kReviewWeekMinimum fully logged food days'
+      '${plan.phase == GoalPhase.recomp ? ', with a waist reading at each end and one lift repeated on the same setup' : ''}.',
     );
   }
   for (final w in weeks.reversed) {

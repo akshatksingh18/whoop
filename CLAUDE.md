@@ -15,8 +15,9 @@ repository remains available as the `local-backup` remote; the three official Op
 remain fetch-only named upstreams.
 
 **Status:** Active iPhone verification: Akshat reports Build `0.9.57`/`90` installed and being tested on
-his iPhone 17 (iOS `26.6.2`), replacing Build 89; his first Build 90 findings are fixed on `build-90`
-(`todo.md` 3c) for a later build. Build 89 (algorithm 93, source `77d6a365`) is published; Linux CI
+his iPhone 17 (iOS `26.6.2`), replacing Build 89. Build `0.9.58`/`91` (algorithm 97, branch
+`build-91`) carries his first Build 90 findings, the Progress time rule and the triaged Codex
+audit fixes (`todo.md` 3c-3e). Build 89 (algorithm 93, source `77d6a365`) is published; Linux CI
 `38494407678` and personal macOS build `38495939393` pass; its IPA left the testing slot when Build 90's
 validated candidate replaced it (reproducible from that run; moved to the Windows Recycle Bin, not
 hard-deleted). It

@@ -505,34 +505,43 @@ class _ProgressScreenState extends State<ProgressScreen>
     );
   }
 
-  /// Build 90 (Akshat's phone review): until the check can judge, the card
-  /// says when it first can and what this week has towards it, instead of a
-  /// large "Not enough to judge" over a list of past weeks that cannot change.
+  /// Until the check can judge, the card says when it first can and lists
+  /// what it waits for (Build 91, Codex audit F05; Claude's pick A for
+  /// Akshat): the weekly evidence with this week's dots and, for
+  /// recomposition, the waist pair and a repeated lift, each done, under way
+  /// or not started, with a button where there is something to do now.
   Widget _goalCardWaiting(BuildContext c, P p, ProgressData d, GoalReview r) {
     final today = todayLabel();
     final ev = thisWeekEvidence(today: today, weights: d.weights, food: d.food);
-    final weeks = r.plan.windowWeeks;
+    final needs = goalNeeds(
+      r,
+      today: today,
+      weights: d.weights,
+      food: d.food,
+      measures: d.measures,
+      lifts: d.lifts,
+    );
     final days = r.daysOnGoal;
     Widget dots(String label, int n) {
       final shown = n.clamp(0, kReviewWeekMinimum);
       // A Wrap, so at large text the count drops under the dots instead of
       // overflowing the card.
       return Padding(
-        padding: const EdgeInsets.only(top: S.x2),
+        padding: const EdgeInsets.only(top: S.x1),
         child: Wrap(
           crossAxisAlignment: WrapCrossAlignment.center,
           runSpacing: S.x1,
           children: [
             ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 112),
-              child: Text(label, style: F.body.copyWith(color: p.ink)),
+              constraints: const BoxConstraints(minWidth: 104),
+              child: Text(label, style: F.cap.copyWith(color: p.ink)),
             ),
             for (var i = 0; i < kReviewWeekMinimum; i++)
               Padding(
                 padding: const EdgeInsets.only(right: S.x1),
                 child: Container(
-                  width: 14,
-                  height: 14,
+                  width: 12,
+                  height: 12,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: i < shown ? p.on(C.body) : null,
@@ -540,7 +549,7 @@ class _ProgressScreenState extends State<ProgressScreen>
                   ),
                 ),
               ),
-            const SizedBox(width: S.x2),
+            const SizedBox(width: S.x1),
             Text(
               '$n of $kReviewWeekMinimum',
               style: F.cap.copyWith(color: p.ink2),
@@ -550,14 +559,54 @@ class _ProgressScreenState extends State<ProgressScreen>
       );
     }
 
+    Widget badge(NeedState s) => switch (s) {
+      NeedState.met => Icon(
+        LucideIcons.circleCheck,
+        size: 20,
+        color: p.on(C.green),
+      ),
+      NeedState.partly => Icon(
+        LucideIcons.circleDashed,
+        size: 20,
+        color: p.on(C.body),
+      ),
+      NeedState.none => Icon(
+        LucideIcons.circle,
+        size: 20,
+        color: p.on(C.alert),
+      ),
+    };
+    String stateWord(NeedState s) => switch (s) {
+      NeedState.met => 'done',
+      NeedState.partly => 'under way',
+      NeedState.none => 'not started',
+    };
+    Widget? action(GoalNeed n) {
+      if (n.state == NeedState.met) return null;
+      return switch (n.kind) {
+        GoalNeedKind.waist => Pressable(
+          semanticLabel: 'Log waist',
+          onTap: () => openProgress(c, ProgressDest.entry),
+          child: const Pill('Log waist', C.body, icon: LucideIcons.ruler),
+        ),
+        GoalNeedKind.lift => Pressable(
+          semanticLabel: 'Open Train',
+          onTap: () => c.read<AppState>().navRequest.value = 4,
+          child: const Pill('Open Train', C.body, icon: LucideIcons.dumbbell),
+        ),
+        GoalNeedKind.evidence => null,
+      };
+    }
+
     final first = r.firstCheck;
     return Surface(
       onTap: () => _goalDetails(c, d, r),
       semanticLabel:
           'Goal ${r.plan.phase.title}. '
           '${first == null ? 'Not judged yet' : 'First check ${_md(first)}'}. '
+          '${needs.map((n) => '${n.title}: ${stateWord(n.state)}. ${n.sub}').join(' ')} '
           'This week: ${ev.weighIns} weigh-ins, ${ev.foodDays} food days, '
-          '${ev.proteinDays} protein days. Details',
+          '${ev.proteinDays} days with protein logged. Details',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -584,18 +633,63 @@ class _ProgressScreenState extends State<ProgressScreen>
           ),
           const SizedBox(height: S.x1),
           Text(
-            'The check compares ${weeks == 1 ? 'one full week with the one' : '$weeks full weeks with the $weeks'} '
-            'before (Monday to Sunday). Each week needs '
-            '$kReviewWeekMinimum weigh-ins and $kReviewWeekMinimum fully '
-            'logged food days.',
+            needs.length > 1
+                ? 'It can judge once all ${needs.length} are in place:'
+                : 'It can judge once every week has $kReviewWeekMinimum '
+                      'weigh-ins and $kReviewWeekMinimum fully logged food days '
+                      '(Monday to Sunday).',
             style: F.cap.copyWith(color: p.ink2, height: 1.4),
           ),
-          const SizedBox(height: S.x3),
-          Text('THIS WEEK SO FAR', style: F.label.copyWith(color: p.ink2)),
-          dots('Weigh-ins', ev.weighIns),
-          dots('Food days', ev.foodDays),
-          dots('Protein days', ev.proteinDays),
-          const SizedBox(height: S.x3),
+          for (var i = 0; i < needs.length; i++) ...[
+            if (i > 0) Divider(color: p.line, height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: badge(needs[i].state),
+                  ),
+                  const SizedBox(width: S.x2),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          needs[i].title,
+                          style: F.body.copyWith(
+                            color: p.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          needs[i].sub,
+                          style: F.cap.copyWith(color: p.ink2, height: 1.4),
+                        ),
+                        if (needs[i].kind == GoalNeedKind.evidence &&
+                            needs[i].state != NeedState.met) ...[
+                          const SizedBox(height: S.x1),
+                          Text(
+                            'THIS WEEK SO FAR',
+                            style: F.label.copyWith(color: p.ink2),
+                          ),
+                          dots('Weigh-ins', ev.weighIns),
+                          dots('Food days', ev.foodDays),
+                          dots('Protein logged', ev.proteinDays),
+                        ],
+                        if (action(needs[i]) case final a?) ...[
+                          const SizedBox(height: S.x2),
+                          a,
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: S.x1),
           Text(
             'How the check works',
             style: F.cap.copyWith(color: p.on(C.recovery)),
@@ -683,14 +777,25 @@ class _ProgressScreenState extends State<ProgressScreen>
     final before = reviewWeekLabel(r.before.from, r.before.to);
     final after = reviewWeekLabel(r.after.from, r.after.to);
     final wa = r.weightAfter, wb = r.weightBefore;
+    // Build 91 (Codex audit F04): the row is the 7-day AVERAGE, so it says
+    // so, and the latest reading is shown with its date beside it: the two
+    // can honestly differ.
+    final lastWeight = inRange(
+      weightSeries(d.weights, unit: 'kg'),
+      '0000-00-00',
+      r.after.to,
+    ).lastOrNull;
+    final latestWords = lastWeight == null
+        ? ''
+        : ' · latest ${_num(u(lastWeight.value))} $_unit, ${_md(lastWeight.date)}';
     final weight = (
       value: wa.mean == null ? '—' : '${_num(u(wa.mean!))} $_unit',
       sub: wa.mean == null
-          ? 'No weigh-in in $after'
+          ? 'No weigh-in in $after$latestWords'
           : r.weightChangeKg == null
-          ? 'Average of ${wa.count} weigh-ins · none in $before to compare'
+          ? '${wa.count} weigh-ins · none in $before to compare$latestWords'
           : '${signed(u(r.weightChangeKg!), _unit)} vs $before · '
-                '${wa.count} and ${wb.count} weigh-ins',
+                '${wa.count} and ${wb.count} weigh-ins$latestWords',
     );
     final latest = r.waistLatest;
     final waist = (
@@ -730,7 +835,7 @@ class _ProgressScreenState extends State<ProgressScreen>
           _outcomeRow(
             c,
             p,
-            'Weight',
+            'Average weight',
             weight.value,
             weight.sub,
             ProgressDest.weight,
@@ -767,7 +872,8 @@ class _ProgressScreenState extends State<ProgressScreen>
     ProgressDest dest,
   ) => Pressable(
     semanticLabel: '$label: $value. $sub. Details',
-    onTap: () => openProgress(c, dest, _d),
+    // Opens on the same last 7 days the row shows (Build 91, F04).
+    onTap: () => openProgress(c, dest, _d, ProgressRange.week),
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: S.x3),
       child: bigText(c)
@@ -850,26 +956,68 @@ class _ProgressScreenState extends State<ProgressScreen>
       ('Recovery', rec(r.now), rec(r.was)),
       ('Workouts', '${r.now.workouts.total}', '${r.was.workouts.total}'),
     ];
+    // Build 91 (Codex audit F09; Claude's pick B for Akshat): how many days
+    // each average rests on, shown only where a column is short of the full
+    // 7 or the two differ, so a fully logged week stays clean and one logged
+    // day never reads like seven. Workouts are a count, not an average.
+    ({int a, int b})? daysOf(int i) => switch (i) {
+      0 => (a: r.now.food.kcalDays, b: r.was.food.kcalDays),
+      1 => (a: r.now.food.proteinDays, b: r.was.food.proteinDays),
+      2 => (a: r.now.steps.days, b: r.was.steps.days),
+      3 => (a: r.now.sleep.nights, b: r.was.sleep.nights),
+      4 => (a: r.now.recovery.days, b: r.was.recovery.days),
+      _ => null,
+    };
+    String? countOf(int i, int n) {
+      final k = daysOf(i);
+      if (k == null || (k.a >= 7 && k.b >= 7)) return null;
+      final unit = i == 3
+          ? (n == 1 ? 'night' : 'nights')
+          : (n == 1 ? 'day' : 'days');
+      return '$n $unit';
+    }
+
     final span =
         '${reviewWeekLabel(r.after.from, r.after.to)} vs '
         '${reviewWeekLabel(r.before.from, r.before.to)}';
-    Widget cell(String t, {bool strong = false}) => SizedBox(
+    Widget cell(
+      String t, {
+      bool strong = false,
+      String? days,
+      bool short = false,
+    }) => SizedBox(
       width: 92,
-      child: Text(
-        t,
-        textAlign: TextAlign.right,
-        style: (strong ? F.body : F.cap).copyWith(
-          color: strong ? p.ink : p.ink2,
-          fontWeight: strong ? FontWeight.w600 : null,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            t,
+            textAlign: TextAlign.right,
+            style: (strong ? F.body : F.cap).copyWith(
+              color: strong ? p.ink : p.ink2,
+              fontWeight: strong ? FontWeight.w600 : null,
+            ),
+          ),
+          if (days != null)
+            Text(
+              days,
+              textAlign: TextAlign.right,
+              style: F.over.copyWith(color: short ? p.on(C.alert) : p.ink3),
+            ),
+        ],
       ),
     );
+    bool short(int i, bool now) {
+      final k = daysOf(i);
+      return k != null && (now ? k.a : k.b) < kReviewWeekMinimum;
+    }
+
     final large = bigText(c);
     return Surface(
-      onTap: () => openProgress(c, ProgressDest.food, _d),
+      onTap: () => openProgress(c, ProgressDest.food, _d, ProgressRange.week),
       semanticLabel:
           'What went in, $span: '
-          '${rows.map((x) => '${x.$1} ${x.$2}, before ${x.$3}').join('. ')}. Details',
+          '${[for (var i = 0; i < rows.length; i++) '${rows[i].$1} ${rows[i].$2}${countOf(i, daysOf(i)?.a ?? 0) == null ? '' : ' over ${countOf(i, daysOf(i)!.a)}'}, before ${rows[i].$3}${countOf(i, daysOf(i)?.b ?? 0) == null ? '' : ' over ${countOf(i, daysOf(i)!.b)}'}'].join('. ')}. Details',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -921,7 +1069,10 @@ class _ProgressScreenState extends State<ProgressScreen>
                       children: [
                         Text(rows[i].$1, style: F.body.copyWith(color: p.ink)),
                         Text(
-                          '${rows[i].$2} · before ${rows[i].$3}',
+                          '${rows[i].$2}'
+                          '${countOf(i, daysOf(i)?.a ?? 0) == null ? '' : ' (${countOf(i, daysOf(i)!.a)})'}'
+                          ' · before ${rows[i].$3}'
+                          '${countOf(i, daysOf(i)?.b ?? 0) == null ? '' : ' (${countOf(i, daysOf(i)!.b)})'}',
                           style: F.cap.copyWith(color: p.ink2),
                         ),
                       ],
@@ -934,8 +1085,17 @@ class _ProgressScreenState extends State<ProgressScreen>
                             style: F.body.copyWith(color: p.ink),
                           ),
                         ),
-                        cell(rows[i].$2, strong: true),
-                        cell(rows[i].$3),
+                        cell(
+                          rows[i].$2,
+                          strong: true,
+                          days: countOf(i, daysOf(i)?.a ?? 0),
+                          short: short(i, true),
+                        ),
+                        cell(
+                          rows[i].$3,
+                          days: countOf(i, daysOf(i)?.b ?? 0),
+                          short: short(i, false),
+                        ),
                       ],
                     ),
             ),

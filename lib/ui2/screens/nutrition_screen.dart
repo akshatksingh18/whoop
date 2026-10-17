@@ -13,6 +13,8 @@
 
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -1285,7 +1287,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
   String? _proteinLeft(NutritionDay d, Map<String, dynamic> profile) {
     final target = _targetOf(profile, 'protein_target');
     if (target == null || widget.date != todayLabel()) return null;
-    if (DateTime.now().hour < 17) return null;
+    if (clock.now().hour < 17) return null;
     // Unknown protein is unknown, never 0 (B88-06): a day whose entries carry
     // no protein figure says nothing, and a floor can only bound what is left.
     if (d.logged && d.protein.known == 0) return null;
@@ -1307,7 +1309,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
       );
     }
     if (d == null) return const Center(child: CircularProgressIndicator());
-    final addTo = mealForHour(DateTime.now().hour);
+    final addTo = mealForHour(clock.now().hour);
     // Build 86 redesign, diary first: what was eaten against the goal with
     // all four macros in one card, the meals straight under it, and the
     // maintenance estimate below the diary as context, never as the goal.
@@ -1499,16 +1501,13 @@ class CalorieCard extends StatelessWidget {
               frac: !hasGoal || food == null || floor
                   ? null
                   : ((g - food) / g).clamp(0.0, 1.0).toDouble(),
+              note: note,
             ),
           ),
           if (day case final d?) ...[
             const SizedBox(height: S.x2),
             Divider(color: p.line, height: 1),
             _Macros(day: d, profile: profile),
-          ],
-          if (note case final line?) ...[
-            const SizedBox(height: S.x2),
-            Text(line, style: F.cap.copyWith(color: p.ink2)),
           ],
           if (onAdd != null) ...[
             const SizedBox(height: S.x2),
@@ -1536,9 +1535,15 @@ class _CalorieHero extends StatelessWidget {
     required this.soFar,
     this.over = false,
     this.frac,
+    this.note,
   });
 
   final String? eaten, goal, side;
+
+  /// Build 91: the evening protein line, under the goal beside the ring
+  /// (that column has room the ring already takes), so it does not push the
+  /// first meal under the tab bar.
+  final String? note;
   final String sideWord;
   final bool soFar, over;
   final double? frac;
@@ -1582,6 +1587,13 @@ class _CalorieHero extends StatelessWidget {
           goal == null ? 'No intake goal' : 'Goal $goal kcal',
           style: F.cap.copyWith(color: p.ink2),
         ),
+        if (note case final line?) ...[
+          const SizedBox(height: S.x1),
+          Text(
+            line,
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+        ],
       ],
     );
     return LayoutBuilder(
@@ -1764,7 +1776,10 @@ class _Macros extends StatelessWidget {
                   const SizedBox(width: S.x3),
                   SizedBox(
                     width: valueWidth,
-                    child: Align(alignment: Alignment.centerRight, child: value),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: value,
+                    ),
                   ),
                 ],
               ),

@@ -1,9 +1,9 @@
 # WHOOP Build Plan And Verification
 
 **State:** Akshat reports Build `0.9.57`/`90` installed and being tested; Build 89 was the previous
-install and Build 70 remains cached recovery until a later build is accepted and enrolled. Fixes
-for his first Build 90 findings and the triaged Codex audit (Build 90 items 3c-3e) wait for
-Build `0.9.58`/`91`; phone acceptance remains open.
+install and Build 70 remains cached recovery until a later build is accepted and enrolled. Build
+`0.9.58`/`91` (algorithm 97, branch `build-91`) carries his first Build 90 findings and the
+Codex audit fixes (Build 90 items 3c-3e); phone acceptance remains open.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -291,6 +291,22 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     for Recomposition (waist pair, comparable lifts) and shows no date then; What went in
     shows no day counts (1 logged day reads like 7); large-text hierarchy (Train "Other"
     ellipsised, Today/Food actions pushed down).
+  - Done on `build-91`: every logic item (`9253f8f8`, `test/build91_audit_fixes_test.dart`).
+    Mockups (canvas `Build91Progress`, `Build91Large`, `Build91Evening`); Akshat asked Claude to
+    decide. Built: goal card A (checklist via `goalNeeds`; the first-check date now also allows
+    for the waist pair and a repeated lift, `recompCheckDate`), day counts B (only where an
+    average rests on fewer than 7 days, alert colour under 5), overview rows open their page on
+    the same 7 days without changing the remembered range, "Average weight" with the latest
+    reading, "Protein logged". Deferred: the largest-text layouts (Train one button per row,
+    Food date row): Akshat uses normal text; reopen if he turns text size up. Not taken:
+    moving Today's actions above the metrics.
+  - Also for Build 91: Recent HRV judges "one night or several" on the nights BEFORE the night
+    shown (a single crash night read as "several nights" because the 7-night average included
+    the crash itself). The Food layout check was time-of-day dependent (CI
+    after 17:00 failed on the unchanged Build 90 too): `clock.now()` on Food, the check pinned
+    at 13:00 and 20:00, and the evening protein-left line moved beside the ring so the first
+    meal stays above the tab bar. Version `0.9.58+91`, algorithm 97 (live-session effort
+    detection from 3c).
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

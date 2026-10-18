@@ -141,8 +141,7 @@ void main() {
       final lastTime = DateTime.fromMillisecondsSinceEpoch(
         (minute - 2 * 60) * 1000,
       );
-      final time =
-          '${lastTime.hour.toString().padLeft(2, '0')}:${lastTime.minute.toString().padLeft(2, '0')}';
+      final time = formatClock(lastTime);
       expect(selected.describe(selected.value!), '$time · 74 bpm');
       final semantics = t.widget<Semantics>(
         find.descendant(

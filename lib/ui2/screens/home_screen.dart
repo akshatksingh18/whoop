@@ -2342,11 +2342,17 @@ class _HeartCardState extends State<_HeartCard> {
               ),
             ],
             const SizedBox(height: S.x2),
+            // Each label shrinks rather than overflowing at large text.
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 for (final label in labels)
-                  Text(label, style: F.over.copyWith(color: p.ink3)),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(label, style: F.over.copyWith(color: p.ink3)),
+                    ),
+                  ),
               ],
             ),
             if (_window != 2)

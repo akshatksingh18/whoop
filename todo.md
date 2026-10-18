@@ -313,6 +313,11 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     while there are at most 2 in any 7, two in a row allowed, a third ends the streak; rest
     never counts and today is never rest while open. Akshat approved removing the Rest today /
     Undo rest / Life happens buttons; earlier marked days still show as Rest or Life happens.
+- [x] 3f. Build 91 release: `build-91` fast-forwarded to `main` at `40611c52`; source `40611c52` on `main`, Linux CI `39084743882` (3,941 tests, 461 intentional skips), personal macOS build `39086037034`; downloaded IPA SHA-256 `b199cfd5329808783f92c3b566e4330ccb84f26819f2f89064acb690e10b9c15`, source/version manifest, ZIP CRC and personal payload validation pass.
+  Single testing candidate `final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52`; Build 90's
+  testing folder went to the Windows Recycle Bin (reproducible from run `38846696668`), not
+  promoted (acceptance and enrollment unconfirmed). Next: Akshat installs over Build 90 with the
+  exact signed identity, then confirms enrollment and the phone checks.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

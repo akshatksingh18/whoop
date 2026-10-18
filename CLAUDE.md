@@ -35,9 +35,10 @@ rows). The remaining Build 90 UI audit items are fixed. Claude now carries all r
 work (Codex is no longer needed). Akshat's mockup picks are built: Recovery explains each input's
 points against its usual range with a Recent HRV card (shared with the HRV page), and the food
 screen shows what is left of the day after the amount being chosen, with "Fit what's left".
-`todo.md` and `build-90-audit.md` own checks and the full-page review. Build 90 is published to
-`main` and its validated IPA is the single testing candidate
-`final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57` (source `381dce57` on `main`, Linux CI `38842188574` (3,924 tests, 461 intentional skips), personal macOS build `38846696668`; downloaded IPA SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`, source/version manifest, ZIP CRC and personal payload validation pass); Akshat reports it installed. Local synthetic renders establish no phone
+`todo.md` and `build-90-audit.md` own checks and the full-page review. Build 90 (source
+`381dce57`, macOS run `38846696668`) is the installed build. Build 91 is published to `main` and
+its validated IPA is the single testing candidate
+`final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52` (source `40611c52` on `main`, Linux CI `39084743882` (3,941 tests, 461 intentional skips), personal macOS build `39086037034`; downloaded IPA SHA-256 `b199cfd5329808783f92c3b566e4330ccb84f26819f2f89064acb690e10b9c15`, source/version manifest, ZIP CRC and personal payload validation pass); not yet installed. Local synthetic renders establish no phone
 acceptance. Phone checks and acceptance remain open. Akshat rejects Progress's information overload;
 structural design acceptance has failed. `build-87-ui-plan.md` owns the source/screenshot audit,
 feature-preserving replacement composition and phone-sized review gates; `todo.md` owns the

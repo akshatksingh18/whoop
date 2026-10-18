@@ -35,6 +35,20 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 91 Candidate
+
+Source `40611c52dc2aa51438c9dbdd24383758b6f35bf5`, version `0.9.58+91`, algorithm 97, schema 50,
+is published to `akshatksingh18/whoop` (`main`, fast-forwarded from `build-91`) with Akshat's
+go-ahead. Linux CI `39084743882` passes 3,941 tests (461 intentional skips) with no analysis
+errors or warnings. Fixtures are synthetic and the outgoing history was scanned for personal data.
+
+Personal macOS run `39086037034` passes. Downloaded `whoop-personal-40611c52dc2a-unsigned.ipa`
+(19,318,862 bytes), SHA-256 `b199cfd5329808783f92c3b566e4330ccb84f26819f2f89064acb690e10b9c15`,
+matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
+(one `Runner.app`, no extension, no Watch app). It is the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52`, not yet installed. Build 90's
+testing folder was moved to the Windows Recycle Bin; Build 70 remains accepted recovery.
+
 ## Build 90 Candidate
 
 Source `381dce578dd372a2db2227d34ab1e74a98c064dc`, version `0.9.57+90`, algorithm 96, schema 50,
@@ -46,9 +60,9 @@ and the outgoing history was scanned for personal data.
 Personal macOS run `38846696668` passes. Downloaded `whoop-personal-381dce578dd3-unsigned.ipa`
 (19,302,243 bytes), SHA-256 `9eb18206f0c92799938dbf09ae7c460aa623103d394891e9c8e0f1a3fad4fa8d`,
 matches its source/version manifest and checksum; full ZIP CRC and personal payload validation
-pass (one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57`; Akshat reports it installed, replacing
-Build 89 on the phone. Current-version automatic-refresh enrollment is not yet confirmed. Build 89's testing
+pass (one `Runner.app`, no extension, no Watch app). It was the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.57-build90-381dce57` until Build 91's replaced it; Akshat
+reports it installed, replacing Build 89 on the phone. Current-version automatic-refresh enrollment is not yet confirmed. Build 89's testing
 folder was moved to the Windows Recycle Bin. Build 89 was not promoted to `backup\` because its
 phone acceptance and current-version enrollment are unconfirmed; Build 70 remains accepted recovery.
 

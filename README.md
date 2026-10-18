@@ -9,8 +9,10 @@
 > current-version enrollment unconfirmed), so Build 70 remains cached recovery.
 > [`build-90-audit.md`](build-90-audit.md) owns the original visual/source findings. Build 90
 > (`0.9.57`, algorithm 96) adds the engine/data work, the selected calm interface, Akshat's
-> calorie decisions, the Recovery explanation and the food "After this, today" card; it is
-> published on `main` (`381dce57`) and its validated IPA is the installed `testing` candidate.
+> calorie decisions, the Recovery explanation and the food "After this, today" card, and is
+> installed. Build 91 (`0.9.58`, algorithm 97, `40611c52` on `main`) adds the phone-review and
+> audit fixes, the Progress goal checklist and automatic streak rest; its validated IPA is the
+> `testing` candidate.
 > Physical acceptance remains open. `todo.md` owns source and verification status.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;

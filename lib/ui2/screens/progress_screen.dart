@@ -76,6 +76,14 @@ String _num(double v, [int places = 1]) {
   return s.contains('.') ? s.replaceFirst(RegExp(r'\.?0+$'), '') : s;
 }
 
+/// A typed weight, with a decimal comma or point; null when it is not a
+/// finite number. The one parser Save and the kg/lb switch share (Build 94,
+/// Codex N09: the switch read "75,5" as nothing and relabelled it lb).
+double? parseWeightText(String text) {
+  final v = double.tryParse(text.trim().replaceAll(',', '.'));
+  return v != null && v.isFinite ? v : null;
+}
+
 /// Everything the page shows, read once per revision.
 class ProgressData {
   ProgressData({
@@ -1174,8 +1182,15 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
   void _prefsLoaded(SharedPreferences p) {}
 
   Future<void> _save(String k, String v) async {
+    AppState? app;
+    try {
+      app = context.read<AppState?>();
+    } catch (_) {}
     try {
       await (await SharedPreferences.getInstance()).setString(k, v);
+      // Build 94 (Codex N16): every page already open (the overview behind
+      // this one, Today, Food) rereads the unit on the next revision.
+      if (k == 'body.unit') app?.bumpInsights();
     } catch (_) {}
   }
 
@@ -1189,6 +1204,7 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
   Future<void> reload() async {
     if (_fixed != null) return;
     final t = beginRead(#progress);
+    _prefs();
     try {
       final d = await ProgressData.load(context, previous: _d);
       if (stillNewest(#progress, t)) setState(() => (_d = d, _failed = false));
@@ -1488,19 +1504,14 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   /// Build 91 (Codex audit F11): what the fields held when the screen
   /// opened, so Back or an edge swipe asks before dropping typed values.
   String _weightAtOpen = '';
+
+  /// The field's text after the kg/lb switch converted it, with the exact
+  /// weight behind it, so switching back and forth never rounds it away.
+  ({String text, double kg})? _converted;
   late final Map<BodySite, String> _sitesAtOpen;
 
   /// Set once the screen is leaving on purpose (Save, or Discard confirmed).
   bool _leaving = false;
-
-  /// [_dirty] as last built. Build 92 (Codex audit 8): `canPop: false` on a
-  /// clean form also switched off the iPhone edge swipe, so the scope now
-  /// holds the screen only while something typed would be lost.
-  bool _heldDirty = false;
-  void _onEdit() {
-    final d = _dirty;
-    if (d != _heldDirty && mounted) setState(() => _heldDirty = d);
-  }
 
   /// The newest day read; a slower earlier read never overwrites it.
   int _loadSeq = 0;
@@ -1510,22 +1521,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       BodySite.values.any(
         (s) => _sites[s]!.text.trim() != _sitesAtOpen[s]!.trim(),
       );
-
-  Future<void> _onBack(bool didPop, Object? result) async {
-    if (didPop || _leaving) return;
-    final leave =
-        !_dirty ||
-        await confirmRemove(
-          context,
-          title: 'Discard changes?',
-          body: 'What you typed here has not been saved.',
-          remove: 'Discard',
-          keep: 'Keep editing',
-        );
-    if (!leave || !mounted) return;
-    _leaving = true;
-    Navigator.of(context).pop(result);
-  }
 
   @override
   void initState() {
@@ -1538,10 +1533,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       }
     }
     _sitesAtOpen = {for (final s in BodySite.values) s: _sites[s]!.text};
-    _weight.addListener(_onEdit);
-    for (final c in _sites.values) {
-      c.addListener(_onEdit);
-    }
     _loadDay();
   }
 
@@ -1569,7 +1560,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
             : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
         _weightAtOpen = _weight.text;
       }
-      _heldDirty = _dirty;
     });
   }
 
@@ -1605,14 +1595,26 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     final saved = <String>[];
     try {
       // 1. Validate everything.
-      final wText = _weight.text.trim().replaceAll(',', '.');
+      final wText = _weight.text.trim();
       double? value, kg;
       if (wText.isNotEmpty) {
-        value = double.tryParse(wText);
+        value = _converted?.text == wText
+            ? (_unit == 'lb' ? _converted!.kg * kLbPerKg : _converted!.kg)
+            : parseWeightText(wText);
         if (value == null) {
           throw const BodyLogError('Enter the weight as a number.');
         }
         kg = BodyLogDb.checkWeight(value, _unit);
+      }
+      // Build 94 (Codex N10): the day's own weight, prefilled and left alone
+      // (or only switched kg/lb), is not a new reading — saving tape on a
+      // weighed day used to add a second weigh-in.
+      if (kg != null &&
+          _existing != null &&
+          (_existing!.kg - kg).abs() < 0.05 &&
+          (wText == _weightAtOpen.trim() || wText == _converted?.text)) {
+        kg = null;
+        value = null;
       }
       // Sites a newer build wrote that this one does not know are carried.
       final inches = <String, double>{
@@ -1628,6 +1630,14 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         tape = true;
       }
       if (kg == null && !tape) {
+        if (wText.isNotEmpty) {
+          // Nothing changed: leave as Save would.
+          if (mounted) {
+            _leaving = true;
+            Navigator.of(context).pop(false);
+          }
+          return;
+        }
         throw const BodyLogError('Enter a weight or a tape reading.');
       }
       // 2. A day that already has a weight: another reading, or a fix of
@@ -1652,6 +1662,10 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
           correctFirst: correctFirst,
         );
         saved.add('weight');
+        // A Retry after a later write failed must not add this reading again:
+        // it is now the day's saved weight, unchanged.
+        _existing = await BodyLogDb.weightOn(_date);
+        _weightAtOpen = wText;
         // Today's FIRST reading is the current profile weight; a later one
         // is kept but does not move it. A past day's never re-prices.
         if (_date == todayLabel()) {
@@ -1690,6 +1704,36 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       if (saved.isNotEmpty) app.bumpInsights();
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// kg ⇄ lb, converting what is typed. A draft that is not a number keeps
+  /// its unit: relabelling it would change what it means (Codex N09).
+  void _switchUnit() {
+    final text = _weight.text.trim();
+    double? kg;
+    if (text.isNotEmpty) {
+      if (_converted?.text == text) {
+        kg = _converted!.kg;
+      } else {
+        final v = parseWeightText(text);
+        if (v == null) {
+          setState(
+            () => _error = 'Enter the weight as a number before switching.',
+          );
+          return;
+        }
+        kg = _unit == 'lb' ? v / kLbPerKg : v;
+      }
+    }
+    setState(() {
+      _error = null;
+      _unit = _unit == 'kg' ? 'lb' : 'kg';
+      if (kg != null) {
+        final t = _num(_unit == 'lb' ? kg * kLbPerKg : kg);
+        _converted = (text: t, kg: kg);
+        _weight.text = t;
+      }
+    });
   }
 
   /// Add another reading, or correct the day's first; null cancels.
@@ -1878,9 +1922,11 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return PopScope(
-      canPop: !_heldDirty || _leaving,
-      onPopInvokedWithResult: _onBack,
+    // The shared guard (Build 94): Back, the edge swipe and a notification's
+    // navigation all wait on unsaved typing.
+    return DirtyPopScope(
+      dirty: () => !_leaving && _dirty,
+      listenables: [_weight, ..._sites.values],
       child: Scaffold(
         backgroundColor: p.bg,
         body: SafeArea(
@@ -1938,14 +1984,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                         Pressable(
                           semanticLabel:
                               'Use ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
-                          onTap: () => setState(() {
-                            final v = double.tryParse(_weight.text.trim());
-                            _unit = _unit == 'kg' ? 'lb' : 'kg';
-                            if (v != null)
-                              _weight.text = _num(
-                                _unit == 'lb' ? v * kLbPerKg : v / kLbPerKg,
-                              );
-                          }),
+                          onTap: _switchUnit,
                           child: Padding(
                             padding: const EdgeInsets.all(S.x3),
                             child: Pill(_unit, C.body),

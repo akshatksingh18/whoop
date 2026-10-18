@@ -409,10 +409,31 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     feedback, Add to <meal>, brand search, camera-denied help, onboarding ranges).
   - Cleanup: about 1,100 lines of code nothing read (unrendered metric text, old payload
     getters and AppState paths, dead sheets/helpers, eleven month tables, unused tokens).
+  - Codex's audit of the candidate (`build/research-local/full-flow-audit.md`, N01–N22):
+    a retimed or rewritten workout keeps Private and effort; privacy is saved when a private
+    workout starts and everything typed is saved before Finish stops it; Reset ends an active
+    workout; History/summary Delete goes through AppState and a live row cannot be deleted or
+    retimed; Fix times starts from the stored end; workout HR keeps a leading gap; the Lift Log
+    CSV leaves out private workouts; a restore keeps a finalized day's chart values; a failed
+    import leaves no decrypted copy; a backup with only workouts/food/Body reports its records;
+    a saved meal's removed unit is asked for again in the log review; Body's kg/lb switch
+    converts "75,5" and keeps precision, and an unchanged or tape-only save adds no weigh-in;
+    Body's unit reaches pages already open; an unsaved form holds a notification's
+    navigation until it is saved or discarded; Sleep, Day strain and Steps show a loading
+    state, not the old day, while another day loads; a hidden pinned metric can be unpinned;
+    a failed Undo of Not sleep says so; Status re-reads sync health; the no-op "Health
+    exceptions break through" row is gone; copy (phone-only Steps, profile setup, Latest vs
+    Today, alarm calendar days, whole-year age).
+  - Food (Akshat): Quick add shows what is left of the day as calories are typed; Food tab meal
+    cards swipe to delete with Undo; an amount of 0 turns Save into Remove; a quick-add entry
+    has Delete entry. Regressions in `test/build94_flows_test.dart`.
   - Waiting on Akshat: unreachable screens (Readiness glass-box, old occasion logging,
-    share card), upstream-only code, one weight unit vs Body's, and miles on run screens.
+    share card), upstream-only code, one weight unit vs Body's, miles on run screens, and
+    Codex's layout suggestions (Progress first-check card, Body comparisons, Recovery's
+    repeated explanation), which need mockups first.
   Phone check: Fix sleep times across midnight; Finish asks; Weekly lookback off still asks
-  about a detected workout.
+  about a detected workout; swipe a food on the Food tab and Undo; set an amount to 0;
+  Quick add calories left; a notification tapped while Body entry has typing waits.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

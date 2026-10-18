@@ -445,6 +445,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       _day = day;
       _scrub = null;
       _loading = true;
+      _overrideFailed = null;
     });
     _load();
   }
@@ -467,10 +468,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       ]);
     }
 
-    if (_loading && _d == null) {
-      return detailScaffold(c, title, embedded: widget.embedded, const [
-        SizedBox(height: S.x8),
-        Center(child: CircularProgressIndicator()),
+    // Build 94 (Codex N15): while another night loads, the old one is not
+    // shown under the new date, and nothing can correct it.
+    final stale = _d != null && _day != null && _d!.day != _day;
+    if (_loading && (_d == null || stale)) {
+      return detailScaffold(c, title, embedded: widget.embedded, [
+        if (!widget.embedded && stale) ...dayNavRow(_day, d.days, _goDay),
+        const SizedBox(height: S.x8),
+        const Center(child: CircularProgressIndicator()),
       ]);
     }
 
@@ -521,6 +526,21 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic',
             ),
           ),
+          // Build 94 (Codex N18): the same feedback the correction card gives.
+          if (_saving)
+            Text(
+              l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
+              style: F.cap.copyWith(color: P.of(c).ink3),
+            ),
+          if (!_saving && _overrideFailed != null) ...[
+            const SizedBox(height: S.x2),
+            StatusCard(
+              l?.sleepDetailCorrectionFailedTitle ??
+                  'That correction has not been applied',
+              _overrideFailed!,
+              icon: LucideIcons.triangleAlert,
+            ),
+          ],
         ],
       ]);
     }
@@ -969,8 +989,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     String? failed;
     try {
       await write();
-    } catch (e) {
-      failed = '$e';
+    } catch (_) {
+      // Told apart from a saved change whose re-analysis failed (below).
+      failed = 'Nothing was saved. Try again.';
     } finally {
       if (mounted) setState(() => _saving = false);
     }

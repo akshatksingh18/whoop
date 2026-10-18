@@ -7418,6 +7418,22 @@ class LocalDb {
     // null when day_result could not be read at all, so the caller can tell
     // "nothing imported" from "we don't know".
     Set<String>? importedDays;
+    // The days this phone already finalized, read BEFORE anything merges: a
+    // protected day keeps its chart values and their provenance as well as
+    // its bundle, so Today, Trends and the baselines stay in agreement with
+    // it (Build 94, Codex N06).
+    final finalizedDays = <String>{};
+    try {
+      for (final r in await db.query(
+        'day_result',
+        columns: ['day_id'],
+        where: 'finalized = 1',
+      )) {
+        if (r['day_id'] is String) finalizedDays.add(r['day_id'] as String);
+      }
+    } catch (_) {
+      /* no day_result yet: nothing to protect */
+    }
     try {
       for (final t in (only ?? tables)) {
         try {
@@ -7543,6 +7559,10 @@ class LocalDb {
                 // present, and the SharedPreferences mirror re-establishes it
                 // if the database was rebuilt.
                 if (t == 'device' && row['id'] == kPrimaryDeviceId) continue;
+                if ((t == 'metric_series' || t == 'metric_series_version') &&
+                    finalizedDays.contains(row['date'])) {
+                  continue; // a locally finalized day keeps its projection
+                }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
                     '${row['day_id']}|${row['algo_version']}',
@@ -9127,11 +9147,31 @@ class LocalDb {
   // ── sessions (workouts) I/O ────────────────────────────────────────────────
 
   /// Upsert a workout session row (INSERT OR REPLACE — idempotent on id).
+  ///
+  /// The privacy flag and the effort rating are the user's, not the
+  /// recorder's: a row written without them keeps the stored values, so a
+  /// live tick, the finish or a retime can never make a private workout
+  /// public (Build 94, Codex N01/N03).
   static Future<void> putSession(Map<String, dynamic> row) async {
     final db = await instance;
+    final out = Map<String, dynamic>.of(row);
+    final id = row['id'];
+    if (id != null &&
+        (!row.containsKey('private') || !row.containsKey('rpe'))) {
+      final kept = await db.query(
+        'sessions',
+        columns: ['private', 'rpe'],
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (kept.isNotEmpty) {
+        out.putIfAbsent('private', () => kept.first['private']);
+        out.putIfAbsent('rpe', () => kept.first['rpe']);
+      }
+    }
     await db.insert(
       'sessions',
-      row,
+      out,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }

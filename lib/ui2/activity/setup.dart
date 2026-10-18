@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../build_profile.dart';
+import '../../data/db.dart' show LocalDb;
 import '../../compute/profile.dart'
     show Profile, conservativeMet, isLiftType, sessionActiveKcal;
 import '../../l10n/app_localizations.dart';
@@ -93,6 +94,13 @@ class _ActivitySetupState extends State<ActivitySetup> {
       if (clock != null) {
         clock.results['context'] = _contextTags;
         clock.save();
+        // Private from the first row (Build 94, Codex N03), so a minimised or
+        // half-finished session is never exported as public.
+        if (private) {
+          try {
+            await LocalDb.setSessionPrivate(clock.id, true);
+          } catch (_) {}
+        }
         // The set log belongs to this same session id and clock. A failure
         // here leaves a time-only workout, never a second session.
         if (_logsSets) {
@@ -103,6 +111,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
       }
       LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
     }
+    if (!mounted) return;
     await Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => liveFor(

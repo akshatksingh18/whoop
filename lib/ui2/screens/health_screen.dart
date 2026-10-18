@@ -239,8 +239,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     } catch (_) {}
   }
 
-  Future<void> _editPins(BuildContext c, List<_Row> rows) async {
+  Future<void> _editPins(BuildContext c, List<_Row> shown) async {
     var picked = [..._pinned];
+    // Build 94 (Codex N17): a pinned metric hidden by its coverage gate is
+    // listed too, so its slot can be freed instead of filling one unseen.
+    final hidden = [
+      for (final r in _rows)
+        if (_pinned.contains(r.key) && !shown.contains(r)) r,
+    ];
+    final rows = [...shown, ...hidden];
+    String label(_Row r) =>
+        hidden.contains(r) ? '${r.label} · not shown now' : r.label;
     await showModalBottomSheet<void>(
       context: c,
       useSafeArea: true,
@@ -269,8 +278,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 for (final r in rows)
                   Pressable(
                     semanticLabel: picked.contains(r.key)
-                        ? '${r.label}, pinned'
-                        : r.label,
+                        ? '${label(r)}, pinned'
+                        : label(r),
                     onTap: () => set(() {
                       if (picked.contains(r.key)) {
                         picked.remove(r.key);
@@ -294,7 +303,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                           const SizedBox(width: S.x3),
                           Expanded(
                             child: Text(
-                              r.label,
+                              label(r),
                               style: F.body.copyWith(color: p.ink),
                             ),
                           ),

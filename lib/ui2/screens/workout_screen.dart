@@ -1148,6 +1148,12 @@ class _HistoryRow extends StatelessWidget {
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
+    if (w.live) {
+      await nav.push(
+        MaterialPageRoute<void>(builder: (_) => SessionDestination(w.id)),
+      );
+      return;
+    }
     final r = await _detailOf(c.read<AppState>(), w);
     await nav.push(
       MaterialPageRoute(builder: (_) => ActivitySummary(r, weightKg: weightKg)),
@@ -1649,6 +1655,17 @@ Future<ActivityResult> _finishSession(
   ActivityResult draft,
   String? id,
 ) async {
+  // Build 94 (Codex N03): what the user typed is durable BEFORE the session
+  // stops. A failure here throws with the workout still open, so the live bar
+  // can resume it and nothing is half-saved; a retry rewrites the same rows.
+  if (id != null) {
+    if (draft.private) await app.repo?.setWorkoutPrivate(id, true);
+    final typed = enteredDetailJson(draft);
+    if (typed != null) await LocalDb.putSessionDetail(id, typed);
+    if (draft.strength.sets.isNotEmpty) {
+      await LocalDb.saveStrengthSets(id, _setRows(draft.strength.sets));
+    }
+  }
   // Idempotent: on a retry the session is already stopped and this is a no-op.
   await app.stopWorkout();
   if (id == null) return draft;
@@ -1663,25 +1680,6 @@ Future<ActivityResult> _finishSession(
   try {
     await finishLiftLogFor(id, await _sessionEnd(id) ?? DateTime.now());
   } catch (_) {}
-
-  // The privacy toggle, finally landing somewhere. `putSession` is
-  // INSERT-OR-REPLACE over the whole row and does not carry the flag, so this
-  // is its own narrow UPDATE and it has to run AFTER stopWorkout, not before.
-  if (draft.private) {
-    await app.repo?.setWorkoutPrivate(id, true);
-  }
-
-  // Build 93 (Codex full-flow audit F01): what the user typed (laps, pool,
-  // stroke, rounds, poses, score) is kept with the session, so reopening it
-  // shows the same detail as the summary did.
-  final typed = enteredDetailJson(draft);
-  if (typed != null) await LocalDb.putSessionDetail(id, typed);
-
-  // Written on every set already; written again here because the last one
-  // may have landed while the app was being torn down.
-  if (draft.strength.sets.isNotEmpty) {
-    await LocalDb.saveStrengthSets(id, _setRows(draft.strength.sets));
-  }
 
   // The GPS tail is flushed by stopWorkout before it returns, so the route
   // read here is the whole route.
@@ -1818,14 +1816,22 @@ List<double> _spread(List<double> v) {
 /// the last minute that had samples, so a band that dropped at minute 30 of a
 /// 45-minute session ends the line there and the chart stretches it across an
 /// axis that says 45:00.
-List<double?> _denseMinutes(Object? hr, [Duration? session]) {
+List<double?> _denseMinutes(
+  Object? hr, [
+  Duration? session,
+  int? startSec,
+]) {
   final pts = <(int, double)>[
     for (final e in (hr as List? ?? const []))
       if (e is Map && e['t'] is num && e['v'] is num)
         ((e['t'] as num).toInt(), (e['v'] as num).toDouble()),
   ];
   if (pts.isEmpty) return const [];
-  final t0 = pts.first.$1;
+  // Anchored at the session's own start, so a band that only began reporting
+  // at minute 10 shows ten empty minutes first (Build 94, Codex N12).
+  final t0 = startSec != null && startSec <= pts.first.$1
+      ? startSec
+      : pts.first.$1;
   final n = (pts.last.$1 - t0) ~/ 60 + 1;
   // A session longer than a day, or timestamps that are not what we think they
   // are: fall back to the values rather than allocating a nonsense array.
@@ -1884,7 +1890,11 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
     // …and whether that split was binned by the pass that produced the bands.
     final rebinned = usedBundleSplit && b['zone_min_rebinned'] != false;
     out = out.copyWith(
-      hr: _denseMinutes(b['hr'], w.duration),
+      hr: _denseMinutes(
+        b['hr'],
+        w.duration,
+        w.start.millisecondsSinceEpoch ~/ 1000,
+      ),
       // The session's own mean, computed over its heart-rate stream.
       avgHr: (b['avg_hr'] as num?)?.round(),
       maxHr: (b['max_hr'] as num?)?.round(),
@@ -2179,7 +2189,15 @@ class _PastWorkout {
     this.importedFrom,
     this.importedTitle,
     this.distanceM,
+    this.end,
+    this.live = false,
   });
+
+  /// The stored end instant (pauses included), when the row has one.
+  final DateTime? end;
+
+  /// The session is still recording: it cannot be retimed or deleted here.
+  final bool live;
 
   List<double> get zoneFractions {
     final total = zoneMinutes.fold<double>(0, (a, b) => a + b);
@@ -2400,6 +2418,10 @@ Future<List<_PastWorkout>> _pastWorkouts(
             steps: measured?.steps ?? (r['steps'] as num?)?.toInt(),
             zoneMinutes: _decodeZoneMinutes(r['zone_min']),
             private: r['private'] == true,
+            end: endTs == null || endTs <= ts
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+            live: r['status'] == 'live',
           ),
         );
       }
@@ -2598,7 +2620,12 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
       await rememberDeletedUuid(w.id);
       await LocalDb.deleteImportedWorkout(w.id);
     } else {
-      await LocalDb.deleteSession(w.id);
+      // Through AppState, so a session still recording is torn down with
+      // its row (Build 94, Codex N05).
+      final app = appOf(c);
+      app == null
+          ? await LocalDb.deleteSession(w.id)
+          : await app.deleteWorkout(w.id);
     }
   } catch (_) {
     if (c.mounted) {
@@ -2684,20 +2711,24 @@ Widget historyRow(
     weightKg: weightKg,
     expanded: expanded,
     onToggle: onToggle,
-    onDelete: w.id.isEmpty
+    // A session still recording opens its live screen; it is ended there,
+    // not deleted or retimed from a list (Build 94, Codex N05).
+    onDelete: w.id.isEmpty || w.live
         ? null
         : () async {
             await _confirmDeleteWorkout(c, w);
             onChanged();
           },
-    onRetime: w.importedFrom == null && w.id.isNotEmpty
+    onRetime: w.importedFrom == null && w.id.isNotEmpty && !w.live
         ? () async {
             await Navigator.of(c).push(
               MaterialPageRoute<void>(
                 builder: (_) => LogWorkout(
                   sessionId: w.id,
                   start: w.start,
-                  end: w.start.add(w.duration),
+                  // The stored end: [duration] is active time, without pauses
+                  // (Build 94, Codex N11).
+                  end: w.end ?? w.start.add(w.duration),
                   activity: w.activity,
                   title: loc?.workoutFixTimes ?? 'Fix the times',
                 ),
@@ -2707,7 +2738,9 @@ Widget historyRow(
           }
         : null,
   );
-  if (w.id.isEmpty) return KeyedSubtree(key: ValueKey(_rowKey(w)), child: row);
+  if (w.id.isEmpty || w.live) {
+    return KeyedSubtree(key: ValueKey(_rowKey(w)), child: row);
+  }
   return SwipeDelete(
     key: ValueKey(_rowKey(w)),
     onDelete: () async {

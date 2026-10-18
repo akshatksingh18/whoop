@@ -39,6 +39,7 @@ import '../../state/units_controller.dart';
 import '../../telemetry/health_uploader.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
+import '../activity/live.dart' show LiveDraft;
 import 'alarm.dart';
 import 'band_notifications.dart';
 import 'data.dart';
@@ -501,6 +502,8 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   );
   if (ok != true) return;
   await app.resetAllData();
+  // The live screen's draft is UI state AppState cannot reach.
+  LiveDraft.clear();
   // "with no copy anywhere else" was false while automatic backup was on:
   // `wipeAll` deletes rows and cannot touch files, so up to [kBackupsKept]
   // gzipped whole-database copies survived in a folder the user can browse and
@@ -708,10 +711,17 @@ class MoreSettingsView extends StatelessWidget {
                       LucideIcons.footprints,
                       C.teal,
                       l?.settingsStepsRowTitle ?? 'Steps',
-                      sub:
-                          l?.settingsStepsRowSub ??
-                          'This phone’s own step counter, for the hours the '
-                              'band doesn’t cover. Nothing leaves the device',
+                      // Build 94 (Codex copy): the personal build counts
+                      // steps on the phone only (kBandSteps off).
+                      sub: kBandSteps
+                          ? l?.settingsStepsRowSub ??
+                                'This phone’s own step counter, for the hours '
+                                    'the band doesn’t cover. Nothing leaves '
+                                    'the device'
+                          : l?.settingsStepsRowSubPhoneOnly ??
+                                'This phone’s step counter is the only source '
+                                    'of steps. Time without the phone has none. '
+                                    'Nothing leaves the device',
                       value: phoneSteps ? on : off,
                       onTap: onTogglePhoneSteps,
                     ),
@@ -1423,20 +1433,6 @@ class NotificationSettingsView extends StatelessWidget {
                             final v = await _pickMinute(c, prefs.quietEndMin);
                             if (v != null) set(prefs.copyWith(quietEndMin: v));
                           },
-                        ),
-                        SetRow(
-                          LucideIcons.triangleAlert,
-                          C.red,
-                          l?.settingsHealthExceptionsBreakThroughRowTitle ??
-                              'Health exceptions break through',
-                          value: prefs.criticalOverridesQuiet ? on : off,
-                          chevron: false,
-                          onTap: () => set(
-                            prefs.copyWith(
-                              criticalOverridesQuiet:
-                                  !prefs.criticalOverridesQuiet,
-                            ),
-                          ),
                         ),
                       ],
                     ),

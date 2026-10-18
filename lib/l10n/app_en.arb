@@ -172,7 +172,7 @@
   "@profileSetupTitle": {
     "description": "Profile setup screen header."
   },
-  "profileSetupBody": "Four numbers change how your data is scored. Leave any of them blank and only the metrics that need it stay unavailable.",
+  "profileSetupBody": "Pick a sex to continue. Age, height and weight change how your data is scored; leave any of them blank and only the metrics that need it stay unavailable.",
   "@profileSetupBody": {
     "description": "Profile setup intro body."
   },
@@ -10916,6 +10916,10 @@
   "@settingsStepsRowSub": {
     "description": "Settings row subtitle explaining the phone step counter"
   },
+  "settingsStepsRowSubPhoneOnly": "This phone’s step counter is the only source of steps. Time without the phone has none. Nothing leaves the device",
+  "@settingsStepsRowSubPhoneOnly": {
+    "description": "Phone steps row subtitle when steps come only from the phone (personal build)"
+  },
   "settingsGroupNotifications": "Notifications",
   "@settingsGroupNotifications": {
     "description": "Settings group heading for the notifications row"
@@ -11215,10 +11219,6 @@
   "settingsQuietHoursEndsRowTitle": "Ends",
   "@settingsQuietHoursEndsRowTitle": {
     "description": "Settings row title for the quiet-hours end time"
-  },
-  "settingsHealthExceptionsBreakThroughRowTitle": "Health exceptions break through",
-  "@settingsHealthExceptionsBreakThroughRowTitle": {
-    "description": "Settings row title toggling whether health-exception alerts bypass quiet hours"
   },
   "settingsAlarmNotOnListTitle": "The alarm is not on this list",
   "@settingsAlarmNotOnListTitle": {

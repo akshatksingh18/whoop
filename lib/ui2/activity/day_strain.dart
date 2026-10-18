@@ -278,7 +278,11 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
           ),
         if (widget.embedded && day != null && dayLabelOf(day) != todayLabel())
           Text(sub, style: F.cap.copyWith(color: p.ink2)),
-        if (_loading && _d == null) ...[
+        // Build 94 (Codex N15): another day loading never shows the old one
+        // under its date.
+        if (_loading &&
+            (_d == null ||
+                (_day != null && day != null && dayLabelOf(day) != _day))) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
         ] else if (_failed)

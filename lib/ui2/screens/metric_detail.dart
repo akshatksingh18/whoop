@@ -2167,14 +2167,18 @@ class DayNav extends StatelessWidget {
             newer,
           ),
           // Back to the newest day in one tap, however far back this is.
+          // Build 94 (Codex copy): the newest day with data may be older than
+          // today, and then the jump says so.
           if (newer != null) ...[
             Pressable(
-              semanticLabel: 'Jump to today',
+              semanticLabel: days.first == todayLabel()
+                  ? 'Jump to today'
+                  : 'Jump to the latest day',
               onTap: () => onDay(days.first),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: S.x2),
                 child: Text(
-                  'Today',
+                  days.first == todayLabel() ? 'Today' : 'Latest',
                   style: F.cap.copyWith(
                     color: p.on(C.blue),
                     fontWeight: FontWeight.w600,

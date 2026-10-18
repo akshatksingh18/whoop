@@ -30,7 +30,7 @@ class StatusScreen extends StatefulWidget {
   State<StatusScreen> createState() => _StatusScreenState();
 }
 
-class _StatusScreenState extends State<StatusScreen> {
+class _StatusScreenState extends State<StatusScreen> with RevisionReload {
   String _version = '';
   Map<String, Object?> _la = const {};
   bool _testing = false;
@@ -44,14 +44,34 @@ class _StatusScreenState extends State<StatusScreen> {
     int? calculatedAt,
   })?
   _health;
+  bool _healthFailed = false;
+
+  /// Build 94 (Codex N19): the panel is re-read whenever durable data moves
+  /// (a transfer, a calculation), on return to the app and when newer band
+  /// data arrives, so it never describes an older operation than the
+  /// "Newest band data" row below it.
+  DateTime? _healthAtRecord;
+  late final AppLifecycleListener _life;
+
+  @override
+  void reload() => _readHealth();
 
   Future<void> _readHealth() async {
+    final t = beginRead(#health);
     try {
       final h = await LocalDb.syncHealth();
-      if (mounted) setState(() => _health = h);
+      if (stillNewest(#health, t)) {
+        setState(() => (_health = h, _healthFailed = false));
+      }
     } catch (_) {
-      /* the panel stays hidden; nothing else depends on it */
+      if (stillNewest(#health, t)) setState(() => _healthFailed = true);
     }
+  }
+
+  @override
+  void dispose() {
+    _life.dispose();
+    super.dispose();
   }
 
   Future<void> _readLa() async {
@@ -94,6 +114,8 @@ class _StatusScreenState extends State<StatusScreen> {
     app.refreshSigningStatus();
     app.refreshBackupPassphraseState();
     _readLa();
+    _life = AppLifecycleListener(onResume: _readHealth);
+    _healthAtRecord = app.lastRecordAt;
     _readHealth();
     PackageInfo.fromPlatform().then((i) {
       if (mounted) setState(() => _version = '${i.version} (${i.buildNumber})');
@@ -108,6 +130,10 @@ class _StatusScreenState extends State<StatusScreen> {
     final expiry = app.signingExpiry;
     final left = expiry?.difference(now);
     final newestAt = app.lastRecordAt;
+    if (newestAt != _healthAtRecord) {
+      _healthAtRecord = newestAt;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _readHealth());
+    }
     final backupErr = app.lastBackupError;
     final backupOn = app.backupCadence != BackupCadence.off;
 
@@ -193,6 +219,15 @@ class _StatusScreenState extends State<StatusScreen> {
                         onTap: _testLa,
                       ),
                     ]),
+                  ],
+                  if (_healthFailed && _health == null) ...[
+                    const SizedBox(height: S.x5),
+                    StatusCard(
+                      'Sync health could not be read',
+                      'Your band data is intact.',
+                      fix: 'Retry',
+                      onFix: _readHealth,
+                    ),
                   ],
                   if (_health case final h?) ...[
                     const SizedBox(height: S.x5),

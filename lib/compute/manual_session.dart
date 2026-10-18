@@ -444,6 +444,11 @@ Map<String, dynamic> buildManualSessionRow({
     'steps': null,
     'hrr_bpm': null,
     'source': (existing?['source'] as String?) ?? source,
+    // What the user said about the session, not about its window: a retime
+    // keeps it private and keeps its effort rating (Build 94, Codex N01).
+    'private': (existing?['private'] as num?)?.toInt() ?? 0,
+    'rpe': existing?['rpe'],
+    'device_family': existing?['device_family'],
     'created_at':
         (existing?['created_at'] as num?)?.toInt() ?? createdAtMs,
   };

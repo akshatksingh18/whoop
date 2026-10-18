@@ -1454,7 +1454,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     setState(() => _deleting = true);
     final app = appOf(c);
     try {
-      await LocalDb.deleteSession(id);
+      // Through AppState, so a session it still owns is torn down too
+      // (Build 94, Codex N05).
+      app == null
+          ? await LocalDb.deleteSession(id)
+          : await app.deleteWorkout(id);
       app?.publishSessionChange();
       forgetRun(id);
       if (!c.mounted) return;

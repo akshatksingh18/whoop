@@ -137,10 +137,12 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
     }
     // The same ranges Edit profile accepts.
     final f = _fields();
-    final age = (f['age'] as num?)?.toDouble();
+    // Whole years, as Edit profile requires: 30.6 is refused, not rounded.
+    final age = Typed.of(_age.text).value;
     final cm = (f['height_cm'] as num?)?.toDouble();
     final kg = (f['weight_kg'] as num?)?.toDouble();
-    if ((age != null && (age < 1 || age > 120)) ||
+    if ((age != null &&
+            (age < 1 || age > 120 || age != age.roundToDouble())) ||
         (cm != null && (!cm.isFinite || cm < 30 || cm > 280)) ||
         (kg != null && (!kg.isFinite || kg < 1 || kg > 500))) {
       sayUnreadable(context, [
@@ -184,8 +186,9 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
             const SizedBox(height: S.x3),
             Text(
               l?.profileSetupBody ??
-                  'Four numbers change how your data is scored. Leave any of them '
-                      'blank and only the metrics that need it stay unavailable.',
+                  'Pick a sex to continue. Age, height and weight change how '
+                      'your data is scored; leave any of them blank and only '
+                      'the metrics that need it stay unavailable.',
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),

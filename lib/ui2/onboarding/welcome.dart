@@ -63,6 +63,9 @@ class ImportOutcome {
   /// and folding them into [days] would hide that.
   final int journalRows;
 
+  /// Rows a database backup wrote across every table, scored days or not.
+  final int records;
+
   /// Journal CSV lines that were REJECTED, never clamped — "line 12: note is
   /// 40122 characters". Shown up to a cap, because a validation the user
   /// cannot see is a silent drop.
@@ -86,6 +89,7 @@ class ImportOutcome {
     this.strandedDays = 0,
     this.corruptTables = const {},
     this.journalRows = 0,
+    this.records = 0,
     this.rejectedRows = const [],
     this.error,
     this.rollupError,
@@ -98,7 +102,11 @@ class ImportOutcome {
   /// Nothing at all landed. A zero under a green tick is a no-op that reads as
   /// a success, which is the one thing an import report must never do.
   bool get nothingLanded =>
-      days == 0 && workouts == 0 && skippedDays == 0 && journalRows == 0;
+      days == 0 &&
+      workouts == 0 &&
+      skippedDays == 0 &&
+      journalRows == 0 &&
+      records == 0;
 }
 
 /// Raised when an encrypted backup was picked and the user closed the
@@ -304,12 +312,18 @@ Future<ImportOutcome> runImport(
   final sources = <String>[];
   var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
   var journalRows = 0;
+  var records = 0;
   final corruptTables = <String>{};
   final rejected = <String>[];
   String? rollupError;
   String? cryptoError;
 
   final plain = <String>[];
+  final raw = <String>[];
+  final csv = <String>[];
+  // Build 94 (Codex N07): from the first decrypted file onward, any failure
+  // before the import's own cleanup below still shreds every plaintext copy.
+  try {
   for (final p in paths) {
     if (!await isEncryptedBackup(p)) {
       plain.add(p);
@@ -348,17 +362,23 @@ Future<ImportOutcome> runImport(
   // multi-select and this used to return inside the winning branch, so a
   // backup selected alongside a vendor CSV imported the backup and threw the
   // CSV away without a word.
-  final db = [...plain.where(_isDbBackup), ...decrypted];
   // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
   // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
   // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
   // fine, both refused, both with advice for the other file.
-  final raw = <String>[];
-  final csv = <String>[];
   for (final p in plain) {
     if (_isDbBackup(p)) continue;
     (await isNoopExport(p) ? raw : csv).add(p);
   }
+  } catch (_) {
+    for (final d in decrypted) {
+      try {
+        await File(d).delete();
+      } catch (_) {}
+    }
+    rethrow;
+  }
+  final db = [...plain.where(_isDbBackup), ...decrypted];
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
   if (plain.any(_isDbBackup)) sources.add('$kAppName backup');
@@ -373,6 +393,7 @@ Future<ImportOutcome> runImport(
     for (final p in db) {
       try {
         days += await app.importEdgeBackup(p);
+        records += app.lastImportRecords;
       } catch (e) {
         firstError ??= e;
         failed.add(decrypted.contains(p) ? 'the encrypted backup' : nameOf(p));
@@ -468,7 +489,11 @@ Future<ImportOutcome> runImport(
   }
   if (failed.isNotEmpty) {
     // Nothing at all landed: the plain failure, as before.
-    if (days == 0 && journalRows == 0 && workouts == 0 && readError == null) {
+    if (days == 0 &&
+        journalRows == 0 &&
+        workouts == 0 &&
+        records == 0 &&
+        readError == null) {
       throw firstError!;
     }
     final which = failed.join(', ');
@@ -487,6 +512,7 @@ Future<ImportOutcome> runImport(
     strandedDays: stranded,
     corruptTables: corruptTables,
     journalRows: journalRows,
+    records: records,
     rejectedRows: rejected,
     rollupError: rollupError,
     // A file that would not decrypt is reported the same way a file that would
@@ -528,22 +554,29 @@ Future<String> decryptToTemp(String path, String passphrase) async {
   final stamp = DateTime.now().millisecondsSinceEpoch;
   final dest = '${tmp.path}/restore-$stamp.db';
   final payload = '${tmp.path}/restore-$stamp.payload';
-  final version = await Isolate.run(
-      () => decryptBackupFile(File(path), File(payload), passphrase));
-  if (version == kBackupFormatVersionMedia) {
-    // Database to [dest]; progress photos straight into the photo folder
-    // (existing files kept). Their rows arrive with the database merge.
-    try {
+  try {
+    final version = await Isolate.run(
+        () => decryptBackupFile(File(path), File(payload), passphrase));
+    if (version == kBackupFormatVersionMedia) {
+      // Database to [dest]; progress photos straight into the photo folder
+      // (existing files kept). Their rows arrive with the database merge.
       await unpackMediaBackup(payload, dest, (await BodyLogDb.photoDir()).path);
-    } finally {
-      try {
-        await File(payload).delete();
-      } catch (_) {}
+    } else {
+      await File(payload).rename(dest);
     }
-  } else {
-    await File(payload).rename(dest);
+    return dest;
+  } catch (_) {
+    // Build 94 (Codex N07): a failure part-way leaves no plaintext behind —
+    // the caller never learns [dest], so it cannot delete it.
+    try {
+      await File(dest).delete();
+    } catch (_) {}
+    rethrow;
+  } finally {
+    try {
+      await File(payload).delete();
+    } catch (_) {}
   }
-  return dest;
 }
 
 bool _isDbBackup(String path) {
@@ -692,6 +725,9 @@ class ImportReport extends StatelessWidget {
     final headline = o.days > 0
         ? l?.welcomeDaysImported(o.days) ??
             '${o.days} day${o.days == 1 ? '' : 's'} imported'
+        // A backup of workouts, food or Body with no scored day (Codex N13).
+        : o.journalRows == 0 && o.records > 0
+        ? '${o.records} record${o.records == 1 ? '' : 's'} restored'
         : l?.welcomeJournalDaysWritten(o.journalRows) ??
             '${o.journalRows} journal '
                 'day${o.journalRows == 1 ? '' : 's'} written';

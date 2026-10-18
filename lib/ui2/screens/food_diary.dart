@@ -227,14 +227,26 @@ class MealCard extends StatelessWidget {
         if (entries.isEmpty)
           Text('Nothing logged', style: F.cap.copyWith(color: p.ink3))
         else ...[
+          // Swipe to delete here too, not only inside the meal (Akshat):
+          // the same confirm and Undo; the day's reload removes the row.
           for (final e in entries)
-            _EntryRow(
-              e,
-              compact: true,
-              showEnergy: entries.length > 1,
-              onTap: () async {
-                if (await editDiaryEntry(c, e) && c.mounted) onChanged();
-              },
+            SwipeDelete(
+              key: ValueKey('card-${e.id}'),
+              onDelete: () => deleteDiaryEntry(
+                c,
+                e,
+                reload: () async {
+                  if (c.mounted) onChanged();
+                },
+              ),
+              child: _EntryRow(
+                e,
+                compact: true,
+                showEnergy: entries.length > 1,
+                onTap: () async {
+                  if (await editDiaryEntry(c, e) && c.mounted) onChanged();
+                },
+              ),
             ),
         ],
         const SizedBox(height: S.x2),
@@ -297,6 +309,80 @@ Future<void> openLog(
 // ponytail: one phone navigator; scope this guard per navigator if multi-window editing is added.
 bool _diaryEditorOpen = false;
 
+/// Entries with a delete in flight, so a second swipe or tap on the same row
+/// cannot submit it twice.
+final _diaryDeleting = <String>{};
+
+/// Delete [e] with an Undo, the one path for the meal page, the Food tab's
+/// meal cards and an amount set to 0. [confirm] asks first, naming the entry
+/// (a swipe, the menu); pressing Remove on a zero amount already said so.
+/// [onRemoved] runs once it is decided, before the write, so a list can drop
+/// the row at once; [reload] runs after the write and after an Undo. True
+/// when the entry was deleted.
+Future<bool> deleteDiaryEntry(
+  BuildContext c,
+  FoodEntry e, {
+  bool confirm = true,
+  VoidCallback? onRemoved,
+  Future<void> Function()? reload,
+}) async {
+  if (_diaryDeleting.contains(e.id)) return false;
+  if (confirm) {
+    final amount = e.quantity == null
+        ? ''
+        : ' (${portionText(e.quantity!, e.unit)})';
+    final ok = await confirmRemove(
+      c,
+      title: 'Delete ${e.label}?',
+      body:
+          'Remove it$amount from ${mealName(e.meal)} on '
+          '${prettyDay(e.date)}? You can undo it right after.',
+      remove: 'Delete',
+      keep: 'Keep it',
+    );
+    if (!ok || !c.mounted || _diaryDeleting.contains(e.id)) return false;
+  }
+  // Held now: the row (and a sheet that asked) may be gone after the write.
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  void say(String text) => messenger
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(text), duration: Motion.notice));
+  _diaryDeleting.add(e.id);
+  onRemoved?.call();
+  var deleted = false;
+  try {
+    await NutritionDb.delete(await LocalDb.instance, e.id);
+    deleted = true;
+    messenger
+      ?..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Deleted ${e.label}'),
+          duration: Motion.notice,
+          // Flutter otherwise keeps every snackbar with an action open.
+          persist: false,
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              try {
+                await NutritionDb.put(await LocalDb.instance, e);
+                await reload?.call();
+              } catch (_) {
+                say('Could not restore this entry. Please try again.');
+              }
+            },
+          ),
+        ),
+      );
+  } catch (_) {
+    say('Food was not deleted. Please try again.');
+  } finally {
+    _diaryDeleting.remove(e.id);
+  }
+  await reload?.call();
+  return deleted;
+}
+
 /// One amount/save path for the diary shortcut and the meal's action menu.
 Future<bool> editDiaryEntry(
   BuildContext c,
@@ -349,8 +435,14 @@ Future<bool> editDiaryEntry(
         action: 'Save',
         date: e.date,
         excludeId: e.id,
+        zeroRemoves: true,
       );
       if (portion == null) return false;
+      // Set to 0 and Remove pressed: the entry goes, with Undo.
+      if (portion.amount == 0) {
+        if (!c.mounted) return false;
+        return deleteDiaryEntry(c, e, confirm: false);
+      }
       await NutritionDb.put(db, e.atQuantity(portion.amount));
     } else {
       final portion = await GramsSheet.show(
@@ -361,8 +453,14 @@ Future<bool> editDiaryEntry(
         action: 'Save',
         date: e.date,
         excludeId: e.id,
+        zeroRemoves: true,
       );
       if (portion == null) return false;
+      // Set to 0 and Remove pressed: the entry goes, with Undo.
+      if (portion.amount == 0) {
+        if (!c.mounted) return false;
+        return deleteDiaryEntry(c, e, confirm: false);
+      }
       await NutritionDb.put(
         db,
         e.scaledPortion(
@@ -948,67 +1046,20 @@ class _MealPageState extends State<MealPage> with RevisionReload {
     }
   }
 
-  /// Entries with a delete already in flight, so a second swipe or tap on
-  /// the same row cannot submit it twice.
-  final _deleting = <String>{};
-
   /// The one diary delete, for both the swipe and the menu: it asks first,
   /// naming the entry, and keeps the row on Cancel or a failed write (B86-05).
-  Future<void> _delete(FoodEntry e) async {
-    if (_deleting.contains(e.id)) return;
-    final amount = e.quantity == null
-        ? ''
-        : ' (${portionText(e.quantity!, e.unit)})';
-    final ok = await confirmRemove(
-      context,
-      title: 'Delete ${e.label}?',
-      body:
-          'Remove it$amount from ${mealName(widget.meal)} on '
-          '${prettyDay(e.date)}? You can undo it right after.',
-      remove: 'Delete',
-      keep: 'Keep it',
-    );
-    if (!ok || !mounted || _deleting.contains(e.id)) return;
-    _deleting.add(e.id);
-    // Remove the row now; an older read must not resurrect it.
-    beginRead(#mealDay);
-    setState(() => _entries = _entries?.where((x) => x.id != e.id).toList());
-    try {
-      await NutritionDb.delete(await LocalDb.instance, e.id);
-      if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.clearSnackBars();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Deleted ${e.label}'),
-          duration: Motion.notice,
-          // Flutter otherwise keeps every snackbar with an action open.
-          persist: false,
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () async {
-              try {
-                await NutritionDb.put(await LocalDb.instance, e);
-                if (mounted) await _load();
-              } catch (_) {
-                if (mounted) {
-                  _say(
-                    context,
-                    'Could not restore this entry. Please try again.',
-                  );
-                }
-              }
-            },
-          ),
-        ),
-      );
-    } catch (_) {
-      if (mounted) _say(context, 'Food was not deleted. Please try again.');
-    } finally {
-      _deleting.remove(e.id);
-    }
-    if (mounted) await _load();
-  }
+  /// The row leaves the list at once; an older read must not resurrect it.
+  Future<void> _delete(FoodEntry e) => deleteDiaryEntry(
+    context,
+    e,
+    onRemoved: () {
+      beginRead(#mealDay);
+      setState(() => _entries = _entries?.where((x) => x.id != e.id).toList());
+    },
+    reload: () async {
+      if (mounted) await _load();
+    },
+  );
 
   /// Save a drag: new order, and a new sub-heading for anything dropped under
   /// another one.
@@ -2438,10 +2489,27 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   ].join('\u0000');
   late final String _start = _snapshot;
 
+  /// The day's other food, for "After this" under the numbers (the card the
+  /// portion sheet shows); an edited entry is left out so it counts once.
+  NutritionDay? _day;
+
   @override
   void initState() {
     super.initState();
     _start; // fix the starting point before anything is typed
+    // The card follows the calories and protein as they are typed.
+    _kcal.addListener(_retotal);
+    _p.addListener(_retotal);
+    loadDayIntake(
+      widget.date,
+      excludeId: widget.editing ? widget.from?.id : null,
+    ).then((d) {
+      if (mounted) setState(() => _day = d);
+    });
+  }
+
+  void _retotal() {
+    if (mounted) setState(() {});
   }
 
   bool _saving = false;
@@ -2464,6 +2532,12 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       t.dispose();
     }
     super.dispose();
+  }
+
+  /// Asks, deletes with Undo and closes; the caller reloads on true.
+  Future<void> _deleteEntry() async {
+    final gone = await deleteDiaryEntry(context, widget.from!);
+    if (gone && mounted) Navigator.of(context).pop(true);
   }
 
   /// The key a "Save to My foods" food gets, fixed for this sheet.
@@ -2595,7 +2669,19 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    const num = TextInputType.numberWithOptions(decimal: true);
+    final profile = () {
+      try {
+        return c.watch<AppState?>()?.user;
+      } catch (_) {
+        return null;
+      }
+    }();
+    double? goal(String k) => (profile?[k] as num?)?.toDouble();
+    // Nothing typed yet is nothing added: the card then shows what is left
+    // now. A number that does not parse counts as nothing until fixed.
+    double typed(TextEditingController t) =>
+        Typed.of(t.text, nonNegative: true).value ?? 0;
+    const decimal = TextInputType.numberWithOptions(decimal: true);
     Widget pair(Widget a, Widget b) => Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -2649,29 +2735,41 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       ),
       const SizedBox(height: S.x3),
       pair(
-        OsTextField(controller: _kcal, label: 'Calories (kcal)', keyboard: num),
+        OsTextField(controller: _kcal, label: 'Calories (kcal)', keyboard: decimal),
         OsTextField(
           controller: _grams,
           label: 'Weight (g)',
           hint: 'Optional',
-          keyboard: num,
+          keyboard: decimal,
         ),
       ),
       const SizedBox(height: S.x3),
       pair(
-        OsTextField(controller: _p, label: 'Protein (g)', keyboard: num),
-        OsTextField(controller: _c, label: 'Carbs (g)', keyboard: num),
+        OsTextField(controller: _p, label: 'Protein (g)', keyboard: decimal),
+        OsTextField(controller: _c, label: 'Carbs (g)', keyboard: decimal),
       ),
       const SizedBox(height: S.x3),
       pair(
-        OsTextField(controller: _f, label: 'Fat (g)', keyboard: num),
-        OsTextField(controller: _fibre, label: 'Fibre (g)', keyboard: num),
+        OsTextField(controller: _f, label: 'Fat (g)', keyboard: decimal),
+        OsTextField(controller: _fibre, label: 'Fibre (g)', keyboard: decimal),
       ),
       const SizedBox(height: S.x2),
       Text(
         'Blank macros are not tracked. Enter 0 for a known zero.',
         style: F.over.copyWith(color: p.ink3),
       ),
+      if (_day != null && goal('kcal_target') != null) ...[
+        const SizedBox(height: S.x3),
+        LeftAfterCard(
+          day: _day,
+          kcalGoal: goal('kcal_target'),
+          proteinGoal: goal('protein_target'),
+          thisKcal: typed(_kcal),
+          thisProtein: typed(_p),
+          // Logged on [_meal]'s day, whichever meal is picked.
+          date: widget.date,
+        ),
+      ],
       if (!widget.editing) ...[
         const SizedBox(height: S.x3),
         Align(
@@ -2702,6 +2800,19 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         color: C.domFood,
         onTap: _saving ? null : _save,
       ),
+      // No amount to set to 0 here, so the entry says how to remove it.
+      if (widget.editing && widget.from != null) ...[
+        const SizedBox(height: S.x2),
+        Center(
+          child: TextButton(
+            onPressed: _saving ? null : _deleteEntry,
+            child: Text(
+              'Delete entry',
+              style: F.body.copyWith(color: p.on(C.red)),
+            ),
+          ),
+        ),
+      ],
     ], changed: () => !_saving && _snapshot != _start);
   }
 }

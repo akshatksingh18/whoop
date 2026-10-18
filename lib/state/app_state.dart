@@ -484,13 +484,22 @@ class AppState extends ChangeNotifier {
   /// reporting only the row count would claim a success the user does not have.
   String? importRollupError;
 
+  /// Rows the last [importEdgeBackup] wrote, every table (food, body, lifts,
+  /// workouts…), so a backup with no scored days still reports what landed
+  /// (Build 94, Codex N13).
+  int lastImportRecords = 0;
+
   Future<int> importEdgeBackup(String path) async {
     importRollupError = null;
+    lastImportRecords = 0;
     // Gzipped auto-backups (`.db.gz`) are inflated INSIDE importFromDbFile —
     // do not add it back here. Its inflate checks the gzip trailer, so a
     // truncated backup fails loudly; `gzip.decoder` returns partial output
     // without raising and would restore short while reporting success.
     final counts = await LocalDb.importFromDbFile(path);
+    lastImportRecords = counts.entries
+        .where((e) => !e.key.startsWith('_'))
+        .fold(0, (a, e) => a + e.value);
     publishSessionChange(); // committed restore, even if rollup rebuilding fails
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
@@ -1239,7 +1248,11 @@ class AppState extends ChangeNotifier {
     HealthUploader.instance.deviceId = null; // maybeUpload bails without one
     deviceId = '';
 
-    // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
+    // 2 · a workout still recording is stopped first, so no timer, route or
+    // clock writes into the wiped store afterwards (Build 94, Codex N04).
+    if (activeWorkout != null) await _cancelActiveWorkoutTeardown();
+
+    // 3 · every row in every table (see LocalDb.wipeAll for why it is not a
     // hand-written table list, and for the sync_cursor decision).
     await LocalDb.wipeAll();
     publishSessionChange();
@@ -1259,7 +1272,7 @@ class AppState extends ChangeNotifier {
     await BackupPassphrase.clear();
     hasBackupPassphrase = false;
 
-    // 3 · the whole preference namespace, not a remembered subset — same
+    // 4 · the whole preference namespace, not a remembered subset — same
     // reason as wipeAll. A fresh install is the state being restored, and a
     // fresh install has no preferences. The install id regenerates on the next
     // launch, which is the point: the old anonymous id must not follow the
@@ -1273,7 +1286,7 @@ class AppState extends ChangeNotifier {
     appStatus = null;
     _savedAlarm = null;
 
-    // 4 · the in-memory mirrors of what we just deleted. These are plain
+    // 5 · the in-memory mirrors of what we just deleted. These are plain
     // fields, restored only by the profile load at launch, so leaving them
     // alone kept both features RUNNING against the wiped database for the rest
     // of the session — a re-pair without a relaunch would find phone steps

@@ -988,8 +988,21 @@ class LiftLogDb {
   /// One row per set, with its load meaning so `42.5 lb/side` is never read
   /// as a 42.5 lb total — Lift Log's CSV columns.
   static Future<String> csv() async {
-    final all = [...await finished()]
-      ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
+    // A report, so a workout marked private stays out of it (Build 94,
+    // Codex N02); the JSON backup beside it keeps everything for a restore.
+    final db = await LocalDb.instance;
+    final private = {
+      for (final r in await db.query(
+        'sessions',
+        columns: ['id'],
+        where: 'private = 1',
+      ))
+        r['id'] as String,
+    };
+    final all = [
+      for (final w in await finished())
+        if (w.sessionId == null || !private.contains(w.sessionId)) w,
+    ]..sort((a, b) => a.startedAt.compareTo(b.startedAt));
     String f(String v) =>
         v.contains(RegExp('[,"\n]')) ? '"${v.replaceAll('"', '""')}"' : v;
     final lines = ['date,exercise,load_mode,load_lbs,reps,set,equipment_notes'];

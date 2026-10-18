@@ -177,12 +177,14 @@ class AlarmScreenView extends StatelessWidget {
   }
 
   Future<void> _pick(BuildContext c, DateTime? current) async {
-    final wall = DateTime.now();
     final picked = await showTimePicker(
       context: c,
-      initialTime: TimeOfDay.fromDateTime(current ?? wall),
+      initialTime: TimeOfDay.fromDateTime(current ?? DateTime.now()),
     );
     if (picked == null || !c.mounted) return;
+    // The clock when the picker CLOSED: a time chosen slowly across its own
+    // minute is still "next" from then, not from when it opened (Codex copy).
+    final wall = DateTime.now();
     await _run(c, () => onSet!(nextAt(picked.hour, picked.minute, wall)),
         AppLocalizations.of(c)?.alarmSentToBand ?? 'Alarm sent to the band');
   }
@@ -219,8 +221,10 @@ class AlarmScreenView extends StatelessWidget {
 
   static String _whichDay(BuildContext c, DateTime d, DateTime now) {
     final l = AppLocalizations.of(c);
-    final days = DateTime(d.year, d.month, d.day)
-        .difference(DateTime(now.year, now.month, now.day))
+    // Calendar days, in UTC so a DST night (23 elapsed hours) is still one
+    // day and tomorrow is never "Later today".
+    final days = DateTime.utc(d.year, d.month, d.day)
+        .difference(DateTime.utc(now.year, now.month, now.day))
         .inDays;
     if (days < 0) {
       return l?.alarmInThePast ??

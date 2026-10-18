@@ -324,6 +324,9 @@ health findings respect app quiet hours. `build-88-plan.md` owns these choices a
 From Build 94 each prompt answers to its own switch: Detected workouts covers "Did you work out?"
 and the forgotten-workout nudge, and Weekly lookback controls only the weekly lookback. Times
 read in one 12-hour format and short dates as "Oct 4" throughout.
+Food entries delete from the Food tab's meal cards as well as the meal page (swipe, with Undo);
+an edited amount of 0 removes the entry, and Quick add shows what is left of the day. The
+quiet-hours "Health exceptions break through" switch is gone: no health finding is critical.
 Build 90 reads attach immutable frozen counting evidence to FoodEntry/NutritionDay, so
 Progress's existing rollup calls retain the correct dated eligibility without API renames.
 Entry edits preserve the original logging timestamp (unknown legacy values stay NULL), while

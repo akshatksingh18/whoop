@@ -410,10 +410,15 @@ class GramsSheet extends StatefulWidget {
     this.action = 'Add',
     this.date,
     this.excludeId,
+    this.zeroRemoves = false,
   });
 
   final Map<String, Object?> def;
   final double? initial;
+
+  /// Editing a logged entry: 0 is allowed and the button becomes Remove,
+  /// returning a zero portion for the caller to delete (Akshat).
+  final bool zeroRemoves;
 
   /// The day this amount is logged into (Build 90): shows what is left of
   /// that day's goals after it. Null (a saved meal being built) shows nothing.
@@ -435,6 +440,7 @@ class GramsSheet extends StatefulWidget {
     String action = 'Add',
     String? date,
     String? excludeId,
+    bool zeroRemoves = false,
   }) => _sheet<Portion>(
     c,
     (_) => GramsSheet(
@@ -444,6 +450,7 @@ class GramsSheet extends StatefulWidget {
       action: action,
       date: date,
       excludeId: excludeId,
+      zeroRemoves: zeroRemoves,
     ),
   );
 
@@ -452,15 +459,25 @@ class GramsSheet extends StatefulWidget {
 }
 
 class _GramsSheetState extends State<GramsSheet> {
+  /// Build 94 (Codex N08), the saved-meal editor's F04 repair for every
+  /// portion caller: an amount saved in a unit the food no longer has is
+  /// asked for again. Carrying the number into the label unit turned
+  /// 2 links into 2 g.
+  late final bool _unitGone =
+      widget.initialUnit != null &&
+      unitInBase(widget.def, widget.initialUnit!) == null;
   late final TextEditingController _g = TextEditingController(
-    text: portionText(
-      widget.initial ?? (widget.def['serving_g'] as num?)?.toDouble() ?? 100,
-      '',
-    ).trim(),
+    text: _unitGone
+        ? ''
+        : portionText(
+            widget.initial ??
+                (widget.def['serving_g'] as num?)?.toDouble() ??
+                100,
+            '',
+          ).trim(),
   );
   late final _unit = ValueNotifier<String>(
-    widget.initialUnit != null &&
-            unitInBase(widget.def, widget.initialUnit!) != null
+    widget.initialUnit != null && !_unitGone
         ? widget.initialUnit!
         : foodUnit(widget.def),
   );
@@ -494,6 +511,7 @@ class _GramsSheetState extends State<GramsSheet> {
         ? null
         : toBase(widget.def, grams, _unit.value);
     final n = base == null ? null : nutrientsFor(widget.def, base);
+    final removing = widget.zeroRemoves && grams == 0;
     final profile = () {
       try {
         return c.watch<AppState?>()?.user;
@@ -508,6 +526,14 @@ class _GramsSheetState extends State<GramsSheet> {
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x4),
+      if (_unitGone) ...[
+        Text(
+          'Saved as ${portionText(widget.initial ?? 0, widget.initialUnit!)}, '
+          'a unit this food no longer has. Enter the amount again.',
+          style: F.cap.copyWith(color: p.on(C.alert)),
+        ),
+        const SizedBox(height: S.x2),
+      ],
       AmountInput(
         controller: _g,
         def: widget.def,
@@ -535,8 +561,12 @@ class _GramsSheetState extends State<GramsSheet> {
       ),
       const SizedBox(height: S.x3),
       Text(
-        n == null
-            ? 'Enter a positive amount in ${foodUnit(widget.def)}.'
+        removing
+            ? 'An amount of 0 removes this entry from the day.'
+            : n == null
+            ? widget.zeroRemoves
+                  ? 'Enter a positive amount, or 0 to remove it.'
+                  : 'Enter a positive amount in ${foodUnit(widget.def)}.'
             : macroLine(
                 kcal: n.kcal,
                 protein: n.protein,
@@ -552,16 +582,18 @@ class _GramsSheetState extends State<GramsSheet> {
           day: _day,
           kcalGoal: goal('kcal_target'),
           proteinGoal: goal('protein_target'),
-          thisKcal: n?.kcal,
-          thisProtein: n?.protein,
+          thisKcal: removing ? 0 : n?.kcal,
+          thisProtein: removing ? 0 : n?.protein,
           date: widget.date,
         ),
       ],
       const SizedBox(height: S.x5),
       BigButton(
-        widget.action,
-        color: C.domFood,
-        onTap: grams == null || grams <= 0 || base == null
+        removing ? 'Remove' : widget.action,
+        color: removing ? C.red : C.domFood,
+        onTap: removing
+            ? () => Navigator.of(c).pop((amount: 0.0, unit: _unit.value, base: 0.0))
+            : grams == null || grams <= 0 || base == null
             ? null
             : () => Navigator.of(
                 c,

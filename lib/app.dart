@@ -514,6 +514,7 @@ class _ShellState extends State<_Shell> {
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
     InputSheet.openSheets.addListener(_consumeSoon);
+    DirtyPopScope.closed.addListener(_consumeSoon);
     // Cold launch from a tapped notification: the route may already be set
     // before this shell mounted (so the listener never fired). Consume it once
     // attached.
@@ -550,7 +551,13 @@ class _ShellState extends State<_Shell> {
     // Leave the request standing if there is no shell to act on it — the next
     // one consumes it in its post-frame callback rather than finding it eaten.
     if (app == null || !mounted) return;
-    if (_navigating || InputSheet.openSheets.value > 0) return;
+    // An open sheet or an unsaved full-page form holds the request; it runs
+    // when that closes (Codex N14).
+    if (_navigating ||
+        InputSheet.openSheets.value > 0 ||
+        DirtyPopScope.anyDirty) {
+      return;
+    }
     final s = app.screenRequest.value;
     final tab = app.navRequest.value;
     if ((s == null || s.isEmpty) && tab < 0) return;
@@ -596,6 +603,7 @@ class _ShellState extends State<_Shell> {
     _app?.navRequest.removeListener(_consumeSoon);
     _app?.screenRequest.removeListener(_consumeSoon);
     InputSheet.openSheets.removeListener(_consumeSoon);
+    DirtyPopScope.closed.removeListener(_consumeSoon);
     super.dispose();
   }
 

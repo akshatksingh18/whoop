@@ -3987,6 +3987,17 @@ class DirtyPopScope extends StatefulWidget {
   final bool Function() dirty;
   final List<Listenable> listenables;
   final Widget child;
+
+  static final _open = <_DirtyPopScopeState>{};
+
+  /// Bumped when a form closes, so a navigation held by [anyDirty] retries.
+  static final closed = ValueNotifier<int>(0);
+
+  /// Some open form holds unsaved changes. Build 94 (Codex N14): a
+  /// notification's navigation pops programmatically, past this scope's Back
+  /// guard, so it waits for the form to be saved or discarded instead.
+  static bool get anyDirty => _open.any((s) => !s._leaving && s.widget.dirty());
+
   @override
   State<DirtyPopScope> createState() => _DirtyPopScopeState();
 }
@@ -4002,11 +4013,14 @@ class _DirtyPopScopeState extends State<DirtyPopScope> {
   @override
   void initState() {
     super.initState();
+    DirtyPopScope._open.add(this);
     _any.addListener(_changed);
   }
 
   @override
   void dispose() {
+    DirtyPopScope._open.remove(this);
+    DirtyPopScope.closed.value++;
     _any.removeListener(_changed);
     super.dispose();
   }

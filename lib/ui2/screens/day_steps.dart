@@ -339,6 +339,8 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
     }
   }
 
+  bool get _stale => _d != null && _day != null && _d!.day != _day;
+
   void _goDay(String day) {
     if (widget.embedded) {
       // One tap from the hourly preview opens the requested complete day.
@@ -367,8 +369,10 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
       sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '',
       [
         ...dayNavRow(_day ?? d.day, d.days, _goDay),
-        if (_loading && _d != null) const Text('Updating steps…'),
-        if (_loading && _d == null) ...[
+        // Build 94 (Codex N15): the old day's counts are never shown under
+        // the newly selected date; a same-day refresh keeps them, marked.
+        if (_loading && _d != null && !_stale) const Text('Updating steps…'),
+        if (_loading && (_d == null || _stale)) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
         ] else if (_failed)

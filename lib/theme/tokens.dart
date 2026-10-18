@@ -13,11 +13,6 @@
 
 import 'package:flutter/material.dart';
 
-/// Light-sleep stage colour — a soft light orange (warm, distinct from the
-/// coral REM/Deep tones; replaces the old cool-blue which clashed with the
-/// ember palette).
-const Color kLightStageColor = Color(0xFFF6B07A);
-
 /// A complete set of mode-varying colour roles. Two const instances exist
 /// ([kLightPalette], [kDarkPalette]); the active one is swapped at runtime.
 @immutable
@@ -211,20 +206,9 @@ class AppColors {
   //
   // Ratios below are against [nightAlt] (the sheet); every one is higher
   // against the darker [night]. Guarded by test/zone_contrast_test.dart.
-  /// Muted ink (overline labels, units) — 5.77:1. The FLOOR for small text on
-  /// this surface; do not reach for a lower opacity instead.
-  ///
-  /// [onNight] (14.23:1) and [onNightSoft] (6.21:1) below already existed and
-  /// already pass — the live session screen simply wasn't using them, and
-  /// reached for raw `Colors.whiteNN` instead. This adds the third step that
-  /// was missing so there is a token for every role and no reason to.
-  static const onNightMuted = Color(0xFF9C9B99);
 
   /// Primary ink on a dark session surface — 14.23:1.
   static const onNight = Color(0xFFF4F1EC);
-
-  /// Secondary ink (values, unselected controls) — 6.21:1.
-  static const onNightSoft = Color(0xFFA8A096);
 
   // ── Accent — ember coral (mode-varying). Alert/urgent semantics ONLY —
   //    see `brand` below for the routine identity accent. ──
@@ -249,19 +233,12 @@ class AppColors {
   static Color get badSoft => active.badSoft;
 
   // ── Confidence dot ──
-  static Color get confHigh => active.good;
-  static Color get confMid => active.warn;
   static Color get confLow => active.confLow;
 
   // ── Load (ACWR) bands ──
   static Color get loadDetraining => active.loadDetraining;
-  static Color get loadOptimal => active.good;
-  static Color get loadCaution => active.warn;
-  static Color get loadHigh => active.bad;
 
   // ── Live-session ember glow — INVARIANT (always on the dark live screen). ──
-  static const glow1 = Color(0xFFFF7A4D);
-  static const glow2 = Color(0xFFFF3D1F);
 
   /// Color band for a normalized 0..1 score. Coral-forward: low scores trend
   /// deep, high scores vivid; green reserved for genuinely strong.
@@ -270,12 +247,6 @@ class AppColors {
     if (t >= 0.75) return good;
     if (t >= 0.45) return coral;
     return coralDeep;
-  }
-
-  static Color confidenceColor(double c) {
-    if (c >= 0.75) return confHigh;
-    if (c >= 0.4) return confMid;
-    return confLow;
   }
 
   // ── HR zone palette (Z0..Z5) — the single source for zone colours. Reads the
@@ -327,25 +298,6 @@ class AppColors {
   static Color zoneOnDark(int z) =>
       z.clamp(0, 5) == 0 ? kDarkPalette.coolInk : zoneIn(kDarkPalette, z);
 
-  /// A soft tint of a zone colour — for faint backfills / legend swatches.
-  static Color zoneSoft(int z) => zone(z).withValues(alpha: 0.16);
-
-  /// THE tonal-fill recipe for a coloured pill/chip/verdict-card FILL: alpha-
-  /// blends [hue] at a low weight onto the real elevated-surface baseline
-  /// (never a raw `hue.withValues(alpha: x)` painted over whatever happens to
-  /// sit behind the widget — that only lightens/darkens relative to an
-  /// unknown backdrop, it doesn't guarantee a result close to the app's
-  /// near-black baseline). Text/icons on top stay full-saturation `hue` —
-  /// the point is ONE formula for "this surface is tinted, not lit up",
-  /// reused everywhere a colour needs a background instead of invented per
-  /// call site. Kept deliberately low in dark mode: nothing here should
-  /// approach the readiness ring's glow, the one place full brightness is
-  /// reserved for.
-  static Color tonalFill(Color hue) => Color.alphaBlend(
-        hue.withValues(alpha: isDark ? 0.09 : 0.13),
-        Elevation.surfaceAt(1),
-      );
-
   // ── Semantic aliases — the design-system vocabulary. One canonical name per
   //    role, resolved through [active] like everything else. New components
   //    (lib/ui/design/) speak these; the legacy names above keep working. ──
@@ -353,20 +305,8 @@ class AppColors {
   /// Screen background (warm paper / deep char).
   static Color get background => active.bg;
 
-  /// A surface lifted above [surface] — sheets, popovers, the top bento card.
-  /// On char, elevation is a *lighter* surface (shadows vanish on near-black);
-  /// on paper the same white surface carries a stronger shadow instead.
-  static Color get surfaceElevated =>
-      active.isDark ? active.surfaceAlt : active.surface;
-
   /// Primary content colour on any surface.
   static Color get onSurface => active.ink;
-
-  /// Secondary content — labels, captions, supporting copy.
-  static Color get onSurfaceMuted => active.inkSoft;
-
-  /// Tertiary content — placeholders, disabled, hairline glyphs.
-  static Color get onSurfaceFaint => active.inkMuted;
 
   /// THE brand accent — calm cyan/teal identity colour. Routine,
   /// non-evaluative CTAs/chrome and nav active-state ONLY: structurally
@@ -383,18 +323,8 @@ class AppColors {
 
   /// Status roles.
   static Color get positive => active.good;
-  static Color get positiveSoft => active.goodSoft;
   static Color get critical => active.bad;
-  static Color get criticalSoft => active.badSoft;
   // (warn / warnSoft already exist above.)
-}
-
-/// Faint arc alpha for a low-confidence ring — high confidence paints the arc
-/// solid, low confidence fades it so uncertainty reads visually. Used by [Gauge]
-/// and any confidence-aware ring. Clamped to a legible floor.
-double confidenceRingAlpha(double c) {
-  if (c.isNaN) return 0.35;
-  return (0.35 + 0.65 * c.clamp(0.0, 1.0)).clamp(0.35, 1.0);
 }
 
 /// Spacing — 4-pt grid.
@@ -406,7 +336,6 @@ class Sp {
   static const x4 = 16.0;
   static const x5 = 20.0;
   static const x6 = 24.0;
-  static const x7 = 28.0;
   static const x8 = 32.0;
   static const x10 = 40.0;
   static const screen = 20.0; // generous side gutter
@@ -450,9 +379,6 @@ class Shadows {
     BoxShadow(color: Color(0x0F201A12), blurRadius: 6, offset: Offset(0, 2)),
   ];
 
-  /// Elevation for a card by mode. In dark we drop shadows entirely (invisible
-  /// on char) and let the lifted surface + border carry depth.
-  static List<BoxShadow> cardFor(bool dark) => dark ? const [] : card;
 }
 
 /// Elevation scale — semantic depths mapped onto [Shadows]. Every level honours
@@ -509,13 +435,6 @@ class Elevation {
     return Border.all(color: c, width: 1);
   }
 
-  /// Mode-correct fill for a level — on char, higher levels sit on lighter
-  /// surfaces (surface → surfaceAlt); on paper everything is card white.
-  static Color surfaceAt(int level, {bool? dark}) {
-    final d = dark ?? AppColors.isDark;
-    if (!d) return AppColors.surface;
-    return level >= 2 ? AppColors.surfaceElevated : AppColors.surface;
-  }
 }
 
 /// Motion.

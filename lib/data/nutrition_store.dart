@@ -853,8 +853,6 @@ class NutritionWindow {
   /// through the same path so there is one mean, not two.
   NutrientMean get meanKcal => _mean((d) => d.kcal);
   NutrientMean get meanProtein => _mean((d) => d.protein);
-  NutrientMean get meanCarbs => _mean((d) => d.carbs);
-  NutrientMean get meanFat => _mean((d) => d.fat);
   NutrientMean get meanFibre => _mean((d) => d.fibre);
 }
 
@@ -1115,20 +1113,6 @@ class NutritionDb {
     return n;
   }
 
-  static Future<List<Map<String, Object?>>> searchFoods(
-    Database db,
-    String query, {
-    int limit = 25,
-  }) async {
-    final q = query.trim();
-    if (q.isEmpty) return const [];
-    return db.rawQuery(
-      "SELECT * FROM food_def WHERE label LIKE ? OR brand LIKE ? "
-      "ORDER BY (source = 'verified') DESC, label ASC LIMIT ?",
-      ['%$q%', '%$q%', limit],
-    );
-  }
-
   /// One dictionary entry by key. The key for a scanned product is its
   /// barcode, which makes this table the barcode cache — a second scan of the
   /// same packet is a local read and no network request at all.
@@ -1327,13 +1311,6 @@ class NutritionDb {
               : e.base.reduce((a, b) => a + b) / e.base.length,
         },
     ];
-  }
-
-  /// How much of [foodKey] was logged last time, in label units, for a
-  /// one-tap re-log. Any unit the food still converts counts.
-  static Future<double?> lastGrams(Database db, String foodKey) async {
-    final last = await lastPortion(db, foodKey);
-    return last?.base;
   }
 
   /// Saved foods most recently logged, newest first, each with the portion

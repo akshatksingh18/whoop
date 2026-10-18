@@ -165,11 +165,6 @@ class AppText {
     fontWeight: FontWeight.w600,
     color: AppColors.inkSoft,
   );
-  static TextStyle get captionMuted => _manrope(
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
-    color: AppColors.inkMuted,
-  );
   static TextStyle get overline => _manrope(
     fontSize: 11,
     fontWeight: FontWeight.w800,

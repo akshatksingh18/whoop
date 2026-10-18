@@ -26,12 +26,6 @@ extension BriefingPeriodLabel on BriefingPeriod {
       this == BriefingPeriod.morning ? 'Morning briefing' : 'Nightly sweep';
 }
 
-/// Which period the Today card should surface right now. Mornings through the
-/// afternoon show the morning briefing; from 17:00 the evening recap takes over
-/// (falling back to the cached morning one until the recap exists).
-BriefingPeriod currentBriefingPeriod(DateTime now) =>
-    now.hour >= 17 ? BriefingPeriod.evening : BriefingPeriod.morning;
-
 class Briefing {
   /// Local day label (YYYY-MM-DD) the briefing belongs to.
   final String day;

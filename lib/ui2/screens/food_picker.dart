@@ -93,20 +93,6 @@ String energyProteinSummary(NutrientTotal kcal, NutrientTotal protein) {
   ].join(' · ');
 }
 
-/// A saved meal's calories at its saved amounts, from [defs] (key → food).
-/// Null when no item has a calorie figure; foods no longer saved are skipped.
-double? mealKcal(MealTemplate m, Map<String, Map<String, Object?>> defs) {
-  double? sum;
-  for (final (key, amount) in m.items) {
-    final d = defs[key];
-    final per100 = (d?['kcal_100'] as num?)?.toDouble();
-    if (d == null || per100 == null) continue;
-    final base = toBase(d, amount, m.units[key] ?? foodUnit(d));
-    if (base != null) sum = (sum ?? 0) + per100 * base / 100;
-  }
-  return sum;
-}
-
 /// One line for a saved meal: qualified energy/protein, food count and slot.
 String mealSummary(MealTemplate m, Map<String, Map<String, Object?>> defs) {
   NutrientTotal total(String field) {
@@ -1509,12 +1495,6 @@ class _MealEditorState extends State<MealEditor> {
 
 /// A portion as entered ("3 link") and its amount in the food's label unit.
 typedef Portion = ({double amount, String unit, double base});
-
-/// Whether [def] is logged by weight or volume rather than by count.
-bool weighedFood(Map<String, Object?> def) {
-  final u = foodUnit(def).toLowerCase();
-  return u == 'g' || u == 'ml';
-}
 
 String _amount(double v) =>
     v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(1);

@@ -41,7 +41,6 @@ class TodayData {
   final Map<String, dynamic>? _nocturnal;
   final Map<String, dynamic>? _resp;
   final Map<String, dynamic>? _hrv;
-  final Map<String, dynamic>? _skinTemp;
   final Map<String, dynamic>? _spo2;
   final Map<String, dynamic>? _status;
 
@@ -56,7 +55,6 @@ class TodayData {
     this._nocturnal,
     this._resp,
     this._hrv,
-    this._skinTemp,
     this._spo2,
     this._status,
     this.stepGoal,
@@ -77,7 +75,6 @@ class TodayData {
       sub('nocturnal'),
       sub('resp'),
       sub('hrv'),
-      sub('skin_temp'),
       sub('spo2'),
       sub('status'),
       goal,
@@ -97,9 +94,6 @@ class TodayData {
       baseline: (h['baseline'] as num?)?.toDouble(),
     );
   }
-
-  /// Skin-temp deviation vs your baseline (relative, raw units), or null.
-  double? get skinTempIdx => (_skinTemp?['value'] as num?)?.toDouble();
 
   /// ALWAYS NULL. SpO2 is permanently refused edge-side — `odi_per_hour` is
   /// hard-null in onehz_pipeline.dart with the reason attached. see [Spo2Data]
@@ -155,19 +149,11 @@ class TodayData {
   Metric get strain => metricOf(_daily, 'strain');
   Metric get restingHr => metricOf(_daily, 'resting_hr');
   Metric get rhrDelta => metricOf(_daily, 'resting_hr_delta');
-  Metric get wearTime => metricOf(_daily, 'wear_min');
   Metric get calories => metricOf(_daily, 'calories'); // active calories (est.)
   Metric get caloriesTotal =>
       metricOf(_daily, 'calories_total'); // total daily energy (TDEE, est.)
   Metric get steps => metricOf(_daily, 'steps'); // 24/7 step estimate
   Metric get activeMin => metricOf(_daily, 'active_min'); // movement minutes
-
-  /// Body alert (illness/overtraining) — {signal, kind, triggers, note} or null.
-  Map<String, dynamic>? get bodyAlert {
-    final a = _daily['anomaly'];
-    if (a is Map && a['signal'] == true) return a.cast<String, dynamic>();
-    return null;
-  }
 
   // Sleep summary for the ring: asleep-vs-need (there is NO 0–100 sleep score).
   Metric get sleepDuration => metricOf(_sleep, 'duration_min');
@@ -184,15 +170,11 @@ class TodayStatus {
   String? get todayDay => _s['today_day']?.toString();
   String get activityState => (_s['activity_state'] ?? 'missing').toString();
   String? get activityDay => _s['activity_day']?.toString();
-  int? get activityComputedAt => (_s['activity_computed_at'] as num?)?.toInt();
   String get overnightState => (_s['overnight_state'] ?? 'missing').toString();
   String? get overnightDay => _s['overnight_day']?.toString();
-  int? get overnightComputedAt =>
-      (_s['overnight_computed_at'] as num?)?.toInt();
   bool get showingPriorOvernight => _s['showing_prior_overnight'] == true;
 
   bool get overnightBuilding => overnightState == 'building';
-  bool get activityBuilding => activityState == 'building';
   bool get overnightReady => overnightState == 'ready';
   bool get activityReady => activityState == 'ready';
 }
@@ -270,9 +252,6 @@ class StressData {
   final Map<String, dynamic> _s;
   StressData(this._s);
   int? get score => (_s['score'] as num?)?.toInt();
-  int get calmMin => (_s['calm_min'] as num?)?.toInt() ?? 0;
-  int get balancedMin => (_s['balanced_min'] as num?)?.toInt() ?? 0;
-  int get stressedMin => (_s['stressed_min'] as num?)?.toInt() ?? 0;
   int get activeMin => (_s['active_min'] as num?)?.toInt() ?? 0;
   int get wornMin => (_s['worn_min'] as num?)?.toInt() ?? 0;
   ({int ts, int score})? get peak {
@@ -298,12 +277,8 @@ class StressData {
 class NocturnalData {
   final Map<String, dynamic> _n;
   NocturnalData(this._n);
-  int? get sleepingHrAvg => (_n['sleeping_hr_avg'] as num?)?.toInt();
-  int? get sleepingHrMin => (_n['sleeping_hr_min'] as num?)?.toInt();
   int? get nadirTs => (_n['nadir_ts'] as num?)?.toInt();
-  int? get dayHrAvg => (_n['day_hr_avg'] as num?)?.toInt();
   double? get dipPct => (_n['dip_pct'] as num?)?.toDouble();
-  double? get vsBaselineBpm => (_n['vs_baseline_bpm'] as num?)?.toDouble();
   bool get elevated => _n['elevated'] == true;
 }
 
@@ -387,19 +362,6 @@ class RecordsData {
     );
   }
 
-  ({double now, double then, double delta, String direction, int days})?
-  get rhrDrift {
-    final d = _r['rhr_drift'];
-    if (d is! Map) return null;
-    return (
-      now: _num(d['now'])?.toDouble() ?? 0,
-      then: _num(d['then'])?.toDouble() ?? 0,
-      delta: _num(d['delta'])?.toDouble() ?? 0,
-      direction: (d['direction'] ?? '').toString(),
-      days: _num(d['days'])?.toInt() ?? 0,
-    );
-  }
-
   bool get isEmpty => daysTracked == 0 && nightsTracked == 0;
 }
 
@@ -433,11 +395,6 @@ class SleepData {
   Metric get nremMin => metricOf(_row, 'nrem_min', flags: _flags);
   Metric get remMin => metricOf(_row, 'rem_min', flags: _flags);
 
-  int? get onsetEpoch => _num(_row['onset'] ?? _row['onset_ts'])?.toInt();
-  int? get wakeEpoch => _num(_row['wake'] ?? _row['wake_ts'])?.toInt();
-
-  /// Stages are ESTIMATE/beta per CONFIDENCE.
-  bool get stagesBeta => true;
 
   bool get isEmpty => _row.isEmpty;
 }
@@ -453,7 +410,6 @@ class StrainData {
 
   // Daily row scalars + a `flags` blob. Note the flag keys differ from the
   // column names: acwr→`load`.
-  Metric get dailyStrain => metricOf(_row, 'strain', flags: _flags);
   Metric get acwr =>
       Metric.parse(_num(_row['acwr']), flag: flagFor(_flags, 'load'));
   // steps + active/sedentary REMOVED in v0. calories = ACTIVE calories (est.).
@@ -482,8 +438,6 @@ class Session {
   final Map<String, dynamic> _flags;
   Session(this._row) : _flags = decodeFlags(_row['flags']);
 
-  int? get startEpoch =>
-      _num(_row['start'] ?? _row['start_ts'] ?? _row['onset'])?.toInt();
   int? get durationMin => _num(_row['duration_min'])?.toInt();
   String get type => (_row['type'] ?? _row['sport'] ?? 'Workout').toString();
   Metric get avgHr => metricOf(_row, 'avg_hr', flags: _flags);
@@ -535,26 +489,6 @@ class TrendsData {
   Map<String, dynamic> get baseline =>
       (_row['baseline'] is Map) ? (_row['baseline'] as Map).cast() : const {};
 
-  double? get rhrBaseline => _num(baseline['resting_hr'])?.toDouble();
-
-  /// Fitness direction: 'improving' | 'flat' | 'declining'.
-  String? get fitnessDirection => _row['fitness_direction']?.toString();
-  double? get rhrSlope => _num(_row['rhr_slope'])?.toDouble();
-  double? get hrrSlope => _num(_row['hrr_slope'])?.toDouble();
-
-  /// Anomaly / illness signal (ESTIMATE). null when not fired. Backend shape is
-  /// `{signal:bool, message:string}` — only surface when signal is true AND the
-  /// message is non-empty.
-  String? get anomalyMessage {
-    final a = _row['anomaly'] ?? _row['illness_signal'];
-    if (a is Map) {
-      if (a['signal'] == false) return null;
-      final m = a['message']?.toString();
-      return (m != null && m.isNotEmpty) ? m : null;
-    }
-    if (a is String && a.isNotEmpty) return a;
-    return null;
-  }
 
   bool get isEmpty => _row.isEmpty;
 }

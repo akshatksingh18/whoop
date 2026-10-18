@@ -24,7 +24,6 @@
 // too few points the median is simply not computed and we abstain.
 
 import '../data/journal_fields.dart' show formatClock;
-import 'dart:math' as math;
 
 /// One battery observation from `band_battery`.
 class BatterySample {
@@ -370,11 +369,4 @@ class BatteryForecaster {
     return '$head, after your usual wake time.';
   }
 
-  /// Whole hours remaining at the current rate, for compact UI. Null when the
-  /// forecast abstained.
-  static int? hoursRemaining(BatteryForecast f, DateTime now) {
-    final empty = f.predictedEmptyAt;
-    if (empty == null) return null;
-    return math.max(0, empty.difference(now).inMinutes) ~/ 60;
-  }
 }

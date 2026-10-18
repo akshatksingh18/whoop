@@ -82,7 +82,6 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   final Set<String> _packages = {};
   Set<String> get packages => _packages;
   bool isAppEnabled(String pkg) => _packages.contains(pkg);
-  int get appCount => _packages.length;
 
   /// True only when everything needed to actually buzz is in place.
   bool get active => supported && _enabled && _granted && _packages.isNotEmpty;

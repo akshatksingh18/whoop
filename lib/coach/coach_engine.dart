@@ -258,7 +258,6 @@ class CoachEngine {
   }
 
   void reset() { _history.clear(); transcript.clear(); }
-  bool get hasHistory => _history.isNotEmpty;
 
   Future<Directory> _dir() => getApplicationDocumentsDirectory();
   Future<File> _sessionFile(String id) async => File('${(await _dir()).path}/coach_s_${storageKey}_$id.json');
@@ -388,53 +387,6 @@ class CoachEngine {
     }
     return '';
   }
-
-  /// True when [base]'s host is anthropic.com or one of its subdomains. A
-  /// domain-boundary check, not endsWith('anthropic.com'), so a lookalike
-  /// host (evil-anthropic.com) never receives the key in Anthropic headers.
-  static bool _isAnthropicHost(String base) {
-    final host = (Uri.tryParse(base)?.host ?? '').toLowerCase();
-    return host == 'anthropic.com' || host.endsWith('.anthropic.com');
-  }
-
-  /// Live model list from the provider's /models endpoint (OpenAI-compatible).
-  /// Static so Settings can probe an as-yet-unsaved base URL + key.
-  static Future<List<String>> fetchModels(String apiBase, String apiKey) async {
-    var b = apiBase.trim();
-    while (b.endsWith('/')) {
-      b = b.substring(0, b.length - 1);
-    }
-    // Anthropic's native Models API authenticates with x-api-key +
-    // anthropic-version (a bearer token is rejected) and paginates with
-    // has_more/last_id, but its response shape (data[].id) matches OpenAI's.
-    final isAnthropic = _isAnthropicHost(b);
-    final ids = <String>[];
-    String? after;
-    do {
-      final uri = Uri.parse(isAnthropic
-          ? '$b/models?limit=1000${after == null ? '' : '&after_id=$after'}'
-          : '$b/models');
-      final resp = await http.get(
-        uri,
-        headers: isAnthropic
-            ? {'x-api-key': apiKey, 'anthropic-version': '2023-06-01'}
-            : {'Authorization': 'Bearer $apiKey'},
-      ).timeout(const Duration(seconds: 20));
-      if (resp.statusCode != 200) {
-        throw CoachException('Models request failed (${resp.statusCode}): ${_short(resp.body)}');
-      }
-      final j = jsonDecode(resp.body);
-      final data = (j['data'] as List?) ?? const [];
-      ids.addAll(data
-          .map((e) => (e as Map)['id']?.toString() ?? '')
-          .where((s) => s.isNotEmpty));
-      after = (isAnthropic && j['has_more'] == true) ? j['last_id']?.toString() : null;
-    } while (after != null);
-    ids.sort();
-    return ids;
-  }
-
-  static String _short(String s) => s.length > 200 ? s.substring(0, 200) : s;
 
   // LOCAL day label — the coach's SQL views (v_daily/v_metric/…) are keyed by
   // the device-local dates the derivation engine files days under, so "today"

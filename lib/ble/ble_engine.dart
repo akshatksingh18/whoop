@@ -1871,11 +1871,6 @@ class BleEngine {
   DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
   Duration get sinceLastRx => DateTime.now().difference(_lastRx);
 
-  /// Wall-clock of the last received BLE notification (any characteristic), for the
-  /// UI's "last data: Xs ago". `null` until the first frame this connection.
-  DateTime? get lastRxAt =>
-      _lastRx.millisecondsSinceEpoch == 0 ? null : _lastRx;
-
   // ── debounced "new data stored → derive" trigger ─────────────────────────────
   // Continuous listening has no discrete "sync done", so we coalesce stored-record
   // bursts: mark dirty on persist, and fire onDataStored once the stream goes quiet.
@@ -2228,8 +2223,6 @@ class BleEngine {
   /// usable. Latched (a blocker does not clear itself) and cleared only by a
   /// scan or connect that actually got through.
   BleBlocker? _blocker;
-
-  BleBlocker? get bluetoothBlocker => _blocker;
 
   /// The ONE connection state a screen renders — the phone-level blocker and the
   /// band's own diagnostic flags folded into a named state with its reason and

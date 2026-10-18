@@ -358,7 +358,6 @@ class AppState extends ChangeNotifier {
   // it). Persisted so a relaunch mid-onboarding doesn't re-prompt.
   static const String _kOnboard = 'onboarding_choice';
   String? _onboardChoice;
-  String? get onboardChoice => _onboardChoice;
 
   Future<void> _loadProfile() async {
     autoCountKcalGoal = null;
@@ -402,43 +401,11 @@ class AppState extends ChangeNotifier {
   // Resolved by CompanionClient as: this override → build-time COMPANION_URL →
   // empty. Loaded into CompanionClient.overrideUrl in _initCompanion.
 
-  /// The effective companion base URL (override or build-time), '' if unconfigured.
-  String get companionUrl => CompanionClient.effectiveBase;
-
-  /// True when a companion URL is configured (override or build-time).
-  bool get companionConfigured =>
-      CompanionClient.effectiveBase.trim().isNotEmpty;
-
-  /// Set (or clear, with '') the runtime companion-URL override.
-  Future<void> setCompanionUrl(String url) async {
-    final v = url.trim();
-    final prefs = await SharedPreferences.getInstance();
-    if (v.isEmpty) {
-      await prefs.remove(_kCompanionUrl);
-      CompanionClient.overrideUrl = null;
-    } else {
-      await prefs.setString(_kCompanionUrl, v);
-      CompanionClient.overrideUrl = v;
-    }
-    notifyListeners();
-  }
-
   /// New-user path: record the choice and advance (welcome → pairing → profile).
   Future<void> chooseNewUser() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kOnboard, 'new');
     _onboardChoice = 'new';
-    notifyListeners();
-  }
-
-  /// Existing-user path: after a successful cloud import, persist the cloud
-  /// profile + mark onboarding done so the gate advances to pairing → shell.
-  /// [cloudProfile] is the mapped local-profile field set from CloudImporter.
-  Future<void> completeCloudOnboard(Map<String, dynamic> cloudProfile) async {
-    await updateProfile(cloudProfile); // persists + notifies
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kOnboard, 'existing');
-    _onboardChoice = 'existing';
     notifyListeners();
   }
 
@@ -554,7 +521,6 @@ class AppState extends ChangeNotifier {
 
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
-  bool get healthIsApple => HealthExporter.isApple;
 
   /// Check current permission state WITHOUT prompting (startup-safe).
   Future<void> checkHealth() async {
@@ -906,21 +872,6 @@ class AppState extends ChangeNotifier {
       return 0;
     }
   }
-
-  /// Session-triggered Health export for one just-finished workout (issue
-  /// #130) — for callers outside this class that write a `sessions` row
-  /// directly rather than going through [stopWorkout]. See
-  /// [HealthExporter.exportWorkout] for why this can't just wait for the next
-  /// day export. Best-effort, never throws.
-  ///
-  /// This used to take the row, and its only two call sites went out with the
-  /// old `lib/ui/workouts` — leaving it callerless while `logManualWorkout`
-  /// paths (the coach, the log-workout sheet) exported nothing at all. Those
-  /// callers hold the `workout_id` the repo hands back, not the row, and most
-  /// of them have no AppState to reach for either, so the seam that matters is
-  /// [HealthExporter.exportWorkoutId] and this just forwards to it.
-  Future<bool> exportWorkoutToHealth(String? sessionId) =>
-      HealthExporter.exportWorkoutId(sessionId);
 
   // ── companion: anonymous telemetry + health-data contribution ────────────────
   // All anchored to a stable anonymous install id (no account). Two SEPARATE
@@ -1398,25 +1349,6 @@ class AppState extends ChangeNotifier {
     await refreshAppStatus();
   }
 
-  /// Whether the Cycle tab exists at all.
-  ///
-  /// OFF by default and opt-in, which is the opposite of every other sub-tab.
-  /// Cycle is the one surface that is irrelevant — not merely empty — for most
-  /// of the people who open this app, and an empty tab that can never fill is
-  /// worse than no tab: it reads as a feature you failed to use. Nothing about
-  /// the switch is inferred from anything; it is asked for or it is absent.
-  ///
-  /// Turning it off hides the tab and stops its query running. It deletes
-  /// NOTHING — cycle entries already logged stay on disk and come back intact
-  /// if it is switched on again.
-  static const String _kCycleTracking = 'cycle_tracking_enabled';
-  bool get cycleTrackingEnabled => Prefs.getBool(_kCycleTracking, false);
-
-  Future<void> setCycleTrackingEnabled(bool on) async {
-    Prefs.setBool(_kCycleTracking, on);
-    notifyListeners();
-  }
-
   /// Whether this install checks for updates. Only meaningful on a sideload
   /// build ([kSideloadOtaEnabled]) — that is the only build whose binary can
   /// contact the endpoint at all. Defaults ON there, because a sideloaded app
@@ -1690,11 +1622,6 @@ class AppState extends ChangeNotifier {
     );
     _workoutTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {});
   }
-
-  /// True while some foreground feature is holding the live streams open —
-  /// the gate [_maybeDowngradeLiveForBackground] consults. Tests only.
-  @visibleForTesting
-  bool get debugHasLiveConsumer => _hasLiveConsumer;
 
   /// Run start-up (guarded, exactly as the constructor fires it) so a test can
   /// drive the failure path. Tests only.
@@ -2120,10 +2047,6 @@ class AppState extends ChangeNotifier {
   /// Re-assert the AI notification schedule (settings screens call this after
   /// a prefs change; also runs on every foreground via runCadenceChecks).
   Future<void> refreshAiReminders() => _ensureRemindersScheduled();
-
-  /// Screens that just wrote a briefing/journal state call this so Today's
-  /// AI card (which reads BriefingStore synchronously at build) repaints.
-  void briefingUpdated() => notifyListeners();
 
   int _lastBriefingAttemptMs = 0;
 
@@ -2558,8 +2481,6 @@ class AppState extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> dataHistoryDays() =>
       LocalDb.dataHistoryDays();
-
-  Future<int> dataFileBytes() => LocalDb.databaseFileBytes();
 
   Future<String> exportDaysDb(Set<String> dayIds) =>
       LocalDb.exportDaysDb(dayIds);
@@ -4844,11 +4765,6 @@ class AppState extends ChangeNotifier {
     await engine.runAlarm();
   }
 
-  Future<void> testBuzzPattern(int pattern) async {
-    if (!isConnected) throw Exception('Connect to your strap first');
-    await engine.buzzPattern(pattern);
-  }
-
   /// Pulse the strap so it can be heard/felt during a find-my-strap hunt.
   /// Unlike [testAlarmBuzz] this NEVER throws — the hunt screen fires it on a
   /// timer and a momentary disconnect must not surface as an error dialog.
@@ -4872,10 +4788,6 @@ class AppState extends ChangeNotifier {
     await prefs.remove('alarm_epoch');
     notifyListeners();
   }
-
-  /// Retained name for the UI's "clear alarm" affordance — delegates to
-  /// [disableAlarm] (the DISABLE_ALARM opcode).
-  Future<void> clearAlarm() => disableAlarm();
 
   /// Strap alarm-lifecycle events (56 set / 57–58 fired / 59 disabled). This is
   /// the authoritative confirmation the SET write actually took. The edge DOES see
@@ -5454,11 +5366,6 @@ class AppState extends ChangeNotifier {
 
   String get status => device.connection;
 
-  /// Wall-clock of the last BLE notification received (any characteristic). Used
-  /// only to PULSE the indicator (link is alive / frames flowing). `null` until
-  /// the first frame this connection.
-  DateTime? get lastDataAt => engine.lastRxAt;
-
   final SyncActivityWindow _syncActivity = SyncActivityWindow();
 
   /// Fires once when the activity window closes. `syncingNow` decays on
@@ -5549,20 +5456,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> bluetoothReady() async {
-    if (!await FlutterBluePlus.isSupported) return false;
-    // CoreBluetooth boots in `unknown` before settling — `.first` loses that
-    // race and misreads a powered-on adapter as off. Wait for a determinate
-    // state (bounded, in case it never settles).
-    final state = await FlutterBluePlus.adapterState
-        .firstWhere((s) => s != BluetoothAdapterState.unknown)
-        .timeout(
-          const Duration(seconds: 3),
-          onTimeout: () => BluetoothAdapterState.unknown,
-        );
-    return state == BluetoothAdapterState.on;
-  }
-
   // The live HRV spot-check that used to live here is GONE. It was fully
   // implemented — 60 s of RR-bearing frames handed to the repository seam —
   // and no screen ever started one, so `spotActive` was a permanently-false
@@ -5588,12 +5481,6 @@ class AppState extends ChangeNotifier {
 
   /// When the running session started, for the persisted history row.
   DateTime? _breathingStartedAt;
-
-  /// When the running session began, for a view that mounts mid-session.
-  DateTime? get breathingStartedAt => _breathingStartedAt;
-
-  /// What the running session was asked to run for, or null for an open one.
-  Duration? get breathingTarget => _breathingTarget;
 
   /// What the session was SUPPOSED to run for, or null for an open one.
   ///
@@ -5634,36 +5521,6 @@ class AppState extends ChangeNotifier {
   /// too short to bank one (in which case the windows have nothing to attach
   /// to and are dropped).
   int? _windowRowStartedAt;
-
-  /// Open the quiet window: live streams on, frames buffering, no pacing yet.
-  ///
-  /// Takes stream ownership itself so [startBreathingSession] finds live
-  /// already enabled and claims nothing — otherwise the paced block's stop
-  /// would turn off streams the post window is still reading.
-  Future<void> openBreathingWindow() async {
-    if (breathingWindowOpen || breathingActive) return;
-    if (!isConnected) {
-      breathingError = 'Connect your band first.';
-      notifyListeners();
-      return;
-    }
-    breathingWindowOpen = true;
-    _preWindowFrames = null;
-    _windowRowStartedAt = null;
-    _breathingFrames.clear();
-    notifyListeners();
-    await _settleBgLiveDowngrade();
-    try {
-      if (!engine.liveEnabled) {
-        await engine.enableLiveStreams();
-        _breathingEnabledStreams = true;
-      } else if (engine.liveHrOnly) {
-        await engine.enableLiveStreams();
-      }
-    } catch (_) {
-      /* best-effort; we still collect whatever arrives */
-    }
-  }
 
   /// Close the window, measure both quiet stretches and attach them to the
   /// banked session. Safe to call when no window is open.
@@ -5818,39 +5675,6 @@ class AppState extends ChangeNotifier {
     // to avoid reporting.
     if (breathingWindowOpen) _breathingFrames.clear();
     notifyListeners();
-  }
-
-  /// Past sessions, newest first.
-  Future<List<Map<String, dynamic>>> breathingHistory({int limit = 30}) =>
-      LocalDb.breathingSessions(limit: limit);
-
-  /// Buzz the strap at a breathing or interval phase boundary.
-  ///
-  /// Distinct patterns per phase so the cue is legible without looking: a
-  /// longer buzz to breathe in, a shorter one to breathe out, a double for a
-  /// hold. Never throws and never awaits the caller — this fires from a frame
-  /// callback, and a momentary disconnect must not interrupt the session or
-  /// stall the animation.
-  void buzzBreathPhase(BreathPhaseKind kind) {
-    if (!isConnected) return;
-    final pattern = switch (kind) {
-      BreathPhaseKind.inhale || BreathPhaseKind.work => 1,
-      BreathPhaseKind.exhale || BreathPhaseKind.rest => 0,
-      BreathPhaseKind.holdIn || BreathPhaseKind.holdOut => 2,
-    };
-    unawaited(engine.buzzPattern(pattern).catchError((_) {}));
-  }
-
-  /// The whole session is over, as opposed to one phase of it.
-  ///
-  /// Its own pattern rather than a repeat of the phase cue: repeated
-  /// `runHapticsPattern` frames serialize on the BLE write chain and arrive
-  /// milliseconds apart, re-triggering the firmware's haptic engine while it
-  /// is still playing — so N of them are felt as one, and the user cannot tell
-  /// "round over" from "session over".
-  void buzzSessionComplete() {
-    if (!isConnected) return;
-    unawaited(engine.buzzPattern(4).catchError((_) {}));
   }
 
   Future<void> _recomputeBreathingCoherence() async {

@@ -52,7 +52,4 @@ class GestureSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// True once the user has mapped a real-time action — callers can use this to
-  /// decide whether the iOS background BLE keep-alive is worth enabling.
-  bool get hasActiveMapping => doubleTap != DeviceAction.none;
 }

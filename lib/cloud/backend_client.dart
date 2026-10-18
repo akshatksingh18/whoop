@@ -75,17 +75,6 @@ class BackendClient {
         if (_jwt != null) 'authorization': 'Bearer $_jwt',
       };
 
-  /// Request an OTP for [email]. Returns true if an account exists (code sent),
-  /// false if there is no v2 account for that email (404). Throws otherwise.
-  Future<bool> requestOtp(String email) async {
-    final r = await _http.post(_u('/auth/request-otp'),
-        headers: _headers,
-        body: jsonEncode({'email': email.trim().toLowerCase()}));
-    if (r.statusCode == 404) return false;
-    if (r.statusCode >= 400) throw BackendException(r.statusCode, _msg(r));
-    return true;
-  }
-
   /// Verify [code] for [email]; stores the JWT for subsequent authed reads.
   Future<CloudSession> verifyOtp(String email, String code) async {
     final r = await _http.post(_u('/auth/verify-otp'),

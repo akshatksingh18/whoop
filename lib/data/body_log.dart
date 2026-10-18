@@ -664,15 +664,6 @@ class BodyLogDb {
     NutritionDb.changed();
   }
 
-  /// Photo rows whose file is missing — shown, never silently dropped.
-  static Future<List<BodyPhoto>> missingPhotos() async {
-    final out = <BodyPhoto>[];
-    for (final ph in await photos()) {
-      if (!await (await photoFile(ph)).exists()) out.add(ph);
-    }
-    return out;
-  }
-
   /// One row per day, oldest first: date, weight in lb, then one inch column
   /// per site — AkshatOS Body's CSV.
   static Future<String> csv() async {

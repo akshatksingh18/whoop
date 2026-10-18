@@ -322,10 +322,6 @@ class TelemetryService {
     });
   }
 
-  /// Record an uncaught zone error (called from runZonedGuarded in main).
-  void recordZoneError(Object error, StackTrace stack) =>
-      record(kind: 'crash', level: 'error', message: '$error', stack: '$stack');
-
   /// Enqueue one record. Cheap + local; persists so a crash survives to next run.
   void record({
     required String kind, // 'error' | 'crash' | 'event' | 'device'

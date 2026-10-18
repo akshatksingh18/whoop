@@ -71,12 +71,6 @@ class ThemeController extends ChangeNotifier {
 
   bool get isDark => effective == Brightness.dark;
 
-  /// We resolve `system` ourselves and hand MaterialApp an explicit mode, so the
-  /// rendered brightness can never drift from [AppColors.active].
-  ThemeMode get materialThemeMode =>
-      isDark ? ThemeMode.dark : ThemeMode.light;
-
-  ThemeData get lightTheme => buildOpenStrapTheme(kLightPalette);
   ThemeData get darkTheme => buildOpenStrapTheme(kDarkPalette);
 
   /// User picked a mode (onboarding / profile). Updates live + persists.

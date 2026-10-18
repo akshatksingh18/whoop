@@ -316,11 +316,6 @@ void runsChanged() {
   _inFlight = null;
 }
 
-/// The runs that started on [day] (a local `yyyy-MM-dd` label).
-Iterable<RunSummary> runsOnDay(List<RunSummary> runs, String day) => runs.where(
-  (r) => dayLabelAtSec(r.start.millisecondsSinceEpoch ~/ 1000) == day,
-);
-
 /// One day's Running row: Method 1 calories over that day's runs, the steps
 /// those runs took (never more than [daySteps]) and their distance.
 typedef RunDay = ({double kcal, int steps, int count, double km});

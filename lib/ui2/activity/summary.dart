@@ -199,16 +199,6 @@ class StrengthLog {
   /// not a total, and the screen says so.
   bool get hasUnloadedSets => sets.any((s) => s.loadKg == null);
 
-  Map<String, double> get volumeByExercise {
-    final out = <String, double>{};
-    for (final s in sets) {
-      final v = s.volume;
-      if (v == null) continue;
-      out[s.exerciseKey] = (out[s.exerciseKey] ?? 0) + v;
-    }
-    return out;
-  }
-
   /// Heaviest set by load, ties broken by reps. Null when nothing was loaded.
   LoggedSet? get topSet {
     LoggedSet? best;

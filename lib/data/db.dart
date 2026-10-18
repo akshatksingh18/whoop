@@ -2135,38 +2135,6 @@ class LocalDb {
     );
   }
 
-  /// Append one notification's worth of external-sensor HR. Batched by the
-  /// caller: a sensor notifies ~1 Hz and a one-insert-per-beat transaction on
-  /// the UI isolate is the same mistake `commitSyncBatch` chunks around.
-  static Future<void> appendExternalHr(List<Map<String, Object?>> rows) async {
-    if (rows.isEmpty) return;
-    final db = await instance;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final r in rows) {
-        batch.insert(
-          'external_hr',
-          r,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-      await batch.commit(noResult: true);
-    });
-  }
-
-  /// Everything an external sensor logged for one session, in time order.
-  static Future<List<Map<String, dynamic>>> externalHrForSession(
-    String sessionId,
-  ) async {
-    final db = await instance;
-    return db.query(
-      'external_hr',
-      where: 'session_id = ?',
-      whereArgs: [sessionId],
-      orderBy: 'ts ASC',
-    );
-  }
-
   // ── 100 Hz STEP COVERAGE ────────────────────────────────────────────────────
   // Device-time windows the live AN-2554 pedometer actually counted (real steps).
   // The 1 Hz estimate excludes any minute that falls inside one of these windows
@@ -2337,22 +2305,6 @@ class LocalDb {
         });
       }
     });
-  }
-
-  /// True when a coverage row for exactly this window already exists.
-  ///
-  /// `live_coverage` is an append-only SUM (no uniqueness on the window), so a
-  /// replayed write double-counts the day's real steps. The orphaned-session
-  /// recovery uses this to stay idempotent: a process killed AFTER
-  /// `_finalizeLivePedometer` wrote coverage but BEFORE it cleared the
-  /// checkpoint would otherwise re-add the same bout on the next launch.
-  static Future<bool> hasLiveCoverageWindow(int startTs, int endTs) async {
-    final db = await instance;
-    final r = await db.rawQuery(
-      'SELECT 1 FROM live_coverage WHERE start_ts = ? AND end_ts = ? LIMIT 1',
-      [startTs, endTs],
-    );
-    return r.isNotEmpty;
   }
 
   /// Phone-sourced steps already banked for [day].
@@ -2720,9 +2672,6 @@ class LocalDb {
   /// intended, because `PRAGMA synchronous=FULL` was refused or did not stick.
   /// Not fatal (see the pragma block below) but never silent.
   static int _syncFullDowngrades = 0;
-
-  /// Read-only view of [_syncFullDowngrades] for diagnostics/tests.
-  static int get syncFullDowngrades => _syncFullDowngrades;
 
   static Future<void> commitSyncBatch(
     List<RawRecord> raws,
@@ -5975,16 +5924,6 @@ class LocalDb {
     );
   }
 
-  static Future<void> deleteEvents(List<String> hexes) async {
-    if (hexes.isEmpty) return;
-    final db = await instance;
-    final placeholders = List.filled(hexes.length, '?').join(',');
-    await db.rawDelete(
-      'DELETE FROM events WHERE hex IN ($placeholders)',
-      hexes,
-    );
-  }
-
   /// Store a raw record (+ optional decoded sample). Idempotent on frame hex.
   /// Raw is written FIRST (raw-first invariant). Returns true if newly inserted.
   /// LIVE packets pass sample=null — the backend field-decodes them from raw.
@@ -6058,15 +5997,6 @@ class LocalDb {
       }
       await batch.commit(noResult: true);
     });
-  }
-
-  static Future<void> putSyncLedger(Map<String, dynamic> row) async {
-    final db = await instance;
-    await db.insert(
-      'sync_ledger',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
   }
 
   static Future<Map<String, dynamic>?> syncLedgerEntry([
@@ -6769,14 +6699,6 @@ class LocalDb {
     if (await f.exists()) await f.delete(); // VACUUM INTO requires a fresh path
     await db.execute('VACUUM INTO ?', [dest]);
     return dest;
-  }
-
-  static Future<int> databaseFileBytes() async {
-    final dir = await getDatabasesPath();
-    final path = p.join(dir, dbName);
-    final f = File(path);
-    if (!await f.exists()) return 0;
-    return await f.length();
   }
 
   static Future<List<Map<String, dynamic>>> dataHistoryDays() async {
@@ -7810,86 +7732,6 @@ class LocalDb {
     };
   }
 
-  static Future<List<Map<String, dynamic>>> tableStorageStats() async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      "SELECT name FROM sqlite_master "
-      "WHERE type = 'table' "
-      "AND name NOT LIKE 'sqlite_%' "
-      "AND name != 'android_metadata' "
-      "ORDER BY name ASC",
-    );
-    final out = <Map<String, dynamic>>[];
-    final dbstatAvailable = await _dbstatAvailable(db);
-    for (final row in rows) {
-      final name = row['name']?.toString();
-      if (name == null || name.isEmpty) continue;
-      final tableRows =
-          Sqflite.firstIntValue(
-            await db.rawQuery('SELECT COUNT(*) FROM $name'),
-          ) ??
-          0;
-      final bytes = dbstatAvailable
-          ? await _tableBytesViaDbstat(db, name)
-          : await _tableBytesApprox(db, name);
-      out.add({
-        'table': name,
-        'rows': tableRows,
-        'bytes': bytes,
-        'mb': bytes == null ? null : bytes / (1024 * 1024),
-        'approximate': !dbstatAvailable,
-      });
-    }
-    out.sort((a, b) {
-      final aa = (a['bytes'] as num?)?.toInt() ?? -1;
-      final bb = (b['bytes'] as num?)?.toInt() ?? -1;
-      return bb.compareTo(aa);
-    });
-    return out;
-  }
-
-  static Future<bool> _dbstatAvailable(Database db) async {
-    try {
-      await db.rawQuery(
-        "SELECT SUM(pgsize) AS bytes FROM dbstat WHERE name = 'decoded_onehz'",
-      );
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<int?> _tableBytesViaDbstat(Database db, String table) async {
-    try {
-      final row = (await db.rawQuery(
-        'SELECT SUM(pgsize) AS bytes FROM dbstat WHERE name = ?',
-        [table],
-      )).first;
-      return (row['bytes'] as num?)?.toInt() ?? 0;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<int?> _tableBytesApprox(Database db, String table) async {
-    try {
-      final cols = await db.rawQuery('PRAGMA table_info($table)');
-      if (cols.isEmpty) return 0;
-      final expr = cols
-          .map((c) {
-            final name = c['name']?.toString() ?? '';
-            return 'IFNULL(LENGTH($name), 0)';
-          })
-          .join(' + ');
-      final row = (await db.rawQuery(
-        'SELECT SUM($expr) AS bytes FROM $table',
-      )).first;
-      return (row['bytes'] as num?)?.toInt() ?? 0;
-    } catch (_) {
-      return null;
-    }
-  }
-
   static Future<Map<String, dynamic>> schemaHealth() async {
     final db = await instance;
     Future<bool> hasTable(String name) async {
@@ -8010,57 +7852,6 @@ class LocalDb {
     };
   }
 
-  static Future<Map<String, dynamic>?> syncLedgerSummary([
-    String chunkId = 'capture',
-  ]) async {
-    final row = await syncLedgerEntry(chunkId);
-    if (row == null) return null;
-    final meta = <String, dynamic>{};
-    final rawMeta = row['meta_json'];
-    if (rawMeta is String && rawMeta.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(rawMeta);
-        if (decoded is Map) meta.addAll(decoded.cast<String, dynamic>());
-      } catch (_) {
-        /* ignore */
-      }
-    }
-    return {
-      'chunk_id': row['chunk_id'],
-      'kind': row['kind'],
-      'status': row['status'],
-      'created_at': row['created_at'],
-      'updated_at': row['updated_at'],
-      'acked_at': row['acked_at'],
-      'last_error': row['last_error'],
-      ...meta,
-    };
-  }
-
-  /// Derived store summary: distinct days, how many are skipped markers (latest
-  /// version), the latest day label, and the most recent (up to 14) day labels.
-  static Future<Map<String, dynamic>> derivedStats() async {
-    final db = await instance;
-    final count =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(DISTINCT day_id) FROM day_result'),
-        ) ??
-        0;
-    final recent = await recentDayResults(14);
-    var skipped = 0;
-    for (final r in recent) {
-      final pj = r['payload_json'];
-      if (pj is String && pj.contains('"skipped":true')) skipped++;
-    }
-    final dates = [for (final r in recent) r['day_id'] as String];
-    return {
-      'count': count,
-      'skipped': skipped,
-      'latest_date': dates.isEmpty ? null : dates.first,
-      'dates': dates,
-    };
-  }
-
   /// Recent latest-version day rows with lightweight status fields used by the
   /// metrics diagnostics view.
   static Future<List<Map<String, dynamic>>> recentDayDiagnostics(
@@ -8111,20 +7902,6 @@ class LocalDb {
           0;
     }
     return out;
-  }
-
-  /// Cross-day rollup presence + day count, read from the `crossday` baseline.
-  static Future<Map<String, dynamic>?> crossDayStats() async {
-    final r = await baseline('crossday');
-    final json = r?['payload_json'];
-    if (json is! String) return {'present': false};
-    try {
-      final p = jsonDecode(json);
-      final nDays = p is Map ? p['n_days'] : null;
-      return {'present': true, 'n_days': nDays};
-    } catch (_) {
-      return {'present': false};
-    }
   }
 
   /// Single metric_series value for one (date, key), or null.

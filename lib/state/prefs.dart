@@ -78,8 +78,6 @@ class Prefs {
 
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────
   static const String shellTab = 'ui.shell_tab';
-  static const String recapRange = 'ui.recap_range';
-  static const String workoutsRange = 'ui.workouts_range';
 
   /// Automatic local backup: the chosen cadence, and when one last ran.
   static const String backupCadence = 'backup.cadence';
@@ -93,7 +91,4 @@ class Prefs {
   /// list and nothing reads it except the surfaces it reveals.
   static const String devMode = 'dev.mode';
 
-  /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
-  /// Keyed by the metric id so Sleep / Heart / Body each remember independently.
-  static String metricTab(String metric) => 'ui.metric_tab.$metric';
 }

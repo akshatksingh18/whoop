@@ -523,9 +523,6 @@ class RunStatsGrid extends StatelessWidget {
   return (floor: floor, hr: hr);
 }
 
-/// Legacy comparison threshold retained for callers; the UI never merges models.
-const double kCalorieAgree = 50;
-
 double? _comparisonEnergy(
   ActivityResult r,
   double? kg, {

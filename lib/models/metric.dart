@@ -53,19 +53,12 @@ class Metric {
     this.note,
   });
 
-  /// Parsed `need_baseline:have=H,need=N` → remaining nights (need − have, ≥1),
-  /// or null when this metric is not a baseline-gated abstention. Drives the
-  /// "Need N more nights" copy.
-  int? get needMoreNights => needMoreNightsFromNote(note);
-
   /// A metric with no real data — renders as "—".
   static const empty = Metric();
 
   /// True when there's no number to show. CONFIDENCE rule #1.
   bool get isEmpty => value == null || confidence <= 0;
 
-  bool get isEstimate => tier == MetricTier.estimate;
-  bool get isRelative => tier == MetricTier.relative;
 
   /// Normalized 0..1 for ring color, given a max scale (e.g. 21 for strain,
   /// 100 for readiness). Clamped.

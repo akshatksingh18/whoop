@@ -171,9 +171,6 @@ class MedSlot {
     return '$h:$m';
   }
 
-  /// A slot that has passed and was neither taken nor deliberately skipped.
-  bool get isMiss => state == DoseState.missed;
-
   /// Whether this slot may be counted at all. An upcoming slot is not yet an
   /// opportunity, so it belongs in no adherence denominator.
   bool get isDecided => state != DoseState.upcoming;

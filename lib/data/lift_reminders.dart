@@ -82,15 +82,6 @@ class RestTimer {
         0;
   }
 
-  static Future<void> setForExercise(String name, int? sec) async {
-    final p = await _p();
-    if (sec == null) {
-      await p?.remove('$_perKey${liftNameKey(name)}');
-    } else {
-      await p?.setInt('$_perKey${liftNameKey(name)}', sec);
-    }
-  }
-
   static Future<DateTime?> deadline() async {
     final ms = (await _p())?.getInt(_deadlineKey);
     if (ms == null) return null;

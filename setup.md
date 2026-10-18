@@ -35,6 +35,21 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 92 Candidate
+
+Source `3c1cf3a888c754433f12d0daf2c2247034d601a8`, version `0.9.59+92`, algorithm 97, schema 50,
+is published to `akshatksingh18/whoop` (`main`, fast-forwarded from `build-92`) with Akshat's
+go-ahead. Linux CI `39089817370` passes 3,950 tests (461 intentional skips) with no analysis
+errors or warnings. Fixtures are synthetic and the outgoing history was scanned for personal data.
+
+Personal macOS run `39118323380` passes. Downloaded `whoop-personal-3c1cf3a888c7-unsigned.ipa`
+(19,326,276 bytes), SHA-256 `ec9951717741c0f2fd4b8856a8307a13554a5b283ab9b2319d394c8b34ac5809`,
+matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
+(one `Runner.app`, no extension, no Watch app). It is the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8`, not yet installed. Build 91's testing
+folder (installed on the phone) was moved to the Windows Recycle Bin; Build 70 remains accepted
+recovery.
+
 ## Build 91 Candidate
 
 Source `40611c52dc2aa51438c9dbdd24383758b6f35bf5`, version `0.9.58+91`, algorithm 97, schema 50,
@@ -46,7 +61,8 @@ Personal macOS run `39086037034` passes. Downloaded `whoop-personal-40611c52dc2a
 (19,318,862 bytes), SHA-256 `b199cfd5329808783f92c3b566e4330ccb84f26819f2f89064acb690e10b9c15`,
 matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
 (one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52`; Akshat reports it installed. Build 90's
+`../final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52` until Build 92's replaced it; Akshat
+reports it installed. Build 90's
 testing folder was moved to the Windows Recycle Bin; Build 70 remains accepted recovery.
 
 ## Build 90 Candidate

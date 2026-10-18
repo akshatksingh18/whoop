@@ -348,6 +348,9 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   say so: logging a saved meal from Add food, copying/saving a meal, deleting a saved food or
   meal, a photo, weight or tape entry, and Pushups history.
   Phone check: edge swipe on a clean and a dirty Body entry.
+  Released: `build-92` fast-forwarded to `main` at `3c1cf3a8`; source `3c1cf3a8` on `main`, Linux CI `39089817370` (3,950 tests, 461 intentional skips), personal macOS build `39118323380`; downloaded IPA SHA-256 `ec9951717741c0f2fd4b8856a8307a13554a5b283ab9b2319d394c8b34ac5809`, source/version manifest, ZIP CRC and personal payload validation pass. Single testing
+  candidate `final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8`; Build 91's folder went to
+  the Windows Recycle Bin (reproducible from run `39086037034`).
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

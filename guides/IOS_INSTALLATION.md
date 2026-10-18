@@ -5,9 +5,9 @@ personal-sideload profile and public manual macOS workflow. Akshat's screenshots
 `0.9.55`/`88` installed previously; Akshat now reports `0.9.56`/`89` installed and being tested,
 with no app extension (removed in build 81).
 The single testing candidate is
-`../../final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52` (Build 91, Linux CI `39084743882`,
-personal macOS build `39086037034`; source/version/checksum/ZIP/payload checks pass), which
-Akshat reports installed. It replaces Build 90's folder (run `38846696668`). `../todo.md` Build 89 owns scope and phone gates; `../build-90-audit.md` owns the
+`../../final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8` (Build 92, Linux CI `39089817370`,
+personal macOS build `39118323380`; source/version/checksum/ZIP/payload checks pass), not yet
+installed. It replaces Build 91's folder (run `39086037034`), which Akshat reports installed. `../todo.md` Build 89 owns scope and phone gates; `../build-90-audit.md` owns the
 current whole-app review whose worklist Build 90 implements. Akshat wants Build 89 as recovery
 after this review; the cache is not yet promoted. Confirm an off-phone encrypted export,
 identity/data/pairing, foreground/background behavior and current-version refresh enrollment

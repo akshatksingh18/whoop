@@ -1289,6 +1289,9 @@ void main() {
       await tester.pump();
       await tester.tap(find.bySemanticsLabel('Finish session'));
       await tester.pumpAndSettle();
+      // Finishing asks first (Build 94).
+      await tester.tap(find.text('Finish'));
+      await tester.pumpAndSettle();
 
       expect(
         handed,
@@ -1338,6 +1341,9 @@ void main() {
 
       await tester.tap(find.bySemanticsLabel('Finish session'));
       await tester.pumpAndSettle();
+      // Finishing asks first (Build 94).
+      await tester.tap(find.text('Finish'));
+      await tester.pumpAndSettle();
 
       // And the summary agrees. `lapSecs` used to hold the GAPS between taps,
       // so it was one shorter than the swim: 50 m live, 25 m on the summary.
@@ -1384,6 +1390,10 @@ void main() {
         await tester.pump();
       }
       await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      // Finishing asks first (Build 94).
+      await tester.tap(find.text('Finish'));
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
 

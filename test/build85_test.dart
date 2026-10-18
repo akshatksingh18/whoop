@@ -276,7 +276,7 @@ void main() {
         t,
         UpdatedStamp(DateTime(2026, 10, 8, 7, 5), now: DateTime(2026, 10, 8, 9)),
       );
-      expect(find.text('Updated 07:05'), findsOneWidget);
+      expect(find.text('Updated 7:05 AM'), findsOneWidget);
       await host(t, const UpdatedStamp(null));
       expect(find.text('Not calculated yet'), findsOneWidget);
     });

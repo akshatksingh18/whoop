@@ -709,25 +709,9 @@ String grouped(num v) {
   return b.toString();
 }
 
-String _shortDate(DateTime t) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-  return '${months[t.month - 1]} ${t.day}, ${t.year} at $h:'
-      '${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
-}
+/// "Oct 10, 2026 at 7:04 AM".
+String _shortDate(DateTime t) =>
+    '${formatShortDate(t)}, ${t.year} at ${formatClock(t)}';
 
 // ── THE SUPPORTING STATS ───────────────────────────────────────────────────
 
@@ -1050,10 +1034,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// "OCT 10, 2026 AT 7:04 AM – 7:58 AM"; an end after midnight carries its
   /// own date.
   String _when(BuildContext c) {
-    String t(DateTime d) => MaterialLocalizations.of(c).formatTimeOfDay(
-      TimeOfDay.fromDateTime(d),
-      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(c),
-    );
+    String t(DateTime d) => formatClock(d);
     final end = _savedEnd;
     // `_shortDate` already carries the start time.
     final started = _shortDate(r.start).toUpperCase();

@@ -38,10 +38,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../data/journal_fields.dart' show formatClock, formatMinuteOfDay;
+import '../data/journal_fields.dart'
+    show formatClock, formatMinuteOfDay, formatShortDate;
 
-// The app's one clock format, for every screen that imports the grammar.
-export '../data/journal_fields.dart' show formatClock, formatMinuteOfDay;
+// The app's one clock and short-date format, for every screen that imports
+// the grammar.
+export '../data/journal_fields.dart'
+    show formatClock, formatMinuteOfDay, formatShortDate;
 import '../models/metric.dart';
 import 'charts.dart';
 import 'scroll_hint.dart';
@@ -3180,7 +3183,7 @@ class UpdatedStamp extends StatelessWidget {
         when.month == today.month &&
         when.day == today.day;
     return Tag(
-      sameDay ? 'Updated $time' : 'Updated ${when.day}/${when.month} $time',
+      sameDay ? 'Updated $time' : 'Updated ${formatShortDate(when)}, $time',
       icon: LucideIcons.clock,
     );
   }

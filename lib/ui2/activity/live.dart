@@ -550,11 +550,24 @@ class LiveShellState extends State<LiveShell> {
         : WorkoutClock.current?.start;
     final started = start == null
         ? ''
-        : 'Started ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(start), alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context))}';
+        : 'Started ${formatClock(start)}';
     return [
       if (widget.subtitle.isNotEmpty) widget.subtitle,
       if (started.isNotEmpty) started,
     ].join(' · ');
+  }
+
+  /// The stop button: a finished session cannot be resumed, so it asks.
+  Future<void> _confirmFinish() async {
+    if (_finishing) return;
+    final end = await confirmRemove(
+      context,
+      title: 'Finish this workout?',
+      body: 'It is saved now and cannot be resumed.',
+      remove: 'Finish',
+      keep: 'Keep going',
+    );
+    if (end && mounted) await finish();
   }
 
   Future<void> finish() async {
@@ -723,7 +736,7 @@ class LiveShellState extends State<LiveShell> {
                     p.card2,
                     p.on(C.red),
                     l?.activityLiveFinishSessionLabel ?? 'Finish session',
-                    finish,
+                    _confirmFinish,
                   ),
                 ],
               ),

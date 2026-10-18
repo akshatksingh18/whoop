@@ -306,6 +306,15 @@ String customJournalFieldKey(String label) {
 }
 
 /// Local minutes past midnight → "7:05 AM".
+const _monthAbbr = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// [t]'s date as "Oct 4" — the month by name, so it never reads as
+/// month/day for one reader and day/month for another.
+String formatShortDate(DateTime t) => '${_monthAbbr[t.month - 1]} ${t.day}';
+
 /// [t]'s wall-clock time in the app's one format, e.g. "7:05 PM".
 String formatClock(DateTime t) => formatMinuteOfDay(t.hour * 60 + t.minute);
 

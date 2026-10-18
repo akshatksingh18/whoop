@@ -51,7 +51,7 @@ import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import 'home_screen.dart'
-    show calendarDaysBetween, pad, prettyDay, pullToRefresh;
+    show calendarDaysBetween, monthName, pad, prettyDay, pullToRefresh;
 import 'food_picker.dart' show PickRow, SwipeDelete;
 import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
@@ -253,14 +253,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
 
   // ─────────────── HISTORY ───────────────
 
-  /// Open a screen that can write a session, then re-read. Every write path on
-  /// this tab goes through here: `RevisionReload` covers the writers that bump
-  /// `AppState.insightsRevision`, and this covers the ones that do not.
-  /// Build 90 (H3): Lift asks Gym or Home. Home is the Bodyweight type
-  /// (Compendium 02056, the lowest match for the routine) with the Home split
-  /// chosen; Gym is weight training as before.
   /// Run, Walk, Lift and Other. At large text they go two by two, so each
-  /// label stays whole ("R…" and "Li…" at 2x in Build 89; B90-08).
+  /// label stays whole.
   Widget _startTiles(
     BuildContext c,
     void Function(Activity) start,
@@ -311,6 +305,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     );
   }
 
+  /// Lift asks Gym or Home. Home is the Bodyweight type (Compendium 02056,
+  /// the lowest match for the routine) with the Home split chosen; Gym is
+  /// weight training.
   Future<void> _chooseLift(
     BuildContext c,
     void Function(Activity) start,
@@ -362,6 +359,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     if (c.mounted) start(act('Bodyweight'));
   }
 
+  /// Open a screen that can write a session, then re-read. `RevisionReload`
+  /// covers the writers that bump `AppState.insightsRevision`; this covers
+  /// the ones that do not.
   Future<void> _push(BuildContext c, Widget w) async {
     await Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
     if (mounted) reload();
@@ -556,7 +556,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         monday.day - 7 * (7 - i),
       );
       final km = weeks[i];
-      return '${i == 7 ? 'This week' : 'Week of ${from.day}/${from.month}'} · '
+      return '${i == 7 ? 'This week' : 'Week of ${formatShortDate(from)}'} · '
           '${km == null ? 'no runs' : '${km.toStringAsFixed(1)} km'}';
     }
 
@@ -618,7 +618,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                         ),
                       ),
                       Text(
-                        '${t(sec)} · ${at.day}/${at.month}',
+                        '${t(sec)} · ${formatShortDate(at)}',
                         style: F.cap.copyWith(color: p.ink2),
                       ),
                     ],
@@ -686,8 +686,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     );
   }
 
-  /// Days in a row with at least ten minutes of running or walking.
-  /// The Build 88 week panel: streak, strain and running distance, each a
+  /// The week panel: streak, strain and running distance, each a
   /// label / last-seven-days / value line, with the streak's own controls.
   Widget _weekPanel(BuildContext c, P p, _WorkoutData d) {
     final end = d.weekEnd ?? DateTime.now();
@@ -731,7 +730,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'This week',
+            'Streak',
             style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: S.x2),
@@ -827,11 +826,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     );
   }
 
-  /// Delete one session — recorded or imported. For an IMPORTED session the
-  /// health-store uuid goes onto a tombstone list first, or the next import
-  /// (manual, or the hourly auto path) would bring the very row the user just
-  /// removed straight back. A copy in Apple Health / Health Connect itself is
-  /// out of our reach by design and the confirm says so.
   /// Bring in what another app recorded. On History because that is the list
   /// it joins — it used to live three taps deep under More settings, next to a
   /// database export, which is not where anybody looks for their Sunday run.
@@ -2208,7 +2202,7 @@ class _PastWorkout {
     if (days == 0) return loc?.workoutWhenToday(t) ?? 'Today, $t';
     if (days == 1) return loc?.workoutWhenYesterday(t) ?? 'Yesterday, $t';
     if (days < 7) return '${names[start.weekday - 1]}, $t';
-    return '${start.day}/${start.month}, $t';
+    return '${formatShortDate(start)}, $t';
   }
 
   ActivityResult toResult() => ActivityResult(
@@ -2507,10 +2501,10 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
 
   past.sort((a, b) => b.start.compareTo(a.start));
 
-  final weekStart = end.subtract(Motion.tick * 86400 * (end.weekday - 1));
+  final weekStart = DateTime(end.year, end.month, end.day - (end.weekday - 1));
   final thisWeek = [
     for (final w in past)
-      if (w.start.isAfter(weekStart)) w,
+      if (!w.start.isBefore(weekStart)) w,
   ];
 
   int? tracked;
@@ -2586,7 +2580,10 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
     title:
         loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
         'Delete this ${w.activity.name.toLowerCase()}?',
-    body: w.importedFrom == null
+    body: w.importedFrom == null && kPersonalSideload
+        ? 'It is removed from this phone, with its route and sets. This '
+              'cannot be undone.'
+        : w.importedFrom == null
         ? (loc?.workoutDeleteBodyOwn(storeName) ??
               'It disappears from $kAppName. A copy in $storeName, if there is '
                   'one, stays where it is.')
@@ -2962,21 +2959,6 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
     }
   }
 
-  static const _months = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
@@ -3073,7 +3055,9 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
   String _monthName(String key) {
     final parts = key.split('-');
     final y = int.parse(parts[0]), m = int.parse(parts[1]);
-    return y == DateTime.now().year ? _months[m - 1] : '${_months[m - 1]} $y';
+    return y == DateTime.now().year
+        ? monthName(m, null)
+        : '${monthName(m, null)} $y';
   }
 
   /// "14 sessions · 9 h 20 min · 4 runs".

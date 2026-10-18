@@ -394,6 +394,25 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   payload validation pass. Single testing candidate
   `final-ipas/whoop/testing/WHOOP-0.9.60-build93-7a4b6021`; Build 92's folder (never installed)
   went to the Windows Recycle Bin (reproducible from run `39118323380`).
+- [x] 3i. Build 94 (`0.9.61+94`, algorithm 97, schema 50, branch `build-94`): Claude's own
+  end-to-end audit of every screen, button and line of copy (local register
+  `build/research-local/claude-e2e-audit-build93.md`), with cleanup as Akshat asked.
+  - Fixes: Fix sleep times keeps a corrected bedtime on the detected night across midnight
+    (`correctedSleepWindow`); finishing a live workout asks first; the Train week starts at
+    Monday 00:00 by the calendar; Weekly lookback no longer silences "Did you work out?" or
+    "Still working out?" (both answer to Detected workouts); the reset dialog names what it
+    deletes; the week card, Food history weight card and Log weight use Body's kg/lb; the
+    evening food check and its On state need notification permission; Copy a day is rebuilt
+    in the app's design; one 12-hour clock (`formatClock`) and one short date
+    (`formatShortDate`, "Oct 4") everywhere, with Midnight/Noon day axes; smaller copy and
+    flow fixes (resting HR bpm, 0 kcal days, acronyms, past-day Recovery breakdown, buzz
+    feedback, Add to <meal>, brand search, camera-denied help, onboarding ranges).
+  - Cleanup: about 1,100 lines of code nothing read (unrendered metric text, old payload
+    getters and AppState paths, dead sheets/helpers, eleven month tables, unused tokens).
+  - Waiting on Akshat: unreachable screens (Readiness glass-box, old occasion logging,
+    share card), upstream-only code, one weight unit vs Body's, and miles on run screens.
+  Phone check: Fix sleep times across midnight; Finish asks; Weekly lookback off still asks
+  about a detected workout.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

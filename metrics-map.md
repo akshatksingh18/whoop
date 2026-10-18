@@ -321,6 +321,9 @@ is gone. Meal and day totals with an unknown item say "at least"; the food/weigh
 robust slope with a range and hides past ±300 kcal/day.
 Recorded strain stays an estimate with its prescriptive target hidden until calibrated, and all
 health findings respect app quiet hours. `build-88-plan.md` owns these choices and the version gates.
+From Build 94 each prompt answers to its own switch: Detected workouts covers "Did you work out?"
+and the forgotten-workout nudge, and Weekly lookback controls only the weekly lookback. Times
+read in one 12-hour format and short dates as "Oct 4" throughout.
 Build 90 reads attach immutable frozen counting evidence to FoodEntry/NutritionDay, so
 Progress's existing rollup calls retain the correct dated eligibility without API renames.
 Entry edits preserve the original logging timestamp (unknown legacy values stay NULL), while

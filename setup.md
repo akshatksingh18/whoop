@@ -35,20 +35,21 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 93 Candidate
+## Build 94 Candidate
 
-Source `7a4b60213a895b7d563c218cf93d26a1e8b402e8`, version `0.9.60+93`, algorithm 97, schema 50
-(plus the additive `session_detail` table), is published to `akshatksingh18/whoop` (`main`,
-fast-forwarded from `build-93`). Linux CI `39126009441` passes 3,962 tests (461 intentional
-skips) with no analysis errors or warnings. Fixtures are synthetic and the outgoing diff was
-scanned for personal data.
+Source `9d66463257052675e0e4a092639943b607b795dc`, version `0.9.61+94`, algorithm 97, schema 50,
+is published to `akshatksingh18/whoop` (`main`, fast-forwarded from `build-94`). Linux CI
+`39172587592` passes 3,975 tests (457 intentional skips) with no analysis errors or warnings.
+Fixtures are synthetic and the outgoing diff was scanned for personal data.
 
-Personal macOS run `39127375040` passes. Downloaded `whoop-personal-7a4b60213a89-unsigned.ipa`
-(19,353,760 bytes), SHA-256 `cb21a9a9f027998779c7e4ac50e7d9e3557ea94fd69f1d688166c6c1b83be677`,
+Personal macOS run `39174734367` passes. Downloaded `whoop-personal-9d6646325705-unsigned.ipa`
+(19,332,026 bytes), SHA-256 `75aaa91c2a55ac3d9769a757588360ade356f464cc3519e354c101baaf394f49`,
 matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
 (one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.60-build93-7a4b6021`, not yet installed. Build 92's testing
-folder (never installed) was moved to the Windows Recycle Bin; Build 70 remains accepted recovery.
+`../final-ipas/whoop/testing/WHOOP-0.9.61-build94-9d664632`, not yet installed. Build 93's testing
+folder (never installed; run `39127375040`, SHA-256
+`cb21a9a9f027998779c7e4ac50e7d9e3557ea94fd69f1d688166c6c1b83be677`) was moved to the Windows
+Recycle Bin; Build 70 remains accepted recovery.
 
 ## Build 92 Candidate
 

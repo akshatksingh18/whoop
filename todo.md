@@ -391,9 +391,8 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     Phone check: reopen a swim/interval workout; Discard on Edit profile; Your data import result.
   Released: `build-93` fast-forwarded to `main` at `7a4b6021`; Linux CI `39126009441` (3,962 tests, 461 intentional skips), personal macOS build `39127375040`; downloaded IPA
   SHA-256 `cb21a9a9f027998779c7e4ac50e7d9e3557ea94fd69f1d688166c6c1b83be677`, source/version manifest, ZIP CRC and personal
-  payload validation pass. Single testing candidate
-  `final-ipas/whoop/testing/WHOOP-0.9.60-build93-7a4b6021`; Build 92's folder (never installed)
-  went to the Windows Recycle Bin (reproducible from run `39118323380`).
+  payload validation pass. It was the testing candidate until Build 94 replaced it (never
+  installed; reproducible from run `39127375040`).
 - [x] 3i. Build 94 (`0.9.61+94`, algorithm 97, schema 50, branch `build-94`): Claude's own
   end-to-end audit of every screen, button and line of copy (local register
   `build/research-local/claude-e2e-audit-build93.md`), with cleanup as Akshat asked.
@@ -431,6 +430,12 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     share card), upstream-only code, one weight unit vs Body's, miles on run screens, and
     Codex's layout suggestions (Progress first-check card, Body comparisons, Recovery's
     repeated explanation), which need mockups first.
+  Released: `build-94` fast-forwarded to `main` at `9d664632`; Linux CI `39172587592` (3,975
+  tests, 457 intentional skips), personal macOS build `39174734367`; downloaded IPA SHA-256
+  `75aaa91c2a55ac3d9769a757588360ade356f464cc3519e354c101baaf394f49`, source/version manifest, ZIP CRC and personal
+  payload validation pass. Single testing candidate
+  `final-ipas/whoop/testing/WHOOP-0.9.61-build94-9d664632`; Build 93's folder (never installed)
+  went to the Windows Recycle Bin (reproducible from run `39127375040`).
   Phone check: Fix sleep times across midnight; Finish asks; Weekly lookback off still asks
   about a detected workout; swipe a food on the Food tab and Undo; set an amount to 0;
   Quick add calories left; a notification tapped while Body entry has typing waits.

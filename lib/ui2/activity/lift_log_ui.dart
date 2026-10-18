@@ -1771,9 +1771,17 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
     _load();
   }
 
+  // Build 93 (Codex audit C13): a storage error on load or save is shown
+  // (with the saved splits kept on screen), not thrown away.
   Future<void> _load() async {
-    final s = await LiftLogDb.splits();
-    if (mounted) setState(() => _splits = s);
+    try {
+      final s = await LiftLogDb.splits();
+      if (mounted) setState(() => (_splits = s, _error = null));
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Your splits could not load. Go back and try again.');
+      }
+    }
   }
 
   Future<void> _save(List<LiftSplit> next) async {
@@ -1785,9 +1793,14 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
       } else {
         await LiftLogDb.saveSplits(next);
       }
+      if (!mounted) return;
       setState(() => (_splits = LiftSplit.validatedList(next), _error = null));
     } on LiftLogError catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'That change was not saved. Please try again.');
+      }
     }
   }
 

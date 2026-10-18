@@ -1336,9 +1336,13 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
     } catch (_) {}
   }
 
+  /// Build 93 (Codex audit C14): on measurement day the entry opens with
+  /// Measurements expanded, so Measure lands on the tape fields.
   Future<void> _entry(BuildContext c) async {
     final changed = await Navigator.of(c).push<bool>(
-      MaterialPageRoute(builder: (_) => BodyEntryScreen(unit: _unit)),
+      MaterialPageRoute(
+        builder: (_) => BodyEntryScreen(unit: _unit, showTape: _tapeDue),
+      ),
     );
     if (changed == true) reload();
   }
@@ -1410,7 +1414,7 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
               onTap: () async {
                 final changed = await Navigator.of(c).push<bool>(
                   MaterialPageRoute(
-                    builder: (_) => BodyEntryScreen(unit: _unit),
+                    builder: (_) => BodyEntryScreen(unit: _unit, showTape: true),
                   ),
                 );
                 if (changed == true) reload();
@@ -1442,6 +1446,24 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
 
 /// One dated body entry: weight, any tape sites and photos, for today or a
 /// chosen past day. A past or imported weight is history only.
+/// Build 93 (Codex audit C02): after today's weigh-in is deleted, the profile
+/// weight the calorie maths uses follows the newest remaining weigh-in (today's
+/// next reading, else the latest earlier day), the same rule Save uses. With
+/// no weigh-in left the profile keeps its value: nothing is invented.
+Future<void> syncProfileWeightAfterDelete(AppState app, String date) async {
+  final today = todayLabel();
+  if (date != today) return;
+  final all = [
+    for (final w in await BodyLogDb.weights())
+      if (w.date.compareTo(today) <= 0) w,
+  ]..sort((a, b) => a.date.compareTo(b.date));
+  if (all.isEmpty) return;
+  final kg = all.last.kg;
+  final cur = (app.user?['weight_kg'] as num?)?.toDouble();
+  if (cur != null && (cur - kg).abs() < 1e-9) return;
+  await app.updateProfile({'weight_kg': kg});
+}
+
 class BodyEntryScreen extends StatefulWidget {
   const BodyEntryScreen({
     super.key,
@@ -1768,12 +1790,21 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       remove: 'Delete',
       keep: 'Keep it',
     );
-    if (!ok) return;
+    if (!ok || !mounted) return;
+    final app = context.read<AppState>();
     try {
       await BodyLogDb.deleteReading(r.id);
-      if (mounted) context.read<AppState>().bumpInsights();
+      await syncProfileWeightAfterDelete(app, _date);
+      app.bumpInsights();
     } catch (_) {
       if (mounted) setState(() => _error = 'That reading was not deleted.');
+    }
+    if (!mounted) return;
+    // A field still showing the deleted reading (not typed over) refills
+    // from what remains; a typed draft is left alone.
+    if (_weight.text.trim() == _weightAtOpen.trim()) {
+      _weight.clear();
+      _weightAtOpen = '';
     }
     await _loadDay();
   }
@@ -2477,6 +2508,11 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                         )) {
                           try {
                             await BodyLogDb.deleteWeight(day);
+                            if (c.mounted) {
+                              final app = c.read<AppState>();
+                              await syncProfileWeightAfterDelete(app, day);
+                              app.bumpInsights();
+                            }
                           } catch (_) {
                             if (c.mounted) {
                               ScaffoldMessenger.maybeOf(c)?.showSnackBar(
@@ -2607,6 +2643,21 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
   }
 
   Future<void> _setReminder(bool on) async {
+    // Build 93 (Codex audit C09): On means a reminder iOS will deliver. With
+    // notifications not allowed the switch stays Off and says why.
+    if (on && !await NotificationService.instance.ensurePermission()) {
+      if (!mounted) return;
+      setState(() => _reminder = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Notifications are off for this app. Allow them in iPhone '
+            'Settings, then turn the reminder on again.',
+          ),
+        ),
+      );
+      return;
+    }
     final p = await SharedPreferences.getInstance();
     await p.setBool('body.reminder', on);
     if (on) {
@@ -2624,7 +2675,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
         NotificationService.idBodyReminder,
       );
     }
-    setState(() => _reminder = on);
+    if (mounted) setState(() => _reminder = on);
   }
 
   @override
@@ -2655,6 +2706,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                               semanticLabel: _names[i - 1],
                               onTap: () async {
                                 await BodyLogDb.setMeasureWeekday(i);
+                                if (!mounted) return;
                                 setState(() => _weekday = i);
                                 if (_reminder) await _setReminder(true);
                               },

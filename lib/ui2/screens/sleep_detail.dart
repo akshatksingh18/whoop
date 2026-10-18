@@ -983,6 +983,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// screen must not keep drawing the old night's numbers under a new window.
   Future<void> _runOverride(Future<void> Function() write) async {
     if (_saving) return;
+    // Build 93 (Codex audit C08): what the night looked like BEFORE the
+    // write: its source and its window. Changing an already manual window
+    // keeps the source 'manual', so the times are compared too.
+    final before = _windowSignature;
     setState(() {
       _saving = true;
       _overrideFailed = null;
@@ -995,7 +999,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-    final before = _source;
     if (mounted) await _load();
     if (!mounted) return;
     // EVERY failure below this screen is silent: the forced re-derive catches
@@ -1005,7 +1008,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // worked, which is how a rejected one got dropped without a word. The
     // window's source changes on all three actions, so an unchanged source
     // means nothing was restaged.
-    if (failed != null || _source == before) {
+    if (failed != null || _windowSignature == before) {
       final l = AppLocalizations.of(context);
       setState(
         () => _overrideFailed =
@@ -1021,6 +1024,13 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// Where the drawn window came from: 'auto', 'auto_fallback', 'manual' or
   /// 'confirmed'.
   String? get _source => (_d?.night['sleep_source'] as String?) ?? 'auto';
+
+  /// The drawn window's source and times, to tell whether a correction
+  /// actually re-staged the night.
+  String get _windowSignature {
+    final n = _d?.night;
+    return '$_source|${n?['onset_ts']}|${n?['wake_ts']}';
+  }
 
   /// The hypnogram, as the centrepiece rather than as an illustration. The
   /// cycle count rides underneath it because it is a property of this shape,

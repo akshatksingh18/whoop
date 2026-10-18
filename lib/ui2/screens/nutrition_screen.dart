@@ -1115,10 +1115,19 @@ class _NutritionDayViewState extends State<NutritionDayView>
         amount: r.amount,
         unit: r.unit,
       );
-      await NutritionDb.put(db, e);
+      final m = ScaffoldMessenger.maybeOf(c);
+      // Build 93 (Codex audit C11): a failed add or Undo says so.
+      try {
+        await NutritionDb.put(db, e);
+      } catch (_) {
+        m?.hideCurrentSnackBar();
+        m?.showSnackBar(
+          SnackBar(content: Text('${e.label} was not added. Try again.')),
+        );
+        return;
+      }
       await _changed();
       if (!c.mounted) return;
-      final m = ScaffoldMessenger.maybeOf(c);
       m?.hideCurrentSnackBar();
       m?.showSnackBar(
         SnackBar(
@@ -1127,7 +1136,19 @@ class _NutritionDayViewState extends State<NutritionDayView>
           action: SnackBarAction(
             label: 'Undo',
             onPressed: () async {
-              await NutritionDb.delete(await LocalDb.instance, e.id);
+              try {
+                await NutritionDb.delete(await LocalDb.instance, e.id);
+              } catch (_) {
+                m.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Could not undo: ${e.label} is still logged. Delete it '
+                      'from the meal instead.',
+                    ),
+                  ),
+                );
+                return;
+              }
               await _changed();
             },
           ),

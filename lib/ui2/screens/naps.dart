@@ -24,6 +24,7 @@
 // scale would imply it was inferred.
 
 import 'dart:async';
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -257,6 +258,15 @@ class _NapsScreenState extends State<NapsScreen> with RevisionReload {
             'A nap is between 5 minutes and 6 hours. '
                 'Anything longer is a sleep, and it belongs in the night where the '
                 'stages can be read.',
+      );
+      return;
+    }
+    // Build 93 (Codex audit): only a nap that has ended can be logged; a
+    // future hour would count as sleep that did not happen.
+    if (end.isAfter(clock.now())) {
+      setState(
+        () => _failed =
+            'That nap has not ended yet. Log it once you are up.',
       );
       return;
     }

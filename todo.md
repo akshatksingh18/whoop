@@ -351,6 +351,24 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   Released: `build-92` fast-forwarded to `main` at `3c1cf3a8`; source `3c1cf3a8` on `main`, Linux CI `39089817370` (3,950 tests, 461 intentional skips), personal macOS build `39118323380`; downloaded IPA SHA-256 `ec9951717741c0f2fd4b8856a8307a13554a5b283ab9b2319d394c8b34ac5809`, source/version manifest, ZIP CRC and personal payload validation pass. Single testing
   candidate `final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8`; Build 91's folder went to
   the Windows Recycle Bin (reproducible from run `39086037034`).
+- [x] 3h. Build 93 (`0.9.60+93`, algorithm 97 unchanged, branch `build-93`): Codex's Build 92
+  interaction audit (local `build/research-local/build92-e2e-audit-3c1cf3a8.md` and flow
+  register). Claude confirmed and fixed all of it, tests `build93_test.dart`:
+  - Data integrity: a Journal conflict moves untouched fields to the stored value with their
+    baseline, so a second save never pushes an old value back; tags and note are sent only when
+    changed and reconciled on conflict (a note both changed keeps the typed text and names the
+    other); deleting today's weigh-in moves the profile weight to the newest remaining one (none
+    left: unchanged) and refreshes a pristine field; Save meal converts each entry through its
+    own recorded units or leaves it out and says so, never relabelling "2 links" as grams.
+  - Quick add writes the saved food and diary entry in one transaction with a per-sheet key
+    (no duplicate foods on Retry); its discard check includes meal, time and sub-heading.
+  - A metric opened from a night older than the chart says so instead of silently showing the
+    newest day; device detail reads the live band state; a manual Sleep correction is judged
+    on its window, not only its source; Body reminder On needs notification permission (else
+    stays Off and says why); the step-goal editor stays open with the typed value on bad input
+    or a failed save; Log again and its Undo report failures; a failed workout delete keeps the
+    row and says so; the saved-split screen reports storage errors; Today's Measure /
+    measurement-day actions open the tape fields; a nap that has not ended cannot be logged.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

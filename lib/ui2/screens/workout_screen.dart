@@ -2587,13 +2587,25 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
                   'The original in $storeName stays.'),
   );
   if (!ok) return false;
-  forgetRun(w.id);
-  if (w.importedFrom != null && w.id.isNotEmpty) {
-    await rememberDeletedUuid(w.id);
-    await LocalDb.deleteImportedWorkout(w.id);
-  } else {
-    await LocalDb.deleteSession(w.id);
+  // Build 93 (Codex audit C12): a failed delete keeps the row and says so.
+  try {
+    if (w.importedFrom != null && w.id.isNotEmpty) {
+      await rememberDeletedUuid(w.id);
+      await LocalDb.deleteImportedWorkout(w.id);
+    } else {
+      await LocalDb.deleteSession(w.id);
+    }
+  } catch (_) {
+    if (c.mounted) {
+      ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+        const SnackBar(
+          content: Text('That workout was not deleted. Try again.'),
+        ),
+      );
+    }
+    return false;
   }
+  forgetRun(w.id);
   // B90-02: after the delete commits, every open tab re-reads; a failed
   // delete throws above and changes nothing.
   if (c.mounted) appOf(c)?.publishSessionChange();

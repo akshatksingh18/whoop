@@ -885,8 +885,13 @@ class _DeviceDetailState extends State<DeviceDetail> {
 
   @override
   Widget build(BuildContext c) {
-    final s = widget.s;
-    final app = s.isBand ? c.watch<AppState>() : null;
+    final app = widget.s.isBand ? c.watch<AppState>() : null;
+    // Build 93 (Codex audit C07): the band's name, battery, charging and
+    // last data are read from the live state on every change, not from the
+    // list row this page was opened from.
+    final s = app == null
+        ? widget.s
+        : liveSources(app).where((x) => x.isBand).firstOrNull ?? widget.s;
     return DeviceDetailView(
       s,
       status: app?.engine.bandStatus,

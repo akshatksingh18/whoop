@@ -1145,7 +1145,13 @@ class NutritionDb {
     return rows.isEmpty ? null : rows.first;
   }
 
-  static Future<void> putFoodDef(Database db, Map<String, Object?> def) async {
+  /// [db] may be a transaction (Build 93: Quick add saves the food and its
+  /// diary entry together); [notify] false leaves publishing to the caller.
+  static Future<void> putFoodDef(
+    DatabaseExecutor db,
+    Map<String, Object?> def, {
+    bool notify = true,
+  }) async {
     // A replace rewrites the whole row: keep the saved position and measures
     // unless this write sets them. A new food goes to the top of the list.
     final old = await db.query(
@@ -1172,7 +1178,7 @@ class NutritionDb {
           def['category'] ?? (old.isEmpty ? '' : old.first['category'] ?? ''),
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    changed();
+    if (notify) changed();
   }
 
   /// Only months with retained entries, plus this month even when empty.
@@ -1981,22 +1987,43 @@ class MyFoods {
       for (final e in entries)
         if (e.foodKey != null && e.quantity != null) e,
     ];
-    // A saved meal keeps ONE unit per food. The first entry of a food sets
-    // it; a later entry of the same food logged in another unit ("50 g" after
-    // "2 eggs") is converted into it, not stored as 50 eggs.
+    // A saved meal keeps ONE unit per food, one the saved food still knows:
+    // the first entry's unit when it still converts, otherwise the food's
+    // label unit. Every entry is converted into it through its OWN recorded
+    // units (the snapshot frozen when it was logged), so a unit later removed
+    // from the food still converts. Build 93 (Codex audit C03): an amount
+    // that cannot be converted is left out and counted, never carried over
+    // as a number in another unit ("2 links" became "2 g").
     final units = <String, String>{};
     final items = <(String, double)>[];
+    final groups = <String>[];
+    final defs = <String, Map<String, Object?>?>{};
     for (final e in kept) {
       final key = e.foodKey!;
-      final unit = units.putIfAbsent(key, () => e.unit);
-      var amount = e.quantity!;
-      if (unit.toLowerCase() != e.unit.toLowerCase()) {
-        final def = await NutritionDb.foodDef(db, key);
-        final base = def == null ? null : toBase(def, amount, e.unit);
-        final per = def == null ? null : unitInBase(def, unit);
+      final def = defs.containsKey(key)
+          ? defs[key]
+          : (defs[key] = await NutritionDb.foodDef(db, key));
+      if (def == null) continue;
+      final unit = units.putIfAbsent(
+        key,
+        () => unitInBase(def, e.unit) != null ? e.unit : foodUnit(def),
+      );
+      double? amount;
+      if (unit.toLowerCase() == e.unit.toLowerCase() &&
+          unitInBase(def, unit) != null) {
+        amount = e.quantity!;
+      } else {
+        final own = conversionDef(e, def);
+        final sameBase = own == null || foodUnit(own) == foodUnit(def);
+        final base =
+            (sameBase && own != null ? toBase(own, e.quantity!, e.unit) : null) ??
+            toBase(def, e.quantity!, e.unit);
+        final per = unitInBase(def, unit);
         if (base != null && per != null && per > 0) amount = base / per;
       }
+      if (amount == null || !amount.isFinite || amount <= 0) continue;
       items.add((key, amount));
+      groups.add(e.group);
     }
     if (items.isNotEmpty) {
       await putMeal(
@@ -2008,7 +2035,7 @@ class MyFoods {
           items: items,
           units: units,
           // Sub-headings travel with the saved meal.
-          groups: [for (final e in kept) e.group],
+          groups: groups,
         ),
       );
     }

@@ -1465,6 +1465,10 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                     : (newest < 0 ? series.length - 1 : newest)))
             .clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
+    // Build 93 (Codex audit C06): a dated link older than the widest range
+    // (a Sleep night from months ago) is never silently swapped for the
+    // newest day; the page says which day was asked for and what it shows.
+    final outOfRange = widget.day != null && asked < 0 && _pick == null;
     final v = series[i];
     final door =
         v == null && !const ['steps', 'step_kcal'].contains(widget.metricKey)
@@ -1485,7 +1489,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
       );
     }
 
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Row(
         children: [
@@ -1557,6 +1561,21 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
           arrow(LucideIcons.chevronRight, 'Next day', i + 1),
         ],
       ),
+    );
+    if (!outOfRange) return row;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: S.x3),
+          child: Text(
+            '${prettyDay(widget.day!, l)} is older than this chart reaches, '
+            'so it shows the newest day instead.',
+            style: F.cap.copyWith(color: p.ink2),
+          ),
+        ),
+        row,
+      ],
     );
   }
 
@@ -1953,8 +1972,12 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
   Future<void> _save() async {
     final t = Typed.of(_ctrl.text);
     final typed = (t.bad || t.value == null) ? null : t.value!.round();
+    // Build 93 (Codex audit C10): unreadable input and a failed save keep
+    // the editor open with the typed value and say why.
     if (typed == null) {
-      setState(() => _editing = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Type the step goal as a number.')),
+      );
       return;
     }
     if (typed < 500 || typed > 100000) {
@@ -1967,11 +1990,21 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
       );
       return;
     }
-    setState(() => _editing = false);
-    await context.read<AppState>().updateProfile({'step_goal': typed});
+    try {
+      await context.read<AppState>().updateProfile({'step_goal': typed});
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('The step goal could not save. Try again.'),
+        ),
+      );
+      return;
+    }
     // The parent's onSaved reloads and calls setState — never on a widget
     // that navigated away while the write was in flight.
     if (!mounted) return;
+    setState(() => _editing = false);
     await widget.onSaved();
   }
 

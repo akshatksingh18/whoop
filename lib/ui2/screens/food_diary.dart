@@ -526,7 +526,7 @@ Future<void> mealMenu(
             c,
             r.saved == 0
                 ? 'Only your own foods can go in a saved meal'
-                : 'Saved "$name"${r.skipped > 0 ? ' · ${r.skipped} quick add${r.skipped == 1 ? '' : 's'} left out' : ''}',
+                : 'Saved "$name"${r.skipped > 0 ? ' · ${r.skipped} left out (quick adds, or amounts in a unit the food no longer has)' : ''}',
           );
         }
     }
@@ -2431,6 +2431,10 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   String get _snapshot => [
     for (final t in [_name, _kcal, _p, _c, _f, _fibre, _grams]) t.text,
     _saveFood,
+    // Build 93 (Codex audit C15): the meal, time and sub-heading count too.
+    _meal,
+    _group,
+    '${_time.hour}:${_time.minute}',
   ].join('\u0000');
   late final String _start = _snapshot;
 
@@ -2461,6 +2465,9 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     }
     super.dispose();
   }
+
+  /// The key a "Save to My foods" food gets, fixed for this sheet.
+  final String _pendingFoodKey = 'my:${DateTime.now().microsecondsSinceEpoch}';
 
   Future<void> _save() async {
     if (_saving) return;
@@ -2514,9 +2521,11 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     try {
       final db = await LocalDb.instance;
       String? savedKey;
+      Map<String, Object?>? def;
       if (_saveFood) {
-        final def = myFoodDef(
-          key: 'my:${DateTime.now().microsecondsSinceEpoch}',
+        def = myFoodDef(
+          // One key per sheet, so a retry replaces rather than duplicates.
+          key: _pendingFoodKey,
           label: name,
           refGrams: grams ?? 1,
           unit: grams == null ? 'serving' : 'g',
@@ -2526,12 +2535,11 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           fat: Typed.of(_f.text).value,
           fibre: Typed.of(_fibre.text).value,
         );
-        await NutritionDb.putFoodDef(db, def);
         savedKey = def['key'] as String;
       }
-      await NutritionDb.put(
-        db,
-        FoodEntry(
+      // Build 93 (Codex audit C04): the saved food and the diary entry are
+      // written in ONE transaction, published after it commits.
+      final entry = FoodEntry(
           id: original?.id ?? NutritionDb.newId(),
           date: widget.date,
           meal: _meal,
@@ -2567,8 +2575,12 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           note: original?.note ?? '',
           group: _group,
           confirmed: true,
-        ),
-      );
+        );
+      await db.transaction((tx) async {
+        if (def != null) await NutritionDb.putFoodDef(tx, def, notify: false);
+        await NutritionDb.put(tx, entry, notify: false);
+      });
+      NutritionDb.changed();
       if (mounted) Navigator.of(context).pop(true);
     } catch (_) {
       if (mounted) {

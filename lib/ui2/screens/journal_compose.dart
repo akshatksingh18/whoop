@@ -189,6 +189,13 @@ class _JournalComposeState extends State<JournalCompose> {
     });
   }
 
+  String _labelOf(String key) {
+    for (final f in _specs) {
+      if (f.key == key) return f.label.toLowerCase();
+    }
+    return key.replaceAll('_', ' ');
+  }
+
   /// Build 92 (Codex audit 12-13): one atomic patch of what changed here;
   /// a failure keeps the draft and says so, and a field changed elsewhere
   /// meanwhile (a band water tap) is shown, not overwritten.
@@ -209,40 +216,68 @@ class _JournalComposeState extends State<JournalCompose> {
     }
     setState(() => _saving = true);
     try {
+      // Build 93 (Codex audit C05): tags and note are each sent only when
+      // changed here, so an untouched one never conflicts.
       final conflicts = await repo.saveJournalEdit(
         _date,
         changes: changes,
         base: _baseValues,
-        tags: tagsChanged || noteChanged ? _tags.toList() : null,
+        tags: tagsChanged ? _tags.toList() : null,
         baseTags: _baseTags.toList(),
-        note: tagsChanged || noteChanged ? note : null,
-        baseNote: _baseNote,
+        note: noteChanged ? note : null,
+        baseNote: _baseNote.trim(),
       );
       if (!mounted) return;
       if (conflicts.isEmpty) {
         Navigator.of(context).pop(true);
         return;
       }
-      // Someone else wrote these meanwhile: take their values for the
-      // conflicting fields, keep this draft's other edits, and ask again.
-      final fresh = await repo.getJournalMetrics(_date);
+      // Build 93 (Codex audit C01/C05): someone else wrote this day while it
+      // was open. Every field moves to the stored value WITH its baseline,
+      // except one this editor changed that the other writer did not touch,
+      // which keeps the edit. A field both changed takes the stored value
+      // (shown) and the user can change it again. A note both changed keeps
+      // the typed text and names the other version, so nothing typed is lost.
+      final freshValues = await repo.getJournalMetrics(_date);
+      Map<String, dynamic>? row;
+      for (final e in await repo.getJournal(range: '30d')) {
+        if (e['date'] == _date) row = e;
+      }
       if (!mounted) return;
+      final freshTags = {...?(row?['tags'] as List?)?.map((t) => t.toString())};
+      final freshNote = ((row?['note'] as String?) ?? '').trim();
+      String? otherNote;
       setState(() {
-        for (final k in conflicts) {
-          if (k == 'tags' || k == 'note') continue;
-          if (fresh[k] == null) {
-            _values.remove(k);
-          } else {
-            _values[k] = fresh[k]!;
-          }
+        final next = <String, JournalMetricValue>{};
+        for (final k in {..._values.keys, ..._baseValues.keys, ...freshValues.keys}) {
+          final mine = _values[k] != _baseValues[k];
+          final keep = mine && !conflicts.contains(k);
+          final v = keep ? _values[k] : freshValues[k];
+          if (v != null) next[k] = v;
         }
-        _baseValues = {...fresh};
+        _values = next;
+        _baseValues = {...freshValues};
+        if (!tagsChanged || conflicts.contains('tags')) _tags = {...freshTags};
+        _baseTags = {...freshTags};
+        if (conflicts.contains('note')) {
+          otherNote = freshNote;
+        } else if (!noteChanged) {
+          _note.text = freshNote;
+        }
+        _baseNote = freshNote;
       });
+      final names = [
+        for (final k in conflicts)
+          k == 'tags' ? 'tags' : (k == 'note' ? 'note' : _labelOf(k)),
+      ];
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
           content: Text(
-            'Something else changed this day while it was open. The newer '
-            'values are shown; check them and save again.',
+            'Changed elsewhere while this was open: ${names.join(', ')}. '
+            'The newer values are shown'
+            '${otherNote == null ? '' : '; the other note reads "${otherNote!.isEmpty ? '(empty)' : otherNote}" and yours is kept'}'
+            '. Check, then save again.',
           ),
         ),
       );

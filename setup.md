@@ -35,6 +35,21 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 93 Candidate
+
+Source `7a4b60213a895b7d563c218cf93d26a1e8b402e8`, version `0.9.60+93`, algorithm 97, schema 50
+(plus the additive `session_detail` table), is published to `akshatksingh18/whoop` (`main`,
+fast-forwarded from `build-93`). Linux CI `39126009441` passes 3,962 tests (461 intentional
+skips) with no analysis errors or warnings. Fixtures are synthetic and the outgoing diff was
+scanned for personal data.
+
+Personal macOS run `39127375040` passes. Downloaded `whoop-personal-7a4b60213a89-unsigned.ipa`
+(19,353,760 bytes), SHA-256 `cb21a9a9f027998779c7e4ac50e7d9e3557ea94fd69f1d688166c6c1b83be677`,
+matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
+(one `Runner.app`, no extension, no Watch app). It is the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.60-build93-7a4b6021`, not yet installed. Build 92's testing
+folder (never installed) was moved to the Windows Recycle Bin; Build 70 remains accepted recovery.
+
 ## Build 92 Candidate
 
 Source `3c1cf3a888c754433f12d0daf2c2247034d601a8`, version `0.9.59+92`, algorithm 97, schema 50,
@@ -45,8 +60,9 @@ errors or warnings. Fixtures are synthetic and the outgoing history was scanned 
 Personal macOS run `39118323380` passes. Downloaded `whoop-personal-3c1cf3a888c7-unsigned.ipa`
 (19,326,276 bytes), SHA-256 `ec9951717741c0f2fd4b8856a8307a13554a5b283ab9b2319d394c8b34ac5809`,
 matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
-(one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8`, not yet installed. Build 91's testing
+(one `Runner.app`, no extension, no Watch app). It was the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8` until Build 93's replaced it; never
+installed. Build 91's testing
 folder (installed on the phone) was moved to the Windows Recycle Bin; Build 70 remains accepted
 recovery.
 

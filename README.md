@@ -12,8 +12,9 @@
 > calorie decisions, the Recovery explanation and the food "After this, today" card, and is
 > installed. Build 91 (`0.9.58`, algorithm 97, `40611c52` on `main`) adds the phone-review and
 > audit fixes, the Progress goal checklist and automatic streak rest, and is installed. Build 92
-> (`0.9.59`, `3c1cf3a8` on `main`) fixes the Build 91 re-audit and end-to-end sweep findings;
-> its validated IPA is the `testing` candidate.
+> (`0.9.59`, `3c1cf3a8`) fixed the Build 91 re-audit and end-to-end sweep findings. Build 93
+> (`0.9.60`, `7a4b6021` on `main`) fixes Codex's Build 92 interaction and full-flow audits; its
+> validated IPA is the `testing` candidate.
 > Physical acceptance remains open. `todo.md` owns source and verification status.
 > Sleep stages are locally estimated, not imported from WHOOP's proprietary algorithm. The
 > WHOOP 4 decoder marks the raw field earlier builds used for temperature as not temperature;

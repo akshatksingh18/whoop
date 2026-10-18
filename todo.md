@@ -1,9 +1,9 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat reports Build `0.9.57`/`90` installed and being tested; Build 89 was the previous
-install and Build 70 remains cached recovery until a later build is accepted and enrolled. Build
-`0.9.58`/`91` (algorithm 97, branch `build-91`) carries his first Build 90 findings and the
-Codex audit fixes (Build 90 items 3c-3e); phone acceptance remains open.
+**State:** Akshat reports Build `0.9.58`/`91` installed; Build `0.9.60`/`93` (algorithm 97,
+`7a4b6021` on `main`, items 3g-3h) is the validated testing candidate, not yet installed. Build 70
+remains cached recovery until a later build is accepted and enrolled; phone acceptance (item 4)
+remains open.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -349,7 +349,7 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   meal, a photo, weight or tape entry, and Pushups history.
   Phone check: edge swipe on a clean and a dirty Body entry.
   Released: `build-92` fast-forwarded to `main` at `3c1cf3a8`; source `3c1cf3a8` on `main`, Linux CI `39089817370` (3,950 tests, 461 intentional skips), personal macOS build `39118323380`; downloaded IPA SHA-256 `ec9951717741c0f2fd4b8856a8307a13554a5b283ab9b2319d394c8b34ac5809`, source/version manifest, ZIP CRC and personal payload validation pass. Single testing
-  candidate `final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8`; Build 91's folder went to
+  candidate (until Build 93) `final-ipas/whoop/testing/WHOOP-0.9.59-build92-3c1cf3a8`; Build 91's folder went to
   the Windows Recycle Bin (reproducible from run `39086037034`).
 - [x] 3h. Build 93 (`0.9.60+93`, algorithm 97 unchanged, branch `build-93`): Codex's Build 92
   interaction audit (local `build/research-local/build92-e2e-audit-3c1cf3a8.md` and flow
@@ -389,6 +389,11 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     scrolls to it. Deleting today's weigh-in never moves the profile to a history-only weight;
     the Body reminder is On only once the weekly reminder was actually scheduled.
     Phone check: reopen a swim/interval workout; Discard on Edit profile; Your data import result.
+  Released: `build-93` fast-forwarded to `main` at `7a4b6021`; Linux CI `39126009441` (3,962 tests, 461 intentional skips), personal macOS build `39127375040`; downloaded IPA
+  SHA-256 `cb21a9a9f027998779c7e4ac50e7d9e3557ea94fd69f1d688166c6c1b83be677`, source/version manifest, ZIP CRC and personal
+  payload validation pass. Single testing candidate
+  `final-ipas/whoop/testing/WHOOP-0.9.60-build93-7a4b6021`; Build 92's folder (never installed)
+  went to the Windows Recycle Bin (reproducible from run `39118323380`).
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

@@ -15,6 +15,7 @@ import 'body_log.dart';
 import 'day_label.dart';
 import 'lift_log.dart';
 import 'lift_progress.dart' show SetVerdict, bestSet, compareSet;
+import 'journal_fields.dart' show formatShortDate;
 
 /// The range menu on Progress.
 enum ProgressRange {
@@ -235,14 +236,7 @@ ProgressPeriod progressPeriod(
   String? baseline,
   String? earliest,
 }) {
-  String md(String d) {
-    final x = DateTime.parse(d);
-    const m = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${x.day} ${m[x.month - 1]}';
-  }
+  String md(String d) => formatShortDate(DateTime.parse(d));
 
   String span(DayWindow w) => '${md(w.from)}–${md(w.to)}';
   switch (r) {

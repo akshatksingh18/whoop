@@ -319,15 +319,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
   /// "Oct 8 – 14" for the range ending today.
   String _dates(int win) {
-    const m = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
     final t = DateTime.parse(todayLabel());
     final f = DateTime(t.year, t.month, t.day - (win - 1));
     return f.month == t.month
-        ? '${m[f.month - 1]} ${f.day} – ${t.day}'
-        : '${m[f.month - 1]} ${f.day} – ${m[t.month - 1]} ${t.day}';
+        ? '${formatShortDate(f)} – ${t.day}'
+        : '${formatShortDate(f)} – ${formatShortDate(t)}';
   }
 
   @override

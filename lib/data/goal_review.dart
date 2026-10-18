@@ -21,6 +21,7 @@ import 'goal_plan.dart';
 import 'lift_log.dart';
 import 'lift_progress.dart' show SetVerdict;
 import 'progress_review.dart';
+import 'journal_fields.dart' show formatShortDate;
 
 /// The fewest weigh-ins and fully logged food days a review week needs
 /// (the same five `goalAdvice` asks for).
@@ -82,14 +83,7 @@ typedef FoodDay = ({
   bool proteinComplete,
 });
 
-String _md(String day) {
-  const m = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  final d = DateTime.parse(day);
-  return '${m[d.month - 1]} ${d.day}';
-}
+String _md(String day) => formatShortDate(DateTime.parse(day));
 
 /// "Oct 6–12" for a week.
 String reviewWeekLabel(String from, String to) {

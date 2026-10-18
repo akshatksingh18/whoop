@@ -43,6 +43,7 @@ import 'share.dart' show shareHero, shareStats;
 import 'summary.dart';
 import 'tiles.dart';
 import '../../build_profile.dart';
+import '../../data/journal_fields.dart' show formatClock, formatShortDate;
 
 /// Where the card is going, which is the only thing that decides its shape.
 ///
@@ -922,16 +923,8 @@ void drawPin(Canvas canvas, Offset o, Color col) {
 }
 
 /// `20 May 2026 • 7:15 AM`, in the reader's own clock terms.
-String posterDate(DateTime t) {
-  const m = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-  final min = t.minute.toString().padLeft(2, '0');
-  return '${m[t.month - 1]} ${t.day}, ${t.year} • $h:$min '
-      '${t.hour < 12 ? 'AM' : 'PM'}';
-}
+String posterDate(DateTime t) =>
+    '${formatShortDate(t)}, ${t.year} • ${formatClock(t)}';
 
 /// Hero, unit, caption — distance when the session has one, time when it does
 /// not. Shared with `ShareCard`'s own hero so the two styles cannot disagree

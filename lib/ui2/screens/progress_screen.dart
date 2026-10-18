@@ -67,23 +67,8 @@ double tapeReading(String site, String text) {
 }
 
 String _md(String day) {
-  const m = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
   final d = DateTime.parse(day);
-  final now = DateTime.now();
-  return '${m[d.month - 1]} ${d.day}${d.year == now.year ? '' : ', ${d.year}'}';
+  return '${formatShortDate(d)}${d.year == DateTime.now().year ? '' : ', ${d.year}'}';
 }
 
 String _num(double v, [int places = 1]) {

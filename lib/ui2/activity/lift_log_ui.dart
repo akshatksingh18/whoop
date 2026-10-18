@@ -29,23 +29,7 @@ import '../screens/journal_compose.dart' show OsTextField;
 
 String _hm(DateTime t) => formatClock(t);
 
-String _md(DateTime t) {
-  const m = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return '${m[t.month - 1]} ${t.day}';
-}
+String _md(DateTime t) => formatShortDate(t);
 
 // ── the choice made in Lift setup ──────────────────────────────────────────
 

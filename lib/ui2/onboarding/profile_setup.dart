@@ -135,6 +135,19 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
       sayUnreadable(context, bad);
       return;
     }
+    // The same ranges Edit profile accepts.
+    final f = _fields();
+    final age = (f['age'] as num?)?.toDouble();
+    final cm = (f['height_cm'] as num?)?.toDouble();
+    final kg = (f['weight_kg'] as num?)?.toDouble();
+    if ((age != null && (age < 1 || age > 120)) ||
+        (cm != null && (!cm.isFinite || cm < 30 || cm > 280)) ||
+        (kg != null && (!kg.isFinite || kg < 1 || kg > 500))) {
+      sayUnreadable(context, [
+        'Age, height or weight is outside its supported range',
+      ]);
+      return;
+    }
     setState(() => _saving = true);
     try {
       await widget.onSave(_fields());

@@ -360,24 +360,7 @@ class _RecentHrvPainter extends CustomPainter {
           ..color = last && out ? alert : line,
       );
     }
-    String md(String d) {
-      const m = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      final p = DateTime.parse(d);
-      return '${m[p.month - 1]} ${p.day}';
-    }
+    String md(String d) => formatShortDate(DateTime.parse(d));
 
     label(md(n.first.date), Offset(0, size.height - 13));
     if (n.length > 1) {

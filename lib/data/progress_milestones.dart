@@ -10,15 +10,9 @@ import 'day_label.dart';
 import 'lift_log.dart';
 import 'lift_progress.dart';
 import 'progress_review.dart';
+import 'journal_fields.dart' show formatShortDate;
 
-String _md(String day) {
-  const m = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  final d = DateTime.parse(day);
-  return '${m[d.month - 1]} ${d.day}';
-}
+String _md(String day) => formatShortDate(DateTime.parse(day));
 
 /// Summary precision only; stored readings and exact detail values stay intact.
 int bodyComparisonPlaces(double before, double after) =>

@@ -43,7 +43,7 @@ void main() {
     expect(before.to, '2026-10-09');
     final week = progressPeriod(ProgressRange.week, '2026-10-16');
     expect(week.after!.to, '2026-10-16', reason: 'includes today');
-    expect(week.words, 'Last 7 days (10 Oct–16 Oct) vs the 7 days before (3 Oct–9 Oct)');
+    expect(week.words, 'Last 7 days (Oct 10–Oct 16) vs the 7 days before (Oct 3–Oct 9)');
     final month = progressPeriod(ProgressRange.month, '2026-10-16');
     expect(month.after!.days, 30);
     expect(month.before!.to, '2026-09-16');

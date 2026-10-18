@@ -28,24 +28,7 @@ String _span(Duration d) {
   return m < 60 ? '$m min' : '${m ~/ 60} h ${m % 60} min';
 }
 
-String _dayTitle(String day) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  final d = DateTime.parse(day);
-  return '${d.day} ${months[d.month - 1]}';
-}
+String _dayTitle(String day) => formatShortDate(DateTime.parse(day));
 
 Future<void> _push(BuildContext c, Widget w) =>
     Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
@@ -673,7 +656,7 @@ class _PushupHistoryScreenState extends State<PushupHistoryScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    _dayTitle('${e.key}-01').split(' ').last +
+                    _dayTitle('${e.key}-01').split(' ').first +
                         ' ${e.key.substring(0, 4)}',
                     style: F.body.copyWith(color: p.ink),
                   ),

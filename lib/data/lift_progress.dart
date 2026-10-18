@@ -15,6 +15,7 @@
 import 'dart:math' as math;
 
 import 'lift_log.dart';
+import 'journal_fields.dart' show formatShortDate;
 
 /// Above this many reps the estimate is unreliable; compare reps at load.
 /// Build 90 (G6, `build-90-research.md`): one-repetition-maximum prediction
@@ -167,21 +168,7 @@ enum LiftTrend { tooFew, up, flat, down, incomparable }
     );
   }
   // B88-07: the trend names its dates, not only a session count.
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  String day(DateTime d) => '${d.day} ${months[d.month - 1]}';
+  String day(DateTime d) => formatShortDate(d);
   final span =
       '${w.length} sessions, ${day(oldest.date)} to ${day(newest.date)}';
   if (pct >= 1) {

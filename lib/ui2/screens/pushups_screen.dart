@@ -363,8 +363,13 @@ class _PushupsScreenState extends State<PushupsScreen> {
         ? 'The streak is off. Set a daily goal in Settings.'
         : n >= goal
         ? 'Reached today.'
+        : st.current > 0 && s.restCoversToday
+        // Build 92: a rest day is still available, so a short day keeps it.
+        ? '${goal - n} more ${goal - n == 1 ? 'set reaches' : 'sets reach'} today\'s goal. '
+              'If today ends short, it is a rest day and the streak continues.'
         : st.current > 0
-        ? '${goal - n} more ${goal - n == 1 ? 'set keeps' : 'sets keep'} the streak (at risk today).'
+        ? '${goal - n} more ${goal - n == 1 ? 'set keeps' : 'sets keep'} the streak. '
+              'Both rest days this week are used, so a short day ends it.'
         : '${goal - n} more ${goal - n == 1 ? 'set' : 'sets'} reach today\'s goal.';
     return Surface(
       child: Column(
@@ -543,7 +548,8 @@ class PushupDayScreen extends StatelessWidget {
       PushupGoalStatus.reached =>
         'Goal reached: this day counts for the streak.',
       PushupGoalStatus.atRisk =>
-        '${goal! - day.sets} short of the goal. The day is not over, so the streak is at risk, not broken.',
+        '${goal! - day.sets} short of the goal. The day is not over. If it ends short it '
+            'is a rest day while one is left (up to 2 in any 7); otherwise the streak ends.',
       PushupGoalStatus.missed =>
         '${goal! - day.sets} short of the goal of $goal.',
       PushupGoalStatus.notSet => 'No goal that day.',

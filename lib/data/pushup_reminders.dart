@@ -300,6 +300,9 @@ class PushupStatus {
 
   ({int current, int best}) get streaks =>
       pushupStreaks(sessions, DateTime.now());
+
+  /// Ending today short would use an automatic rest day, not end the streak.
+  bool get restCoversToday => pushupRestCovers(sessions, DateTime.now());
 }
 
 class Pushups {

@@ -339,7 +339,8 @@ completion. No historical step-only days are invented before dated goals were re
 Build 91 rest is automatic for both streaks: a missed day is a rest day by itself while there
 are at most 2 in any 7 (two in a row allowed, a third ends the streak); rest keeps continuity but
 never counts, today is never rest while open, and the Rest / Life happens buttons are gone
-(older marked days only name how a day shows). Pushups has its own streak and does not earn the
+(older marked days only name how a day shows). From Build 92 Pushups says when a short day would
+be a rest day and warns only when both rests are used. Pushups has its own streak and does not earn the
 general activity streak. `lib/data/rest_streak.dart` and `lib/compute/streak.dart` own the rules.
 
 ### Computed and stored, but shown on no screen

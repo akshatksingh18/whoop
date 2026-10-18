@@ -381,7 +381,11 @@ class _RecentHrvPainter extends CustomPainter {
 
     label(md(n.first.date), Offset(0, size.height - 13));
     if (n.length > 1) {
-      final s = v.lastDate == n.last.date ? 'last night' : md(n.last.date);
+      // Build 92 (Codex audit 6): "last night" only on today's view, like
+      // the sentence; an older selected night shows its date.
+      final s = v.lastDate == n.last.date && v.day == todayLabel()
+          ? 'last night'
+          : md(n.last.date);
       final tp = TextPainter(
         text: TextSpan(text: s, style: text),
         textDirection: TextDirection.ltr,

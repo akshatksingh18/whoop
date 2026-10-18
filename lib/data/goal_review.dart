@@ -514,11 +514,15 @@ enum NeedState { met, partly, none }
 /// The requirement a [GoalNeed] describes.
 enum GoalNeedKind { evidence, waist, lift }
 
+/// [actNow]: the window for the missing entry is open today, so the card
+/// can offer its button (Build 92, Codex audit 5: "Log waist" showed weeks
+/// before the end window opened).
 typedef GoalNeed = ({
   GoalNeedKind kind,
   NeedState state,
   String title,
   String sub,
+  bool actNow,
 });
 
 /// Build 91 (Codex audit F05): what the goal check still waits for, for the
@@ -565,8 +569,11 @@ List<GoalNeed> goalNeeds(
           ? 'Every week has $kReviewWeekMinimum of each.'
           : '$kReviewWeekMinimum of each, Monday to Sunday, every week until '
                 '${_md(lastWeek.to)}.',
+      actNow: false,
     ),
   ];
+  bool openOn(String from, String to) =>
+      today.compareTo(from) >= 0 && today.compareTo(to) <= 0;
   if (r.plan.phase != GoalPhase.recomp) return out;
 
   final waist = [
@@ -576,8 +583,12 @@ List<GoalNeed> goalNeeds(
   final startAt = DateTime.parse(w.before.from);
   final start = readingNear(waist, w.before.from);
   final end = inRange(waist, lastWeek.from, lastWeek.to).lastOrNull;
-  String day(int d) =>
-      _md(dayLabelOf(DateTime(startAt.year, startAt.month, startAt.day + d)));
+  String dayLabel(int d) =>
+      dayLabelOf(DateTime(startAt.year, startAt.month, startAt.day + d));
+  String day(int d) => _md(dayLabel(d));
+  final waistNow =
+      (start == null && openOn(dayLabel(-7), dayLabel(7))) ||
+      (end == null && openOn(lastWeek.from, lastWeek.to));
   out.add((
     kind: GoalNeedKind.waist,
     state: start != null && end != null
@@ -589,6 +600,7 @@ List<GoalNeed> goalNeeds(
     sub:
         'Start: ${start == null ? 'one between ${day(-7)} and ${day(7)}' : 'logged ${_md(start.date)}'}. '
         'End: ${end == null ? 'one in ${reviewWeekLabel(lastWeek.from, lastWeek.to)}' : 'logged ${_md(end.date)}'}.',
+    actNow: waistNow,
   ));
 
   final comparable = liftComparisons(
@@ -623,6 +635,10 @@ List<GoalNeed> goalNeeds(
               '${names.length > 2 ? ' and ${names.length - 2} more' : ''}. '
               'Repeat one on the same setup in $second.'
         : 'One exercise on the same setup in $first, and again in $second.',
+    actNow:
+        !comparable &&
+        (openOn(w.before.from, w.before.to) ||
+            openOn(w.after.from, w.after.to)),
   ));
   return out;
 }

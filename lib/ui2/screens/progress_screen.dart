@@ -582,11 +582,17 @@ class _ProgressScreenState extends State<ProgressScreen>
       NeedState.none => 'not started',
     };
     Widget? action(GoalNeed n) {
-      if (n.state == NeedState.met) return null;
+      if (n.state == NeedState.met || !n.actNow) return null;
       return switch (n.kind) {
+        // Build 92: opens the entry with Measurements already open, so the
+        // waist field is in view.
         GoalNeedKind.waist => Pressable(
           semanticLabel: 'Log waist',
-          onTap: () => openProgress(c, ProgressDest.entry),
+          onTap: () => Navigator.of(c).push(
+            MaterialPageRoute<bool>(
+              builder: (_) => BodyEntryScreen(unit: _unit, showTape: true),
+            ),
+          ),
           child: const Pill('Log waist', C.body, icon: LucideIcons.ruler),
         ),
         GoalNeedKind.lift => Pressable(
@@ -1442,10 +1448,14 @@ class BodyEntryScreen extends StatefulWidget {
     required this.unit,
     this.date,
     this.measure,
+    this.showTape = false,
   });
   final String unit;
   final String? date;
   final BodyMeasure? measure;
+
+  /// Open with Measurements expanded (the goal card's Log waist).
+  final bool showTape;
   @override
   State<BodyEntryScreen> createState() => _BodyEntryScreenState();
 }
@@ -1463,7 +1473,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
 
   /// B90 quick weigh-in: weight and Save come first; tape and photos are
   /// optional sections, open when editing a tape entry.
-  late bool _showTape = widget.measure != null;
+  late bool _showTape = widget.measure != null || widget.showTape;
   bool _showPhotos = false;
 
   /// Build 91 (Codex audit F11): what the fields held when the screen
@@ -1473,6 +1483,18 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
 
   /// Set once the screen is leaving on purpose (Save, or Discard confirmed).
   bool _leaving = false;
+
+  /// [_dirty] as last built. Build 92 (Codex audit 8): `canPop: false` on a
+  /// clean form also switched off the iPhone edge swipe, so the scope now
+  /// holds the screen only while something typed would be lost.
+  bool _heldDirty = false;
+  void _onEdit() {
+    final d = _dirty;
+    if (d != _heldDirty && mounted) setState(() => _heldDirty = d);
+  }
+
+  /// The newest day read; a slower earlier read never overwrites it.
+  int _loadSeq = 0;
 
   bool get _dirty =>
       _weight.text.trim() != _weightAtOpen.trim() ||
@@ -1507,10 +1529,15 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       }
     }
     _sitesAtOpen = {for (final s in BodySite.values) s: _sites[s]!.text};
+    _weight.addListener(_onEdit);
+    for (final c in _sites.values) {
+      c.addListener(_onEdit);
+    }
     _loadDay();
   }
 
   Future<void> _loadDay() async {
+    final seq = ++_loadSeq;
     final w = await BodyLogDb.weightOn(_date);
     List<BodyWeightReading> readings = const [];
     try {
@@ -1522,7 +1549,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       for (final x in await BodyLogDb.photos())
         if (x.date == _date) x,
     ];
-    if (!mounted) return;
+    if (!mounted || seq != _loadSeq) return;
     setState(() {
       _existing = w;
       _readings = readings;
@@ -1533,6 +1560,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
             : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
         _weightAtOpen = _weight.text;
       }
+      _heldDirty = _dirty;
     });
   }
 
@@ -1547,7 +1575,12 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     if (picked == null) return;
     setState(() {
       _date = dayLabelOf(picked);
-      _weight.clear();
+      // Build 92 (Codex audit 2): a weight the user typed stays and is saved
+      // to the new day; only the value loaded from the old day is cleared.
+      if (_weight.text.trim() == _weightAtOpen.trim()) {
+        _weight.clear();
+        _weightAtOpen = '';
+      }
     });
     _loadDay();
   }
@@ -1831,7 +1864,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     return PopScope(
-      canPop: false,
+      canPop: !_heldDirty || _leaving,
       onPopInvokedWithResult: _onBack,
       child: Scaffold(
         backgroundColor: p.bg,

@@ -175,14 +175,22 @@ class LeftAfterCard extends StatelessWidget {
     final p = P.of(c);
     final eaten = d.kcal.value ?? 0;
     final over = left != null && left.value < 0;
+    // Build 92 (Codex audit 4): with a calorie unknown somewhere the known
+    // figures are a floor, so what is left is at most and over is AT LEAST.
+    final bounded = (left?.atMost ?? false) || thisKcalPartial;
     final big = thisKcal == null
         ? 'This food\'s calories are unknown'
         : over
-        ? 'Over by ${thousands(-left.value)} kcal'
-        : '${left!.atMost || thisKcalPartial ? 'At most ' : ''}'
-              '${thousands(left.value)} kcal left';
+        ? 'Over by ${bounded ? 'at least ' : ''}${thousands(-left.value)} kcal'
+        : '${bounded ? 'At most ' : ''}${thousands(left!.value)} kcal left';
     final protein = leftAfter(proteinGoal, d.protein, thisProtein);
     final proteinCeiling = (protein?.atMost ?? false) || thisProteinPartial;
+    final proteinWords = protein == null
+        ? ''
+        : protein.value < 0
+        ? ', protein goal met'
+        : ', protein ${proteinCeiling ? 'at most ' : ''}'
+              '${protein.value.round()} grams left';
     final eatenFrac = (eaten / goal).clamp(0.0, 1.0).toDouble();
     final thisFrac = ((thisKcal ?? 0) / goal)
         .clamp(0.0, 1.0 - eatenFrac)
@@ -191,9 +199,7 @@ class LeftAfterCard extends StatelessWidget {
     final eatenColor = p.on(C.food).withValues(alpha: .55);
     return Semantics(
       container: true,
-      label:
-          'After this, ${_dayWord(date)}: $big'
-          '${protein == null ? '' : ', protein ${protein.value.round()} grams left'}',
+      label: 'After this, ${_dayWord(date)}: $big$proteinWords',
       excludeSemantics: true,
       child: Container(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x3, S.x4, S.x3),
@@ -262,7 +268,7 @@ class LeftAfterCard extends StatelessWidget {
                 _key(
                   p,
                   thisColor,
-                  'this ${thisKcal == null ? '–' : thousands(thisKcal)}',
+                  'this ${thisKcal == null ? '–' : '${thisKcalPartial ? 'at least ' : ''}${thousands(thisKcal)}'}',
                 ),
                 Text(
                   'goal ${thousands(goal)}',

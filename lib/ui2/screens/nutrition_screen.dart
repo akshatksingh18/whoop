@@ -670,8 +670,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     }
 
     final q = _foodQuery.text.trim();
-    // A category no food carries any more (it was edited away) is All.
-    if (_foodCat != null && !foodCategoriesIn(_foods).contains(_foodCat)) {
+    // A category no food carries any more (it was edited away) is All, and
+    // so is any filter once fewer than two categories remain: the filter row
+    // (with All) hides then, and Saved meals would stay hidden behind it
+    // (Build 92, Codex audit 3: merging labels stranded the filter).
+    final cats = foodCategoriesIn(_foods);
+    if (_foodCat != null && (cats.length < 2 || !cats.contains(_foodCat))) {
       _foodCat = null;
     }
     // Matches can be dragged within their slots in the full saved order.

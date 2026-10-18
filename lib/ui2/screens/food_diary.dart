@@ -321,11 +321,30 @@ Future<bool> editDiaryEntry(
           ) ==
           true;
     }
-    if (unitInBase(def, e.unit) == null) {
-      // Preserve the logged nutrition ratio when its original unit is gone.
+    // Build 91 (Codex audit F02): a changed portion scales what was
+    // recorded, so a later correction to the saved food never reprices an
+    // old entry; the sheet previews the entry's own nutrition per unit.
+    // Build 92 (Codex audit 1): the entry's own unit snapshot is tried
+    // first, so a unit later removed from the saved food still converts;
+    // when it cannot be read at all, the preview is per logged unit from the
+    // recorded nutrition, never the saved food's current values.
+    final at = recordedDef(e, def);
+    if (at == null) {
+      final q = e.quantity!;
+      double? per100(double? v) => v == null ? null : v / q * 100;
+      final perUnit = <String, Object?>{
+        ...def,
+        'unit': e.unit,
+        'measures_json': '',
+        'kcal_100': per100(e.kcal),
+        'protein_g_100': per100(e.proteinG),
+        'carbs_g_100': per100(e.carbsG),
+        'fat_g_100': per100(e.fatG),
+        'fibre_g_100': per100(e.fibreG),
+      };
       final portion = await GramsSheet.show(
         c,
-        {...def, 'unit': e.unit, 'measures_json': ''},
+        perUnit,
         initial: e.quantity,
         action: 'Save',
         date: e.date,
@@ -334,13 +353,9 @@ Future<bool> editDiaryEntry(
       if (portion == null) return false;
       await NutritionDb.put(db, e.atQuantity(portion.amount));
     } else {
-      // Build 91 (Codex audit F02): a changed portion scales what was
-      // recorded, so a later correction to the saved food never reprices an
-      // old entry. The sheet previews the entry's own nutrition per unit.
-      final at = recordedDef(e, def);
       final portion = await GramsSheet.show(
         c,
-        at?.def ?? def,
+        at.def,
         initial: e.quantity,
         initialUnit: e.unit,
         action: 'Save',
@@ -350,22 +365,11 @@ Future<bool> editDiaryEntry(
       if (portion == null) return false;
       await NutritionDb.put(
         db,
-        at == null
-            ? entryFromFood(
-                def,
-                portion.base,
-                id: e.id,
-                date: e.date,
-                meal: e.meal,
-                atTs: e.atTs,
-                amount: portion.amount,
-                unit: portion.unit,
-              ).inGroup(e.group)
-            : e.scaledPortion(
-                portion.base / at.base,
-                newQuantity: portion.amount,
-                newUnit: portion.unit,
-              ),
+        e.scaledPortion(
+          portion.base / at.base,
+          newQuantity: portion.amount,
+          newUnit: portion.unit,
+        ),
       );
     }
     return true;
@@ -2090,8 +2094,9 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
       final amount = name == 'Calories'
           ? '${l.value.abs().round()}'
           : '${l.value.abs().round()} g';
+      // Build 92: with an unknown value the over is a floor too.
       return l.value < 0
-          ? 'over $amount'
+          ? 'over ${ceiling ? '≥ ' : ''}$amount'
           : '${ceiling ? '≤ ' : ''}$amount left';
     }
 

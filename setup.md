@@ -46,7 +46,7 @@ Personal macOS run `39086037034` passes. Downloaded `whoop-personal-40611c52dc2a
 (19,318,862 bytes), SHA-256 `b199cfd5329808783f92c3b566e4330ccb84f26819f2f89064acb690e10b9c15`,
 matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
 (one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52`, not yet installed. Build 90's
+`../final-ipas/whoop/testing/WHOOP-0.9.58-build91-40611c52`; Akshat reports it installed. Build 90's
 testing folder was moved to the Windows Recycle Bin; Build 70 remains accepted recovery.
 
 ## Build 90 Candidate

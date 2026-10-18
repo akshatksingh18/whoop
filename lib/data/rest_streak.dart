@@ -57,3 +57,16 @@ RestRun restAwareRun(Set<String> active, String today) {
   }
   return (current: run, best: best, rest: rest, restInCurrent: runRest.length);
 }
+
+/// Whether ending [today] with nothing would still keep a running streak, as
+/// an automatic rest day (Build 92, Codex audit 7: Pushups said "at risk"
+/// while a rest day was still available). False with no streak running or
+/// when today is already active.
+bool restWouldCover(Set<String> active, String today) {
+  if (active.contains(today)) return false;
+  final t = DateTime.parse(today);
+  final tomorrow = dayLabelOf(DateTime(t.year, t.month, t.day + 1));
+  final now = restAwareRun(active, today);
+  if (now.current == 0) return false;
+  return restAwareRun(active, tomorrow).rest.contains(today);
+}

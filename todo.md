@@ -318,6 +318,19 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   testing folder went to the Windows Recycle Bin (reproducible from run `38846696668`), not
   promoted (acceptance and enrollment unconfirmed). Next: Akshat installs over Build 90 with the
   exact signed identity, then confirms enrollment and the phone checks.
+- [x] 3g. Akshat reports Build 91 installed. Codex re-audited `40611c52` (local report
+  `build/research-local/build91-audit-40611c52.md`); Claude confirmed all eight findings in
+  source (none loses saved data or changes a stored metric) and Akshat asked for Build 92
+  (`0.9.59+92`, algorithm 97 unchanged, branch `build-92`) with every fix: Body entry lets a
+  clean form swipe back (the guard holds only a dirty one), keeps a typed weight when the day
+  changes and ignores superseded day reads; Log waist / Open Train show only while their window
+  is open (`GoalNeed.actNow`) and Log waist opens Measurements expanded; Pushups says when a
+  short day would be a rest day (`restWouldCover`) and keeps the break warning for when both
+  rests are used; over-goal food copy says "at least" when a calorie is unknown (card, panel,
+  legend, VoiceOver); the Recent HRV chart labels an old night by date; a filter left with fewer
+  than two labels returns to All so Saved meals reappear; an old entry whose unit was removed
+  from the saved food previews its own recorded nutrition. Tests `build92_fixes_test.dart`.
+  Phone check: edge swipe on a clean and a dirty Body entry.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

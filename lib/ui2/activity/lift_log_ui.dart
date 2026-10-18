@@ -27,8 +27,7 @@ import '../grammar.dart';
 import '../theme.dart';
 import '../screens/journal_compose.dart' show OsTextField;
 
-String _hm(DateTime t) =>
-    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+String _hm(DateTime t) => formatClock(t);
 
 String _md(DateTime t) {
   const m = [

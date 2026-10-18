@@ -10,19 +10,10 @@
 // recency only breaks a tie within a tier. There is no user preference and the
 // screen no longer claims one — no control ever set an order.
 //
-// TWO BUCKETS AND ONLY TWO: what is measuring, and what is NOT YET — the
-// second with a reason and a PERMANENCE beside it. "Not yet" without a
-// permanence becomes a lie by slow motion: "no, an iPhone has no ANT radio" is
-// a different statement from "not yet, a few weeks". There is deliberately no
-// third "imported" tier; bringing a history in is data adoption, not device
-// support, and it never appears on a compatibility list.
-//
-// A tier rung is drawn when something in it exists. Tier 1 is now reachable —
-// a standard Bluetooth heart-rate sensor can be paired from this screen — so it
-// is no longer named in the NOT YET list. What it CANNOT do is stated on the
-// sensor's own row instead: it captures beats during a workout and nothing
-// derives from it yet, because no one on this project has held one
-// (ASSUMPTIONS R6).
+// Only what is measuring is listed. Importing a history is data adoption, not
+// device support, so it never appears here. A paired heart-rate sensor states
+// on its own row what it cannot do yet: it captures beats during a workout and
+// nothing derives from it.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
@@ -143,40 +134,6 @@ const Set<String> kOwnerConfirmedBandIds = {'gen4', 'gen5'};
 // 249,596 decoded seconds and 151,595 beats stamped `device_family='gen5'`
 // on his own export. That is the promotion path in ASSUMPTIONS E5 — hardware
 // in his hands — not a fixture passing.
-
-/// A device family this app does NOT speak today, and why.
-///
-/// [permanence] is the load-bearing half. It is a plain phrase, never a date —
-/// "being built" and "not a matter of time" are different promises and a user
-/// is owed the difference.
-class NotYet {
-  final String name, reason, permanence;
-  final IconData icon;
-  const NotYet(this.name, this.reason, this.permanence, this.icon);
-}
-
-/// The honest other half of this screen.
-///
-/// Short on purpose: a list gets checked, and every row on it is a claim
-/// someone can hold us to. These three are the ones already decided.
-const List<NotYet> kNotYet = [
-  NotYet(
-    'Polar 360 and Loop',
-    'Screenless, no subscription, worn around the clock, with beat-to-beat '
-        'intervals the vendor documents. Nobody has written the driver.',
-    'Planned',
-    LucideIcons.watch,
-  ),
-  NotYet(
-    'Fitbit, Withings, Xiaomi and Zepp bands',
-    'Their pairing key is issued by the vendor’s own server. A driver would '
-        'work only while their app stayed installed and signed in, and would '
-        'stop the day they changed it — so the band would be ours to support '
-        'and theirs to switch off.',
-    'Not a matter of time',
-    LucideIcons.cloudOff,
-  ),
-];
 
 /// One thing that can produce measurements.
 class HealthSource {
@@ -302,7 +259,7 @@ SourceTier? tierNamed(Object? name) {
 }
 
 /// The sources that actually exist right now. Nothing is listed that cannot
-/// produce a number today — everything else is in [kNotYet], with its reason.
+/// produce a number today.
 ///
 /// [sensorLive] is whether a paired sensor's link is up THIS INSTANT. It is
 /// passed in rather than read off `HrsLink` here because it changes on every
@@ -624,9 +581,6 @@ class MyDevicesView extends StatelessWidget {
                             'A heart-rate strap or a ring, alongside the band',
                         onTap: onAddSensor),
                   ),
-                // NOT YET — removed from this screen per product decision
-                // (owner's call, live review). `kNotYet`/`NotYet` still hold
-                // the reasons and permanences below; only the render is gone.
                 if (!kPersonalSideload) ...[
                 const SizedBox(height: S.x5),
                 Text(l?.devicesQualityLadder ?? 'THE QUALITY LADDER',
@@ -897,7 +851,15 @@ class _DeviceDetailState extends State<DeviceDetail> {
       status: app?.engine.bandStatus,
       health: _health,
       forecast: _forecast,
-      onFind: app?.buzzBand,
+      onFind: app != null && app.isConnected
+          ? () async {
+              final messenger = ScaffoldMessenger.maybeOf(c);
+              await app.buzzBand();
+              messenger?.showSnackBar(
+                const SnackBar(content: Text('Buzz sent to the band.')),
+              );
+            }
+          : null,
       liveHr: s.isBand ? app?.liveHr : null,
       onRename: (app != null && app.isConnected)
           ? () => _renameBand(c, app, s.name)
@@ -1375,7 +1337,5 @@ String? _chargeHistory(Map<String, dynamic>? h) {
 /// It used to render `4/9, 07:12`, which a US reader reads as 9 April. The
 /// month name is the whole point; `formatDay` already writes one.
 String formatDayTime(DateTime d, [AppLocalizations? l]) {
-  final t = '${d.hour.toString().padLeft(2, '0')}:'
-      '${d.minute.toString().padLeft(2, '0')}';
-  return '${formatDay(d, l)}, $t';
+  return '${formatDay(d, l)}, ${formatClock(d)}';
 }

@@ -38,7 +38,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../data/journal_fields.dart' show formatMinuteOfDay;
+import '../data/journal_fields.dart' show formatClock, formatMinuteOfDay;
+
+// The app's one clock format, for every screen that imports the grammar.
+export '../data/journal_fields.dart' show formatClock, formatMinuteOfDay;
 import '../models/metric.dart';
 import 'charts.dart';
 import 'scroll_hint.dart';
@@ -3171,8 +3174,7 @@ class UpdatedStamp extends StatelessWidget {
       return const Tag('Not calculated yet', icon: LucideIcons.clock);
     }
     final today = now ?? DateTime.now();
-    String two(int v) => v.toString().padLeft(2, '0');
-    final time = '${two(when.hour)}:${two(when.minute)}';
+    final time = formatClock(when);
     final sameDay =
         when.year == today.year &&
         when.month == today.month &&

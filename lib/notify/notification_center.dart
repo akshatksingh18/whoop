@@ -504,11 +504,7 @@ class NotificationCenter {
   }
 
   /// Two-digit HH:MM from minutes-past-midnight (notification bodies).
-  static String _hhmm(int minuteOfDay) {
-    final m = minuteOfDay % 1440;
-    return '${(m ~/ 60).toString().padLeft(2, '0')}:'
-        '${(m % 60).toString().padLeft(2, '0')}';
-  }
+  static String _hhmm(int minuteOfDay) => formatMinuteOfDay(minuteOfDay);
 
   // ── the weekly lookback finding ─────────────────────────────────────────
 

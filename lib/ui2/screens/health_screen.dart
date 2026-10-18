@@ -54,7 +54,7 @@ const _rows = <_Row>[
   // The lowest 30-minute average while asleep, not an awake seated reading.
   _Row(
     'resting_hr',
-    'Resting HR asleep',
+    'Resting HR · asleep',
     'bpm',
     LucideIcons.heart,
     C.heart,

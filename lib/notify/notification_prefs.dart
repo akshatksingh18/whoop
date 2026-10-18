@@ -312,7 +312,8 @@ class NotificationPrefs {
     // (On the PATH: the payload carries the bout as `?id=…`, and an equality
     // check against the bare route would miss every real one.)
     if (!autoDetectEnabled &&
-        routePath(event.route ?? '') == kRouteWorkoutSuggestion) {
+        (routePath(event.route ?? '') == kRouteWorkoutSuggestion ||
+            routePath(event.route ?? '') == kRouteWorkoutIdle)) {
       return false;
     }
     // The movement nudge's off switch, same shape and same reason as the
@@ -339,7 +340,12 @@ class NotificationPrefs {
     // it FOR a time, usually inside the quiet window, and its off switch is
     // cancelling the alarm rather than a preference buried in settings.
     if (klass == NotifClass.alarm) return true;
-    if (!categoryEnabled(event.category)) return false;
+    // Reminder-channel prompts each have their own switch above, so the
+    // reminders category switch (Weekly lookback) does not also silence them.
+    if (event.category != NotifCategory.reminders &&
+        !categoryEnabled(event.category)) {
+      return false;
+    }
     if (inQuietHours(minuteOfDay)) {
       return event.priority == NotifPriority.critical && criticalOverridesQuiet;
     }

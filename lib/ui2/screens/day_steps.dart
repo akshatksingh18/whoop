@@ -270,50 +270,6 @@ class DayStepsData {
   return (a, b);
 }
 
-/// Contiguous stretches from the SAME sensor, read as one.
-///
-/// The phone banks one row per HOUR, so a measured real day arrives as
-/// seventeen phone rows that each say the same thing: seventeen lines of "your
-/// phone" is the "too much on one screen" failure, not disclosure. Adjacent
-/// hours from one sensor ARE one stretch of coverage.
-///
-/// Three things stop a merge, and each is information the list would otherwise
-/// destroy: a GAP (an hour nothing covered), a stretch the OTHER sensor counted
-/// starting inside the joined window (a walk the strap saw must never end up
-/// buried inside a phone row that spans it), and a different session name. The
-/// chart is drawn from the unmerged spans, so this changes what is listed and
-/// never what is plotted.
-List<DayStepSpan> mergeAdjacent(List<DayStepSpan> spans) {
-  final out = <DayStepSpan>[];
-  for (final s in spans) {
-    final last = out.isEmpty ? null : out.last;
-    final crossed =
-        last != null &&
-        spans.any(
-          (o) =>
-              o.fromBand != s.fromBand &&
-              o.startTs >= last.startTs &&
-              o.startTs < s.endTs,
-        );
-    if (last != null &&
-        last.fromBand == s.fromBand &&
-        last.activity == s.activity &&
-        s.startTs <= last.endTs &&
-        !crossed) {
-      out[out.length - 1] = DayStepSpan(
-        startTs: last.startTs,
-        endTs: s.endTs > last.endTs ? s.endTs : last.endTs,
-        steps: last.steps + s.steps,
-        fromBand: s.fromBand,
-        activity: s.activity,
-      );
-    } else {
-      out.add(s);
-    }
-  }
-  return out;
-}
-
 class DayStepsDetail extends StatefulWidget {
   /// Preloaded, for goldens. Null means read the repo on open.
   final DayStepsData? data;
@@ -512,9 +468,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
     final totals = [for (var h = 0; h < 24; h++) band[h] ?? phone[h]];
     final axis = AxisSpec.of(totals.whereType<double>(), floor: 0);
     String says(int h) {
-      final hh = h.toString().padLeft(2, '0');
       final current = d.day == todayLabel() && h == last;
-      final next = (h + 1).toString().padLeft(2, '0');
       final b = band[h], ph = phone[h];
       final n = (b ?? 0) + (ph ?? 0);
       final who = b != null && ph != null
@@ -524,7 +478,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
           : ph != null
           ? ' · ${l?.dayStepsYourPhone ?? 'Your phone'}'
           : '';
-      return '$hh:00–${current ? 'now (partial)' : '$next:00'} · ${b == null && ph == null ? 'not recorded' : thousands(n)}$who';
+      return '${formatMinuteOfDay(h * 60)}–${current ? 'now (partial)' : formatMinuteOfDay((h + 1) * 60)} · ${b == null && ph == null ? 'not recorded' : thousands(n)}$who';
     }
 
     final hr = _hour?.clamp(0, last);
@@ -540,7 +494,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
                 : l?.dayStepsUnit ?? 'steps',
             height: 150,
             yAxis: axis,
-            xLabels: const ['00:00', '12:00', '24:00'],
+            xLabels: const ['Midnight', 'Noon', 'Midnight'],
             series: totals,
             // ONE colour, one key — a day with a single sensor has nothing to
             // tell apart, and a legend of one is noise.

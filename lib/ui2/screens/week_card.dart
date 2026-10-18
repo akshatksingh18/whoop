@@ -6,9 +6,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../compute/profile.dart' show Profile;
 import '../../compute/streak.dart';
+import '../../data/body_log.dart' show kLbPerKg;
 import '../../data/db.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -204,6 +206,10 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
   WeekNumbers? _before;
   bool _failed = false;
 
+  /// Body's own kg/lb choice, so the weight change reads in the unit Body
+  /// and Progress use.
+  bool _lb = false;
+
   /// Monday shows last week: this week is one unfinished day.
   static bool get _monday => DateTime.now().weekday == DateTime.monday;
 
@@ -243,10 +249,14 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
       final before = _monday
           ? await WeekNumbers.load(repo, pr, user, weeksBack: 2, withFood: false)
           : null;
+      final lb =
+          (await SharedPreferences.getInstance()).getString('body.unit') ==
+          'lb';
       if (stillNewest(#week, t)) {
         setState(() {
           _w = w;
           _before = before;
+          _lb = lb;
           _failed = false;
         });
         WeekCard.debugLoads++;
@@ -300,7 +310,8 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
     ];
     final b = _before;
     final lastWeek = b != null;
-    final weight = w.weightChangeKg;
+    final kg = w.weightChangeKg;
+    final weight = kg == null ? null : (_lb ? kg * kLbPerKg : kg);
     final bottom = <(String, String, Color)>[
       ('RUN', '${w.km.toStringAsFixed(1)} km', C.run),
       if (w.streak != null) ('STREAK', '${w.streak} d', C.steps),
@@ -309,7 +320,7 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
       if (lastWeek && weight != null)
         (
           'WEIGHT',
-          '${weight >= 0 ? '+' : '\u2212'}${weight.abs().toStringAsFixed(1)} kg',
+          '${weight >= 0 ? '+' : '\u2212'}${weight.abs().toStringAsFixed(1)} ${_lb ? 'lb' : 'kg'}',
           C.domFood,
         ),
     ];

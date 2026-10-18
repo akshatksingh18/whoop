@@ -637,6 +637,9 @@ class _ShellState extends State<_Shell> {
 class _LiveSessionBar extends StatelessWidget {
   const _LiveSessionBar();
 
+  /// A second tap while the first is opening the live screen does nothing.
+  static bool _opening = false;
+
   /// The activity behind the open session.
   ///
   /// The draft FIRST (it carries the private flag and the entered weight), but
@@ -652,21 +655,30 @@ class _LiveSessionBar extends StatelessWidget {
     final app = c.read<AppState>();
     final draft = LiveDraft.current;
     final a = _activityFor(app);
-    if (a == null) return;
+    if (a == null || _opening) return;
+    _opening = true;
     final nav = Navigator.of(c);
-    // The lifter's previous and best. Absent renders as "First time on this
-    // lift", which would be a false claim on a resumed session.
-    final history = await loadSetHistory();
-    await nav.push(
-      MaterialPageRoute<void>(
-        builder: (_) => liveFor(
-          a,
-          private: draft?.private ?? a.private,
-          weightKg: draft?.weightKg,
-          host: activityHost(app, history: history),
+    try {
+      // The lifter's previous and best. Absent renders as "First time on this
+      // lift", which would be a false claim on a resumed session.
+      final history = await loadSetHistory().catchError(
+        (Object _) => const <String, SetHistory>{},
+      );
+      final route = nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => liveFor(
+            a,
+            private: draft?.private ?? a.private,
+            weightKg: draft?.weightKg,
+            host: activityHost(app, history: history),
+          ),
         ),
-      ),
-    );
+      );
+      _opening = false;
+      await route;
+    } finally {
+      _opening = false;
+    }
   }
 
   @override
@@ -687,7 +699,16 @@ class _LiveSessionBar extends StatelessWidget {
         ),
         child: Pressable(
           semanticLabel: 'Finish the session that is still running',
-          onTap: () => app.stopWorkout(),
+          onTap: () async {
+            final end = await confirmRemove(
+              c,
+              title: 'Finish this session?',
+              body: 'It ends now and is saved with what was recorded.',
+              remove: 'Finish',
+              keep: 'Keep it running',
+            );
+            if (end) await app.stopWorkout();
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: S.x4,

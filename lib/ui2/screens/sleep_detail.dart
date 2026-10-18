@@ -919,32 +919,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       helpText: l?.sleepDetailWakeTimeHelp ?? 'WHEN YOU GOT UP',
     );
     if (up == null || !mounted) return;
-    final newOnset = DateTime(
-      onset.year,
-      onset.month,
-      onset.day,
-      bed.hour,
-      bed.minute,
-    );
-    // A wake at or before the onset is the next morning. `day + 1` rather than
-    // adding a Duration: DateTime normalises the overflow, and it is calendar
-    // arithmetic across a possible DST boundary, not a span of elapsed time.
-    var newWake = DateTime(
-      onset.year,
-      onset.month,
-      onset.day,
-      up.hour,
-      up.minute,
-    );
-    if (!newWake.isAfter(newOnset)) {
-      newWake = DateTime(
-        onset.year,
-        onset.month,
-        onset.day + 1,
-        up.hour,
-        up.minute,
-      );
-    }
+    final (newOnset, newWake) = correctedSleepWindow(onset, bed, up);
     // B88-04: a corrected window still needs half its time recorded, or no
     // night is published at all. Saving is blocked with the reason (approved
     // rule), and nothing implies the correction sets the duration.
@@ -2111,6 +2086,28 @@ class _Strip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The window a "Fix sleep times" correction describes. The bedtime is the
+/// [bed] clock time nearest the detected [onset] (so 12:30 AM corrects an
+/// 11:30 PM onset to the same night, not the night before), and the wake is
+/// the first [up] after it. Calendar arithmetic, so a DST night stays right.
+(DateTime, DateTime) correctedSleepWindow(
+  DateTime onset,
+  TimeOfDay bed,
+  TimeOfDay up,
+) {
+  DateTime at(int dayOffset, TimeOfDay t) =>
+      DateTime(onset.year, onset.month, onset.day + dayOffset, t.hour, t.minute);
+  final start = [at(-1, bed), at(0, bed), at(1, bed)].reduce(
+    (a, b) =>
+        a.difference(onset).abs() <= b.difference(onset).abs() ? a : b,
+  );
+  var end = DateTime(start.year, start.month, start.day, up.hour, up.minute);
+  if (!end.isAfter(start)) {
+    end = DateTime(start.year, start.month, start.day + 1, up.hour, up.minute);
+  }
+  return (start, end);
 }
 
 /// Nights the bedtime-consistency row looks back over.

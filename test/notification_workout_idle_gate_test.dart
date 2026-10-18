@@ -66,10 +66,16 @@ void main() {
       expect(prefs.shouldFireOs(idleEvent(), 12 * 60), isTrue);
     });
 
-    test('the reminders category toggle is its off switch', () async {
-      final prefs =
-          (await NotificationPrefs.load()).copyWith(remindersEnabled: false);
-      expect(prefs.shouldFireOs(idleEvent(), 12 * 60), isFalse);
+    test('Detected workouts is its off switch, not Weekly lookback', () async {
+      final base = await NotificationPrefs.load();
+      expect(
+        base.copyWith(autoDetectEnabled: false).shouldFireOs(idleEvent(), 12 * 60),
+        isFalse,
+      );
+      expect(
+        base.copyWith(remindersEnabled: false).shouldFireOs(idleEvent(), 12 * 60),
+        isTrue,
+      );
     });
 
     test('quiet hours drop it — it is not the alarm', () async {

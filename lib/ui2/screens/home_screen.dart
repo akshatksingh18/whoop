@@ -209,29 +209,6 @@ bool derivingOf(BuildContext c) {
 /// an absent value, so this must never be replaced by `map['value'] as num`.
 Metric metricOf(Object? raw) => Metric.parse(raw);
 
-/// WHICH SENSOR counted the steps, in the two words a card has room for — or
-/// null when nothing counted (and on days derived before the ladder existed,
-/// whose envelopes name no sensor).
-///
-/// Read off `inputs_used`, which names the sensor rather than the table the
-/// count was stored in. The strap's 100 Hz pedometer and its on-chip counter
-/// are BOTH "Strap" here: they are genuinely different measurements, but that
-/// difference is a density-3 fact and it is spelled out on Nerd stats. What
-/// this must never blur is strap versus phone — a card that lets the phone's
-/// count read as the wrist's, or the other way round, defeats the whole point
-/// of resolving the day per window.
-String? stepSensorLabel(Metric m, [AppLocalizations? l]) {
-  final used = m.inputsUsed;
-  final strap =
-      used.contains('band_pedometer_100hz') ||
-      used.contains('band_step_counter');
-  final phone = used.contains('phone_pedometer');
-  if (strap && phone) return l?.homeStepSensorStrapPhone ?? 'Strap + phone';
-  if (strap) return l?.homeStepSensorStrap ?? 'Strap';
-  if (phone) return l?.homeStepSensorPhone ?? 'Phone';
-  return null;
-}
-
 /// The inner object of an envelope whose `value` is a MAP, not a number —
 /// every cross-day metric is one of these (`regularity.value.sri`,
 /// `sleep_coach.need.value.need_sec`). `Metric.parse` reads those as absent,
@@ -975,7 +952,7 @@ class _TodayPanel extends StatelessWidget {
                 // The lowest 30-minute average while asleep (nocturnal resting
                 // HR), not an awake seated reading, which runs higher.
                 // Non-breaking spaces keep the phrase on one line.
-                if (rhr != null) 'resting HR ${rhr.round()} asleep',
+                if (rhr != null) 'resting HR ${rhr.round()} bpm asleep',
               ].join(' · '),
             ],
     );
@@ -1002,13 +979,14 @@ class _TodayPanel extends StatelessWidget {
         label: 'Food',
         values: wk('food'),
         color: C.food,
-        value: eaten == null || eaten <= 0
+        // A logged day of 0 kcal (water, black coffee) reads 0, not "nothing".
+        value: eaten == null || (eaten <= 0 && !d.foodLogged)
             ? null
             : '${d.foodFloor ? '≥ ' : ''}${thousands(eaten)}',
         unit: d.kcalTarget == null
             ? 'kcal'
             : 'of ${thousands(d.kcalTarget)} kcal',
-        absentWhy: eaten == null || eaten <= 0
+        absentWhy: eaten == null || (eaten <= 0 && !d.foodLogged)
             ? (d.foodUnknownOnly ? 'calories not recorded' : 'nothing logged yet')
             : null,
         onTap: () => appOf(c)?.navRequest.value = 6,
@@ -1282,6 +1260,9 @@ class HomeData {
   /// [foodUnknownOnly]: food is logged but none of it carries calories.
   final bool foodFloor, proteinFloor, foodUnknownOnly;
 
+  /// Today has at least one food entry, whatever its calories.
+  final bool foodLogged;
+
   /// When today's numbers were last calculated; null before the first.
   final DateTime? updatedAt;
 
@@ -1342,6 +1323,7 @@ class HomeData {
     this.foodFloor = false,
     this.proteinFloor = false,
     this.foodUnknownOnly = false,
+    this.foodLogged = false,
     this.updatedAt,
     this.heldOverNight,
     this.illnessState,
@@ -1382,6 +1364,7 @@ class HomeData {
     foodFloor: foodFloor,
     proteinFloor: proteinFloor,
     foodUnknownOnly: foodUnknownOnly,
+    foodLogged: foodLogged,
     updatedAt: updatedAt,
     heldOverNight: heldOverNight,
     illnessState: state,
@@ -1469,7 +1452,10 @@ class HomeData {
 
     List<double?> foodWeek = const [];
     double? proteinToday;
-    var foodFloor = false, proteinFloor = false, foodUnknownOnly = false;
+    var foodFloor = false,
+        proteinFloor = false,
+        foodUnknownOnly = false,
+        foodLogged = false;
     try {
       final w = await NutritionDb.window(await LocalDb.instance, days: 7);
       foodWeek = [for (final x in w.days) x.kcal.value];
@@ -1479,6 +1465,7 @@ class HomeData {
       proteinFloor = last?.protein.isFloor ?? false;
       foodUnknownOnly =
           last != null && last.kcal.known == 0 && last.kcal.unknown > 0;
+      foodLogged = last?.logged ?? false;
     } catch (_) {}
     double? goal(String k) {
       final v = (profile[k] as num?)?.toDouble();
@@ -1501,6 +1488,7 @@ class HomeData {
       foodFloor: foodFloor,
       proteinFloor: proteinFloor,
       foodUnknownOnly: foodUnknownOnly,
+      foodLogged: foodLogged,
       graph: graph,
       recentHr: recentHr,
       recentHrFailed: recentHrFailed,
@@ -2218,17 +2206,14 @@ class _HeartCardState extends State<_HeartCard> {
         ? null
         : '${vals.reduce((a, b) => a < b ? a : b).round()} – '
               '${vals.reduce((a, b) => a > b ? a : b).round()} bpm';
-    String time(int sec) {
-      final t = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
-      return '${t.hour.toString().padLeft(2, '0')}:'
-          '${t.minute.toString().padLeft(2, '0')}';
-    }
+    String time(int sec) =>
+        formatClock(DateTime.fromMillisecondsSinceEpoch(sec * 1000));
 
     final end = _window == 2 && start != null
         ? start + g.hr.length * 60
         : recent.endSec;
-    final labels = start == null
-        ? const ['12 am', 'Noon', '12 am']
+    final labels = start == null || _window == 2
+        ? const ['Midnight', 'Noon', 'Midnight']
         : [time(start), time(start + (end - start) ~/ 2), time(end)];
     // The minute under a finger at fraction [f] of the chart.
     String scrubText(double f) {
@@ -2416,12 +2401,12 @@ class _WorkLine extends StatelessWidget {
       if (ts == null) return const SizedBox.shrink();
       final at = DateTime.fromMillisecondsSinceEpoch(ts);
       final now = DateTime.now();
-      String two(int v) => v.toString().padLeft(2, '0');
       final same =
           at.year == now.year && at.month == now.month && at.day == now.day;
+      // Month by name: "4/9" reads as April 9 to a US reader.
       return Tag(
-        'Band data ${same ? '' : '${at.day}/${at.month} '}'
-        '${two(at.hour)}:${two(at.minute)}',
+        'Band data ${same ? '' : '${monthShortName(at.month, null)} ${at.day}, '}'
+        '${formatClock(at)}',
         icon: LucideIcons.bluetooth,
       );
     }

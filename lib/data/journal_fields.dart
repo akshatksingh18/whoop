@@ -306,6 +306,9 @@ String customJournalFieldKey(String label) {
 }
 
 /// Local minutes past midnight → "7:05 AM".
+/// [t]'s wall-clock time in the app's one format, e.g. "7:05 PM".
+String formatClock(DateTime t) => formatMinuteOfDay(t.hour * 60 + t.minute);
+
 String formatMinuteOfDay(int minuteOfDay) {
   final m = minuteOfDay % (24 * 60);
   final h24 = m ~/ 60;

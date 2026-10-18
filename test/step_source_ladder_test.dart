@@ -18,9 +18,6 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_edge/data/live_coverage_policy.dart';
-import 'package:openstrap_edge/models/metric.dart';
-import 'package:openstrap_edge/ui2/screens/home_screen.dart'
-    show stepSensorLabel;
 
 const _t0 = 1_786_000_000; // arbitrary local midnight
 
@@ -290,42 +287,6 @@ void main() {
           'phone_pedometer',
         ]);
       });
-
-      // THE DISCLOSURE CONTRACT, end to end: what the derivation writes is what
-      // the card reads. `inputs_used` names the SENSOR, so a phone count can
-      // never render as the wrist's or the other way round.
-      test(
-        'the card can name the sensor off the envelope the derive wrote',
-        () {
-          String? label(int total, int strap) => stepSensorLabel(
-            Metric.parse(
-              _derive(gen5, liveStepsReal: total, liveStepsFromStrap: strap).$1,
-            ),
-          );
-
-          expect(label(5200, 4000), 'Strap + phone');
-          expect(label(4000, 4000), 'Strap');
-          expect(label(4000, 0), 'Phone');
-          expect(
-            label(0, 0),
-            'Strap',
-            reason: 'the on-chip counter is the strap',
-          );
-          expect(
-            stepSensorLabel(
-              Metric.parse(
-                _derive(
-                  _sub([-1, -1]),
-                  liveStepsReal: 0,
-                  liveStepsFromStrap: 0,
-                ).$1,
-              ),
-            ),
-            isNull,
-            reason: 'nothing counted — the card must not name a sensor',
-          );
-        },
-      );
 
       test('no counter and no coverage stays ABSENT, never a zero', () {
         final (steps, scalars) = _derive(

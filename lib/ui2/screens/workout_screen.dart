@@ -1040,7 +1040,6 @@ class _ResumeCard extends StatelessWidget {
     final a = activityByName(w.type);
     final color = a?.color ?? C.purple;
     final t = w.startTime;
-    String two(int v) => v.toString().padLeft(2, '0');
     return Surface(
       onTap: onTap,
       semanticLabel: 'Resume ${a?.name ?? w.type}',
@@ -1072,7 +1071,7 @@ class _ResumeCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'In progress · started ${two(t.hour)}:${two(t.minute)}',
+                  'In progress · started ${formatClock(t)}',
                   style: F.cap.copyWith(color: p.ink3),
                 ),
               ],
@@ -2205,9 +2204,7 @@ class _PastWorkout {
       loc?.workoutWeekdayAbbrSat ?? 'Sat',
       loc?.workoutWeekdayAbbrSun ?? 'Sun',
     ];
-    final t =
-        '${start.hour.toString().padLeft(2, '0')}:'
-        '${start.minute.toString().padLeft(2, '0')}';
+    final t = formatClock(start);
     if (days == 0) return loc?.workoutWhenToday(t) ?? 'Today, $t';
     if (days == 1) return loc?.workoutWhenYesterday(t) ?? 'Yesterday, $t';
     if (days < 7) return '${names[start.weekday - 1]}, $t';

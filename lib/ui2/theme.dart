@@ -117,14 +117,8 @@ class C {
 
   // neutrals
   static const n900 = Color(0xFF0F172A);
-  static const n800 = Color(0xFF1E293B);
-  static const n600 = Color(0xFF475569);
   static const n500 = Color(0xFF64748B);
   static const n400 = Color(0xFF94A3B8);
-  static const n300 = Color(0xFFCBD5E1);
-  static const n200 = Color(0xFFE2E8F0);
-  static const n100 = Color(0xFFF1F5F9);
-  static const n50 = Color(0xFFF8FAFC);
 
   static const white = Color(0xFFFFFFFF);
   static const black = Color(0xFF000000);
@@ -457,17 +451,6 @@ class F {
     height: 1,
     fontWeight: FontWeight.w600,
     letterSpacing: -2,
-    fontFeatures: _tab,
-  );
-
-  /// The hero for long values such as 1,920, 80.4 or 4.21.
-  static const heroLong = TextStyle(
-    fontFamily: _f,
-    fontFamilyFallback: _fb,
-    fontSize: 88,
-    height: 1,
-    fontWeight: FontWeight.w600,
-    letterSpacing: -1.5,
     fontFeatures: _tab,
   );
 

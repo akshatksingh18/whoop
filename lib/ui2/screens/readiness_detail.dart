@@ -224,10 +224,15 @@ class ReadinessData {
     final currentDay = (today['status'] as Map?)?['today_day']?.toString();
     if (day != null && day != currentDay) {
       final matches = pointsOf(chart).where((p) => dayLabelAtSec(p.t) == day);
+      final readiness = matches.isEmpty
+          ? Metric.empty
+          : Metric.parse(matches.last.v);
+      final bd = await _compositeBreakdown(day);
       return ReadinessData(
-        readiness: matches.isEmpty
-            ? Metric.empty
-            : Metric.parse(matches.last.v),
+        readiness: readiness,
+        hrv: readiness.value == null ? null : await _recentHrv(day),
+        breakdown: bd,
+        inputsUsed: bd.where((r) => r['used'] == true).length,
         series: denseDays(pointsOf(chart), 90),
         absentDiag: await _absentDiag(day),
         breathingNote: await _breathingNote(day),
@@ -784,14 +789,20 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       return k == 'rhr' ? 'Resting HR' : driverLabel(k, l);
     }
 
+    // Lower-case mid-sentence, but never an acronym ("resting HR", "HRV").
+    String lower(String s) => s
+        .split(' ')
+        .map((w) => w == w.toUpperCase() ? w : w.toLowerCase())
+        .join(' ');
+
     final top = movers.first;
     final word = (top['word'] as String?)?.toLowerCase();
     final head = movers.length == 1
         ? 'Mostly ${name(top)}.'
-        : 'Mostly ${name(top)}, then ${name(movers[1]).toLowerCase()}.';
+        : 'Mostly ${name(top)}, then ${lower(name(movers[1]))}.';
     final what = word == null
         ? ''
-        : ' Last night\'s ${name(top) == 'HRV' ? 'HRV' : name(top).toLowerCase()} '
+        : ' Last night\'s ${lower(name(top))} '
               'was ${word.replaceFirst(' usual', ' your usual')}';
     final rest = movers.length == 1 ? '; everything else was close to usual.' : '.';
     return word == null ? head : '$head$what$rest';

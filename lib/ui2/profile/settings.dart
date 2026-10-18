@@ -473,21 +473,17 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     context: c,
     builder: (d) => AlertDialog(
       title: Text(l?.settingsResetTitle ?? 'Delete everything?'),
-      // Enumerated, because the previous wording ("every measured day, session
-      // and profile field") was false in about twenty places: it deleted the
-      // derived days and left the labs, the meals, the doses, the breathing
-      // sessions, the logged sets, the baselines, the consent flags, the
-      // install id, the stored API key and the home-screen widget standing.
-      // It now removes all of that, so it can say so.
+      // Names what this app holds; the wipe below removes all of it.
       content: Text(
         l?.settingsResetBody ??
             'This deletes, permanently and with no copy anywhere else:\n\n'
-                '· every measured day, sleep, workout and route\n'
-                '· every lab result, meal, medication dose, habit, breathing session '
-                'and logged set\n'
-                '· your journal, cycle log and rolling baselines\n'
-                '· your profile, every preference and any stored AI key\n'
-                '· the home-screen widget and every scheduled reminder\n\n'
+                '· every measured day, sleep, nap, workout and route\n'
+                '· your food log, saved foods and meals\n'
+                '· Body weights, tape measurements and progress photos\n'
+                '· Lift Log sets and splits, and Pushups history\n'
+                '· your profile, goal, every preference and every scheduled '
+                'reminder\n'
+                '· automatic backups kept on this phone\n\n'
                 'The band is unpaired, and it cannot re-send history it has already '
                 'handed over. Export from Your data first if you want a copy.',
       ),
@@ -961,23 +957,9 @@ class MoreSettingsView extends StatelessWidget {
 
 // ══════════════════ NOTIFICATIONS ══════════════════
 //
-// There are exactly three things this app may put in your notification shade:
-// the alarm, the day's aggregated exception, and the weekly lookback when the
-// week contained something. The app used to be able to emit around twenty-two
-// kinds — hydration slots, step goals, posture nudges, AI briefings — and none
-// of them had a switch anywhere in the app, so the only way to stop any of it
-// was the OS. A notification the user cannot turn off is a bug, which makes
-// this screen part of the fix rather than a nicety on top of it.
-//
-// The alarm is deliberately not switchable here: its off switch is cancelling
-// the alarm, and burying a second one in settings is how an alarm silently
-// fails to wake someone.
-//
-// The water reminder is on this screen and IS a shade entry — a strap buzz and
-// a phone notification at the same minute, because a buzz alone needs a live
-// link and a live isolate and so is not a reminder. It reminds you to LOG a
-// drink — the app measures no hydration and this screen may never imply it
-// does. See MT-14 in IDEAS.md.
+// Every kind of notification this app can send has its own switch here, plus
+// quiet hours. The alarm is the exception: its off switch is cancelling it on
+// the Alarm screen, so it cannot be silenced by accident.
 
 class NotificationSettings extends StatefulWidget {
   const NotificationSettings({super.key});
@@ -1302,8 +1284,9 @@ class NotificationSettingsView extends StatelessWidget {
                           sub:
                               l?.settingsDetectedWorkoutsRowSub ??
                               'Ask about efforts the band spotted that you did '
-                                  'not start. Off hides the prompt and the review '
-                                  'cards; the band goes on measuring either way',
+                                  'not start, and about a workout left running. '
+                                  'Off hides these prompts and the review cards; '
+                                  'the band goes on measuring either way',
                           value: prefs.autoDetectEnabled ? on : off,
                           chevron: false,
                           onTap: () => set(
@@ -1485,11 +1468,7 @@ class NotificationSettingsView extends StatelessWidget {
     return batteryChoices[(i + 1) % batteryChoices.length];
   }
 
-  static String _hhmm(int minuteOfDay) {
-    final m = minuteOfDay % 1440;
-    return '${(m ~/ 60).toString().padLeft(2, '0')}:'
-        '${(m % 60).toString().padLeft(2, '0')}';
-  }
+  static String _hhmm(int minuteOfDay) => formatMinuteOfDay(minuteOfDay);
 
   static Future<int?> _pickMinute(BuildContext c, int current) async {
     final picked = await showTimePicker(

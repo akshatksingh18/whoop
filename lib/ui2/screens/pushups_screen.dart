@@ -21,8 +21,7 @@ import '../theme.dart';
 import 'metric_detail.dart' show detailScaffold;
 import 'today_plan.dart' show PlanRow;
 
-String _hm(DateTime t) =>
-    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+String _hm(DateTime t) => formatClock(t);
 
 String _span(Duration d) {
   final m = d.inMinutes;

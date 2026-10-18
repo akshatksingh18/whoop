@@ -61,9 +61,8 @@ class MetricSpec {
   final String? suppress;
   final String? suppressFix;
 
-  /// How it is computed, and who published the method.
+  /// How it is computed, in one paragraph. Shown on Step calories' Today.
   final String method;
-  final String citation;
 
   const MetricSpec({
     required this.chartKey,
@@ -75,7 +74,6 @@ class MetricSpec {
     this.suppress,
     this.suppressFix,
     this.method = '',
-    this.citation = '',
   });
 }
 
@@ -87,10 +85,6 @@ const _specs = <String, MetricSpec>{
     color: C.red,
     icon: LucideIcons.heart,
     higherBetter: false,
-    method:
-        'The lowest 30-minute average while asleep. This is an overnight '
-        'measure, not a single lowest beat or a daytime minimum.',
-    citation: 'Nocturnal heart-rate minimum; personal baseline, not population',
   ),
   'hrv': MetricSpec(
     chartKey: 'hrv',
@@ -98,27 +92,12 @@ const _specs = <String, MetricSpec>{
     unit: 'ms',
     color: C.green,
     icon: LucideIcons.activity,
-    method:
-        'RMSSD over the longest artefact-free window during sleep. Beat '
-        'timing is recovered from the band\'s 1 Hz records and corrected by '
-        'the Lipponen–Tarvainen method before any statistic is taken. '
-        'Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.',
-    citation: 'Task Force 1996 · Lipponen & Tarvainen 2019',
   ),
   'readiness': MetricSpec(
     chartKey: 'recovery',
     title: 'Recovery',
     color: C.green,
     icon: LucideIcons.batteryCharging,
-    // The weights are DATA — `readiness_glassbox` emits one per input and the
-    // Readiness screen renders them. Repeating them as prose here meant two
-    // surfaces could disagree about the same composite, silently, forever.
-    method:
-        'A weighted composite of a handful of inputs, each scored against '
-        'your own history. Every input\'s weight, and whether last night had '
-        'enough history to use it, is listed on the Readiness screen. Missing '
-        'inputs are re-weighted, never zero-filled.',
-    citation: 'Plews 2013 (lnRMSSD) · Hopkins smallest-worthwhile-change gate',
   ),
   'resp_rate': MetricSpec(
     chartKey: 'resp_rate',
@@ -127,11 +106,6 @@ const _specs = <String, MetricSpec>{
     color: C.teal,
     icon: LucideIcons.wind,
     higherBetter: false,
-    method:
-        'Breathing rate recovered from respiratory sinus arrhythmia — the '
-        'periodic modulation breathing imposes on beat timing — over a grid of '
-        'candidate rates.',
-    citation: 'Pimentel 2017',
   ),
   'sleep': MetricSpec(
     chartKey: 'sleep',
@@ -139,10 +113,6 @@ const _specs = <String, MetricSpec>{
     unit: 'min',
     color: C.blue,
     icon: LucideIcons.moon,
-    method:
-        'Total sleep time from the wrist z-angle sleep window, staged by a '
-        'combined actigraphy and heart-rate model.',
-    citation: 'van Hees 2015 · Webster / Cole–Kripke rescoring',
   ),
   'efficiency': MetricSpec(
     chartKey: 'efficiency',
@@ -150,8 +120,6 @@ const _specs = <String, MetricSpec>{
     unit: '%',
     color: C.blue,
     icon: LucideIcons.bedDouble,
-    method: 'Time asleep as a fraction of time in bed.',
-    citation: 'AASM sleep-accounting definitions',
   ),
   'deep': MetricSpec(
     chartKey: 'deep',
@@ -159,10 +127,6 @@ const _specs = <String, MetricSpec>{
     unit: 'min',
     color: C.sleep,
     icon: LucideIcons.moon,
-    method:
-        'A low-confidence overlay: a wrist sensor cannot see slow-wave '
-        'activity, so deep sleep here is heart-rate flatness inside NREM.',
-    citation: 'Cole–Kripke wake spine + HRV overlay',
   ),
   'rem': MetricSpec(
     chartKey: 'rem',
@@ -170,10 +134,6 @@ const _specs = <String, MetricSpec>{
     unit: 'min',
     color: C.teal,
     icon: LucideIcons.moon,
-    method:
-        'Staged from beat-timing variability and movement. A wrist sensor '
-        'separates REM from light sleep only approximately.',
-    citation: 'Webster / Cole–Kripke rescoring + HRV staging',
   ),
   'step_kcal': MetricSpec(
     chartKey: 'step_kcal',
@@ -192,17 +152,6 @@ const _specs = <String, MetricSpec>{
     unit: 'steps',
     color: C.green,
     icon: LucideIcons.footprints,
-    method:
-        'Counted, never modelled. A step count comes from a gait-capable '
-        'counter: the band\'s 100 Hz pedometer while it streams, or your '
-        'phone\'s. Each stretch of the day is counted by whichever of the two '
-        'was actually recording it, and a stretch both covered is counted '
-        'once, so a session never takes the day from the sensor that carried '
-        'the rest of it. There is no 1 Hz estimate — walking cadence sits above what '
-        'one sample a second can resolve, so a day with no counter behind it '
-        'reports no steps rather than a guess.',
-    citation:
-        'AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)',
   ),
   'calories': MetricSpec(
     chartKey: 'calories',
@@ -210,28 +159,18 @@ const _specs = <String, MetricSpec>{
     unit: 'kcal',
     color: C.orange,
     icon: LucideIcons.flame,
-    method:
-        'Heart-rate-to-energy regression over the waking span, anchored on '
-        'your weight, age and sex. An estimate, and sensitive to all three.',
-    citation: 'Keytel 2005 · Harris–Benedict / Mifflin BMR floor',
   ),
   'strain': MetricSpec(
     chartKey: 'strain',
     title: 'Strain',
     color: C.purple,
     icon: LucideIcons.zap,
-    method: 'Cardiovascular load over the day, compressed onto a 0–21 scale.',
-    citation: 'Banister TRIMP family · log-compressed',
   ),
   'trimp': MetricSpec(
     chartKey: 'trimp',
     title: 'Training load',
     color: C.purple,
     icon: LucideIcons.dumbbell,
-    method:
-        'Training impulse: time in each heart-rate zone, weighted by the '
-        'physiological cost of that zone.',
-    citation: 'Banister 1975 · Edwards 1993',
   ),
   'stress': MetricSpec(
     chartKey: 'stress',
@@ -239,12 +178,6 @@ const _specs = <String, MetricSpec>{
     color: C.purple,
     icon: LucideIcons.brain,
     higherBetter: false,
-    method:
-        'Baevsky stress index over the sleep window: a histogram measure of '
-        'how tightly beat intervals cluster, the median of 256-beat windows. '
-        'It needs at least 20 minutes of beats and three gap-free windows; '
-        'otherwise there is no score, and deliberately no fallback.',
-    citation: 'Baevsky 2008',
   ),
   'dip': MetricSpec(
     chartKey: 'dip',
@@ -252,8 +185,6 @@ const _specs = <String, MetricSpec>{
     unit: '%',
     color: C.indigo,
     icon: LucideIcons.trendingDown,
-    method: 'How far sleeping heart rate falls below the waking average.',
-    citation: 'Nocturnal dipping literature; personal baseline',
   ),
   'hrr': MetricSpec(
     chartKey: 'hrr',
@@ -261,21 +192,12 @@ const _specs = <String, MetricSpec>{
     unit: 'bpm',
     color: C.red,
     icon: LucideIcons.heartPulse,
-    method:
-        'The drop in heart rate over the 60 seconds after a bout ends, '
-        'averaged across the day\'s bouts.',
-    citation: 'Cole 1999 (HRR-60)',
   ),
   'lf_hf': MetricSpec(
     chartKey: 'lf_hf',
     title: 'LF / HF',
     color: C.purple,
     icon: LucideIcons.audioWaveform,
-    method:
-        'The ratio of low- to high-frequency power in beat-interval '
-        'variability, from a Lomb–Scargle periodogram (the series is unevenly '
-        'sampled, so an FFT would be wrong).',
-    citation: 'Laguna 1998 · Bigger 1992',
   ),
   'hrv_cv': MetricSpec(
     chartKey: 'hrv_cv',
@@ -284,8 +206,6 @@ const _specs = <String, MetricSpec>{
     color: C.green,
     icon: LucideIcons.activity,
     higherBetter: false,
-    method: 'Within-night variation of beat intervals: SDNN ÷ mean NN.',
-    citation: 'Within-user dispersion',
   ),
   'brv': MetricSpec(
     chartKey: 'brv',
@@ -293,10 +213,6 @@ const _specs = <String, MetricSpec>{
     color: C.teal,
     icon: LucideIcons.wind,
     higherBetter: false,
-    method:
-        'Coefficient of variation of per-window respiratory rate across '
-        'the night.',
-    citation: 'Within-user dispersion',
   ),
   // Both of these were written to `metric_series` on every derive since v55 and
   // had no spec, so nothing could open them — `specOf` fell through to a
@@ -307,11 +223,6 @@ const _specs = <String, MetricSpec>{
     unit: 'min',
     color: C.indigo,
     icon: LucideIcons.moon,
-    method:
-        'Minutes of sleep detected OUTSIDE the main night: the same wrist '
-        'z-angle window detector the night uses, confirmed by a heart-rate dip. '
-        'Naps are counted separately and never folded into time asleep.',
-    citation: 'van Hees 2015 window detection + nocturnal HR dip',
   ),
   'active_min': MetricSpec(
     chartKey: 'active_min',
@@ -319,12 +230,6 @@ const _specs = <String, MetricSpec>{
     unit: 'min',
     color: C.green,
     icon: LucideIcons.activity,
-    method:
-        'Minutes whose acceleration sits above a movement floor. That floor '
-        'is pooled from your own recent days once there are enough of them, and '
-        'a population one before that. This is activity VOLUME, not locomotion: '
-        'steps are counted by a pedometer and are never derived from it.',
-    citation: 'ENMO over a personal dynamic-range floor',
   ),
   'wear': MetricSpec(
     chartKey: 'wear',
@@ -332,10 +237,6 @@ const _specs = <String, MetricSpec>{
     unit: 'min',
     color: C.green,
     icon: LucideIcons.watch,
-    method:
-        'Minutes with a band record present. The band logs to flash only '
-        'while it is on a wrist, so record presence IS wear.',
-    citation: 'Record-presence, not heart-rate validity',
   ),
 
   // ── charted nowhere, on purpose ──
@@ -349,12 +250,6 @@ const _specs = <String, MetricSpec>{
     suppress:
         'A deviation, not a temperature. Imported nights carry different '
         'units, so they are not charted together.',
-    suppressFix: 'Shown tonight on Vitals',
-    method:
-        'The night\'s mean raw sensor reading, expressed as distance from '
-        'your own recent nights. There is no conversion to degrees anywhere in '
-        'the path.',
-    citation: 'Relative only — uncalibrated ADC',
   ),
   // `spo2`, `odi_per_hour` and `strain_effort` used to live here as cards that
   // existed only to explain that they were empty. A metric this app does not
@@ -506,11 +401,6 @@ class MetricData {
     );
   }
 }
-
-Future<List<ChartPoint>> stepCaloriePoints(
-  LocalRepository repo,
-  List<ChartPoint> steps,
-) async => (await stepCalorieModels(repo, steps)).budget;
 
 Future<({List<ChartPoint> budget, List<ChartPoint> acsm})> stepCalorieModels(
   LocalRepository repo,
@@ -685,9 +575,8 @@ class _TodaySignalDetailState extends State<TodaySignalDetail>
         values[slot] = null;
     final axis = AxisSpec.of(values.whereType<double>(), floor: 0);
     final i = _pick?.clamp(0, last);
-    String time(int slot) => isWear
-        ? '${slot.toString().padLeft(2, '0')}:00'
-        : clockOfTs(start + slot * 60);
+    String time(int slot) =>
+        isWear ? formatMinuteOfDay(slot * 60) : clockOfTs(start + slot * 60);
     final title =
         '${isWear ? 'Wear by hour' : 'HRV through the night'}'
         '${_date != null && _date != todayLabel() ? ' · ${prettyDay(_date)}' : ''}';
@@ -700,7 +589,7 @@ class _TodaySignalDetailState extends State<TodaySignalDetail>
         series: values,
         yAxis: axis,
         xLabels: isWear
-            ? const ['00:00', '12:00', '24:00']
+            ? const ['Midnight', 'Noon', 'Midnight']
             : [
                 time(0),
                 time((values.length - 1) ~/ 2),

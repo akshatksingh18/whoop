@@ -302,7 +302,7 @@ String _span(Duration d) {
 String _stamp(DateTime t) {
   final l = t.toLocal();
   String two(int v) => v.toString().padLeft(2, '0');
-  return '${l.year}-${two(l.month)}-${two(l.day)} ${two(l.hour)}:${two(l.minute)}';
+  return '${l.year}-${two(l.month)}-${two(l.day)} ${formatClock(l)}';
 }
 
 /// The bridge's status in one line: the first thing that stops the lock-screen

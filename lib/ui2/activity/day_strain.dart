@@ -25,7 +25,7 @@ import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show pointsOf, repoOf, monthName;
+import '../screens/home_screen.dart' show hm, pointsOf, repoOf, monthName;
 import '../screens/metric_detail.dart' show dayNavRow, detailScaffold;
 import '../ui2.dart';
 import 'zones.dart' show ZonesDetail;
@@ -277,7 +277,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
             _goDay,
           ),
         if (widget.embedded && day != null && dayLabelOf(day) != todayLabel())
-          Text(sub),
+          Text(sub, style: F.cap.copyWith(color: p.ink2)),
         if (_loading && _d == null) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
@@ -362,8 +362,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
               [
                 'of 21',
                 if (d.peakHr != null) 'peak ${d.peakHr} bpm',
-                if (d.wornMin != null)
-                  'worn ${d.wornMin! ~/ 60}h ${d.wornMin! % 60}m',
+                if (d.wornMin != null) 'worn ${hm(d.wornMin)}',
               ].join(' · '),
               style: F.cap.copyWith(color: p.ink3),
             ),
@@ -424,9 +423,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
     final pick = _pick?.clamp(0, last);
     String says(int i) {
       final v = curve[i];
-      final hh = (i ~/ 60).toString().padLeft(2, '0');
-      final mm = (i % 60).toString().padLeft(2, '0');
-      return '$hh:$mm · ${v == null ? 'not recorded' : v.toStringAsFixed(1)}';
+      return '${formatMinuteOfDay(i)} · ${v == null ? 'not recorded' : v.toStringAsFixed(1)}';
     }
 
     int at(double f) => (f * (n - 1)).round().clamp(0, last);
@@ -439,7 +436,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> with RevisionReload {
               unit: '0–21',
               height: 170,
               yAxis: axis,
-              xLabels: const ['00:00', '12:00', '24:00'],
+              xLabels: const ['Midnight', 'Noon', 'Midnight'],
               series: curve,
               readout: pick == null ? null : says(pick),
               footnote: 'From $drawn recorded minutes.',

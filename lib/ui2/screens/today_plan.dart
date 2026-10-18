@@ -185,9 +185,7 @@ class TodayPlanCard extends StatelessWidget {
             icon: LucideIcons.dumbbell,
             color: C.purple,
             title: 'Workout running',
-            sub:
-                'Started ${live.startTime.hour.toString().padLeft(2, '0')}:'
-                '${live.startTime.minute.toString().padLeft(2, '0')}',
+            sub: 'Started ${formatClock(live.startTime)}',
             action: 'Resume',
             onAction: () => Navigator.of(c).push(
               MaterialPageRoute<void>(

@@ -23,6 +23,7 @@
 // noticeably; the median of slopes ignores it. It also degrades honestly — with
 // too few points the median is simply not computed and we abstain.
 
+import '../data/journal_fields.dart' show formatClock;
 import 'dart:math' as math;
 
 /// One battery observation from `band_battery`.
@@ -355,9 +356,8 @@ class BatteryForecaster {
     final pct = f.currentPct;
     final empty = f.predictedEmptyAt;
     if (rate == null || pct == null || empty == null) return '';
-    final h = empty.hour.toString().padLeft(2, '0');
-    final m = empty.minute.toString().padLeft(2, '0');
-    final head = 'At ${rate.toStringAsFixed(1)}%/h it runs out around $h:$m';
+    final head =
+        'At ${rate.toStringAsFixed(1)}%/h it runs out around ${formatClock(empty)}';
     if (empty.isBefore(wakeAt)) {
       return '$head — before you wake. Charge it now to keep tonight\'s sleep.';
     }

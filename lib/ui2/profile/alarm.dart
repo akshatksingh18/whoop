@@ -215,8 +215,7 @@ class AlarmScreenView extends StatelessWidget {
   static void _say(BuildContext c, String msg) =>
       ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(msg)));
 
-  static String _hhmm(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  static String _hhmm(DateTime d) => formatClock(d);
 
   static String _whichDay(BuildContext c, DateTime d, DateTime now) {
     final l = AppLocalizations.of(c);
@@ -244,11 +243,12 @@ class AlarmScreenView extends StatelessWidget {
 
   static String _localizedStateLabel(BuildContext c, AlarmArmState s) {
     final l = AppLocalizations.of(c);
+    if (l == null) return stateLabel(s);
     return switch (s) {
-      AlarmArmState.confirmed => l?.alarmStateConfirmed ?? 'Confirmed',
-      AlarmArmState.pending => l?.alarmStateWaiting ?? 'Waiting',
-      AlarmArmState.unknown => l?.alarmStateNotConfirmed ?? 'Not confirmed',
-      AlarmArmState.none => l?.alarmStateNotSet ?? 'Not set',
+      AlarmArmState.confirmed => l.alarmStateConfirmed,
+      AlarmArmState.pending => l.alarmStateWaiting,
+      AlarmArmState.unknown => l.alarmStateNotConfirmed,
+      AlarmArmState.none => l.alarmStateNotSet,
     };
   }
 

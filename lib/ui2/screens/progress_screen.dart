@@ -1741,11 +1741,8 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
 
   /// The day's readings, earliest first; the first is the day's weight.
   Widget _readingList(P p) {
-    String hm(int ts) {
-      final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-      return '${t.hour.toString().padLeft(2, '0')}:'
-          '${t.minute.toString().padLeft(2, '0')}';
-    }
+    String hm(int ts) =>
+        formatClock(DateTime.fromMillisecondsSinceEpoch(ts * 1000));
 
     String w(BodyWeightReading r) => r.entered != null && r.unit == _unit
         ? '${_num(r.entered!)} $_unit'

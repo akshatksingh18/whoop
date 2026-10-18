@@ -10876,7 +10876,7 @@
   "@settingsResetTitle": {
     "description": "Confirmation dialog title for resetting all app data"
   },
-  "settingsResetBody": "This deletes, permanently and with no copy anywhere else:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and rolling baselines\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
+  "settingsResetBody": "This deletes, permanently and with no copy anywhere else:\n\n· every measured day, sleep, nap, workout and route\n· your food log, saved foods and meals\n· Body weights, tape measurements and progress photos\n· Lift Log sets and splits, and Pushups history\n· your profile, goal, every preference and every scheduled reminder\n· automatic backups kept on this phone\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
   "@settingsResetBody": {
     "description": "Confirmation dialog body listing exactly what a full reset deletes"
   },
@@ -11128,7 +11128,7 @@
   "@settingsDetectedWorkoutsRowTitle": {
     "description": "Notification row title for auto-detected workout prompts"
   },
-  "settingsDetectedWorkoutsRowSub": "Ask about efforts the band spotted that you did not start. Off hides the prompt and the review cards; the band goes on measuring either way",
+  "settingsDetectedWorkoutsRowSub": "Ask about efforts the band spotted that you did not start, and about a workout left running. Off hides these prompts and the review cards; the band goes on measuring either way",
   "@settingsDetectedWorkoutsRowSub": {
     "description": "Notification row subtitle for auto-detected workout prompts"
   },

@@ -86,10 +86,6 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
   /// import. Re-issuing is also what un-sticks it: dropping the old read
   /// without starting a new one would leave the tab spinning forever.
   ///
-  /// Still lazy: a sub-tab the user has never opened never called [beginRead],
-  /// so it is not re-read here either.
-  bool hasRead(Object key) => _reads.containsKey(key);
-
   /// False for a screen that was handed its data (a golden, the gallery, a
   /// preview): there is nothing behind it to re-read.
   bool get revisionReloads => true;

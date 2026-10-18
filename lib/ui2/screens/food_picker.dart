@@ -284,8 +284,20 @@ class _AddFoodSheetState extends State<AddFoodSheet> {
   }
 
   Future<void> _logMeal(MealTemplate m) async {
-    final db = await LocalDb.instance;
-    await MyFoods.logMeal(db, m, widget.date, widget.meal);
+    try {
+      final db = await LocalDb.instance;
+      await MyFoods.logMeal(db, m, widget.date, widget.meal);
+    } catch (_) {
+      // Build 92: logging is one transaction, so nothing was written.
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('Could not log this meal. Nothing was added.'),
+          ),
+        );
+      }
+      return;
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 

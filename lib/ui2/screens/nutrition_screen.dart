@@ -864,7 +864,15 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       title: 'Delete ${m.label}?',
       body: 'Days you already logged keep their entries.',
     )) {
-      await MyFoods.deleteMeal(await LocalDb.instance, m.key);
+      try {
+        await MyFoods.deleteMeal(await LocalDb.instance, m.key);
+      } catch (_) {
+        if (c.mounted) {
+          ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+            const SnackBar(content: Text('Could not delete it. Try again.')),
+          );
+        }
+      }
     }
   }
 
@@ -877,7 +885,15 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           'Days you already logged keep their entries; saved meals '
           'that use it skip it.',
     )) {
-      await MyFoods.deleteFood(await LocalDb.instance, f['key'] as String);
+      try {
+        await MyFoods.deleteFood(await LocalDb.instance, f['key'] as String);
+      } catch (_) {
+        if (c.mounted) {
+          ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+            const SnackBar(content: Text('Could not delete it. Try again.')),
+          );
+        }
+      }
     }
   }
 

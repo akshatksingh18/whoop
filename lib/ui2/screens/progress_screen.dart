@@ -2428,7 +2428,15 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                                   '${x.pose} photo from ${_md(x.date)}. That day\'s weight and measurements stay.',
                               remove: 'Delete',
                             )) {
-                              await BodyLogDb.deletePhoto(x);
+                              try {
+                                await BodyLogDb.deletePhoto(x);
+                              } catch (_) {
+                                if (c.mounted) {
+                                  ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                                    const SnackBar(content: Text('Could not delete it. Try again.')),
+                                  );
+                                }
+                              }
                               await _refresh();
                             }
                           },
@@ -2467,7 +2475,15 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                           body: 'Photos and measurements from that day stay.',
                           remove: 'Delete',
                         )) {
-                          await BodyLogDb.deleteWeight(day);
+                          try {
+                            await BodyLogDb.deleteWeight(day);
+                          } catch (_) {
+                            if (c.mounted) {
+                              ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                                const SnackBar(content: Text('Could not delete it. Try again.')),
+                              );
+                            }
+                          }
                           await _refresh();
                         }
                       },
@@ -2489,7 +2505,15 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                           body: 'From ${_md(day)}. Its weight and photos stay.',
                           remove: 'Delete',
                         )) {
-                          await BodyLogDb.deleteMeasure(m.id);
+                          try {
+                            await BodyLogDb.deleteMeasure(m.id);
+                          } catch (_) {
+                            if (c.mounted) {
+                              ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                                const SnackBar(content: Text('Could not delete it. Try again.')),
+                              );
+                            }
+                          }
                           await _refresh();
                         }
                       },

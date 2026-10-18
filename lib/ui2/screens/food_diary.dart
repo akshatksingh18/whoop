@@ -462,70 +462,77 @@ Future<void> mealMenu(
   if (!c.mounted || choice == null) return;
   final db = await LocalDb.instance;
   if (!c.mounted) return;
-  switch (choice) {
-    case 'from':
-      final src = await pickDayMeal(
-        c,
-        title: 'Copy from',
-        date: shiftDay(date, -1),
-        meal: meal,
-        showCount: true,
-      );
-      if (src == null) return;
-      final n = await NutritionDb.copyMeal(
-        db,
-        fromDate: src.date,
-        fromMeal: src.meal,
-        toDate: date,
-        toMeal: meal,
-      );
-      if (c.mounted) {
-        _say(
+  // Build 92 (end-to-end audit): a failed copy or save says so instead of
+  // failing silently.
+  try {
+    switch (choice) {
+      case 'from':
+        final src = await pickDayMeal(
           c,
-          n == 0
-              ? 'Nothing to copy there'
-              : 'Copied $n item${n == 1 ? '' : 's'}',
+          title: 'Copy from',
+          date: shiftDay(date, -1),
+          meal: meal,
+          showCount: true,
         );
-      }
-    case 'to':
-      final dst = await pickDayMeal(
-        c,
-        title: 'Copy to',
-        date: date == todayLabel() ? date : todayLabel(),
-        meal: meal,
-      );
-      if (dst == null) return;
-      final n = await NutritionDb.copyMeal(
-        db,
-        fromDate: date,
-        fromMeal: meal,
-        toDate: dst.date,
-        toMeal: dst.meal,
-      );
-      if (c.mounted) {
-        _say(
+        if (src == null) return;
+        final n = await NutritionDb.copyMeal(
+          db,
+          fromDate: src.date,
+          fromMeal: src.meal,
+          toDate: date,
+          toMeal: meal,
+        );
+        if (c.mounted) {
+          _say(
+            c,
+            n == 0
+                ? 'Nothing to copy there'
+                : 'Copied $n item${n == 1 ? '' : 's'}',
+          );
+        }
+      case 'to':
+        final dst = await pickDayMeal(
           c,
-          'Copied $n item${n == 1 ? '' : 's'} to ${mealName(dst.meal)}, '
-          '${dayTitle(dst.date)}',
+          title: 'Copy to',
+          date: date == todayLabel() ? date : todayLabel(),
+          meal: meal,
         );
-      }
-    case 'save':
-      final name = await askText(c, 'Save meal', 'Name', mealName(meal));
-      if (name == null) return;
-      final r = await MyFoods.saveMeal(
-        db,
-        label: name,
-        meal: meal,
-        entries: entries,
-      );
-      if (c.mounted) {
-        _say(
-          c,
-          r.saved == 0
-              ? 'Only your own foods can go in a saved meal'
-              : 'Saved "$name"${r.skipped > 0 ? ' · ${r.skipped} quick add${r.skipped == 1 ? '' : 's'} left out' : ''}',
+        if (dst == null) return;
+        final n = await NutritionDb.copyMeal(
+          db,
+          fromDate: date,
+          fromMeal: meal,
+          toDate: dst.date,
+          toMeal: dst.meal,
         );
-      }
+        if (c.mounted) {
+          _say(
+            c,
+            'Copied $n item${n == 1 ? '' : 's'} to ${mealName(dst.meal)}, '
+            '${dayTitle(dst.date)}',
+          );
+        }
+      case 'save':
+        final name = await askText(c, 'Save meal', 'Name', mealName(meal));
+        if (name == null) return;
+        final r = await MyFoods.saveMeal(
+          db,
+          label: name,
+          meal: meal,
+          entries: entries,
+        );
+        if (c.mounted) {
+          _say(
+            c,
+            r.saved == 0
+                ? 'Only your own foods can go in a saved meal'
+                : 'Saved "$name"${r.skipped > 0 ? ' · ${r.skipped} quick add${r.skipped == 1 ? '' : 's'} left out' : ''}',
+          );
+        }
+    }
+  } catch (_) {
+    if (c.mounted) _say(c, 'That did not complete. Please try again.');
+    return;
   }
   onChanged();
 }

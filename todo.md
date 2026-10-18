@@ -344,7 +344,9 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   Claude's end-to-end sweep before release (context after await, stuck busy flags, unknown
   shown as zero, silent read failures, stale open screens) fixed three more stuck flags
   (workout start, barcode lookup, Status test) and Today's Food/Protein lines now say "≥" (or
-  "calories not recorded") when some logged food has no value.
+  "calories not recorded") when some logged food has no value. Writes that failed silently now
+  say so: logging a saved meal from Add food, copying/saving a meal, deleting a saved food or
+  meal, a photo, weight or tape entry, and Pushups history.
   Phone check: edge swipe on a clean and a dirty Body entry.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.

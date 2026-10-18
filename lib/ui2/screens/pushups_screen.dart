@@ -813,8 +813,14 @@ class _PushupSettingsScreenState extends State<PushupSettingsScreen> {
               remove: 'Delete',
             );
             if (!ok) return;
-            final n = await PushupDb.deleteHistory();
-            if (mounted) setState(() => _note = '$n days deleted.');
+            try {
+              final n = await PushupDb.deleteHistory();
+              if (mounted) setState(() => _note = '$n days deleted.');
+            } catch (_) {
+              if (mounted) {
+                setState(() => _note = 'Could not delete history. Try again.');
+              }
+            }
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: S.x3),

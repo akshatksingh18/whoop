@@ -355,11 +355,31 @@ class Pushups {
     );
   }
 
+  /// Build 93 (Codex full-flow audit F07): today's open day, or null. A day
+  /// left open past its own midnight (the screen stayed open overnight) is
+  /// closed at that midnight here, so a set, pause or undo after midnight
+  /// never lands on yesterday. The same rule [reconcile] applies on resume.
+  static Future<PushupSession?> _today() async {
+    final s = await PushupDb.active();
+    if (s == null) return null;
+    final now = DateTime.now();
+    if (s.day == dayLabelOf(now)) return s;
+    final d = DateTime.parse(s.day);
+    final midnight = DateTime(d.year, d.month, d.day + 1);
+    s.state = PushupState.ended;
+    s.ended = midnight.isAfter(now) ? now : midnight;
+    s.anchor = null;
+    await _commit(s);
+    await PushupReminders.cancelBatch();
+    await PushupReminders.setDailyStart(true);
+    return null;
+  }
+
   /// Start my day. With [paused] the day opens paused until Resume (for
   /// starting while away from Home). Returns the open day.
   static Future<PushupSession> start({bool paused = false}) =>
       _serial(() async {
-        final open = await PushupDb.active();
+        final open = await _today();
         if (open != null) return open;
         await NotificationService.instance.ensurePermission();
         final now = DateTime.now();
@@ -389,7 +409,7 @@ class Pushups {
       });
 
   static Future<void> pause({String source = 'manual'}) => _serial(() async {
-    final s = await PushupDb.active();
+    final s = await _today();
     if (s == null) return;
     if (s.state == PushupState.running || s.pauseReason != source) {
       s.log(
@@ -410,7 +430,7 @@ class Pushups {
   /// Resume with a fresh full interval. A manual resume while known to be
   /// outside Home stops leaving from pausing it again until the next arrival.
   static Future<void> resume({String source = 'manual'}) => _serial(() async {
-    final s = await PushupDb.active();
+    final s = await _today();
     if (s == null || s.state != PushupState.paused) return;
     final now = DateTime.now();
     s.log(PushupEvent(at: now, kind: PushupEventKind.resume, source: source));
@@ -430,7 +450,7 @@ class Pushups {
 
   /// One completed set. A running day starts a fresh full interval from it.
   static Future<void> done({String source = 'app'}) => _serial(() async {
-    final s = await PushupDb.active();
+    final s = await _today();
     if (s == null) return;
     final now = DateTime.now();
     if (!s.log(
@@ -446,14 +466,14 @@ class Pushups {
   });
 
   static Future<void> undo() => _serial(() async {
-    final s = await PushupDb.active();
+    final s = await _today();
     if (s == null || !s.undo()) return;
     await _commit(s);
   });
 
   /// End my day. Returns the ended day.
   static Future<PushupSession?> end() => _serial(() async {
-    final s = await PushupDb.active();
+    final s = await _today();
     if (s == null) return null;
     s.state = PushupState.ended;
     s.ended = DateTime.now();

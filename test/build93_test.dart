@@ -1,5 +1,6 @@
-// Build 93: the cross-flow findings of Codex's Build 92 audit (C01-C06),
-// asserting the repaired behaviour against the real synthetic SQLite store.
+// Build 93: the cross-flow findings of Codex's Build 92 audit (C01-C06) and
+// its full-flow audit (F01-F15), asserting the repaired behaviour against the
+// real synthetic SQLite store.
 // Synthetic data only.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,12 +10,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/body_log.dart';
+import 'package:openstrap_edge/data/csv_export.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
+import 'package:openstrap_edge/notify/notification_event.dart';
+import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/ui2/activity/catalogue.dart';
+import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/screens/food_diary.dart';
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
@@ -118,6 +124,9 @@ void main() {
       'body_weight',
       'journal_metric',
       'journal',
+      'strength_set',
+      'session_detail',
+      'sessions',
     ]) {
       await db.delete(table);
     }
@@ -338,5 +347,154 @@ void main() {
       find.textContaining('older than this chart reaches'),
       findsOneWidget,
     );
+  });
+  test('F01: what was typed during a workout survives a reopen', () async {
+    final base = ActivityResult(
+      allActivities.first,
+      start: DateTime(2026, 10, 1, 7),
+      duration: const Duration(minutes: 30),
+    );
+    final typed = base.copyWith(
+      lapSecs: const [61, 63],
+      poolLengthM: 25,
+      stroke: 'free',
+      rounds: const [IntervalRound(30, 15, avgHr: 150)],
+      poses: const ['plank'],
+      breathsPerMin: 6,
+      gameScore: const [(21, 18)],
+    );
+    final json = enteredDetailJson(typed);
+    expect(enteredDetailJson(base), isNull);
+    await LocalDb.putSession({
+      'id': 'f01',
+      'start_ts': 1790000000,
+      'end_ts': 1790001800,
+      'type': 'swim',
+      'status': 'done',
+      'created_at': 1790000000,
+    });
+    await LocalDb.putSessionDetail('f01', json!);
+    final back = withEnteredDetail(base, await LocalDb.sessionDetail('f01'));
+    expect(back.lapSecs, [61, 63]);
+    expect(back.poolLengthM, 25);
+    expect(back.stroke, 'free');
+    expect(back.rounds.single.avgHr, 150);
+    expect(back.poses, ['plank']);
+    expect(back.breathsPerMin, 6);
+    expect(back.gameScore, [(21, 18)]);
+    // A garbled row reopens the workout without its detail, never throws.
+    expect(withEnteredDetail(base, '{"pool": "x"}').poolLengthM, isNull);
+    // Deleting the workout deletes what was typed with it.
+    await LocalDb.deleteSession('f01');
+    expect(await LocalDb.sessionDetail('f01'), isNull);
+  });
+
+  test('F03: a private workout and its sets stay out of the CSV', () async {
+    for (final (id, private) in [('open', 0), ('hidden', 1)]) {
+      await LocalDb.putSession({
+        'id': id,
+        'start_ts': 1790000000 + private * 7200,
+        'end_ts': 1790001800 + private * 7200,
+        'type': 'strength',
+        'status': 'done',
+        'created_at': 1790000000,
+      });
+      await LocalDb.setSessionPrivate(id, private == 1);
+      await db.insert('strength_set', {
+        'session_id': id,
+        'seq': 0,
+        'exercise_key': 'bench_press',
+        'set_index': 1,
+        'reps': 5,
+        'at_ts': 1790000100 + private * 7200,
+      });
+    }
+    String sql(String name) =>
+        kCsvExportSets.firstWhere((x) => x.name == name).sql;
+    final workouts = await db.rawQuery(sql('workouts'));
+    expect(workouts, hasLength(1));
+    expect(workouts.single['start_ts'], 1790000000);
+    final sets = await db.rawQuery(sql('strength'));
+    expect(sets.map((r) => r['session_id']), ['open']);
+  });
+
+  test('C02: a history-only weight never becomes the profile weight', () async {
+    final today = todayLabel();
+    final d = DateTime.parse(today);
+    final yesterday = dayLabelOf(DateTime(d.year, d.month, d.day - 1, 12));
+    await BodyLogDb.putWeight(yesterday, 70, 'kg', historyOnly: true);
+    final state = AppState.forTesting()..user = {'weight_kg': 80.0};
+    addTearDown(state.dispose);
+    // Today's only reading was just deleted: nothing current is left.
+    await syncProfileWeightAfterDelete(state, today);
+    expect(state.user!['weight_kg'], 80.0);
+    // An older reading that is current does take over.
+    final before = dayLabelOf(DateTime(d.year, d.month, d.day - 2, 12));
+    await BodyLogDb.putWeight(before, 71, 'kg', historyOnly: false);
+    await syncProfileWeightAfterDelete(state, today);
+    expect(state.user!['weight_kg'], 71.0);
+  });
+
+  test('C09: a weekly reminder reports when it was not scheduled', () async {
+    final ok = await NotificationService.instance.scheduleWeekly(
+      id: NotificationService.idBodyReminder,
+      category: NotifCategory.reminders,
+      title: 'Measurement day',
+      body: 'Synthetic',
+      weekday: DateTime.monday,
+      hour: 8,
+      minute: 0,
+    );
+    // No notification permission in a test: never reported as set.
+    expect(ok, isFalse);
+  });
+
+  testWidgets('F14: a changed form asks before it is left', (t) async {
+    var dirty = false;
+    final key = GlobalKey<NavigatorState>();
+    await t.pumpWidget(
+      MaterialApp(
+        navigatorKey: key,
+        theme: buildTheme(Brightness.light),
+        home: const Scaffold(body: Text('Under')),
+      ),
+    );
+    key.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => DirtyPopScope(
+          dirty: () => dirty,
+          child: const Scaffold(body: Text('Form')),
+        ),
+      ),
+    );
+    await t.pumpAndSettle();
+    // Clean: leaves at once.
+    await key.currentState!.maybePop();
+    await t.pumpAndSettle();
+    expect(find.text('Under'), findsOneWidget);
+    expect(find.text('Form'), findsNothing);
+
+    dirty = true;
+    key.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => DirtyPopScope(
+          dirty: () => dirty,
+          child: const Scaffold(body: Text('Form')),
+        ),
+      ),
+    );
+    await t.pumpAndSettle();
+    await key.currentState!.maybePop();
+    await t.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await t.tap(find.text('Keep editing'));
+    await t.pumpAndSettle();
+    expect(find.text('Form'), findsOneWidget);
+    await key.currentState!.maybePop();
+    await t.pumpAndSettle();
+    await t.tap(find.text('Discard'));
+    await t.pumpAndSettle();
+    expect(find.text('Form'), findsNothing);
+    expect(find.text('Under'), findsOneWidget);
   });
 }

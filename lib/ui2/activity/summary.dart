@@ -18,6 +18,8 @@
 // come from elsewhere (`workout_route`, `strength_set`) or not at all, and the
 // screen has to be honest about it without falling apart.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -238,6 +240,70 @@ class IntervalRound {
   final int workSec, restSec;
   final int? avgHr;
   const IntervalRound(this.workSec, this.restSec, {this.avgHr});
+}
+
+/// Build 93 (Codex full-flow audit F01): what was typed during a workout
+/// that no sensor records, as a JSON string for `session_detail`; null when
+/// there is nothing.
+String? enteredDetailJson(ActivityResult r) {
+  final m = <String, Object?>{
+    if (r.lapSecs.isNotEmpty) 'laps': r.lapSecs,
+    'pool': ?r.poolLengthM,
+    'stroke': ?r.stroke,
+    if (r.rounds.isNotEmpty)
+      'rounds': [
+        for (final x in r.rounds) [x.workSec, x.restSec, x.avgHr],
+      ],
+    if (r.poses.isNotEmpty) 'poses': r.poses,
+    'breaths': ?r.breathsPerMin,
+    if (r.gameScore.isNotEmpty)
+      'score': [
+        for (final (a, b) in r.gameScore) [a, b],
+      ],
+  };
+  return m.isEmpty ? null : jsonEncode(m);
+}
+
+/// [r] with the typed detail from [json] put back (a reopened past workout).
+ActivityResult withEnteredDetail(ActivityResult r, String? json) {
+  if (json == null) return r;
+  try {
+    final m = jsonDecode(json);
+    if (m is! Map) return r;
+    List<int> ints(Object? v) => [
+      for (final x in (v is List ? v : const []))
+        if (x is num) x.toInt(),
+    ];
+    return r.copyWith(
+      lapSecs: m['laps'] == null ? null : ints(m['laps']),
+      poolLengthM: (m['pool'] as num?)?.toInt(),
+      stroke: m['stroke'] as String?,
+      rounds: m['rounds'] is! List
+          ? null
+          : [
+              for (final x in m['rounds'] as List)
+                if (x is List && x.length >= 2 && x[0] is num && x[1] is num)
+                  IntervalRound(
+                    (x[0] as num).toInt(),
+                    (x[1] as num).toInt(),
+                    avgHr: x.length > 2 ? (x[2] as num?)?.toInt() : null,
+                  ),
+            ],
+      poses: m['poses'] is! List
+          ? null
+          : [for (final x in m['poses'] as List) x.toString()],
+      breathsPerMin: (m['breaths'] as num?)?.toDouble(),
+      gameScore: m['score'] is! List
+          ? null
+          : [
+              for (final x in m['score'] as List)
+                if (x is List && x.length == 2 && x[0] is num && x[1] is num)
+                  ((x[0] as num).toInt(), (x[1] as num).toInt()),
+            ],
+    );
+  } catch (_) {
+    return r;
+  }
 }
 
 /// One distance split. Named `KmSplit` because Flutter's animation library
@@ -513,6 +579,13 @@ class ActivityResult {
     int? phoneSteps,
     List<double?>? cadenceSeries,
     StrengthLog? strength,
+    List<int>? lapSecs,
+    int? poolLengthM,
+    String? stroke,
+    List<IntervalRound>? rounds,
+    List<String>? poses,
+    double? breathsPerMin,
+    List<(int, int)>? gameScore,
   }) => ActivityResult(
     activity,
     start: start,
@@ -551,13 +624,13 @@ class ActivityResult {
     phoneSteps: phoneSteps ?? this.phoneSteps,
     cadenceSeries: cadenceSeries ?? this.cadenceSeries,
     strength: strength ?? this.strength,
-    lapSecs: lapSecs,
-    poolLengthM: poolLengthM,
-    stroke: stroke,
-    rounds: rounds,
-    poses: poses,
-    breathsPerMin: breathsPerMin,
-    gameScore: gameScore,
+    lapSecs: lapSecs ?? this.lapSecs,
+    poolLengthM: poolLengthM ?? this.poolLengthM,
+    stroke: stroke ?? this.stroke,
+    rounds: rounds ?? this.rounds,
+    poses: poses ?? this.poses,
+    breathsPerMin: breathsPerMin ?? this.breathsPerMin,
+    gameScore: gameScore ?? this.gameScore,
   );
 
   Arch get arch => archOf(activity);
@@ -1262,17 +1335,30 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (_saving) return;
     setState(() => _saving = true);
     var ok = false;
+    ActivityResult? saved;
     try {
-      await widget.onRetrySave!();
+      saved = await widget.onRetrySave!();
       ok = true;
     } catch (_) {
       ok = false;
     }
     if (!mounted) return;
+    // Build 93 (Codex full-flow audit F06): the saved result (with its id
+    // and anything the save added) replaces the draft on screen.
     setState(() {
       _saving = false;
       unsaved = !ok;
+      if (saved != null) {
+        _rated = saved;
+        _runCache = null;
+        _drift = null;
+        _driftComputed = false;
+      }
     });
+    if (ok) {
+      _loadEnd();
+      _loadSetMarks();
+    }
   }
 
   @override

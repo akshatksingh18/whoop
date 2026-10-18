@@ -392,11 +392,14 @@ class LiveDraft {
 /// journey, power and basic all measure rather than ask, so they share one.
 Widget liveFor(
   Activity a, {
-  bool private = false,
+  bool? private,
   double? weightKg,
   ActivityHost host = ActivityHost.none,
 }) {
-  final p = private || a.private;
+  // Build 93 (Codex full-flow audit F03): the setup switch decides; the
+  // activity's own default applies only when no choice was passed. An OR
+  // here made a default-private activity impossible to switch public.
+  final p = private ?? a.private;
   final feed = host.feed;
   final history = host.history;
   final onFinish = host.onFinish;
@@ -573,12 +576,21 @@ class LiveShellState extends State<LiveShell> {
     Future<ActivityResult> Function()? retrySave;
     try {
       result = await onFinish?.call(draft) ?? draft;
+      // The session is saved: no draft to reopen, and no resume bar.
+      LiveDraft.clear();
     } catch (_) {
       result = draft;
-      retrySave = onFinish == null ? null : () => onFinish(draft);
+      // Build 93 (Codex full-flow audit F02): the draft (typed detail,
+      // privacy, clock) stays until a save succeeds, so the workout can still
+      // be resumed or retried with everything entered.
+      retrySave = onFinish == null
+          ? null
+          : () async {
+              final saved = await onFinish(draft);
+              LiveDraft.clear();
+              return saved;
+            };
     }
-    // The session is over: no draft to reopen, and no resume bar.
-    LiveDraft.clear();
     if (!mounted) return;
     // Everything under the summary belongs to setting this session up —
     // picker, setup, the live screen itself. Back from a summary used to land

@@ -1453,9 +1453,11 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
 Future<void> syncProfileWeightAfterDelete(AppState app, String date) async {
   final today = todayLabel();
   if (date != today) return;
+  // A history-only reading (one entered for an earlier day) never becomes
+  // the live profile weight (Build 93, Codex full-flow audit C02).
   final all = [
     for (final w in await BodyLogDb.weights())
-      if (w.date.compareTo(today) <= 0) w,
+      if (w.date.compareTo(today) <= 0 && !w.historyOnly) w,
   ]..sort((a, b) => a.date.compareTo(b.date));
   if (all.isEmpty) return;
   final kg = all.last.kg;
@@ -2659,9 +2661,8 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
       return;
     }
     final p = await SharedPreferences.getInstance();
-    await p.setBool('body.reminder', on);
     if (on) {
-      await NotificationService.instance.scheduleWeekly(
+      final ok = await NotificationService.instance.scheduleWeekly(
         id: NotificationService.idBodyReminder,
         category: NotifCategory.reminders,
         title: 'Measurement day',
@@ -2670,7 +2671,22 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
         hour: _hour,
         minute: 0,
       );
+      // Permission alone is not a scheduled reminder: On is saved and shown
+      // only once the system has it.
+      if (!ok) {
+        await p.setBool('body.reminder', false);
+        if (!mounted) return;
+        setState(() => _reminder = false);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('The reminder could not be set. Try again.'),
+          ),
+        );
+        return;
+      }
+      await p.setBool('body.reminder', true);
     } else {
+      await p.setBool('body.reminder', false);
       await NotificationService.instance.cancel(
         NotificationService.idBodyReminder,
       );
@@ -2931,7 +2947,15 @@ class _GoalScreenState extends State<GoalScreen> {
             ),
           ),
         );
-    return detailScaffold(c, 'Your goal', [
+    // Build 93 (Codex full-flow audit F14): leaving with a changed choice
+    // asks first.
+    return DirtyPopScope(
+      dirty: () =>
+          !_saving &&
+          (_phase != widget.plan.phase ||
+              _pace != widget.plan.pace ||
+              _age != widget.plan.trainingAge),
+      child: detailScaffold(c, 'Your goal', [
       Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(
@@ -3038,6 +3062,7 @@ class _GoalScreenState extends State<GoalScreen> {
         color: C.body,
         onTap: _saving ? null : () => _save(c),
       ),
-    ]);
+    ]),
+    );
   }
 }

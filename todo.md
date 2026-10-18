@@ -369,6 +369,26 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     or a failed save; Log again and its Undo report failures; a failed workout delete keeps the
     row and says so; the saved-split screen reports storage errors; Today's Measure /
     measurement-day actions open the tape fields; a nap that has not ended cannot be logged.
+  - Codex's full-flow audit of `9b609cd9` (local `build/research-local/full-flow-audit.md`,
+    coverage and device-check registers), all fixed in Build 93: what was typed during a
+    workout (laps, pool length, stroke, rounds, poses, breathing pace, game score) is saved in
+    `session_detail` and shown again when the workout is reopened (deleted with it, carried by
+    backup import and rebuild salvage); a failed Save on the summary keeps its Retry and updates
+    the summary once it lands; an interrupted workout's draft is cleared only after a successful
+    save and keeps its Private choice on resume. A private workout and its sets stay out of the
+    CSV and AI-analysis exports, and Lifetime in the analysis export starts at the first workout
+    too. Changing an Add food portion's unit drops copies that cannot convert and says how many;
+    an item saved in a removed unit asks for the amount again. A Pushups day left open past
+    midnight closes at its midnight before any set, pause or undo; Pushups shows Retry when it
+    cannot load and its Today/Train shortcuts report failures. A failed manual workout save
+    shows "Workout not saved", never a success heading, and leaving while it saves does not
+    close the screen below. Location permission opens iPhone Settings once denied; Quiet hours
+    says reminders keep their own times. A multi-file import names a file that failed and keeps
+    the ones that landed. Edit profile, Daily targets and Your goal ask "Discard changes?" before
+    leaving with edits (`DirtyPopScope`); Your data shows progress and the result at the top and
+    scrolls to it. Deleting today's weigh-in never moves the profile to a history-only weight;
+    the Body reminder is On only once the weekly reminder was actually scheduled.
+    Phone check: reopen a swim/interval workout; Discard on Edit profile; Your data import result.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

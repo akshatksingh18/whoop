@@ -63,6 +63,9 @@ class _PushupsScreenState extends State<PushupsScreen> {
   HomeAutomation? _auto;
   bool _busy = false, _openLog = false;
   String? _error;
+
+  /// Build 93 (Codex full-flow audit F10): the last read failed.
+  bool _loadFailed = false;
   Timer? _tick;
 
   @override
@@ -73,7 +76,9 @@ class _PushupsScreenState extends State<PushupsScreen> {
     _tick = Timer.periodic(Motion.tick * 30, (_) {
       if (mounted) setState(() {});
     });
-    unawaited(Pushups.reconcile().then((_) => _load()));
+    unawaited(
+      Pushups.reconcile().then((_) => _load(), onError: (_) => _load()),
+    );
   }
 
   @override
@@ -83,11 +88,19 @@ class _PushupsScreenState extends State<PushupsScreen> {
     super.dispose();
   }
 
+  /// Never throws: a failed read shows Retry, and a command's busy flag is
+  /// always released (the reread used to be awaited before releasing it).
   Future<void> _load() async {
-    final s = await Pushups.status();
-    final h = await HomeRegion.boundary();
-    final a = await HomeRegion.automation();
-    if (mounted) setState(() => (_s = s, _home = h, _auto = a));
+    try {
+      final s = await Pushups.status();
+      final h = await HomeRegion.boundary();
+      final a = await HomeRegion.automation();
+      if (mounted) {
+        setState(() => (_s = s, _home = h, _auto = a, _loadFailed = false));
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadFailed = true);
+    }
   }
 
   Future<void> _run(Future<void> Function() f) async {
@@ -98,8 +111,8 @@ class _PushupsScreenState extends State<PushupsScreen> {
     } catch (e) {
       _error = '$e'.replaceFirst(RegExp(r'^\w+Error: '), '');
     } finally {
-      await _load();
       if (mounted) setState(() => _busy = false);
+      await _load();
     }
   }
 
@@ -144,7 +157,14 @@ class _PushupsScreenState extends State<PushupsScreen> {
   Widget build(BuildContext c) {
     final s = _s;
     return detailScaffold(c, 'Pushups', [
-      if (s == null)
+      if (s == null && _loadFailed)
+        StatusCard(
+          'Pushups could not load',
+          'Your saved days are intact.',
+          fix: 'Retry',
+          onFix: _load,
+        )
+      else if (s == null)
         const Padding(
           padding: EdgeInsets.all(S.x8),
           child: Center(child: CircularProgressIndicator()),
@@ -1083,6 +1103,27 @@ class _TodayPushupRowState extends State<TodayPushupRow> {
     } catch (_) {}
   }
 
+  /// Build 93 (Codex full-flow audit F10): Start or Done from Today/Train,
+  /// with a failure reported rather than thrown.
+  Future<void> _shortcut(BuildContext c, bool start) async {
+    try {
+      await (start ? Pushups.start() : Pushups.done());
+    } catch (_) {
+      if (c.mounted) {
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              start
+                  ? 'Pushups did not start. Try again.'
+                  : 'That set was not saved. Try again.',
+            ),
+          ),
+        );
+      }
+    }
+    await _load();
+  }
+
   @override
   Widget build(BuildContext c) {
     final s = _s;
@@ -1121,10 +1162,7 @@ class _TodayPushupRowState extends State<TodayPushupRow> {
         // blank band under the words (Build 90 audit, Train Pushups card).
         frac: goal == null || a == null ? null : s.today / goal,
         action: a == null ? 'Start' : 'Done',
-        onAction: () async {
-          await (a == null ? Pushups.start() : Pushups.done());
-          await _load();
-        },
+        onAction: () => _shortcut(c, a == null),
         onTap: () => _push(c, const PushupsScreen()),
       );
     }
@@ -1151,10 +1189,7 @@ class _TodayPushupRowState extends State<TodayPushupRow> {
             ),
             Pressable(
               semanticLabel: a == null ? 'Start my day' : 'Log a set',
-              onTap: () async {
-                await (a == null ? Pushups.start() : Pushups.done());
-                await _load();
-              },
+              onTap: () => _shortcut(c, a == null),
               child: Pill(a == null ? 'Start' : 'Done', C.orange),
             ),
           ],

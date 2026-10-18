@@ -641,7 +641,10 @@ class NotificationService {
     } catch (_) {}
   }
 
-  Future<void> scheduleWeekly({
+  /// True only when the repeat was handed to the system (Build 93, Codex
+  /// full-flow audit C09): a caller showing "On" needs that, not just a
+  /// granted permission.
+  Future<bool> scheduleWeekly({
     required int id,
     required NotifCategory category,
     required String title,
@@ -652,8 +655,8 @@ class NotificationService {
     String? route,
   }) async {
     try {
-      if (!_maySchedule(id)) return;
-      if (!await ensurePermission(allowPrompt: false)) return;
+      if (!_maySchedule(id)) return false;
+      if (!await ensurePermission(allowPrompt: false)) return false;
       await ensureTimezone();
       await _plugin.zonedSchedule(
         id,
@@ -667,7 +670,10 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
         payload: route,
       );
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// One-shot absolute-time schedule (unlike [scheduleDaily]/[scheduleWeekly],

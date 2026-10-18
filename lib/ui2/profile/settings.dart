@@ -13,6 +13,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -1069,6 +1070,14 @@ class _NotificationSettingsState extends State<NotificationSettings>
   Future<void> _requestPermission() async {
     final ok = await NotificationService.instance.ensurePermission();
     if (mounted) setState(() => _granted = ok);
+    // Build 93 (Codex full-flow audit F11): once denied, iOS never asks
+    // again, so the button opens this app's page in iPhone Settings; the
+    // permission is read again on return (didChangeAppLifecycleState).
+    if (!ok) {
+      try {
+        await Geolocator.openAppSettings();
+      } catch (_) {}
+    }
   }
 
   @override
@@ -1401,7 +1410,7 @@ class NotificationSettingsView extends StatelessWidget {
                           l?.settingsQuietHoursRowTitle ?? 'Quiet hours',
                           sub:
                               l?.settingsQuietHoursRowSub ??
-                              'Nothing buzzes inside this window',
+                              'Alerts stay quiet here. Reminders you set (Food, Body, Pushups) keep their own times',
                           value: prefs.quietEnabled ? on : off,
                           chevron: false,
                           onTap: () => set(
@@ -1643,9 +1652,15 @@ class _EditProfileViewState extends State<EditProfileView> {
 
   static String _s(Object? v) => v == null ? '' : '$v';
 
+  /// What the form held when it opened, for the unsaved-changes guard.
+  late final String _start = _snapshot;
+  String get _snapshot =>
+      [_name.text, _age.text, _height.text, _weight.text, _sex].join('\u0000');
+
   @override
   void initState() {
     super.initState();
+    _start;
     if (widget.onImport == null) return;
     lastImportAt(HealthImport.profile).then((at) {
       if (mounted) setState(() => _lastImport = at);
@@ -1769,118 +1784,122 @@ class _EditProfileViewState extends State<EditProfileView> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    return Scaffold(
-      backgroundColor: p.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: NavBar(
-                l?.settingsEditProfileNavTitle ?? 'Edit profile',
-                trailing: Pressable(
-                  semanticLabel: l?.actionSave ?? 'Save',
-                  onTap: _saving ? null : _save,
-                  child: Text(
-                    _saving ? 'Saving…' : l?.actionSave ?? 'Save',
-                    style: F.body.copyWith(
-                      color: p.on(C.green),
-                      fontWeight: FontWeight.w600,
+    return DirtyPopScope(
+      dirty: () => !_saving && _snapshot != _start,
+      listenables: [_name, _age, _height, _weight],
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: NavBar(
+                  l?.settingsEditProfileNavTitle ?? 'Edit profile',
+                  trailing: Pressable(
+                    semanticLabel: l?.actionSave ?? 'Save',
+                    onTap: _saving ? null : _save,
+                    child: Text(
+                      _saving ? 'Saving…' : l?.actionSave ?? 'Save',
+                      style: F.body.copyWith(
+                        color: p.on(C.green),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-                children: [
-                  _text(
-                    c,
-                    _name,
-                    l?.settingsNameFieldLabel ?? 'NAME',
-                    TextInputType.name,
-                  ),
-                  const SizedBox(height: S.x4),
-                  Text(
-                    l?.settingsSexFieldLabel ?? 'SEX',
-                    style: F.over.copyWith(color: p.ink3),
-                  ),
-                  const SizedBox(height: S.x2),
-                  Wrap(
-                    spacing: S.x2,
-                    runSpacing: S.x2,
-                    children: [
-                      for (final (key, label) in [
-                        ('m', l?.settingsSexMale ?? 'Male'),
-                        ('f', l?.settingsSexFemale ?? 'Female'),
-                        (
-                          'other',
-                          l?.settingsSexPreferNotToSay ?? 'Prefer not to say',
-                        ),
-                      ])
-                        Pressable(
-                          onTap: () => setState(() => _sex = key),
-                          semanticLabel: label,
-                          child: Container(
-                            alignment: Alignment.center,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: S.x4,
-                              vertical: S.x2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _sex == key ? p.wash(C.green) : p.card,
-                              borderRadius: R.rPill,
-                              border: Border.all(
-                                color: _sex == key ? p.on(C.green) : p.line,
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                  children: [
+                    _text(
+                      c,
+                      _name,
+                      l?.settingsNameFieldLabel ?? 'NAME',
+                      TextInputType.name,
+                    ),
+                    const SizedBox(height: S.x4),
+                    Text(
+                      l?.settingsSexFieldLabel ?? 'SEX',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                    const SizedBox(height: S.x2),
+                    Wrap(
+                      spacing: S.x2,
+                      runSpacing: S.x2,
+                      children: [
+                        for (final (key, label) in [
+                          ('m', l?.settingsSexMale ?? 'Male'),
+                          ('f', l?.settingsSexFemale ?? 'Female'),
+                          (
+                            'other',
+                            l?.settingsSexPreferNotToSay ?? 'Prefer not to say',
+                          ),
+                        ])
+                          Pressable(
+                            onTap: () => setState(() => _sex = key),
+                            semanticLabel: label,
+                            child: Container(
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: S.x4,
+                                vertical: S.x2,
                               ),
-                            ),
-                            child: Text(
-                              label,
-                              style: F.cap.copyWith(
-                                color: _sex == key ? p.on(C.green) : p.ink2,
+                              decoration: BoxDecoration(
+                                color: _sex == key ? p.wash(C.green) : p.card,
+                                borderRadius: R.rPill,
+                                border: Border.all(
+                                  color: _sex == key ? p.on(C.green) : p.line,
+                                ),
+                              ),
+                              child: Text(
+                                label,
+                                style: F.cap.copyWith(
+                                  color: _sex == key ? p.on(C.green) : p.ink2,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: S.x4),
-                  _text(
-                    c,
-                    _age,
-                    l?.settingsAgeYearsFieldLabel ?? 'AGE (YEARS)',
-                    TextInputType.number,
-                  ),
-                  const SizedBox(height: S.x4),
-                  _text(
-                    c,
-                    _height,
-                    _u.heightLabel.toUpperCase(),
-                    const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: S.x4),
-                  _text(
-                    c,
-                    _weight,
-                    _u.weightLabel.toUpperCase(),
-                    const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  ..._importBlock(p, c),
-                  const SizedBox(height: S.x6),
-                  StatusCard(
-                    l?.settingsFourFieldsTitle ??
-                        'These four change your numbers',
-                    l?.settingsFourFieldsBody ??
-                        'They feed heart-rate zones, calorie estimates and training '
-                            'load. Clear one and only the metrics that need it stay '
-                            'unavailable.',
-                    icon: LucideIcons.info,
-                  ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: S.x4),
+                    _text(
+                      c,
+                      _age,
+                      l?.settingsAgeYearsFieldLabel ?? 'AGE (YEARS)',
+                      TextInputType.number,
+                    ),
+                    const SizedBox(height: S.x4),
+                    _text(
+                      c,
+                      _height,
+                      _u.heightLabel.toUpperCase(),
+                      const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    const SizedBox(height: S.x4),
+                    _text(
+                      c,
+                      _weight,
+                      _u.weightLabel.toUpperCase(),
+                      const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    ..._importBlock(p, c),
+                    const SizedBox(height: S.x6),
+                    StatusCard(
+                      l?.settingsFourFieldsTitle ??
+                          'These four change your numbers',
+                      l?.settingsFourFieldsBody ??
+                          'They feed heart-rate zones, calorie estimates and training '
+                              'load. Clear one and only the metrics that need it stay '
+                              'unavailable.',
+                      icon: LucideIcons.info,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

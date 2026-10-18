@@ -200,6 +200,7 @@ class LocalDb {
     'observation',
     'workout_route',
     'workout_split',
+    'session_detail',
     // The user's sleep corrections. These are the ONLY copy of them — the
     // detector's output is deliberately not baked in, so a restore that
     // skipped these would silently reinstate every nap the user had deleted
@@ -293,6 +294,7 @@ class LocalDb {
     'sessions',
     'workout_route',
     'workout_split',
+    'session_detail',
     // Imported or paired-sensor rows: the source app or sensor cannot
     // re-deliver them, so they are as irreplaceable as typed ones.
     'observation',
@@ -546,6 +548,7 @@ class LocalDb {
         await _createSleepOverride(db);
         await _createSleepNap(db);
         await _createWorkoutRoute(db);
+        await _createSessionDetail(db);
         await _createNotifFired(db);
         await _ensureCoachViews(db);
       },
@@ -1114,6 +1117,7 @@ class LocalDb {
     await _createSleepOverride(db);
     await _createSleepNap(db);
     await _createWorkoutRoute(db);
+    await _createSessionDetail(db);
     await _ensureWorkoutRouteSpeed(db);
     await _createWorkoutSplit(db);
     await _ensureBreathingWindowColumns(db);
@@ -7167,6 +7171,7 @@ class LocalDb {
         for (final child in const [
           'workout_route',
           'workout_split',
+          'session_detail',
           'strength_set',
         ]) {
           deleted += await txn.rawDelete(
@@ -7943,6 +7948,7 @@ class LocalDb {
       'live_coverage',
       'workout_route',
       'workout_split',
+      'session_detail',
       'notif_fired',
       'metric_series_version',
       'band_backlog',
@@ -9543,10 +9549,47 @@ class LocalDb {
     // …and the session's Lift Log (build 86). An imported, unlinked log has
     // no session and is untouched.
     await db.delete('lift_log', where: 'session_id = ?', whereArgs: [id]);
+    // …and what the user typed during it (Build 93).
+    await db.delete('session_detail', where: 'session_id = ?', whereArgs: [id]);
   }
 
   // ── workout GPS routes (run/ride/walk) I/O ─────────────────────────────────
   // Recorded on-device only; never uploaded. Ordered by seq within a session.
+
+  /// Build 93 (Codex full-flow audit F01): what the user TYPED during a
+  /// workout that no sensor records (laps, pool length, stroke, interval
+  /// rounds, poses, breathing pace, a game score), as JSON by session id. A
+  /// table of its own because `putSession` replaces the whole session row.
+  static Future<void> _createSessionDetail(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS session_detail (
+        session_id TEXT PRIMARY KEY,
+        json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> putSessionDetail(String id, String json) async {
+    final db = await instance;
+    await db.insert('session_detail', {
+      'session_id': id,
+      'json': json,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<String?> sessionDetail(String id) async {
+    final db = await instance;
+    final r = await db.query(
+      'session_detail',
+      columns: ['json'],
+      where: 'session_id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return r.isEmpty ? null : r.first['json'] as String?;
+  }
 
   static Future<void> _createWorkoutRoute(Database db) async {
     await db.execute('''

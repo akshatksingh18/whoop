@@ -85,6 +85,48 @@ void main() {
     });
   }
 
+  // Build 93 (Codex full-flow audit F14): a typed edit asks before leaving,
+  // and Save (which closes with maybePop) is never held by that question.
+  testWidgets('an edited profile asks before leaving; Save still closes', (
+    t,
+  ) async {
+    t.view.physicalSize = const Size(1200, 3600);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final nav = GlobalKey<NavigatorState>();
+    await t.pumpWidget(
+      MaterialApp(
+        navigatorKey: nav,
+        theme: buildTheme(Brightness.light),
+        home: const Scaffold(body: Text('Settings')),
+      ),
+    );
+    void open() => nav.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (c) => EditProfileView(
+          initial: _initial,
+          onSave: (_) async {
+            if (c.mounted) await Navigator.of(c).maybePop();
+          },
+        ),
+      ),
+    );
+    open();
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField).first, 'Synthetic');
+    await t.pump();
+    await nav.currentState!.maybePop();
+    await t.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await t.tap(find.text('Keep editing'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Save'));
+    await t.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsNothing);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.byType(EditProfileView), findsNothing);
+  });
+
   testWidgets('no importer, no button', (t) async {
     await t.pumpWidget(
       _frame(EditProfileView(initial: _initial, onSave: (_) async {})),

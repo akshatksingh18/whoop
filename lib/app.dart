@@ -661,7 +661,7 @@ class _LiveSessionBar extends StatelessWidget {
       MaterialPageRoute<void>(
         builder: (_) => liveFor(
           a,
-          private: draft?.private ?? false,
+          private: draft?.private ?? a.private,
           weightKg: draft?.weightKg,
           host: activityHost(app, history: history),
         ),

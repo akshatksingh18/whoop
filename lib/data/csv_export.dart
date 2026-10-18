@@ -107,7 +107,9 @@ const kCsvExportSets = <CsvExportSet>[
     sql: '''
       SELECT date, start_ts, end_ts, type, status, duration_min, strain,
              calories, max_hr, steps, hrr_bpm, source
-      FROM v_sessions ORDER BY start_ts ASC
+      FROM v_sessions
+      WHERE id NOT IN (SELECT id FROM sessions WHERE private = 1)
+      ORDER BY start_ts ASC
     ''',
   ),
   CsvExportSet(
@@ -249,6 +251,8 @@ const kCsvExportSets = <CsvExportSet>[
       SELECT s.at_ts, s.session_id, s.exercise_key AS exercise,
              s.set_index, s.reps, s.load_kg, s.rpe, s.hold_sec, s.rest_sec, s.note
       FROM strength_set s
+      WHERE s.session_id IS NULL
+         OR s.session_id NOT IN (SELECT id FROM sessions WHERE private = 1)
       ORDER BY s.at_ts ASC, s.session_id ASC, s.seq ASC
     ''',
   ),

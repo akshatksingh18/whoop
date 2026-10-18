@@ -94,7 +94,7 @@ class _SessionDestinationState extends State<SessionDestination> {
             setState(
               () => _screen = liveFor(
                 activity,
-                private: LiveDraft.current?.private ?? false,
+                private: LiveDraft.current?.private ?? activity.private,
                 weightKg: LiveDraft.current?.weightKg,
                 host: activityHost(app, history: history),
               ),
@@ -1678,6 +1678,12 @@ Future<ActivityResult> _finishSession(
     await app.repo?.setWorkoutPrivate(id, true);
   }
 
+  // Build 93 (Codex full-flow audit F01): what the user typed (laps, pool,
+  // stroke, rounds, poses, score) is kept with the session, so reopening it
+  // shows the same detail as the summary did.
+  final typed = enteredDetailJson(draft);
+  if (typed != null) await LocalDb.putSessionDetail(id, typed);
+
   // Written on every set already; written again here because the last one
   // may have landed while the app was being torn down.
   if (draft.strength.sets.isNotEmpty) {
@@ -1865,6 +1871,11 @@ List<double> _decodeZoneMinutes(Object? raw) => [
 /// rather than from the six columns the list row carries.
 Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   var out = w.toResult();
+  try {
+    out = withEnteredDetail(out, await LocalDb.sessionDetail(w.id));
+  } catch (_) {
+    // The typed detail is extra; the session still opens without it.
+  }
   final repo = app.repo;
   if (repo == null) return out;
   try {

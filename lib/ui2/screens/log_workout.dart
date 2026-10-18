@@ -516,6 +516,10 @@ class _LogWorkoutState extends State<LogWorkout> {
   bool _saving = false;
   String? _wrote;
 
+  /// Build 93 (Codex full-flow audit F08): [_wrote] is a failure, not a
+  /// saved outcome, so it never sits under a success heading.
+  bool _wroteFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -651,6 +655,7 @@ class _LogWorkoutState extends State<LogWorkout> {
     setState(() {
       _saving = true;
       _wrote = null;
+      _wroteFailed = false;
     });
     try {
       final r = widget.sessionId == null
@@ -678,6 +683,7 @@ class _LogWorkoutState extends State<LogWorkout> {
         if (!mounted) return;
         setState(() {
           _saving = false;
+          _wroteFailed = false;
           _wrote =
               l?.logWorkoutUnscoredSaved ??
               'Saved. No heart rate was recorded over that window, so it '
@@ -686,17 +692,21 @@ class _LogWorkoutState extends State<LogWorkout> {
         });
         return;
       }
-      nav.pop(true);
+      // Build 93 (Codex full-flow audit F09): only this form closes itself;
+      // if it was left while saving, the screen under it stays.
+      if (mounted) nav.pop(true);
     } on ManualWindowException catch (e) {
       if (mounted)
         setState(() {
           _saving = false;
+          _wroteFailed = true;
           _wrote = e.error.message;
         });
     } catch (_) {
       if (mounted) {
         setState(() {
           _saving = false;
+          _wroteFailed = true;
           _wrote =
               l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
         });
@@ -781,6 +791,12 @@ class _LogWorkoutState extends State<LogWorkout> {
                       l?.logWorkoutWindowInvalidTitle ??
                           'That window will not save',
                       bad.message,
+                      icon: LucideIcons.triangleAlert,
+                    )
+                  else if (_wrote != null && _wroteFailed)
+                    StatusCard(
+                      retime ? 'Times not saved' : 'Workout not saved',
+                      _wrote!,
                       icon: LucideIcons.triangleAlert,
                     )
                   else if (_wrote != null)

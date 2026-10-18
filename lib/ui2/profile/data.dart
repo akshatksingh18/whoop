@@ -69,6 +69,25 @@ class _DataScreenState extends State<DataScreen> {
   ImportOutcome? _outcome;
   int? _photoFiles;
 
+  /// Brings the progress and outcome region (at the top) into view when an
+  /// action starts and when it reports.
+  final _scroll = ScrollController();
+
+  void _showStatus() {
+    if (!_scroll.hasClients || _scroll.offset == 0) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +124,7 @@ class _DataScreenState extends State<DataScreen> {
         _note = s;
         _noteFailed = failed;
       });
+      _showStatus();
     }
   }
 
@@ -119,6 +139,7 @@ class _DataScreenState extends State<DataScreen> {
       _note = null;
       _outcome = null;
     });
+    _showStatus();
     try {
       final (text, failed) = await job();
       _say(text, failed: failed);
@@ -726,6 +747,7 @@ class _DataScreenState extends State<DataScreen> {
             ),
             Expanded(
               child: ListView(
+                controller: _scroll,
                 padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
                 children: [
                   // Home shows this too, on the launch it happened. It belongs
@@ -739,6 +761,63 @@ class _DataScreenState extends State<DataScreen> {
                   // importer.)
                   if (rebuilt != null) ...[
                     rebuilt,
+                    const SizedBox(height: S.x5),
+                  ],
+                  if (_busy) ...[
+                    Row(
+                      children: [
+                        SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: p.on(C.blue),
+                          ),
+                        ),
+                        const SizedBox(width: S.x3),
+                        Text(
+                          'Working. Keep this screen open.',
+                          style: F.body.copyWith(color: p.ink2),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: S.x5),
+                  ],
+                  if (_note != null && _note!.isNotEmpty) ...[
+                    StatusCard(
+                      _noteFailed
+                          ? (l?.dataThatDidNotWork ?? 'That did not work')
+                          : (l?.actionDone ?? 'Done'),
+                      _note!,
+                      icon: _noteFailed
+                          ? LucideIcons.triangleAlert
+                          : LucideIcons.check,
+                    ),
+                    const SizedBox(height: S.x5),
+                  ],
+                  if (app.importRollupError != null) ...[
+                    StatusCard(
+                      l?.welcomeSummariesDidNotTitle ??
+                          'The days landed, the summaries did not',
+                      l?.dataSummariesDidNotBodyShort(
+                            '${app.importRollupError}',
+                          ) ??
+                          'Every imported row is in the database, but rebuilding the '
+                              'cross-day summaries over them threw '
+                              '(${app.importRollupError}), so trends and insights '
+                              'still describe the data you had before.',
+                      fix:
+                          l?.dataReanalyzeEverything ?? 'Re-analyze everything',
+                      icon: LucideIcons.triangleAlert,
+                      onFix: _busy ? null : () => _run(() => _reanalyze(app)),
+                    ),
+                    const SizedBox(height: S.x5),
+                  ],
+                  // The onboarding report, not a second copy of it. This
+                  // screen used to render its own paraphrase, which had already
+                  // drifted: it lost the rollup error entirely and stated the
+                  // loss counts in one run-on sentence.
+                  if (o != null) ...[
+                    ImportReport(o),
                     const SizedBox(height: S.x5),
                   ],
                   settingsGroup(c, l?.dataExportGroup ?? 'Export', [
@@ -958,50 +1037,6 @@ class _DataScreenState extends State<DataScreen> {
                           : () => _run(() => _reanalyze(app)),
                     ),
                   ]),
-                  if (_busy) ...[
-                    const SizedBox(height: S.x6),
-                    Center(
-                      child: CircularProgressIndicator(color: p.on(C.blue)),
-                    ),
-                  ],
-                  if (_note != null && _note!.isNotEmpty) ...[
-                    const SizedBox(height: S.x5),
-                    StatusCard(
-                      _noteFailed
-                          ? (l?.dataThatDidNotWork ?? 'That did not work')
-                          : (l?.actionDone ?? 'Done'),
-                      _note!,
-                      icon: _noteFailed
-                          ? LucideIcons.triangleAlert
-                          : LucideIcons.check,
-                    ),
-                  ],
-                  if (app.importRollupError != null) ...[
-                    const SizedBox(height: S.x5),
-                    StatusCard(
-                      l?.welcomeSummariesDidNotTitle ??
-                          'The days landed, the summaries did not',
-                      l?.dataSummariesDidNotBodyShort(
-                            '${app.importRollupError}',
-                          ) ??
-                          'Every imported row is in the database, but rebuilding the '
-                              'cross-day summaries over them threw '
-                              '(${app.importRollupError}), so trends and insights '
-                              'still describe the data you had before.',
-                      fix:
-                          l?.dataReanalyzeEverything ?? 'Re-analyze everything',
-                      icon: LucideIcons.triangleAlert,
-                      onFix: _busy ? null : () => _run(() => _reanalyze(app)),
-                    ),
-                  ],
-                  // The onboarding report, not a second copy of it. This
-                  // screen used to render its own paraphrase, which had already
-                  // drifted: it lost the rollup error entirely and stated the
-                  // loss counts in one run-on sentence.
-                  if (o != null) ...[
-                    const SizedBox(height: S.x5),
-                    ImportReport(o),
-                  ],
                 ],
               ),
             ),

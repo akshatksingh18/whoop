@@ -165,6 +165,7 @@ The full analysis of each day, including curves:
 |---|---|
 | `sessions` | every workout: type, start/end, strain, Method 1 active calories for run/walk, estimated HR/MET calories for other types, max HR, time in each HR zone, steps, cadence, device |
 | `workout_route` / `workout_split` | GPS route points and per-kilometre splits (runs, rides, walks) |
+| `session_detail` | From Build 93: what was typed during a workout that no sensor records (laps, pool length, stroke, interval rounds, poses, breathing pace, game score) as JSON by session; shown again when the workout reopens, deleted with it, carried by backup import and rebuild salvage |
 | `baselines` calculation anchors (preferences mirrored) | retained `motion.<session>` answers, active workout windows/pauses, captured profiles, voice milestones, dated profile and step-goal history; included in backup/import |
 | `strength_set` / `exercise_def` | lifting sets: exercise, weight, reps |
 | `workout_suggestions` | auto-detected efforts waiting for confirmation |
@@ -328,6 +329,9 @@ The analysis export includes every individual body reading with source/history-o
 uses the shared strength best-set/score rules and load/equipment meaning, labels each partial
 nutrient total and uses a separate complete-day denominator for each weekly nutrient mean.
 Reports render off the UI isolate; they are not restore files and contain no photo bytes.
+From Build 93 a workout marked private is left out of the analysis export (with its Lift Log)
+and of the CSV workouts and strength files; database and encrypted backups still keep it.
+Lifetime starts at the earliest record of any kind, workouts included.
 
 All four macro rows/icons remain visible; in Build 86 an unlogged nutrient displays as unknown,
 not zero. Activity streaks accept ten active recorded purposeful-exercise minutes (including lifts

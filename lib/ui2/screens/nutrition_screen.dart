@@ -2179,6 +2179,11 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
   bool busy = false;
   String? error;
 
+  /// The targets as the sheet opened (Build 93, F14: closing with edits asks).
+  late final Map<String, String> _start = {
+    for (final e in ctrls.entries) e.key: e.value.text,
+  };
+
   /// Build 89: the evening "Is today's food complete?" question.
   bool? _evening;
 
@@ -2199,6 +2204,7 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
               '',
         ),
     };
+    _start;
   }
 
   @override
@@ -2249,6 +2255,8 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
 
   @override
   Widget build(BuildContext s) => InputSheet(
+    changed: () =>
+        !busy && ctrls.entries.any((e) => e.value.text != _start[e.key]),
     children: [
       Text('Daily targets', style: F.head.copyWith(color: P.of(s).ink)),
       const SizedBox(height: S.x2),

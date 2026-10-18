@@ -11204,7 +11204,7 @@
   "@settingsQuietHoursRowTitle": {
     "description": "Settings row title toggling quiet hours"
   },
-  "settingsQuietHoursRowSub": "Nothing buzzes inside this window",
+  "settingsQuietHoursRowSub": "Alerts stay quiet here. Reminders you set (Food, Body, Pushups) keep their own times",
   "@settingsQuietHoursRowSub": {
     "description": "Settings row subtitle for the quiet-hours toggle"
   },

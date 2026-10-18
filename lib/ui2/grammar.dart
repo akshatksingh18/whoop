@@ -3965,3 +3965,70 @@ class HeroStat extends StatelessWidget {
     );
   }
 }
+
+/// A full-page form's unsaved-changes guard (Build 93, Codex full-flow audit
+/// F14): a clean form leaves at once, including the iPhone edge swipe; a
+/// dirty one asks "Discard changes?" first. [dirty] is read on every build,
+/// and [listenables] (the form's text controllers) rebuild it as typing
+/// changes it. A Save is never held: `Navigator.pop` skips the guard, and a
+/// `maybePop` is let through once [dirty] (e.g. "saving") turns false.
+class DirtyPopScope extends StatefulWidget {
+  const DirtyPopScope({
+    super.key,
+    required this.dirty,
+    required this.child,
+    this.listenables = const [],
+  });
+  final bool Function() dirty;
+  final List<Listenable> listenables;
+  final Widget child;
+  @override
+  State<DirtyPopScope> createState() => _DirtyPopScopeState();
+}
+
+class _DirtyPopScopeState extends State<DirtyPopScope> {
+  bool _leaving = false;
+  late final Listenable _any = Listenable.merge(widget.listenables);
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _any.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    _any.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext c) => PopScope(
+    canPop: _leaving || !widget.dirty(),
+    onPopInvokedWithResult: (didPop, result) async {
+      if (didPop || _leaving) return;
+      // [canPop] is from the last build; a Save that closes with maybePop
+      // runs before the next one. Judge the form as it is now.
+      if (!widget.dirty()) {
+        _leaving = true;
+        Navigator.of(context).pop(result);
+        return;
+      }
+      final leave = await confirmRemove(
+        context,
+        title: 'Discard changes?',
+        body: 'What you changed here has not been saved.',
+        remove: 'Discard',
+        keep: 'Keep editing',
+      );
+      if (!leave || !mounted) return;
+      _leaving = true;
+      Navigator.of(context).pop(result);
+    },
+    child: widget.child,
+  );
+}

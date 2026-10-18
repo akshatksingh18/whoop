@@ -378,7 +378,7 @@ Future<String> writeAnalysisExport({
   final db = await LocalDb.instance;
   final weights = await BodyLogDb.weights();
   final measures = await BodyLogDb.measures();
-  final lifts = await LiftLogDb.finished();
+  var lifts = await LiftLogDb.finished();
 
   Future<Map<String, double>> chart(String key) async {
     final out = <String, double>{};
@@ -407,7 +407,23 @@ Future<String> writeAnalysisExport({
   };
   final foodsAll = await NutritionDb.entriesSince(db, '0000-00-00');
 
-  // Lifetime starts at the earliest record of any kind.
+  // Build 93 (Codex full-flow audit F03/F05): a workout marked private
+  // ("Hidden from summaries and exports") is left out of this shareable file,
+  // with its Lift Log; and Lifetime starts at the earliest record of any kind,
+  // workouts included.
+  final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final allSessions = [
+    for (final s in await LocalDb.sessionsInRange(0, nowSec))
+      if ((s['private'] as num?)?.toInt() != 1) s,
+  ];
+  final privateIds = {
+    for (final s in await LocalDb.sessionsInRange(0, nowSec))
+      if ((s['private'] as num?)?.toInt() == 1) s['id'] as String,
+  };
+  lifts = [
+    for (final l in lifts)
+      if (l.sessionId == null || !privateIds.contains(l.sessionId)) l,
+  ];
   final from = range.days == null
       ? [
           ...weights.map((w) => w.date),
@@ -415,13 +431,21 @@ Future<String> writeAnalysisExport({
           ...lifts.map((l) => dayLabelOf(l.startedAt)),
           ...foodsAll.keys,
           for (final s in series.values) ...s.keys,
+          for (final s in allSessions)
+            if (s['start_ts'] is num)
+              dayLabelOf(
+                DateTime.fromMillisecondsSinceEpoch(
+                  (s['start_ts'] as num).toInt() * 1000,
+                ),
+              ),
         ].fold<String>(today, (a, d) => d.compareTo(a) < 0 ? d : a)
       : shiftLabel(today, -(range.days! - 1));
   final marks = await NutritionDb.dayMarks(db, from);
-  final sessions = await LocalDb.sessionsInRange(
-    localDayStartSec(from)!,
-    DateTime.now().millisecondsSinceEpoch ~/ 1000,
-  );
+  final fromSec = localDayStartSec(from)!;
+  final sessions = [
+    for (final s in allSessions)
+      if (((s['start_ts'] as num?)?.toInt() ?? 0) >= fromSec) s,
+  ];
 
   final days = <AnalysisDay>[];
   for (var d = from; d.compareTo(today) <= 0; d = shiftLabel(d, 1)) {

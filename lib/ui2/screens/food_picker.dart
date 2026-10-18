@@ -1209,29 +1209,58 @@ class _MealEditorState extends State<MealEditor> {
   /// food). Before a copy of a food takes [unit], every other copy of it is
   /// converted to that unit, so changing one egg row to grams cannot silently
   /// turn another "2 eggs" into "2 g".
-  void _useUnit(String key, String unit) {
+  /// Make [unit] this food's one unit in the meal, converting its other
+  /// copies. Build 93 (Codex full-flow audit F04): a copy whose amount cannot
+  /// be converted (its unit is gone from the food) is taken out and counted,
+  /// never kept as the same number in the new unit ("2 links" as "2 g").
+  /// [except] is the copy that was just set in [unit]. Returns how many were
+  /// taken out.
+  int _useUnit(String key, String unit, {int? except}) {
     final def = _defs[key];
     final old = _units[key] ?? (def == null ? unit : foodUnit(def));
+    final drop = <int>[];
     if (def != null && old.toLowerCase() != unit.toLowerCase()) {
       final per = unitInBase(def, unit);
       for (var j = 0; j < _items.length; j++) {
-        if (_items[j].$1 != key) continue;
+        if (_items[j].$1 != key || j == except) continue;
         final base = toBase(def, _items[j].$2, old);
         if (base != null && per != null && per > 0) {
           _items[j] = (key, base / per);
+        } else {
+          drop.add(j);
         }
       }
     }
+    for (final j in drop.reversed) {
+      _items.removeAt(j);
+      _groups.removeAt(j);
+    }
     _units[key] = unit;
+    return drop.length;
+  }
+
+  void _sayDropped(int n, Map<String, Object?> def) {
+    if (n == 0 || !mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(
+          '$n other ${def['label']} ${n == 1 ? 'portion was' : 'portions were'} '
+          'in a unit this food no longer has, so ${n == 1 ? 'it was' : 'they were'} '
+          'taken out. Add ${n == 1 ? 'it' : 'them'} again in a current unit.',
+        ),
+      ),
+    );
   }
 
   void _addPortion(Map<String, Object?> def, Portion portion) {
     final key = def['key'] as String;
+    var dropped = 0;
     setState(() {
-      _useUnit(key, portion.unit);
       _items.add((key, portion.amount));
       _groups.add('');
+      dropped = _useUnit(key, portion.unit, except: _items.length - 1);
     });
+    _sayDropped(dropped, def);
   }
 
   Future<void> _editItem(int i) async {
@@ -1248,12 +1277,14 @@ class _MealEditorState extends State<MealEditor> {
       ),
     );
     if (result == null || !mounted) return;
+    var dropped = 0;
     setState(() {
-      _useUnit(_items[i].$1, result.$1.unit);
       _items[i] = (_items[i].$1, result.$1.amount);
       _groups[i] = result.$2;
+      dropped = _useUnit(_items[i].$1, result.$1.unit, except: i);
       _normalise();
     });
+    _sayDropped(dropped, def);
   }
 
   @override
@@ -2065,11 +2096,15 @@ class _ItemEditor extends StatefulWidget {
 }
 
 class _ItemEditorState extends State<_ItemEditor> {
-  late final _g = TextEditingController(text: _amount(widget.amount));
+  /// Build 93 (Codex full-flow audit F04): the saved unit is gone from the
+  /// food, so the old number means nothing in another unit; the amount is
+  /// asked for again instead of being carried over.
+  late final bool _unitGone = unitInBase(widget.def, widget.unit) == null;
+  late final _g = TextEditingController(
+    text: _unitGone ? '' : _amount(widget.amount),
+  );
   late final _unit = ValueNotifier<String>(
-    unitInBase(widget.def, widget.unit) != null
-        ? widget.unit
-        : foodUnit(widget.def),
+    _unitGone ? foodUnit(widget.def) : widget.unit,
   );
   late String _group = widget.group;
 
@@ -2099,6 +2134,14 @@ class _ItemEditorState extends State<_ItemEditor> {
         style: F.head.copyWith(color: p.ink),
       ),
       const SizedBox(height: S.x4),
+      if (_unitGone) ...[
+        Text(
+          'Saved as ${_amount(widget.amount)} ${widget.unit}, a unit this food '
+          'no longer has. Enter the amount again.',
+          style: F.cap.copyWith(color: p.on(C.alert)),
+        ),
+        const SizedBox(height: S.x2),
+      ],
       AmountInput(controller: _g, def: widget.def, unit: _unit),
       const SizedBox(height: S.x3),
       Text(

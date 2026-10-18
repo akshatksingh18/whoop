@@ -362,9 +362,22 @@ Future<ImportOutcome> runImport(
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
   if (plain.any(_isDbBackup)) sources.add('$kAppName backup');
+  // Build 93 (Codex full-flow audit F13): each file commits on its own, so
+  // one that fails is named and the rest still land and are counted — a
+  // later failure no longer turns files already imported into a generic
+  // "failed". Nothing is rolled back or retried behind the user's back.
+  final failed = <String>[];
+  Object? firstError;
+  String nameOf(String path) => path.split(RegExp(r'[\\/]')).last;
   try {
     for (final p in db) {
-      days += await app.importEdgeBackup(p);
+      try {
+        days += await app.importEdgeBackup(p);
+      } catch (e) {
+        firstError ??= e;
+        failed.add(decrypted.contains(p) ? 'the encrypted backup' : nameOf(p));
+        continue;
+      }
       // The rows are in and the rollup rebuild threw. AppState's own note:
       // reporting the row count alone claims a success the user does not have
       // — which is exactly what this path did until now.
@@ -383,7 +396,13 @@ Future<ImportOutcome> runImport(
   if (raw.isNotEmpty) {
     sources.add('Raw sensor export');
     for (final p in raw) {
-      days += await app.importNoopCsv(p);
+      try {
+        days += await app.importNoopCsv(p);
+      } catch (e) {
+        firstError ??= e;
+        failed.add(nameOf(p));
+        continue;
+      }
       final r = app.lastNoopImport;
       if (r != null) {
         late += r.lateRows;
@@ -446,6 +465,17 @@ Future<ImportOutcome> runImport(
       if (db.isEmpty && raw.isEmpty && journalRows == 0) rethrow;
       readError = '$e';
     }
+  }
+  if (failed.isNotEmpty) {
+    // Nothing at all landed: the plain failure, as before.
+    if (days == 0 && journalRows == 0 && workouts == 0 && readError == null) {
+      throw firstError!;
+    }
+    final which = failed.join(', ');
+    readError = [
+      'Some files imported; $which did not ($firstError).',
+      ?readError,
+    ].join(' ');
   }
 
   return ImportOutcome(

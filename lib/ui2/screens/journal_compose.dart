@@ -272,7 +272,7 @@ class _JournalComposeState extends State<JournalCompose> {
       ];
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
-          duration: const Duration(seconds: 8),
+          duration: Motion.longNotice,
           content: Text(
             'Changed elsewhere while this was open: ${names.join(', ')}. '
             'The newer values are shown'

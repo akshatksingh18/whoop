@@ -598,6 +598,10 @@ class Motion {
   // Reading time for transient feedback; this is not an animation duration.
   static const notice = Duration(seconds: 2);
 
+  /// Reading time for a notice long enough to need it (a Journal conflict
+  /// names the fields and the other note).
+  static const longNotice = Duration(seconds: 8);
+
   /// One full breath cycle for the paced-breathing ring — 5 s in, 5 s out is
   /// the pace the breathing session already uses. The PHASE is still owned by
   /// the screen (see `BreathRing.t`); this is only how long a cycle lasts, and

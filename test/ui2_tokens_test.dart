@@ -206,6 +206,9 @@ const _notComponents = {
   'TodayPlanCard',
   // The goal chooser reads and writes the saved goal.
   'GoalScreen',
+  // Build 93: draws nothing of its own (it only guards leaving a form);
+  // `build93_test` and `edit_profile_import_test` cover it.
+  'DirtyPopScope',
   // The run screen and the maintenance card: each needs a recorded track or a
   // profile; `ui2_run_detail_test` renders the run screen at 1x and 2x.
   'RunMapCard', 'RunStatsGrid', 'BestEffortsCard', 'RunVerdictCard',

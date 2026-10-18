@@ -77,7 +77,7 @@ class _DataScreenState extends State<DataScreen> {
     if (!_scroll.hasClients || _scroll.offset == 0) return;
     _scroll.animateTo(
       0,
-      duration: const Duration(milliseconds: 250),
+      duration: motion(context, Motion.slow),
       curve: Curves.easeOut,
     );
   }

@@ -699,6 +699,25 @@ void main() {
       await t.pumpAndSettle();
     }
 
+    testWidgets('own labels only: no suggestions once there is one', (t) async {
+      // Build 91: a food with its own label lists the user's labels and
+      // "+ New label", not the nine built-in suggestions.
+      await open(
+        t,
+        existing: {
+          'key': 'my:sausage',
+          'label': 'Chicken sausage',
+          'serving_g': 100.0,
+          'category': 'Breakfast',
+        },
+      );
+      expect(find.text('Breakfast'), findsOneWidget);
+      expect(find.text('+ New label'), findsOneWidget);
+      for (final s in ['Fruits', 'Vegetables', 'Dairy & eggs', 'Supplements']) {
+        expect(find.text(s), findsNothing, reason: s);
+      }
+    });
+
     testWidgets('6 pieces · 85 g saves both units with no division', (t) async {
       await open(
         t,

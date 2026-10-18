@@ -724,8 +724,9 @@ class _FoodEditorState extends State<FoodEditor> {
     return u.isNotEmpty && u != 'g' && u != 'ml';
   }
 
-  /// The user's labels across My foods, loaded once; suggestions fill in
-  /// only while there are fewer than a few of their own.
+  /// The user's labels across My foods, loaded once. The suggested labels
+  /// show only while there are none of their own (Build 91, Akshat: with two
+  /// labels of his own he saw nine suggestions he never uses).
   List<String> _labels = const [];
 
   List<String> get _labelChoices {
@@ -733,7 +734,7 @@ class _FoodEditorState extends State<FoodEditor> {
       for (final l in _labels) labelKey(l): l,
       if (_category.trim().isNotEmpty) labelKey(_category): _category.trim(),
     };
-    if (out.length < 4) {
+    if (out.isEmpty) {
       for (final l in kFoodCategories) {
         out.putIfAbsent(labelKey(l), () => l);
       }

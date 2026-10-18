@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../build_profile.dart';
+import '../../data/rest_streak.dart' show kAutoRestPerWeek;
 import '../../data/lift_log.dart' show LiftLogDb;
 import '../../data/db.dart';
 import '../../gps/gps_source.dart';
@@ -809,80 +810,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             ),
           ],
           const SizedBox(height: S.x2),
+          // Build 91 (Akshat): rest is automatic, so the card states the
+          // rule once instead of offering Rest / Life happens buttons.
           Text(
             [
-              s.todayDone
-                  ? 'Active today.'
-                  : s.last7.last == MoveDay.rest
-                  ? 'Rest day · streak protected'
-                  : s.current > 0
-                  ? 'Step goal or 10 min exercise'
-                  : 'Step goal or 10 min exercise',
+              s.todayDone ? 'Active today.' : 'Step goal or 10 min exercise.',
+              'Up to $kAutoRestPerWeek missed days in any 7 count as rest.',
               if (s.protectedInStreak > 0)
-                '${s.protectedInStreak} protected '
+                '${s.protectedInStreak} rest '
                     '${s.protectedInStreak == 1 ? 'day' : 'days'} in this streak.',
             ].join(' '),
             style: F.cap.copyWith(color: p.ink3),
           ),
-          ..._protectActions(c, p, s),
         ],
       ),
     );
-  }
-
-  /// Plan rest for today, or mark a missed yesterday as "Life happens",
-  /// within the allowance in `streak.dart` (B86-10). Neither records any
-  /// activity; both can be undone.
-  List<Widget> _protectActions(BuildContext c, P p, MoveStreak s) {
-    final now = DateTime.now();
-    final today = todayLabel();
-    final yesterday = dayLabelOf(DateTime(now.year, now.month, now.day - 1));
-    Future<void> act(Future<String?> Function() f) async {
-      final why = await f();
-      if (!c.mounted) return;
-      if (why != null) {
-        ScaffoldMessenger.maybeOf(
-          c,
-        )?.showSnackBar(SnackBar(content: Text(why)));
-      }
-      reload();
-    }
-
-    // Build 90: the streak's actions look like actions (they were grey text
-    // that read as a caption).
-    Widget link(String label, VoidCallback onTap) => Pressable(
-      semanticLabel: label,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.only(top: S.x2, right: S.x2),
-        child: Pill(label, C.steps),
-      ),
-    );
-    final todayKept =
-        s.last7.last == MoveDay.rest || s.last7.last == MoveDay.life;
-    final yesterdayMissed = s.last7[5] == MoveDay.none;
-    final links = [
-      if (!s.todayDone && !todayKept)
-        link(
-          'Rest today',
-          () => act(() => StreakProtection.protect(today, Protection.rest)),
-        ),
-      if (todayKept)
-        link(
-          'Undo rest',
-          () => act(() async {
-            await StreakProtection.clear(today);
-            return null;
-          }),
-        ),
-      // Only worth offering when it would join two real activity runs.
-      if (yesterdayMissed && s.last7[4] != MoveDay.none)
-        link(
-          'Yesterday: life happens',
-          () => act(() => StreakProtection.protect(yesterday, Protection.life)),
-        ),
-    ];
-    return links.isEmpty ? const [] : [Wrap(children: links)];
   }
 
   /// Delete one session — recorded or imported. For an IMPORTED session the
@@ -1474,7 +1416,9 @@ class _HistoryRow extends StatelessWidget {
               (caloriesLabel, grouped(w.calories!), 'kcal'),
             if (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
               (
-                w.acsmQualified ? 'ACSM · active' : 'Movement estimate · active',
+                w.acsmQualified
+                    ? 'ACSM · active'
+                    : 'Movement estimate · active',
                 w.acsmCalories == null ? '—' : grouped(w.acsmCalories!),
                 'kcal',
               ),

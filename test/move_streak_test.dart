@@ -28,9 +28,18 @@ void main() {
     expect(s.current, 2);
   });
 
-  test('a day under ten minutes breaks it', () {
+  test('a day under ten minutes is a rest day, not activity (Build 91)', () {
     final s = moveStreak([on(0, 20), on(1, 9), on(2, 20)], now);
+    expect(s.current, 2);
+    expect(s.protectedInStreak, 1);
+    expect(s.last7[5], MoveDay.rest);
+  });
+
+  test('three missed days in a week end it (Build 91)', () {
+    final s = moveStreak([on(0, 20), on(4, 20), on(5, 20)], now);
     expect(s.current, 1);
+    expect(s.longest, 2);
+    expect(s.last7.sublist(3, 6), everyElement(MoveDay.none));
   });
 
   test('two short sessions on one day add up', () {
@@ -91,9 +100,14 @@ void main() {
       expect(s.longest, 3);
     });
 
-    test('an unprotected gap still breaks it', () {
+    test('an unmarked missed day is rest by itself (Build 91)', () {
       final s = moveStreak([on(0, 30), on(2, 30)], now);
-      expect(s.current, 1);
+      expect(s.current, 2);
+      expect(s.last7[5], MoveDay.rest);
+      // Two in a row are fine as well.
+      final two = moveStreak([on(0, 30), on(3, 30)], now);
+      expect(two.current, 2);
+      expect(two.protectedInStreak, 2);
     });
 
     test('allowance: no two in a row, two per seven, one Life happens', () {

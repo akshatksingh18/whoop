@@ -1,8 +1,9 @@
 // The activity streak: how many days in a row had at least ten minutes of
 // purposeful exercise (running, walking, lifting or another workout) OR
 // completed that day's measured step goal (build 86 added lifting and other
-// exercise, B86-10). A planned Rest day or a limited "Life happens" day keeps
-// the streak going without counting as activity. [moveStreak] is pure, so the
+// exercise, B86-10). From Build 91 a missed day is a rest day by itself
+// (`rest_streak.dart`: up to two in any seven, never counted as activity); the
+// older hand-marked Rest / "Life happens" days only name how a day shows. [moveStreak] is pure, so the
 // day rules (today still open, midnight, DST) are testable without a clock;
 // [loadMoveStreak] feeds it from the sessions table.
 
@@ -11,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/db.dart';
 import '../data/calculation_store.dart';
 import '../data/day_label.dart';
+import '../data/rest_streak.dart';
 import '../data/local_repository.dart' show kDefaultStepGoal;
 import '../gps/workout_clock.dart';
 import '../gps/run_history.dart' show isRunType, isWalkType;
@@ -137,38 +139,19 @@ MoveStreak moveStreak(
     for (final e in protectedDays.entries) key(DateTime.parse(e.key)): e.value,
   };
   bool counts(int k) => (minutes[k] ?? 0) >= minMinutes || goals.contains(k);
-  bool keeps(int k) => counts(k) || shield.containsKey(k);
   DateTime day(int back) => DateTime(now.year, now.month, now.day - back);
+  String labelOf(int k) =>
+      dayLabelOf(DateTime(k ~/ 10000, k ~/ 100 % 100, k % 100));
 
   final todayDone = counts(key(day(0)));
-  var current = 0, kept = 0;
-  // Today still open and neither earned nor protected: count to yesterday.
-  for (var back = keeps(key(day(0))) ? 0 : 1; ; back++) {
-    final k = key(day(back));
-    if (!keeps(k)) break;
-    if (counts(k)) {
-      current++;
-    } else {
-      kept++;
-    }
-  }
-
-  // Longest run of activity days, bridged (never counted) by protected days.
-  var longest = 0;
-  final all = {...minutes.keys, ...shield.keys}.toList()..sort();
-  var run = 0;
-  DateTime? prev;
-  for (final k in all) {
-    if (!keeps(k)) continue;
-    final d = DateTime(k ~/ 10000, k ~/ 100 % 100, k % 100);
-    final next = prev == null
-        ? null
-        : DateTime(prev.year, prev.month, prev.day + 1);
-    if (next != d) run = 0;
-    if (counts(k)) run++;
-    if (run > longest) longest = run;
-    prev = d;
-  }
+  // Build 91: missed days are rest by themselves, within the allowance; a
+  // hand-marked day is just a missed day that shows as Rest or Life happens.
+  final run = restAwareRun({
+    for (final k in minutes.keys)
+      if (counts(k)) labelOf(k),
+  }, dayLabelOf(now));
+  final current = run.current, kept = run.restInCurrent;
+  final longest = run.best;
 
   return (
     current: current,
@@ -179,11 +162,8 @@ MoveStreak moveStreak(
         () {
           final k = key(day(back));
           if (!counts(k)) {
-            return switch (shield[k]) {
-              Protection.rest => MoveDay.rest,
-              Protection.life => MoveDay.life,
-              null => MoveDay.none,
-            };
+            if (!run.rest.contains(labelOf(k))) return MoveDay.none;
+            return shield[k] == Protection.life ? MoveDay.life : MoveDay.rest;
           }
           if ((minutes[k] ?? 0) < minMinutes) return MoveDay.goal;
           final ks = kinds[k] ?? const {};
@@ -387,6 +367,7 @@ Future<MoveStreak?> loadMoveStreak() async {
         final was = kinds[date];
         if (was == null || kind.index > was.index) kinds[date] = kind;
       }
+
       final ts = (r['start_ts'] as num?)?.toInt();
       final te = (r['end_ts'] as num?)?.toInt();
       if (ts == null) continue;

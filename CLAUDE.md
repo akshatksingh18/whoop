@@ -576,7 +576,7 @@ The personal artifact must have these properties:
       then the illness watch / findings. Naps are on Sleep from source 70. Explore, Beats, Body clock, the Stress row and
       the Consistency cards were removed; their metrics are still computed and stored.
     - **Train** (`workout_screen.dart`): Run / Walk / Lift / Other (Walk from source 69), the
-      general recorded-activity streak with optional rest protection, Pushups, 7-day strain line,
+      general recorded-activity streak with automatic rest days (Build 91), Pushups, 7-day strain line,
       running trends and recent sessions grouped by local day.
       Fitness/fatigue/form, the kg-lifted chart, morning-after and overreach cards, the mascot
       card and the share button were removed. In the personal build `Track.sets` activities still

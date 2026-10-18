@@ -34,14 +34,15 @@ void main() {
     },
   );
 
-  test('a step-goal day and a protected day bridge together', () {
+  test('a step-goal day and a rest day bridge together', () {
+    // Build 91: back(2) is rest by itself; the old hand mark only names it.
     final s = moveStreak(
-      [on(0, 30)],
+      [on(0, 30), on(3, 30)],
       now,
       stepDays: {back(1)},
       protectedDays: {back(2): Protection.life},
     );
-    expect(s.current, 2);
+    expect(s.current, 3);
     expect(s.protectedInStreak, 1);
     expect(s.last7[5], MoveDay.goal);
     expect(s.last7[4], MoveDay.life);

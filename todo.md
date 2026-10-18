@@ -307,6 +307,12 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     at 13:00 and 20:00, and the evening protein-left line moved beside the ring so the first
     meal stays above the tab bar. Version `0.9.58+91`, algorithm 97 (live-session effort
     detection from 3c).
+  - Also for Build 91 (Akshat's requests): the food editor lists only his own labels once he
+    has one (the nine suggestions show only with none). Streak rest is automatic for the
+    movement and Pushups streaks (`lib/data/rest_streak.dart`): a missed day is rest by itself
+    while there are at most 2 in any 7, two in a row allowed, a third ends the streak; rest
+    never counts and today is never rest while open. Akshat approved removing the Rest today /
+    Undo rest / Life happens buttons; earlier marked days still show as Rest or Life happens.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
@@ -1164,7 +1170,8 @@ Private coaching ownership and existing calorie calculations remain unchanged.
 - [x] Review exact allowance, retroactive use, qualification thresholds and Pushups contribution
   before implementing. *Decided (Akshat left it to judgment): at most 2 protected days per rolling
   7, at most 1 Life happens, none consecutive, Life happens only for yesterday; Pushups never
-  counts toward the activity streak (it has its own).*
+  counts toward the activity streak (it has its own).* Superseded in Build 91 by automatic rest
+  (Build 90 item 3e).
 - [x] Avoid all-history/per-day query growth when adding sources; test overlap, edits/deletes,
   imports, timezone/DST, today-at-risk, exhausted protection and restored history. Pending sync
   is not proof of inactivity; reconcile late activity/protection without duplicate awards. *Source: one indexed sessions query per load; tests cover overlap, delete, late activity on a protected day, step-goal plus protection, month end/clock change, today open and the allowance.*

@@ -58,15 +58,24 @@ void main() {
     });
 
     test(
-      'a day below its own goal breaks it; the goal is the day\'s, not today\'s',
+      'a day below its own goal is rest; the goal is the day\'s, not today\'s',
       () {
+        // Build 91: one missed day is a rest day by itself, never counted.
         final st = pushupStreaks([
           day('2026-10-07', 4, goal: 4),
           day('2026-10-08', 5),
           day('2026-10-09', 6, goal: 6),
         ], now);
-        expect(st.current, 1);
-        expect(st.best, 1);
+        expect(st.current, 2);
+        expect(st.best, 2);
+        // Three missed days in a week end it.
+        final broken = pushupStreaks([
+          day('2026-10-04', 4, goal: 4),
+          day('2026-10-08', 4, goal: 4),
+          day('2026-10-09', 4, goal: 4),
+        ], now);
+        expect(broken.current, 2);
+        expect(broken.best, 2);
       },
     );
 

@@ -25,6 +25,7 @@ import 'package:sqflite/sqflite.dart';
 import 'calculation_store.dart';
 import 'day_label.dart';
 import 'db.dart';
+import 'rest_streak.dart';
 
 /// Minutes between ordinary reminders, unless the user picks another.
 const int kPushupDefaultInterval = 45;
@@ -202,7 +203,8 @@ DateTime? pushupNextDue(PushupSession s, DateTime now) {
 
 /// Current and best streak over local days whose completed sets reached the
 /// goal captured that day. Today below goal does not break it until the day
-/// is over; a future-dated day never counts.
+/// is over; a future-dated day never counts. From Build 91 a missed day is a
+/// rest day by itself, up to two in any seven (`rest_streak.dart`).
 ({int current, int best}) pushupStreaks(
   List<PushupSession> sessions,
   DateTime now,
@@ -220,27 +222,8 @@ DateTime? pushupNextDue(PushupSession s, DateTime now) {
     if (goal == null || goal <= 0) return;
     if (v.fold<int>(0, (n, s) => n + s.count) >= goal) qualified.add(day);
   });
-  var best = 0, run = 0;
-  DateTime? prev;
-  for (final d in qualified.toList()..sort()) {
-    final t = DateTime.parse(d);
-    final next = prev == null
-        ? null
-        : DateTime(prev.year, prev.month, prev.day + 1);
-    run = next == t ? run + 1 : 1;
-    best = math.max(best, run);
-    prev = t;
-  }
-  var cursor = DateTime(now.year, now.month, now.day);
-  if (!qualified.contains(today)) {
-    cursor = DateTime(cursor.year, cursor.month, cursor.day - 1);
-  }
-  var current = 0;
-  while (qualified.contains(dayLabelOf(cursor))) {
-    current++;
-    cursor = DateTime(cursor.year, cursor.month, cursor.day - 1);
-  }
-  return (current: current, best: best);
+  final run = restAwareRun(qualified, today);
+  return (current: run.current, best: run.best);
 }
 
 enum PushupGoalStatus { notSet, reached, atRisk, missed }

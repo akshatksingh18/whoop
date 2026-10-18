@@ -99,9 +99,17 @@ void main() {
       final list = find.byType(Scrollable).first;
       expect(t.takeException(), isNull);
 
-      // The Weight row opens Body with weight chosen; History range explores.
-      await t.scrollUntilVisible(find.text('Weight'), 150, scrollable: list);
-      await t.tap(find.text('Weight'));
+      // The Average weight row opens Body with weight chosen; History range explores.
+      await t.scrollUntilVisible(
+        find.text('Average weight'),
+        150,
+        scrollable: list,
+      );
+      // Build 91: the waiting goal card is taller, so at large text the row
+      // can stop under the tab bar; bring it to the top before tapping.
+      await t.ensureVisible(find.text('Average weight'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Average weight'));
       await _until(t, () => find.text('HISTORY RANGE').evaluate().isNotEmpty);
       // The Body page's own vertical scroll view: the nearest Scrollable
       // around its header, not whichever horizontal strip happens to be built

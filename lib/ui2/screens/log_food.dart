@@ -201,7 +201,14 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
       _looking = true;
       _outcome = null;
     });
-    final res = await lookupBarcodeFood(code);
+    // Build 92 (end-to-end audit): a storage error in the lookup reads as
+    // "could not reach" instead of leaving the sheet stuck on Looking up.
+    OffResult res;
+    try {
+      res = await lookupBarcodeFood(code);
+    } catch (_) {
+      res = const OffResult(OffOutcome.unreachable);
+    }
     if (!mounted) return;
     setState(() {
       _looking = false;

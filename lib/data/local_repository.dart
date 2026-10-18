@@ -272,6 +272,19 @@ abstract class LocalRepository {
     Map<String, JournalMetricValue> fields,
   ) => throw UnimplementedError('re-layer: postJournalMetrics');
 
+  /// One Journal edit as an atomic patch with conflict detection; see
+  /// `LocalDb.saveJournalEdit`. Returns the fields someone else changed
+  /// (nothing written then), or an empty list once saved.
+  Future<List<String>> saveJournalEdit(
+    String date, {
+    required Map<String, JournalMetricValue?> changes,
+    required Map<String, JournalMetricValue> base,
+    List<String>? tags,
+    List<String>? baseTags,
+    String? note,
+    String? baseNote,
+  }) => throw UnimplementedError('re-layer: saveJournalEdit');
+
   /// Built-in fields followed by the user's own, in editor order.
   Future<List<JournalFieldSpec>> getJournalFields() =>
       throw UnimplementedError('re-layer: getJournalFields');

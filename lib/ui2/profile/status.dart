@@ -65,7 +65,13 @@ class _StatusScreenState extends State<StatusScreen> {
   Future<void> _testLa() async {
     if (_testing) return;
     setState(() => _testing = true);
-    final s = await LiveActivity.test();
+    final Map<String, Object?> s;
+    try {
+      s = await LiveActivity.test();
+    } catch (_) {
+      if (mounted) setState(() => _testing = false);
+      return;
+    }
     if (!mounted) return;
     setState(() => (_la = s, _testing = false));
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(

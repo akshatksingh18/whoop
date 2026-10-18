@@ -126,6 +126,9 @@ class _DataScreenState extends State<DataScreen> {
       // Closing the passphrase prompt is a decision. "Failed:" over it would
       // report the user's own choice back to them as a fault.
     } catch (e) {
+      // Build 92 (Codex audit concern 3): the screen may have been left while
+      // the job ran; never look up a disposed context.
+      if (!mounted) return;
       _say(
         AppLocalizations.of(context)?.dataFailed(e.toString()) ?? 'Failed: $e',
         failed: true,
@@ -289,7 +292,7 @@ class _DataScreenState extends State<DataScreen> {
       remove: 'Import',
       keep: 'Cancel',
     );
-    if (!ok) return ('', false);
+    if (!ok || !mounted) return ('', false);
     final app = context.read<AppState>();
     final n = await applyBodyImport(
       plan,

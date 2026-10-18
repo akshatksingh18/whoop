@@ -1104,14 +1104,27 @@ class _MealPageState extends State<MealPage> with RevisionReload {
       ...groups.keys.where((k) => k.isNotEmpty),
       if (groups.containsKey('')) '',
     ];
-    double? sum(double? Function(FoodEntry) f) {
+    // Build 92 (Codex audit 11): a meal's totals keep what is unknown. All
+    // unknown reads "—", a mix is "at least" the known part, and only an
+    // empty meal has nothing logged; a recorded zero stays zero.
+    ({double? value, int unknown}) sum(double? Function(FoodEntry) f) {
       double? t;
+      var unknown = 0;
       for (final e in es ?? const <FoodEntry>[]) {
         final v = f(e);
-        if (v != null) t = (t ?? 0) + v;
+        if (v == null) {
+          unknown++;
+        } else {
+          t = (t ?? 0) + v;
+        }
       }
-      return t;
+      return (value: t, unknown: unknown);
     }
+
+    String grams(({double? value, int unknown}) x) => x.value == null
+        ? '–'
+        : '${x.unknown > 0 ? '≥ ' : ''}${x.value!.round()} g';
+    final kcal = sum((e) => e.kcal);
 
     return detailScaffold(c, mealName(widget.meal), [
       DayHeader(_date, (d) {
@@ -1138,7 +1151,11 @@ class _MealPageState extends State<MealPage> with RevisionReload {
                 crossAxisAlignment: WrapCrossAlignment.end,
                 children: [
                   Text(
-                    thousands(sum((e) => e.kcal) ?? 0),
+                    es.isEmpty
+                        ? '0'
+                        : kcal.value == null
+                        ? '—'
+                        : '${kcal.unknown > 0 ? '≥ ' : ''}${thousands(kcal.value!)}',
                     style: F.n34.copyWith(color: p.ink),
                   ),
                   Padding(
@@ -1147,13 +1164,20 @@ class _MealPageState extends State<MealPage> with RevisionReload {
                   ),
                 ],
               ),
+              if (es.isNotEmpty && kcal.unknown > 0)
+                Text(
+                  kcal.value == null
+                      ? 'Calories not recorded for these foods'
+                      : '${kcal.unknown} ${kcal.unknown == 1 ? 'food has' : 'foods have'} no calories, so this is a minimum',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
               const SizedBox(height: S.x3),
               // All four once any was logged, so fibre never drops off.
               if (macroParts(
-                protein: sum((e) => e.proteinG),
-                carbs: sum((e) => e.carbsG),
-                fat: sum((e) => e.fatG),
-                fibre: sum((e) => e.fibreG),
+                protein: sum((e) => e.proteinG).value,
+                carbs: sum((e) => e.carbsG).value,
+                fat: sum((e) => e.fatG).value,
+                fibre: sum((e) => e.fibreG).value,
               ).isNotEmpty)
                 InlineMetrics([
                   for (final (name, v, color) in [
@@ -1162,7 +1186,7 @@ class _MealPageState extends State<MealPage> with RevisionReload {
                     ('FAT', sum((e) => e.fatG), C.yellow),
                     ('FIBRE', sum((e) => e.fibreG), C.green),
                   ])
-                    (name, v == null ? '–' : '${v.round()} g', color),
+                    (name, grams(v), color),
                 ]),
             ],
           ),

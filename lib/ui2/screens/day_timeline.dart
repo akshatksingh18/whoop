@@ -26,14 +26,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/journal_fields.dart';
 import '../../data/local_repository.dart';
 import '../../data/nutrition_store.dart';
 import '../../l10n/app_localizations.dart';
-import '../../state/locale_controller.dart';
 import '../activity/catalogue.dart' show activityByName;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, repoOf;
@@ -614,19 +612,31 @@ class DayTimelineScreen extends StatefulWidget {
   State<DayTimelineScreen> createState() => _DayTimelineScreenState();
 }
 
-class _DayTimelineScreenState extends State<DayTimelineScreen> {
+class _DayTimelineScreenState extends State<DayTimelineScreen>
+    with RevisionReload {
   TimelineData? _d;
   bool _loading = true;
   String? _day;
 
-  // `TimelineData` bakes `AppLocalizations` strings into `moments`/`notes` at
-  // load time (see `TimelineData.load`), so a language switch while this
-  // screen is alive would otherwise leave it showing the old locale until
-  // something else (a day change, a revision bump) happens to reload it.
-  // Sentinel so the system-default locale (`code == null`) is not mistaken
-  // for "never seen yet" on the first pass.
-  static const Object _localeUnset = Object();
-  Object? _seenLocale = _localeUnset;
+  /// The last read failed (Build 92, Codex audit 9-10). With [_d] for the
+  /// shown day the page keeps it and offers Retry; a different day's data is
+  /// never left under the newly chosen date.
+  bool _failed = false;
+
+  /// Every derived day as last read, so the day arrows stay after a failed
+  /// read clears [_d].
+  List<String> _days = const [];
+
+  // Build 92: new committed readings, sessions or sleep re-read the open
+  // breakdown (the shared revision; never on a live heartbeat).
+  @override
+  bool get revisionReloads => widget.data == null;
+
+  @override
+  void reload() => _load();
+
+  // `TimelineData` bakes `AppLocalizations` strings into `moments`/`notes`;
+  // RevisionReload re-reads on a language switch as well as on new data.
 
   /// Bumped on every `_load()` call so an OLDER one that resolves after a
   /// NEWER one (a locale change firing while a day-nav load is still in
@@ -645,26 +655,6 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // `code` alone misses a SYSTEM locale change while it is null (no
-    // in-app override) — see the same fix in RevisionReload.
-    final Object localeKey;
-    try {
-      final code = context.watch<LocaleController>().code;
-      localeKey = code ?? Localizations.localeOf(context);
-    } catch (_) {
-      return;
-    }
-    if (identical(_seenLocale, _localeUnset)) {
-      _seenLocale = localeKey;
-    } else if (_seenLocale != localeKey && widget.data == null) {
-      _seenLocale = localeKey;
-      _load();
-    }
-  }
-
   Future<void> _load() async {
     final token = ++_loadToken;
     final repo = repoOf(context);
@@ -676,10 +666,17 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     try {
       final d = await TimelineData.load(repo, want: _day, l: l);
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (_d = d, _days = d.days, _loading = false, _failed = false));
       }
     } catch (_) {
-      if (mounted && token == _loadToken) setState(() => _loading = false);
+      if (mounted && token == _loadToken) {
+        setState(() {
+          _loading = false;
+          _failed = true;
+          // Another day's graph must not sit under this date.
+          if (_day != null && _d?.day != _day) _d = null;
+        });
+      }
     }
   }
 
@@ -687,6 +684,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     setState(() {
       _day = day;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -697,12 +695,27 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     final l = AppLocalizations.of(c);
     return detailScaffold(c, l?.dayTimelineTitle ?? 'Breakdown of your day',
         sub: l?.dayTimelineSub ?? 'MIDNIGHT TO MIDNIGHT', [
-      ...dayNavRow(_day ?? d.day, d.days, _goDay),
+      ...dayNavRow(_day ?? d.day, _d?.days ?? _days, _goDay),
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
-      ] else
-        ...timelineBody(c, d),
+      ] else ...[
+        if (_failed)
+          StatusCard(
+            _d == null
+                ? 'This day could not load'
+                : 'Could not refresh this day',
+            _d == null
+                ? 'Your saved measurements are intact.'
+                : 'Showing what was read before.',
+            fix: 'Retry',
+            onFix: () {
+              setState(() => _loading = _d == null);
+              _load();
+            },
+          ),
+        if (_d != null || !_failed) ...timelineBody(c, d),
+      ],
     ]);
   }
 }

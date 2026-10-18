@@ -985,14 +985,32 @@ class NotificationSettings extends StatefulWidget {
   State<NotificationSettings> createState() => _NotificationSettingsState();
 }
 
-class _NotificationSettingsState extends State<NotificationSettings> {
+class _NotificationSettingsState extends State<NotificationSettings>
+    with WidgetsBindingObserver {
   NotificationPrefs? _prefs;
   bool _granted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Build 92 (Codex audit concern 1): permission granted or revoked in iOS
+  /// Settings while this screen stayed open is read again on return.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    NotificationService.instance.hasPermission().then((g) {
+      if (mounted && g != _granted) setState(() => _granted = g);
+    }, onError: (_) {});
   }
 
   Future<void> _load() async {
@@ -1011,8 +1029,21 @@ class _NotificationSettingsState extends State<NotificationSettings> {
   bool get _relaySupported => defaultTargetPlatform == TargetPlatform.android;
 
   Future<void> _apply(NotificationPrefs next) async {
+    final before = _prefs;
     setState(() => _prefs = next);
-    await next.save();
+    try {
+      await next.save();
+    } catch (_) {
+      // Build 92: a switch that did not save goes back, and says so.
+      if (!mounted) return;
+      setState(() => _prefs = before);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Could not save that setting. Try again.'),
+        ),
+      );
+      return;
+    }
     // Re-run the scheduler so a switch that was just turned off actually
     // cancels what it was standing for, rather than taking effect at some
     // later resume.
@@ -1141,10 +1172,7 @@ class NotificationSettingsView extends StatelessWidget {
                             (FindingKind.lowReadiness, 'Low readiness'),
                             (FindingKind.rhrShift, 'Resting heart-rate shift'),
                             if (kShowSkinTemp)
-                              (
-                                FindingKind.tempElevated,
-                                'Skin temperature up',
-                              ),
+                              (FindingKind.tempElevated, 'Skin temperature up'),
                           ])
                             SetRow(
                               LucideIcons.heartPulse,
@@ -1237,10 +1265,21 @@ class NotificationSettingsView extends StatelessWidget {
                           ),
                         ),
                         if (!kPersonalSideload)
-                        SetRow(LucideIcons.chartNoAxesCombined,C.teal,'Fortnightly training review',
-                          sub:'An optional local finding from comparable runs or walks. Silent without enough evidence.',
-                          value:prefs.trainingReviewEnabled ? on : off,chevron:false,
-                          onTap:()=>set(prefs.copyWith(trainingReviewEnabled:!prefs.trainingReviewEnabled))),
+                          SetRow(
+                            LucideIcons.chartNoAxesCombined,
+                            C.teal,
+                            'Fortnightly training review',
+                            sub:
+                                'An optional local finding from comparable runs or walks. Silent without enough evidence.',
+                            value: prefs.trainingReviewEnabled ? on : off,
+                            chevron: false,
+                            onTap: () => set(
+                              prefs.copyWith(
+                                trainingReviewEnabled:
+                                    !prefs.trainingReviewEnabled,
+                              ),
+                            ),
+                          ),
                         // The auto-detector's off switch, asked for twice (#102,
                         // #149) and never built: the bouts were written, the
                         // prompt was emitted, and nothing anywhere could stop

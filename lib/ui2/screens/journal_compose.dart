@@ -47,6 +47,13 @@ class _JournalComposeState extends State<JournalCompose> {
   bool _loading = true;
   bool _saving = false;
 
+  /// What [_load] read, so Save writes only what was changed here (Build 92,
+  /// Codex audit 12-13) and a newer value written elsewhere is not replaced.
+  Map<String, JournalMetricValue> _baseValues = {};
+  Set<String> _baseTags = {};
+  String _baseNote = '';
+  bool _loadFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -65,21 +72,29 @@ class _JournalComposeState extends State<JournalCompose> {
       setState(() => _loading = false);
       return;
     }
-    final specs = await repo.getJournalFields();
-    final values = await repo.getJournalMetrics(_date);
-    final entries = await repo.getJournal(range: '30d');
-    Map<String, dynamic>? today;
-    for (final e in entries) {
-      if (e['date'] == _date) today = e;
+    try {
+      final specs = await repo.getJournalFields();
+      final values = await repo.getJournalMetrics(_date);
+      final entries = await repo.getJournal(range: '30d');
+      Map<String, dynamic>? today;
+      for (final e in entries) {
+        if (e['date'] == _date) today = e;
+      }
+      if (!mounted) return;
+      setState(() {
+        _specs = specs;
+        _values = {...values};
+        _baseValues = {...values};
+        _tags = {...?(today?['tags'] as List?)?.map((t) => t.toString())};
+        _baseTags = {..._tags};
+        _note.text = (today?['note'] as String?) ?? '';
+        _baseNote = _note.text;
+        _loading = false;
+        _loadFailed = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => (_loading = false, _loadFailed = true));
     }
-    if (!mounted) return;
-    setState(() {
-      _specs = specs;
-      _values = {...values};
-      _tags = {...?(today?['tags'] as List?)?.map((t) => t.toString())};
-      _note.text = (today?['note'] as String?) ?? '';
-      _loading = false;
-    });
   }
 
   void _set(String key, double? v) {
@@ -123,6 +138,8 @@ class _JournalComposeState extends State<JournalCompose> {
     try {
       await repo.postCustomJournalField(spec);
     } catch (_) {
+      // Build 92: the latch is released on failure too.
+      if (mounted) setState(() => _addingField = false);
       if (!mounted) return;
       // A failed persist must not read as success — the field would vanish
       // from the list while the user believes it saved.
@@ -172,13 +189,73 @@ class _JournalComposeState extends State<JournalCompose> {
     });
   }
 
+  /// Build 92 (Codex audit 12-13): one atomic patch of what changed here;
+  /// a failure keeps the draft and says so, and a field changed elsewhere
+  /// meanwhile (a band water tap) is shown, not overwritten.
   Future<void> _save() async {
     final repo = context.read<AppState>().repo;
-    if (repo == null) return;
+    if (repo == null || _saving) return;
+    final changes = <String, JournalMetricValue?>{
+      for (final k in {..._values.keys, ..._baseValues.keys})
+        if (_values[k] != _baseValues[k]) k: _values[k],
+    };
+    final note = _note.text.trim();
+    final tagsChanged =
+        _tags.length != _baseTags.length || !_tags.containsAll(_baseTags);
+    final noteChanged = note != _baseNote.trim();
+    if (changes.isEmpty && !tagsChanged && !noteChanged) {
+      Navigator.of(context).pop(false);
+      return;
+    }
     setState(() => _saving = true);
-    await repo.postJournalMetrics(_date, _values);
-    await repo.postJournal(_date, _tags.toList(), _note.text.trim());
-    if (mounted) Navigator.of(context).pop(true);
+    try {
+      final conflicts = await repo.saveJournalEdit(
+        _date,
+        changes: changes,
+        base: _baseValues,
+        tags: tagsChanged || noteChanged ? _tags.toList() : null,
+        baseTags: _baseTags.toList(),
+        note: tagsChanged || noteChanged ? note : null,
+        baseNote: _baseNote,
+      );
+      if (!mounted) return;
+      if (conflicts.isEmpty) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+      // Someone else wrote these meanwhile: take their values for the
+      // conflicting fields, keep this draft's other edits, and ask again.
+      final fresh = await repo.getJournalMetrics(_date);
+      if (!mounted) return;
+      setState(() {
+        for (final k in conflicts) {
+          if (k == 'tags' || k == 'note') continue;
+          if (fresh[k] == null) {
+            _values.remove(k);
+          } else {
+            _values[k] = fresh[k]!;
+          }
+        }
+        _baseValues = {...fresh};
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Something else changed this day while it was open. The newer '
+            'values are shown; check them and save again.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Could not save. Nothing was changed; try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -198,6 +275,19 @@ class _JournalComposeState extends State<JournalCompose> {
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
+                  : _loadFailed
+                  ? Padding(
+                      padding: const EdgeInsets.all(S.x4),
+                      child: StatusCard(
+                        'This day could not load',
+                        'Nothing was changed.',
+                        fix: 'Retry',
+                        onFix: () {
+                          setState(() => _loading = true);
+                          _load();
+                        },
+                      ),
+                    )
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x8),
                       children: [

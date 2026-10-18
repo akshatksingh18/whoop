@@ -8905,6 +8905,92 @@ class LocalDb {
     });
   }
 
+  /// Build 92 (Codex audit 12-13): one Journal edit in ONE transaction, as a
+  /// patch. [changes] holds only the fields the editor changed (null clears
+  /// one); [base] is what the editor read for them. Tags and note are written
+  /// only when given (changed). Nothing is written when any changed field,
+  /// tag list or note was changed by someone else since [base] was read (a
+  /// band water tap while the editor was open): the names of those fields come
+  /// back instead, and the caller shows the newer values.
+  static Future<List<String>> saveJournalEdit(
+    String date, {
+    required Map<String, JournalMetricValue?> changes,
+    required Map<String, JournalMetricValue> base,
+    List<String>? tags,
+    List<String>? baseTags,
+    String? note,
+    String? baseNote,
+  }) async {
+    final db = await instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'journal_metric',
+        where: 'date = ?',
+        whereArgs: [date],
+      );
+      final current = {
+        for (final r in rows)
+          r['field'] as String: JournalMetricValue(
+            (r['value'] as num).toDouble(),
+            atMinuteOfDay: (r['at_min'] as num?)?.toInt(),
+          ),
+      };
+      final jr = await txn.query(
+        'journal',
+        where: 'date = ?',
+        whereArgs: [date],
+        limit: 1,
+      );
+      List<String> storedTags = const [];
+      String storedNote = '';
+      if (jr.isNotEmpty) {
+        try {
+          final t = jsonDecode((jr.first['tags_json'] as String?) ?? '[]');
+          if (t is List) storedTags = [for (final x in t) x.toString()];
+        } catch (_) {}
+        storedNote = (jr.first['note'] as String?) ?? '';
+      }
+      final conflicts = <String>[
+        for (final k in changes.keys)
+          if (current[k] != base[k]) k,
+        if (tags != null &&
+            (storedTags.toSet().length !=
+                    (baseTags ?? const []).toSet().length ||
+                !storedTags.toSet().containsAll(baseTags ?? const [])))
+          'tags',
+        if (note != null && storedNote != (baseNote ?? '')) 'note',
+      ];
+      if (conflicts.isNotEmpty) return conflicts;
+      for (final e in changes.entries) {
+        if (e.value == null) {
+          await txn.delete(
+            'journal_metric',
+            where: 'date = ? AND field = ?',
+            whereArgs: [date, e.key],
+          );
+        } else {
+          await txn.insert('journal_metric', {
+            'date': date,
+            'field': e.key,
+            'value': e.value!.value,
+            'at_min': e.value!.atMinuteOfDay,
+            'updated_at': now,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+      if (tags != null || note != null) {
+        await txn.insert('journal', {
+          'date': date,
+          'tags_json': jsonEncode(tags ?? storedTags),
+          'note': note ?? storedNote,
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      return const <String>[];
+    });
+  }
+
   /// One day's numeric fields, or an empty map when nothing was recorded.
   static Future<Map<String, JournalMetricValue>> journalMetricsForDay(
     String date,

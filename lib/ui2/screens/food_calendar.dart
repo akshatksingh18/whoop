@@ -68,6 +68,12 @@ class FoodWeekStrip extends StatefulWidget {
 
 class _FoodWeekStripState extends State<FoodWeekStrip> {
   Map<String, FoodDayMark> _marks = const {};
+
+  /// Build 92 (Codex audit concern 2): the newest read wins, and a week
+  /// whose marks could not be read shows no marks rather than "nothing
+  /// logged".
+  int _seq = 0;
+  String? _readWeek;
   final _selectedDay = GlobalKey();
   String? _revealed;
 
@@ -93,11 +99,15 @@ class _FoodWeekStripState extends State<FoodWeekStrip> {
   Future<void> _load() async {
     if (widget.marks != null) return;
     final mon = mondayOf(widget.date);
+    final seq = ++_seq;
     try {
       final m = await loadFoodMarks(mon, shiftDay(mon, 6));
-      if (mounted) setState(() => _marks = m);
+      if (mounted && seq == _seq) {
+        setState(() => (_marks = m, _readWeek = mon));
+      }
     } catch (_) {
-      /* the strip still works without marks */
+      // The strip still works; this week just shows no marks.
+      if (mounted && seq == _seq) setState(() => _readWeek = null);
     }
   }
 
@@ -111,7 +121,8 @@ class _FoodWeekStripState extends State<FoodWeekStrip> {
       final day = shiftDay(mon, i);
       final future = day.compareTo(today) > 0;
       final selected = day == widget.date;
-      final mark = future ? null : (marks[day] ?? FoodDayMark.empty);
+      final known = widget.marks != null || _readWeek == mon;
+      final mark = future || !known ? null : (marks[day] ?? FoodDayMark.empty);
       return Pressable(
         key: selected ? _selectedDay : null,
         semanticLabel:
@@ -289,6 +300,13 @@ class _FoodCalendarState extends State<FoodCalendar> {
   late DateTime _month;
   Map<String, FoodDayMark> _marks = const {};
 
+  /// Months whose marks were read (Build 92): a failed or pending month shows
+  /// no marks instead of "nothing logged", and a slower earlier read never
+  /// lands on the month now shown.
+  final Set<String> _readMonths = {};
+  bool _failed = false;
+  int _seq = 0;
+
   static const _names = [
     'January', 'February', 'March', 'April', 'May', 'June', 'July', //
     'August', 'September', 'October', 'November', 'December',
@@ -305,10 +323,18 @@ class _FoodCalendarState extends State<FoodCalendar> {
   Future<void> _load() async {
     if (widget.marks != null) return;
     final label = dayLabelOf(_month);
+    final seq = ++_seq;
     try {
       final m = await loadFoodMarks(label, label);
-      if (mounted) setState(() => _marks = {..._marks, ...m});
-    } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _marks = {..._marks, ...m};
+        _readMonths.add(label.substring(0, 7));
+        if (seq == _seq) _failed = false;
+      });
+    } catch (_) {
+      if (mounted && seq == _seq) setState(() => _failed = true);
+    }
   }
 
   void _shift(int by) {
@@ -410,6 +436,17 @@ class _FoodCalendarState extends State<FoodCalendar> {
                 ),
             ],
           ),
+          if (_failed) ...[
+            const SizedBox(height: S.x2),
+            Pressable(
+              semanticLabel: 'Day marks could not load. Retry',
+              onTap: _load,
+              child: Text(
+                'Day marks could not load. Tap to retry.',
+                style: F.cap.copyWith(color: p.on(C.alert)),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -461,7 +498,10 @@ class _FoodCalendarState extends State<FoodCalendar> {
                 ),
               ),
             ),
-            if (!future) _MarkDot(marks[day] ?? FoodDayMark.empty, size: 10),
+            if (!future &&
+                (widget.marks != null ||
+                    _readMonths.contains(day.substring(0, 7))))
+              _MarkDot(marks[day] ?? FoodDayMark.empty, size: 10),
           ],
         ),
       ),

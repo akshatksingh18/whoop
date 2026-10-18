@@ -1002,18 +1002,24 @@ class _TodayPanel extends StatelessWidget {
         label: 'Food',
         values: wk('food'),
         color: C.food,
-        value: eaten == null || eaten <= 0 ? null : thousands(eaten),
+        value: eaten == null || eaten <= 0
+            ? null
+            : '${d.foodFloor ? '≥ ' : ''}${thousands(eaten)}',
         unit: d.kcalTarget == null
             ? 'kcal'
             : 'of ${thousands(d.kcalTarget)} kcal',
-        absentWhy: eaten == null || eaten <= 0 ? 'nothing logged yet' : null,
+        absentWhy: eaten == null || eaten <= 0
+            ? (d.foodUnknownOnly ? 'calories not recorded' : 'nothing logged yet')
+            : null,
         onTap: () => appOf(c)?.navRequest.value = 6,
       ),
       if (d.proteinTarget case final t?)
         MetricLine(
           label: 'Protein',
           color: C.food,
-          value: d.proteinToday == null ? null : '${d.proteinToday!.round()}',
+          value: d.proteinToday == null
+              ? null
+              : '${d.proteinFloor ? '≥ ' : ''}${d.proteinToday!.round()}',
           unit: 'of ${t.round()} g',
           progress: d.proteinToday == null ? null : d.proteinToday! / t,
           absentWhy: d.proteinToday == null ? 'not logged yet' : null,
@@ -1271,6 +1277,11 @@ class HomeData {
   final double? proteinToday;
   final double? proteinTarget, kcalTarget;
 
+  /// Build 92 (end-to-end audit): today has a logged food with no calories
+  /// ([foodFloor]) or no protein ([proteinFloor]), so the totals are minimums;
+  /// [foodUnknownOnly]: food is logged but none of it carries calories.
+  final bool foodFloor, proteinFloor, foodUnknownOnly;
+
   /// When today's numbers were last calculated; null before the first.
   final DateTime? updatedAt;
 
@@ -1328,6 +1339,9 @@ class HomeData {
     this.proteinToday,
     this.proteinTarget,
     this.kcalTarget,
+    this.foodFloor = false,
+    this.proteinFloor = false,
+    this.foodUnknownOnly = false,
     this.updatedAt,
     this.heldOverNight,
     this.illnessState,
@@ -1365,6 +1379,9 @@ class HomeData {
     proteinToday: proteinToday,
     proteinTarget: proteinTarget,
     kcalTarget: kcalTarget,
+    foodFloor: foodFloor,
+    proteinFloor: proteinFloor,
+    foodUnknownOnly: foodUnknownOnly,
     updatedAt: updatedAt,
     heldOverNight: heldOverNight,
     illnessState: state,
@@ -1452,10 +1469,16 @@ class HomeData {
 
     List<double?> foodWeek = const [];
     double? proteinToday;
+    var foodFloor = false, proteinFloor = false, foodUnknownOnly = false;
     try {
       final w = await NutritionDb.window(await LocalDb.instance, days: 7);
       foodWeek = [for (final x in w.days) x.kcal.value];
-      proteinToday = w.days.isEmpty ? null : w.days.last.protein.value;
+      final last = w.days.isEmpty ? null : w.days.last;
+      proteinToday = last?.protein.value;
+      foodFloor = last?.kcal.isFloor ?? false;
+      proteinFloor = last?.protein.isFloor ?? false;
+      foodUnknownOnly =
+          last != null && last.kcal.known == 0 && last.kcal.unknown > 0;
     } catch (_) {}
     double? goal(String k) {
       final v = (profile[k] as num?)?.toDouble();
@@ -1475,6 +1498,9 @@ class HomeData {
       proteinToday: proteinToday,
       proteinTarget: goal('protein_target'),
       kcalTarget: goal('kcal_target'),
+      foodFloor: foodFloor,
+      proteinFloor: proteinFloor,
+      foodUnknownOnly: foodUnknownOnly,
       graph: graph,
       recentHr: recentHr,
       recentHrFailed: recentHrFailed,

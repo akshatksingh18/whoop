@@ -71,7 +71,14 @@ class _ActivitySetupState extends State<ActivitySetup> {
     if (_starting) return;
     setState(() => _starting = true);
     final start = widget.host.onStart;
-    final ok = start == null || await start(widget.a);
+    // Build 92 (end-to-end audit): a start that throws is a refusal, so the
+    // button is released instead of staying disabled.
+    bool ok;
+    try {
+      ok = start == null || await start(widget.a);
+    } catch (_) {
+      ok = false;
+    }
     if (!mounted) return;
     setState(() {
       _starting = false;

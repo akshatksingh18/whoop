@@ -56,12 +56,16 @@ List<String> macroParts({
 }
 
 /// One-line nutrient summary, e.g. "200 kcal · P 6.5 · C 33 · F 3.5 · Fb 5".
+///
+/// [partial]: some food in the total has no value for a nutrient, so the
+/// figures are minimums (Build 92, Codex audit 11) and the line says so.
 String macroLine({
   double? kcal,
   double? protein,
   double? carbs,
   double? fat,
   double? fibre,
+  bool partial = false,
 }) {
   final parts = [
     if (kcal != null) '${kcal.round()} kcal',
@@ -73,7 +77,8 @@ String macroLine({
       dp: 1,
     ),
   ];
-  return parts.isEmpty ? 'No nutrition numbers' : parts.join(' · ');
+  if (parts.isEmpty) return 'No nutrition numbers';
+  return '${partial ? 'At least ' : ''}${parts.join(' · ')}';
 }
 
 /// Compact energy/protein totals. Partial logs are floors, never full totals.
@@ -1317,13 +1322,18 @@ class _MealEditorState extends State<MealEditor> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    var partial = false;
     double? total(String k) {
       double? sum;
       for (final (key, g) in _items) {
         final d = _defs[key];
         final v = (d?[k] as num?)?.toDouble();
         final b = d == null ? null : toBase(d, g, _units[key] ?? foodUnit(d));
-        if (v != null && b != null) sum = (sum ?? 0) + v * b / 100;
+        if (v != null && b != null) {
+          sum = (sum ?? 0) + v * b / 100;
+        } else {
+          partial = true;
+        }
       }
       return sum;
     }
@@ -1412,13 +1422,23 @@ class _MealEditorState extends State<MealEditor> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: S.x2),
           child: Text(
-            macroLine(
-              kcal: total('kcal_100'),
-              protein: total('protein_g_100'),
-              carbs: total('carbs_g_100'),
-              fat: total('fat_g_100'),
-              fibre: total('fibre_g_100'),
-            ),
+            () {
+              final line = (
+                kcal: total('kcal_100'),
+                protein: total('protein_g_100'),
+                carbs: total('carbs_g_100'),
+                fat: total('fat_g_100'),
+                fibre: total('fibre_g_100'),
+              );
+              return macroLine(
+                kcal: line.kcal,
+                protein: line.protein,
+                carbs: line.carbs,
+                fat: line.fat,
+                fibre: line.fibre,
+                partial: partial,
+              );
+            }(),
             style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
           ),
         ),
@@ -2179,13 +2199,19 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final m = widget.meal;
+    var partial = false;
     double? total(String k) {
       double? sum;
       for (var i = 0; i < m.items.length; i++) {
+        if (!_on[i]) continue;
         final d = widget.defs[m.items[i].$1];
         final v = (d?[k] as num?)?.toDouble();
         final b = d == null ? null : toBase(d, _amounts[i], _units[i]);
-        if (_on[i] && v != null && b != null) sum = (sum ?? 0) + v * b / 100;
+        if (v != null && b != null) {
+          sum = (sum ?? 0) + v * b / 100;
+        } else {
+          partial = true;
+        }
       }
       return sum;
     }
@@ -2242,16 +2268,23 @@ class _MealReviewSheetState extends State<MealReviewSheet> {
         ),
       ],
       const SizedBox(height: S.x2),
-      Text(
-        macroLine(
+      Text(() {
+        final line = (
           kcal: total('kcal_100'),
           protein: total('protein_g_100'),
           carbs: total('carbs_g_100'),
           fat: total('fat_g_100'),
           fibre: total('fibre_g_100'),
-        ),
-        style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-      ),
+        );
+        return macroLine(
+          kcal: line.kcal,
+          protein: line.protein,
+          carbs: line.carbs,
+          fat: line.fat,
+          fibre: line.fibre,
+          partial: partial,
+        );
+      }(), style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
       const SizedBox(height: S.x4),
       BigButton(
         'Log',

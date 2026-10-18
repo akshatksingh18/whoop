@@ -6891,12 +6891,24 @@ class AppState extends ChangeNotifier {
       // Inside the try: the READ can throw too, and a guard set before it would
       // stay set forever. Spread into a fresh map — postJournalMetrics rewrites
       // the whole day from what it is handed.
-      final fields = {...await r.getJournalMetrics(date)};
-      final now = fields['water_ml']?.value ?? 0;
-      fields['water_ml'] = JournalMetricValue(
-        (now + spec.step).clamp(0, spec.max).toDouble(),
-      );
-      await r.postJournalMetrics(date, fields);
+      // Build 92: an atomic patch of water alone, retried once if another
+      // writer got in between the read and the write.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final fields = await r.getJournalMetrics(date);
+        final before = fields['water_ml'];
+        final now = before?.value ?? 0;
+        final conflicts = await r.saveJournalEdit(
+          date,
+          changes: {
+            'water_ml': JournalMetricValue(
+              (now + spec.step).clamp(0, spec.max).toDouble(),
+            ),
+          },
+          base: {'water_ml': ?before},
+        );
+        if (conflicts.isEmpty) break;
+        if (attempt == 1) throw StateError('water changed during the write');
+      }
       _log('[gesture] water logged (+${spec.step.round()} ${spec.unit})');
       await HapticFeedback.mediumImpact();
     } catch (e) {

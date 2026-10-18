@@ -330,6 +330,21 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   legend, VoiceOver); the Recent HRV chart labels an old night by date; a filter left with fewer
   than two labels returns to All so Saved meals reappear; an old entry whose unit was removed
   from the saved food previews its own recorded nutrition. Tests `build92_fixes_test.dart`.
+  Codex's extended pass added five nested findings, all fixed in Build 92 with
+  `build92_nested_test.dart`: the day breakdown re-reads on committed data (RevisionReload) and a
+  failed day switch shows Retry, never the previous day's graph (the day arrows stay); a meal
+  with unknown calories reads "—" or "at least", never 0 kcal (also the saved-meal editor/log
+  sheets and meal headings); a Journal save is one atomic patch of the changed fields
+  (`LocalDb.saveJournalEdit`) that refuses to overwrite a field changed elsewhere (the band
+  water tap uses the same patch), keeps the draft and releases Saving on failure, and its load
+  failure offers Retry. Its three source concerns are fixed too: notification permission
+  re-reads on return from iOS Settings (a failed switch save reverts), Food week/month marks keep
+  the newest read and show no marks instead of "nothing logged" on failure (the month offers
+  Retry), and the Data screen never touches a closed screen after a failed job.
+  Claude's end-to-end sweep before release (context after await, stuck busy flags, unknown
+  shown as zero, silent read failures, stale open screens) fixed three more stuck flags
+  (workout start, barcode lookup, Status test) and Today's Food/Protein lines now say "≥" (or
+  "calories not recorded") when some logged food has no value.
   Phone check: edge swipe on a clean and a dirty Body entry.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.

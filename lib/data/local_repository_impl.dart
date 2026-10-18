@@ -3690,6 +3690,41 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<List<String>> saveJournalEdit(
+    String date, {
+    required Map<String, JournalMetricValue?> changes,
+    required Map<String, JournalMetricValue> base,
+    List<String>? tags,
+    List<String>? baseTags,
+    String? note,
+    String? baseNote,
+  }) async {
+    // The same clamp as postJournalMetrics, on the changed fields only.
+    final specs = await getJournalFields();
+    final custom = specs.where((s) => s.custom).toList();
+    final clamped = <String, JournalMetricValue?>{
+      for (final e in changes.entries)
+        e.key: e.value == null
+            ? null
+            : JournalMetricValue(() {
+                final spec = journalFieldSpec(e.key, custom: custom);
+                return spec == null
+                    ? e.value!.value
+                    : e.value!.value.clamp(0.0, spec.max).toDouble();
+              }(), atMinuteOfDay: e.value!.atMinuteOfDay),
+    };
+    return LocalDb.saveJournalEdit(
+      date,
+      changes: clamped,
+      base: base,
+      tags: tags,
+      baseTags: baseTags,
+      note: note,
+      baseNote: baseNote,
+    );
+  }
+
+  @override
   Future<List<JournalFieldSpec>> getJournalFields() async => [
     ...kJournalFields,
     ...await LocalDb.journalFieldDefs(),

@@ -1830,11 +1830,17 @@ class MealSection extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final kcal = entries.fold<double>(0, (a, e) => a + (e.kcal ?? 0));
+    // Build 92: a food with no calories makes the heading a minimum, and a
+    // meal with none recorded shows no number (never "0 kcal").
+    final known = [
+      for (final e in entries)
+        if (e.kcal != null) e.kcal!,
+    ];
+    final kcal = known.fold<double>(0, (a, v) => a + v);
     return Section(
-      entries.isEmpty
+      entries.isEmpty || known.isEmpty
           ? mealName(meal)
-          : '${mealName(meal)} · ${kcal.round()} kcal',
+          : '${mealName(meal)} · ${known.length < entries.length ? '≥ ' : ''}${kcal.round()} kcal',
       Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: entries.isEmpty

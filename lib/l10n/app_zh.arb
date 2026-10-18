@@ -299,7 +299,7 @@
   "scanBarcodeInstructions": "将条形码保持在取景框内。系统不会录制任何内容——只读取数字。",
   "scanBarcodeNoAccessTitle": "无法访问摄像头",
   "scanBarcodeCameraFailedTitle": "摄像头未能启动",
-  "scanBarcodeNoAccessBody": "扫描需要使用摄像头，但本应用尚未获得该权限。",
+  "scanBarcodeNoAccessBody": "扫描需要相机。请在 iPhone 设置 → WHOOP → 相机 中允许，或改为手动输入数字。",
   "scanBarcodeCameraFailedBody": "此设备无法为扫描器打开摄像头。",
   "scanBarcodeTypeInstead": "改为手动输入数字",
   "findingsLogTitle": "观察记录",

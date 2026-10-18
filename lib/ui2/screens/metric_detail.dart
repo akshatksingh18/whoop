@@ -1505,7 +1505,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
         final first = DateTime.parse(_dayOfSlot(e.value.first, len));
         rows.add((
           label: byMonth
-              ? _monthName(first)
+              ? monthName(first.month, null)
               : 'Week of ${prettyDay(_dayOfSlot(e.value.first, len))}',
           value: have.isEmpty
               ? null
@@ -1575,21 +1575,6 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
       ),
     );
   }
-
-  static String _monthName(DateTime d) => const [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ][d.month - 1];
 
   /// Where a day opens. Each metric lands on the screen that actually shows
   /// that day; a metric with no per-day screen has no door (null).

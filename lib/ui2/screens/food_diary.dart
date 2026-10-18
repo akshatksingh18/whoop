@@ -1586,7 +1586,7 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
     if (_cat != null && !foodCategoriesIn(_foods).contains(_cat)) _cat = null;
     final foods = [
       for (final f in foodsIn(_foods, _cat))
-        if (hit('${f['label']}')) f,
+        if (hit('${f['label']}') || hit('${f['brand'] ?? ''}')) f,
     ];
     final meals = [
       for (final m in _meals)

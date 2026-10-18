@@ -299,7 +299,7 @@
   "scanBarcodeInstructions": "Maintenez le code-barres dans le cadre. Rien n'est enregistré — seuls les chiffres sont lus.",
   "scanBarcodeNoAccessTitle": "Pas d'accès à la caméra",
   "scanBarcodeCameraFailedTitle": "La caméra n'a pas démarré",
-  "scanBarcodeNoAccessBody": "La numérisation nécessite la caméra, et l'autorisation n'a pas été accordée à cette application.",
+  "scanBarcodeNoAccessBody": "Le scan a besoin de l’appareil photo. Autorisez-le dans Réglages de l’iPhone → WHOOP → Appareil photo, ou saisissez les chiffres.",
   "scanBarcodeCameraFailedBody": "Cet appareil n'a pas pu ouvrir sa caméra pour le scanner.",
   "scanBarcodeTypeInstead": "Saisir les chiffres à la place",
   "findingsLogTitle": "Observations",

@@ -18,9 +18,10 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/db.dart';
-import '../../data/body_log.dart' show BodyLogDb;
+import '../../data/body_log.dart' show BodyLogDb, kLbPerKg;
 import '../../data/day_label.dart';
 import '../../compute/profile.dart' show Profile;
 import '../../compute/day_upkeep.dart';
@@ -29,6 +30,7 @@ import '../../data/local_repository.dart';
 import '../../data/nutrition_store.dart';
 import '../../data/food_day_reminder.dart' show FoodDayReminder;
 import '../../gps/run_history.dart';
+import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import '../energy_comparison.dart';
@@ -37,7 +39,7 @@ import 'progress_routes.dart';
 import 'food_day_copy.dart';
 import 'food_picker.dart';
 import 'home_screen.dart'
-    show metricOf, prettyDay, pullToRefresh, repoOf, thousands;
+    show prettyDay, pullToRefresh, repoOf, thousands;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
 import 'food_calendar.dart' show FoodWeekStrip, showFoodCalendar;
@@ -101,6 +103,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   Map<String, double?> _maintenance = const {}, _acsmMaintenance = const {};
   List<RunSummary> _runs = const [];
   List<({String date, double kg})> _weights = const [];
+
+  /// Body's own kg/lb choice; the weight card reads and logs in it.
+  bool _lb = false;
   bool _loading = true;
   bool _editingLibrary = false;
 
@@ -137,6 +142,9 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       );
       final foods = await MyFoods.all(db);
       final meals = await MyFoods.meals(db);
+      final lb =
+          (await SharedPreferences.getInstance()).getString('body.unit') ==
+          'lb';
       final maintenance = <String, double?>{},
           acsmMaintenance = <String, double?>{};
       final runs = await _allRuns(repo);
@@ -151,6 +159,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         // and the chart's maintenance lines vanish on every reload).
         _runs = runs;
         _weights = weights;
+        _lb = lb;
         _loading = false;
         _failed = false;
         _calorieLoading = true;
@@ -524,7 +533,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     ];
     final measured = estimatedMaintenance(recent, days);
     final coverage = maintenanceFoodCoverage(recent, days);
-    final series = [for (final t in trend) t.kg];
+    final factor = _lb ? kLbPerKg : 1.0;
+    final unit = _lb ? 'lb' : 'kg';
+    String weight(double kg) => '${(kg * factor).toStringAsFixed(1)} $unit';
+    final series = [for (final t in trend) t.kg * factor];
     final axis = series.length < 2
         ? null
         : AxisSpec.of(series, ticks: 2, format: axisFixed);
@@ -546,15 +558,13 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                     ),
                     Text(
                       w.isEmpty
-                          ? (pr.weightKg == null
-                                ? '–'
-                                : '${pr.weightKg!.toStringAsFixed(1)} kg')
-                          : '${w.last.kg.toStringAsFixed(1)} kg',
+                          ? (pr.weightKg == null ? '–' : weight(pr.weightKg!))
+                          : weight(w.last.kg),
                       style: F.n24.copyWith(color: p.ink),
                     ),
                     if (trend.length >= 2)
                       Text(
-                        '7-day trend ${trend.last.kg.toStringAsFixed(1)} kg',
+                        '7-day trend ${weight(trend.last.kg)}',
                         style: F.cap.copyWith(color: p.ink3),
                       ),
                   ],
@@ -593,7 +603,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                       '(±${thousands(measured.halfRange)} kcal). More weigh-ins narrow it.'
                 : 'Estimated maintenance from food and weight: '
                       '${thousands(measured.displayRange.low)}–${thousands(measured.displayRange.high)} kcal · '
-                      '${measured.kgPerWeek.abs() < 0.05 ? 'weight about steady' : '${measured.kgPerWeek < 0 ? 'losing' : 'gaining'} ${measured.kgPerWeek.abs().toStringAsFixed(2)} kg a week'} '
+                      '${measured.kgPerWeek.abs() < 0.05 ? 'weight about steady' : '${measured.kgPerWeek < 0 ? 'losing' : 'gaining'} ${(measured.kgPerWeek.abs() * factor).toStringAsFixed(2)} $unit a week'} '
                       '(${measured.days} days, ${measured.weighIns} weigh-ins)'
                       '${measured.shortWindow ? ' · short-window conversion estimate' : ''}',
             style: F.cap.copyWith(
@@ -607,26 +617,28 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
 
   Future<void> _logWeight(BuildContext c) async {
     final app = c.read<AppState>();
-    final kg = await askText(
+    final unit = _lb ? 'lb' : 'kg';
+    final factor = _lb ? kLbPerKg : 1.0;
+    final lo = 30 * factor, hi = 300 * factor;
+    bool ok(double? v) => v != null && v >= lo && v <= hi;
+    final lastKg = _weights.isEmpty
+        ? Profile.fromMap(app.user).weightKg
+        : _weights.last.kg;
+    final typed = await askText(
       c,
       'Log weight',
-      'Weight (kg)',
-      (_weights.isEmpty ? Profile.fromMap(app.user).weightKg : _weights.last.kg)
-              ?.toStringAsFixed(1) ??
-          '',
-      validate: (s) {
-        final v = Typed.of(s).value;
-        return v == null || v < 30 || v > 300
-            ? 'Enter a weight from 30 to 300 kg.'
-            : null;
-      },
+      'Weight ($unit)',
+      lastKg == null ? '' : (lastKg * factor).toStringAsFixed(1),
+      validate: (s) => ok(Typed.of(s).value)
+          ? null
+          : 'Enter a weight from ${lo.round()} to ${hi.round()} $unit.',
       keyboard: const TextInputType.numberWithOptions(decimal: true),
     );
-    final v = kg == null ? null : Typed.of(kg).value;
-    if (v == null || v < 30 || v > 300) return;
+    final v = typed == null ? null : Typed.of(typed).value;
+    if (!ok(v)) return;
     try {
       final date = todayLabel();
-      await BodyWeight.put(date, v, 'kg');
+      await BodyWeight.put(date, v!, unit);
       // Body owns the day's first reading. Later weigh-ins stay in its history
       // and must not replace the canonical calculation weight.
       final daily = await BodyLogDb.weightOn(date);
@@ -1062,9 +1074,7 @@ class _NutritionDayViewState extends State<NutritionDayView>
     widget.onChanged?.call();
   }
 
-  /// The foods you log most, at the portion you last had, one tap each into
-  /// the meal for this time of day — with Undo, because one tap is easy to
-  /// make by accident.
+  /// Copy another day's food into this one, after reviewing every item.
   Future<void> _copyDay(BuildContext c) async {
     final from = await pickDate(c, shiftDay(widget.date, -1));
     if (from == null || !c.mounted) return;
@@ -1098,6 +1108,9 @@ class _NutritionDayViewState extends State<NutritionDayView>
     }
   }
 
+  /// The foods you log most, at the portion you last had, one tap each into
+  /// the meal for this time of day — with Undo, because one tap is easy to
+  /// make by accident.
   Widget _logAgain(BuildContext c, String meal) {
     final p = P.of(c);
     Future<void> log(
@@ -1360,7 +1373,6 @@ class _NutritionDayViewState extends State<NutritionDayView>
         CalorieCard(
           eaten: d.kcal.value,
           goal: _targetOf(profile, 'kcal_target'),
-          maintenance: _upkeep?.parts?.total.toDouble(),
           day: d,
           profile: profile,
           note: _proteinLeft(d, profile),
@@ -1476,7 +1488,6 @@ class CalorieCard extends StatelessWidget {
     super.key,
     required this.eaten,
     required this.goal,
-    this.maintenance,
     this.onTap,
     this.day,
     this.profile = const {},
@@ -1486,10 +1497,6 @@ class CalorieCard extends StatelessWidget {
   });
 
   final double? eaten, goal;
-
-  /// Retained for existing callers. Maintenance comparisons live in the
-  /// maintenance panel; this card compares intake with the user's fixed goal.
-  final double? maintenance;
   final VoidCallback? onTap;
 
   /// The day whose protein, carbs, fat and fibre show under the calories.
@@ -1499,7 +1506,7 @@ class CalorieCard extends StatelessWidget {
   /// One line under the macros, such as the evening protein still to eat.
   final String? note;
 
-  /// Add food stays visible below the totals, using the existing logging route.
+  /// The Add button's words, naming the meal it adds to ("Add to Dinner").
   final String? addLabel;
   final VoidCallback? onAdd;
 
@@ -1553,7 +1560,7 @@ class CalorieCard extends StatelessWidget {
           if (onAdd != null) ...[
             const SizedBox(height: S.x2),
             BigButton(
-              'Add food',
+              addLabel ?? 'Add food',
               icon: LucideIcons.plus,
               color: C.food,
               onTap: onAdd,
@@ -1844,72 +1851,6 @@ class _Macros extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-/// One meal: its total, its entries, and its own Add.
-class MealSection extends StatelessWidget {
-  const MealSection({
-    super.key,
-    required this.meal,
-    required this.entries,
-    required this.onAdd,
-    this.onEntry,
-    this.onRemove,
-  });
-
-  final String meal;
-  final List<FoodEntry> entries;
-  final VoidCallback onAdd;
-  final ValueChanged<FoodEntry>? onEntry, onRemove;
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    // Build 92: a food with no calories makes the heading a minimum, and a
-    // meal with none recorded shows no number (never "0 kcal").
-    final known = [
-      for (final e in entries)
-        if (e.kcal != null) e.kcal!,
-    ];
-    final kcal = known.fold<double>(0, (a, v) => a + v);
-    return Section(
-      entries.isEmpty || known.isEmpty
-          ? mealName(meal)
-          : '${mealName(meal)} · ${known.length < entries.length ? '≥ ' : ''}${kcal.round()} kcal',
-      Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: entries.isEmpty
-            ? Padding(
-                padding: const EdgeInsets.symmetric(vertical: S.x3),
-                child: Text(
-                  'Nothing yet',
-                  style: F.cap.copyWith(color: p.ink3),
-                ),
-              )
-            : Column(
-                children: [
-                  for (final e in entries)
-                    PickRow(
-                      e.quantity == null
-                          ? e.label
-                          : '${e.label} · ${portionText(e.quantity!, e.unit)}',
-                      macroLine(
-                        kcal: e.kcal,
-                        protein: e.proteinG,
-                        carbs: e.carbsG,
-                        fat: e.fatG,
-                        fibre: e.fibreG,
-                      ),
-                      trailing: LucideIcons.x,
-                      onTap: onEntry == null ? null : () => onEntry!(e),
-                    ),
-                ],
-              ),
-      ),
-      action: 'Add',
-      onAction: onAdd,
     );
   }
 }
@@ -2282,8 +2223,28 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
         Pressable(
           semanticLabel: 'Evening check ${on ? 'on' : 'off'}',
           onTap: () async {
-            await FoodDayReminder.setEnabled(!on);
-            if (mounted) setState(() => _evening = !on);
+            final messenger = ScaffoldMessenger.maybeOf(context);
+            if (!on && !await NotificationService.instance.ensurePermission()) {
+              messenger?.showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Notifications are off for this app. Allow them in '
+                    'iPhone Settings, then turn the evening check on again.',
+                  ),
+                ),
+              );
+              return;
+            }
+            try {
+              await FoodDayReminder.setEnabled(!on);
+              if (mounted) setState(() => _evening = !on);
+            } catch (_) {
+              messenger?.showSnackBar(
+                const SnackBar(
+                  content: Text('The evening check could not change. Try again.'),
+                ),
+              );
+            }
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: S.x2),
@@ -2324,29 +2285,10 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
 
 // ══════════════════ MAINTENANCE ══════════════════
 
-/// Steps for [date]: today's live count, or the stored day's.
-Future<num?> stepsOn(BuildContext c, String date) async {
-  final repo = repoOf(c);
-  if (repo == null) return null;
-  try {
-    if (date == todayLabel()) {
-      final daily = (await repo.getToday())['daily'];
-      return metricOf(daily is Map ? daily['steps'] : null).value;
-    }
-    final day = await repo.getDaySteps(date);
-    return (day['day_total'] as num?) ?? (day['total'] as num?);
-  } catch (_) {}
-  return null;
-}
-
 /// Every run this phone holds, for the Running row. Empty when unreadable.
 Future<List<RunSummary>> _allRuns(LocalRepository? repo) async =>
     repo == null ? const [] : loadRuns(repo);
 
-/// What one day's maintenance is made of: resting energy, the steps walked
-/// outside runs, the runs themselves (Method 1, by distance), and the low-end
-/// digestion cost of the food logged. A floor: lifting shows as a separate
-/// line in the sheet and is never added.
 /// The day's maintenance as a floor, shown beside the food and never changing
 /// the calorie goal. Tap for what each part is.
 ///

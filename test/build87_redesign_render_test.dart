@@ -1266,7 +1266,7 @@ void main() {
       MaterialApp(
         theme: buildTheme(Brightness.light),
         home: const Scaffold(
-          body: CalorieCard(eaten: null, goal: 2300, maintenance: 2600),
+          body: CalorieCard(eaten: null, goal: 2300),
         ),
       ),
     );

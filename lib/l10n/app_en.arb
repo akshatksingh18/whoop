@@ -1459,7 +1459,7 @@
   "@scanBarcodeCameraFailedTitle": {
     "description": "Title shown when the camera failed to start for barcode scanning"
   },
-  "scanBarcodeNoAccessBody": "Scanning needs the camera, and this app has not been given it.",
+  "scanBarcodeNoAccessBody": "Scanning needs the camera. Allow it in iPhone Settings → WHOOP → Camera, or type the numbers instead.",
   "@scanBarcodeNoAccessBody": {
     "description": "Body text explaining camera permission was refused, in the barcode scanner"
   },

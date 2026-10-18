@@ -34,13 +34,6 @@ class FoodDayReminder {
     await arm();
   }
 
-  static Future<void> setTime(int hour, int minute) async {
-    final p = await SharedPreferences.getInstance();
-    await p.setInt(_kHour, hour);
-    await p.setInt(_kMinute, minute);
-    await arm();
-  }
-
   /// Schedule (or cancel) the daily question. Tonight's is skipped once today
   /// is already marked either way.
   static Future<void> arm() async {

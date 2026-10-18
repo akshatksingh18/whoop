@@ -821,12 +821,6 @@ Map<String, Widget> _nutritionAndWellnessCases() {
       addLabel: 'Add to Lunch',
       onAdd: () {},
     ),
-    'meal_section': Column(
-      children: [
-        MealSection(meal: 'breakfast', entries: const [known], onAdd: () {}),
-        MealSection(meal: 'dinner', entries: const [], onAdd: () {}),
-      ],
-    ),
     'pick_row': const Surface(
       pad: EdgeInsets.symmetric(horizontal: S.x4),
       child: PickRow('Oats', 'per 100 g: 380 kcal · P 13.0 · C 66.0'),

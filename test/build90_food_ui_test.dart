@@ -5,6 +5,7 @@ import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/ui2/screens/food_day_copy.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/screens/food_calendar.dart';
+import 'package:openstrap_edge/ui2/grammar.dart' show Pressable;
 import 'package:openstrap_edge/ui2/theme.dart';
 
 const entries = [
@@ -163,7 +164,7 @@ void main() {
     testWidgets(
       'copy review adjusts and unticks without writing until explicit Log at ${scale}x',
       (t) async {
-        t.view.physicalSize = const Size(1170, 2532);
+        t.view.physicalSize = const Size(1170, 9000);
         t.view.devicePixelRatio = 3;
         addTearDown(t.view.reset);
         List<FoodEntry>? saved;
@@ -197,35 +198,44 @@ void main() {
         await t.tap(find.text('Open review'));
         await t.pumpAndSettle();
         expect(saved, isNull);
-        final soup = find.widgetWithText(CheckboxListTile, 'Synthetic soup');
+        final list = find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        final soup = find.text('Synthetic soup');
         await t.scrollUntilVisible(
           soup,
           300,
-          scrollable: find.byType(Scrollable).first,
+          scrollable: list,
         );
-        final checkbox=find.descendant(of:soup,matching:find.byType(Checkbox));
-        await t.ensureVisible(checkbox);
-        await t.pumpAndSettle();
-        await t.tap(checkbox);
+        await t.tap(soup);
         await t.pump();
-        await t.scrollUntilVisible(
-          find.text('Adjust portion: Synthetic oats'),
-          -300,
-          scrollable: find.byType(Scrollable).first,
+        final oats = find.byWidgetPredicate(
+          (w) =>
+              w is Pressable &&
+              w.semanticLabel == 'Portion of Synthetic oats, 1×',
         );
-        await t.tap(find.text('Adjust portion: Synthetic oats'));
+        await t.scrollUntilVisible(
+          oats,
+          -300,
+          scrollable: list,
+        );
+        await t.tap(oats);
         await t.pumpAndSettle();
         await t.enterText(find.byType(TextField), '0.5');
         await t.ensureVisible(find.text('Save'));
         await t.tap(find.text('Save'));
         await t.pumpAndSettle();
         expect(saved, isNull);
+        final copy = find.textContaining('Copy 1 item');
         await t.scrollUntilVisible(
-          find.text('Log into 2025-01-06'),
+          copy,
           300,
-          scrollable: find.byType(Scrollable).first,
+          scrollable: list,
         );
-        await t.tap(find.text('Log into 2025-01-06'));
+        await t.tap(copy);
         await t.pumpAndSettle();
         expect(saved, hasLength(1));
         expect(saved!.single.kcal, 200);
@@ -233,12 +243,8 @@ void main() {
         saved = null;
         await t.tap(find.text('Open review'));
         await t.pumpAndSettle();
-        await t.scrollUntilVisible(
-          find.text('Cancel'),
-          300,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await t.tap(find.text('Cancel'));
+        // Leaving without Copy writes nothing.
+        Navigator.of(t.element(find.text('Copy a day'))).pop();
         await t.pumpAndSettle();
         expect(saved, isNull);
       },

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
 import '../../data/nutrition_store.dart';
-import '../theme.dart';
-import 'food_diary.dart' show askText;
+import '../ui2.dart';
+import 'food_diary.dart' show askText, dayTitle;
 import 'food_picker.dart' show mealName;
+import 'home_screen.dart' show thousands;
+import 'metric_detail.dart' show detailScaffold;
 
 /// A full review with one explicit write action; cancel never calls [onLog].
 Future<bool?> reviewFoodDayCopy(
@@ -41,8 +45,8 @@ class _FoodDayCopyReviewState extends State<_FoodDayCopyReview> {
     final text = await askText(
       context,
       'Portion of ${widget.entries[i].label}',
-      'Multiplier (1 = original, 0.5 = half)',
-      _factors[i].toString(),
+      'Portion (1 = as logged, 0.5 = half)',
+      editableNumber(_factors[i]),
       keyboard: const TextInputType.numberWithOptions(decimal: true),
       validate: (v) {
         final n = double.tryParse(v);
@@ -96,62 +100,105 @@ class _FoodDayCopyReviewState extends State<_FoodDayCopyReview> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c), any = _selected.any((x) => x);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Copy a food day')),
-      body: ListView(
-        padding: const EdgeInsets.all(S.x4),
-        children: [
-          Text(
-            'From ${widget.from} · Into ${widget.to}',
-            style: F.body.copyWith(color: p.ink),
-          ),
-          const SizedBox(height: S.x2),
-          Text(
-            'Review every item. Adjust portions or untick anything you do not want.',
-            style: F.cap.copyWith(color: p.ink2),
-          ),
-          const SizedBox(height: S.x3),
-          if (widget.entries.isEmpty)
-            Text(
-              'No food logged on that date.',
-              style: F.body.copyWith(color: p.ink),
-            ),
-          for (var i = 0; i < widget.entries.length; i++) ...[
-            CheckboxListTile(
-              value: _selected[i],
-              onChanged: _saving
-                  ? null
-                  : (v) => setState(() => _selected[i] = v ?? false),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: Text(widget.entries[i].label),
-              subtitle: Text(
-                '${mealName(widget.entries[i].meal)} · ${_factors[i]}× portion · '
-                '${widget.entries[i].scaledPortion(_factors[i]).kcal?.round() ?? 'unknown'} kcal',
-              ),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton(
-                onPressed: _saving ? null : () => _portion(i),
-                child: Text('Adjust portion: ${widget.entries[i].label}'),
-              ),
-            ),
-            Divider(color: p.line),
-          ],
-          if (_error != null)
-            Text(_error!, style: F.body.copyWith(color: p.on(C.alert))),
-          const SizedBox(height: S.x3),
-          FilledButton(
-            onPressed: _saving || !any ? null : _log,
-            child: Text(_saving ? 'Logging…' : 'Log into ${widget.to}'),
-          ),
-          TextButton(
-            onPressed: _saving ? null : () => Navigator.of(c).pop(false),
-            child: const Text('Cancel'),
-          ),
-        ],
+    final picked = [
+      for (var i = 0; i < widget.entries.length; i++)
+        if (_selected[i]) widget.entries[i].scaledPortion(_factors[i]),
+    ];
+    final known = [for (final e in picked) ?e.kcal];
+    final total = known.fold<double>(0, (a, v) => a + v);
+    String factor(double f) => '${editableNumber(f)}×';
+    return detailScaffold(c, 'Copy a day', [
+      Text(
+        'From ${dayTitle(widget.from)} into ${dayTitle(widget.to)}',
+        style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
       ),
+      const SizedBox(height: S.x1),
+      Text(
+        'Untick anything you do not want, or change a portion.',
+        style: F.cap.copyWith(color: p.ink2),
+      ),
+      const SizedBox(height: S.x3),
+      if (widget.entries.isEmpty)
+        const StatusCard(
+          'Nothing to copy',
+          'No food is logged on that day.',
+          icon: LucideIcons.utensils,
+        )
+      else
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              for (var i = 0; i < widget.entries.length; i++) ...[
+                if (i > 0) Divider(color: p.line, height: 1),
+                _row(c, p, i, factor),
+              ],
+            ],
+          ),
+        ),
+      if (_error != null) ...[
+        const SizedBox(height: S.x3),
+        Text(_error!, style: F.cap.copyWith(color: p.on(C.alert))),
+      ],
+      const SizedBox(height: S.x5),
+      BigButton(
+        _saving
+            ? 'Copying…'
+            : picked.isEmpty
+            ? 'Nothing selected'
+            : 'Copy ${picked.length} item${picked.length == 1 ? '' : 's'}'
+                  '${known.isEmpty ? '' : ' · ${known.length < picked.length ? '≥ ' : ''}${thousands(total)} kcal'}',
+        icon: LucideIcons.copy,
+        color: C.domFood,
+        onTap: _saving || !any ? null : _log,
+      ),
+    ]);
+  }
+
+  Widget _row(BuildContext c, P p, int i, String Function(double) factor) {
+    final e = widget.entries[i];
+    final on = _selected[i];
+    final kcal = e.scaledPortion(_factors[i]).kcal;
+    return Row(
+      children: [
+        Expanded(
+          child: Pressable(
+            semanticLabel: '${e.label}, ${on ? 'selected' : 'not selected'}',
+            onTap: _saving ? null : () => setState(() => _selected[i] = !on),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x3),
+              child: Row(
+                children: [
+                  Icon(
+                    on ? LucideIcons.squareCheck : LucideIcons.square,
+                    size: 20,
+                    color: on ? p.on(C.domFood) : p.ink3,
+                  ),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(e.label, style: F.body.copyWith(color: p.ink)),
+                        Text(
+                          '${mealName(e.meal)} · '
+                          '${kcal == null ? 'calories unknown' : '${kcal.round()} kcal'}',
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Pressable(
+          semanticLabel: 'Portion of ${e.label}, ${factor(_factors[i])}',
+          onTap: _saving || !on ? null : () => _portion(i),
+          child: Pill(factor(_factors[i]), on ? C.domFood : C.n400),
+        ),
+      ],
     );
   }
 }

@@ -11,6 +11,7 @@ import '../../data/db.dart';
 import '../../data/nutrition_store.dart';
 import '../grammar.dart';
 import 'food_diary.dart' show dayTitle, shiftDay;
+import 'home_screen.dart' show monthName;
 import '../theme.dart';
 
 /// What one day of food reads as on the strip and the calendar.
@@ -307,11 +308,6 @@ class _FoodCalendarState extends State<FoodCalendar> {
   bool _failed = false;
   int _seq = 0;
 
-  static const _names = [
-    'January', 'February', 'March', 'April', 'May', 'June', 'July', //
-    'August', 'September', 'October', 'November', 'December',
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -366,7 +362,7 @@ class _FoodCalendarState extends State<FoodCalendar> {
             children: [
               Expanded(
                 child: Text(
-                  '${_names[_month.month - 1]} ${_month.year}',
+                  '${monthName(_month.month, null)} ${_month.year}',
                   style: F.head.copyWith(color: p.ink),
                 ),
               ),

@@ -299,7 +299,7 @@
   "scanBarcodeInstructions": "बारकोड को फ़्रेम के अंदर रखें। कुछ भी रिकॉर्ड नहीं होता — सिर्फ़ अंक पढ़े जाते हैं।",
   "scanBarcodeNoAccessTitle": "कैमरा एक्सेस नहीं है",
   "scanBarcodeCameraFailedTitle": "कैमरा शुरू नहीं हो सका",
-  "scanBarcodeNoAccessBody": "स्कैन करने के लिए कैमरे की ज़रूरत होती है, और इस ऐप को इसकी अनुमति नहीं दी गई है।",
+  "scanBarcodeNoAccessBody": "स्कैन करने के लिए कैमरा चाहिए। iPhone सेटिंग्स → WHOOP → कैमरा में इसकी अनुमति दें, या इसके बजाय नंबर टाइप करें।",
   "scanBarcodeCameraFailedBody": "यह डिवाइस स्कैनर के लिए अपना कैमरा नहीं खोल सका।",
   "scanBarcodeTypeInstead": "इसके बजाय नंबर टाइप करें",
   "findingsLogTitle": "अवलोकन",

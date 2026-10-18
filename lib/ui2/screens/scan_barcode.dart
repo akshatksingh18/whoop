@@ -141,8 +141,8 @@ class _CameraProblem extends StatelessWidget {
               : (l?.scanBarcodeCameraFailedTitle ?? 'The camera did not start'),
           denied
               ? (l?.scanBarcodeNoAccessBody ??
-                  'Scanning needs the camera, and this app has not been '
-                      'given it.')
+                  'Scanning needs the camera. Allow it in iPhone Settings → '
+                      'WHOOP → Camera, or type the numbers instead.')
               : (l?.scanBarcodeCameraFailedBody ??
                   'This device would not open its camera for the scanner.'),
           fix: l?.scanBarcodeTypeInstead ?? 'Type the numbers instead',

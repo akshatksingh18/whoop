@@ -126,7 +126,6 @@ void main() {
                   child: CalorieCard(
                     eaten: 700,
                     goal: 2300,
-                    maintenance: 2400,
                     day: rollupDay('2025-01-05', _entries, today: '2025-01-06'),
                     profile: const {
                       'protein_target': 160,

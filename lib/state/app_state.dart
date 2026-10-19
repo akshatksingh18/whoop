@@ -22,11 +22,6 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart';
 
-import '../ai/ai_prefs.dart';
-import '../ai/briefing.dart';
-import '../ai/briefing_engine.dart';
-import '../ai/nightly_sweep.dart';
-import '../coach/coach_config.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
@@ -1096,11 +1091,6 @@ class AppState extends ChangeNotifier {
     LiftReminders.loggingSessions.clear();
     // Pushups' Home watch, its Home point and its action inbox.
     await Pushups.reset();
-    try {
-      await coachConfig?.save(apiKey: ''); // deletes the keychain entry
-    } catch (e) {
-      _log('[reset] keychain clear failed: $e');
-    }
     await BackupPassphrase.clear();
     hasBackupPassphrase = false;
 
@@ -1730,7 +1720,6 @@ class AppState extends ChangeNotifier {
       if (!kPersonalSideload) {
         unawaited(AutoWorkoutImport.maybeRun());
       }
-      await _maybeGenerateBriefing();
       unawaited(_checkSchemaHealth()); // throttled internally to 24h
       // Staleness-escalation meta-layer: the SAME check the headless path
       // runs (shared cooldown via SharedPreferences, so foreground and
@@ -1746,75 +1735,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ── AI briefings (BYOK — see lib/ai/) ────────────────────────────────────────
-
-  /// The BYOK provider config (owned by main.dart's provider tree). Attached
-  /// once by the app widget so briefings/reminders can check `hasKey` and call
-  /// the shared plumbing. A key change re-asserts the notification schedule.
-  CoachConfig? coachConfig;
-  void attachCoachConfig(CoachConfig c) {
-    if (identical(coachConfig, c)) return;
-    coachConfig = c;
-    c.addListener(() => unawaited(_ensureRemindersScheduled()));
-    unawaited(_ensureRemindersScheduled());
-  }
-
-  /// Re-assert the AI notification schedule (settings screens call this after
-  /// a prefs change; also runs on every foreground via runCadenceChecks).
-  Future<void> refreshAiReminders() => _ensureRemindersScheduled();
-
-  int _lastBriefingAttemptMs = 0;
-
-  /// Opportunistic generation on foreground: iOS can't run BYOK network in the
-  /// background, so the scheduled notification is only a light prompt — the
-  /// real summary is generated (a) when the breakdown screen opens, and (b)
-  /// HERE, on the first foreground of the morning/evening window, so the Today
-  /// card + breakdown open instantly. Cached per day+period; rate-limited so a
-  /// failing provider never gets hammered.
-  Future<void> _maybeGenerateBriefing({DateTime? now}) async {
-    final cfg = coachConfig;
-    final r = repo;
-    if (cfg == null || !cfg.configured || r == null) return;
-    final at = now ?? DateTime.now();
-    if (at.millisecondsSinceEpoch - _lastBriefingAttemptMs < 10 * 60 * 1000) {
-      return; // one attempt per 10 min — never a retry storm
-    }
-    try {
-      final ai = await AiPrefs.load();
-      final minOfDay = at.hour * 60 + at.minute;
-      BriefingPeriod? want;
-      // The SAME resolved time the sweep notification is armed for. Reading
-      // the raw `eveningMin` here would generate — and permanently cache —
-      // tonight's sweep at 20:00 for a user whose slot is 21:45, off a day
-      // that was not over yet.
-      final eveningMin = ai.resolvedEveningMin(
-        bedtimeMinOfDay: (await _readCrossdaySummary()).bedtimeMin,
-      );
-      if (ai.eveningEnabled && minOfDay >= eveningMin) {
-        want = BriefingPeriod.evening;
-      } else if (ai.morningEnabled && at.hour >= 5) {
-        want = BriefingPeriod.morning;
-      }
-      if (want == null || BriefingStore.read(want) != null) return;
-      if (want == BriefingPeriod.morning) {
-        // Don't opportunistically write (and permanently cache) a morning
-        // briefing off a still-syncing/truncated overnight — e.g. the band
-        // disconnected mid-sleep and the app is only foregrounded at 5am, so
-        // "overnight_state" is still 'building'. Wait for it to genuinely
-        // settle; the 10-min rate limit above already caps how often we check.
-        final today = await r.getToday();
-        final status = (today['status'] as Map?)?.cast<String, dynamic>();
-        final overnightState = status?['overnight_state']?.toString();
-        if (overnightState != 'ready') return;
-      }
-      _lastBriefingAttemptMs = at.millisecondsSinceEpoch;
-      await BriefingEngine(config: cfg, repo: r).generate(want, now: at);
-      _log('[ai] ${want.id} briefing generated');
-      notifyListeners(); // Today card reads the store synchronously
-    } catch (e) {
-      _log('[ai] briefing generation skipped: $e');
-    }
-  }
+  /// Re-assert the standing notification schedule (a settings switch that
+  /// was just changed takes effect at once, not at the next resume).
+  Future<void> refreshReminders() => _ensureRemindersScheduled();
 
   /// Fire once per day when the daily step ESTIMATE crosses the user's goal.
   /// Reads the latest derived `steps` series (an estimate — same tier as the
@@ -2592,18 +2515,6 @@ class AppState extends ChangeNotifier {
         }
         _medBuzzer.configure(slotInstants: instants);
       }
-      // AI slots. The nightly sweep is armed only when today actually produced
-      // a finding — see [_sweepHeadlineNow], which is also where the body of
-      // that notification comes from.
-      final ai = await AiPrefs.load();
-      await NotificationCenter.instance.scheduleAiReminders(
-        prefs,
-        ai,
-        aiConfigured: coachConfig?.hasKey ?? false,
-        bedtimeMinOfDay: cd.bedtimeMin,
-        journalDoneToday: BriefingStore.journalDoneToday(),
-        sweepHeadline: await _sweepHeadlineNow(),
-      );
     } catch (e) {
       _log('[notify] schedule reminders skipped: $e');
     }
@@ -2691,42 +2602,6 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return (defs: null, doses: empty);
     }
-  }
-
-  String? _sweepHeadline;
-  String _sweepDay = '';
-  int _lastSweepScanMs = 0;
-
-  /// Today's strongest sweep finding, or null when nothing stands out — which
-  /// is most days, and is the answer that keeps tonight's notification silent.
-  ///
-  /// Pure-Dart and offline: no model is involved in DECIDING there is something
-  /// to say, only in phrasing it afterwards. Not run before midday (the day is
-  /// not in yet) and at most hourly, because this sits on the foreground
-  /// cadence path and it is seven trend queries.
-  Future<String?> _sweepHeadlineNow({DateTime? now}) async {
-    final r = repo;
-    final at = now ?? DateTime.now();
-    final day = todayLabel(at);
-    if (day != _sweepDay) {
-      _sweepDay = day;
-      _sweepHeadline = null;
-      _lastSweepScanMs = 0;
-    }
-    if (r == null || at.hour < 12) return null;
-    if (_lastSweepScanMs != 0 &&
-        at.millisecondsSinceEpoch - _lastSweepScanMs < 60 * 60 * 1000) {
-      return _sweepHeadline;
-    }
-    _lastSweepScanMs = at.millisecondsSinceEpoch;
-    try {
-      _sweepHeadline = sweepHeadline(
-        sweepFindings(await collectSweepSeries(r, at)),
-      );
-    } catch (e) {
-      _log('[ai] sweep scan skipped: $e');
-    }
-    return _sweepHeadline;
   }
 
   void _log(String line) {

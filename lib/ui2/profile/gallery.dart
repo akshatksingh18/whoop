@@ -29,7 +29,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
 import '../../data/nutrition_store.dart';
-import '../../ai/nightly_sweep.dart' show SweepFinding;
+import '../../compute/nightly_sweep.dart' show SweepFinding;
 import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../activity/catalogue.dart';

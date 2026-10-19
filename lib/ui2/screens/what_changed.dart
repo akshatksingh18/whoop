@@ -25,8 +25,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../../ai/briefing_engine.dart' show collectSweepSeries;
-import '../../ai/nightly_sweep.dart';
+import '../../compute/nightly_sweep.dart';
 import '../../data/local_repository.dart';
 import '../../notify/notification_report.dart';
 import '../../l10n/app_localizations.dart';

@@ -7,7 +7,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'build_profile.dart';
 import 'package:provider/provider.dart';
 
-import 'coach/coach_config.dart';
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
@@ -52,12 +51,8 @@ class _OpenStrapAppState extends State<OpenStrapApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Hand the BYOK provider config to AppState (briefing generation + the
-    // key-aware AI notification schedule live there).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
-
       final app = context.read<AppState>();
       // Pushups: merge Done/Pause taken while closed and apply Home boundary
       // events. Runs on a background relaunch too, which is how leaving Home

@@ -25,7 +25,6 @@ import '../compute/substrate.dart' show beatTimesMs;
 // The ONE thing this layer takes from compute/: the running build's algo
 // version, which every day_result read applies as a CEILING (see [dayResult]).
 // `show` keeps the rest of the engine out of this namespace.
-import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
@@ -3634,10 +3633,9 @@ class LocalDb {
     );
   }
 
-  // ── COACH READ-ONLY SQL VIEWS (derived-only) ───────────────────────────────
+  // ── DERIVED-ONLY SQL VIEWS (the CSV export reads these) ────────────────────
   // Re-created on every open (DROP+CREATE) so a view-shape change takes effect on
-  // upgrade. These flatten DERIVED data only; the coach's read-only SQL layer is
-  // allow-listed to these views and can never reach raw_records / decoded_*.
+  // upgrade. These flatten DERIVED data only, never raw_records / decoded_*.
   // Every view over day_result selects the LATEST algo_version per day_id.
   static Future<void> _ensureCoachViews(Database db) async {
     const views = [
@@ -9830,13 +9828,6 @@ class LocalDb {
     if (free < minFreeBytes) return 0;
     final db = await instance;
     await db.execute('VACUUM');
-    // VACUUM rewrites the file and renumbers every btree root page. CoachDb
-    // caches the root pages of its allow-listed views to decide what a coach
-    // query is allowed to touch, and nothing else calls CoachDb.close() — so
-    // after this ran, every valid coach query started failing its own guard
-    // ("Query reaches storage outside the coach views") for the rest of the
-    // process. The invariant belongs to whoever moves the pages.
-    await CoachDb.close();
     return free;
   }
 

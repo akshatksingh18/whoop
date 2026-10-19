@@ -22,6 +22,9 @@
 
 import 'dart:math' as math;
 
+import '../data/day_label.dart';
+import '../data/local_repository.dart';
+
 /// One metric as the sweep sees it: today, and the days before it.
 class SweepSeries {
   /// Series key (`rhr`, `readiness`, …) — only for identity/dedupe.
@@ -201,3 +204,82 @@ String? sweepHeadline(List<SweepFinding> findings) {
 /// What the briefing says when the sweep found nothing. Complete as it stands —
 /// it must never be padded out with the day's numbers to look like more.
 const String kNothingStoodOut = 'Nothing stood out tonight.';
+
+// ── reading the series ──────────────────────────────────────────────────────
+
+num? _num(dynamic v) => v is num ? v : null;
+
+/// The metrics the sweep looks at, keyed by the name [LocalRepository.getChart]
+/// speaks (it maps those onto series keys itself). Deliberately short: every
+/// one of these is a number the user already has a screen for, so a finding
+/// about it can be checked.
+const Map<String, ({String key, String label, String unit, int dp})>
+    kSweepMetrics = {
+  'recovery': (key: 'readiness', label: 'readiness', unit: '', dp: 0),
+  'resting_hr': (key: 'rhr', label: 'resting heart rate', unit: 'bpm', dp: 0),
+  'hrv': (key: 'rmssd', label: 'HRV', unit: 'ms', dp: 0),
+  'strain': (key: 'strain', label: 'strain', unit: '', dp: 1),
+  'steps': (key: 'steps', label: 'steps', unit: '', dp: 0),
+  'sleep': (key: 'tst_min', label: 'time asleep', unit: 'min', dp: 0),
+  'efficiency': (
+    key: 'efficiency',
+    label: 'sleep efficiency',
+    unit: '%',
+    dp: 0
+  ),
+};
+
+/// Today's value plus its own trailing history, per metric, read from the same
+/// derived store the trend screens draw. A metric with no value TODAY is left
+/// out entirely — there is nothing to have a finding about.
+///
+/// The window stops at the most recent algo-version break. Values either side
+/// of one are not comparable, and a version bump reported as "the lowest in 60
+/// days" would be a finding about us, not about the user.
+Future<List<SweepSeries>> collectSweepSeries(
+  LocalRepository repo,
+  DateTime now,
+) async {
+  final today = todayLabel(now);
+  final out = <SweepSeries>[];
+  for (final e in kSweepMetrics.entries) {
+    try {
+      final chart = await repo.getChart(e.key);
+      final points = chart['points'];
+      if (points is! List) continue;
+      var cutoff = 0;
+      final breaks = chart['algo_breaks'];
+      if (breaks is List) {
+        for (final b in breaks) {
+          final t = b is Map ? _num(b['t'])?.toInt() : null;
+          if (t != null && t > cutoff) cutoff = t;
+        }
+      }
+      double? todayValue;
+      final history = <double>[];
+      for (final p in points) {
+        if (p is! Map) continue;
+        final t = _num(p['t'])?.toInt();
+        final v = _num(p['v'])?.toDouble();
+        if (t == null || v == null || !v.isFinite) continue;
+        final day = todayLabel(DateTime.fromMillisecondsSinceEpoch(t * 1000));
+        if (day == today) {
+          todayValue = v;
+        } else if (day.compareTo(today) < 0 && t >= cutoff) {
+          history.add(v);
+        }
+      }
+      if (todayValue == null) continue;
+      final m = e.value;
+      out.add(SweepSeries(
+        key: m.key,
+        label: m.label,
+        unit: m.unit,
+        decimals: m.dp,
+        today: todayValue,
+        history: history,
+      ));
+    } catch (_) {/* a series we cannot read is a series with no finding */}
+  }
+  return out;
+}

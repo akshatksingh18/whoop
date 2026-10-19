@@ -15,7 +15,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../ai/journal_ai.dart' show kJournalPresetTags;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -26,6 +25,14 @@ import '../ui2.dart';
 import 'home_screen.dart' show unitsOf;
 import 'custom_journal_field_sheet.dart';
 import 'metric_detail.dart' show detailScaffold;
+
+/// The journal's preset tag vocabulary — the single list shared by the manual
+/// editor chips and the correlation engine's tag space.
+const List<String> kJournalPresetTags = <String>[
+  'caffeine', 'alcohol', 'late meal', 'stress', 'poor sleep', 'travel',
+  'screens late', 'meds', 'sick', 'sauna', 'cold plunge', 'social',
+  'workout', 'rest day',
+];
 
 class JournalCompose extends StatefulWidget {
   const JournalCompose({super.key, this.date});

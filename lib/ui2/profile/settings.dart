@@ -596,7 +596,7 @@ class _NotificationSettingsState extends State<NotificationSettings>
     // only AppState can read either. Calling the centre directly cancels what
     // the switch turned off and arms nothing back, so meds stayed silent until
     // the next foreground pass.
-    if (mounted) await context.read<AppState>().refreshAiReminders();
+    if (mounted) await context.read<AppState>().refreshReminders();
     // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
     // the switch only takes effect at the next launch.
     if (mounted) await context.read<AppState>().armWaterReminder(next);

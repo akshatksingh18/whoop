@@ -6,7 +6,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:openstrap_edge/ai/nightly_sweep.dart';
+import 'package:openstrap_edge/compute/nightly_sweep.dart';
 
 /// A flat-ish history with a little quantized jitter, like a real series.
 List<double> _steady(double around, int n) =>

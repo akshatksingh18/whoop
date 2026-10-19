@@ -5,10 +5,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/progress_review.dart' show ProgressRange;
 import '../../state/app_state.dart';
+import 'home_screen.dart' show weightUnitNow;
 import 'progress_screen.dart'
     show BodyEntryScreen, ProgressData, progressDetailPage;
 
@@ -41,12 +41,7 @@ Future<void> openProgress(
     return;
   }
   if (dest == ProgressDest.entry) {
-    var unit = 'kg';
-    try {
-      final p = await SharedPreferences.getInstance();
-      if (p.getString('body.unit') == 'lb') unit = 'lb';
-    } catch (_) {}
-    if (!c.mounted) return;
+    final unit = weightUnitNow(c);
     await Navigator.of(c).push(
       MaterialPageRoute<bool>(builder: (_) => BodyEntryScreen(unit: unit)),
     );

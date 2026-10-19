@@ -40,7 +40,6 @@ import 'package:openstrap_edge/ui2/screens/journal_compose.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart';
 import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
 import 'package:openstrap_edge/ui2/screens/readiness_detail.dart';
-import 'package:openstrap_edge/ui2/screens/day_steps.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/ui2/screens/today_plan.dart';
 import 'package:openstrap_edge/ui2/screens/week_card.dart';

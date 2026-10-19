@@ -85,7 +85,7 @@ Future<void> main() async {
     units = await UnitsController.bootstrap().timeout(_kStartupInitTimeout);
   } catch (e, st) {
     debugPrint('[main] UnitsController.bootstrap failed, using metric: $e\n$st');
-    units = UnitsController.seed(UnitSystem.metric);
+    units = UnitsController.withUnits();
   }
 
   // Local language override (null = system default).

@@ -1,46 +1,126 @@
-// Units controller — a LOCAL display preference (metric / imperial). The backend
-// always stores and returns metric (kg, cm); this only changes how values are
-// shown and how edit fields are parsed. Persisted on-device via SharedPreferences,
-// mirroring ThemeController. Nothing here ever touches the server.
+// Units controller — LOCAL display preferences for weight, distance and
+// height. Everything is stored in metric (kg, cm, m); this only changes how
+// values are shown and how edit fields are parsed. Persisted on-device via
+// SharedPreferences, mirroring ThemeController.
+//
+// Build 95 (Akshat, option A): three separate choices instead of one
+// metric/imperial switch. Weight is the one Body, Today, Food, Progress and
+// the profile all follow, so Body no longer keeps a switch of its own.
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// A whole system at once — for seeding a controller (tests, start-up
+/// fallback). The preferences themselves are per measure.
 enum UnitSystem { metric, imperial }
 
-extension UnitSystemLabel on UnitSystem {
-  String get label => this == UnitSystem.imperial ? 'Imperial' : 'Metric';
-}
+/// How a height is written: centimetres, or feet and inches.
+enum HeightUnit { cm, ftIn }
 
 class UnitsController extends ChangeNotifier {
-  static const String _kUnits = 'units_system'; // 'metric' | 'imperial'
+  /// The weight choice keeps Body's existing key, so the unit someone already
+  /// picked on Body carries over untouched.
+  static const String kWeightPref = 'body.unit'; // 'kg' | 'lb'
+  static const String kDistancePref = 'units.distance'; // 'km' | 'mi'
+  static const String kHeightPref = 'units.height'; // 'cm' | 'ftIn'
+
+  /// Before Build 95 one switch covered every measure. Read once, as the
+  /// starting point for any choice that has not been made yet.
+  static const String _kLegacySystem = 'units_system';
+
   static const double _kgPerLb = 0.45359237;
   static const double _cmPerIn = 2.54;
   static const double _metersPerKm = 1000.0;
   static const double _metersPerMile = 1609.344;
 
-  UnitSystem _system;
-  UnitsController._(this._system);
+  bool _lb;
+  bool _miles;
+  HeightUnit _height;
 
-  factory UnitsController.seed(UnitSystem s) => UnitsController._(s);
+  UnitsController._(this._lb, this._miles, this._height);
+
+  /// Every measure in one system.
+  factory UnitsController.seed(UnitSystem s) {
+    final imperial = s == UnitSystem.imperial;
+    return UnitsController._(
+      imperial,
+      imperial,
+      imperial ? HeightUnit.ftIn : HeightUnit.cm,
+    );
+  }
+
+  /// Each measure on its own.
+  factory UnitsController.withUnits({
+    String weight = 'kg',
+    String distance = 'km',
+    HeightUnit height = HeightUnit.cm,
+  }) => UnitsController._(weight == 'lb', distance == 'mi', height);
 
   static Future<UnitsController> bootstrap() async {
     final prefs = await SharedPreferences.getInstance();
-    return UnitsController._(_parse(prefs.getString(_kUnits)));
+    final c = fromPrefs(
+      weight: prefs.getString(kWeightPref),
+      distance: prefs.getString(kDistancePref),
+      height: prefs.getString(kHeightPref),
+      legacySystem: prefs.getString(_kLegacySystem),
+    );
+    // Write every choice down once, so the legacy switch is never consulted
+    // again and nothing moves if it is ever removed.
+    await prefs.setString(kWeightPref, c.weightUnit);
+    await prefs.setString(kDistancePref, c.distanceUnit);
+    await prefs.setString(kHeightPref, c.heightUnit.name);
+    return c;
   }
 
-  static UnitSystem _parse(String? s) =>
-      s == 'imperial' ? UnitSystem.imperial : UnitSystem.metric;
+  /// The migration rule: a choice already made wins; otherwise the old
+  /// metric/imperial switch decides; otherwise metric.
+  @visibleForTesting
+  static UnitsController fromPrefs({
+    String? weight,
+    String? distance,
+    String? height,
+    String? legacySystem,
+  }) {
+    final imperial = legacySystem == 'imperial';
+    return UnitsController._(
+      weight == null ? imperial : weight == 'lb',
+      distance == null ? imperial : distance == 'mi',
+      height == null
+          ? (imperial ? HeightUnit.ftIn : HeightUnit.cm)
+          : (height == HeightUnit.ftIn.name ? HeightUnit.ftIn : HeightUnit.cm),
+    );
+  }
 
-  UnitSystem get system => _system;
-  bool get isImperial => _system == UnitSystem.imperial;
+  /// 'kg' / 'lb'.
+  String get weightUnit => _lb ? 'lb' : 'kg';
+  bool get isLb => _lb;
+  bool get isMiles => _miles;
+  HeightUnit get heightUnit => _height;
 
-  Future<void> setSystem(UnitSystem s) async {
-    if (_system == s) return;
-    _system = s;
+  Future<void> setWeightUnit(String unit) async {
+    final lb = unit == 'lb';
+    if (_lb == lb) return;
+    _lb = lb;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kUnits, s.name);
+    await prefs.setString(kWeightPref, weightUnit);
+  }
+
+  Future<void> setDistanceUnit(String unit) async {
+    final miles = unit == 'mi';
+    if (_miles == miles) return;
+    _miles = miles;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kDistancePref, distanceUnit);
+  }
+
+  Future<void> setHeightUnit(HeightUnit unit) async {
+    if (_height == unit) return;
+    _height = unit;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kHeightPref, unit.name);
   }
 
   // ── display (input is always metric, as stored) ────────────────────────────
@@ -55,7 +135,7 @@ class UnitsController extends ChangeNotifier {
   /// the next time that screen is open for edit.
   String weight(num? kg) {
     if (kg == null) return '—';
-    return isImperial ? '${(kg / _kgPerLb).round()} lb' : '${_trim(kg)} kg';
+    return _lb ? '${(kg / _kgPerLb).round()} lb' : '${_trim(kg)} kg';
   }
 
   /// "180 cm" / "5′11″", or null when there is no height to show. NULL, not a
@@ -63,17 +143,17 @@ class UnitsController extends ChangeNotifier {
   /// that does must say so rather than print a placeholder.
   String? height(num? cm) {
     if (cm == null) return null;
-    if (!isImperial) return '${_trim(cm)} cm';
+    if (_height == HeightUnit.cm) return '${_trim(cm)} cm';
     final totalIn = (cm / _cmPerIn).round();
     return "${totalIn ~/ 12}′${totalIn % 12}″";
   }
 
   // ── distance + pace (GPS workout routes) ───────────────────────────────────
-  /// Length of one distance unit in metres (km or mi) for the current system.
-  double get distanceUnitMeters => isImperial ? _metersPerMile : _metersPerKm;
+  /// Length of one distance unit in metres (km or mi).
+  double get distanceUnitMeters => _miles ? _metersPerMile : _metersPerKm;
 
   /// "km" / "mi".
-  String get distanceUnit => isImperial ? 'mi' : 'km';
+  String get distanceUnit => _miles ? 'mi' : 'km';
 
   /// Distance value in the user's unit (km or mi), unformatted.
   double distanceValue(double meters) => meters / distanceUnitMeters;
@@ -125,7 +205,7 @@ class UnitsController extends ChangeNotifier {
 
   /// "km/h" / "mph" — the unit for INSTANTANEOUS speed (cycling reads more
   /// naturally as a speed than a pace; the live map shows both).
-  String get speedUnit => isImperial ? 'mph' : 'km/h';
+  String get speedUnit => _miles ? 'mph' : 'km/h';
 
   /// Instantaneous speed (m/s) → "18.4 km/h" / "11.4 mph". NULL for
   /// null/non-finite/negative (no fix yet, or GPS hasn't reported speed) —
@@ -151,31 +231,36 @@ class UnitsController extends ChangeNotifier {
   }
 
   // ── edit-field helpers (display ↔ metric for storage) ──────────────────────
-  String get weightLabel => isImperial ? 'Weight (lb)' : 'Weight (kg)';
-  String get heightLabel => isImperial ? 'Height (in)' : 'Height (cm)';
+  String get weightLabel => _lb ? 'Weight (lb)' : 'Weight (kg)';
+  String get heightLabel =>
+      _height == HeightUnit.ftIn ? 'Height (in)' : 'Height (cm)';
+
+  /// The unit word under a height field: 'in' or 'cm'.
+  String get heightFieldUnit => _height == HeightUnit.ftIn ? 'in' : 'cm';
 
   String _fieldNumber(num v) =>
       v == v.roundToDouble() ? v.round().toString() : v.toString();
 
   /// Pre-fill value for the weight field in the user's units.
   String weightField(num? kg) =>
-      kg == null ? '' : (isImperial ? _trim(kg / _kgPerLb) : _fieldNumber(kg));
+      kg == null ? '' : (_lb ? _trim(kg / _kgPerLb) : _fieldNumber(kg));
 
   /// Pre-fill value for the height field in the user's units (total inches).
-  String heightField(num? cm) =>
-      cm == null ? '' : (isImperial ? _trim(cm / _cmPerIn) : _fieldNumber(cm));
+  String heightField(num? cm) => cm == null
+      ? ''
+      : (_height == HeightUnit.ftIn ? _trim(cm / _cmPerIn) : _fieldNumber(cm));
 
   /// Parse a weight field (display units) → kg for storage.
   double? weightToKg(String text) {
     final v = double.tryParse(text.trim());
     if (v == null) return null;
-    return isImperial ? v * _kgPerLb : v;
+    return _lb ? v * _kgPerLb : v;
   }
 
-  /// Parse a height field (display units = total inches when imperial) → cm.
+  /// Parse a height field (display units = total inches for feet) → cm.
   double? heightToCm(String text) {
     final v = double.tryParse(text.trim());
     if (v == null) return null;
-    return isImperial ? v * _cmPerIn : v;
+    return _height == HeightUnit.ftIn ? v * _cmPerIn : v;
   }
 }

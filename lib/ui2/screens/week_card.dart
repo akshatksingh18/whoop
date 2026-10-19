@@ -6,7 +6,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../compute/profile.dart' show Profile;
 import '../../compute/streak.dart';
@@ -17,8 +16,9 @@ import '../../data/local_repository.dart';
 import '../../data/nutrition_store.dart';
 import '../../gps/run_history.dart';
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../ui2.dart';
-import 'home_screen.dart' show hm, pointsOf, repoOf, thousands;
+import 'home_screen.dart' show hm, pointsOf, repoOf, thousands, unitsOf;
 import 'nutrition_screen.dart' show DayUpkeep;
 
 /// Everything the card shows; any part can be missing.
@@ -206,9 +206,15 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
   WeekNumbers? _before;
   bool _failed = false;
 
-  /// Body's own kg/lb choice, so the weight change reads in the unit Body
-  /// and Progress use.
-  bool _lb = false;
+  /// The weight unit chosen in Settings → Units.
+  UnitsController? _units;
+  bool get _lb => _units?.isLb ?? false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _units = unitsOf(context);
+  }
 
   /// Monday shows last week: this week is one unfinished day.
   static bool get _monday => DateTime.now().weekday == DateTime.monday;
@@ -249,14 +255,10 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
       final before = _monday
           ? await WeekNumbers.load(repo, pr, user, weeksBack: 2, withFood: false)
           : null;
-      final lb =
-          (await SharedPreferences.getInstance()).getString('body.unit') ==
-          'lb';
       if (stillNewest(#week, t)) {
         setState(() {
           _w = w;
           _before = before;
-          _lb = lb;
           _failed = false;
         });
         WeekCard.debugLoads++;

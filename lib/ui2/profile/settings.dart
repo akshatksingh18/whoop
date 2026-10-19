@@ -134,7 +134,9 @@ class _MoreSettingsState extends State<MoreSettings> {
       onVersionTap: _tapVersion,
       onToggleDev: () => _setDev(false),
       onGallery: () => goto(c, const GalleryScreen()),
-      units: units.system.label,
+      weightUnit: units.weightUnit,
+      distanceUnit: units.distanceUnit,
+      heightUnit: units.heightUnit == HeightUnit.ftIn ? 'ft, in' : 'cm',
       appearance: theme.choice.label,
       phoneSteps: app.phoneStepsEnabled,
       barcodeLookup: _barcode,
@@ -143,8 +145,11 @@ class _MoreSettingsState extends State<MoreSettings> {
       onAlarm: () => goto(c, const AlarmScreen()),
       onNotifications: () => goto(c, const NotificationSettings()),
       onData: () => goto(c, const DataScreen()),
-      onCycleUnits: () => units.setSystem(
-        units.isImperial ? UnitSystem.metric : UnitSystem.imperial,
+      onCycleWeight: () => units.setWeightUnit(units.isLb ? 'kg' : 'lb'),
+      onCycleDistance: () =>
+          units.setDistanceUnit(units.isMiles ? 'km' : 'mi'),
+      onCycleHeight: () => units.setHeightUnit(
+        units.heightUnit == HeightUnit.ftIn ? HeightUnit.cm : HeightUnit.ftIn,
       ),
       onCycleAppearance: () => theme.setChoice(
         AppThemeChoice.values[(theme.choice.index + 1) %
@@ -253,7 +258,9 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
 }
 
 class MoreSettingsView extends StatelessWidget {
-  final String units, appearance;
+  /// 'kg' / 'lb', 'km' / 'mi', 'cm' / 'ft, in'.
+  final String weightUnit, distanceUnit, heightUnit;
+  final String appearance;
   final bool phoneSteps, barcodeLookup;
 
   /// `0.9.26 (57)`, or empty until package_info answers — the About group is
@@ -271,7 +278,9 @@ class MoreSettingsView extends StatelessWidget {
       onAlarm,
       onNotifications,
       onData,
-      onCycleUnits,
+      onCycleWeight,
+      onCycleDistance,
+      onCycleHeight,
       onCycleAppearance,
       onTogglePhoneSteps,
       onToggleBarcodeLookup,
@@ -279,7 +288,9 @@ class MoreSettingsView extends StatelessWidget {
 
   const MoreSettingsView({
     super.key,
-    this.units = 'Metric',
+    this.weightUnit = 'kg',
+    this.distanceUnit = 'km',
+    this.heightUnit = 'cm',
     this.appearance = 'System',
     this.phoneSteps = false,
     this.barcodeLookup = true,
@@ -293,7 +304,9 @@ class MoreSettingsView extends StatelessWidget {
     this.onAlarm,
     this.onNotifications,
     this.onData,
-    this.onCycleUnits,
+    this.onCycleWeight,
+    this.onCycleDistance,
+    this.onCycleHeight,
     this.onCycleAppearance,
     this.onTogglePhoneSteps,
     this.onToggleBarcodeLookup,
@@ -382,19 +395,34 @@ class MoreSettingsView extends StatelessWidget {
                       ),
                     ],
                   ),
-                  settingsGroup(
-                    c,
-                    l?.settingsGroupPreferences ?? 'Preferences',
-                    [
-                      SetRow(
-                        LucideIcons.ruler,
-                        C.blue,
-                        l?.settingsUnitsRowTitle ?? 'Units',
-                        value: units,
-                        onTap: onCycleUnits,
-                      ),
-                    ],
-                  ),
+                  // Build 95: one choice per measure. Weight is the unit Body,
+                  // Today, Food, Progress and the profile all use.
+                  settingsGroup(c, l?.settingsUnitsRowTitle ?? 'Units', [
+                    SetRow(
+                      LucideIcons.scale,
+                      C.body,
+                      l?.settingsWeightUnitRow ?? 'Weight',
+                      value: weightUnit,
+                      onTap: onCycleWeight,
+                    ),
+                    SetRow(
+                      LucideIcons.route,
+                      C.blue,
+                      l?.settingsDistanceUnitRow ?? 'Distance',
+                      sub:
+                          l?.settingsDistanceUnitSub ??
+                          'Workouts, pace, splits and spoken updates',
+                      value: distanceUnit,
+                      onTap: onCycleDistance,
+                    ),
+                    SetRow(
+                      LucideIcons.ruler,
+                      C.teal,
+                      l?.settingsHeightUnitRow ?? 'Height',
+                      value: heightUnit,
+                      onTap: onCycleHeight,
+                    ),
+                  ]),
                   settingsGroup(c, l?.settingsGroupYourData ?? 'Your data', [
                     SetRow(
                       LucideIcons.download,
@@ -949,8 +977,7 @@ class EditProfileView extends StatefulWidget {
 }
 
 class _EditProfileViewState extends State<EditProfileView> {
-  late final UnitsController _u =
-      widget.units ?? UnitsController.seed(UnitSystem.metric);
+  late final UnitsController _u = widget.units ?? UnitsController.withUnits();
   late final _name = TextEditingController(
     text: '${widget.initial['name'] ?? ''}',
   );

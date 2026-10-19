@@ -874,7 +874,7 @@ class _WeightRow extends StatelessWidget {
     UnitsController? u,
     double? kg,
   ) {
-    final imperial = u?.isImperial ?? false;
+    final imperial = u?.isLb ?? false;
     final ctrl = TextEditingController(text: u?.weightField(kg) ?? '');
     final l = AppLocalizations.of(c);
     return showDialog<({double? value})>(
@@ -1048,7 +1048,7 @@ class _WeightTrendState extends State<_WeightTrend> {
       Surface(
         child: ChartFrame(
           title: l?.journalComposeSevenDayTrend ?? 'Seven-day trend',
-          unit: u?.isImperial == true ? 'lb' : 'kg',
+          unit: u?.weightUnit ?? 'kg',
           height: 140,
           yAxis: axis,
           xLabels: [days.first, days.last],

@@ -18,7 +18,6 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/db.dart';
 import '../../data/body_log.dart' show BodyLogDb, kLbPerKg;
@@ -32,6 +31,7 @@ import '../../data/food_day_reminder.dart' show FoodDayReminder;
 import '../../gps/run_history.dart';
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../ui2.dart';
 import '../energy_comparison.dart';
 import 'food_diary.dart';
@@ -39,7 +39,7 @@ import 'progress_routes.dart';
 import 'food_day_copy.dart';
 import 'food_picker.dart';
 import 'home_screen.dart'
-    show prettyDay, pullToRefresh, repoOf, thousands;
+    show prettyDay, pullToRefresh, repoOf, thousands, unitsOf;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
 import 'food_calendar.dart' show FoodWeekStrip, showFoodCalendar;
@@ -104,8 +104,16 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   List<RunSummary> _runs = const [];
   List<({String date, double kg})> _weights = const [];
 
-  /// Body's own kg/lb choice; the weight card reads and logs in it.
-  bool _lb = false;
+  /// The weight unit chosen in Settings → Units; the weight card reads and
+  /// logs in it.
+  UnitsController? _units;
+  bool get _lb => _units?.isLb ?? false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _units = unitsOf(context);
+  }
   bool _loading = true;
   bool _editingLibrary = false;
 
@@ -142,9 +150,6 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       );
       final foods = await MyFoods.all(db);
       final meals = await MyFoods.meals(db);
-      final lb =
-          (await SharedPreferences.getInstance()).getString('body.unit') ==
-          'lb';
       final maintenance = <String, double?>{},
           acsmMaintenance = <String, double?>{};
       final runs = await _allRuns(repo);
@@ -159,7 +164,6 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         // and the chart's maintenance lines vanish on every reload).
         _runs = runs;
         _weights = weights;
-        _lb = lb;
         _loading = false;
         _failed = false;
         _calorieLoading = true;

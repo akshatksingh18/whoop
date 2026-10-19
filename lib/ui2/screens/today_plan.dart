@@ -7,12 +7,11 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../state/app_state.dart';
 import '../grammar.dart';
 import '../theme.dart';
-import 'home_screen.dart' show thousands;
+import 'home_screen.dart' show thousands, weightUnitNow;
 import 'metric_detail.dart' show MetricDetail;
 import 'progress_screen.dart' show TodayBodyRow, BodyEntryScreen;
 import 'pushups_screen.dart' show TodayPushupRow;
@@ -236,12 +235,7 @@ class TodayPlanCard extends StatelessWidget {
           !full
               ? null
               : () async {
-                  final unit =
-                      (await SharedPreferences.getInstance()).getString(
-                        'body.unit',
-                      ) ??
-                      'kg';
-                  if (!c.mounted) return;
+                  final unit = weightUnitNow(c);
                   await Navigator.of(c).push(
                     MaterialPageRoute<void>(
                       builder: (_) => BodyEntryScreen(unit: unit),

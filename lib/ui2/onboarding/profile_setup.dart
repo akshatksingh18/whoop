@@ -84,8 +84,7 @@ class ProfileSetupView extends StatefulWidget {
 }
 
 class _ProfileSetupViewState extends State<ProfileSetupView> {
-  late final UnitsController _u =
-      widget.units ?? UnitsController.seed(UnitSystem.metric);
+  late final UnitsController _u = widget.units ?? UnitsController.withUnits();
   late String? _sex = (widget.initial['sex'] as String?)?.toLowerCase();
   late final _age = TextEditingController(text: _str(widget.initial['age']));
   late final _height = TextEditingController(
@@ -235,14 +234,14 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
             _Field(
               _height,
               l?.profileSetupHeightLabel ?? 'HEIGHT',
-              _u.isImperial ? 'in' : 'cm',
+              _u.heightFieldUnit,
               l?.profileSetupHeightConsequence ??
                   'Without it: stride length, and distance from steps.',
             ),
             _Field(
               _weight,
               l?.profileSetupWeightLabel ?? 'WEIGHT',
-              _u.isImperial ? 'lb' : 'kg',
+              _u.weightUnit,
               l?.profileSetupWeightConsequence ??
                   'Without it: calories and training load.',
             ),

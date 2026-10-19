@@ -32,8 +32,10 @@ import '../../data/progress_review.dart';
 import '../../notify/notification_event.dart' show NotifCategory;
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../ui2.dart';
-import 'home_screen.dart' show pad, pointsOf, pullToRefresh, repoOf, thousands;
+import 'home_screen.dart'
+    show pad, pointsOf, pullToRefresh, repoOf, thousands, unitsOf;
 import 'journal_compose.dart' show OsTextField;
 import 'metric_detail.dart' show detailScaffold;
 import 'progress_routes.dart';
@@ -1164,7 +1166,10 @@ class _ProgressScreenState extends State<ProgressScreen>
 mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
   ProgressData? _d;
   bool _failed = false;
-  String _unit = 'kg';
+
+  /// The weight unit chosen in Settings → Units.
+  UnitsController? _units;
+  String get _unit => _units?.weightUnit ?? 'kg';
 
   /// Data handed in by a test or the gallery: shown as is, never reloaded.
   ProgressData? get _fixed;
@@ -1173,7 +1178,6 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
     try {
       final p = await SharedPreferences.getInstance();
       if (!mounted) return;
-      setState(() => _unit = p.getString('body.unit') == 'lb' ? 'lb' : 'kg');
       _prefsLoaded(p);
     } catch (_) {}
   }
@@ -1188,15 +1192,14 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
     } catch (_) {}
     try {
       await (await SharedPreferences.getInstance()).setString(k, v);
-      // Build 94 (Codex N16): every page already open (the overview behind
-      // this one, Today, Food) rereads the unit on the next revision.
-      if (k == 'body.unit') app?.bumpInsights();
+      app?.bumpInsights();
     } catch (_) {}
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _units = unitsOf(context);
     if (_d == null && !_failed) reload();
   }
 
@@ -1305,7 +1308,8 @@ class TodayBodyRow extends StatefulWidget {
 class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
   ({double kg, int count})? _mean;
   bool _today = false;
-  String _unit = 'kg';
+  UnitsController? _units;
+  String get _unit => _units?.weightUnit ?? 'kg';
 
   /// Today is the measurement weekday and no tape is logged yet.
   bool _tapeDue = false;
@@ -1313,6 +1317,7 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _units = unitsOf(context);
     reload();
   }
 
@@ -1321,9 +1326,6 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
     final t = beginRead(#todayBody);
     try {
       final ws = await BodyLogDb.weights();
-      final u =
-          (await SharedPreferences.getInstance()).getString('body.unit') ??
-          'kg';
       final today = todayLabel();
       final wd = await BodyLogDb.measureWeekday();
       final measured = (await BodyLogDb.measures()).any((m) => m.date == today);
@@ -1331,7 +1333,6 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
       setState(() {
         _mean = BodyLogDb.sevenDayMean(ws, today);
         _today = ws.any((w) => w.date == today);
-        _unit = u;
         _tapeDue = DateTime.now().weekday == wd && !measured;
       });
     } catch (_) {}
@@ -1487,7 +1488,7 @@ class BodyEntryScreen extends StatefulWidget {
 
 class _BodyEntryScreenState extends State<BodyEntryScreen> {
   late String _date = widget.date ?? todayLabel();
-  late String _unit = widget.unit;
+  late final String _unit = widget.unit;
   final _weight = TextEditingController();
   final _sites = {for (final s in BodySite.values) s: TextEditingController()};
   BodyWeightRow? _existing;
@@ -1504,10 +1505,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   /// Build 91 (Codex audit F11): what the fields held when the screen
   /// opened, so Back or an edge swipe asks before dropping typed values.
   String _weightAtOpen = '';
-
-  /// The field's text after the kg/lb switch converted it, with the exact
-  /// weight behind it, so switching back and forth never rounds it away.
-  ({String text, double kg})? _converted;
   late final Map<BodySite, String> _sitesAtOpen;
 
   /// Set once the screen is leaving on purpose (Save, or Discard confirmed).
@@ -1598,21 +1595,19 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       final wText = _weight.text.trim();
       double? value, kg;
       if (wText.isNotEmpty) {
-        value = _converted?.text == wText
-            ? (_unit == 'lb' ? _converted!.kg * kLbPerKg : _converted!.kg)
-            : parseWeightText(wText);
+        value = parseWeightText(wText);
         if (value == null) {
           throw const BodyLogError('Enter the weight as a number.');
         }
         kg = BodyLogDb.checkWeight(value, _unit);
       }
-      // Build 94 (Codex N10): the day's own weight, prefilled and left alone
-      // (or only switched kg/lb), is not a new reading — saving tape on a
-      // weighed day used to add a second weigh-in.
+      // Build 94 (Codex N10): the day's own weight, prefilled and left alone,
+      // is not a new reading — saving tape on a weighed day used to add a
+      // second weigh-in.
       if (kg != null &&
           _existing != null &&
           (_existing!.kg - kg).abs() < 0.05 &&
-          (wText == _weightAtOpen.trim() || wText == _converted?.text)) {
+          wText == _weightAtOpen.trim()) {
         kg = null;
         value = null;
       }
@@ -1704,36 +1699,6 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       if (saved.isNotEmpty) app.bumpInsights();
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  /// kg ⇄ lb, converting what is typed. A draft that is not a number keeps
-  /// its unit: relabelling it would change what it means (Codex N09).
-  void _switchUnit() {
-    final text = _weight.text.trim();
-    double? kg;
-    if (text.isNotEmpty) {
-      if (_converted?.text == text) {
-        kg = _converted!.kg;
-      } else {
-        final v = parseWeightText(text);
-        if (v == null) {
-          setState(
-            () => _error = 'Enter the weight as a number before switching.',
-          );
-          return;
-        }
-        kg = _unit == 'lb' ? v / kLbPerKg : v;
-      }
-    }
-    setState(() {
-      _error = null;
-      _unit = _unit == 'kg' ? 'lb' : 'kg';
-      if (kg != null) {
-        final t = _num(_unit == 'lb' ? kg * kLbPerKg : kg);
-        _converted = (text: t, kg: kg);
-        _weight.text = t;
-      }
-    });
   }
 
   /// Add another reading, or correct the day's first; null cancels.
@@ -1968,29 +1933,12 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                         ),
                       ),
                     const SizedBox(height: S.x4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: OsTextField(
-                            controller: _weight,
-                            label: 'Weight ($_unit)',
-                            keyboard: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: S.x2),
-                        Pressable(
-                          semanticLabel:
-                              'Use ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
-                          onTap: _switchUnit,
-                          child: Padding(
-                            padding: const EdgeInsets.all(S.x3),
-                            child: Pill(_unit, C.body),
-                          ),
-                        ),
-                      ],
+                    OsTextField(
+                      controller: _weight,
+                      label: 'Weight ($_unit)',
+                      keyboard: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                     ),
                     if (_readings.isNotEmpty) _readingList(p),
                     if (_error != null) ...[
@@ -2351,14 +2299,13 @@ class BodyHistoryScreen extends StatefulWidget {
 
 class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
   late ProgressData d = widget.data;
-  String _unit = 'kg';
+  UnitsController? _units;
+  String get _unit => _units?.weightUnit ?? 'kg';
 
   @override
-  void initState() {
-    super.initState();
-    SharedPreferences.getInstance().then((p) {
-      if (mounted) setState(() => _unit = p.getString('body.unit') ?? 'kg');
-    });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _units = unitsOf(context);
   }
 
   Future<void> _refresh() async {

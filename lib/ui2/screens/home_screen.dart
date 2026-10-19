@@ -128,6 +128,16 @@ UnitsController? unitsOf(BuildContext c) {
   }
 }
 
+/// The chosen weight unit ('kg' / 'lb') for a tap handler, which may not
+/// listen. Metric when nothing above provides the controller.
+String weightUnitNow(BuildContext c) {
+  try {
+    return Provider.of<UnitsController>(c, listen: false).weightUnit;
+  } catch (_) {
+    return 'kg';
+  }
+}
+
 /// "72.4 kg" → `('72.4', 'kg')`. [UnitsController] owns every conversion and
 /// hands back one string; this only puts the two halves in the two slots a
 /// row has. Never convert in a screen.

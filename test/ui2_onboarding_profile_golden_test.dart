@@ -87,7 +87,7 @@ Map<String, Widget> _cases() => {
       'my_devices_empty': const MyDevicesView(),
       'device_detail': DeviceDetailView(_band, onFind: () {}, onForget: () {}),
       'more_settings': const MoreSettingsView(
-          units: 'Metric', appearance: 'Dark', phoneSteps: true),
+          appearance: 'Dark', phoneSteps: true),
       // The alarm's three confirmation states are the point of the screen: it
       // must not draw a confident tick over an alarm the band never
       // acknowledged.

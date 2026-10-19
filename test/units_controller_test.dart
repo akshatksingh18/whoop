@@ -8,6 +8,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/state/units_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('UnitsController pace sanity ceiling', () {
@@ -65,6 +66,55 @@ void main() {
       expect(m.distance(5000), '5.00 km');
       expect(m.pace(5000, 25 * 60), '5:00 /km');
       expect(m.speed(10), '36.0 km/h');
+    });
+  });
+
+  // Build 95 (option A): weight, distance and height are separate choices.
+  group('separate choices', () {
+    test('a Body choice already made wins over the old switch', () {
+      final u = UnitsController.fromPrefs(weight: 'lb', legacySystem: 'metric');
+      expect(u.weightUnit, 'lb');
+      expect(u.distanceUnit, 'km');
+      expect(u.heightUnit, HeightUnit.cm);
+    });
+
+    test('with no Body choice, the old switch decides every measure', () {
+      final u = UnitsController.fromPrefs(legacySystem: 'imperial');
+      expect(u.weightUnit, 'lb');
+      expect(u.distanceUnit, 'mi');
+      expect(u.heightUnit, HeightUnit.ftIn);
+      final m = UnitsController.fromPrefs();
+      expect(m.weightUnit, 'kg');
+      expect(m.distanceUnit, 'km');
+      expect(m.heightUnit, HeightUnit.cm);
+    });
+
+    test('miles leave weight and height alone', () {
+      final u = UnitsController.withUnits(distance: 'mi');
+      expect(u.distance(1609.344), '1.00 mi');
+      expect(u.weight(70), '70 kg');
+      expect(u.height(180), '180 cm');
+    });
+
+    test('pounds leave distance alone, and convert both ways', () {
+      final u = UnitsController.withUnits(weight: 'lb');
+      expect(u.weight(70), '154 lb');
+      expect(u.weightToKg('154.32'), closeTo(70, 0.01));
+      expect(u.distance(5000), '5.00 km');
+    });
+
+    test('bootstrap writes every choice down, so the old switch is read once',
+        () async {
+      SharedPreferences.setMockInitialValues({'units_system': 'imperial'});
+      final u = await UnitsController.bootstrap();
+      expect(u.weightUnit, 'lb');
+      final p = await SharedPreferences.getInstance();
+      expect(p.getString(UnitsController.kWeightPref), 'lb');
+      expect(p.getString(UnitsController.kDistancePref), 'mi');
+      expect(p.getString(UnitsController.kHeightPref), 'ftIn');
+      await u.setDistanceUnit('km');
+      expect(p.getString(UnitsController.kDistancePref), 'km');
+      expect(u.weightUnit, 'lb', reason: 'one measure never moves another');
     });
   });
 }

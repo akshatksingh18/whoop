@@ -507,36 +507,14 @@ class _ProgressDetailState extends State<_ProgressDetail>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (m is WeightMetric)
-              Row(
-                children: [
-                  Expanded(
-                    child: SubTabs(
-                      const ['Readings', '7-day mean'],
-                      _trend ? 1 : 0,
-                      (i) => setState(() {
-                        _trend = i == 1;
-                        _cursor = null;
-                      }),
-                      color: C.body,
-                    ),
-                  ),
-                  const SizedBox(width: S.x2),
-                  // Build 90: the app's own pill, saying what a tap does.
-                  Pressable(
-                    semanticLabel:
-                        'Unit ${_unit == 'kg' ? 'kilograms' : 'pounds'}. '
-                        'Switch to ${_unit == 'kg' ? 'pounds' : 'kilograms'}',
-                    onTap: () {
-                      final u = _unit == 'kg' ? 'lb' : 'kg';
-                      setState(() => _unit = u);
-                      _save('body.unit', u);
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.all(S.x2),
-                      child: Pill(_unit, C.body),
-                    ),
-                  ),
-                ],
+              SubTabs(
+                const ['Readings', '7-day mean'],
+                _trend ? 1 : 0,
+                (i) => setState(() {
+                  _trend = i == 1;
+                  _cursor = null;
+                }),
+                color: C.body,
               ),
             const SizedBox(height: S.x3),
             if (r.isEmpty)

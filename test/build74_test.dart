@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
@@ -24,8 +23,6 @@ import 'package:openstrap_edge/notify/notification_report.dart';
 import 'package:openstrap_edge/gps/run_history.dart';
 import 'package:openstrap_edge/gps/workout_clock.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
-import 'package:openstrap_edge/notify/notification_event.dart';
-import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';

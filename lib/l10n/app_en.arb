@@ -4873,6 +4873,22 @@
   "@settingsUnitsRowTitle": {
     "description": "Settings row title cycling the measurement unit system"
   },
+  "settingsWeightUnitRow": "Weight",
+  "@settingsWeightUnitRow": {
+    "description": "Settings → Units row: weight unit."
+  },
+  "settingsDistanceUnitRow": "Distance",
+  "@settingsDistanceUnitRow": {
+    "description": "Settings → Units row: distance unit."
+  },
+  "settingsDistanceUnitSub": "Workouts, pace, splits and spoken updates",
+  "@settingsDistanceUnitSub": {
+    "description": "Settings → Units: what the distance unit changes."
+  },
+  "settingsHeightUnitRow": "Height",
+  "@settingsHeightUnitRow": {
+    "description": "Settings → Units row: height unit."
+  },
   "settingsGroupYourData": "Your data",
   "@settingsGroupYourData": {
     "description": "Settings group heading for export/backup/health-write rows"

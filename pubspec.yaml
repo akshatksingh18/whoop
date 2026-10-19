@@ -19,7 +19,6 @@ dependencies:
   # Pinned to what flutter_localizations (this SDK) requires — see its own
   # pubspec.lock entry, don't drift it independently.
   intl: ^0.20.2
-  cupertino_icons: ^1.0.8
 
   # The single icon family behind lib/ui2. One pack, one stroke weight, one
   # optical size — replacing the five-pack mix the old design system blended
@@ -331,12 +330,6 @@ dependencies:
   # HMAC but no AEAD, which is the one primitive that must not be improvised.
   pointycastle: ^3.9.1
 
-  # Background scheduled derivation (the heavy nightly pass: sleep staging +
-  # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the
-  # honest caveat in lib/compute/background_derivation.dart — app-killed heavy
-  # compute is opportunistic via BGTaskScheduler, never guaranteed.
-  workmanager: ^0.9.0
-
   # HTTP — retained ONLY for the OTA self-update pointer (see lib/sync/update_service.dart)
   # and the AI Coach's direct LLM (BYOK) calls. No backend / auth traffic anymore.
   http: ^1.2.2
@@ -358,20 +351,6 @@ dependencies:
   provider: ^6.1.2
   shared_preferences: ^2.3.3
 
-  # Charts (for the future server-analytics view).
-  fl_chart: ^0.69.2
-
-  # Interactive maps for GPS workout routes (run/ride/walk). Raster tiles are
-  # fetched on demand from CARTO (basemaps.cartocdn.com) — OSM data, but served
-  # by CARTO rather than tile.openstreetmap.org, whose tile-usage policy does
-  # not permit app traffic. No cloud API keys, no Google/Mapbox. The
-  # "© OpenStreetMap contributors" attribution is rendered on every map.
-  # Recorded GPS points are stored on-device only (workout_route table) and are
-  # never uploaded — but the tile requests do tell CARTO which area is on
-  # screen, which PRIVACY.md states.
-  # flutter_map_tile_caching (offline tile cache) is a documented follow-up — it
-  # pulls heavier native storage deps, so v1 uses live CARTO tiles only.
-  flutter_map: ^7.0.2
   latlong2: ^0.9.1
   geolocator: ^13.0.2
 
@@ -407,29 +386,6 @@ dependencies:
   # resolved in pubspec.lock as a transitive dependency; now used directly.
   image: ^4.9.2
 
-  # Apple Health (HealthKit, iOS) + Google Health Connect (Android) — export each
-  # day's derived metrics to the platform health store.
-  # >=12.0.0 is not optional: 11.1.1's `_alignValue` lists SLEEP_ASLEEP twice
-  # and never lists SLEEP_LIGHT, so every light/Core stage write threw on iOS —
-  # ~70% of a night, every night, and it flipped the day's export to failed too.
-  health: ^12.2.1
-  # Open the Health Connect app/settings so the user can grant per-app access
-  # manually (the reliable path when its in-app request dialog is locked out).
-  android_intent_plus: ^5.1.0
-
-  # Opt-in, consent-gated companion telemetry + health-data contribution:
-  #   • device_info_plus  — OEM / model / OS for crash-report context
-  #   • battery_plus       — phone battery + charging state (upload gate)
-  #   • connectivity_plus  — Wi-Fi check (only upload the heavy .db on unmetered)
-  #   • uuid               — stable anonymous install id (the device_id anchor)
-  device_info_plus: ^10.1.2   # capped <11 by `health`
-  battery_plus: ^6.1.0
-  connectivity_plus: ^6.1.0
-  uuid: ^4.5.1
-
-  # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
-  home_widget: ^0.6.0
-
   # OS-level notifications (band battery low / charging, health alerts, recovery,
   # scheduled reminders). The single display layer; see lib/notify/. Local +
   # scheduled only (no FCM — the app is cloud-free).
@@ -442,15 +398,8 @@ dependencies:
   # OTA self-update (Android sideload): read our own version, download + install the
   # signed APK from the backend's update pointer, with a browser fallback.
   package_info_plus: ^8.1.0
-  ota_update: ^7.1.0
   url_launcher: ^6.3.0
-  notification_listener_service: ^1.0.0
   flutter_secure_storage: ^10.3.1
-  gpt_markdown: ^1.1.7
-  firebase_core: ^4.11.0
-  firebase_crashlytics: ^5.2.4
-  firebase_performance: ^0.11.4+3
-  firebase_analytics: ^12.4.3
 
 # Protocol and analytics are tracked inside this monorepo, so the path dependencies above are
 # also the CI/release source of truth. Do not add a pubspec override for these packages.
@@ -463,7 +412,6 @@ dev_dependencies:
   # no_runtime_font_fetch_test parses pubspec.yaml to assert every family the
   # type scale uses is bundled rather than fetched at runtime.
   yaml: ^3.1.2
-  flutter_launcher_icons: ^0.13.1
   sqflite_common_ffi: ^2.4.0+3
   # RouteTracker's stall-watchdog tests drive virtual time (was a transitive
   # dep via flutter_test; declared directly since test/ now imports it).
@@ -484,41 +432,10 @@ dev_dependencies:
   # someone else's `pub upgrade` rather than on a deliberate one here.
   sqflite_common: 2.5.8
 
-# Run with `dart run flutter_launcher_icons`. TWO THINGS TO KNOW BEFORE YOU DO:
-#
-#   · 0.13.1 rewrites ios/Runner.xcodeproj/project.pbxproj with a regex that
-#     matches ANY `ASSETCATALOG_COMPILER_*` setting and overwrites its value
-#     with the app-icon name. On this project that silently sets
-#     GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS, GLOBAL_ACCENT_COLOR_NAME and
-#     WIDGET_BACKGROUND_COLOR_NAME to "AppIcon" on the widget and watch targets.
-#     `git checkout -- ios/Runner.xcodeproj/project.pbxproj` afterwards: the one
-#     setting it needs to write (APPICON_NAME = AppIcon) is already correct, and
-#     the alternate-icon settings next to it must survive.
-#   · It does NOT generate the alternate icon. AppIconBW.appiconset is built by
-#     hand from assets/images/icon_bw.png at the same slots as AppIcon.
-#
-# adaptive_icon_foreground is a PRE-INSET copy of the icon, not the icon itself.
-# Android composites both layers on a 108 dp canvas and every launcher mask
-# crops it to the middle 72 dp, so full-bleed art is zoomed 1.5x — which was
-# cutting the mark off both sides. assets/launcher/ is not a bundled asset dir;
-# it is build-time input only.
-flutter_launcher_icons:
-  android: "launcher_icon"
-  ios: true
-  image_path: "assets/images/icon.png"
-  remove_alpha_ios: true
-  # The icon's own plate, so the ring the mask leaves around the artwork is the
-  # same colour as the artwork's edge rather than the old cream.
-  adaptive_icon_background: "#020D1C"
-  adaptive_icon_foreground: "assets/launcher/icon_adaptive.png"
 
 flutter:
   generate: true
   uses-material-design: true
-  assets:
-    - assets/images/
-    - assets/images/2.0x/
-    - assets/images/3.0x/
   # Both families are bundled, not fetched. google_fonts resolves a missing
   # family over HTTP to fonts.gstatic.com on first launch — before the user
   # has seen the consent screen, and contrary to PRIVACY.md. It also lets the

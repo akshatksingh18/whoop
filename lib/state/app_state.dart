@@ -36,7 +36,6 @@ import '../compute/manual_session.dart'
     show kCaloriesBasisActive, strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
-import '../compute/training_review.dart';
 import '../compute/streak.dart' show StepGoals;
 import '../data/profile_history.dart';
 import '../data/calculation_store.dart';
@@ -74,7 +73,6 @@ import '../notify/battery_forecast.dart';
 import '../notify/med_buzzer.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
-import '../notify/fired_keys.dart';
 import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../platform/phone_pedometer.dart';
@@ -1504,78 +1502,10 @@ class AppState extends ChangeNotifier {
   /// notifications (see _ensureRemindersScheduled) so they fire even when the app
   /// is closed — we just re-assert that schedule here (cheap, idempotent, picks up
   /// any prefs change), then run the data-driven foreground nudges.
-  bool _reviewBusy = false;
-  DateTime? _reviewAt;
-  Future<void> _maybeTrainingReview() async {
-    final repository = repo;
-    final now = DateTime.now();
-    if (repository == null ||
-        _reviewBusy ||
-        (_reviewAt != null && now.difference(_reviewAt!).inHours < 6))
-      return;
-    _reviewBusy = true;
-    try {
-      final prefs = await NotificationPrefs.load();
-      // Hidden in the personal build (Akshat, build 78): no review screen,
-      // so no review notification either, whatever an old preference says.
-      if (kPersonalSideload ||
-          !prefs.trainingReviewEnabled ||
-          prefs.inQuietHours(now.hour * 60 + now.minute))
-        return;
-      final delivered = DateTime.tryParse(
-        Prefs.getString('training.review.lastDelivered', ''),
-      );
-      if (delivered != null && now.difference(delivered).inDays < 14) return;
-      final bucket =
-          DateTime.utc(
-            now.year,
-            now.month,
-            now.day,
-          ).difference(DateTime.utc(2026)).inDays ~/
-          14;
-      // Avoid recomputing an already delivered period. emit still owns the
-      // atomic claim; this read only skips needless loading and storage.
-      if (await const FiredKeyStore().hasFired('training-review:$bucket')) {
-        _reviewAt = now;
-        return;
-      }
-      final d = await TrainingReviewData.load(
-        repository,
-        Profile.fromMap(user),
-      );
-      if (_disposed) return;
-      _reviewAt = now;
-      if (d.comparisons.isEmpty) return;
-      await d.retain();
-      final shown = await NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: 'training-review:$bucket',
-          category: NotifCategory.reminders,
-          title: 'Your training review',
-          body: d.message,
-          date: d.end,
-          route: datedRoute(kRouteTrainingReview, d.end),
-        ),
-      );
-      if (shown) {
-        _reviewAt = now;
-        await (await SharedPreferences.getInstance()).setString(
-          'training.review.lastDelivered',
-          now.toIso8601String(),
-        );
-      }
-    } catch (e) {
-      _log('[review] skipped: $e');
-    } finally {
-      _reviewBusy = false;
-    }
-  }
-
   Future<void> runCadenceChecks() async {
     try {
       if (!isPaired) return;
       await _ensureRemindersScheduled();
-      unawaited(_maybeTrainingReview());
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
       unawaited(_checkSchemaHealth()); // throttled internally to 24h

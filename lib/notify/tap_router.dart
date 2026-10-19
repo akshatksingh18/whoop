@@ -103,8 +103,6 @@ String datedRoute(String route, String? day, {String? id}) {
       .toString();
 }
 
-const kRouteTrainingReview = '/workouts/review';
-
 /// Pushups reminders and the 9:00 invitation (build 86). Lands on Train with
 /// the Pushups screen on top; Done and Pause on the notification never open it.
 const String kRoutePushups = '/workouts/pushups';
@@ -192,7 +190,6 @@ const Map<String, int> _screenRoutes = {
   kRouteRecovery: 0,
   kRouteSteps: 0,
   kRouteWorkoutIdle: 4,
-  kRouteTrainingReview: 4,
   kRoutePushups: 4,
   '/sleep': 0,
   '/heart': 1,

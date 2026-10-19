@@ -36,7 +36,6 @@ import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/workout_screen.dart';
 import 'ui2/screens/progress_screen.dart';
 import 'ui2/screens/pushups_screen.dart';
-import 'ui2/screens/training_review.dart';
 import 'ui2/ui2.dart';
 
 class OpenStrapApp extends StatefulWidget {
@@ -373,7 +372,6 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
   // itself — the live session bar with its finish control is pinned to
   // the shell there — so screenForRoute stays null for it.
   kRouteWorkoutIdle ||
-  kRouteTrainingReview ||
   kRoutePushups => ShellDomain.workout,
   // Emitted by the battery forecast (`app_state.dart`) and the weekly
   // recap (`notification_center.dart`), and declared in `tap_router`
@@ -439,7 +437,6 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
   kRouteSteps => DayStepsDetail(day: routeDay(route)),
   '/sleep' => SleepDetail(day: routeDay(route)),
   kRouteWorkoutIdle => SessionDestination(routeId(route)),
-  kRouteTrainingReview => TrainingReviewScreen(day: routeDay(route)),
   kRouteStatus => const StatusScreen(),
   kRoutePushups => const PushupsScreen(),
   _ => null,

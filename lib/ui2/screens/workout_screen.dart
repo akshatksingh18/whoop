@@ -52,7 +52,6 @@ import 'food_picker.dart' show PickRow, SwipeDelete;
 import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
 import 'log_workout.dart';
-import 'training_review.dart';
 import 'pushups_screen.dart' show TodayPushupRow;
 
 /// Shared destination for a notification, lock-screen tap or saved session.
@@ -410,18 +409,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       // Build 90: Start/Resume, then anything to act on, then your recent
       // workouts, before the tall week and strain material (B90 audit).
       ..._suggestionCards(c, d),
-      // The fortnight review is hidden in the personal build (Akshat, build
-      // 78): his runs are occasional, so it was mostly an empty screen. Its
-      // computation and the sessions it reads are unchanged.
-      if (!kPersonalSideload) ...[
-        detailLinkRow(
-          c,
-          LucideIcons.chartNoAxesCombined,
-          'Training review',
-          'Compare the last two fortnights using measured sessions',
-          () => _push(c, const TrainingReviewScreen()),
-        ),
-      ],
       Section(
         'Recent',
         d.workouts.isEmpty

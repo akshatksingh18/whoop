@@ -1,6 +1,6 @@
-// The app is local-first and PRIVACY.md says so. google_fonts resolves a
+// The app is local-first. google_fonts resolves a
 // missing family over HTTP to fonts.gstatic.com on first launch — before the
-// user has seen the consent screen. Both families are bundled instead; these
+// app has done anything else. Both families are bundled instead; these
 // tests fail if that regresses.
 import 'dart:io';
 

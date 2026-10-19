@@ -4,40 +4,12 @@
 <dict>
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
-	<key>CFBundleURLTypes</key>
-	<array><dict><key>CFBundleURLName</key><string>$(APP_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleURLSchemes</key><array><string>whoop</string></array></dict></array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<!-- ── ZERO-COLLECTION BY DEFAULT (privacy tier 1) ──
-	     Every Firebase SDK auto-starts collecting the moment
-	     Firebase.initializeApp runs: Analytics logs first_open/session_start,
-	     Performance opens app-start + network traces, Crashlytics uploads any
-	     startup crash. That is long before Dart has read the user's stored
-	     telemetry consent (an async SharedPreferences load off the startup
-	     critical path), so the runtime setters alone meant a fresh install
-	     collected before consent existed.
-
-	     These are the "Enabled = false" variants (NOT the permanent
-	     ...Deactivated ones), so TelemetryService can still switch collection
-	     ON at runtime once — and only once — affirmative consent has loaded.
-	     Do NOT flip any of these to true: consent is the only thing allowed
-	     to. Keep in sync with android/app/src/main/AndroidManifest.xml. -->
-	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
-	<false/>
-	<key>FirebaseCrashlyticsCollectionEnabled</key>
-	<false/>
-	<key>firebase_performance_collection_enabled</key>
-	<false/>
-	<!-- No ad/measurement signals, ever — never consent-gated back on. -->
-	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS</key>
-	<false/>
-	<key>GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED</key>
-	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Edge</string>
+	<string>WHOOP</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -102,14 +74,6 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<!-- Steps are NOT read from Apple Health any more: that number is the sum of
-	     every app that writes steps, and this app will not put a figure it
-	     cannot attribute into one of its own. Steps come from this iPhone's
-	     motion chip instead (NSMotionUsageDescription below). Do not put the
-	     step clause back into this string — it is review-visible, and it would
-	     be describing something the app no longer does. -->
-	<key>NSHealthShareUsageDescription</key>
-	<string>WHOOP reads your height, weight, date of birth and sex to set up your profile; your resting heart rate so it has a starting baseline; any blood pressure, blood glucose or body temperature readings, so a device that is cleared to measure those can sit beside your own data with that device's name on it — never blended into a number this app measured; and your workouts and their routes, so a run recorded by another app can be listed and drawn on a map here, named with the app that recorded it and never counted as one this app measured. It also reads back its own recent samples so it never writes duplicates.</string>
 	<!-- REQUIRED, not optional: Apple documents that calling CoreMotion without
 	     this key CRASHES the app. See ios/Runner/AppDelegate.swift
 	     (PedometerBridge). -->
@@ -117,8 +81,6 @@
 	<string>WHOOP counts your daily steps from this iPhone's own motion chip, because a band on your wrist cannot tell walking from stirring a pot, and the phone in your pocket can. It reads step counts only — never your location or anything else the motion chip records — and only the last few days of them. Your steps stay on this device and are never uploaded.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>WHOOP uses the camera to read the barcode on a food packet, and to take a progress photo when you choose to. A barcode is read and nothing is kept. A progress photo is saved only inside the app on this phone, without its location, and is never uploaded.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>WHOOP writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>WHOOP connects to your band over Bluetooth to sync your health data.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -137,10 +99,6 @@
 	     PHPhotoLibrary APIs and trip the same ITMS-90683 static scan. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>WHOOP does not access your photo library. This permission is linked by a dependency but unused — importing your own exported WHOOP data uses the Files app, not Photos.</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<key>OpenStrapAppGroupIdentifier</key>
-	<string>$(APP_GROUP_IDENTIFIER)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -176,7 +134,8 @@
 	     The previous v1 stance — while-in-use only, plus a "keep the screen on"
 	     hint in the UI — could not survive a real 40-minute workout.
 	     Scope is kept tight so this stays honest and App-Store-defensible:
-	       • authorization stays WHEN-IN-USE (we never request "Always");
+	       • route recording asks for WHEN-IN-USE only ("Always" is asked for
+	         only by Pushups Home auto-pause, which uses region monitoring);
 	       • background updates are armed ONLY while a route session is live and
 	         disarmed the moment it ends (see lib/gps/gps_source.dart);
 	       • showBackgroundLocationIndicator is ON, so iOS shows the blue pill

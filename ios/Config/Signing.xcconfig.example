@@ -1,6 +1,4 @@
-// Copy to Signing.xcconfig and replace with identifiers from your Apple account.
+// Copy to Signing.xcconfig to sign from Xcode with your own Apple account.
 // Signing.xcconfig is gitignored and should not be committed.
-APP_BUNDLE_IDENTIFIER = com.yourname.openstrapEdge
-APP_WIDGET_BUNDLE_IDENTIFIER = $(APP_BUNDLE_IDENTIFIER).OpenStrapWidget
-APP_GROUP_IDENTIFIER = group.com.yourname.openstrap
+APP_BUNDLE_IDENTIFIER = com.akshat.personal.whoop
 APPLE_DEVELOPMENT_TEAM = YOURTEAMID

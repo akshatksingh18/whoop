@@ -55,7 +55,7 @@ jobs:
 
       # Inspect the committed monorepo paths, lock, reviewed revision manifest,
       # and algorithm provenance before dependency resolution. Shared with
-      # build.yml's preflight because a tag push never runs this job.
+      # personal-ios.yml.
       - name: Guard — in-tree package revisions and paths agree
         run: bash .github/scripts/check_sibling_pins.sh
 

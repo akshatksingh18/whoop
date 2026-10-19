@@ -20,7 +20,7 @@
 //    `overline`) uses Manrope, bundled the same way (assets/fonts/Manrope/
 //    *.ttf, OFL.txt alongside). It used to resolve through google_fonts,
 //    which fetches the family from fonts.gstatic.com on first launch — before
-//    the consent screen, and contrary to PRIVACY.md.
+//    anything else, which a local-first app should never do.
 //
 // `buildOpenStrapTheme(palette)` builds a full ThemeData from an explicit
 // [Palette] (not the live getters) so the light + dark ThemeData objects are
@@ -52,8 +52,8 @@ import 'tokens.dart';
 /// Colours come from the live [AppColors] getters → they track the active mode.
 /// Manrope, bundled as a local asset (pubspec.yaml `flutter.fonts`) rather
 /// than resolved through google_fonts, which fetches the family from
-/// fonts.gstatic.com on first launch — before the consent screen, and contrary
-/// to PRIVACY.md. Same call shape as `GoogleFonts.manrope(...)`, no network.
+/// fonts.gstatic.com on first launch, which a local-first app should never
+/// do. Same call shape as `GoogleFonts.manrope(...)`, no network.
 TextStyle _manrope({
   double? fontSize,
   FontWeight? fontWeight,

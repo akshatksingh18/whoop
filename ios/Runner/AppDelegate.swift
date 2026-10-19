@@ -1,6 +1,5 @@
 import Flutter
 import UIKit
-import AudioToolbox
 import AVFoundation
 import BackgroundTasks
 import CoreLocation
@@ -61,29 +60,7 @@ import flutter_local_notifications
       BackgroundTaskManager.handleRefreshTask(refreshTask)
     }
 
-    #if !PERSONAL_SIDELOAD
-    // Apple Watch companion: activate the WCSession so the watch can receive
-    // today's metrics (mirrored from the App Group snapshot). No-op without a
-    // paired watch. See WatchBridge.swift.
-    WatchBridge.shared.activate()
-    #endif
-
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  // Whenever the phone app comes to the foreground, mirror the App Group
-  // snapshot to the watch, so the wrist is not waiting on the next derive.
-  //
-  // It mirrors whatever is already there — nothing rewrites the group on a mere
-  // foreground, only a completed derive does (AppState → WidgetService.refresh).
-  // So this can ship yesterday's snapshot, and that is survivable only because
-  // the watch ages `updated_at` itself (WatchMetrics.fresh) and shows its
-  // no-recent-data state rather than yesterday's numbers.
-  override func applicationDidBecomeActive(_ application: UIApplication) {
-    super.applicationDidBecomeActive(application)
-    #if !PERSONAL_SIDELOAD
-    WatchBridge.shared.pushCurrentState()
-    #endif
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -91,42 +68,21 @@ import flutter_local_notifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DayZoneBridge") {
       DayZoneBridge.shared.attach(messenger: registrar.messenger())
     }
-    // Live Activity MethodChannel (start/update/end the workout activity).
-    // LiveActivityBridge lives in LiveActivityBridge.swift (Runner target).
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LiveActivityBridge") {
-      LiveActivityBridge.register(messenger: registrar.messenger())
-    }
-    #if !PERSONAL_SIDELOAD
-    // Breathing-session Live Activity — separate channel/attributes type from
-    // the workout one (BreathingLiveActivityBridge.swift, Runner target).
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BreathingLiveActivityBridge") {
-      BreathingLiveActivityBridge.register(messenger: registrar.messenger())
-    }
-    #endif
     // BLE-restore channel: native wake (band reconnected) → Dart headless sync.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BleRestoreManager") {
       BleRestoreManager.shared.attach(messenger: registrar.messenger())
-    }
-    // Band-gesture actions channel (double-tap → play/pause, skip, ring phone).
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ActionBridge") {
-      ActionBridge.register(messenger: registrar.messenger())
     }
     // AccessorySetupKit pairing bridge (iOS 18+). The ASK picker provisions the WHOOP so
     // iOS 26 keeps the app eligible for background relaunch (TN3115). No-op pre-iOS 18.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AccessorySetup") {
       AccessorySetup.register(messenger: registrar.messenger())
     }
-    // Home-screen icon switching (setAlternateIconName). iOS only — see the
-    // bridge below for the system-alert cost it carries.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppIconBridge") {
-      AppIconBridge.register(messenger: registrar.messenger())
-    }
-    // Build-time iOS configuration exposed to Dart without requiring --dart-define.
+    // Holds the display awake during a live workout. See lib/gps/screen_wake.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigBridge") {
       ConfigBridge.register(messenger: registrar.messenger())
     }
     // The phone's OWN step count (CMPedometer), not HealthKit's multi-writer
-    // aggregate. See lib/health/phone_pedometer.dart.
+    // aggregate. See lib/platform/phone_pedometer.dart.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
       PedometerBridge.register(messenger: registrar.messenger())
       PhoneCadenceBridge.register(messenger: registrar.messenger())
@@ -147,17 +103,6 @@ import flutter_local_notifications
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "SpeechBridge") {
       SpeechBridge.register(messenger: registrar.messenger())
     }
-    #if !PERSONAL_SIDELOAD
-    // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
-    // the workouts themselves. See lib/health/health_workout_import.dart.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthRouteBridge") {
-      HealthRouteBridge.register(messenger: registrar.messenger())
-    }
-    // HealthKit sleep replace (inBed + Core/Deep/REM). See HealthKitSleepWriter.swift.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthKitSleepWriter") {
-      HealthKitSleepWriter.register(messenger: registrar.messenger())
-    }
-    #endif
     // BGTask channel: Dart handler for opportunistic headless sync and bounded
     // calculation (personal build included from build 86).
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
@@ -490,21 +435,6 @@ enum ConfigBridge {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
-      case "appGroupIdentifier":
-        #if PERSONAL_SIDELOAD
-        result("")
-        #else
-        result(Bundle.main.object(forInfoDictionaryKey: "OpenStrapAppGroupIdentifier") as? String ?? "")
-        #endif
-      case "syncWatch":
-        // Dart calls this right after writing the widget snapshot; mirror it to
-        // the paired Apple Watch. Best-effort, never fails the Dart caller.
-        #if PERSONAL_SIDELOAD
-        result(false)
-        #else
-        WatchBridge.shared.pushCurrentState()
-        result(true)
-        #endif
       case "keepAwake":
         // Hold the display awake for a live workout, the way every run/ride app
         // does. Scoped strictly to the session: Dart clears it on finish, and
@@ -704,99 +634,6 @@ enum PedometerBridge {
           }
         }
 
-      default:
-        result(FlutterMethodNotImplemented)
-      }
-    }
-  }
-}
-
-// Band-gesture actions on iOS. Media control is deliberately NOT offered: iOS has no
-// public API to control a third-party player (Spotify et al.) — only Apple Music via
-// systemMusicPlayer — so advertising it would be misleading. The only sanctioned
-// no-risk action here today is "ring my phone" (system alert sound + vibrate). System
-// volume and call control aren't possible from a sandboxed iOS app and are omitted.
-enum ActionBridge {
-  private static let channelName = "openstrap/device_actions"
-
-  static func register(messenger: FlutterBinaryMessenger) {
-    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
-    channel.setMethodCallHandler { call, result in
-      switch call.method {
-      case "capabilities":
-        result(["ring_phone", "torch"])
-      case "perform":
-        let args = call.arguments as? [String: Any] ?? [:]
-        result(perform(args["action"] as? String ?? ""))
-      default:
-        result(FlutterMethodNotImplemented)
-      }
-    }
-  }
-
-  private static func perform(_ action: String) -> Bool {
-    switch action {
-    case "ring_phone":
-      AudioServicesPlaySystemSound(SystemSoundID(1005)) // loud alert tone
-      AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-      return true
-    case "torch":
-      // Torch via AVCaptureDevice — toggling it does NOT start a capture session, so
-      // it needs no camera authorization / NSCameraUsageDescription. (Verifeid on device.)
-      guard let device = AVCaptureDevice.default(for: .video), device.hasTorch else {
-        return false
-      }
-      do {
-        try device.lockForConfiguration()
-        device.torchMode = device.isTorchActive ? .off : .on
-        device.unlockForConfiguration()
-        return true
-      } catch {
-        return false
-      }
-    default:
-      return false
-    }
-  }
-}
-
-/// Switching the home-screen icon.
-///
-/// `setAlternateIconName` is the only public way to do this, and it comes with
-/// a cost the UI has to be honest about: iOS puts up its own "You have changed
-/// the icon for OpenStrap" alert on every change, and there is no way to
-/// suppress it. The icons themselves are compiled into the asset catalog
-/// (AppIcon / AppIconBW) and named by ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES
-/// in the Runner target — nothing here can invent one that was not built in.
-///
-/// `available` is asked rather than assumed: alternate icons are refused on some
-/// managed/enterprise configurations, and a settings row that cannot work should
-/// not be drawn.
-enum AppIconBridge {
-  private static let channelName = "openstrap/app_icon"
-
-  static func register(messenger: FlutterBinaryMessenger) {
-    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
-    channel.setMethodCallHandler { call, result in
-      switch call.method {
-      case "available":
-        result(UIApplication.shared.supportsAlternateIcons)
-      case "current":
-        // nil means the primary icon. iOS owns this state — nothing is mirrored
-        // into prefs, so the app can never disagree with the home screen.
-        result(UIApplication.shared.alternateIconName)
-      case "set":
-        guard UIApplication.shared.supportsAlternateIcons else {
-          result(false)
-          return
-        }
-        let name = (call.arguments as? [String: Any])?["name"] as? String
-        UIApplication.shared.setAlternateIconName(name) { error in
-          if let error = error {
-            NSLog("[app_icon] setAlternateIconName(\(name ?? "nil")) failed: \(error)")
-          }
-          result(error == nil)
-        }
       default:
         result(FlutterMethodNotImplemented)
       }

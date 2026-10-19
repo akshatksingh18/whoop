@@ -5,20 +5,25 @@ import zipfile
 from pathlib import Path
 
 from tool.personal_ios import (
+    APP_ICONS,
     APP_NAME,
     BUNDLE_ID,
     ContractError,
-    PERSONAL_ENTITLEMENTS,
-    PERSONAL_ICONS,
+    ENTITLEMENTS,
     PROJECT,
     SOURCE_INFO,
-    personal_info,
-    transform_project,
-    validate_new_build_identity,
-    validate_personal_icons,
     validate_info,
     validate_ipa,
+    validate_new_build_identity,
+    validate_personal_icons,
+    validate_project,
 )
+
+
+def _app_info() -> dict[str, object]:
+    info = plistlib.loads(SOURCE_INFO.read_bytes())
+    info["CFBundleIdentifier"] = BUNDLE_ID
+    return info
 
 
 class PersonalIosContractTest(unittest.TestCase):
@@ -35,46 +40,34 @@ class PersonalIosContractTest(unittest.TestCase):
             ("0.9.31", "64"),
         )
 
-    def test_project_transform_removes_personal_exclusions(self) -> None:
-        transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
-        self.assertEqual(transformed.count("PERSONAL_SIDELOAD"), 6)
-        self.assertEqual(transformed.count("Runner/RunnerPersonal.entitlements"), 6)
-        self.assertEqual(transformed.count("Runner/Info-Personal.plist"), 3)
-        self.assertEqual(
-            transformed.count("ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPersonal;"),
-            3,
+    def test_project_builds_only_the_app(self) -> None:
+        text = PROJECT.read_text(encoding="utf-8")
+        validate_project(text)
+        self.assertIn("BgSyncScheduler.swift in Sources", text)
+        # Re-adding an extension target is refused.
+        widened = text.replace(
+            "\t\t\t\t331C8080294A63A400263BE5 /* RunnerTests */,\n",
+            "\t\t\t\t331C8080294A63A400263BE5 /* RunnerTests */,\n"
+            "\t\t\t\t5348973A2FDC19C80033A4D9 /* OpenStrapWidgetExtension */,\n",
         )
-        for forbidden in (
-            "\t\t\t\tFADE0002FADE0002FADE0002 /* Embed Watch Content */,\n",
-            "\t\t\t\tB9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,\n",
-            "\t\t\t\t60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,\n",
-        ):
-            self.assertNotIn(forbidden, transformed)
+        self.assertNotEqual(widened, text)
+        with self.assertRaises(ContractError):
+            validate_project(widened)
 
-    def test_personal_info_keeps_ble_and_motion_only(self) -> None:
-        source = plistlib.loads(SOURCE_INFO.read_bytes())
-        info = personal_info(source)
+    def test_info_keeps_ble_and_motion_only(self) -> None:
+        info = _app_info()
+        validate_info(info)
         self.assertEqual(info["CFBundleDisplayName"], APP_NAME)
         self.assertEqual(info["CFBundleName"], APP_NAME)
-        self.assertEqual(
-            info["UIBackgroundModes"],
-            ["bluetooth-central", "location", "audio", "fetch", "processing"],
-        )
-        self.assertEqual(
-            info["BGTaskSchedulerPermittedIdentifiers"],
-            ["wtf.openstrap.edge.bgsync", "wtf.openstrap.edge.refresh"],
-        )
         self.assertIn("NSMotionUsageDescription", info)
         self.assertNotIn("NSHealthShareUsageDescription", info)
-        # Build 81: no lock-screen extension, so no Live Activity support.
         self.assertNotIn("NSSupportsLiveActivities", info)
-        self.assertNotIn("OpenStrapWorkoutLiveActivity", info)
+        self.assertNotIn("OpenStrapAppGroupIdentifier", info)
 
-    def test_personal_info_location_keys(self) -> None:
+    def test_info_location_keys(self) -> None:
         # Route recording uses While-In-Use; Pushups Home auto-pause (build 86, Akshat's
         # approval) asks for Always, so both descriptions ship and say what each is for.
-        source = plistlib.loads(SOURCE_INFO.read_bytes())
-        info = personal_info(source)
+        info = _app_info()
         self.assertIn("NSLocationWhenInUseUsageDescription", info)
         always = info["NSLocationAlwaysAndWhenInUseUsageDescription"]
         self.assertIn("Home", always)
@@ -82,12 +75,11 @@ class PersonalIosContractTest(unittest.TestCase):
         missing = dict(info)
         del missing["NSLocationAlwaysAndWhenInUseUsageDescription"]
         with self.assertRaises(ContractError):
-            validate_info(missing, resolved_bundle_id=None)
+            validate_info(missing)
 
     def test_background_task_contract_is_exact(self) -> None:
         # Build 86: the two task identifiers and modes, nothing wider.
-        info = personal_info(plistlib.loads(SOURCE_INFO.read_bytes()))
-        info["CFBundleIdentifier"] = BUNDLE_ID
+        info = _app_info()
         widened = dict(info, UIBackgroundModes=info["UIBackgroundModes"] + ["remote-notification"])
         with self.assertRaises(ContractError):
             validate_info(widened)
@@ -95,35 +87,21 @@ class PersonalIosContractTest(unittest.TestCase):
         missing.pop("BGTaskSchedulerPermittedIdentifiers")
         with self.assertRaises(ContractError):
             validate_info(missing)
-        # The scheduler source ships in the personal build now.
-        transformed = transform_project(PROJECT.read_text(encoding="utf-8"))
-        self.assertIn("BgSyncScheduler.swift in Sources", transformed)
 
-    def test_personal_entitlements_are_empty(self) -> None:
-        self.assertEqual(plistlib.loads(PERSONAL_ENTITLEMENTS.read_bytes()), {})
+    def test_entitlements_are_empty(self) -> None:
+        self.assertEqual(plistlib.loads(ENTITLEMENTS.read_bytes()), {})
 
-    def test_personal_icon_catalog_is_complete(self) -> None:
+    def test_icon_catalog_is_complete(self) -> None:
         validate_personal_icons()
-        self.assertTrue((PERSONAL_ICONS / "Icon-App-1024x1024@1x.png").is_file())
+        self.assertTrue((APP_ICONS / "Icon-App-1024x1024@1x.png").is_file())
 
-    def test_ipa_validator_rejects_an_extension(self) -> None:
-        source = plistlib.loads(SOURCE_INFO.read_bytes())
-        info = personal_info(source)
-        info["CFBundleIdentifier"] = BUNDLE_ID
-        with tempfile.TemporaryDirectory() as tmp:
-            ipa = Path(tmp) / "bad.ipa"
-            with zipfile.ZipFile(ipa, "w") as archive:
-                archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
-                archive.writestr("Payload/Runner.app/PlugIns/Widget.appex/Info.plist", b"x")
-            with self.assertRaises(ContractError):
-                validate_ipa(ipa)
-
-    def test_even_the_workout_activity_extension_is_refused(self) -> None:
-        # Build 81 dropped it: Sideloadly's free signing never provisions it.
-        info = personal_info(plistlib.loads(SOURCE_INFO.read_bytes()))
-        info.update(CFBundleIdentifier=BUNDLE_ID, CFBundleVersion="81", CFBundleShortVersionString="0.9.48")
-        extension = dict(CFBundleIdentifier=BUNDLE_ID + ".activity", CFBundleVersion="81",
-            CFBundleShortVersionString="0.9.48", CFBundleExecutable="Activity",
+    def test_ipa_validator_refuses_any_extension(self) -> None:
+        # Sideloadly's free signing provisions only the app's own App ID, so an
+        # embedded extension (even the old workout Live Activity) is refused.
+        info = _app_info()
+        info.update(CFBundleVersion="95", CFBundleShortVersionString="0.9.62")
+        extension = dict(CFBundleIdentifier=BUNDLE_ID + ".activity", CFBundleVersion="95",
+            CFBundleShortVersionString="0.9.62", CFBundleExecutable="Activity",
             NSExtension={"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"})
         with tempfile.TemporaryDirectory() as tmp:
             ipa = Path(tmp) / "activity.ipa"
@@ -141,7 +119,7 @@ class PersonalIosContractTest(unittest.TestCase):
                 archive.writestr("Payload/", b"")
                 archive.writestr("Payload/Runner.app/", b"")
                 archive.writestr("Payload/Runner.app/Info.plist", plistlib.dumps(info))
-            self.assertEqual(validate_ipa(plain)["CFBundleVersion"], "81")
+            self.assertEqual(validate_ipa(plain)["CFBundleVersion"], "95")
 
 
 if __name__ == "__main__":

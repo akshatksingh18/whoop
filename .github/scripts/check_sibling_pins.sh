@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Shared by test.yml (test job) and build.yml (preflight job) — a release
-# tagged straight off main never runs test.yml, so this guard has to live in
-# both places to protect a release.
+# Shared by test.yml and personal-ios.yml, so the iPhone build is guarded even
+# when it is dispatched without a test run.
 #
 # The repositories used to resolve protocol and analytics from Git refs. They
 # now live under packages/, but the original failure classes still matter:

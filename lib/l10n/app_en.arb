@@ -3813,27 +3813,6 @@
   "@activitySummaryNoCalorieWithStrain": {
     "description": "Calorie basis note when there is no calorie figure but a strain figure exists"
   },
-  "activitySummaryNothingLoggedWithLoad": "Nothing was logged with a load",
-  "@activitySummaryNothingLoggedWithLoad": {
-    "description": "Hero caption for a strength session with sets logged but no load recorded"
-  },
-  "activitySummarySetUnit": "{n, plural, one{set} other{sets}}",
-  "@activitySummarySetUnit": {
-    "description": "Unit word next to the hero set count on a strength session with no volume",
-    "placeholders": {
-      "n": {
-        "type": "int"
-      }
-    }
-  },
-  "activitySummaryVolumeLoadedSets": "Volume of the loaded sets",
-  "@activitySummaryVolumeLoadedSets": {
-    "description": "Hero caption for total volume when some sets had no recorded load"
-  },
-  "activitySummaryTotalVolume": "Total volume",
-  "@activitySummaryTotalVolume": {
-    "description": "Hero caption for total volume when every set had a recorded load"
-  },
   "activitySummaryElapsedTime": "Elapsed time",
   "@activitySummaryElapsedTime": {
     "description": "Fallback hero caption showing plain elapsed time"
@@ -3891,14 +3870,6 @@
         "type": "String"
       }
     }
-  },
-  "activitySummaryNoSetsTitle": "No sets logged",
-  "@activitySummaryNoSetsTitle": {
-    "description": "Title of the status card when a strength session has no sets logged"
-  },
-  "activitySummaryNoSetsBody": "Nothing was entered for this session, so there is no load and no volume to total.",
-  "@activitySummaryNoSetsBody": {
-    "description": "Body of the status card on the overview tab when a strength session has no sets logged"
   },
   "activitySummaryNoRoundsTitle": "No rounds recorded",
   "@activitySummaryNoRoundsTitle": {
@@ -4110,27 +4081,6 @@
   "@activitySummaryTimeInZonesTitle": {
     "description": "Chart title above the heart-rate zone bar"
   },
-  "activitySummaryTopSet": "Top set",
-  "@activitySummaryTopSet": {
-    "description": "Section title above the heaviest logged set on a strength session"
-  },
-  "activitySummaryOneRepMax": "1RM estimate {kg} kg",
-  "@activitySummaryOneRepMax": {
-    "description": "Estimated one-rep-max caption under the top set exercise name",
-    "placeholders": {
-      "kg": {
-        "type": "int"
-      }
-    }
-  },
-  "activitySummarySomeSetsNoLoadTitle": "Some sets had no load",
-  "@activitySummarySomeSetsNoLoadTitle": {
-    "description": "Status card title when some strength sets were logged with no load"
-  },
-  "activitySummarySomeSetsNoLoadBody": "Counted in sets and reps, but left out of volume.",
-  "@activitySummarySomeSetsNoLoadBody": {
-    "description": "Status card body when some strength sets were logged with no load"
-  },
   "activitySummaryScore": "Score",
   "@activitySummaryScore": {
     "description": "Section title above the match game score table"
@@ -4164,10 +4114,6 @@
   "@activitySummaryHr": {
     "description": "Column header for average heart rate in the route splits table"
   },
-  "activitySummarySetsLoggedZero": "0 sets logged.",
-  "@activitySummarySetsLoggedZero": {
-    "description": "Status card body on the Splits tab when a strength session has no sets logged"
-  },
   "activitySummaryRoundHeader": "R",
   "@activitySummaryRoundHeader": {
     "description": "Column header for round number in the interval splits table"
@@ -4195,24 +4141,6 @@
   "activitySummarySpeedVsFastest": "SPEED vs FASTEST",
   "@activitySummarySpeedVsFastest": {
     "description": "Column header for relative lap speed in the laps splits table"
-  },
-  "activitySummaryBodyweightReps": "{n, plural, one{{n} rep · bodyweight} other{{n} reps · bodyweight}}",
-  "@activitySummaryBodyweightReps": {
-    "description": "Set row text for a logged set with no recorded load",
-    "placeholders": {
-      "n": {
-        "type": "int"
-      }
-    }
-  },
-  "activitySummaryRpeValue": "RPE {v}",
-  "@activitySummaryRpeValue": {
-    "description": "Set-level RPE value shown next to a logged set",
-    "placeholders": {
-      "v": {
-        "type": "int"
-      }
-    }
   },
   "activitySummaryNothingToPlot": "Nothing to plot for this {activity}",
   "@activitySummaryNothingToPlot": {
@@ -4251,33 +4179,13 @@
   "@activityLiveAddALap": {
     "description": "Live swim screen: accessibility label for the tap-a-lap button."
   },
-  "activityLiveAddExerciseTitle": "Add exercise",
-  "@activityLiveAddExerciseTitle": {
-    "description": "Live strength screen: title of the sheet for adding another exercise."
-  },
   "activityLiveAllowLocation": "Allow location",
   "@activityLiveAllowLocation": {
     "description": "Live measured session: fix action when location permission was denied."
   },
-  "activityLiveBestLabel": "Best",
-  "@activityLiveBestLabel": {
-    "description": "Live strength screen: header over the lifter's best-ever set for this exercise."
-  },
-  "activityLiveBodyweightExcludedNote": "Bodyweight — left out of volume",
-  "@activityLiveBodyweightExcludedNote": {
-    "description": "Live strength screen: note shown when the set is logged as bodyweight-only."
-  },
-  "activityLiveBodyweightOnly": "bodyweight only",
-  "@activityLiveBodyweightOnly": {
-    "description": "Live strength screen: unit label under the volume total when it is bodyweight-only."
-  },
   "activityLiveBpmUnit": "bpm",
   "@activityLiveBpmUnit": {
     "description": "Live heart-rate block: unit label next to the live beats-per-minute reading."
-  },
-  "activityLiveBwAbbrev": "BW",
-  "@activityLiveBwAbbrev": {
-    "description": "Live strength screen: abbreviation for bodyweight, shown instead of a load in kg."
   },
   "activityLiveChangeStroke": "Change stroke",
   "@activityLiveChangeStroke": {
@@ -4300,25 +4208,9 @@
   "@activityLiveDurationHeader": {
     "description": "Live measured session: section header above the elapsed-time display."
   },
-  "activityLiveEffortRpeHeader": "EFFORT (RPE)",
-  "@activityLiveEffortRpeHeader": {
-    "description": "Live strength screen: header above the RPE (rate of perceived exertion) picker."
-  },
   "activityLiveEndSet": "End set",
   "@activityLiveEndSet": {
     "description": "Live match screen: button that closes the current set and starts a new one."
-  },
-  "activityLiveExerciseOf": "EXERCISE {index} OF {total}",
-  "@activityLiveExerciseOf": {
-    "description": "Live strength screen: 'EXERCISE {index} OF {total}' progress header.",
-    "placeholders": {
-      "index": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
   },
   "activityLiveFinishSessionLabel": "Finish session",
   "@activityLiveFinishSessionLabel": {
@@ -4358,10 +4250,6 @@
   "@activityLiveKcalEstUnit": {
     "description": "Common stats row: unit label for the estimated-calories figure."
   },
-  "activityLiveKgVolumeUnit": "kg volume",
-  "@activityLiveKgVolumeUnit": {
-    "description": "Live strength screen: unit label under the total training volume in kg."
-  },
   "activityLiveLapButtonLabel": "LAP",
   "@activityLiveLapButtonLabel": {
     "description": "Live swim screen: label on the big circular tap-a-lap button."
@@ -4400,10 +4288,6 @@
       }
     }
   },
-  "activityLiveLogAsBodyweight": "Log as bodyweight",
-  "@activityLiveLogAsBodyweight": {
-    "description": "Live strength screen: toggle label to log the current set as bodyweight-only."
-  },
   "activityLiveMatchSetSubtitle": "SET {n}",
   "@activityLiveMatchSetSubtitle": {
     "description": "Live match screen: shell subtitle showing the set number in progress.",
@@ -4425,10 +4309,6 @@
   "activityLiveMinimiseLabel": "Minimise",
   "@activityLiveMinimiseLabel": {
     "description": "Live session shell: accessibility label for the minimise chevron."
-  },
-  "activityLiveNextExercise": "Next exercise",
-  "@activityLiveNextExercise": {
-    "description": "Live strength screen: accessibility label for the next-exercise arrow."
   },
   "activityLiveNextLabel": "NEXT",
   "@activityLiveNextLabel": {
@@ -4471,10 +4351,6 @@
   "activityLiveNoHrYetTitle": "No heart rate yet",
   "@activityLiveNoHrYetTitle": {
     "description": "Live heart-rate block: title shown when the band is connected but has no beat yet."
-  },
-  "activityLiveNoneYet": "None yet",
-  "@activityLiveNoneYet": {
-    "description": "Live strength screen: placeholder for a previous/best reference that has no data."
   },
   "activityLiveNoRouteFailedBody": "The phone returned an error when asked for a fix.",
   "@activityLiveNoRouteFailedBody": {
@@ -4589,10 +4465,6 @@
   "@activityLivePoseWarriorTwo": {
     "description": "Live flow (yoga) screen: name of the Warrior II pose."
   },
-  "activityLivePreviousExercise": "Previous exercise",
-  "@activityLivePreviousExercise": {
-    "description": "Live strength screen: accessibility label for the previous-exercise arrow."
-  },
   "activityLivePreviousLabel": "Previous",
   "@activityLivePreviousLabel": {
     "description": "Shared label for a 'Previous' reference or navigation button."
@@ -4604,45 +4476,6 @@
   "activityLiveRecordingRoute": "Recording route",
   "@activityLiveRecordingRoute": {
     "description": "Live measured session: pill shown while a GPS route is actively recording."
-  },
-  "activityLiveRepsBodyweightRow": "{n, plural, one{{n} rep · bodyweight} other{{n} reps · bodyweight}}",
-  "@activityLiveRepsBodyweightRow": {
-    "description": "Live strength screen: 'N reps · bodyweight' row in the this-exercise set list.",
-    "placeholders": {
-      "n": {
-        "type": "int"
-      }
-    }
-  },
-  "activityLiveRepsLabel": "REPS",
-  "@activityLiveRepsLabel": {
-    "description": "Live strength screen: header above the reps stepper."
-  },
-  "activityLiveRepsLoggedBodyweight": "{n, plural, one{{n} rep logged} other{{n} reps logged}}",
-  "@activityLiveRepsLoggedBodyweight": {
-    "description": "Live strength screen: 'N reps logged' shown during the rest countdown for a bodyweight set.",
-    "placeholders": {
-      "n": {
-        "type": "int"
-      }
-    }
-  },
-  "activityLiveRepsOnly": "{n, plural, one{{n} rep} other{{n} reps}}",
-  "@activityLiveRepsOnly": {
-    "description": "Live strength screen: 'N reps' reference figure with no load recorded.",
-    "placeholders": {
-      "n": {
-        "type": "int"
-      }
-    }
-  },
-  "activityLiveRepsUnit": "reps",
-  "@activityLiveRepsUnit": {
-    "description": "Live strength screen: unit label under the total reps figure."
-  },
-  "activityLiveRestingHeader": "RESTING",
-  "@activityLiveRestingHeader": {
-    "description": "Live strength screen: header shown during the rest countdown between sets."
   },
   "activityLiveRestWord": "Rest",
   "@activityLiveRestWord": {
@@ -4687,22 +4520,9 @@
       }
     }
   },
-  "activityLiveSetsCountSubtitle": "{n, plural, one{{n} SET} other{{n} SETS}}",
-  "@activityLiveSetsCountSubtitle": {
-    "description": "Live strength screen: shell subtitle showing the number of sets logged so far.",
-    "placeholders": {
-      "n": {
-        "type": "int"
-      }
-    }
-  },
   "activityLiveSetsListHeader": "SETS",
   "@activityLiveSetsListHeader": {
     "description": "Live match screen: header above the list of finished sets."
-  },
-  "activityLiveSetsUnit": "sets",
-  "@activityLiveSetsUnit": {
-    "description": "Live strength screen: unit label under the total sets figure."
   },
   "activityLiveStepsUnit": "steps",
   "@activityLiveStepsUnit": {
@@ -4728,10 +4548,6 @@
   "@activityLiveStrokeFree": {
     "description": "Live swim screen: name of freestyle stroke."
   },
-  "activityLiveThisExerciseLabel": "THIS EXERCISE",
-  "@activityLiveThisExerciseLabel": {
-    "description": "Live strength screen: header above the current exercise's logged sets."
-  },
   "activityLiveTimeInZonesTitle": "TIME IN ZONES",
   "@activityLiveTimeInZonesTitle": {
     "description": "Live heart-rate block: chart title for time spent in each heart-rate zone."
@@ -4747,34 +4563,6 @@
   "activityLiveTurnOnLocation": "Turn on location",
   "@activityLiveTurnOnLocation": {
     "description": "Live measured session: fix action when location services are off."
-  },
-  "activityLiveVolumeSetsSubtitle": "{kg} KG · {n, plural, one{{n} SET} other{{n} SETS}}",
-  "@activityLiveVolumeSetsSubtitle": {
-    "description": "Live strength screen: shell subtitle showing training volume and set count.",
-    "placeholders": {
-      "kg": {
-        "type": "String"
-      },
-      "n": {
-        "type": "int"
-      }
-    }
-  },
-  "activityLiveWeightLabel": "WEIGHT",
-  "@activityLiveWeightLabel": {
-    "description": "Live strength screen: header above the weight stepper."
-  },
-  "activityLiveWeightRepsLogged": "{kg} kg × {n} logged",
-  "@activityLiveWeightRepsLogged": {
-    "description": "Live strength screen: 'kg × N logged' shown during the rest countdown for a loaded set.",
-    "placeholders": {
-      "kg": {
-        "type": "String"
-      },
-      "n": {
-        "type": "int"
-      }
-    }
   },
   "activityLiveWorkWord": "Work",
   "@activityLiveWorkWord": {
@@ -4792,18 +4580,6 @@
         "type": "int"
       }
     }
-  },
-  "activityLiveLogSet": "Log set",
-  "@activityLiveLogSet": {
-    "description": "Live strength screen: button that banks the current set."
-  },
-  "activityLiveRestOverAnnounce": "Rest over",
-  "@activityLiveRestOverAnnounce": {
-    "description": "Live strength screen: screen-reader announcement when the rest countdown ends."
-  },
-  "activityLiveSkipRest": "Skip rest",
-  "@activityLiveSkipRest": {
-    "description": "Live strength screen: button that skips the remaining rest countdown."
   },
   "settingsBarcodeSaveFailed": "That could not be saved — it may be back next time you open the app.",
   "@settingsBarcodeSaveFailed": {
@@ -4864,10 +4640,6 @@
   "settingsManageNotificationsRowSub": "What may interrupt you, quiet hours, and off switches for all of them",
   "@settingsManageNotificationsRowSub": {
     "description": "Settings row subtitle for the manage-notifications row"
-  },
-  "settingsGroupPreferences": "Preferences",
-  "@settingsGroupPreferences": {
-    "description": "Settings group heading for units/appearance/cycle-tracking"
   },
   "settingsUnitsRowTitle": "Units",
   "@settingsUnitsRowTitle": {

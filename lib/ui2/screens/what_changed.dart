@@ -189,6 +189,9 @@ class _WhatChangedScreenState extends State<WhatChangedScreen>
               style: F.body.copyWith(color: P.of(c).ink, height: 1.5),
             ),
           ),
+        // Build 95 (Akshat): the week-review box and the card under it sat
+        // edge to edge.
+        if (widget.reportId != null && !_loading) const SizedBox(height: S.x3),
         if (_failed)
           StatusCard(
             'Findings could not load',

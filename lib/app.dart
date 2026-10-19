@@ -16,10 +16,8 @@ import 'data/pushup_reminders.dart' show Pushups;
 import 'state/app_state.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
-import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
-import 'widget/widget_service.dart';
 import 'ui2/activity/catalogue.dart';
 import 'ui2/activity/live.dart';
 import 'ui2/onboarding/pairing.dart';
@@ -101,21 +99,7 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       // to latch for the whole process, silencing every notification and
       // scheduled reminder until a full app restart.
       NotificationService.instance.invalidatePermissionCache();
-      // A background relaunch while the phone was locked cannot read the
-      // keychain, so the BYOK key can be missing from an otherwise healthy
-      // process. Coming to the foreground means the phone is unlocked — take
-      // the chance to read it. No-op unless a key is known to exist and is
-      // currently unreadable.
-      unawaited(context.read<CoachConfig>().refreshKeyOnResume());
-      app.maybeFinishFromLiveActivity();
-      app.refreshLiveActivity();
-      unawaited(app.maybeStopBreathingFromLiveActivity());
-      app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
       app.runCadenceChecks(); // evening wind-down / weekly recap nudges (best-effort)
-      // A Siri "start breathing" App Intent may have just foregrounded an
-      // already-running process (openAppWhenRun doesn't guarantee a fresh
-      // launch) — the constructor-time check alone would miss that case.
-      unawaited(app.checkPendingSiriRoute());
       // Backups run on foreground, when due — there is no background scheduler
       // that works on both platforms, and a schedule that claims "daily" while
       // delivering whenever the OS feels like it is worse than one that is
@@ -130,15 +114,6 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       // A run whose route was blocked by a location setting: the user may be
       // back from Settings having fixed it. No-op without a blocked live route.
       if (app.routeLocationIssue != null) unawaited(app.retryRouteTracking());
-      // Re-publish the widget snapshot. `has_data` is decided WHEN THE
-      // SNAPSHOT IS WRITTEN (WidgetService.push evaluates isStale there), and
-      // the widget process never runs Dart — so a snapshot written while fresh
-      // stays `has_data: true` forever, and the staleness rule can only ever
-      // fire if something re-evaluates it. Foreground is the one moment we
-      // know the app is alive and the numbers may have aged: it is cheap (one
-      // repository read) and it is what stops a week-old readiness sitting on
-      // a lock screen looking current.
-      unawaited(WidgetService.refresh(app.repo));
       if (app.isPaired) app.openSession();
       // Steps and today's numbers, at once on open and then every 5 minutes.
       unawaited(app.refreshForeground());
@@ -191,7 +166,6 @@ class _OpenStrapAppState extends State<OpenStrapApp>
         value: SystemUiOverlayStyle.dark,
         child: ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
       ),
-      navigatorObservers: [TelemetryNavigatorObserver()],
       home: const _Gate(),
     );
   }
@@ -240,10 +214,6 @@ void _markOnboarded() {
   if (!_onboarded) Prefs.setBool(_kOnboarded, true);
 }
 
-/// Telemetry-only: the last AppRoute we logged, so the gate's build (which
-/// also re-runs on a plain theme flip) doesn't double-log.
-AppRoute? _telemetryLastRoute;
-
 class _Gate extends StatelessWidget {
   const _Gate();
 
@@ -263,11 +233,6 @@ class _Gate extends StatelessWidget {
           profileSeen: OnboardingBypass.profileSeen,
           onboarded: _onboarded,
         );
-        if (route != _telemetryLastRoute) {
-          _telemetryLastRoute = route;
-          TelemetryService.instance.setContext('app_route', route.name);
-          TelemetryService.instance.breadcrumb('route: ${route.name}');
-        }
         final Widget resolved = switch (route) {
           // Underlay while the boot splash covers the loading phase — and what
           // the user lands on if the splash's safety cap fires before init

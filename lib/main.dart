@@ -2,26 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 
+import 'dart:async';
+
 import 'app.dart';
-import 'telemetry/telemetry_service.dart';
 import 'ble/ios_ble_restore.dart';
 import 'notify/notification_service.dart';
-import 'coach/coach_config.dart';
+import 'platform/error_log.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
 import 'state/locale_controller.dart';
 import 'state/units_controller.dart';
-import 'sync/headless_boot.dart';
 import 'sync/ios_bg_task.dart';
 import 'theme/theme_controller.dart';
-import 'widget/widget_service.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'package:workmanager/workmanager.dart';
-import 'dart:async';
-import 'dart:io';
-import 'compute/background_derivation.dart' show kHeavyDeriveTaskName, kSyncTaskName;
-import 'build_profile.dart';
 
 /// Ceiling on every pre-runApp platform-channel await. Each one is guarded
 /// against THROWING, but a channel call that simply never completes (seen in
@@ -34,73 +26,15 @@ const _kStartupInitTimeout = Duration(seconds: 6);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase (overridden by dummy values until flutterfire configure).
-  // OPTIONAL: a build with no real google-services.json / GoogleService-Info.plist
-  // throws here and the app carries on without any Firebase at all.
-  if (!kPersonalSideload) {
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      ).timeout(_kStartupInitTimeout);
-    } catch (e) {
-      debugPrint('Firebase init failed (run flutterfire configure!): $e');
-    }
-  }
-  // ZERO COLLECTION UNTIL CONSENT. The SDKs are already told to stay quiet at
-  // the platform level (Info.plist / AndroidManifest.xml
-  // *_collection_enabled=false) so nothing is collected before Dart even runs;
-  // this restates it programmatically so a build with a stale native config
-  // still cannot auto-log first_open, an app-start trace, or a startup crash.
-  // Collection is only ever switched ON later, from the user's loaded consent
-  // (TelemetryService.applyConsent) — never here.
-  TelemetryService.instance.enforceCollectionOffUntilConsent();
-
-  // Install crash/error hooks (FlutterError.onError + PlatformDispatcher.onError)
-  // BEFORE anything else. Capture is always-on and LOCAL; nothing transmits until
-  // the user opts in (TelemetryService.enabled). No custom zone — these two hooks
-  // catch framework + uncaught async errors on their own, and a custom root zone
-  // is a known source of release-startup fragility.
-  TelemetryService.instance.installErrorHandlers();
-  // Turns real frame-level jank into Crashlytics non-fatal reports — Crashlytics
-  // otherwise has zero visibility into "the app froze while scrolling" since
-  // freezing isn't a crash. See installJankWatchdog's doc for the threshold.
-  TelemetryService.instance.installJankWatchdog();
+  // Uncaught errors go to the app log before anything else can throw.
+  installErrorLog();
 
   // Cap the decoded-image cache. Flutter's default is 1000 entries / 100 MiB of
-  // DECODED bitmaps, which is sized for a photo feed, not for us. The only thing
-  // in this app that can fill it is map tiles: a retina 512² tile costs ~1 MiB
-  // decoded, so a long ride that pans continuously could sit on ~100 MiB of
-  // resident tile bitmaps — on top of the deliberately-persistent pre-warmed
-  // FlutterEngine — and push a 3–4 GB device into LMK/jetsam territory mid-
-  // workout. 40 MiB still covers several screens of tiles either side of the
-  // route; evicted tiles simply re-decode from the network layer.
+  // DECODED bitmaps, sized for a photo feed; progress photos and run-map
+  // snapshots fit well inside 40 MiB, and an evicted one simply re-decodes.
   PaintingBinding.instance.imageCache
     ..maximumSizeBytes = 40 << 20
     ..maximumSize = 200;
-
-  // Android: Cancel the two legacy WorkManager tasks by unique name. A previous
-  // version scheduled heavy derivation passes in the background, but they were
-  // pulled due to isolate collisions/deadlocks with the main UI's database access.
-  // We must explicitly cancel them here otherwise they survive app updates and
-  // cause the app to hang on the loading screen (buffering circle) when they fire
-  // concurrently with AppState._init().
-  //
-  // IMPORTANT: this MUST be scoped by unique name, never Workmanager().cancelAll().
-  // AndroidX WorkManager is a single OS-wide instance shared by every caller —
-  // the Dart workmanager plugin's cancelAll() maps straight to the native
-  // WorkManager.cancelAllWork(), which is NOT scoped to jobs the plugin itself
-  // registered. EdgeApplication.onCreate() (native Kotlin) schedules the
-  // KeepAliveWorker FGS-restart watchdog via that same WorkManager instance
-  // BEFORE this Dart main() runs — an unscoped cancelAll() here wipes that
-  // watchdog out on every single cold start, silently disabling it.
-  if (Platform.isAndroid) {
-    try {
-      await Future.wait([
-        Workmanager().cancelByUniqueName(kHeavyDeriveTaskName),
-        Workmanager().cancelByUniqueName(kSyncTaskName),
-      ]).timeout(_kStartupInitTimeout);
-    } catch (_) {}
-  }
 
   // iOS CoreBluetooth State Preservation & Restoration: opt the flutter_blue_plus
   // central (the one that actually subscribes to the band's HR/event characteristics)
@@ -108,7 +42,7 @@ Future<void> main() async {
   // subscriptions ONLY for a central created with a restore id — without this, a
   // suspended app resumes with the peripheral still flagged "connected" but its GATT
   // notifications dead until a full reconnect+re-subscribe (the "connected, no events"
-  // bug). MUST be set before any other FBP call. No-op on Android.
+  // bug). MUST be set before any other FBP call.
   try {
     await FlutterBluePlus.setOptions(restoreState: true)
         .timeout(_kStartupInitTimeout);
@@ -122,20 +56,11 @@ Future<void> main() async {
   // first frame — they are awaited before runApp, so an unguarded throw (e.g. the
   // flutter_local_notifications `invalid_icon` crash) leaves the app stuck on the
   // native launch screen (blank/icon). Guard each so the UI always boots.
-  // iOS: registers the CoreBluetooth-restoration wake handler (no-op on Android).
+  // The CoreBluetooth-restoration wake handler.
   await _safeInit('IosBleRestore', IosBleRestore.init);
-  // iOS: BGProcessingTask Dart handler (openstrap/bg_task channel). No-op on Android.
+  // The BGProcessingTask Dart handler (openstrap/bg_task channel).
   await _safeInit('IosBgTask', IosBgTask.init);
-  // Android: headless auto-connect after reboot (no-op if a view is attached or iOS).
-  await _safeInit('HeadlessBoot', maybeHeadlessBoot);
-  await _safeInit('WidgetService', WidgetService.init);
   await _safeInit('NotificationService', NotificationService.instance.init);
-  // note: BackgroundDerivation.init() (compute/background_derivation.dart,
-  // Android WorkManager periodic heavy-derive/sync) is intentionally NOT
-  // called here anymore - it was deliberately removed to fix a real
-  // background-sync/analyze isolate collision with AppState's own
-  // persistent-connection background session. don't re-add this without
-  // understanding why it was pulled first.
   // Cache SharedPreferences so UI screens can synchronously RESTORE saved
   // selections (tab, range toggles) in initState with no async flash.
   await _safeInit('Prefs', Prefs.ensureLoaded);
@@ -172,20 +97,6 @@ Future<void> main() async {
     locale = LocaleController.seed(null);
   }
 
-  // Local BYOK AI-coach config (key in keychain). Best-effort load — and
-  // deliberately NOT awaited: this is a flutter_secure_storage read, i.e. the
-  // Android Keystore, which is the documented hang-forever case on some
-  // Samsung Knox devices. Nothing needs the coach config until an AI screen
-  // opens, and CoachConfig is a ChangeNotifier — consumers rebuild when the
-  // load lands. First frame must never wait on the keystore.
-  final coachConfig = CoachConfig();
-  unawaited(
-    coachConfig.load().timeout(const Duration(seconds: 15)).catchError(
-          (Object e) =>
-              debugPrint('[main] CoachConfig.load failed/timed out: $e'),
-        ),
-  );
-
   runApp(
     MultiProvider(
       providers: [
@@ -193,7 +104,6 @@ Future<void> main() async {
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<UnitsController>.value(value: units),
         ChangeNotifierProvider<LocaleController>.value(value: locale),
-        ChangeNotifierProvider<CoachConfig>.value(value: coachConfig),
       ],
       child: const OpenStrapApp(),
     ),

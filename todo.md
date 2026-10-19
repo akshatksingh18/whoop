@@ -463,6 +463,10 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     Found while capturing: the goal Details dialog names different review windows (Sep 28–Oct 11
     vs Sep 14–27, waist Sep 7–21) from the card's first-check windows (Oct 4, Oct 26–Nov 1)
     for a goal started Oct 9; the inline rules use the first-check windows only.
+  - Notifications (Akshat, from the phone): a Notifications page (bell on Today, unread dot)
+    listing every notification by day, newest first, each reopening its destination, kept
+    90 days on the phone; What changed reachable from Trends; a gap between the week-review
+    box and the card under it on What changed. Previews on the same canvas.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

@@ -31,8 +31,6 @@ import 'package:flutter/foundation.dart';
 import 'findings.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_performance/firebase_performance.dart';
 
 import '../build_profile.dart';
 import '../data/db.dart';
@@ -45,7 +43,6 @@ import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart' show NotificationPrefs;
 import '../notify/tap_router.dart' show workoutSuggestionRoute;
-import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
 import 'hr_max.dart'
@@ -2352,24 +2349,6 @@ class DerivationEngine {
       ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
 
-    Trace? runTrace;
-    try {
-      // Heavy/force passes only. Light passes run many times a day (including
-      // all night in the background), and each trace is buffered + eventually
-      // uploaded — periodic radio wakeups from a local-first app, for timings
-      // the _diag map already captures locally.
-      if (Firebase.apps.isNotEmpty && (heavy || force)) {
-        runTrace = FirebasePerformance.instance.newTrace(
-          'derivation_engine_run',
-        );
-        await runTrace.start();
-        runTrace.putAttribute(
-          'mode',
-          force ? 'force' : (heavy ? 'heavy' : 'light'),
-        );
-      }
-    } catch (_) {}
-
     try {
       final scope = await _deriveScope(heavy: heavy, force: force);
       _diag
@@ -2607,9 +2586,6 @@ class DerivationEngine {
         ..['finished_at'] = finishedAt
         ..['duration_ms'] = finishedAt - startedAt;
 
-      try {
-        await runTrace?.stop();
-      } catch (_) {}
     }
   }
 
@@ -3900,71 +3876,14 @@ class DerivationEngine {
     }
     final bundle = reused.bundle;
     // Readiness came back absent for TODAY specifically (not a historical
-    // backfill day, which would just be noise) — log why. This ran inside
-    // Isolate.run so it couldn't call Firebase itself; it just returned the
-    // per-input diagnostic (see onehz_pipeline.dart's readinessAbsentDiag).
-    // Throttled to once/day so repeated light-pass re-derives of today don't
-    // spam the outbox with the same finding.
+    // backfill day, which would just be noise): log the per-input reason the
+    // isolate returned (onehz_pipeline.dart's readinessAbsentDiag), once a day.
     final absentDiag = bundle['readiness_absent_diag'];
     if (absentDiag != null &&
         day.date == LocalDb.localDayLabelNow() &&
         _loggedReadinessAbsentFor != day.date) {
       _loggedReadinessAbsentFor = day.date;
-      TelemetryService.instance.breadcrumb('readiness absent: $absentDiag');
-      // Flattened, not the raw nested map: record()'s Analytics forwarding
-      // only keeps num/String values as-is and stringifies everything else,
-      // so passing {'hrv': {'value': ..., 'baseline_n': ...}, ...} directly
-      // would turn each input into one unqueryable "{value: true, ...}"
-      // string instead of separately filterable fields.
-      final diag = (absentDiag as Map).cast<String, dynamic>();
-      final flat = <String, dynamic>{};
-      for (final key in ['hrv', 'rhr', 'resp', 'temp']) {
-        final v = (diag[key] as Map?)?.cast<String, dynamic>();
-        if (v == null) continue;
-        flat['${key}_value'] = v['value'];
-        flat['${key}_baseline_n'] = v['baseline_n'];
-      }
-      flat['note'] = diag['note'];
-      TelemetryService.instance.record(
-        kind: 'event',
-        level: 'warn',
-        message: 'readiness_absent',
-        context: flat,
-      );
-      // Also surface the SURPRISING case — readiness absent when it should NOT
-      // be (adequate inputs, not the honest cold-start `need_baseline` note) —
-      // as a queryable Crashlytics non-fatal, so a residual "readiness '—' even
-      // with sleep present" is diagnosable from the per-input flags WITHOUT GA4
-      // access. Cold-start (need_baseline) absences stay Analytics-only so this
-      // stays low-noise (and, post the MAD/SD-z fallback, rare).
-      //
-      // GATE: only fire the Crashlytics non-fatal when at least one input
-      // actually HAD a value with an adequate baseline (`value == true` — the
-      // "should have computed" case) — a day with literally no sleep session
-      // and no day-HR (every input false) is an honest, unremarkable miss, not
-      // a surprise, and was previously alarming here just as loudly as a real
-      // regression (analytics-only note above still records it either way).
-      final note = (diag['note'] as String?) ?? '';
-      final anyValuePresent = ['hrv', 'rhr', 'resp', 'temp'].any((key) {
-        final v = (diag[key] as Map?)?.cast<String, dynamic>();
-        return v != null && v['value'] == true;
-      });
-      if (!note.startsWith('need_baseline') && anyValuePresent) {
-        final summary = StringBuffer('readiness_absent');
-        for (final key in ['hrv', 'rhr', 'resp', 'temp']) {
-          final v = (diag[key] as Map?)?.cast<String, dynamic>();
-          if (v == null) continue;
-          summary.write(
-            ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}',
-          );
-        }
-        summary.write(' | $note');
-        TelemetryService.instance.recordNonFatal(
-          StateError(summary.toString()),
-          StackTrace.current,
-          reason: 'readiness_absent',
-        );
-      }
+      _log('readiness absent for ${day.date}: $absentDiag');
     }
 
     // Where this day's sleep window came from (auto / auto_fallback / manual /
@@ -4318,16 +4237,11 @@ class DerivationEngine {
       }
 
       await _persistWakeDayFeatures(dayId: day.date, wake: blocks.wake);
-    } catch (e, st) {
+    } catch (e) {
       secondHalfOk = false;
       _log(
         'day-blocks (offloaded second half) failed for ${day.date} — '
         'persisting headline day (partial): $e',
-      );
-      TelemetryService.instance.recordNonFatal(
-        e,
-        st,
-        reason: 'day_blocks_failed',
       );
     }
 

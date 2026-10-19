@@ -13,7 +13,6 @@ import 'package:provider/provider.dart';
 import '../../build_profile.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../data/auto_backup.dart' show BackupCadence;
-import '../../live/live_activity.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'data.dart';
@@ -32,8 +31,6 @@ class StatusScreen extends StatefulWidget {
 
 class _StatusScreenState extends State<StatusScreen> with RevisionReload {
   String _version = '';
-  Map<String, Object?> _la = const {};
-  bool _testing = false;
 
   /// B88-12 (C5): last background wake, transfer and calculation.
   ({
@@ -74,37 +71,6 @@ class _StatusScreenState extends State<StatusScreen> with RevisionReload {
     super.dispose();
   }
 
-  Future<void> _readLa() async {
-    // The personal build ships no lock-screen extension (see
-    // `liveActivityEligible`), so there is nothing to report or test.
-    if (kPersonalSideload) return;
-    final s = await LiveActivity.status();
-    if (mounted) setState(() => _la = s);
-  }
-
-  Future<void> _testLa() async {
-    if (_testing) return;
-    setState(() => _testing = true);
-    final Map<String, Object?> s;
-    try {
-      s = await LiveActivity.test();
-    } catch (_) {
-      if (mounted) setState(() => _testing = false);
-      return;
-    }
-    if (!mounted) return;
-    setState(() => (_la = s, _testing = false));
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text(
-          s['ok'] == true
-              ? 'Started. Lock the phone: a sample shows for one minute.'
-              : 'Not shown: ${laReason(s)}',
-        ),
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -113,7 +79,6 @@ class _StatusScreenState extends State<StatusScreen> with RevisionReload {
     // on, and it must show the profile as it is now.
     app.refreshSigningStatus();
     app.refreshBackupPassphraseState();
-    _readLa();
     _life = AppLifecycleListener(onResume: _readHealth);
     _healthAtRecord = app.lastRecordAt;
     _readHealth();
@@ -205,21 +170,6 @@ class _StatusScreenState extends State<StatusScreen> with RevisionReload {
                       chevron: false,
                     ),
                   ]),
-                  if (_la.isNotEmpty) ...[
-                    const SizedBox(height: S.x5),
-                    settingsGroup(c, 'Lock screen', [
-                      SetRow(
-                        LucideIcons.lockKeyhole,
-                        C.green,
-                        'Live Activity',
-                        sub: _testing
-                            ? 'Starting a sample…'
-                            : '${laReason(_la)}. Tap to show a one-minute sample',
-                        value: _la['enabled'] == true ? 'On' : 'Off',
-                        onTap: _testLa,
-                      ),
-                    ]),
-                  ],
                   if (_healthFailed && _health == null) ...[
                     const SizedBox(height: S.x5),
                     StatusCard(
@@ -338,20 +288,4 @@ String _stamp(DateTime t) {
   final l = t.toLocal();
   String two(int v) => v.toString().padLeft(2, '0');
   return '${l.year}-${two(l.month)}-${two(l.day)} ${formatClock(l)}';
-}
-
-/// The bridge's status in one line: the first thing that stops the lock-screen
-/// card, or the last outcome when nothing does.
-String laReason(Map<String, Object?> s) {
-  if (s['enabled'] == false) {
-    return 'Off for WHOOP: Settings → WHOOP → Live Activities';
-  }
-  if (s['extensionOk'] == false) {
-    final ext = (s['extensions'] as List?)?.join(', ') ?? '';
-    return ext.isEmpty
-        ? 'The lock-screen extension is missing from this install'
-        : 'The extension is installed as $ext, not under ${s['app']}';
-  }
-  final r = s['reason']?.toString() ?? '';
-  return r.isEmpty ? 'Ready' : '${r[0].toUpperCase()}${r.substring(1)}';
 }

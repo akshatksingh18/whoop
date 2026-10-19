@@ -12,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../widget/widget_service.dart';
 import 'tokens.dart';
 import 'theme.dart';
 
@@ -97,8 +96,6 @@ class ThemeController extends ChangeNotifier {
 
   void _applyActive() {
     AppColors.active = isDark ? kDarkPalette : kLightPalette;
-    // Keep the iOS widget + Live Activity in the same mode (best-effort).
-    WidgetService.setThemeDark(isDark);
   }
 
   void _applySystemChrome() {

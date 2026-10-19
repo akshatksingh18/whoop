@@ -44,8 +44,6 @@ import '../compute/profile.dart';
 import '../data/db.dart';
 import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../ble/ios_ble_restore.dart';
-import '../data/local_repository_impl.dart';
-import '../widget/widget_service.dart';
 import 'background_sync.dart';
 import 'band_ownership.dart';
 import 'headless_gate.dart';
@@ -143,7 +141,6 @@ class IosBgTask {
             );
             await engine.run(profile, heavy: !syncOnly);
             if (!syncOnly) await engine.rescanRecent(profile);
-            await _refreshWidgetSnapshot(profile);
           } on DeriveCancelled catch (e) {
             _bgLog('[ios-bgtask] calculation stopped: $e');
           } catch (e) {
@@ -180,21 +177,6 @@ class IosBgTask {
     }
   }
 
-  /// Push a fresh Today snapshot to the App Group after a headless derive so
-  /// the home/lock-screen widget AND the Siri/Shortcuts query intents
-  /// (RecoveryIntent/StrainIntent/SleepIntent — see OpenStrapIntents.swift,
-  /// which read this same App Group) don't go stale just because the user
-  /// hasn't opened the Today screen. Previously WidgetService.push() was only
-  /// ever called from today_screen.dart's fetch() — a real gap: "ask Siri
-  /// without opening the app" is the whole point of a Siri Shortcut, so any
-  /// answer would silently reflect however-stale the last Today-screen visit
-  /// was (or "I don't have today's numbers yet" if that never happened at
-  /// all). Best-effort — never throws into the caller.
-  static Future<void> _refreshWidgetSnapshot(Profile profile) async {
-    await WidgetService.refresh(
-      LocalRepositoryImpl(getProfileMap: () => profile.toMap()),
-    );
-  }
 }
 
 /// Background/headless diagnostics reach the shared file log too (B88-05):

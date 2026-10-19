@@ -15,7 +15,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
@@ -48,9 +47,6 @@ import '../gps/route_math.dart' show totalDistanceMeters, movingSeconds;
 import '../gps/run_voice.dart';
 import '../gps/run_history.dart' show runsChanged, isRunType, isWalkType;
 import '../data/day_label.dart';
-import '../data/journal_fields.dart'
-    show JournalMetricValue, kJournalFieldsByKey;
-import '../data/med_store.dart' show MedDb, MedDef;
 import '../data/auto_backup.dart' show BackupCadence, BackupOutcome, runBackup;
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
@@ -70,24 +66,19 @@ import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
 import '../data/series_codec.dart';
 import '../notify/battery_forecast.dart';
-import '../notify/med_buzzer.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
-import '../gestures/gesture_settings.dart';
 import '../platform/phone_pedometer.dart';
 import '../build_profile.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
-import '../gestures/gesture_dispatcher.dart';
 import '../data/models.dart';
 import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../data/food_day_reminder.dart' show FoodDayReminder;
 import '../notify/device_alerts.dart';
-import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
-import '../notify/water_buzzer.dart';
 import '../sync/background_sync.dart' show checkSyncStaleness;
 import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
@@ -174,35 +165,6 @@ class AppState extends ChangeNotifier {
 
   DeviceState get device => engine.state;
   final DeviceAlerts _deviceAlerts = DeviceAlerts();
-
-  /// Band-gesture → action mapping (double-tap, etc.). Exposed for the settings UI.
-  final GestureSettings gestureSettings = GestureSettings();
-  late final GestureDispatcher _gestureDispatcher;
-
-  /// Relay selected phone-app notifications to the strap as a buzz (Android only).
-  /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
-  late final NotificationRelay notificationRelay = NotificationRelay(
-    buzz: () => engine.buzz(),
-    isConnected: () => engine.isConnected,
-  );
-
-  /// Fires a strap haptic at each water-reminder slot (best-effort, only when
-  /// the band is connected). Armed at launch + whenever the toggle changes.
-  late final WaterBuzzer _waterBuzzer = WaterBuzzer(
-    buzz: () => engine.buzz(),
-    isConnected: () => engine.isConnected,
-  );
-
-  /// Fires a strap haptic at each scheduled medication dose (best-effort, only
-  /// when the band is connected). Same trade as [_waterBuzzer]: the OS
-  /// notification is what actually reminds; the buzz is the bonus half that
-  /// only works with a live link. Armed from `_ensureRemindersScheduled`,
-  /// which is where the med schedule is already read for the OS slots — one
-  /// read feeds both surfaces, so they cannot drift apart.
-  late final MedBuzzer _medBuzzer = MedBuzzer(
-    buzz: () => engine.buzz(),
-    isConnected: () => engine.isConnected,
-  );
 
   Sample? lastSynced;
   // REAL device time (epoch SECONDS) of the newest record we hold — the band's
@@ -1051,13 +1013,6 @@ class AppState extends ChangeNotifier {
         lifecycle == AppLifecycleState.hidden;
     _background = isHeadless;
 
-    _gestureDispatcher = GestureDispatcher(
-      settings: gestureSettings,
-      log: _log,
-      onMarkMoment: _markMomentFromGesture,
-      onWorkoutToggle: _toggleWorkoutFromGesture,
-      onLogWater: _logWaterFromGesture,
-    );
     engine = BleEngine(
       onRecord: _onRecord,
       onState: _onEngineState,
@@ -1142,13 +1097,6 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   AppState.forTesting({BleEngine? engine}) {
     _background = false;
-    _gestureDispatcher = GestureDispatcher(
-      settings: gestureSettings,
-      log: _log,
-      onMarkMoment: _markMomentFromGesture,
-      onWorkoutToggle: _toggleWorkoutFromGesture,
-      onLogWater: _logWaterFromGesture,
-    );
     this.engine =
         engine ??
         BleEngine(
@@ -1215,13 +1163,7 @@ class AppState extends ChangeNotifier {
     _releaseForegroundLease();
     _deriveScheduler.dispose();
     stopForegroundRefresh();
-    _waterBuzzer.dispose();
-    _medBuzzer.dispose();
-    // Owned notifiers/observers. notificationRelay in particular holds a
-    // WidgetsBindingObserver, a 120 s Timer.periodic and a StreamSubscription —
-    // its observer accumulated on the binding across every hot restart.
-    notificationRelay.dispose();
-    gestureSettings.dispose();
+    // Owned notifiers/observers.
     navRequest.dispose();
     screenRequest.dispose();
     insightsRevision.dispose();
@@ -1276,18 +1218,6 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugHandleAlarmEvent(int id) =>
       _handleAlarmEvent(id, DateTime.now().millisecondsSinceEpoch ~/ 1000);
-
-  /// (Re)arm the strap-buzz timer for the water reminder from the current
-  /// notification prefs. Call at launch and whenever the toggle changes (the
-  /// Notifications screen passes [prefs] so we skip a reload). Timers don't
-  /// persist, so launch is not optional.
-  Future<void> armWaterReminder([NotificationPrefs? prefs]) async {
-    final p = prefs ?? await NotificationPrefs.load();
-    _waterBuzzer.configure(
-      enabled: p.waterEnabled,
-      slotMinutes: NotificationCenter.waterSlotMinutes(p),
-    );
-  }
 
   /// Push a just-saved low-battery threshold into the device-alert pipeline.
   /// DeviceAlerts restores its threshold once per process; without this a
@@ -1506,8 +1436,7 @@ class AppState extends ChangeNotifier {
     try {
       if (!isPaired) return;
       await _ensureRemindersScheduled();
-      await _maybeNotifyStepGoal();
-      await _maybeNotifyInactivity();
+      await _recordStepGoal();
       unawaited(_checkSchemaHealth()); // throttled internally to 24h
       // Staleness-escalation meta-layer: the SAME check the headless path
       // runs (shared cooldown via SharedPreferences, so foreground and
@@ -1527,11 +1456,9 @@ class AppState extends ChangeNotifier {
   /// was just changed takes effect at once, not at the next resume).
   Future<void> refreshReminders() => _ensureRemindersScheduled();
 
-  /// Fire once per day when the daily step ESTIMATE crosses the user's goal.
-  /// Reads the latest derived `steps` series (an estimate — same tier as the
-  /// Steps tile), so it never claims a precise count.
-  static const String _kLastStepGoalDay = 'last_stepgoal_day';
-  Future<void> _maybeNotifyStepGoal() async {
+  /// Record today as a step-goal day once today's measured steps cross the
+  /// dated goal — what the movement streak counts. No notification.
+  Future<void> _recordStepGoal() async {
     try {
       final date = todayLabel();
       final ledger = await StepGoals.read(
@@ -1539,142 +1466,8 @@ class AppState extends ChangeNotifier {
       );
       final goal = StepGoals.targetOn(ledger, date);
       final measured = await LocalDb.resolvedStepsForDay(date);
-      final steps = measured.total;
-      if (goal == null || goal <= 0 || steps < goal) return;
+      if (goal == null || goal <= 0 || measured.total < goal) return;
       await StepGoals.qualifying(initial: goal);
-      // GUARD AFTER PRESENT — same shape as the recovery-ready fix above: the
-      // guard used to be written before the emit, so a goal crossed inside
-      // quiet hours (or with notifications denied) burned the day's only shot.
-      await NotificationCenter.instance.emitOncePerDay(
-        prefsKey: _kLastStepGoalDay,
-        dayId: date,
-        e: NotificationEvent(
-          dedupeKey: '$date:step_goal',
-          category: NotifCategory.reminders,
-          // NORMAL + kRouteSteps, not low + /today: reminders-at-low was one
-          // of the dropped pairs, so this achievement never once reached a
-          // shade. It is a prompt now (route-keyed), muted via
-          // stepGoalEnabled.
-          priority: NotifPriority.normal,
-          title: 'Step goal reached',
-          body:
-              'You reached $steps measured steps and completed your $goal goal.',
-          date: date,
-          route: kRouteSteps,
-        ),
-      );
-    } catch (_) {
-      /* best-effort */
-    }
-  }
-
-  /// Sedentary desk-job posture check. HONEST LIMIT: movement/posture are only
-  /// visible while the band is streaming live IMU, so this only evaluates on
-  /// foreground open (issue #123 doesn't cover this branch — "recently prone"
-  /// is a short rolling ~15 min window, not a monotonic idle timer, so it
-  /// doesn't translate into a single OS-scheduled instant the way the
-  /// "time to move" nudge below does; still foreground-only for now).
-  ///
-  /// WIRED under the Movement-nudge switch: this event used to emit on
-  /// reminders/low with a bare `/today` route — exactly the pair `classOf`
-  /// drops — so it never once reached a shade (the stillness nudge's own
-  /// history, pre-schedulableIds). It now rides [kRouteMovement] at prompt
-  /// class, gated by `movementEnabled`, and on a real present it also buzzes
-  /// the band — safe because this only ever runs with recent live IMU, i.e. a
-  /// link that was alive moments ago.
-  static const String _kLastInactivityMs = 'last_inactivity_ms';
-  Future<void> _maybeNotifyInactivity() async {
-    try {
-      if (_lastWalkMs == 0) return; // no live data
-      final now = DateTime.now();
-      if (now.hour < 9 || now.hour >= 21) return; // daytime only
-      final nowMs = now.millisecondsSinceEpoch;
-
-      final walkIdleMs = nowMs - _lastWalkMs;
-      final recentlyProne =
-          _lastProneMs > 0 && (nowMs - _lastProneMs) < 15 * 60 * 1000;
-      if (walkIdleMs < 90 * 60 * 1000 || !recentlyProne) return;
-
-      final prefs = await SharedPreferences.getInstance();
-      final lastFired = prefs.getInt(_kLastInactivityMs) ?? 0;
-      if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
-
-      // CodeRabbit caught this as un-padded (e.g. "2026-7-5" instead of
-      // "2026-07-05") — breaks the YYYY-MM-DD convention every other
-      // dedupeKey/date field in this file already follows.
-      final today = todayLabel();
-      // GUARD AFTER PRESENT — same shape as the two above. Stamping the
-      // rate-limit before the emit meant a nudge dropped by quiet hours or a
-      // muted category silenced the check for the next two hours, so unmuting
-      // it at 09:20 bought you nothing until 11:05.
-      final fired = await NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: '$today:posture:${nowMs ~/ (2 * 60 * 60 * 1000)}',
-          category: NotifCategory.reminders,
-          // NORMAL, not low: reminders-at-low is one of the dropped pairs,
-          // and prompt class requires normal priority.
-          priority: NotifPriority.normal,
-          title: 'Time to move',
-          body:
-              'You’ve been in a typing posture for over 90 minutes without walking.',
-          date: today,
-          route: kRouteMovement,
-        ),
-      );
-      if (fired) {
-        await prefs.setInt(_kLastInactivityMs, nowMs);
-        // Strap haptic alongside the shade card — the WaterBuzzer trade in a
-        // place that doesn't need its own timer: the live IMU feed this check
-        // just read IS the proof of a recent link.
-        unawaited(engine.buzz());
-      }
-    } catch (_) {
-      /* best-effort */
-    }
-  }
-
-  // ── "Time to move" — provisional OS-scheduled nudge (issue #123) ───────────
-  // Previously this was ALSO only ever evaluated on foreground open (same
-  // in-memory `_lastMovementMs` this function used to read, presented via an
-  // immediate NotificationCenter.emit — no wall-clock timer, so it could only
-  // ever "fire" the instant the app happened to be opened). Fixed per the
-  // issue's own recommended lowest-risk shape: whenever live IMU shows real
-  // motion, OS-schedule a ONE-SHOT "time to move" for `now + 2h`
-  // (NotificationService.scheduleOnce, same zonedSchedule plumbing wind-down/
-  // weekly-recap/hydration already use) and cancel+reschedule it on every
-  // subsequent movement — so it only actually fires if the user stays still,
-  // uninterrupted, for the full 2h window, and it fires from the OS wall-clock
-  // even while the app is closed.
-  int _lastStillnessScheduleMs = 0;
-  Future<void> _rescheduleStillnessNudge(int nowMs) async {
-    // Throttle: _ingestLiveMags can call this many times a second while the
-    // user is actively moving — the 2h nudge window doesn't need OS-scheduler
-    // churn anywhere near that tight.
-    if (nowMs - _lastStillnessScheduleMs < 10 * 60 * 1000) return;
-    _lastStillnessScheduleMs = nowMs;
-    try {
-      // Opt-in, off by default. Read here rather than cached because this runs
-      // at most once every ten minutes and SharedPreferences is already in
-      // memory — and because the switch has to bite on the next movement, not
-      // at the next launch. It is also what makes the slot allow-listed at all
-      // (NotificationService.schedulableIds): a nudge with no off switch was
-      // refused there, and had never once fired.
-      if (!(await NotificationPrefs.load()).movementEnabled) return;
-      await NotificationService.instance.cancel(
-        NotificationService.idStillness,
-      );
-      final at = DateTime.fromMillisecondsSinceEpoch(
-        nowMs,
-      ).add(const Duration(hours: 2));
-      if (at.hour < 9 || at.hour >= 21) return; // would land outside daytime
-      await NotificationService.instance.scheduleOnce(
-        id: NotificationService.idStillness,
-        category: NotifCategory.reminders,
-        title: 'Time to move',
-        body: "You've been still for a couple of hours.",
-        at: at,
-        route: '/today',
-      );
     } catch (_) {
       /* best-effort */
     }
@@ -1969,13 +1762,11 @@ class AppState extends ChangeNotifier {
     bumpInsights();
   }
 
-  // Live (foreground / kept-alive) event path: persist every event, then let the
-  // gesture dispatcher act on it. Headless drain (background_sync) persists only —
-  // it must never replay an old tap as a live action.
+  // Live (foreground / kept-alive) event path: persist every event, then act
+  // on an alarm event. Headless drain (background_sync) persists only.
   void _onLiveEvent(int id, int ts, String hex) {
     LocalDb.insertEvent(id, ts, hex);
     _handleAlarmEvent(id, ts);
-    _gestureDispatcher.onEvent(id, ts, hex);
   }
 
   /// Why start-up failed, or null if it did not. Drives [AppRoute.failed].
@@ -2085,11 +1876,6 @@ class AppState extends ChangeNotifier {
     _lastRecTs = await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
-    // Band-gesture mapping: load the saved action + query native capabilities so the
-    // settings UI knows what this platform supports. Best-effort, non-blocking.
-    unawaited(gestureSettings.bootstrap());
-    // Notification relay (Android only; inert + invisible elsewhere). Best-effort.
-    unawaited(notificationRelay.bootstrap());
     // DB integrity check — see _checkSchemaHealth doc. Best-effort, non-blocking.
     unawaited(_checkSchemaHealth());
     // Rehydrate/finalize any workout left `status='live'` by a killed previous
@@ -2097,8 +1883,6 @@ class AppState extends ChangeNotifier {
     await _reconcileOrphanedLiveWorkout();
     initialized = true;
     notifyListeners();
-    // arm the water-reminder strap buzz (timers don't persist)
-    unawaited(armWaterReminder());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
     if (isPaired) unawaited(_ensureRemindersScheduled());
@@ -2216,131 +2000,38 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
     try {
       final prefs = await NotificationPrefs.load();
-      // ONE crossday read feeds every schedule that hangs off the rollup:
-      // the Sleep Coach bedtime (check-in, wind-down, nightly sweep) AND the
-      // weekly lookback's finding. Two separate baseline reads were how this
-      // used to be written; the second one is also where the weekly finding
-      // silently never got computed at all.
-      final cd = await _readCrossdaySummary();
-      final meds = await _medScheduleToday(prefs);
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
-        bedtimeMinOfDay: cd.bedtimeMin,
         weeklyFinding: prefs.remindersEnabled
-            ? NotificationCenter.weeklyLookbackFinding(cd.recent)
+            ? NotificationCenter.weeklyLookbackFinding(
+                await _readRecentDays(),
+              )
             : null,
-        checkInDoneToday: await _checkInDoneToday(),
-        medDefs: meds.defs,
-        medDosesToday: meds.doses,
       );
-      // The strap-buzz half of the medication reminder, off the SAME schedule
-      // read the OS dose slots above were armed from — one read feeds both
-      // surfaces. Three answers, matching the scheduler's own rule: the
-      // switch OFF is an explicit choice and CLEARS the armed buzzes (a timer
-      // left standing would buzz for doses the user has muted); a real
-      // (possibly empty) schedule re-arms from it; only a FAILED read while
-      // enabled preserves, because cancelling would disarm doses that are
-      // still real.
-      if (!prefs.medsEnabled) {
-        _medBuzzer.configure(slotInstants: const []);
-      } else if (meds.defs != null) {
-        final instants = <DateTime>[];
-        for (final s in NotificationCenter.medPromptSlots(
-          prefs,
-          meds.defs!,
-          meds.doses,
-        )) {
-          final at = NotificationCenter.medSlotInstant(s);
-          if (at != null) instants.add(at);
-        }
-        _medBuzzer.configure(slotInstants: instants);
-      }
     } catch (e) {
       _log('[notify] schedule reminders skipped: $e');
     }
   }
 
-  /// Everything the reminder scheduler needs from the crossday rollup, in ONE
-  /// read: the Sleep Coach's recommended bedtime (local minutes past midnight,
-  /// or null when not yet learned) and the per-day `recent[]` rows the weekly
-  /// lookback's finding summarizes. Read in one place because three schedules
-  /// hang off it — check-in, wind-down, nightly sweep, weekly lookback — and
-  /// a second copy of this parse is a second thing to get wrong.
-  Future<({double? bedtimeMin, List<Map<String, dynamic>> recent})>
-  _readCrossdaySummary() async {
+  /// The crossday rollup's per-day `recent[]` rows ({date, rhr, unsettled,
+  /// illness, anomaly, temp}) — the same rows `DerivationEngine` reads for the
+  /// daily exception — that the weekly lookback summarizes. Empty when there
+  /// is no rollup, which every consumer reads as an honest silence.
+  Future<List<Map<String, dynamic>>> _readRecentDays() async {
     try {
       final cd = await LocalDb.baseline('crossday');
       final m = cd?['payload_json'];
-      if (m is! String) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
-      }
+      if (m is! String) return const [];
       final j = jsonDecode(m);
-      if (j is! Map) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
-      }
-      final bt = (j['sleep_coach'] as Map?)?['bedtime'];
-      final v = bt is Map ? bt['value'] : null;
-      final bedtime = (v is Map ? (v['bedtime_min_of_day'] as num?) : null)
-          ?.toDouble();
-      // Same rows `DerivationEngine._runNotifications` consumes for the daily
-      // exception — {date, rhr, unsettled, illness, anomaly, temp}.
+      if (j is! Map) return const [];
       final rawRecent = j['recent'];
-      final recent = <Map<String, dynamic>>[
+      return [
         if (rawRecent is List)
           for (final r in rawRecent)
             if (r is Map) r.cast<String, dynamic>(),
       ];
-      return (bedtimeMin: bedtime, recent: recent);
     } catch (_) {
-      // No rollup → no learned bedtime and an empty week: every consumer has
-      // its own honest silence for that.
-      return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
-    }
-  }
-
-  /// Whether today's self-report is already written — the check-in prompt's
-  /// "do not ask for something already logged" gate.
-  ///
-  /// NOT `BriefingStore.journalDoneToday()`, which reads a flag that
-  /// `markJournalDone` would set and nothing anywhere calls: it is false for
-  /// every user on every day. The journal rows are the truth.
-  /// NULL, NOT FALSE, when the journal could not be read. The scheduler reads
-  /// `false` as "today is known to be unanswered" and arms the prompt on it —
-  /// so a transient read failure asked a user who had already written their
-  /// rating how their day was. Null is the answer it already has a branch for:
-  /// leave the check-in exactly as it is and let the next pass decide.
-  Future<bool?> _checkInDoneToday() async {
-    try {
-      return NotificationCenter.checkInDone(
-        await LocalDb.journalMetricsForDay(todayLabel()),
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// The medication schedule + today's recorded doses. Two indexed reads, only
-  /// on the path that will use them.
-  ///
-  /// NULL `defs` means UNREAD — the switch is off, or the read threw — and is
-  /// not the same answer as an empty list, which means "this user has no
-  /// medications". The scheduler cancels the armed doses on the second and
-  /// preserves them on the first; returning `[]` for a failed read handed it
-  /// the wrong one of those.
-  Future<
-    ({List<MedDef>? defs, Map<String, Map<int, Map<String, Object?>>> doses})
-  >
-  _medScheduleToday(NotificationPrefs prefs) async {
-    const empty = <String, Map<int, Map<String, Object?>>>{};
-    if (!prefs.medsEnabled) return (defs: null, doses: empty);
-    try {
-      final db = await LocalDb.instance;
-      return (
-        defs: await MedDb.defs(db),
-        doses: await MedDb.dosesForDay(db, todayLabel()),
-      );
-    } catch (_) {
-      return (defs: null, doses: empty);
+      return const [];
     }
   }
 
@@ -2404,7 +2095,7 @@ class AppState extends ChangeNotifier {
     insightsRevision.value = insightsRevision.value + 1;
     if (initialized) {
       unawaited(
-        _maybeNotifyStepGoal().catchError((Object e) {
+        _recordStepGoal().catchError((Object e) {
           _log('[steps] goal check failed: $e');
         }),
       );
@@ -2605,8 +2296,6 @@ class AppState extends ChangeNotifier {
   int _committedRaw = 0; // raw (pre-gain) steps from completed minutes
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
-  int _lastWalkMs = 0; // last time steps were accumulated
-  int _lastProneMs = 0; // last time the wrist was in a flat/typing posture
   int _lastLiveUiNotifyMs = 0;
   // The band's record timestamp on the FIRST live frame of this session — the
   // ANCHOR, and only the anchor. It keeps every span this session banks in the
@@ -2815,24 +2504,6 @@ class AppState extends ChangeNotifier {
     if (_liveLastIngestMs == null || nowMs > _liveLastIngestMs!) {
       _liveLastIngestMs = nowMs;
     }
-    // Any real movement pushes the "Time to move" nudge back out. 0.02 g over
-    // baseline is clearly dynamic movement, not resting jitter. (The posture
-    // nudge is the sibling below, and keys off `_lastWalkMs` instead.)
-    if (e > 0.02) {
-      unawaited(_rescheduleStillnessNudge(nowMs));
-    }
-
-    // Feature 3: Live Posture Tracking (detect desk-job pronation)
-    // Only trust orientation when not highly dynamic (e < 0.05).
-    if (e.abs() < 0.05 && f.ys != null && f.zs != null && f.ys!.isNotEmpty) {
-      final my = f.ys!.reduce((a, b) => a + b) / f.ys!.length;
-      final mz = f.zs!.reduce((a, b) => a + b) / f.zs!.length;
-      final rollDeg = math.atan2(my, mz) * 180.0 / math.pi;
-      if (rollDeg.abs() > 135) {
-        _lastProneMs = nowMs; // flat wrist / typing posture
-      }
-    }
-
     // Commit each completed minute into the raw total (matches the gain's
     // per-minute calibration), then keep counting the next partial minute.
     var committedThisTick = false;
@@ -2864,7 +2535,6 @@ class AppState extends ChangeNotifier {
       final before = _committedRaw;
       final minuteSteps = ana.pedometer(minute);
       _committedRaw += minuteSteps;
-      if (_committedRaw > before) _lastWalkMs = nowMs;
       // A counting minute is a COVERED minute; a silent one is not, and does
       // not extend the run in progress. This is what keeps a 20-minute walk
       // inside a ten-hour connected session from claiming ten hours.
@@ -5022,25 +4692,12 @@ class AppState extends ChangeNotifier {
     if (activeWorkout != null) return;
     final start = DateTime.now();
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
-    // The workout screen's live step count rides the 100 Hz IMU stream, which
-    // the sticky standard-HR fallback silently suppresses (same starvation as
-    // the calibration walk) — and which may simply be off (a breathing
-    // session restores streams to OFF when they were off before) or still in the
-    // background HR-only downgrade. A deliberate workout start is an explicit
-    // user action — retry the full live set; detectors re-trip if it can't
-    // hold. No ownership flag: the background downgrade / session close
-    // manage the stream lifecycle exactly as for openSession's arming.
+    // A deliberate workout start arms the live heart-rate stream if it is not
+    // already up (after the background downgrade has settled, so its trailing
+    // OFF writes cannot kill what this arms).
     unawaited(() async {
-      // The band double-tap lands while backgrounded by definition — settle
-      // the background HR-only downgrade BEFORE retrying full live, or its
-      // trailing OFF writes (~300 ms of them) kill exactly what we arm.
       await _settleBgLiveDowngrade();
-      if (isConnected &&
-          (!engine.liveEnabled ||
-              engine.liveHrOnly ||
-              device.standardHrFallback)) {
-        await engine.retryFullLiveStreams();
-      }
+      if (isConnected && !engine.liveEnabled) await engine.enableLiveStreams();
     }());
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
@@ -5569,123 +5226,6 @@ class AppState extends ChangeNotifier {
     if (activeWorkout?.workoutId == id) {
       await _cancelActiveWorkoutTeardown();
       notifyListeners();
-    }
-  }
-
-  // ── band-gesture actions (in-app) ─────────────────────────────────────────────
-  // Driven by the double-tap dispatcher (lib/gestures).
-
-  /// Double-tap → start a workout if none is live, else end the active one.
-  /// CLOUD EXCISED: the workout now lives purely in-app (the local live engine).
-  /// The repo seam start/end calls will be re-wired to local persistence later.
-  Future<void> _toggleWorkoutFromGesture() async {
-    try {
-      if (activeWorkout != null) {
-        final id = activeWorkout!.workoutId;
-        await stopWorkout();
-        if (id != null) {
-          try {
-            await repo?.endWorkout(id);
-          } catch (_) {
-            /* seam not implemented yet; local already stopped */
-          }
-        }
-      } else {
-        String? id;
-        try {
-          final w = await repo?.startWorkout('other');
-          id = w?['workout_id'] as String?;
-        } catch (_) {
-          /* seam not implemented yet; still start locally */
-        }
-        startWorkout(workoutId: id, type: 'other');
-      }
-      await HapticFeedback.mediumImpact();
-    } catch (e) {
-      _log('[gesture] workout toggle failed: $e');
-    }
-  }
-
-  /// One water write at a time. `_logWaterFromGesture` reads the day, awaits, then
-  /// writes the whole map back, and `postJournalMetrics` REPLACES the day — so two
-  /// taps overlapping that await both read the same total and the second write eats
-  /// the first glass. Same guard the nutrition screen's `+` already uses. This is not
-  /// a second debounce (the dispatcher owns that); it is the read-modify-write lock.
-  bool _writingWaterFromGesture = false;
-
-  /// Double-tap → add one glass to today's water. Step and ceiling come from the
-  /// journal field spec, so a wrist tap and the on-screen `+` always agree.
-  Future<void> _logWaterFromGesture() async {
-    final r = repo;
-    if (r == null || _writingWaterFromGesture) return;
-    _writingWaterFromGesture = true;
-    try {
-      final spec = kJournalFieldsByKey['water_ml']!;
-      final date = todayLabel();
-      // Inside the try: the READ can throw too, and a guard set before it would
-      // stay set forever. Spread into a fresh map — postJournalMetrics rewrites
-      // the whole day from what it is handed.
-      // Build 92: an atomic patch of water alone, retried once if another
-      // writer got in between the read and the write.
-      for (var attempt = 0; attempt < 2; attempt++) {
-        final fields = await r.getJournalMetrics(date);
-        final before = fields['water_ml'];
-        final now = before?.value ?? 0;
-        final conflicts = await r.saveJournalEdit(
-          date,
-          changes: {
-            'water_ml': JournalMetricValue(
-              (now + spec.step).clamp(0, spec.max).toDouble(),
-            ),
-          },
-          base: {'water_ml': ?before},
-        );
-        if (conflicts.isEmpty) break;
-        if (attempt == 1) throw StateError('water changed during the write');
-      }
-      _log('[gesture] water logged (+${spec.step.round()} ${spec.unit})');
-      await HapticFeedback.mediumImpact();
-    } catch (e) {
-      _log('[gesture] log water failed: $e');
-    } finally {
-      _writingWaterFromGesture = false;
-    }
-  }
-
-  /// Double-tap → stamp a timestamped tag onto today's journal (read-modify-write so
-  /// existing tags/note survive). "Remember this" for a spike, a set, a feeling.
-  Future<void> _markMomentFromGesture() async {
-    final r = repo;
-    if (r == null) return;
-    try {
-      final now = DateTime.now();
-      final date =
-          '${now.year.toString().padLeft(4, '0')}-'
-          '${now.month.toString().padLeft(2, '0')}-'
-          '${now.day.toString().padLeft(2, '0')}';
-      final hhmm =
-          '${now.hour.toString().padLeft(2, '0')}:'
-          '${now.minute.toString().padLeft(2, '0')}';
-      List<String> tags = [];
-      String note = '';
-      try {
-        final journal = await r.getJournal(range: '7d');
-        final today = journal.firstWhere(
-          (e) => e['date'] == date,
-          orElse: () => <String, dynamic>{},
-        );
-        tags =
-            (today['tags'] as List?)?.map((e) => e.toString()).toList() ?? [];
-        note = (today['note'] as String?) ?? '';
-      } catch (_) {
-        /* fresh day / seam not implemented — start clean */
-      }
-      tags.add('moment $hhmm');
-      await r.postJournal(date, tags, note);
-      _log('[gesture] moment marked at $hhmm');
-      await HapticFeedback.mediumImpact();
-    } catch (e) {
-      _log('[gesture] mark moment failed: $e');
     }
   }
 

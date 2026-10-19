@@ -26,7 +26,6 @@ import 'ui2/onboarding/welcome.dart';
 import 'ui2/profile/status.dart';
 import 'ui2/profile/devices.dart' show MyDevices;
 import 'ui2/screens/readiness_detail.dart';
-import 'ui2/screens/day_steps.dart';
 import 'ui2/screens/sleep_detail.dart';
 import 'ui2/screens/what_changed.dart';
 import 'ui2/screens/health_screen.dart';
@@ -347,26 +346,8 @@ ShellDomain domainForTab(int tab) => switch (tab) {
 /// to Home rather than crashing a cold launch on a payload from an older
 /// build.
 ShellDomain domainForRoute(String route) => switch (routePath(route)) {
-  kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
-  // The check-in and wind-down push their own screens; Home sits under
-  // them now that the personal build has no Wellness tab.
-  kRouteJournalCompose || kRouteBreathing => ShellDomain.home,
-  // Water is a journal field that lives on Nutrition — that is the tab
-  // behind the log screen, and where a "back" from it should land.
-  kRouteWater => ShellDomain.nutrition,
-  // The medication reminder. Its checklist lived on the Wellness tab, which
-  // the personal build removed (and with it the reminder itself, see
-  // NotificationPrefs); a dose tap already scheduled by an older build
-  // lands on Home rather than nowhere.
-  kRouteMeds => ShellDomain.home,
-  // The movement/sedentary nudges. Today (Home) is where the steps/rings
-  // they point at live; there is no move screen to push, so
-  // screenForRoute returns null for it — same shape as /meds below.
-  kRouteMovement => ShellDomain.home,
-  // Recovery-ready and step-goal notes. Both are about what already lives
-  // on Today, and neither has a screen of its own to push.
+  // The recovery-ready note: about what already lives on Today.
   kRouteRecovery => ShellDomain.home,
-  kRouteSteps => ShellDomain.home,
   kRouteWorkoutSuggestion => ShellDomain.workout,
   // The forgotten-workout nudge. The Workouts tab is the destination
   // itself — the live session bar with its finish control is pinned to
@@ -377,10 +358,7 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
   // recap (`notification_center.dart`), and declared in `tap_router`
   // alongside every other deep link — see the note below.
   kRouteProfile => ShellDomain.home,
-  // No recap screen exists. Health is where a week of sleep, strain and
-  // recovery actually lives, so it is the nearest true destination — but
-  // the notification promises a REPORT, and until one is built the honest
-  // fix is upstream, in what that notification claims.
+  // The weekly recap pushes What changed over Trends.
   kRouteRecap => ShellDomain.health,
   kRouteStatus => ShellDomain.home,
   '/sleep' => ShellDomain.home,
@@ -402,23 +380,7 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
 /// plain Workouts tab, because the screen that could log it was deleted with
 /// `lib/ui/workouts/` and nothing read `workout_suggestions`. There is a
 /// destination again, and confirming on it writes a real session.
-///
-/// `/ai/*` used to be in that list too. It now lands on the briefing itself,
-/// which also carries the exact snapshot that was sent to produce it.
 Widget? screenForRoute(String route) => switch (routePath(route)) {
-  // The AI briefings and the breathing session are removed; a tap on an
-  // older build's notification lands on Today.
-  kRouteAiMorning || kRouteAiEvening || kRouteBreathing => null,
-  // The journal is removed; an older build's check-in tap lands on Home.
-  kRouteJournalCompose => null,
-  // The hydration reminder (removed with water logging in the personal
-  // build) — a tap on one armed by an older build lands on the Nutrition
-  // tab without pushing a second copy of it.
-  kRouteWater => null,
-  // The detected bout, with the three answers to it: log it, adjust the
-  // times first, or say it never happened.
-  // The medication reminder has no screen of its own; see domainForRoute.
-  kRouteMeds => null,
   // A CONSTRUCTOR ARGUMENT: this screen is PUSHED by `_consume`, so every
   // tap builds a fresh one and the id reaches it.
   kRouteWorkoutSuggestion => WorkoutSuggestionScreen(focusId: routeId(route)),
@@ -434,7 +396,6 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
   ),
   '/heart' => WhatChangedScreen(day: routeDay(route)),
   kRouteRecovery => ReadinessDetail(day: routeDay(route)),
-  kRouteSteps => DayStepsDetail(day: routeDay(route)),
   '/sleep' => SleepDetail(day: routeDay(route)),
   kRouteWorkoutIdle => SessionDestination(routeId(route)),
   kRouteStatus => const StatusScreen(),

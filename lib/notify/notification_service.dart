@@ -124,22 +124,14 @@ class NotificationService {
       AndroidNotificationChannel(
         'reminders',
         'Reminders',
-        description: 'Wind-down, movement nudges, goals and weekly recaps',
+        description: 'Weekly recap, Food, Body, Pushups and workout reminders',
         importance: Importance.defaultImportance,
       );
 
   // ── Fixed ids: device alerts + scheduled reminders (disjoint low band) ───────
   static const int idLowBattery = 1001;
   static const int idCharging = 1002;
-  static const int idWindDown = 2002; // scheduled daily ("time to sleep")
   static const int idWeeklyRecap = 2003; // scheduled weekly
-  static const int idJournalLog = 2004; // scheduled daily ("log your day")
-  static const int idMorningBrief =
-      2005; // scheduled daily (AI morning briefing)
-  static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
-  static const int idStillness =
-      2200; // provisional one-shot ("time to move", issue #123)
-  static const int idCheckIn = 2201; // daily ("how was today?" → the journal)
 
   /// The personal sideload's signing-expiry warnings, 48 h and 24 h before the
   /// installed profile lapses (`signing_profile.dart`). One-shots, re-armed on
@@ -169,26 +161,6 @@ class NotificationService {
   static const int maxPushupNudges = 29;
   static const int idPushupDailyStart = 2540;
 
-  /// Slot band [idMedsBase .. idMedsBase + maxMedSlots) — one ONE-SHOT per
-  /// scheduled dose that is still upcoming, armed by
-  /// [NotificationCenter.scheduleStandingReminders] from the user's own
-  /// `med_def` schedule. One-shot rather than a daily repeat because whether a
-  /// dose is still due changes every day and a repeat cannot know: it would go
-  /// on asking for a dose already taken, which is the fastest way to get every
-  /// notification in the app turned off. Re-armed on each foreground pass.
-  static const int idMedsBase = 2300;
-  static const int maxMedSlots = 12;
-
-  /// Slot band [idWaterBase .. idWaterBase + maxWaterSlots) — one daily-repeating
-  /// OS notification per hydration slot, armed by
-  /// [NotificationCenter.scheduleStandingReminders] from the SAME slot list the
-  /// strap buzz uses, so the two land together. The buzz alone was not a
-  /// reminder: it needs a live BLE link and a live isolate, so a band in a
-  /// drawer or an app the OS killed meant nothing happened at all. Do not reuse
-  /// these ids for anything else.
-  static const int idWaterBase = 2100;
-  static const int maxWaterSlots = 24;
-
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;
 
@@ -198,38 +170,10 @@ class NotificationService {
   /// `zonedSchedule` never passes through it (the OS fires those with no Dart
   /// running), so what may be SCHEDULED is gated here instead.
   ///
-  /// The rule this enforces is not "three classes" — it is that a scheduled
-  /// slot must be one the user ASKED FOR by name, with a time or an interval
-  /// they chose, and must have something to say when it fires:
-  ///   • [idWeeklyRecap] — armed only for a week that actually contained a
-  ///     finding.
-  ///   • the hydration band ([isWaterSlot]) — armed only while the water
-  ///     reminder is switched on, at the interval the user picked.
-  ///   • [idEveningBrief] — armed only when the nightly sweep found something
-  ///     unusual for this user, and its body IS the finding.
-  ///   • [idStillness] — armed only while `NotificationPrefs.movementEnabled`
-  ///     is on (opt-in, off by default), and only by two hours of no movement
-  ///     in the band's own live IMU. Its body IS that measurement. It was
-  ///     refused here for as long as it had no switch, which is the real reason
-  ///     issue #123 never fired: the cancel on every foreground resume was the
-  ///     visible half, but `scheduleOnce` had been dropping it at this gate
-  ///     before the cancel ever mattered.
-  ///   • [idCheckIn] — armed only while `NotificationPrefs.checkInEnabled` is
-  ///     on (opt-in, off by default), at a time derived from the user's own
-  ///     bedtime, and NOT armed for a day whose self-report is already
-  ///     written.
-  ///   • the medication band ([isMedSlot]) — armed only while
-  ///     `NotificationPrefs.medsEnabled` is on, at the times in the user's own
-  ///     `med_def` schedule, and only for a dose still upcoming.
-  ///   • [idWindDown] — armed only from a LEARNED bedtime (Sleep Coach), never
-  ///     a population fallback, and only while `windDownEnabled` is on.
-  ///   • [idMorningBrief] — armed by `aiReminderPlan` only for a user with a
-  ///     BYOK key AND their own AI morning switch on. Its body is static (the
-  ///     constraint above: no model text in the schedule); the screen it opens
-  ///     computes on arrival.
-  /// The AI journal prompt ([idJournalLog]) is none of those and is still
-  /// refused. Its caller keeps CANCELLING, which is how an upgrade cleans out
-  /// whatever an older build left standing.
+  /// The rule this enforces is that a scheduled slot must be one the user
+  /// ASKED FOR by name, with a time or an interval they chose, and must have
+  /// something to say when it fires — [idWeeklyRecap], for example, is armed
+  /// only for a week that actually contained a finding.
   static const Set<int> schedulableIds = {
     // The signing-expiry warnings: armed only on the personal sideload, only
     // from the expiry of the profile actually installed.
@@ -242,31 +186,11 @@ class NotificationService {
     idPushupRegular,
     idPushupDailyStart,
     idWeeklyRecap,
-    idEveningBrief,
-    idMorningBrief,
-    idWindDown,
-    idStillness,
-    idCheckIn,
   };
 
-  /// Whether [id] is one of the hydration slots. A band rather than a set
-  /// member, which is the only reason [maySchedule] exists as a function.
-  static bool isWaterSlot(int id) =>
-      id >= idWaterBase && id < idWaterBase + maxWaterSlots;
-
-  /// Whether [id] is one of the medication slots — same band reasoning as
-  /// [isWaterSlot].
-  static bool isMedSlot(int id) =>
-      id >= idMedsBase && id < idMedsBase + maxMedSlots;
-
-  /// The gate itself — see [schedulableIds]. Public because
-  /// [NotificationCenter.scheduleAiReminders] filters its plan through it
-  /// rather than arming a slot and having it refused one line later.
+  /// The gate itself — see [schedulableIds].
   static bool maySchedule(int id) =>
-      schedulableIds.contains(id) ||
-      isWaterSlot(id) ||
-      isMedSlot(id) ||
-      isPushupNudge(id);
+      schedulableIds.contains(id) || isPushupNudge(id);
 
   /// Whether [id] is one of the Pushups nudges — a band, like the others.
   static bool isPushupNudge(int id) =>
@@ -574,13 +498,6 @@ class NotificationService {
   /// re-firing the same week's finding every Sunday forever.
   DateTime nextWeeklyInstant(int weekday, int hour, int minute) =>
       _nextInstanceOf(hour, minute, weekday: weekday);
-
-  /// The next [hour]:[minute] in local wall-clock time — today if it is still
-  /// ahead, else tomorrow. For arming a slot whose BODY is about one specific
-  /// day (the nightly sweep) as a one-shot; the caller checks which day it
-  /// landed on.
-  DateTime nextDailyInstant(int hour, int minute) =>
-      _nextInstanceOf(hour, minute);
 
   /// Shared gate for every scheduled slot — see [schedulableIds].
   bool _maySchedule(int id) {

@@ -7325,74 +7325,11 @@ class BleEngine {
     return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
   }
 
-  /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
-  /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but
-  /// DOES NOT change the displayed state — we stay in the single `listening` phase;
-  /// live records simply start arriving on the same subscription history uses.
-  Future<void> enableLiveStreams() async {
-    // Personal build: the 1 Hz heart-rate stream is the whole live set
-    // ([kHighRateLive]), so every caller — foreground return, workout start,
-    // a radio-fallback retry — arms exactly that.
-    if (!kHighRateLive) return enableHrOnlyLive();
-    _liveEnabled = true;
-    _liveHrOnly = false;
-    unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
-    _armTime =
-        DateTime.now(); // marginal-radio detector measures arm→drop latency
-    final c = (_session?.entry ?? kWhoopGen4).commands;
-    await _send(Cmd.toggleRealtimeHr, const [0x01]);
-    // MARGINAL-RADIO FALLBACK: a weak radio can't sustain the high-rate R10/R11 +
-    // IMU + optical flood, so once the detector trips we arm HR only.
-    if (state.standardHrFallback) {
-      _log('Live streams: standard-HR only (marginal-radio fallback).');
-      return;
-    }
-    await Future.delayed(const Duration(milliseconds: 100));
-    // A band with no SEND_R10_R11 opcode (gen5 console: 0x3F is
-    // Unknown/Unhandled) skips it. Live steps ride toggleImuMode there
-    // (gen5: 0x2B rec 0x15; gen4: 0x33).
-    final r10 = c.r10R11Realtime;
-    if (r10 != null) {
-      await _send(r10, const [0x01]);
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-    await _sendToggleImu(true);
-    await Future.delayed(const Duration(milliseconds: 100));
-    // Only where ENABLE_OPTICAL_DATA is the LIVE toggle. On gen5 it is the
-    // SAVE-to-history toggle — the realtime one is the next opcode up — so
-    // arming it here would write a save enable on every live-stream start, next
-    // door to the persistent-optical footgun that leaves the LEDs on and drains
-    // the battery. gen5's own 1 Hz stream already carries per-second HR, so
-    // there is nothing to gain until the roles are confirmed on hardware. The
-    // OFF writes in disableLiveStreams stay unconditional.
-    if (c.opticalDataIsLiveToggle) {
-      await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
-    }
-    _log(
-      'Live streams enabled ('
-      '${c.opticalDataIsLiveToggle ? "optical: wrist-gated" : "gen5 IMU rev1; optical skipped"}).',
-    );
-  }
-
-  /// Clear the sticky standard-HR fallback and give the full live set another
-  /// chance. The fallback protects a struggling radio from the high-rate
-  /// flood, but it never resets and [enableLiveStreams] honours it silently —
-  /// so once tripped, every later step calibration / workout counted 0 steps
-  /// for the rest of the process lifetime (the IMU toggles were never sent).
-  /// Call this from EXPLICIT foreground user actions whose feature needs the
-  /// 100 Hz stream: there the flood is the point, and if the radio genuinely
-  /// can't sustain it the detectors re-trip (and re-downgrade) within seconds.
-  Future<void> retryFullLiveStreams() async {
-    if (state.standardHrFallback) {
-      _log('Radio fallback: cleared by explicit user action — retrying the '
-          'full live set.');
-      state.standardHrFallback = false;
-      _marginalRadio.reset();
-      _frameCorruption.reset();
-      onState(state);
-    }
-    await enableLiveStreams();
-  }
+  /// Enable the live foreground stream: the compact 1 Hz heart-rate stream,
+  /// which is the whole live set (Akshat, Build 89 — no 100 Hz motion, raw
+  /// beat records or optical flood). Every caller — foreground return, workout
+  /// start, a radio-fallback retry — arms exactly that.
+  Future<void> enableLiveStreams() => enableHrOnlyLive();
 
   /// Background live downgrade: keep ONLY the compact realtime-HR stream (0x28)
   /// armed and turn the high-rate R10/R11 + IMU + optical flood OFF. Used while
@@ -7416,9 +7353,7 @@ class BleEngine {
       await op();
       await Future.delayed(const Duration(milliseconds: 60));
     }
-    _log(kHighRateLive
-        ? 'Live streams: HR-only (background downgrade — raw flood off).'
-        : 'Live streams: HR-only (personal build — 1 Hz heart rate only).');
+    _log('Live streams: 1 Hz heart rate only.');
   }
 
   /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.

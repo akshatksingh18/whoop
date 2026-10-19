@@ -156,9 +156,7 @@ class TodayData {
   Metric get activeMin => metricOf(_daily, 'active_min'); // movement minutes
 
   // Sleep summary for the ring: asleep-vs-need (there is NO 0–100 sleep score).
-  Metric get sleepDuration => metricOf(_sleep, 'duration_min');
   Metric get sleepNeed => metricOf(_sleep, 'need_min');
-  Metric get sleepEfficiency => metricOf(_sleep, 'efficiency');
 
   bool get isEmpty => _daily.isEmpty && _sleep.isEmpty;
 }
@@ -169,12 +167,9 @@ class TodayStatus {
 
   String? get todayDay => _s['today_day']?.toString();
   String get activityState => (_s['activity_state'] ?? 'missing').toString();
-  String? get activityDay => _s['activity_day']?.toString();
   String get overnightState => (_s['overnight_state'] ?? 'missing').toString();
-  String? get overnightDay => _s['overnight_day']?.toString();
   bool get showingPriorOvernight => _s['showing_prior_overnight'] == true;
 
-  bool get overnightBuilding => overnightState == 'building';
   bool get overnightReady => overnightState == 'ready';
   bool get activityReady => activityState == 'ready';
 }

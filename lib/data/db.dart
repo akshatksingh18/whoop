@@ -36,7 +36,6 @@ import 'lift_log.dart' show LiftLogDb;
 import 'body_log.dart' show BodyLogDb;
 import 'pushups.dart' show PushupDb;
 import 'live_coverage_policy.dart';
-import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
 import 'observation.dart';
@@ -871,7 +870,7 @@ class LocalDb {
         }
         if (oldV < 36) {
           // Medication and supplements. New tables only.
-          await createMedTables(db);
+          await _createMedTables(db);
         }
         if (oldV < 38) {
           // Strength sets. New tables only — `sessions` is untouched and the
@@ -3240,11 +3239,10 @@ class LocalDb {
     await _createLabTables(db);
     await _createBreathingSessions(db);
     await _createStrengthTables(db);
-    // Nutrition (food_entry + food_def) and medication (med_def + med_dose).
-    // Both live in their own files with their models and rollup logic — the
-    // DDL belongs next to the code that reads it, not two thousand lines away.
+    // Nutrition (food_entry + food_def) lives with its models and rollup
+    // logic; the retired medication tables are created below.
     await createNutritionTables(db);
-    await createMedTables(db);
+    await _createMedTables(db);
     // Lift Log inside the WHOOP workout (build 86): one JSON row per workout.
     // Added in place on the open path, like body_weight: no schema version.
     await LiftLogDb.createTables(db);
@@ -9866,4 +9864,39 @@ List<String?> _reencodeBatch(List<String> payloads) {
     out.add(encoded.length < pj.length ? encoded : null);
   }
   return out;
+}
+
+/// The medication tables (schemaVersion 36). The reminders and checklist
+/// that wrote them are gone; the tables stay so a stored history and a
+/// backup restore keep their shape.
+Future<void> _createMedTables(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS med_def (
+      key           TEXT PRIMARY KEY,
+      label         TEXT NOT NULL,
+      dose_value    REAL,
+      dose_unit     TEXT NOT NULL DEFAULT '',
+      kind          TEXT NOT NULL DEFAULT 'medication',
+      schedule_json TEXT NOT NULL DEFAULT '[]',
+      active        INTEGER NOT NULL DEFAULT 1,
+      note          TEXT NOT NULL DEFAULT '',
+      created_at    INTEGER NOT NULL
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS med_dose (
+      med_key     TEXT NOT NULL,
+      date        TEXT NOT NULL,
+      slot_min    INTEGER NOT NULL,
+      taken_ts    INTEGER,
+      skipped     INTEGER NOT NULL DEFAULT 0,
+      dose_value  REAL,
+      note        TEXT NOT NULL DEFAULT '',
+      updated_at  INTEGER NOT NULL,
+      PRIMARY KEY (med_key, date, slot_min)
+    )
+  ''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_med_dose_date ON med_dose(date)',
+  );
 }

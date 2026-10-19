@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../build_profile.dart';
 import '../../data/rest_streak.dart' show kAutoRestPerWeek;
 import '../../data/lift_log.dart' show LiftLogDb;
 import '../../data/db.dart';

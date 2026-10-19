@@ -87,30 +87,13 @@ NotifClass? classOf(NotificationEvent e) => switch (e.category) {
           when e.priority == NotifPriority.normal &&
               routePath(e.route ?? '') == kRouteWorkoutSuggestion =>
         NotifClass.prompt,
-      // Same mechanism, second route: the movement/sedentary prompt. It is a
-      // report about something measured (a still stretch, a desk posture held
-      // for 90+ minutes) asking the user to act — not a nudge about a day the
-      // data can't support — so it rides [NotifClass.prompt] like the detected
-      // workout does. Route-keyed for the same reason: reminders-at-normal is
-      // exactly the pair the deleted nudges would arrive on, and opening that
-      // pair wholesale would resurrect all of them at once. Its off switch is
-      // NotificationPrefs.movementEnabled (see shouldFireOs).
-      NotifCategory.reminders
-          when e.priority == NotifPriority.normal &&
-              routePath(e.route ?? '') == kRouteMovement =>
-        NotifClass.prompt,
-      // Same mechanism, two more route-keyed sanctions. The recovery-ready
+      // Same mechanism, one more route-keyed sanction: the recovery-ready
       // morning note (its channel was where deleted nudges went, so the ROUTE
-      // — not the category — is what re-opens) and the step-goal achievement.
-      // Both are reports about something that already happened and measured,
-      // gated by their own switches (recoveryEnabled / stepGoalEnabled).
+      // — not the category — is what re-opens). A report about something
+      // already measured, gated by recoveryEnabled.
       NotifCategory.recovery
           when e.priority == NotifPriority.normal &&
               routePath(e.route ?? '') == kRouteRecovery =>
-        NotifClass.prompt,
-      NotifCategory.reminders
-          when e.priority == NotifPriority.normal &&
-              routePath(e.route ?? '') == kRouteSteps =>
         NotifClass.prompt,
       // Same mechanism, one more route-keyed sanction: the forgotten-workout
       // nudge ("Still working out?" — WorkoutIdleWatch). A report about

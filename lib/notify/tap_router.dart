@@ -6,16 +6,6 @@
 
 /// Sub-screen deep links (notification payloads). The 5 tab routes
 /// (/today /sleep /heart /body /workouts) stay as they were.
-const String kRouteAiMorning = '/ai/morning';
-const String kRouteAiEvening = '/ai/evening';
-const String kRouteJournalCompose = '/journal/compose';
-const String kRouteBreathing = '/breathing';
-
-/// The hydration reminder. It lands on the one-tap water log rather than the
-/// Nutrition tab: the notification asks you to log a glass, and a destination
-/// that still needs a scroll to find the control is a different promise.
-const String kRouteWater = '/water';
-
 /// "Did you work out?" auto-detect notification. Lands on the Workouts tab and
 /// pushes a focused review of the detected activity (log or adjust) — the plain
 /// `/workouts` route only selected the tab, leaving the suggestion buried in the
@@ -26,31 +16,12 @@ const String kRouteWater = '/water';
 /// anything that just wants the review screen).
 const String kRouteWorkoutSuggestion = '/workouts/suggestion';
 
-/// The sedentary/movement nudges ("time to move", the desk-posture check).
-///
-/// A DEDICATED PATH, not the plain `/today`, and that is load-bearing: the
-/// notification gate classifies on category + priority + route, and
-/// reminders-at-low was deliberately the pair every deleted nudge used to
-/// arrive on. Keying the movement prompt to this route is what lets it (and
-/// only it) through while every other reminders event stays dropped — the same
-/// mechanism `kRouteWorkoutSuggestion` uses.
-///
-/// Lands on Home (Today) and pushes nothing: there is no move screen to push,
-/// and Today is where the rings/steps a nudge points at already live.
-const String kRouteMovement = '/today/movement';
-
-/// "Your recovery is ready" — the morning recovery note. DEDICATED PATH for
-/// the same reason [kRouteMovement] is: the recovery channel was where dead
-/// nudges went (`classOf` dropped all of it), so re-opening the CHANNEL would
+/// "Your recovery is ready" — the morning recovery note. A DEDICATED PATH:
+/// the recovery channel was where dead nudges went (`classOf` dropped all of it), so re-opening the CHANNEL would
 /// resurrect them; keying on this route sanctions exactly one event. Its off
 /// switch is NotificationPrefs.recoveryEnabled (the retained pref for that
 /// channel). Lands on Home/Today, where the recovery ring lives.
 const String kRouteRecovery = '/today/recovery';
-
-/// "Step goal reached" — same mechanism again: reminders-at-low was a dropped
-/// pair, so the achievement rides its own route at prompt class. Off switch:
-/// NotificationPrefs.stepGoalEnabled.
-const String kRouteSteps = '/today/steps';
 
 /// The deep link for ONE detected bout. The id is the `workout_suggestions`
 /// row's, so the screen can open on that bout rather than a list the user has
@@ -107,16 +78,6 @@ String datedRoute(String route, String? day, {String? id}) {
 /// the Pushups screen on top; Done and Pause on the notification never open it.
 const String kRoutePushups = '/workouts/pushups';
 
-/// The medication reminder. Lands on Wellness, where the Medication tab's
-/// checklist is the thing that records the dose.
-///
-/// CEILING, and it is a real one: `WellnessScreen` holds its sub-tab in
-/// private state with no constructor argument, so this lands on Wellness with
-/// Medication one tap away in the sub-tab row rather than on the checklist
-/// itself. Adding `initialTab` to that screen is the whole fix — see the note
-/// on `screenForRoute` in app.dart.
-const String kRouteMeds = '/meds';
-
 /// Emitted by the battery forecast and the device alerts. Profile is reached
 /// from the Home avatar rather than a tab of its own, so the base is Home and
 /// `screenForRoute` pushes the profile on top of it.
@@ -164,31 +125,20 @@ const Map<String, int> _tabRoutes = {
   kRouteWorkoutIdle: 4,
 };
 
-// Sub-screen routes → the shell tab they sit on top of. Most briefing/journal
-// deep links live over Today (0); the detected-workout review sits over the
-// Workouts tab (4) so the tab underneath is the natural place to land on close.
+// Sub-screen routes → the shell tab they sit on top of. The detected-workout
+// review sits over the Workouts tab (4) so the tab underneath is the natural
+// place to land on close.
 //
 // /profile and /recap were BOTH being emitted with neither table knowing them,
 // so resolveTapRoute fell through to Today and every band-battery alert landed
 // on the home screen — three taps from the battery it was about. The
 // destinations exist in app.dart; this is the half that was missing.
 const Map<String, int> _screenRoutes = {
-  kRouteAiMorning: 0,
-  kRouteAiEvening: 0,
-  kRouteJournalCompose: 0,
-  kRouteBreathing: 0,
-  kRouteWater: 0,
-  // Wellness has no index in the old five-tab vocabulary, so the base is Today
-  // and `domainForRoute` is what actually decides where it lands. The entry
-  // still has to exist: a route absent from this table produces no screen
-  // request at all, and the shell then falls back to the tab index.
-  kRouteMeds: 0,
   kRouteWorkoutSuggestion: 4,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab
   kRouteStatus: 0,
   kRouteRecovery: 0,
-  kRouteSteps: 0,
   kRouteWorkoutIdle: 4,
   kRoutePushups: 4,
   '/sleep': 0,

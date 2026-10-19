@@ -9,7 +9,6 @@
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../build_profile.dart';
 import 'notification_event.dart';
 import 'tap_router.dart';
 
@@ -39,19 +38,6 @@ class NotificationPrefs {
   /// When true, NotifPriority.critical events fire even inside quiet hours.
   final bool criticalOverridesQuiet;
 
-  /// Water reminder: a recurring strap buzz across the waking window, every
-  /// [waterIntervalMin] minutes. It is a nudge to LOG a drink and nothing more
-  /// — the app measures no hydration and claims none. Opt-in, off by default.
-  final bool waterEnabled;
-
-  /// How often the water buzz fires, in minutes. Clamped to
-  /// [waterIntervalMinAllowed]..[waterIntervalMaxAllowed] when scheduling.
-  final int waterIntervalMin;
-
-  /// Allowed bounds for the water interval (30 min .. 6 h).
-  static const int waterIntervalMinAllowed = 30;
-  static const int waterIntervalMaxAllowed = 360;
-
   /// Whether the auto-detected-workout surfaces are on: the "did you work out?"
   /// notification and the review cards the detector feeds. Asked for twice
   /// (issues #102, #149) and never built — the detector has never had an off
@@ -64,53 +50,12 @@ class NotificationPrefs {
   /// again rather than losing a week of them.
   final bool autoDetectEnabled;
 
-  /// The "time to move" nudge: a one-shot OS notification two hours after the
-  /// last movement the band's live IMU saw, re-armed on every movement so it
-  /// only ever fires on a genuinely uninterrupted still stretch.
-  ///
-  /// Opt-in, off by default, and it is what earns the nudge its place on
-  /// [NotificationService.schedulableIds] — the rule that list enforces is that
-  /// a scheduled slot must be one the user asked for by name. Without a switch
-  /// it was refused, which is why it has never fired for anyone (issue #123).
-  final bool movementEnabled;
-
-  /// The medication reminder: one notification per scheduled dose the user
-  /// entered themselves, and ONLY for a dose that is still upcoming — a slot
-  /// already marked taken or deliberately skipped is not armed at all.
-  ///
-  /// This is the one prompt in the app whose time is not a guess: it is the
-  /// schedule in `med_def.schedule_json`, which the user typed. Opt-in and off
-  /// by default like every other outbound path, because someone who wants a
-  /// water reminder has not thereby asked to be told about their pills.
-  final bool medsEnabled;
-
-  /// The daily check-in: one prompt, once, to write the day's self-report
-  /// (mood, energy, stress, soreness, sleep quality — the whole journal, not
-  /// one field at a time).
-  ///
-  /// Suppressed for the day the moment any rating is written, so it can never
-  /// ask for something already answered. It is NOT armed for a day that was
-  /// missed — there is no catching up on a self-report, and a prompt that
-  /// fires because yesterday is blank is a streak wearing a different hat.
-  final bool checkInEnabled;
-
   /// The low-battery alert threshold, in percent. DeviceAlerts used to
   /// hard-code 15%; this is the same alert with the number in the user's
   /// hands. Read back by DeviceAlerts through its own persisted store (same
   /// key), so a headless BLE state update picks up a change without a full
   /// NotificationPrefs load. Clamped to [batteryPctAllowed] when scheduling.
   final int batteryAlertPct;
-
-  /// The step-goal achievement: one note on the day the step ESTIMATE first
-  /// crosses the user's goal. On by default — it fires at most once a day and
-  /// only when the goal is actually reached — with this as its off switch.
-  final bool stepGoalEnabled;
-
-  /// The nightly wind-down nudge: one heads-up before the bedtime the Sleep
-  /// Coach LEARNED from this user's own nights. Opt-in and off by default like
-  /// every other outbound scheduled nudge; it also stays silent until a
-  /// bedtime has actually been learned — see NotificationCenter.windDownSlot.
-  final bool windDownEnabled;
 
   /// B88-12 (C8): health-alert kinds the user switched off, by
   /// `FindingKind.name`. A muted kind still appears in the in-app findings
@@ -135,15 +80,8 @@ class NotificationPrefs {
     this.quietStartMin = 22 * 60, // 22:00
     this.quietEndMin = 7 * 60, // 07:00
     this.criticalOverridesQuiet = true,
-    this.waterEnabled = false,
-    this.waterIntervalMin = 120, // every 2 hours
     this.autoDetectEnabled = true,
-    this.movementEnabled = false,
-    this.medsEnabled = false,
-    this.checkInEnabled = false,
     this.batteryAlertPct = batteryPctDefault,
-    this.stepGoalEnabled = true,
-    this.windDownEnabled = false,
     this.mutedFindings = const {},
   });
 
@@ -155,12 +93,7 @@ class NotificationPrefs {
   static const _kQuietStart = 'notif_quiet_start';
   static const _kQuietEnd = 'notif_quiet_end';
   static const _kCriticalOverride = 'notif_critical_override';
-  static const _kWater = 'notif_water';
-  static const _kWaterInterval = 'notif_water_interval';
   static const _kAutoDetect = 'notif_auto_detect';
-  static const _kMovement = 'notif_movement';
-  static const _kMeds = 'notif_meds';
-  static const _kCheckIn = 'notif_checkin';
 
   /// The low-battery alert threshold's persisted key. PUBLIC because
   /// DeviceAlerts reads it back through its own store seam on headless BLE
@@ -168,8 +101,6 @@ class NotificationPrefs {
   /// that coupling must spell it once.
   static const String batteryPctPrefKey = 'notif_battery_pct';
   static const _kBatteryPct = batteryPctPrefKey;
-  static const _kStepGoal = 'notif_stepgoal';
-  static const _kWindDown = 'notif_winddown';
   static const _kMutedFindings = 'notif_muted_findings';
 
   static Future<NotificationPrefs> load() async {
@@ -183,29 +114,10 @@ class NotificationPrefs {
       quietStartMin: p.getInt(_kQuietStart) ?? 22 * 60,
       quietEndMin: p.getInt(_kQuietEnd) ?? 7 * 60,
       criticalOverridesQuiet: p.getBool(_kCriticalOverride) ?? true,
-      // Water logging and the medication checklist (Wellness) are removed
-      // from the personal build, so neither reminder has anywhere to land.
-      // Read as OFF whatever an older build stored: the standing-reminder pass
-      // then cancels any water/dose notification that build armed, and the
-      // strap buzzers stay silent.
-      waterEnabled: false,
-      waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
       autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
-      // The personal build has no movement nudge or step-goal alert.
-      movementEnabled:
-          !kPersonalSideload && (p.getBool(_kMovement) ?? false),
-      medsEnabled: false,
-      // The journal is removed from the personal build; its check-in prompt
-      // is read as OFF so one armed by an older build is cancelled.
-      checkInEnabled: false,
       batteryAlertPct: ((p.getInt(_kBatteryPct) ?? batteryPctDefault)
               .clamp(batteryPctMin, batteryPctMax))
           .toInt(),
-      stepGoalEnabled:
-          !kPersonalSideload && (p.getBool(_kStepGoal) ?? true),
-      // No bedtime is shown in the personal build, so no bedtime nudge
-      // either: read as OFF so one an older build armed is cancelled.
-      windDownEnabled: !kPersonalSideload && (p.getBool(_kWindDown) ?? false),
       mutedFindings: {...?p.getStringList(_kMutedFindings)},
     );
   }
@@ -220,16 +132,9 @@ class NotificationPrefs {
     await p.setInt(_kQuietStart, quietStartMin);
     await p.setInt(_kQuietEnd, quietEndMin);
     await p.setBool(_kCriticalOverride, criticalOverridesQuiet);
-    await p.setBool(_kWater, waterEnabled);
-    await p.setInt(_kWaterInterval, waterIntervalMin);
     await p.setBool(_kAutoDetect, autoDetectEnabled);
-    await p.setBool(_kMovement, movementEnabled);
-    await p.setBool(_kMeds, medsEnabled);
-    await p.setBool(_kCheckIn, checkInEnabled);
     await p.setInt(
         _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax).toInt());
-    await p.setBool(_kStepGoal, stepGoalEnabled);
-    await p.setBool(_kWindDown, windDownEnabled);
     await p.setStringList(_kMutedFindings, mutedFindings.toList()..sort());
   }
 
@@ -242,15 +147,8 @@ class NotificationPrefs {
     int? quietStartMin,
     int? quietEndMin,
     bool? criticalOverridesQuiet,
-    bool? waterEnabled,
-    int? waterIntervalMin,
     bool? autoDetectEnabled,
-    bool? movementEnabled,
-    bool? medsEnabled,
-    bool? checkInEnabled,
     int? batteryAlertPct,
-    bool? stepGoalEnabled,
-    bool? windDownEnabled,
     Set<String>? mutedFindings,
   }) =>
       NotificationPrefs(
@@ -263,15 +161,8 @@ class NotificationPrefs {
         quietEndMin: quietEndMin ?? this.quietEndMin,
         criticalOverridesQuiet:
             criticalOverridesQuiet ?? this.criticalOverridesQuiet,
-        waterEnabled: waterEnabled ?? this.waterEnabled,
-        waterIntervalMin: waterIntervalMin ?? this.waterIntervalMin,
         autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
-        movementEnabled: movementEnabled ?? this.movementEnabled,
-        medsEnabled: medsEnabled ?? this.medsEnabled,
-        checkInEnabled: checkInEnabled ?? this.checkInEnabled,
         batteryAlertPct: batteryAlertPct ?? this.batteryAlertPct,
-        stepGoalEnabled: stepGoalEnabled ?? this.stepGoalEnabled,
-        windDownEnabled: windDownEnabled ?? this.windDownEnabled,
         mutedFindings: mutedFindings ?? this.mutedFindings,
       );
 
@@ -311,31 +202,14 @@ class NotificationPrefs {
             routePath(event.route ?? '') == kRouteWorkoutIdle)) {
       return false;
     }
-    // The movement nudge's off switch, same shape and same reason as the
-    // auto-detect one above: the route identifies the event the user set THIS
-    // switch for. Covers both sedentary surfaces — the OS-scheduled
-    // two-hour-still one-shot (which never passes through here; it is gated at
-    // NotificationService.schedulableIds) and this foreground desk-posture
-    // check, which does.
-    if (!movementEnabled &&
-        routePath(event.route ?? '') == kRouteMovement) {
-      return false;
-    }
-    // The step-goal achievement's off switch — same route-keyed shape. (The
-    // recovery-ready note needs no extra branch here: it rides the recovery
-    // category, and categoryEnabled below already reads recoveryEnabled.)
-    if (!stepGoalEnabled &&
-        routePath(event.route ?? '') == kRouteSteps) {
-      return false;
-    }
     final klass = classOf(event);
     if (klass == null) return false; // not one of the three — never fires
     // The alarm is the one thing quiet hours must not silence: the user armed
     // it FOR a time, usually inside the quiet window, and its off switch is
     // cancelling the alarm rather than a preference buried in settings.
     if (klass == NotifClass.alarm) return true;
-    // Reminder-channel prompts each have their own switch above, so the
-    // reminders category switch (Weekly lookback) does not also silence them.
+    // Reminder-channel prompts have their own switches, so the reminders
+    // category switch (Weekly lookback) does not also silence them.
     if (event.category != NotifCategory.reminders &&
         !categoryEnabled(event.category)) {
       return false;

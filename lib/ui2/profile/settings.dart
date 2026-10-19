@@ -11,7 +11,6 @@
 //     field that implies an account.
 
 import 'dart:io';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -34,7 +33,6 @@ import '../../theme/theme_controller.dart';
 import '../ui2.dart';
 import '../activity/live.dart' show LiveDraft;
 import 'alarm.dart';
-import 'band_notifications.dart';
 import 'data.dart';
 import 'devices.dart';
 import 'status.dart';
@@ -566,11 +564,6 @@ class _NotificationSettingsState extends State<NotificationSettings>
     });
   }
 
-  /// Whether the strap-buzz relay exists on this platform. Android only —
-  /// iOS gives no app access to another app's notifications — and the row is
-  /// absent rather than disabled there, so there is nothing to explain.
-  bool get _relaySupported => defaultTargetPlatform == TargetPlatform.android;
-
   Future<void> _apply(NotificationPrefs next) async {
     final before = _prefs;
     setState(() => _prefs = next);
@@ -589,17 +582,9 @@ class _NotificationSettingsState extends State<NotificationSettings>
     }
     // Re-run the scheduler so a switch that was just turned off actually
     // cancels what it was standing for, rather than taking effect at some
-    // later resume.
-    //
-    // Through AppState, not straight at the NotificationCenter: the medication
-    // slots need the med schedule and the check-in needs today's journal, and
-    // only AppState can read either. Calling the centre directly cancels what
-    // the switch turned off and arms nothing back, so meds stayed silent until
-    // the next foreground pass.
+    // later resume. Through AppState, which reads the week the lookback
+    // summarises.
     if (mounted) await context.read<AppState>().refreshReminders();
-    // the water buzz is an in-memory timer, not an OS slot — re-arm it here or
-    // the switch only takes effect at the next launch.
-    if (mounted) await context.read<AppState>().armWaterReminder(next);
     // the low-battery threshold is restored once per process — push the new
     // value into the alert pipeline or it applies only after a restart.
     if (mounted) {
@@ -629,7 +614,6 @@ class _NotificationSettingsState extends State<NotificationSettings>
       prefs: p ?? const NotificationPrefs(),
       loaded: p != null,
       granted: _granted,
-      relaySupported: _relaySupported,
       onChanged: _apply,
       onRequestPermission: _requestPermission,
     );
@@ -640,10 +624,6 @@ class NotificationSettingsView extends StatelessWidget {
   final NotificationPrefs prefs;
   final bool loaded, granted;
 
-  /// Android only. False hides the strap-buzz relay row entirely rather than
-  /// showing a control that cannot work.
-  final bool relaySupported;
-
   final Future<void> Function(NotificationPrefs next)? onChanged;
   final VoidCallback? onRequestPermission;
 
@@ -652,7 +632,6 @@ class NotificationSettingsView extends StatelessWidget {
     this.prefs = const NotificationPrefs(),
     this.loaded = true,
     this.granted = true,
-    this.relaySupported = false,
     this.onChanged,
     this.onRequestPermission,
   });
@@ -839,94 +818,8 @@ class NotificationSettingsView extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Off by default, and it is the switch that lets the nudge
-                        // be scheduled at all — see
-                        // NotificationService.schedulableIds. It had none, so it
-                        // was refused there and had never once fired. Covers BOTH
-                        // sedentary surfaces: the OS-scheduled two-hour-still
-                        // one-shot, and the foreground desk-posture check (which
-                        // also buzzes the band when it fires).
-                        if (!kPersonalSideload)
-                          SetRow(
-                            LucideIcons.footprints,
-                            C.orange,
-                            l?.settingsMovementNudgeRowTitle ??
-                                'Movement nudge',
-                            sub:
-                                l?.settingsMovementNudgeRowSub ??
-                                'Nudges you after a still stretch — two hours '
-                                    'with no movement at all, or 90 minutes in a '
-                                    'desk posture. Phone notification plus a buzz '
-                                    'on the band while it is connected',
-                            value: prefs.movementEnabled ? on : off,
-                            chevron: false,
-                            onTap: () => set(
-                              prefs.copyWith(
-                                movementEnabled: !prefs.movementEnabled,
-                              ),
-                            ),
-                          ),
-                        // The wind-down nudge. Silent until the Sleep Coach has
-                        // actually LEARNED a bedtime — the nudge's whole content
-                        // is that time, so there is no honest fallback. Not in
-                        // the personal build, which shows no bedtime.
-                        if (!kPersonalSideload)
-                          SetRow(
-                            LucideIcons.moonStar,
-                            C.indigo,
-                            l?.settingsWindDownRowTitle ?? 'Wind-down',
-                            sub:
-                                l?.settingsWindDownRowSub ??
-                                'A heads-up about 45 minutes before the bedtime '
-                                    'learned from your own nights, kept clear of your '
-                                    'quiet hours. Appears after about a week of wear',
-                            value: prefs.windDownEnabled ? on : off,
-                            chevron: false,
-                            onTap: () => set(
-                              prefs.copyWith(
-                                windDownEnabled: !prefs.windDownEnabled,
-                              ),
-                            ),
-                          ),
-                        // The step-goal achievement's off switch. On by default:
-                        // once a day at most, and only on a real crossing.
-                        if (!kPersonalSideload)
-                          SetRow(
-                            LucideIcons.trophy,
-                            C.orange,
-                            l?.settingsStepGoalAlertsRowTitle ??
-                                'Step goal alerts',
-                            sub:
-                                l?.settingsStepGoalAlertsRowSub ??
-                                'Tells you once when today crosses your steps '
-                                    'goal',
-                            value: prefs.stepGoalEnabled ? on : off,
-                            chevron: false,
-                            onTap: () => set(
-                              prefs.copyWith(
-                                stepGoalEnabled: !prefs.stepGoalEnabled,
-                              ),
-                            ),
-                          ),
                       ],
                     ),
-                    if (relaySupported)
-                      settingsGroup(c, l?.settingsGroupTheStrap ?? 'The strap', [
-                        // The other direction: not what this app sends you, but
-                        // what your phone's apps make the band do. The permission
-                        // for it has been in the manifest all along with nothing
-                        // in the app that could reach it.
-                        SetRow(
-                          LucideIcons.bellRing,
-                          C.purple,
-                          l?.settingsBuzzOnAppNotificationsRowTitle ??
-                              'Buzz on app notifications',
-                          sub:
-                              l?.settingsBuzzOnAppNotificationsRowSub ??
-                              'Pick which phone apps make the strap buzz',
-                          onTap: () => goto(c, const BandNotifications()),
-                        ),
-                      ]),
                     settingsGroup(
                       c,
                       l?.settingsGroupQuietHours ?? 'Quiet hours',

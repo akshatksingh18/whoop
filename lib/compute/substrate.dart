@@ -226,9 +226,7 @@ class Substrate {
   /// they are carried because they ARE the bytes at those offsets and the
   /// substrate round-trips the record; they are not carried because something
   /// downstream is meant to consume them. gen5's `spo2CandidateRaw` is
-  /// deliberately not in this struct either — see `Spo2Data` in
-  /// models/payloads.dart for the whole refusal, including why the gen5 field
-  /// is the tempting one.
+  /// deliberately not in this struct either: no SpO2 is derived from it.
   final List<int?> spo2Red;
   final List<int?> spo2Ir;
   final List<int?> skinTemp;

@@ -2,8 +2,8 @@
 //
 // ZERO heavy compute on read: every method reads day_result / metric_series
 // rows (written by the DerivationEngine) and shapes them into the exact Map/List
-// blobs the existing screens expect (the shapes the old cloud ApiClient returned,
-// parsed by lib/models/payloads.dart + metric.dart).
+// blobs the screens expect (the shapes the old cloud ApiClient returned, parsed
+// by metric.dart).
 //
 // Metric envelopes: the onehz `Metric.toJson()` already emits
 //   {value, confidence, tier, inputs_used, [note, drivers]}

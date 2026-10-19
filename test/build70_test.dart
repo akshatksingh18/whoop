@@ -11,6 +11,14 @@ import 'package:openstrap_edge/gps/run_voice.dart';
 import 'package:openstrap_edge/ui2/screens/readiness_detail.dart'
     show breathingWhy, readinessGap;
 
+
+/// The band-ranked ladder these tests were written for. The app keeps band
+/// steps off and the phone first.
+ResolvedDaySteps _ladder(
+  Iterable<CoverageSpan> rows, {
+  bool phoneFirst = false,
+}) => resolveDaySteps(rows, phoneFirst: phoneFirst, bandSteps: true);
+
 void main() {
   group('phone-first steps', () {
     // 09:00–10:00 local-ish epoch seconds; the exact base does not matter.
@@ -24,8 +32,8 @@ void main() {
       // The wrist read 7,000 "steps" of arm work in an hour the phone counted
       // 3,000. Ranked, the band won; phone first, the phone does.
       final rows = [phone(h9, h9 + 3600, 3000), band(h9, h9 + 3600, 7000)];
-      expect(resolveDaySteps(rows, phoneFirst: false).total, 7000);
-      final r = resolveDaySteps(rows, phoneFirst: true);
+      expect(_ladder(rows, phoneFirst: false).total, 7000);
+      final r = _ladder(rows, phoneFirst: true);
       expect(r.total, 3000);
       expect(r.strap, 0);
     });
@@ -37,7 +45,7 @@ void main() {
         phone(h9, h9 + 3600, 6000),
         band(h9 + 600, h9 + 600 + 35 * 60, 4835),
       ];
-      expect(resolveDaySteps(rows, phoneFirst: true).total, 6000);
+      expect(_ladder(rows, phoneFirst: true).total, 6000);
     });
 
     test('the band keeps time the phone did not count', () {
@@ -45,7 +53,7 @@ void main() {
         phone(h9, h9 + 3600, 3000),
         band(h9 + 7200, h9 + 7200 + 1200, 1500), // no phone window here
       ];
-      final r = resolveDaySteps(rows, phoneFirst: true);
+      final r = _ladder(rows, phoneFirst: true);
       expect(r.total, 4500);
       expect(r.strap, 1500);
     });
@@ -56,7 +64,7 @@ void main() {
         phone(h9, h9 + 3600, 50),
         band(h9 + 600, h9 + 600 + 1800, 3000),
       ];
-      expect(resolveDaySteps(rows, phoneFirst: true).total, 50);
+      expect(_ladder(rows, phoneFirst: true).total, 50);
     });
 
     test('a band span crossing a phone hour keeps only its uncovered part', () {
@@ -65,7 +73,7 @@ void main() {
         phone(h9 + 3600, h9 + 7200, 4000),
         band(h9 + 5400, h9 + 9000, 6000),
       ];
-      final r = resolveDaySteps(rows, phoneFirst: true);
+      final r = _ladder(rows, phoneFirst: true);
       expect(r.phone, 4000);
       expect(r.strap, 3000); // the half after 11:00
     });

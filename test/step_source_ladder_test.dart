@@ -89,11 +89,19 @@ Substrate _sub(List<int> counters, {int step = 600, String? family = 'gen5'}) {
   return ((bundle['steps'] as Map).cast<String, dynamic>(), scalars);
 }
 
+
+/// The band-ranked ladder these tests were written for. The app keeps band
+/// steps off and the phone first.
+ResolvedDaySteps _ladder(
+  Iterable<CoverageSpan> rows, {
+  bool phoneFirst = false,
+}) => resolveDaySteps(rows, phoneFirst: phoneFirst, bandSteps: true);
+
 void main() {
   group('resolveDaySteps — spans sum, overlaps are counted once', () {
     test('a strap session and a phone-covered evening simply add up', () {
       // 40 min of strap at 100 spm, then an hour of phone hours later.
-      final r = resolveDaySteps([
+      final r = _ladder([
         _band(8 * _h, 8 * _h + 2400, 4000),
         _phone(12 * _h, 13 * _h, 1200),
       ]);
@@ -109,7 +117,7 @@ void main() {
       // The phone counted the whole 09:00–10:00 hour, 4,000 steps. The strap
       // streamed 09:10–09:40 and counted 3,000 of them at 100 spm. The day is
       // 4,000 — NOT 7,000, and not 3,000 either.
-      final r = resolveDaySteps([
+      final r = _ladder([
         _phone(9 * _h, 10 * _h, 4000),
         _band(9 * _h + 600, 9 * _h + 2400, 3000),
       ]);
@@ -126,7 +134,7 @@ void main() {
       // Band 09:30–10:30 (3,000 steps); phone 09:00–10:00 (4,000). Half the
       // band span sits inside the phone hour, so the phone gives up half the
       // band's count and keeps the rest.
-      final r = resolveDaySteps([
+      final r = _ladder([
         _phone(9 * _h, 10 * _h, 4000),
         _band(9 * _h + 1800, 10 * _h + 1800, 3000),
       ]);
@@ -139,7 +147,7 @@ void main() {
         'day from the phone', () {
       // Measured: band 9.35 h / 216 steps (0.4 spm — a link that existed, not
       // a pedometer that was counting) against phone 11 h / 7,775 (11.8 spm).
-      final r = resolveDaySteps([
+      final r = _ladder([
         _band(0, (9.35 * _h).round(), 216),
         _phone(0, 11 * _h, 7775),
       ]);
@@ -152,7 +160,7 @@ void main() {
         'neither takes the day nor inflates it', () {
       // Measured: band 0.19 h / 1,140 steps (101.6 spm — real walking) against
       // phone 14 h / 18,856. Whole-day precedence would have published 1,140.
-      final r = resolveDaySteps([
+      final r = _ladder([
         _band(10 * _h, 10 * _h + 684, 1140),
         _phone(6 * _h, 20 * _h, 18856),
       ]);
@@ -161,7 +169,7 @@ void main() {
     });
 
     test('a band-only day is unchanged — every span keeps its count', () {
-      final r = resolveDaySteps([_band(0, 600, 120), _band(1000, 1600, 80)]);
+      final r = _ladder([_band(0, 600, 120), _band(1000, 1600, 80)]);
       expect(r.total, 200);
       expect(r.phone, 0);
       expect(r.dominant, 'strap');
@@ -171,7 +179,7 @@ void main() {
       // Overlapping band rows are one sensor reporting twice — the append-only
       // semantics `live_coverage` has always had, and what re-import
       // idempotency relies on.
-      final r = resolveDaySteps([
+      final r = _ladder([
         _band(0, 3600, 3000),
         _band(1800, 5400, 3000),
       ]);
@@ -183,7 +191,7 @@ void main() {
       // Same case as the double-count test above: the phone's hour keeps only
       // the 1,000 steps the ladder left it, or a screen drawing the rows would
       // show the strap's walk twice under a total that counts it once.
-      final r = resolveDaySteps([
+      final r = _ladder([
         _phone(9 * _h, 10 * _h, 4000),
         _band(9 * _h + 600, 9 * _h + 2400, 3000),
       ]);
@@ -194,7 +202,7 @@ void main() {
       );
       // A span the ladder took everything back from is not drawn at all: it
       // contributed no steps, and an empty bar on a timeline is a claim.
-      final swallowed = resolveDaySteps([
+      final swallowed = _ladder([
         _phone(9 * _h, 10 * _h, 3000),
         _band(9 * _h, 10 * _h, 3000),
       ]);
@@ -203,7 +211,7 @@ void main() {
     });
 
     test('confirmed-motionless phone hour vetoes wrist chores noise', () {
-      final r = resolveDaySteps([
+      final r = _ladder([
         _phone(9 * _h, 10 * _h, 0),
         _band(9 * _h, 10 * _h, 1320), // 22 spm: known wrist-noise range
         _phone(14 * _h, 15 * _h, 3000),
@@ -213,7 +221,7 @@ void main() {
     });
 
     test('real gait-density band span survives a zero phone hour', () {
-      final r = resolveDaySteps([
+      final r = _ladder([
         _phone(9 * _h, 10 * _h, 0),
         _band(9 * _h + 600, 9 * _h + 720, 200), // 100 spm
       ]);
@@ -222,7 +230,7 @@ void main() {
     });
 
     test('confirmed-still overlap voids only its share of a band span', () {
-      final r = resolveDaySteps([
+      final r = _ladder([
         _phone(0, _h, 0),
         _band(_h - 600, _h + 600, 8),
       ]);
@@ -230,15 +238,15 @@ void main() {
     });
 
     test('nothing covered anything → nothing, and no dominant sensor', () {
-      expect(resolveDaySteps(const []).total, 0);
-      expect(resolveDaySteps(const []).dominant, isNull);
+      expect(_ladder(const []).total, 0);
+      expect(_ladder(const []).dominant, isNull);
       // A legacy zero-width row still carries a real count and keeps it.
-      expect(resolveDaySteps([_band(0, 0, 1230)]).total, 1230);
+      expect(_ladder([_band(0, 0, 1230)]).total, 1230);
     });
   });
 
   group(
-    'the gen5 on-chip counter is a whole-day FALLBACK, not a day-winner',
+    'the gen5 on-chip counter is disclosed, never the answer',
     () {
       // A cumulative counter advancing 622 over the day. `step: 600` keeps each
       // delta inside hardwareStepsFromCounter's plausibility budget.
@@ -260,17 +268,6 @@ void main() {
         // The counter is still disclosed — it is just not the answer.
         expect(steps['band_measured'], 622);
         expect(steps['by_source'], {'phone': 18856});
-      });
-
-      test('it DOES answer when no span source covered the day at all', () {
-        final (steps, scalars) = _derive(
-          gen5,
-          liveStepsReal: 0,
-          liveStepsFromStrap: 0,
-        );
-        expect(scalars['steps'], 622.0);
-        expect(steps['source'], 'strap_counter');
-        expect(steps['by_source'], {'strap_counter': 622});
       });
 
       test('a mixed day names both sensors and splits them', () {

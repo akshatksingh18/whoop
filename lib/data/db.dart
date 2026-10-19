@@ -2274,6 +2274,12 @@ class LocalDb {
   /// is documented emitting 22-27 false steps/min during dishes, reaching and
   /// driving while missing slow walking — O'Connell 2017,
   /// doi:10.1371/journal.pone.0169616).
+  /// Steps are counted on the phone only (Akshat, Build 89): band rows are
+  /// kept but never enter a day's total. Tests of the band ladder underneath
+  /// switch it back on, as `resolveDaySteps(bandSteps:)` does.
+  @visibleForTesting
+  static bool debugBandSteps = false;
+
   static Future<ResolvedDaySteps> resolvedStepsForDay(String day) async {
     final lo = localDayStartSec(day), hi = localDayEndSec(day);
     if (lo == null || hi == null) return ResolvedDaySteps.none;
@@ -2384,7 +2390,7 @@ class LocalDb {
         ),
       );
     }
-    return resolveDaySteps(spans);
+    return resolveDaySteps(spans, bandSteps: debugBandSteps);
   }
 
   /// [day]'s resolved step TOTAL. See [resolvedStepsForDay] for the split.

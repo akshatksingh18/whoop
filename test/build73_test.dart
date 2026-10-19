@@ -37,7 +37,19 @@ const profile = Profile(
   sex: 'm',
 );
 int tsOf(DateTime at) => at.millisecondsSinceEpoch ~/ 1000;
+
+/// The band-ranked ladder these tests were written for. The app keeps band
+/// steps off and the phone first.
+ResolvedDaySteps _ladder(
+  Iterable<CoverageSpan> rows, {
+  bool phoneFirst = false,
+}) => resolveDaySteps(rows, phoneFirst: phoneFirst, bandSteps: true);
+
 void main() {
+  // These cover the band ladder, which the app keeps off (phone-only steps).
+  setUpAll(() => LocalDb.debugBandSteps = true);
+  tearDownAll(() => LocalDb.debugBandSteps = false);
+
   TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   setUpAll(() async {
@@ -277,7 +289,7 @@ void main() {
       ]);
       await LocalDb.replaceBandCoverage(ts, ts + 60, 200, '2026-10-03');
       await LocalDb.replaceBandCoverage(ts + 60, ts + 120, 120, '2026-10-03');
-      final r = resolveDaySteps([
+      final r = _ladder([
         CoverageSpan(startTs: ts, endTs: ts + 60, steps: 50, fromBand: false),
         CoverageSpan(
           startTs: ts + 60,

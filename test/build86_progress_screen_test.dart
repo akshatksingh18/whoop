@@ -71,8 +71,9 @@ void main() {
       await _until(t, () => find.text('Add body entry').evaluate().isNotEmpty);
       expect(t.takeException(), isNull);
       // Build 90: while the goal check cannot judge, the card says when it
-      // first can and shows this week's evidence, not a "Not yet" verdict.
-      expect(find.text('THIS WEEK SO FAR'), findsOneWidget);
+      // first can and shows this week's evidence, not a "Not yet" verdict
+      // (Build 95: the date leads, with the next step and a tile per need).
+      expect(find.textContaining('This week so far'), findsOneWidget);
       expect(find.text('Not yet'), findsNothing);
       await t.scrollUntilVisible(
         find.text('No waist reading yet'),
@@ -149,7 +150,7 @@ void main() {
       await t.drag(find.byType(Scrollable).first, const Offset(0, 5000));
       await t.pumpAndSettle();
       expect(find.text('Add body entry'), findsOneWidget);
-      expect(find.text('THIS WEEK SO FAR'), findsOneWidget);
+      expect(find.textContaining('This week so far'), findsOneWidget);
     });
   }
 }

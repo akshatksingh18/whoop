@@ -33,6 +33,14 @@ Substrate _sub({
   );
 }
 
+
+/// The band-ranked ladder these tests were written for. The app keeps band
+/// steps off and the phone first.
+ResolvedDaySteps _ladder(
+  Iterable<CoverageSpan> rows, {
+  bool phoneFirst = false,
+}) => resolveDaySteps(rows, phoneFirst: phoneFirst, bandSteps: true);
+
 void main() {
   group('C11 — a plausibility bound refuses a reading, it does not replace it',
       () {
@@ -161,7 +169,7 @@ void main() {
     test('two straps on one walk report the walk once', () {
       // Both spans look like gait (100 spm), so both rank 2 — which is exactly
       // the pair that used to skip overlap subtraction and publish 6,000.
-      final r = resolveDaySteps([
+      final r = _ladder([
         span(0, 1800, 3000, id: 'A'),
         span(0, 1800, 3000, id: 'B'),
       ]);
@@ -169,7 +177,7 @@ void main() {
     });
 
     test('partial overlap is pro-rated, not all-or-nothing', () {
-      final r = resolveDaySteps([
+      final r = _ladder([
         span(0, 1800, 3000, id: 'A'),
         span(900, 2700, 3000, id: 'B'),
       ]);
@@ -178,7 +186,7 @@ void main() {
     });
 
     test('SAME device still sums — this is what re-import relies on', () {
-      final r = resolveDaySteps([
+      final r = _ladder([
         span(0, 1800, 3000),
         span(0, 1800, 3000),
       ]);
@@ -188,7 +196,7 @@ void main() {
     test('the result does not depend on the order the rows came back in', () {
       final a = span(0, 1800, 3000, id: 'A');
       final b = span(600, 2400, 2500, id: 'B');
-      expect(resolveDaySteps([a, b]).total, resolveDaySteps([b, a]).total);
+      expect(_ladder([a, b]).total, _ladder([b, a]).total);
     });
 
     test('two devices tied on rank AND start still answer the same way', () {
@@ -199,7 +207,7 @@ void main() {
       // SQLite happened to return the rows in.
       final a = span(0, 1800, 1800, id: 'A'); // 60 spm
       final b = span(0, 900, 1200, id: 'B'); //  80 spm, same start
-      expect(resolveDaySteps([a, b]).total, resolveDaySteps([b, a]).total);
+      expect(_ladder([a, b]).total, _ladder([b, a]).total);
     });
   });
 

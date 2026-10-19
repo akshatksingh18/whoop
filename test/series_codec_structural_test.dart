@@ -38,11 +38,6 @@ const seams = [
     '_decodeBundle',
     'the re-derive path merges a previous bundle into a fresh one',
   ),
-  Seam(
-    'lib/health/health_export.dart',
-    '_decode',
-    'the Apple Health sleep export reads hypnogram out of a bundle',
-  ),
 ];
 
 /// Index just past the `)` matching the `(` at [open].

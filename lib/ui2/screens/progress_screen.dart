@@ -416,6 +416,10 @@ class _ProgressScreenState extends State<ProgressScreen>
     'Goal selection',
   };
 
+  /// Build 95 (Akshat's pick): "How the check works" opens inside the card
+  /// rather than in a dialog.
+  bool _goalHowOpen = false;
+
   Widget _goalCard(BuildContext c, P p, ProgressData d, GoalReview r) {
     final a = r.advice;
     final unavailable = d.readErrors.any(_reviewFamilies.contains);
@@ -427,46 +431,17 @@ class _ProgressScreenState extends State<ProgressScreen>
             GoalVerdict.reviewRecovery => ('Review', C.yellow),
             GoalVerdict.needMore => ('Not yet', C.n400),
           };
-    final days = r.daysOnGoal;
     if (!unavailable && a.verdict == GoalVerdict.needMore) {
       return _goalCardWaiting(c, p, d, r);
     }
-    final lines = unavailable
-        ? const ['Review unavailable until the records refresh.']
-        : a.because.take(1).toList();
+    final next = unavailable ? null : a.next;
     return Surface(
-      onTap: () => _goalDetails(c, d, r),
       semanticLabel:
-          'Goal ${r.plan.phase.title}. $word. ${unavailable ? '' : a.headline}. Details',
+          'Goal ${r.plan.phase.title}. $word. ${unavailable ? '' : a.headline}.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Wraps rather than squeezing: at large text the verdict word drops
-          // under the goal line instead of overflowing it.
-          Wrap(
-            spacing: S.x3,
-            runSpacing: S.x1,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                [
-                  'Goal · ${r.plan.phase.title}',
-                  if (days != null) 'day ${days + 1}',
-                ].join(' · '),
-                style: F.cap.copyWith(
-                  color: p.ink2,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                word,
-                style: F.label.copyWith(
-                  color: p.on(color),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
+          _goalHeader(p, r, word, color),
           const SizedBox(height: S.x1),
           Text(
             'Full weeks ${reviewWeekLabel(r.after.from, r.after.to)} vs '
@@ -474,37 +449,122 @@ class _ProgressScreenState extends State<ProgressScreen>
             style: F.cap.copyWith(color: p.ink2),
           ),
           const SizedBox(height: S.x2),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  unavailable ? 'Not available' : a.headline,
-                  style: F.t2.copyWith(color: p.ink),
-                ),
-              ),
-              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
-            ],
+          Text(
+            unavailable ? 'Not available' : a.headline,
+            style: F.t2.copyWith(color: p.ink),
           ),
-          for (final line in lines)
+          if (unavailable)
             Padding(
               padding: const EdgeInsets.only(top: S.x1),
-              child: Text(line, style: F.body.copyWith(color: p.ink2)),
+              child: Text(
+                'Review unavailable until the records refresh.',
+                style: F.body.copyWith(color: p.ink2),
+              ),
+            )
+          else if (a.because.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x1),
+              child: Text(
+                a.because.first,
+                style: F.body.copyWith(color: p.ink2),
+              ),
             ),
+          if (next != null) ...[
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+            Text('NEXT', style: F.label.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x1),
+            Text(next, style: F.body.copyWith(color: p.ink)),
+          ],
           const SizedBox(height: S.x2),
-          Text(
-            'Reasoning, missing data and next step',
-            style: F.cap.copyWith(color: p.on(C.recovery)),
-          ),
+          _goalHowToggle(p),
+          if (_goalHowOpen)
+            _goalHow(
+              c,
+              p,
+              d,
+              r,
+              const [],
+              windows: (before: r.before, after: r.after),
+            ),
         ],
       ),
     );
   }
 
-  /// Until the check can judge, the card says when it first can and lists
-  /// what it waits for (Build 91, Codex audit F05; Claude's pick A for
-  /// Akshat): the weekly evidence with this week's dots and, for
-  /// recomposition, the waist pair and a repeated lift, each done, under way
-  /// or not started, with a button where there is something to do now.
+  /// The goal, its day and the verdict word. Wraps rather than squeezing: at
+  /// large text the word drops under the goal line instead of overflowing it.
+  Widget _goalHeader(P p, GoalReview r, String word, Color color) {
+    final days = r.daysOnGoal;
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: S.x3,
+      runSpacing: S.x1,
+      children: [
+        Text(
+          [r.plan.phase.title, if (days != null) 'day ${days + 1}'].join(' · '),
+          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+        ),
+        Tag(word, color: color),
+      ],
+    );
+  }
+
+  Widget _goalHowToggle(P p) => Pressable(
+    semanticLabel: _goalHowOpen
+        ? 'Hide how the check works'
+        : 'Show how the check works',
+    onTap: () => setState(() => _goalHowOpen = !_goalHowOpen),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              'How the check works',
+              style: F.cap.copyWith(
+                color: p.on(C.recovery),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: S.x1),
+          Icon(
+            _goalHowOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+            size: 14,
+            color: p.on(C.recovery),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _needBadge(P p, NeedState s, {double size = 20}) => switch (s) {
+    NeedState.met => Icon(
+      LucideIcons.circleCheck,
+      size: size,
+      color: p.on(C.green),
+    ),
+    NeedState.partly => Icon(
+      LucideIcons.circleDashed,
+      size: size,
+      color: p.on(C.body),
+    ),
+    NeedState.none => Icon(LucideIcons.circle, size: size, color: p.on(C.alert)),
+  };
+
+  static String _needWord(NeedState s) => switch (s) {
+    NeedState.met => 'done',
+    NeedState.partly => 'under way',
+    NeedState.none => 'not started',
+  };
+
+  /// Until the check can judge, the card leads with the date it first can,
+  /// the one thing to do next, and a tile per requirement (Build 95, Akshat's
+  /// pick; the requirements themselves are Build 91's, Codex audit F05).
   Widget _goalCardWaiting(BuildContext c, P p, ProgressData d, GoalReview r) {
     final today = todayLabel();
     final ev = thisWeekEvidence(today: today, weights: d.weights, food: d.food);
@@ -516,66 +576,12 @@ class _ProgressScreenState extends State<ProgressScreen>
       measures: d.measures,
       lifts: d.lifts,
     );
-    final days = r.daysOnGoal;
-    Widget dots(String label, int n) {
-      final shown = n.clamp(0, kReviewWeekMinimum);
-      // A Wrap, so at large text the count drops under the dots instead of
-      // overflowing the card.
-      return Padding(
-        padding: const EdgeInsets.only(top: S.x1),
-        child: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          runSpacing: S.x1,
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 104),
-              child: Text(label, style: F.cap.copyWith(color: p.ink)),
-            ),
-            for (var i = 0; i < kReviewWeekMinimum; i++)
-              Padding(
-                padding: const EdgeInsets.only(right: S.x1),
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: i < shown ? p.on(C.body) : null,
-                    border: Border.all(color: p.on(C.body), width: 1.5),
-                  ),
-                ),
-              ),
-            const SizedBox(width: S.x1),
-            Text(
-              '$n of $kReviewWeekMinimum',
-              style: F.cap.copyWith(color: p.ink2),
-            ),
-          ],
-        ),
-      );
-    }
+    final first = r.firstCheck;
+    final open = [for (final n in needs) if (n.state != NeedState.met) n];
+    // The next thing to do: one whose window is open today, else the first
+    // still missing.
+    final next = open.where((n) => n.actNow).firstOrNull ?? open.firstOrNull;
 
-    Widget badge(NeedState s) => switch (s) {
-      NeedState.met => Icon(
-        LucideIcons.circleCheck,
-        size: 20,
-        color: p.on(C.green),
-      ),
-      NeedState.partly => Icon(
-        LucideIcons.circleDashed,
-        size: 20,
-        color: p.on(C.body),
-      ),
-      NeedState.none => Icon(
-        LucideIcons.circle,
-        size: 20,
-        color: p.on(C.alert),
-      ),
-    };
-    String stateWord(NeedState s) => switch (s) {
-      NeedState.met => 'done',
-      NeedState.partly => 'under way',
-      NeedState.none => 'not started',
-    };
     Widget? action(GoalNeed n) {
       if (n.state == NeedState.met || !n.actNow) return null;
       return switch (n.kind) {
@@ -599,172 +605,242 @@ class _ProgressScreenState extends State<ProgressScreen>
       };
     }
 
-    final first = r.firstCheck;
+    String nextTitle(GoalNeed n) => switch (n.kind) {
+      GoalNeedKind.evidence => 'Weigh in and log food each day',
+      GoalNeedKind.waist => 'Log your waist',
+      GoalNeedKind.lift => 'Log one lift on the same setup',
+    };
+    String tileName(GoalNeedKind k) => switch (k) {
+      GoalNeedKind.evidence => 'Logging',
+      GoalNeedKind.waist => 'Waist',
+      GoalNeedKind.lift => 'Same lift',
+    };
+    String tileSub(GoalNeed n) => switch (n.kind) {
+      GoalNeedKind.evidence =>
+        n.state == NeedState.met
+            ? 'every week'
+            : 'this week ${ev.weighIns < ev.foodDays ? ev.weighIns : ev.foodDays}'
+                  ' of $kReviewWeekMinimum',
+      GoalNeedKind.waist => switch (n.state) {
+        NeedState.met => 'both ends',
+        NeedState.partly => '1 of 2 ends',
+        NeedState.none => '0 of 2 ends',
+      },
+      GoalNeedKind.lift => switch (n.state) {
+        NeedState.met => 'both halves',
+        NeedState.partly => '1 of 2 halves',
+        NeedState.none => '0 of 2 halves',
+      },
+    };
+
+    Widget tile(GoalNeed n) => Container(
+      padding: const EdgeInsets.all(S.x2),
+      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _needBadge(p, n.state),
+          const SizedBox(height: S.x1),
+          Text(
+            tileName(n.kind),
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w700),
+          ),
+          Text(tileSub(n), style: F.cap.copyWith(color: p.ink2)),
+        ],
+      ),
+    );
+
+    final checkWords = first == null ? null : _md(first);
     return Surface(
-      onTap: () => _goalDetails(c, d, r),
       semanticLabel:
           'Goal ${r.plan.phase.title}. '
-          '${first == null ? 'Not judged yet' : 'First check ${_md(first)}'}. '
-          '${needs.map((n) => '${n.title}: ${stateWord(n.state)}. ${n.sub}').join(' ')} '
+          '${checkWords == null ? 'Not judged yet' : 'First check $checkWords'}. '
+          '${next == null ? '' : 'Next: ${nextTitle(next)}. ${next.sub} '}'
+          '${needs.map((n) => '${n.title}: ${_needWord(n.state)}.').join(' ')} '
           'This week: ${ev.weighIns} weigh-ins, ${ev.foodDays} food days, '
-          '${ev.proteinDays} days with protein logged. Details',
+          '${ev.proteinDays} days with protein logged.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            spacing: S.x3,
-            runSpacing: S.x1,
-            children: [
-              Text(
-                [
-                  r.plan.phase.title,
-                  if (days != null) 'day ${days + 1}',
-                ].join(' · '),
-                style: F.body.copyWith(
-                  color: p.ink,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                first == null ? 'Not judged yet' : 'First check ${_md(first)}',
-                style: F.cap.copyWith(color: p.ink2),
-              ),
+          _goalHeader(p, r, 'Not judged yet', C.n400),
+          if (checkWords != null) ...[
+            const SizedBox(height: S.x3),
+            Text('FIRST CHECK', style: F.label.copyWith(color: p.ink2)),
+            Text(checkWords, style: F.n30.copyWith(color: p.ink)),
+            Text(
+              needs.length > 1
+                  ? 'if the ${needs.length} things below are in place by then'
+                  : 'if every week has $kReviewWeekMinimum weigh-ins and '
+                        '$kReviewWeekMinimum fully logged food days by then',
+              style: F.cap.copyWith(color: p.ink2, height: 1.4),
+            ),
+          ],
+          if (next != null) ...[
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+            Text('NEXT', style: F.label.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x1),
+            Text(
+              nextTitle(next),
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            ),
+            Text(next.sub, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+            if (action(next) case final a?) ...[
+              const SizedBox(height: S.x2),
+              Align(alignment: Alignment.centerLeft, child: a),
             ],
-          ),
-          const SizedBox(height: S.x1),
-          Text(
-            needs.length > 1
-                ? 'It can judge once all ${needs.length} are in place:'
-                : 'It can judge once every week has $kReviewWeekMinimum '
-                      'weigh-ins and $kReviewWeekMinimum fully logged food days '
-                      '(Monday to Sunday).',
-            style: F.cap.copyWith(color: p.ink2, height: 1.4),
-          ),
-          for (var i = 0; i < needs.length; i++) ...[
-            if (i > 0) Divider(color: p.line, height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: S.x2),
+          ],
+          if (needs.length > 1) ...[
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+            // Equal tiles side by side; each grows to its tallest neighbour.
+            IntrinsicHeight(
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 1),
-                    child: badge(needs[i].state),
-                  ),
-                  const SizedBox(width: S.x2),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          needs[i].title,
-                          style: F.body.copyWith(
-                            color: p.ink,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          needs[i].sub,
-                          style: F.cap.copyWith(color: p.ink2, height: 1.4),
-                        ),
-                        if (needs[i].kind == GoalNeedKind.evidence &&
-                            needs[i].state != NeedState.met) ...[
-                          const SizedBox(height: S.x1),
-                          Text(
-                            'THIS WEEK SO FAR',
-                            style: F.label.copyWith(color: p.ink2),
-                          ),
-                          dots('Weigh-ins', ev.weighIns),
-                          dots('Food days', ev.foodDays),
-                          dots('Protein logged', ev.proteinDays),
-                        ],
-                        if (action(needs[i]) case final a?) ...[
-                          const SizedBox(height: S.x2),
-                          a,
-                        ],
-                      ],
-                    ),
-                  ),
+                  for (var i = 0; i < needs.length; i++) ...[
+                    if (i > 0) const SizedBox(width: S.x2),
+                    Expanded(child: tile(needs[i])),
+                  ],
                 ],
               ),
             ),
           ],
-          const SizedBox(height: S.x1),
+          const SizedBox(height: S.x3),
           Text(
-            'How the check works',
-            style: F.cap.copyWith(color: p.on(C.recovery)),
+            'This week so far: ${ev.weighIns} weigh-ins · ${ev.foodDays} food '
+            'days · ${ev.proteinDays} with protein',
+            style: F.cap.copyWith(color: p.ink2, height: 1.4),
+          ),
+          _goalHowToggle(p),
+          if (_goalHowOpen)
+            _goalHow(
+              c,
+              p,
+              d,
+              r,
+              needs,
+              // The rules name the FIRST check's own weeks. The closed weeks
+              // the verdict would use can start before the goal did, which is
+              // how the old dialog came to quote windows the card never used.
+              windows: first == null
+                  ? null
+                  : checkWindows(first, r.plan.windowWeeks),
+              checkDate: first,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// "How the check works", inline: what it waits for, how it judges, and the
+  /// way to change the goal.
+  Widget _goalHow(
+    BuildContext c,
+    P p,
+    ProgressData d,
+    GoalReview r,
+    List<GoalNeed> needs, {
+    required ({DayWindow before, DayWindow after})? windows,
+    String? checkDate,
+  }) {
+    final g = r.plan;
+    final band = g.band;
+    String pct(double v) =>
+        '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
+    final weeks = g.windowWeeks == 1
+        ? 'full Monday-to-Sunday week with the one'
+        : '${g.windowWeeks} full Monday-to-Sunday weeks with the '
+              '${g.windowWeeks}';
+    final unavailable = d.readErrors.any(_reviewFamilies.contains);
+    final judge = [
+      if (windows != null)
+        '${checkDate == null ? 'It compares' : 'The first check, on ${_md(checkDate)}, compares'} '
+            '${reviewWeekLabel(windows.after.from, windows.after.to)} with '
+            '${reviewWeekLabel(windows.before.from, windows.before.to)}: the '
+            'last $weeks before. The rest of Progress uses the last 7 days.',
+      'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein '
+          '${band.proteinLow}–${band.proteinHigh} g/kg.'
+          '${g.since == null ? '' : ' On this goal since ${_md(g.since!)}.'}',
+      if (unavailable)
+        'Review unavailable until the records refresh.'
+      else if (needs.isEmpty)
+        ...r.advice.because.skip(1)
+      else ...[
+        r.advice.headline,
+        ?r.advice.next,
+      ],
+      'Suggestions only: your goals are never changed automatically, and '
+          'changing the History range on the detail pages never changes this '
+          'review.',
+    ];
+    Text body(String s) =>
+        Text(s, style: F.body.copyWith(color: p.ink2, height: 1.45));
+    return Container(
+      margin: const EdgeInsets.only(top: S.x1),
+      padding: const EdgeInsets.all(S.x3),
+      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (needs.isNotEmpty) ...[
+            Text('WHAT IT WAITS FOR', style: F.label.copyWith(color: p.ink2)),
+            for (final n in needs)
+              Padding(
+                padding: const EdgeInsets.only(top: S.x2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: _needBadge(p, n.state, size: 18),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${n.title} · ${_needWord(n.state)}',
+                            style: F.cap.copyWith(
+                              color: p.ink,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          body(n.sub),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+          ],
+          Text('HOW IT JUDGES', style: F.label.copyWith(color: p.ink2)),
+          for (final line in judge)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x2),
+              child: body(line),
+            ),
+          const SizedBox(height: S.x3),
+          Pressable(
+            semanticLabel: 'Change goal',
+            onTap: () => _changeGoal(c, d, g),
+            child: const Pill('Change goal', C.body),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _goalDetails(
-    BuildContext c,
-    ProgressData d,
-    GoalReview r,
-  ) async {
-    final g = r.plan;
-    final band = g.band;
-    String pct(double v) =>
-        '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
-    final change = await showDialog<bool>(
-      context: c,
-      builder: (dc) => AlertDialog(
-        title: Text(g.phase.title),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final line in [
-                'Compares ${reviewWeekLabel(r.after.from, r.after.to)} with '
-                    '${reviewWeekLabel(r.before.from, r.before.to)}: the last '
-                    '${g.windowWeeks == 1 ? 'full Monday-to-Sunday week with the one' : '${g.windowWeeks} full Monday-to-Sunday weeks with the ${g.windowWeeks}'} before. '
-                    'The rest of Progress uses the last 7 days.',
-                'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein '
-                    '${band.proteinLow}–${band.proteinHigh} g/kg',
-                if (g.since != null) 'Since ${_md(g.since!)}',
-                if (d.readErrors.any(_reviewFamilies.contains))
-                  'Review unavailable until the records refresh.'
-                else ...[
-                  r.advice.headline,
-                  ...r.advice.because,
-                  ?r.advice.next,
-                ],
-                'Suggestions only. Your goals are never changed automatically. '
-                    'Changing the History range on the detail pages never '
-                    'changes this review.',
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(bottom: S.x3),
-                  child: Text(
-                    line,
-                    style: F.body.copyWith(color: P.of(dc).ink2),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dc).pop(true),
-            child: const Text('Change goal'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dc).pop(false),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-    if (change != true || !c.mounted) return;
+  Future<void> _changeGoal(BuildContext c, ProgressData d, GoalPlan g) async {
     final kg = BodyLogDb.sevenDayMean(d.weights, todayLabel())?.kg;
     final changed = await Navigator.of(c).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => GoalScreen(plan: g, kg: kg),
-      ),
+      MaterialPageRoute(builder: (_) => GoalScreen(plan: g, kg: kg)),
     );
     if (changed == true) reload();
   }
@@ -1186,13 +1262,8 @@ mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
   void _prefsLoaded(SharedPreferences p) {}
 
   Future<void> _save(String k, String v) async {
-    AppState? app;
-    try {
-      app = context.read<AppState?>();
-    } catch (_) {}
     try {
       await (await SharedPreferences.getInstance()).setString(k, v);
-      app?.bumpInsights();
     } catch (_) {}
   }
 

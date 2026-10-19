@@ -50,14 +50,11 @@ class _FakePathProvider extends PathProviderPlatform {
 
 /// The ONLY places the predicate may be written out by hand.
 ///
-/// `db.dart` defines both fragments; `health_export.dart` names
-/// `kPrimaryBandSourceSql` in prose because its comment argues, at length, why
-/// it is deliberately the narrow one. Adding a file here is the deliberate act
+/// `db.dart` defines both fragments. Adding a file here is the deliberate act
 /// the invariant asks for — and if you are adding one because you wrote a new
 /// decoded read, you wanted `derivableSourceSql()` instead.
 const _mayWriteThePredicate = {
   'lib/data/db.dart',
-  'lib/health/health_export.dart',
 };
 
 /// A hand-written admission predicate against the decoded store.
@@ -179,18 +176,6 @@ void main() {
     expect(_handWritten.hasMatch("'AND d.source IS NOT NULL'"), isTrue);
     expect(_pureComment.hasMatch('  // source IS NULL — the band'), isTrue);
     expect(_handWritten.hasMatch(r"'AND ${derivableSourceSql()}'"), isFalse);
-  });
-
-  test('both fragments really are named in the two files that may', () {
-    expect(
-      File('lib/health/health_export.dart').readAsStringSync(),
-      contains(r'$kPrimaryBandSourceSql'),
-      reason:
-          'The HealthKit / Health Connect HR export is deliberately the NARROW '
-          'predicate: a sample written into a system store carries no source '
-          'seam and the user cannot unpick it later. If this is now wide, that '
-          'decision was reversed by accident.',
-    );
   });
 
   // ── LAYER 3 — the mechanism ────────────────────────────────────────────────

@@ -54,6 +54,10 @@ Future<void> _phone(int steps) =>
     ]);
 
 void main() {
+  // These cover the band ladder, which the app keeps off (phone-only steps).
+  setUpAll(() => LocalDb.debugBandSteps = true);
+  tearDownAll(() => LocalDb.debugBandSteps = false);
+
   TestWidgetsFlutterBinding.ensureInitialized();
   final repo = LocalRepositoryImpl(getProfileMap: () => {});
 

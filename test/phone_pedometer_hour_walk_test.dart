@@ -21,6 +21,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// With `break` there, hours 3-23 were never queried and the day was persisted
 /// with ~3 hours of windows.
 void main() {
+  // These cover the band ladder, which the app keeps off (phone-only steps).
+  setUpAll(() => LocalDb.debugBandSteps = true);
+  tearDownAll(() => LocalDb.debugBandSteps = false);
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {

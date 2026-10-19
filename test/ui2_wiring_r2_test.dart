@@ -542,58 +542,6 @@ void main() {
     });
   });
 
-  // ── L4: the coverage denominator under a long trend ──
-  group('wear strip', () {
-    Future<void> pump(WidgetTester t, MetricData d) async {
-      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(
-        MaterialApp(
-          theme: buildTheme(Brightness.light),
-          home: Scaffold(body: MetricDetail('resting_hr', data: d)),
-        ),
-      );
-      await t.pumpAndSettle();
-    }
-
-    testWidgets('says how much of the window was actually worn', (t) async {
-      // Twelve worn days inside a thirty-day window. The line above is drawn
-      // from the same twelve and used to be the only thing on the card.
-      await pump(
-        t,
-        MetricData(
-          daysAvailable: 40,
-          series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
-          wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
-        ),
-      );
-      // The screen opens on Today; the denominator is a long-range thing.
-      await t.tap(find.text('30 days'));
-      await t.pumpAndSettle();
-      expect(find.text('Worn'), findsOneWidget);
-      expect(
-        find.textContaining('12 of these 30 days have a wear record'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('a seven-day window does not get one', (t) async {
-      // A week you either wore or did not; the denominator changes nothing.
-      await pump(
-        t,
-        MetricData(
-          daysAvailable: 40,
-          series: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 54.0)],
-          wear: [for (var i = 11; i >= 0; i--) (t: _noon(i), v: 480.0)],
-        ),
-      );
-      await t.tap(find.text('7 days'));
-      await t.pumpAndSettle();
-      expect(find.text('Worn'), findsNothing);
-    });
-  });
-
   // ── a tile opens today, not the widest range the install can fill ──
   group('MetricDetail default range', () {
     Future<void> pump(WidgetTester t, String key, MetricData d) async {

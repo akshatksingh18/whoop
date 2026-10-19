@@ -195,6 +195,8 @@ void main() {
 /// this list fails the test above, so the choice has to be made rather than
 /// drifted into.
 const _notComponents = {
+  // Build 95: a Scaffold of its own; `notification_log_test` renders it.
+  'NotificationsScreen',
   // Build 90: loads its own nights from the database; the card it draws,
   // RecentHrvCard, is in the gallery.
   'RecentHrvSection',

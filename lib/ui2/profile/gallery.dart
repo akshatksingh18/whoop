@@ -49,9 +49,7 @@ import '../energy_comparison.dart';
 // End Build 90 Codex lane
 import '../screens/food_left.dart' show FitChip, LeftAfterCard;
 import '../screens/today_plan.dart' show PlanRow;
-import '../screens/notifications_screen.dart'
-    show NotificationsBell, NotificationsScreen;
-import '../../notify/notification_log.dart' show LoggedNotification;
+import '../screens/notifications_screen.dart' show NotificationsBell;
 import '../screens/food_calendar.dart'
     show FoodCalendar, FoodDayMark, FoodWeekStrip;
 import 'devices.dart';
@@ -1327,28 +1325,8 @@ Map<String, Widget> extraCases() => {
   // length — which is what a first workout without a band looks like, and is
   // one row, not five rows of dashes.
   'session_stats': SessionStats(_sessions['route']!),
-  // Build 95: the bell on Today and the page it opens, one day read and one not.
+  // Build 95: the bell on Today.
   'notifications_bell': const NotificationsBell(),
-  'notifications': NotificationsScreen(
-    entries: [
-      LoggedNotification(
-        key: 'g1',
-        at: DateTime(2026, 8, 16, 18),
-        title: 'Your week in review',
-        body: 'Resting heart rate ran about 4 bpm lower late in the week.',
-        category: 'reminders',
-        route: '/recap',
-      ),
-      LoggedNotification(
-        key: 'g2',
-        at: DateTime(2026, 8, 15, 19, 1),
-        title: 'Did you work out?',
-        body: '42 minutes of raised heart rate from 6:05 PM. Log it or dismiss it.',
-        category: 'health',
-        read: true,
-      ),
-    ],
-  ),
   'session_stats_bare': SessionStats(
     ActivityResult(
       activityByName('Walking')!,

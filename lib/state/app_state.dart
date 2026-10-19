@@ -2177,12 +2177,10 @@ class AppState extends ChangeNotifier {
   ///
   /// [openSession]'s fast reclaim (or a foreground reconnect) restores the
   /// full set either way.
-  /// The in-flight background live downgrade, if any. `disableLiveStreams`
-  /// (Android) clears `liveEnabled`/`liveHrOnly` only AFTER its ~300 ms write
-  /// sequence, so a foreground reclaim landing inside that window must AWAIT
-  /// this before deciding whether to re-arm — otherwise it reads stale
-  /// full-live flags, skips `enableLiveStreams`, and the pending disable's OFF
-  /// writes then leave foreground live off. See [openSession].
+  /// The in-flight background live downgrade, if any. Its writes finish
+  /// after a short sequence, so a foreground reclaim landing inside that
+  /// window must AWAIT this before deciding whether to re-arm — otherwise it
+  /// reads stale flags and skips `enableLiveStreams`. See [openSession].
   Future<void>? _bgLiveDowngrade;
 
   void _maybeDowngradeLiveForBackground() {
@@ -2190,9 +2188,7 @@ class AppState extends ChangeNotifier {
     // Already HR-only (the live set always is):
     // nothing to step down.
     if (_hasLiveConsumer || engine.liveHrOnly) return;
-    _bgLiveDowngrade = Platform.isAndroid
-        ? engine.disableLiveStreams()
-        : engine.enableHrOnlyLive();
+    _bgLiveDowngrade = engine.enableHrOnlyLive();
     unawaited(_bgLiveDowngrade!);
   }
 
@@ -3935,10 +3931,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Direct connect attempts before handing the pending connect to the OS
-  /// bluetooth stack (Android autoConnect fallback) — see [_reconnect].
-  static const int _directAttemptsBeforeOsFallback = 4;
-
   Future<void> _reconnect() async {
     if (_reconnecting || paired == null) return;
     // Bond-refusal give-up: a band that keeps refusing the bond will never accept
@@ -3980,45 +3972,15 @@ class AppState extends ChangeNotifier {
         // ever cleared it — the band never reconnected until the user forgot
         // and re-paired it. A failed attempt is now just a failed attempt.
         try {
-          // ANDROID OS-MANAGED FALLBACK: once direct attempts keep failing — or
-          // while backgrounded, where the process can be frozen between our Dart
-          // backoff timers — arm a flutter_blue_plus autoConnect pending connect
-          // instead. The OS bluetooth stack then completes the link whenever the
-          // band reappears, with no polling from us; the normal setup path runs
-          // right after. iOS is excluded: the native restore central
-          // (IosBleRestore, armed from _onEngineState) already holds a
-          // no-timeout pending connect there, and a second competing pending
-          // connect from Dart would fight it for the peripheral.
-          final osPending =
-              Platform.isAndroid &&
-              (_background || attempt > _directAttemptsBeforeOsFallback);
-          if (osPending) {
-            connected = await engine.waitForOsAutoConnect(
-              paired!.remoteId,
-              keepWaiting: () => _keepAlive && !engine.isConnected,
-            );
-            if (connected && _keepAlive) {
-              // Mark band ownership before the actual GATT setup so a headless
-              // wake can't fight this reconnect for the peripheral.
-              await _ensureForegroundLease();
-              connected = await engine.connectToRemoteId(
-                paired!.remoteId,
-                generationHint: paired!.generation,
-              );
-            } else {
-              connected = false;
-            }
-          } else {
-            // Wakeable: an iOS restore wake (the band is reachable NOW) ends the
-            // backoff early — see [WakeableDelay] and [_onRestoreWake].
-            await _reconnectBackoff.wait(engine.reconnectDelay(attempt));
-            if (!_keepAlive) break;
-            await _ensureForegroundLease();
-            connected = await engine.connectToRemoteId(
-              paired!.remoteId,
-              generationHint: paired!.generation,
-            );
-          }
+          // Wakeable: an iOS restore wake (the band is reachable NOW) ends the
+          // backoff early — see [WakeableDelay] and [_onRestoreWake].
+          await _reconnectBackoff.wait(engine.reconnectDelay(attempt));
+          if (!_keepAlive) break;
+          await _ensureForegroundLease();
+          connected = await engine.connectToRemoteId(
+            paired!.remoteId,
+            generationHint: paired!.generation,
+          );
           if (connected) {
             // Reclaim the band from the iOS restore central so it stops competing.
             if (Platform.isIOS) {
@@ -4031,15 +3993,11 @@ class AppState extends ChangeNotifier {
             // Live streams come up promptly; the FULL drain (no short timeout —
             // the ENTIRE offline backlog the band flashed while out of range)
             // runs concurrently, single-flight, exactly as in openSession.
-            // Background reconnect with no live consumer: Android leaves live
-            // fully OFF (the FGS keeps the process alive; the 1 Hz stream has no
-            // consumer — see _maybeDowngradeLiveForBackground); iOS arms HR-only
-            // (the inbound notification keeps the suspended process schedulable).
+            // Background reconnect with no live consumer arms HR-only (the
+            // inbound notification keeps the suspended process schedulable).
             await _settleBgLiveDowngrade();
             if (_background && !_hasLiveConsumer) {
-              if (!Platform.isAndroid) {
-                await engine.enableHrOnlyLive();
-              }
+              await engine.enableHrOnlyLive();
             } else {
               await engine.enableLiveStreams();
             }

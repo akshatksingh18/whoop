@@ -24,7 +24,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class ScreenWake {
-  static const _android = MethodChannel('openstrap/edge_tracking');
   static const _ios = MethodChannel('openstrap/ios_config');
 
   /// What the PLATFORM last confirmed, not what we last asked for.
@@ -82,12 +81,7 @@ class ScreenWake {
   static Future<void> _apply(bool on) async {
     if (on == _on) return;
     try {
-      if (_isAndroid) {
-        final ok = await _android.invokeMethod<bool>('keepAwake', {'on': on});
-        // Android answers false when there is no attached activity. Leave the
-        // flag alone so the next call retries rather than assuming success.
-        if (ok != true) return;
-      } else if (_isIOS) {
+      if (_isIOS) {
         await _ios.invokeMethod<bool>('keepAwake', {'on': on});
       }
       _on = on;

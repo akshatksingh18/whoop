@@ -49,7 +49,6 @@ import '../data/models.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'adapters/_registry.dart';
-import 'android_native_name.dart';
 import 'ble_state.dart';
 
 // Little-endian u32 reader. The package keeps `u32` private, and the engine only
@@ -1070,144 +1069,6 @@ class BleEngine {
     if (_phase == BleConnState.reconnecting) _setPhase(BleConnState.idle);
   }
 
-  // ── OS-managed pending reconnect (background fallback) ───────────────────────
-  // Cancellation-poll cadence while parked in the OS-autoConnect wait. The
-  // actual connect is fully OS-driven (the connectionState listener completes
-  // the wait); this timer exists ONLY to notice `keepWaiting` flipping false,
-  // so 60 s of latency on unpair/give-up is fine — at 5 s it was 12 needless
-  // CPU wakes/min, around the clock, whenever the band was out of range.
-  static const Duration _osAutoConnectPoll = Duration(seconds: 60);
-
-  /// Consecutive autoConnect ARM failures (not connect timeouts — the arm
-  /// itself throwing, e.g. adapter wedged). Drives the bounded backoff below;
-  /// reset by a successful arm.
-  int _autoConnectArmFailures = 0;
-
-  /// Arm a flutter_blue_plus `autoConnect` pending connection and wait for the
-  /// OS to complete it. Unlike the direct `connect(autoConnect:false)` retry
-  /// loop (which needs our Dart timer alive to fire the next attempt), an armed
-  /// autoConnect is held by the OS bluetooth stack: whenever the band comes
-  /// back into range the link comes up without us polling. Used by the caller's
-  /// reconnect loop as a low-churn fallback once direct attempts keep failing
-  /// (or while backgrounded on Android, where the foreground service keeps the
-  /// process — and therefore the pending connect — alive).
-  ///
-  /// flutter_blue_plus 1.36.x semantics honoured here:
-  ///   - `connect(autoConnect: true)` REQUIRES `mtu: null` (asserted by the
-  ///     plugin) and returns immediately — the link is only up once the
-  ///     `connectionState` stream reports `connected`. The normal setup path
-  ///     already requests the MTU explicitly after connect, so nothing is lost.
-  ///   - the pending autoConnect is cancelled by `disconnect()`.
-  ///
-  /// TRADE-OFF (kept conservative): this method only WAITS for the OS-level
-  /// link; it does NOT run service discovery/subscribe/INIT itself. On success
-  /// the caller must immediately run the normal [connect] path — FBP treats a
-  /// connect() on an already-connected device as a no-op, so the full setup
-  /// (discover → subscribe → SET_CLOCK → INIT) runs exactly as for a direct
-  /// connect. If we return false (deadline / caller gave up), the pending
-  /// autoConnect is cancelled so a surprise OS connect can't come up later
-  /// with no subscriptions/heartbeat attached.
-  Future<bool> waitForOsAutoConnect(
-    String remoteId, {
-    Duration wait = const Duration(minutes: 15),
-    bool Function()? keepWaiting,
-  }) async {
-    final device = BluetoothDevice.fromId(remoteId);
-    // Adapter not on (Bluetooth toggled off, permission revoked): arming would
-    // just throw, once per pass, all night. Park on the adapterState stream —
-    // a native event — until it reports `on`, the caller stops wanting the
-    // link, or the window ends, then hand back false so the caller's loop
-    // re-enters and arms against a live adapter.
-    try {
-      final adapter = await FlutterBluePlus.adapterState.first
-          .timeout(const Duration(seconds: 5));
-      if (adapter != BluetoothAdapterState.on) {
-        _log('OS autoConnect: adapter is ${adapter.name} — waiting for it to '
-            'come back (event-driven, max ${wait.inMinutes} min) instead of '
-            'arming a connect that cannot succeed.');
-        await _waitForAdapterOn(wait: wait, keepWaiting: keepWaiting);
-        return false;
-      }
-    } catch (_) {/* adapter state unavailable — fall through to the arm */}
-    try {
-      // Arm under the op lock so it can't overlap a connect/disconnect.
-      await _locked(() => device.connect(autoConnect: true, mtu: null));
-      _autoConnectArmFailures = 0;
-    } catch (e) {
-      // Bounded backoff before handing back the failure. The reconnect loop's
-      // OS-pending branch has no backoff of its own (only the direct-connect
-      // branch delays), so this delay is the only thing between the loop and
-      // an all-night retry spin when the arm keeps failing for a reason the
-      // adapter-state gate above didn't catch.
-      _autoConnectArmFailures++;
-      final delay = reconnectPolicy.delayFor(_autoConnectArmFailures);
-      _log('autoConnect arm failed (attempt $_autoConnectArmFailures): $e — '
-          'backing off ${delay.inSeconds}s.');
-      await Future.delayed(delay);
-      return false;
-    }
-    _log('OS autoConnect armed for $remoteId — waiting (max '
-        '${wait.inMinutes} min) for the band to reappear.');
-    final done = Completer<bool>();
-    final sub = device.connectionState.listen((s) {
-      if (s == BluetoothConnectionState.connected && !done.isCompleted) {
-        done.complete(true);
-      }
-    });
-    final poll = Timer.periodic(_osAutoConnectPoll, (_) {
-      if (keepWaiting != null && !keepWaiting() && !done.isCompleted) {
-        done.complete(false);
-      }
-    });
-    final deadline = Timer(wait, () {
-      if (!done.isCompleted) done.complete(false);
-    });
-    final ok = await done.future;
-    await sub.cancel();
-    poll.cancel();
-    deadline.cancel();
-    if (!ok) {
-      // Cancel the pending autoConnect — an unsupervised OS connect later
-      // (no subscriptions, no heartbeat) would just confuse the band.
-      try {
-        await _locked(() => device.disconnect());
-      } catch (_) {}
-      _log('OS autoConnect window ended without a link — cancelled.');
-    } else {
-      _log('OS autoConnect completed — running the normal setup path.');
-    }
-    return ok;
-  }
-
-  /// Park until the Bluetooth adapter reports `on`, the caller stops wanting
-  /// the link ([keepWaiting] false, checked on the cancellation poll), or
-  /// [wait] elapses. Event-driven off the native adapterState stream — zero
-  /// per-attempt platform calls while the adapter stays off.
-  Future<void> _waitForAdapterOn({
-    required Duration wait,
-    bool Function()? keepWaiting,
-  }) async {
-    final done = Completer<void>();
-    final sub = FlutterBluePlus.adapterState.listen((s) {
-      if (s == BluetoothAdapterState.on && !done.isCompleted) done.complete();
-    });
-    final poll = Timer.periodic(_osAutoConnectPoll, (_) {
-      if (keepWaiting != null && !keepWaiting() && !done.isCompleted) {
-        done.complete();
-      }
-    });
-    final deadline = Timer(wait, () {
-      if (!done.isCompleted) done.complete();
-    });
-    try {
-      await done.future;
-    } finally {
-      await sub.cancel();
-      poll.cancel();
-      deadline.cancel();
-    }
-  }
-
   // Historical-offload bookkeeping. A controller is live for the whole connection
   // (we keep ACKing HISTORY_END markers as they arrive, even after the first
   // HISTORY_COMPLETE — a later strap-triggered offload reuses it).
@@ -1380,20 +1241,6 @@ class BleEngine {
   /// can prove no connection-priority request happens pre-READY.
   @visibleForTesting
   void Function()? debugOnPriorityRequest;
-
-  /// Injectable Android native-name getter — the post-HELLO gate reads the
-  /// platform `BluetoothDevice.getName()`, which only exists behind a radio;
-  /// tests inject a fake so the gate itself is exercisable anywhere.
-  /// Production leaves it null: the gate then applies exactly on Android and
-  /// reads through the [AndroidNativeName] channel.
-  @visibleForTesting
-  Future<String?> Function(String remoteId)? debugNativeNameReader;
-
-  bool get _nameGateApplies =>
-      debugNativeNameReader != null || Platform.isAndroid;
-
-  Future<String?> _nativeName(String remoteId) =>
-      (debugNativeNameReader ?? AndroidNativeName.of)(remoteId);
 
   /// Drive the REAL official gen5 connect order (PHY → discovery → MTU →
   /// bond → 600 ms → registrations → post-registration bootstrap → READY +
@@ -3078,36 +2925,12 @@ class BleEngine {
     return true;
   }
 
-  /// The post-HELLO readiness gates: the Android native-name
-  /// requirement and the serial/CPU identity rules. A failed gate is a
+  /// The post-HELLO readiness gates: the serial/CPU identity rules. A failed gate is a
   /// CONNECTION failure — deliberately not a hello-exchange failure, because
   /// the failure counter is scoped to the exchange
   /// itself and the evidence never counts these against it.
   Future<bool> _gen5PostHelloGates(_Session session) async {
     final hello = _gen5Hello!;
-    // Android `BluetoothDevice.getName()` must be non-null. Read from the
-    // PLATFORM — flutter_blue_plus's `platformName` is an in-memory cache
-    // that is empty for a device rebuilt with `BluetoothDevice.fromId()` on a
-    // cold process start, so gating on it would fail every known-device
-    // reconnect that skipped scanning. The exact gate is non-null (an
-    // empty-but-present name passes — do not strengthen without evidence).
-    // Android-only; iOS exposes no equivalent and the source gate is
-    // Android's.
-    if (_nameGateApplies) {
-      final name = await _nativeName(session.device.remoteId.str);
-      if (_session != session || !session.connected) {
-        _log('link dropped during the native-name read — abandoning setup.');
-        if (identical(_session, session)) await _failConnect();
-        return false;
-      }
-      if (name == null) {
-        _log('[BOOT gen5] Android reports no name for this device — '
-            'readiness requires a non-null native name; connection failed.');
-        await _failConnect();
-        return false;
-      }
-      _log('[BOOT gen5] Android native name present ("$name").');
-    }
     // Family refinement: a recognized discriminator refines the stored type;
     // an unrecognized/null mapping is NOT by itself a rejection.
     if (hello.isWhoop5) {

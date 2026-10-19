@@ -140,8 +140,7 @@ class _PressableState extends State<Pressable> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
-          if (defaultTargetPlatform == TargetPlatform.iOS ||
-              defaultTargetPlatform == TargetPlatform.android) {
+          if (defaultTargetPlatform == TargetPlatform.iOS) {
             HapticFeedback.selectionClick();
           }
           widget.onTap?.call();

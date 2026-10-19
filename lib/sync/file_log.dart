@@ -28,17 +28,8 @@ class FileLog {
     if (_init) return;
     _init = true;
     try {
-      // External storage exists on Android only. On iOS the call THROWS
-      // (UnsupportedError), and folding it into one try left `_file` null, so
-      // the iPhone never wrote a line. iOS uses Documents, which the personal
-      // build shares in the Files app (UIFileSharingEnabled).
-      Directory? dir;
-      if (Platform.isAndroid) {
-        try {
-          dir = await getExternalStorageDirectory();
-        } catch (_) {}
-      }
-      dir ??= await getApplicationDocumentsDirectory();
+      // Documents, which the app shares in the Files app (UIFileSharingEnabled).
+      final dir = await getApplicationDocumentsDirectory();
       _file = File('${dir.path}/whoop_sync.log');
       // Earlier builds wrote `openstrap_sync.log`; carry it over once so the
       // log in Files → WHOOP keeps its history under the new name.

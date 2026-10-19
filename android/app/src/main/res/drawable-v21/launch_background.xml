@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- The launch window: the page background and nothing else. No mark here —
-     it cannot animate, it cannot match where lib/ui2 puts its own, and a logo
-     the app immediately replaces reads as a flash. See BootSplash. -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/launch_background" />
-</layer-list>

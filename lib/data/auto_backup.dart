@@ -244,27 +244,10 @@ class BackupOutcome {
 
 /// The backup directory, created if missing.
 ///
-/// PLATFORM SPLIT, and it decides whether this feature works at all:
-///   iOS — the app's Documents directory, which `UIFileSharingEnabled` +
-///   `LSSupportsOpeningDocumentsInPlace` expose in Files.
-///   Android — app-specific EXTERNAL storage. `getApplicationDocumentsDirectory`
-///   resolves to `/data/user/0/<pkg>/app_flutter` there, which no file manager
-///   and no sync app can reach, so backups would have been written somewhere
-///   the user could never get at them. External storage needs no permission on
-///   modern Android and is browsable.
-///
-/// Falls back to the documents directory if external storage is unavailable
-/// (no shared volume) — a backup somewhere awkward beats no backup.
+/// The app's Documents directory, which `UIFileSharingEnabled` +
+/// `LSSupportsOpeningDocumentsInPlace` expose in Files.
 Future<Directory> backupDirectory() async {
-  Directory? root;
-  if (Platform.isAndroid) {
-    try {
-      root = await getExternalStorageDirectory();
-    } catch (_) {
-      root = null;
-    }
-  }
-  root ??= await getApplicationDocumentsDirectory();
+  final root = await getApplicationDocumentsDirectory();
   final dir = Directory(p.join(root.path, kBackupDirName));
   if (!await dir.exists()) {
     final legacy = Directory(p.join(root.path, kLegacyBackupDirName));

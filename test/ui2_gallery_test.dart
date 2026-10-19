@@ -179,7 +179,6 @@ void main() {
       if (!a.gps) {
         expect(r.route, isEmpty, reason: '${a.name} has no GPS but has a route.');
       }
-      if (r.arch != Arch.strength) expect(r.strength.isEmpty, isTrue);
       if (r.arch != Arch.laps) expect(r.lapSecs, isEmpty);
       if (r.arch != Arch.interval) expect(r.rounds, isEmpty);
       if (r.arch != Arch.flow) expect(r.breathsPerMin, isNull);

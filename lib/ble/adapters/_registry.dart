@@ -45,12 +45,6 @@
 
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
-/// GATT Heart Rate Service and its Heart Rate Measurement characteristic.
-/// Written out in full 128-bit form rather than the 16-bit shorthand: the
-/// shorthand's expansion is a platform detail we should not depend on.
-const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
-const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
-
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record

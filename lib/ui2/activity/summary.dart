@@ -1,21 +1,19 @@
 // The activity summary — eight archetypes, eight centres of gravity.
 //
-// The rule the whole file exists to enforce: a strength session is NOT a run
-// with the map removed. A run is a route coloured by pace; a hike is an
-// elevation profile; a swim is a lap ladder; HIIT is an interval ladder; a
-// match is heart rate and hard minutes. Same grammar — same cards, same type,
-// same spacing — different defining object.
+// The rule the whole file exists to enforce: a session is not a run with
+// the map removed. A run is a route coloured by pace; a hike is an elevation
+// profile; a swim is a lap ladder; HIIT is an interval ladder; a match is
+// heart rate and hard minutes. Same grammar — same cards, same type, same
+// spacing — different defining object.
 //
-// A lift is the exception that proves it: it has NO defining visual object,
-// because nothing here measures one. The muscle map that used to hold the
-// slot was a static exercise→group table times the volume the user typed,
-// painted onto a body — a picture that looks measured and is not.
+// A lift is a timed session here (its sets live in the Lift Log), so it has
+// no defining visual object: nothing in the session measures one.
 //
 // [ActivityResult] is the seam. Everything on screen comes out of it, every
 // field is nullable or empty by default, and an absent field renders a
 // StatusCard rather than a zero. That is not politeness: `sessions` has no
-// distance, no lap and no set columns of its own, so several of these fields
-// come from elsewhere (`workout_route`, `strength_set`) or not at all, and the
+// distance and no lap columns of its own, so several of these fields come
+// from elsewhere (`workout_route`, `session_detail`) or not at all, and the
 // screen has to be honest about it without falling apart.
 
 import 'dart:convert';
@@ -66,7 +64,7 @@ import 'stat_row.dart';
 /// and a wrist cannot infer them. The indoor machines that used to claim the
 /// archetype (bike, treadmill, elliptical, stair climber) are [basic] — their
 /// defining object is the heart-rate trace, which is measured.
-enum Arch { route, strength, interval, flow, laps, journey, match, basic }
+enum Arch { route, interval, flow, laps, journey, match, basic }
 
 const _sports = {
   'Football',
@@ -122,7 +120,6 @@ Arch archOf(Activity a) {
 
 String archLabel(Arch a) => switch (a) {
   Arch.route => 'Route',
-  Arch.strength => 'Sets and load',
   Arch.interval => 'Intervals',
   Arch.flow => 'Flow',
   Arch.laps => 'Laps',
@@ -132,92 +129,6 @@ String archLabel(Arch a) => switch (a) {
 };
 
 // ── THE RECORD ─────────────────────────────────────────────────────────────
-
-/// One logged set. `loadKg` is nullable and that is load-bearing: a bodyweight
-/// pull-up stored as 0 kg makes session volume report zero for a real session
-/// (UI_WIRING §5.4).
-class LoggedSet {
-  final String exerciseKey;
-  final int reps;
-  final double? loadKg;
-  final int? rpe;
-  final int? restSec;
-  final DateTime at;
-
-  const LoggedSet(
-    this.exerciseKey,
-    this.reps, {
-    this.loadKg,
-    this.rpe,
-    this.restSec,
-    required this.at,
-  });
-
-  /// Volume for this set, or null when the load was never recorded.
-  double? get volume => loadKg == null ? null : loadKg! * reps;
-}
-
-/// A strength session's sets, in log order.
-class StrengthLog {
-  final List<LoggedSet> sets;
-  const StrengthLog(this.sets);
-
-  static const empty = StrengthLog([]);
-
-  bool get isEmpty => sets.isEmpty;
-  int get setCount => sets.length;
-  int get repCount => sets.fold(0, (a, s) => a + s.reps);
-  List<String> get exercises {
-    final seen = <String>[];
-    for (final s in sets) {
-      if (!seen.contains(s.exerciseKey)) seen.add(s.exerciseKey);
-    }
-    return seen;
-  }
-
-  /// Σ load × reps over the sets that HAVE a load. Null when none of them do —
-  /// a bodyweight-only session has a real volume nobody measured.
-  double? get volumeKg {
-    var total = 0.0;
-    var any = false;
-    for (final s in sets) {
-      final v = s.volume;
-      if (v == null) continue;
-      total += v;
-      any = true;
-    }
-    return any ? total : null;
-  }
-
-  /// Whether any set was logged without a load — the total is then a floor,
-  /// not a total, and the screen says so.
-  bool get hasUnloadedSets => sets.any((s) => s.loadKg == null);
-
-  /// Heaviest set by load, ties broken by reps. Null when nothing was loaded.
-  LoggedSet? get topSet {
-    LoggedSet? best;
-    for (final s in sets) {
-      if (s.loadKg == null) continue;
-      if (best == null ||
-          s.loadKg! > best.loadKg! ||
-          (s.loadKg == best.loadKg && s.reps > best.reps)) {
-        best = s;
-      }
-    }
-    return best;
-  }
-
-  List<LoggedSet> forExercise(String key) => [
-    for (final s in sets)
-      if (s.exerciseKey == key) s,
-  ];
-}
-
-/// Epley 1RM estimate — ALWAYS an estimate, never shown without saying so.
-/// Epley B. (1985), Poundage Chart. Boone's/Brzycki disagree by a few kg; at
-/// six reps or fewer they are all within noise of each other.
-double? oneRepMax(LoggedSet? s) =>
-    s?.loadKg == null || s!.reps < 1 ? null : s.loadKg! * (1 + s.reps / 30);
 
 /// One HIIT round.
 class IntervalRound {
@@ -467,9 +378,6 @@ class ActivityResult {
   /// when the phone was not counting.
   final List<double?> cadenceSeries;
 
-  // strength
-  final StrengthLog strength;
-
   // laps — seconds per lap, in order. The bar chart's relative speeds are
   // derived from these rather than stored beside them: two fields for one
   // measurement is how a chart ends up disagreeing with its own axis.
@@ -521,7 +429,6 @@ class ActivityResult {
     this.cadence,
     this.phoneSteps,
     this.cadenceSeries = const [],
-    this.strength = StrengthLog.empty,
     this.lapSecs = const [],
     this.poolLengthM,
     this.stroke,
@@ -562,7 +469,6 @@ class ActivityResult {
     double? cadence,
     int? phoneSteps,
     List<double?>? cadenceSeries,
-    StrengthLog? strength,
     List<int>? lapSecs,
     int? poolLengthM,
     String? stroke,
@@ -607,7 +513,6 @@ class ActivityResult {
     cadence: cadence ?? this.cadence,
     phoneSteps: phoneSteps ?? this.phoneSteps,
     cadenceSeries: cadenceSeries ?? this.cadenceSeries,
-    strength: strength ?? this.strength,
     lapSecs: lapSecs ?? this.lapSecs,
     poolLengthM: poolLengthM ?? this.poolLengthM,
     stroke: stroke ?? this.stroke,
@@ -758,11 +663,6 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
       } else {
         add('Pace', pace == null ? null : '$pace /$distanceUnit');
       }
-    case Arch.strength:
-      // Guarded like Arch.match below. 'SETS 0' and 'REPS 0' used to sit
-      // directly under the card saying nothing was logged.
-      add('Sets', r.strength.isEmpty ? null : '${r.strength.setCount}');
-      add('Reps', r.strength.isEmpty ? null : '${r.strength.repCount}');
     case Arch.laps:
       add('Laps', r.lapCount?.toString());
     case Arch.journey:
@@ -825,8 +725,6 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
 /// the next card's first row.
 String? _heroStatName(ActivityResult r) => switch (r.arch) {
   Arch.route || Arch.journey => r.distanceKm == null ? 'Time' : null,
-  // Without a volume the hero falls back to the set COUNT, not the clock.
-  Arch.strength => r.strength.volumeKg == null ? 'Sets' : null,
   Arch.laps => r.swimMetres == null ? 'Time' : null,
   Arch.interval || Arch.flow || Arch.match || Arch.basic => 'Time',
 };
@@ -1794,23 +1692,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           '+${r.gainM!.round()} m climbed')
                     : a.name,
               ),
-      Arch.strength =>
-        r.strength.volumeKg == null
-            ? (
-                '${r.strength.setCount}',
-                l?.activitySummarySetUnit(r.strength.setCount) ??
-                    (r.strength.setCount == 1 ? 'set' : 'sets'),
-                l?.activitySummaryNothingLoggedWithLoad ??
-                    'Nothing was logged with a load',
-              )
-            : (
-                grouped(r.strength.volumeKg!),
-                'kg',
-                r.strength.hasUnloadedSets
-                    ? (l?.activitySummaryVolumeLoadedSets ??
-                          'Volume of the loaded sets')
-                    : (l?.activitySummaryTotalVolume ?? 'Total volume'),
-              ),
       Arch.laps =>
         r.swimMetres == null
             ? fallback
@@ -1896,29 +1777,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             ),
           ),
         ];
-
-      // A lift has no defining visual object. The muscle map that used to sit
-      // here was not a measurement — it was a static exercise→group table
-      // multiplied by the volume the user typed, drawn as a body with shaded
-      // regions, which is the picture a scan produces. What the session
-      // actually knows is on the screen already: the stats, the top set, and
-      // every set as logged.
-      //
-      // Absence is still explained. A lift with no sets in it has nothing on
-      // the screen at all, and a blank overview reads as a bug rather than as
-      // an empty log.
-      case Arch.strength:
-        return r.strength.isEmpty
-            ? [
-                StatusCard(
-                  l?.activitySummaryNoSetsTitle ?? 'No sets logged',
-                  l?.activitySummaryNoSetsBody ??
-                      'Nothing was entered for this session, so there is no '
-                          'load and no volume to total.',
-                  icon: LucideIcons.dumbbell,
-                ),
-              ]
-            : const [];
 
       case Arch.interval:
         if (r.rounds.isEmpty) {
@@ -2322,87 +2180,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   List<Widget> _body(BuildContext c, P p) {
     final l = AppLocalizations.of(c);
     switch (arch) {
-      case Arch.strength:
-        final top = r.strength.topSet;
-        final rm = oneRepMax(top);
-        return [
-          if (top != null)
-            Section(
-              l?.activitySummaryTopSet ?? 'Top set',
-              Surface(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: p.wash(C.yellow),
-                        borderRadius: R.rMd,
-                      ),
-                      child: Icon(
-                        LucideIcons.trophy,
-                        size: 19,
-                        color: p.on(C.yellow),
-                      ),
-                    ),
-                    const SizedBox(width: S.x3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            exerciseByKey(top.exerciseKey)?.label ??
-                                top.exerciseKey,
-                            style: F.body.copyWith(
-                              color: p.ink,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  l?.activitySummaryOneRepMax(rm!.round()) ??
-                                      '1RM estimate ${rm!.round()} kg',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: F.over.copyWith(color: p.ink3),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: S.x2),
-                    // The row rule: the name gives way, the measurement keeps
-                    // its natural width and sits flush at the card edge.
-                    Text(
-                      '${_kg(top.loadKg!)} × ${top.reps}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: F.n17.copyWith(color: p.ink),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          if (r.strength.hasUnloadedSets)
-            Padding(
-              padding: const EdgeInsets.only(top: S.x4),
-              child: StatusCard(
-                l?.activitySummarySomeSetsNoLoadTitle ??
-                    'Some sets had no load',
-                l?.activitySummarySomeSetsNoLoadBody ??
-                    'Counted in sets and reps, but left out of volume.',
-                icon: LucideIcons.info,
-              ),
-            ),
-        ];
-
-      // A pacer is not a measurement and a mood picker with nowhere to write
-      // is not a question — `sessions` has no mood column and `journal_metric`
-      // is per-day, not per-session. Both were removed rather than explained.
       case Arch.flow:
         return const [];
 
@@ -2471,9 +2248,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (total <= 0) return const [0, 0, 0, 0, 0];
     return [for (final z in r.zoneMinutes) z / total];
   }
-
-  String _kg(double v) =>
-      v == v.roundToDouble() ? '${v.round()} kg' : '${v.toStringAsFixed(1)} kg';
 
   // ─────────────────── SPLITS ───────────────────
   // "Splits" is whatever this archetype breaks into: kilometres for a run,
@@ -2593,40 +2367,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               ],
             ),
           ),
-        ];
-
-      case Arch.strength:
-        if (r.strength.isEmpty) {
-          return [
-            StatusCard(
-              l?.activitySummaryNoSetsTitle ?? 'No sets logged',
-              l?.activitySummarySetsLoggedZero ?? '0 sets logged.',
-              icon: LucideIcons.dumbbell,
-            ),
-          ];
-        }
-        return [
-          for (final key in r.strength.exercises) ...[
-            Section(
-              exerciseByKey(key)?.label ?? key,
-              Surface(
-                pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                child: Column(
-                  children: [
-                    for (
-                      var i = 0;
-                      i < r.strength.forExercise(key).length;
-                      i++
-                    ) ...[
-                      _setRow(p, i + 1, r.strength.forExercise(key)[i]),
-                      if (i < r.strength.forExercise(key).length - 1)
-                        Divider(color: p.line, height: 1),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
         ];
 
       case Arch.interval:
@@ -2821,50 +2561,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     }
   }
 
-  Widget _setRow(P p, int n, LoggedSet s) {
-    final l = AppLocalizations.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(
-        children: [
-          Container(
-            width: 24,
-            height: 24,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: p.wash(C.purple),
-              borderRadius: R.rSm,
-            ),
-            child: Text('$n', style: F.over.copyWith(color: p.on(C.purple))),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Text(
-              s.loadKg == null
-                  ? (l?.activitySummaryBodyweightReps(s.reps) ??
-                        '${s.reps} reps · bodyweight')
-                  : '${_kg(s.loadKg!)} × ${s.reps}',
-              style: F.body.copyWith(color: p.ink),
-            ),
-          ),
-          if (s.rpe != null)
-            Text(
-              l?.activitySummaryRpeValue(s.rpe!) ?? 'RPE ${s.rpe}',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-          if (s.volume != null) ...[
-            const SizedBox(width: S.x3),
-            Text(
-              '${grouped(s.volume!)} kg',
-              style: F.cap.copyWith(color: p.ink2, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ─────────────────── GRAPHS ───────────────────
   List<Widget> _graphs(BuildContext c, P p) {
     final l = AppLocalizations.of(c);
     final v = run;

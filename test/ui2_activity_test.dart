@@ -43,31 +43,6 @@ List<double> _series(int n, double base, double amp) => [
   for (var i = 0; i < n; i++) base + (i * 37 % 23) - (i % 5) * amp,
 ];
 
-final _sets = <LoggedSet>[
-  LoggedSet(
-    'bench_press',
-    8,
-    loadKg: 80,
-    rpe: 7,
-    at: _start.add(const Duration(minutes: 3)),
-  ),
-  LoggedSet(
-    'bench_press',
-    7,
-    loadKg: 82.5,
-    rpe: 8,
-    at: _start.add(const Duration(minutes: 6)),
-  ),
-  LoggedSet(
-    'triceps_pushdown',
-    12,
-    loadKg: 30,
-    rpe: 7,
-    at: _start.add(const Duration(minutes: 12)),
-  ),
-  LoggedSet('pull_up', 9, rpe: 8, at: _start.add(const Duration(minutes: 18))),
-];
-
 /// A fully-populated result for [arch] — every archetype's own data present,
 /// so the goldens show the defining object rather than nine StatusCards.
 ActivityResult _result(Arch arch) {
@@ -100,7 +75,6 @@ ActivityResult _result(Arch arch) {
             KmSplit(1, 298, avgHr: 176),
           ]
         : const [],
-    strength: arch == Arch.strength ? StrengthLog(_sets) : StrengthLog.empty,
     lapSecs: arch == Arch.laps ? const [38, 40, 41, 43, 45, 52] : const [],
     poolLengthM: arch == Arch.laps ? 25 : null,
     stroke: arch == Arch.laps ? 'Free' : null,
@@ -302,7 +276,8 @@ void main() {
       expect(archOf(activityByName('running')!), Arch.route);
       expect(archOf(activityByName('yoga')!), Arch.flow);
       expect(archOf(activityByName('hiit')!), Arch.interval);
-      expect(archOf(activityByName('weight_training')!), Arch.strength);
+      // A lift is a timed session; its sets live in the Lift Log.
+      expect(archOf(activityByName('weight_training')!), Arch.basic);
       expect(archOf(activityByName('golf')!), Arch.basic);
     });
 
@@ -341,51 +316,6 @@ void main() {
         isNull,
         reason: 'nobody counted is not zero hard minutes',
       );
-    });
-  });
-
-  // ── strength maths ───────────────────────────────────────────────────────
-  group('strength', () {
-    test('volume excludes unloaded sets and says so', () {
-      const log = StrengthLog([]);
-      expect(log.volumeKg, isNull);
-
-      final full = StrengthLog(_sets);
-      // 80×8 + 82.5×7 + 30×12 = 640 + 577.5 + 360 = 1577.5; the pull-up is out.
-      expect(full.volumeKg, closeTo(1577.5, .001));
-      expect(full.hasUnloadedSets, isTrue);
-      expect(full.setCount, 4);
-      expect(full.repCount, 36);
-      expect(full.exercises, ['bench_press', 'triceps_pushdown', 'pull_up']);
-    });
-
-    test('a bodyweight-only session has no volume, not zero volume', () {
-      final log = StrengthLog([
-        LoggedSet('pull_up', 8, at: _start),
-        LoggedSet('plank', 1, at: _start),
-      ]);
-      expect(
-        log.volumeKg,
-        isNull,
-        reason: 'zero would claim a real session did no work',
-      );
-      expect(log.setCount, 2);
-    });
-
-    test('top set is the heaviest, ties broken by reps', () {
-      expect(StrengthLog(_sets).topSet?.loadKg, 82.5);
-      final tie = StrengthLog([
-        LoggedSet('bench_press', 5, loadKg: 100, at: _start),
-        LoggedSet('bench_press', 6, loadKg: 100, at: _start),
-      ]);
-      expect(tie.topSet?.reps, 6);
-    });
-
-    test('Epley 1RM, and null without a load', () {
-      final s = LoggedSet('bench_press', 6, loadKg: 100, at: _start);
-      expect(oneRepMax(s), closeTo(120, .001)); // 100 × (1 + 6/30)
-      expect(oneRepMax(LoggedSet('pull_up', 6, at: _start)), isNull);
-      expect(oneRepMax(null), isNull);
     });
   });
 
@@ -467,20 +397,6 @@ void main() {
       expect(namesOf(noGps), isNot(contains('Time')));
     });
 
-    test('an empty lift prints no sets and no reps', () {
-      final empty = ActivityResult(
-        _first(Arch.strength),
-        start: _start,
-        duration: const Duration(minutes: 20),
-        avgHr: 96,
-      );
-      // 'SETS 0' and 'REPS 0' used to sit directly under 'No sets logged',
-      // even though nothing was logged.
-      expect(namesOf(empty), isNot(contains('Sets')));
-      expect(namesOf(empty), isNot(contains('Reps')));
-      expect(namesOf(_result(Arch.strength)), contains('Reps'));
-    });
-
     test('the measured peak is on the screen, not only on the history row', () {
       expect(namesOf(_result(Arch.basic)), contains('Max HR'));
       final noPeak = ActivityResult(
@@ -498,12 +414,11 @@ void main() {
     // TS-09 — the rating is a SELF-REPORT and has to read as one.
     test('a rating is shown as the user\'s own, and never invented', () {
       final rated = ActivityResult(
-        _first(Arch.strength),
+        _first(Arch.basic),
         start: _start,
         duration: const Duration(minutes: 40),
         sessionId: 's1',
         rpe: 8,
-        strength: StrengthLog(_sets),
       );
       expect(
         namesOf(rated),
@@ -519,11 +434,10 @@ void main() {
       final unrated = rated.copyWith();
       expect(unrated.rpe, 8, reason: 'copyWith must not lose it');
       final never = ActivityResult(
-        _first(Arch.strength),
+        _first(Arch.basic),
         start: _start,
         duration: const Duration(minutes: 40),
         sessionId: 's1',
-        strength: StrengthLog(_sets),
       );
       expect(namesOf(never), isNot(contains('Your rating')));
 
@@ -1070,7 +984,7 @@ void main() {
       SharedPreferences.setMockInitialValues(const {});
       await Prefs.ensureLoaded();
 
-      final saved = _result(Arch.strength).copyWith(sessionId: 'sess-1');
+      final saved = _result(Arch.basic).copyWith(sessionId: 'sess-1');
 
       // Not at finish → never asked. Opening an old session is not the moment.
       await tester.pumpWidget(
@@ -1143,7 +1057,7 @@ void main() {
       await tester.pumpWidget(
         _frame(
           ActivitySummary(
-            _result(Arch.strength),
+            _result(Arch.basic),
             weightKg: 72.4,
             justFinished: true,
           ),
@@ -1245,7 +1159,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('finishing hands the session to the app, with its sets', (
+    testWidgets('finishing hands the session to the app', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
@@ -1271,8 +1185,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Log set'));
-      await tester.pump();
       await tester.tap(find.bySemanticsLabel('Finish session'));
       await tester.pumpAndSettle();
       // Finishing asks first (Build 94).
@@ -1286,8 +1198,6 @@ void main() {
             'the app has to be told, or the '
             'session exists only on this screen',
       );
-      expect(handed!.strength.setCount, 1);
-      expect(handed!.strength.sets.first.loadKg, 40);
       expect(tester.takeException(), isNull);
     });
 
@@ -1433,45 +1343,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a minimised session keeps the sets that were typed into it', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-      addTearDown(LiveDraft.clear);
-
-      final a = activityByName('weight_training')!;
-      // What the setup screen does once the app accepts the session.
-      LiveDraft.begin(a, weightKg: 72.4);
-
-      await tester.pumpWidget(
-        _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Log set'));
-      await tester.pump();
-      expect(find.text('40 kg × 8'), findsWidgets);
-
-      // Minimise: the route is gone and every widget with it. The set was
-      // held in `_LiveStrengthState` and died here — silently, while
-      // `activeWorkout` stayed open and refused every later workout.
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-
-      await tester.pumpWidget(
-        _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.text('40 kg × 8'),
-        findsWidgets,
-        reason: 'a typed set is the one thing nothing can recompute',
-      );
-      expect(find.text('320'), findsOneWidget, reason: 'volume, restored');
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets('a collapsed group builds none of its rows', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
@@ -1556,73 +1427,6 @@ void main() {
         find.textContaining('finger-width'),
         findsOneWidget,
         reason: 'a fit instruction only makes sense for a band that is there',
-      );
-    });
-
-    testWidgets('the strength screen still follows the band it does not tick '
-        'for', (tester) async {
-      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-      addTearDown(LiveDraft.clear);
-
-      var hr = 96;
-      await tester.pumpWidget(
-        _frame(
-          LiveStrength(
-            activityByName('weight_training')!,
-            feed: () => LiveFeed(hr: hr, bandConnected: true),
-          ),
-          Brightness.light,
-          1.0,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('96'), findsOneWidget);
-
-      // The body is built once and left alone by the 1 Hz tick — but the heart
-      // rate on it is measured, so it must not freeze with the rest.
-      hr = 141;
-      await tester.pump(const Duration(seconds: 1));
-      expect(find.text('141'), findsOneWidget);
-    });
-
-    testWidgets('the rest countdown ticks without rebuilding the shell', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-      addTearDown(LiveDraft.clear);
-
-      await tester.pumpWidget(
-        _frame(
-          LiveStrength(activityByName('weight_training')!),
-          Brightness.light,
-          1.0,
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Log set'));
-      await tester.pump();
-      expect(find.text('01:30'), findsOneWidget);
-
-      // The countdown used to be a field behind setState, so every one of the
-      // ninety ticks rebuilt this state — and with it a whole new LiveShell,
-      // header and transport and all. The widget instance is the tell: only
-      // _LiveStrengthState.build makes a new one.
-      final shell = tester.widget<LiveShell>(find.byType(LiveShell));
-      await tester.pump(const Duration(seconds: 1));
-
-      expect(
-        find.text('01:29'),
-        findsOneWidget,
-        reason: 'the ring still counts down',
-      );
-      expect(
-        identical(tester.widget<LiveShell>(find.byType(LiveShell)), shell),
-        isTrue,
-        reason: 'the shell must not be rebuilt for a number inside the body',
       );
     });
 
@@ -1819,33 +1623,6 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     });
-
-    testWidgets('the strength logger accumulates volume, sets and reps', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(
-        _frame(
-          liveFor(activityByName('weight_training')!, weightKg: 72.4),
-          Brightness.light,
-          1.0,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Default entry is 40 kg × 8 = 320 kg of volume for one set.
-      await tester.tap(find.text('Log set'));
-      await tester.pump();
-
-      expect(find.text('320'), findsOneWidget); // volume
-      expect(find.text('40 kg × 8'), findsWidgets);
-      expect(find.textContaining('RESTING'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-
   });
 
   // ── goldens ──────────────────────────────────────────────────────────────
@@ -1880,10 +1657,6 @@ void main() {
 
     final cases = <String, Widget>{
       'summary_route': ActivitySummary(_result(Arch.route), weightKg: 72.4),
-      'summary_strength': ActivitySummary(
-        _result(Arch.strength),
-        weightKg: 72.4,
-      ),
       'summary_journey': ActivitySummary(_result(Arch.journey), weightKg: 72.4),
       // The two whose defining object changed: a match is now its heart-rate
       // trace (there was a court map), and a swim is now its lap times.

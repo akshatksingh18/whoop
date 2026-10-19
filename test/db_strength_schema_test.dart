@@ -1,12 +1,7 @@
-// The strength-set store: migration and the one invariant that made it
-// necessary.
-//
-// Nothing measures a bench press. Until v38 there was nowhere to put what the
-// user typed — `sessions` has no exercise, set, rep, load or RPE column — so
-// every number on the strength screens was unbacked. This checks the ladder
-// lands the tables on an existing install, and that a bodyweight set survives
-// the round trip as NULL rather than as zero kilos, which is the whole reason
-// `load_kg` is nullable.
+// The strength-set store. Sets are no longer typed during a workout (a lift is
+// a timed session with its Lift Log), but rows from earlier builds stay: the
+// ladder still lands the tables on an existing install, and deleting a
+// session still takes its old sets with it.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -90,56 +85,6 @@ void main() {
     expect(await _hasTable(db, 'exercise_def'), isTrue);
   });
 
-  test('a bodyweight set round-trips as NULL, not as zero kilos', () async {
-    created.add('strength_rows.db');
-    await databaseFactory.deleteDatabase(await _dbPath('strength_rows.db'));
-    await _openThroughLocalDb('strength_rows.db');
-
-    await LocalDb.saveStrengthSets('sess-1', [
-      {
-        'exercise_key': 'bench_press',
-        'set_index': 1,
-        'reps': 8,
-        'load_kg': 80.0,
-        'rpe': 7,
-        'at_ts': 1770000000,
-      },
-      {
-        'exercise_key': 'pull_up',
-        'set_index': 1,
-        'reps': 9,
-        'rpe': 8,
-        'at_ts': 1770000600,
-      },
-    ]);
-
-    final sets = await LocalDb.strengthSets('sess-1');
-    expect(sets, hasLength(2));
-    expect(sets[0]['seq'], 0);
-    expect(sets[0]['load_kg'], 80.0);
-    expect(sets[1]['load_kg'], isNull,
-        reason: 'a bodyweight pull-up at 0 kg would zero the session volume');
-    expect(sets[1]['note'], '');
-
-    // Re-saving the same session replaces rather than duplicates.
-    await LocalDb.saveStrengthSets('sess-1', [
-      {
-        'exercise_key': 'bench_press',
-        'set_index': 1,
-        'reps': 8,
-        'load_kg': 82.5,
-        'at_ts': 1770000000,
-      },
-    ]);
-    final again = await LocalDb.strengthSets('sess-1');
-    expect(again.first['load_kg'], 82.5);
-
-    final recent = await LocalDb.recentSetsFor('pull_up');
-    expect(recent, hasLength(1));
-    expect(recent.first['reps'], 9);
-    expect(await LocalDb.recentSetsFor('nothing_here'), isEmpty);
-  });
-
   test('deleting a session takes its sets with it', () async {
     created.add('strength_cascade.db');
     await databaseFactory.deleteDatabase(await _dbPath('strength_cascade.db'));
@@ -153,23 +98,22 @@ void main() {
       'status': 'done',
       'created_at': 1770100000,
     });
-    await LocalDb.saveStrengthSets('sess-del', [
-      {
-        'exercise_key': 'bench_press',
-        'set_index': 1,
-        'reps': 1,
-        'load_kg': 200.0,
-        'at_ts': 1770100100,
-      },
-    ]);
+    final db = await LocalDb.instance;
+    await db.insert('strength_set', {
+      'session_id': 'sess-del',
+      'seq': 0,
+      'exercise_key': 'bench_press',
+      'set_index': 1,
+      'reps': 1,
+      'load_kg': 200.0,
+      'at_ts': 1770100100,
+    });
 
     await LocalDb.deleteSession('sess-del');
 
-    expect(await LocalDb.strengthSets('sess-del'), isEmpty);
-    // The real symptom: a mistyped set on a deleted workout kept coming back
-    // as "previous"/"best" on the live strength screen and kept exporting
-    // under a session_id that no longer exists.
-    expect(await LocalDb.recentSetsFor('bench_press'), isEmpty);
+    // A set on a deleted workout would otherwise keep exporting under a
+    // session_id that no longer exists.
+    expect(await db.query('strength_set'), isEmpty);
   });
 
   test('sessions carries the private flag, defaulting to not-private',

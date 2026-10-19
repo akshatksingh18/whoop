@@ -196,19 +196,6 @@ class HealthSource {
   );
 }
 
-/// The tier named by a `device.tier` column, or null when the column is blank
-/// or holds a name this build does not have.
-///
-/// Null is a refusal, the same way a null `adapter_id` is: a row written by a
-/// future version naming a rung this build cannot draw must not be quietly
-/// filed under the nearest one it knows.
-SourceTier? tierNamed(Object? name) {
-  for (final t in SourceTier.values) {
-    if (t.name == name) return t;
-  }
-  return null;
-}
-
 /// The sources that actually exist right now. Nothing is listed that cannot
 /// produce a number today.
 ///

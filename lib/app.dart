@@ -585,18 +585,13 @@ class _LiveSessionBar extends StatelessWidget {
     _opening = true;
     final nav = Navigator.of(c);
     try {
-      // The lifter's previous and best. Absent renders as "First time on this
-      // lift", which would be a false claim on a resumed session.
-      final history = await loadSetHistory().catchError(
-        (Object _) => const <String, SetHistory>{},
-      );
       final route = nav.push(
         MaterialPageRoute<void>(
           builder: (_) => liveFor(
             a,
             private: draft?.private ?? a.private,
             weightKg: draft?.weightKg,
-            host: activityHost(app, history: history),
+            host: activityHost(app),
           ),
         ),
       );

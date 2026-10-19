@@ -83,14 +83,13 @@ class _SessionDestinationState extends State<SessionDestination> {
       if (app.activeWorkout?.workoutId == id) {
         final activity = activityByName(app.activeWorkout!.type);
         if (activity != null) {
-          final history = await loadSetHistory();
           if (mounted)
             setState(
               () => _screen = liveFor(
                 activity,
                 private: LiveDraft.current?.private ?? activity.private,
                 weightKg: LiveDraft.current?.weightKg,
-                host: activityHost(app, history: history),
+                host: activityHost(app),
               ),
             );
           return;
@@ -242,8 +241,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     ),
   );
 
-  ActivityHost _host(_WorkoutData d) =>
-      activityHost(context.read<AppState>(), history: d.setHistory);
+  ActivityHost _host(_WorkoutData d) => activityHost(context.read<AppState>());
 
   // ─────────────── HISTORY ───────────────
 
@@ -1238,20 +1236,12 @@ List<double?> lastSevenDays(Object? points, DateTime end) {
 // lifecycle rather than a second copy of it.
 
 /// Everything the activity screens need from the app.
-///
-/// [history] is the user's own previous/best per lift. Absent is honest — the
-/// live screen says "First time on this lift" — so the resume path passes what
-/// it has rather than blocking on a query.
-ActivityHost activityHost(
-  AppState app, {
-  Map<String, SetHistory> history = const {},
-}) {
+ActivityHost activityHost(AppState app) {
   // The id of the session this host opened, remembered across calls.
   //
-  // `stopWorkout` clears `activeWorkout`, so a RETRY after a failed write —
-  // the strength log throwing, say, which leaves the sessions row saved and
-  // the sets lost — used to read a null id, return the draft untouched, throw
-  // nothing, and be reported to the user as saved.
+  // `stopWorkout` clears `activeWorkout`, so a RETRY after a failed write
+  // used to read a null id, return the draft untouched, throw nothing, and be
+  // reported to the user as saved.
   String? sessionId;
   return ActivityHost(
     feed: () => _feedOf(app),
@@ -1260,8 +1250,6 @@ ActivityHost activityHost(
       sessionId ??= app.activeWorkout?.workoutId;
       return _finishSession(app, draft, sessionId);
     },
-    onSets: (sets) => _bankSets(app, sets),
-    history: history,
     bandConnected: app.isConnected,
   );
 }
@@ -1361,40 +1349,7 @@ Future<bool> _startSession(AppState app, Activity a) async {
   return app.activeWorkout != null;
 }
 
-/// `strength_set` rows for one log. `set_index` counts per exercise; `seq` is
-/// the position in the whole session and is [LocalDb.saveStrengthSets]'s own
-/// key, which is why re-sending the same log is idempotent.
-List<Map<String, Object?>> _setRows(List<LoggedSet> sets) {
-  final perExercise = <String, int>{};
-  return [
-    for (final s in sets)
-      {
-        'exercise_key': s.exerciseKey,
-        'set_index': perExercise[s.exerciseKey] =
-            (perExercise[s.exerciseKey] ?? 0) + 1,
-        'reps': s.reps,
-        'load_kg': s.loadKg,
-        'rpe': s.rpe,
-        'rest_sec': s.restSec,
-        'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
-      },
-  ];
-}
-
-/// Bank the sets logged so far against the OPEN session. Called on every set,
-/// because a typed set is the one thing in a session no sensor can reproduce
-/// and it used to live in widget state until the user pressed stop.
-Future<void> _bankSets(AppState app, List<LoggedSet> sets) async {
-  final id = app.activeWorkout?.workoutId;
-  if (id == null || sets.isEmpty) return;
-  try {
-    await LocalDb.saveStrengthSets(id, _setRows(sets));
-  } catch (_) {
-    // The draft still holds them, and finish writes the whole log again.
-  }
-}
-
-/// Close it: finalize the session, persist the sets the user typed and the
+/// Close it: finalize the session, persist what the user typed and the
 /// privacy flag against its id, then hand back the result with the recorded
 /// route folded in.
 ///
@@ -1412,9 +1367,6 @@ Future<ActivityResult> _finishSession(
     if (draft.private) await app.repo?.setWorkoutPrivate(id, true);
     final typed = enteredDetailJson(draft);
     if (typed != null) await LocalDb.putSessionDetail(id, typed);
-    if (draft.strength.sets.isNotEmpty) {
-      await LocalDb.saveStrengthSets(id, _setRows(draft.strength.sets));
-    }
   }
   // Idempotent: on a retry the session is already stopped and this is a no-op.
   await app.stopWorkout();
@@ -1451,28 +1403,6 @@ Future<DateTime?> _sessionEnd(String id) async {
   if (row == null || row['status'] == 'live') return null;
   final te = (row['end_ts'] as num?)?.toInt();
   return te == null ? null : DateTime.fromMillisecondsSinceEpoch(te * 1000);
-}
-
-/// Previous and best per lift, from this user's own log. One indexed query
-/// per exercise, fired in parallel.
-Future<Map<String, SetHistory>> loadSetHistory() async {
-  final history = <String, SetHistory>{};
-  try {
-    await Future.wait([
-      for (final e in exerciseLibrary)
-        LocalDb.recentSetsFor(e.key, limit: 40).then((rows) {
-          if (rows.isEmpty) return;
-          final sets = _logFrom(rows).sets;
-          history[e.key] = SetHistory(
-            previous: sets.first, // recentSetsFor orders newest first
-            best: StrengthLog(sets).topSet,
-          );
-        }),
-    ]);
-  } catch (_) {
-    // No history is the normal state on day one.
-  }
-  return history;
 }
 
 // ── the route seam ─────────────────────────────────────────────────────────
@@ -1703,12 +1633,6 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
     // An unrated session and an unreadable row both render as unrated.
   }
   try {
-    final sets = await LocalDb.strengthSets(w.id);
-    if (sets.isNotEmpty) out = out.copyWith(strength: _logFrom(sets));
-  } catch (_) {
-    /* no sets is a normal session */
-  }
-  try {
     final route = await repo.getWorkoutRoute(w.id);
     if (route != null && route.hasPath) {
       out = await _withPhone(_withRoute(out, route));
@@ -1858,22 +1782,6 @@ List<double?> _perMinute(MotionWindow w) {
   ];
 }
 
-/// `strength_set` rows → the log the summary renders. `load_kg` stays null
-/// when it was null: a bodyweight set is not a zero-kilo set.
-StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
-  for (final r in rows)
-    LoggedSet(
-      (r['exercise_key'] as String?) ?? '',
-      (r['reps'] as num?)?.toInt() ?? 0,
-      loadKg: (r['load_kg'] as num?)?.toDouble(),
-      rpe: (r['rpe'] as num?)?.toInt(),
-      restSec: (r['rest_sec'] as num?)?.toInt(),
-      at: DateTime.fromMillisecondsSinceEpoch(
-        ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000,
-      ),
-    ),
-]);
-
 // ── the data this screen reads ─────────────────────────────────────────────
 
 class _PastWorkout {
@@ -1998,9 +1906,6 @@ class _WorkoutData {
   /// The activities this user actually started, most recent first, deduped.
   final List<Activity> recent;
 
-  /// Previous and best set per exercise, from this user's own log.
-  final Map<String, SetHistory> setHistory;
-
   /// The detector's active bouts — every "did you work out?" that has neither
   /// been logged nor dismissed. Empty when auto-detection is switched off.
   ///
@@ -2023,7 +1928,6 @@ class _WorkoutData {
     this.workoutsTracked,
     this.recent = const [],
     this.streak,
-    this.setHistory = const {},
     this.suggestions = const [],
   });
 
@@ -2220,11 +2124,6 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     if (recent.length == 6) break;
   }
 
-  // The live screen has to have previous/best in hand before the first set;
-  // "First time on this lift" was showing forever because nothing loaded
-  // them.
-  final history = await loadSetHistory();
-
   return _WorkoutData(
     weightKg: weight,
     strain7: strain7,
@@ -2243,7 +2142,6 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     workoutsTracked: tracked,
     recent: recent,
     streak: await loadMoveStreak(),
-    setHistory: history,
     suggestions: await activeSuggestions(),
   );
 }

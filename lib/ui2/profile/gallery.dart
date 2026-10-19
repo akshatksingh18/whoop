@@ -1319,13 +1319,11 @@ Map<String, Widget> extraCases() => {
       ),
     ),
   ),
-  // The finished-session stat block, in the three shapes it takes: a run
-  // (pace and the common three), a lift (the longest list any archetype
-  // prints, six rows deep), and a session that measured nothing but its
-  // own length — which is what a first workout without a band looks like,
-  // and is one row, not five rows of dashes.
+  // The finished-session stat block, in the shapes it takes: a run (pace and
+  // the common three), and a session that measured nothing but its own
+  // length — which is what a first workout without a band looks like, and is
+  // one row, not five rows of dashes.
   'session_stats': SessionStats(_sessions['route']!),
-  'session_stats_strength': SessionStats(_sessions['strength']!),
   'session_stats_bare': SessionStats(
     ActivityResult(
       activityByName('Walking')!,
@@ -1628,29 +1626,6 @@ final _sessions = <String, ActivityResult>{
     route: _route,
     routePace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
     distanceKm: 8.02,
-  ),
-  'strength': ActivityResult(
-    activityByName('Weight training')!,
-    start: DateTime(2026, 8, 11, 18, 40),
-    duration: Motion.tick * 3320,
-    avgHr: 112,
-    calories: 388,
-    strength: StrengthLog([
-      for (var i = 0; i < 4; i++)
-        LoggedSet(
-          'bench_press',
-          8 - i,
-          loadKg: 70 + i * 5,
-          at: DateTime(2026, 8, 11, 18, 45 + i * 4),
-        ),
-      for (var i = 0; i < 3; i++)
-        LoggedSet(
-          'barbell_row',
-          10,
-          loadKg: 60,
-          at: DateTime(2026, 8, 11, 19, 5 + i * 4),
-        ),
-    ]),
   ),
   'laps': ActivityResult(
     activityByName('Swimming')!,
@@ -2398,26 +2373,6 @@ ActivityResult _placeholder(Activity a) {
     lossM: arch == Arch.journey
         ? 110 + (_n(a.name, 6) * 600).roundToDouble()
         : null,
-    // Two lifts, one loaded and one not: the unloaded-set caveat is a real
-    // state of this screen, and a preview that never enters it is a preview
-    // of half the screen.
-    strength: arch == Arch.strength
-        ? StrengthLog([
-            for (var i = 0; i < 4; i++)
-              LoggedSet(
-                exerciseLibrary[0].key,
-                10 - i,
-                loadKg: 55 + i * 5 + (_n(a.name, 8) * 20).roundToDouble(),
-                at: start.add(Motion.tick * (240 * i)),
-              ),
-            for (var i = 0; i < 3; i++)
-              LoggedSet(
-                exerciseLibrary[8].key,
-                8,
-                at: start.add(Motion.tick * (1400 + 200 * i)),
-              ),
-          ])
-        : StrengthLog.empty,
     lapSecs: [for (var i = 0; i < laps; i++) 48 + (i * 9 % 17)],
     poolLengthM: arch == Arch.laps ? 25 : null,
     stroke: arch == Arch.laps ? 'Freestyle' : null,

@@ -3173,54 +3173,6 @@ class LocalDb {
     ''');
   }
 
-  /// Append the sets of one strength session, in log order. Idempotent by
-  /// (session_id, seq) so a re-save of the same session replaces rather than
-  /// duplicates.
-  static Future<void> saveStrengthSets(
-    String sessionId,
-    List<Map<String, Object?>> sets,
-  ) async {
-    if (sets.isEmpty) return;
-    final db = await instance;
-    await db.transaction((txn) async {
-      for (var i = 0; i < sets.length; i++) {
-        await txn.insert('strength_set', {
-          ...sets[i],
-          'session_id': sessionId,
-          'seq': i,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-    });
-  }
-
-  static Future<List<Map<String, Object?>>> strengthSets(
-    String sessionId,
-  ) async {
-    final db = await instance;
-    return db.query(
-      'strength_set',
-      where: 'session_id = ?',
-      whereArgs: [sessionId],
-      orderBy: 'seq ASC',
-    );
-  }
-
-  /// The most recent sets logged for one exercise, newest first — the
-  /// substrate for "previous" and "best" on the live screen.
-  static Future<List<Map<String, Object?>>> recentSetsFor(
-    String exerciseKey, {
-    int limit = 60,
-  }) async {
-    final db = await instance;
-    return db.query(
-      'strength_set',
-      where: 'exercise_key = ?',
-      whereArgs: [exerciseKey],
-      orderBy: 'at_ts DESC',
-      limit: limit,
-    );
-  }
-
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
   // On-device user-entered + locally-generated data. All keyed for idempotent
   // upserts; none of it round-trips to a server (cloud excised).
@@ -9154,10 +9106,8 @@ class LocalDb {
     await db.delete('workout_route', where: 'session_id = ?', whereArgs: [id]);
     // …and its frozen per-km splits (CV-01), same reason.
     await db.delete('workout_split', where: 'session_id = ?', whereArgs: [id]);
-    // …and so do its typed sets. These used to survive the delete, so a
-    // mistyped 200 kg set on a deleted workout kept coming back as "previous"
-    // and "best" on the strength screen (recentSetsFor reads strength_set with
-    // no session-existence filter) and kept exporting under a dead session_id.
+    // …and so do sets typed in earlier builds, which would otherwise keep
+    // exporting under a dead session_id.
     await db.delete('strength_set', where: 'session_id = ?', whereArgs: [id]);
     // …and the session's Lift Log (build 86). An imported, unlinked log has
     // no session and is untouched.

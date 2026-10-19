@@ -23,7 +23,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../../build_profile.dart';
 import '../../gps/route_models.dart' as rm show Split;
 import '../../gps/route_models.dart' show RoutePoint;
 import '../../gps/run_analysis.dart' show paceZoneShares, runVerdict, RunMix;
@@ -112,8 +111,8 @@ Arch archOf(Activity a) {
   if (_laps.contains(a.name)) return Arch.laps;
   if (_sports.contains(a.name)) return Arch.match;
   return switch (a.track) {
-    // The personal build logs no sets: a lift is a timed session.
-    Track.sets => kPersonalSideload ? Arch.basic : Arch.strength,
+    // A lift is a timed session; its sets live in the Lift Log panel.
+    Track.sets => Arch.basic,
     Track.interval => Arch.interval,
     Track.stillness => Arch.flow,
     Track.distance => Arch.route,

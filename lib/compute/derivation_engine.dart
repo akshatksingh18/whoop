@@ -32,7 +32,6 @@ import 'findings.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-import '../build_profile.dart';
 import '../data/db.dart';
 import '../data/nap_ledger.dart';
 import '../data/day_label.dart';
@@ -1593,7 +1592,7 @@ import 'substrate.dart';
 // the phone clearly missed. The stored `steps` and the step-priced walking
 // energy (`calories_total`) change on days with both sources, so retained days
 // re-derive. No analytics package change; the upstream build resolves as
-// before (`phoneFirst` defaults to `kPersonalSideload`).
+// before (`phoneFirst` defaults to on).
 // 87 → 88: frozen movement-floor age counts calendar dates rather than elapsed
 // 24-hour periods. DST no longer postpones the age-based re-freeze by one day.
 // Active minutes can change at that threshold; retained days must re-derive.
@@ -1648,7 +1647,7 @@ import 'substrate.dart';
 //   Day strain is never below its finished workouts' combined strain (their
 //   net TRIMPs summed): the population quiet baseline no longer cancels a
 //   real session on a low-daytime-HR day.
-//   Personal build: day steps are phone only (`kBandSteps` off) — band spans
+//   Day steps are phone only — band spans
 //   no longer fill time the phone did not cover, and the on-chip counter is
 //   never the day's fallback.
 // 93 -> 94 (Build 90): the Build 89 day-strain floor now reaches the stored
@@ -6066,9 +6065,8 @@ class DerivationEngine {
     // 18,856 on a day the strap synced for part of).
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
-    final useBand =
-        kBandSteps && liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
-    final steps = useBand ? bandSteps : liveStepsReal;
+    // Phone only: a band count never stands in for the phone's.
+    final steps = liveStepsReal;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
       scMap?['steps'] = steps.toDouble();
@@ -6087,18 +6085,12 @@ class DerivationEngine {
       // sensor was there and counted nothing", which is a different claim.
       'by_source': haveRealSteps
           ? <String, int>{
-              if (useBand)
-                'strap_counter': steps
-              else ...{
-                if (strap > 0) 'strap': strap,
-                if (phone > 0) 'phone': phone,
-              },
+              if (strap > 0) 'strap': strap,
+              if (phone > 0) 'phone': phone,
             }
           : const <String, int>{},
       'source': !haveRealSteps
           ? null
-          : useBand
-          ? 'strap_counter'
           : (strap > 0 && phone > 0)
           ? 'mixed'
           : (strap > 0 ? 'strap' : 'phone'),
@@ -6119,18 +6111,12 @@ class DerivationEngine {
       // reads these to label the card.
       'inputs_used': !haveRealSteps
           ? const <String>[]
-          : useBand
-          ? const ['band_step_counter']
           : <String>[
               if (strap > 0) 'band_pedometer_100hz',
               if (phone > 0) 'phone_pedometer',
             ],
       'note': haveRealSteps
-          ? (useBand
-                ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
-                      'counter; wrapped and reset boundaries contribute nothing '
-                      'rather than a guess'
-                : (strap > 0 && phone > 0)
+          ? ((strap > 0 && phone > 0)
                 ? 'counted over measured windows only, each window by the '
                       'better sensor that was actually recording it — the '
                       'strap while it streamed, your phone the rest of the '

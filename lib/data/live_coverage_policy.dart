@@ -20,7 +20,6 @@
 
 import 'dart:math' as math;
 
-import '../build_profile.dart';
 
 /// Sample rate of the live accel stream the pedometer runs on.
 const double kLiveSampleRateHz = 100.0;
@@ -407,12 +406,13 @@ class _Ranked {
 // ever carries thousands, sort by start and sweep instead.
 ResolvedDaySteps resolveDaySteps(
   Iterable<CoverageSpan> rows, {
-  bool phoneFirst = kPersonalSideload,
-  bool bandSteps = kBandSteps,
+  bool phoneFirst = true,
+  bool bandSteps = false,
 }) {
   final spans = <_Ranked>[];
-  // Phone only ([kBandSteps] off): band rows never enter the resolution, so
-  // they can neither add steps nor fill time the phone did not cover.
+  // Phone only by default (Akshat, Build 89): band rows never enter the
+  // resolution, so they can neither add steps nor fill time the phone did not
+  // cover. [bandSteps] keeps the band ladder testable.
   final measured = [
     for (final r in rows)
       if (bandSteps || !r.fromBand) r,

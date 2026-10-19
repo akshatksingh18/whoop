@@ -37,7 +37,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
-import '../../build_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -75,7 +74,7 @@ const String kRoughNightDismissed = 'rough_night.dismissed';
 /// Keys are `metric_series` keys, read as published — nothing is recomputed
 /// here.
 const _kRhr = 'rhr', _kRmssd = 'rmssd';
-const _kDip = 'dip_pct', _kTempZ = 'skin_temp_z';
+const _kDip = 'dip_pct';
 
 /// One night against the user's own window.
 @immutable
@@ -135,7 +134,7 @@ class RoughNight {
 /// the published foundations, the same two `alcoholNightFlag` uses. A sign that
 /// cannot clear its own minimal detectable change does not count, and a
 /// degenerate scale yields no MDC and therefore no sign — never a claim.
-({int signs, List<String> moved, bool tempMoved})? roughNightSignCount(
+({int signs, List<String> moved})? roughNightSignCount(
   String day,
   Map<String, Map<String, double>> series, {
   int minNights = kRoughNightMinNights,
@@ -194,13 +193,7 @@ class RoughNight {
           'your heart rate dropped less overnight than it usually does',
     );
   }
-  final tempMoved =
-      kShowSkinTemp && fired(tonight(_kTempZ), history(_kTempZ), 1);
-  if (tempMoved) {
-    signs++;
-    moved.add(l?.roughNightSignTemp ?? 'your skin ran warmer');
-  }
-  return (signs: signs, moved: moved, tempMoved: tempMoved);
+  return (signs: signs, moved: moved);
 }
 
 /// Read [day]'s state, plus everything the app can state about it instead of
@@ -227,7 +220,7 @@ Future<RoughNight?> loadRoughNight(
   // scans of the user's history for one answer (see LocalDb.importedDates).
   final imported = await LocalDb.importedDates();
   final series = <String, Map<String, double>>{};
-  for (final key in const [_kRhr, _kRmssd, _kDip, _kTempZ]) {
+  for (final key in const [_kRhr, _kRmssd, _kDip]) {
     series[key] = {
       for (final r in await LocalDb.metricSeries(key))
         if (r['date'] is String &&
@@ -297,16 +290,6 @@ Future<RoughNight?> loadRoughNight(
       );
     }
   } catch (_) {/* cycle tracking off, or nothing logged */}
-
-  // WARM ROOM — only when the temp sign is one of the ones that fired. The
-  // channel is relative ADC, so this is "warmer than your usual", never a
-  // temperature.
-  if (counted.tempMoved) {
-    knows.add(
-      l?.roughNightWarmRoom ??
-          'Your skin ran warmer than your usual — a warm room does this too.',
-    );
-  }
 
   return RoughNight(
     day: day,

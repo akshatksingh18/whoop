@@ -51,7 +51,6 @@ import '../sync/sync_policy.dart';
 import 'adapters/_registry.dart';
 import 'android_native_name.dart';
 import 'ble_state.dart';
-import '../build_profile.dart';
 
 // Little-endian u32 reader. The package keeps `u32` private, and the engine only
 // needs it to peek the record-counter / ts out of a raw historical frame header.

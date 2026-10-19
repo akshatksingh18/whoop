@@ -12,10 +12,8 @@
 // moment the app is already slowest.
 
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../ui2.dart';
-import '../../build_profile.dart';
 
 class BootSplash extends StatefulWidget {
   /// True once the app behind the cover is ready to be looked at.
@@ -83,13 +81,7 @@ class _Cover extends StatelessWidget {
       color: p.bg,
       child: Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // The personal build covers the launch with the plain page only:
-          // no upstream mark or name flashing before WHOOP opens.
-          if (!kPersonalSideload) ...[
-            Icon(LucideIcons.activity, size: 44, color: p.on(C.green)),
-            const SizedBox(height: S.x4),
-            Text(kAppName, style: F.t2.copyWith(color: p.ink)),
-          ],
+          // The launch is covered with the plain page only.
         ]),
       ),
     );

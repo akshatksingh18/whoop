@@ -18,7 +18,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../build_profile.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
@@ -1807,11 +1806,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final respV = n['resp'] is Map ? (n['resp'] as Map)['value'] as num? : null;
     final (hrLine, hrMean) = lane('hr');
     final (hrvLine, _) = lane('hrv');
-    final (tempLine, _) = lane('skin_temp');
     final (respLine, _) = lane('resp');
     // B88-03: the night's qualified HRV only; never the mean of chart points.
     final hrv = d.hrvNight;
-    final z = d.skinTempZ;
 
     final rows = <(String, String, String, Color, List<double?>, String)>[
       if (avgHr != null || hrMean != null)
@@ -1840,21 +1837,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           C.green,
           hrvLine,
           'hrv',
-        ),
-      if (kShowSkinTemp && (z != null || tempLine.any((v) => v != null)))
-        (
-          loc?.sleepDetailSkinTemp ?? 'Skin temperature',
-          z == null
-              ? 'measured'
-              : '${z >= 0 ? '+' : '−'}${z.abs().toStringAsFixed(1)}',
-          z == null
-              ? 'relative reading'
-              : z.abs() < 1
-              ? 'about usual'
-              : (z > 0 ? 'warmer than usual' : 'cooler than usual'),
-          C.orange,
-          tempLine,
-          'skin_temp',
         ),
       if (respV != null)
         (

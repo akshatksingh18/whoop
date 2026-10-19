@@ -14,7 +14,6 @@ import '../data/local_repository.dart';
 import 'motion_window.dart';
 import 'route_math.dart' show totalDistanceMeters, movingSeconds;
 import 'run_analysis.dart';
-import '../build_profile.dart';
 
 /// Activity types that count as running for pace, the distance calorie method
 /// and the Running row of maintenance. Treadmill, track intervals, sprinting
@@ -83,9 +82,8 @@ class RunSummary {
   });
 
   /// The steps to take off the day's count: the phone's for the exact window
-  /// first (the same sensor the day total comes from), else the band's — never
-  /// the band's when band steps are off ([kBandSteps]).
-  int? get steps => phoneSteps ?? (kBandSteps ? bandSteps : null);
+  /// (the same sensor the day total comes from) — never the band's.
+  int? get steps => phoneSteps;
 
   /// Method 1 calories for this run at [weightKg].
   double? floorKcal(double? weightKg) => runFloorKcal(
@@ -237,16 +235,6 @@ Future<RunSummary?> summariseRun(
         steps = phone;
         known = true;
       }
-    }
-    if (kBandSteps &&
-        !known &&
-        excluded.isEmpty &&
-        bandSteps != null &&
-        bandSteps > 0 &&
-        dayLabelAtSec(start.millisecondsSinceEpoch ~/ 1000) == label &&
-        dayLabelAtSec((end.millisecondsSinceEpoch - 1) ~/ 1000) == label) {
-      steps = bandSteps;
-      known = true;
     }
     final dayClock = WorkoutClock(id, day, end: dayStop);
     final dayPts = activeTrack(activeTrack(points, dailyClock), dayClock);

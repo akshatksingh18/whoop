@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../build_profile.dart';
 import '../../compute/findings.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
@@ -65,13 +64,6 @@ const _rows = <_Row>[
   _Row('steps', 'Steps', 'steps', LucideIcons.footprints, C.steps),
   // Same dated walking contribution as maintenance, after run-step accounting.
   _Row('step_kcal', 'Step calories', 'kcal', LucideIcons.flame, C.body),
-  _Row(
-    'skin_temp',
-    'Skin temperature',
-    'SD',
-    LucideIcons.thermometer,
-    C.orange,
-  ),
   _Row('wear', 'Wear time', 'min', LucideIcons.watch, C.body),
 ];
 
@@ -133,17 +125,6 @@ class HealthData {
     points('resp_rate'),
     DateTime.now(),
   );
-
-  /// Skin temperature earns a Trends row once 7 of the last 30 nights have a
-  /// reading; before that its chart would be a handful of dots.
-  bool get skinTempShown {
-    if (!kShowSkinTemp) return false;
-    final now = DateTime.now();
-    final since =
-        DateTime(now.year, now.month, now.day - 29).millisecondsSinceEpoch ~/
-        1000;
-    return points('skin_temp').where((p) => p.t >= since).length >= 7;
-  }
 
   static Future<HealthData> load(LocalRepository repo) async {
     final today = await repo.getToday();
@@ -382,7 +363,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final rows = [
       for (final r in _rows)
         if ((r.key != 'resp_rate' || d.breathingShown) &&
-            (r.key != 'skin_temp' || d.skinTempShown))
+            true)
           r,
     ];
 
@@ -491,7 +472,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               ('Recovery and sleep', ['recovery', 'sleep']),
               ('Heart and breathing', ['hrv', 'resting_hr', 'resp_rate']),
               ('Activity and wear', ['strain', 'steps', 'step_kcal', 'wear']),
-              ('Body', ['skin_temp']),
             ])
               if (rows
                       .where(
@@ -539,9 +519,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
   /// A value at the precision its unit carries. Skin temperature is a signed
   /// distance from the user's own nights, so it keeps its sign.
-  String _fmt(_Row r, double v) => r.key == 'skin_temp'
-      ? '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(1)}'
-      : r.key == 'strain'
+  String _fmt(_Row r, double v) => r.key == 'strain'
       ? v.toStringAsFixed(1)
       : r.key == 'recovery'
       ? v.round().toString()

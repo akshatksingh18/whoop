@@ -10,7 +10,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
-import '../../build_profile.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../data/auto_backup.dart' show BackupCadence;
 import '../../state/app_state.dart';
@@ -132,14 +131,10 @@ class _StatusScreenState extends State<StatusScreen> with RevisionReload {
                       LucideIcons.badgeCheck,
                       C.green,
                       'App signing',
-                      sub: switch ((kPersonalSideload, expiry)) {
-                        (false, _) => 'Only tracked on the sideloaded build',
-                        (true, null) =>
-                          'Could not read the installed signing profile',
-                        (true, final e?) =>
-                          'Until ${_stamp(e)}. You get a '
-                              'reminder 48 and 24 hours before it ends',
-                      },
+                      sub: expiry == null
+                          ? 'Could not read the installed signing profile'
+                          : 'Until ${_stamp(expiry)}. You get a '
+                                'reminder 48 and 24 hours before it ends',
                       value: left == null
                           ? ''
                           : left.isNegative

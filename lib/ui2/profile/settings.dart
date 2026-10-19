@@ -20,7 +20,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/auto_backup.dart';
 import '../../data/body_log.dart' show BodyLogDb;
-import '../../build_profile.dart';
 import '../../compute/findings.dart' show FindingKind;
 import '../../data/off_lookup.dart';
 import '../../l10n/app_localizations.dart';
@@ -356,17 +355,12 @@ class MoreSettingsView extends StatelessWidget {
                       LucideIcons.footprints,
                       C.teal,
                       l?.settingsStepsRowTitle ?? 'Steps',
-                      // Build 94 (Codex copy): the personal build counts
-                      // steps on the phone only (kBandSteps off).
-                      sub: kBandSteps
-                          ? l?.settingsStepsRowSub ??
-                                'This phone’s own step counter, for the hours '
-                                    'the band doesn’t cover. Nothing leaves '
-                                    'the device'
-                          : l?.settingsStepsRowSubPhoneOnly ??
-                                'This phone’s step counter is the only source '
-                                    'of steps. Time without the phone has none. '
-                                    'Nothing leaves the device',
+                      // Steps are counted on the phone only.
+                      sub:
+                          l?.settingsStepsRowSubPhoneOnly ??
+                          'This phone’s step counter is the only source '
+                              'of steps. Time without the phone has none. '
+                              'Nothing leaves the device',
                       value: phoneSteps ? on : off,
                       onTap: onTogglePhoneSteps,
                     ),
@@ -701,8 +695,6 @@ class NotificationSettingsView extends StatelessWidget {
                             (FindingKind.anomaly, 'Unusual night'),
                             (FindingKind.lowReadiness, 'Low readiness'),
                             (FindingKind.rhrShift, 'Resting heart-rate shift'),
-                            if (kShowSkinTemp)
-                              (FindingKind.tempElevated, 'Skin temperature up'),
                           ])
                             SetRow(
                               LucideIcons.heartPulse,

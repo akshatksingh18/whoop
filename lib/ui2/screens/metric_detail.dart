@@ -12,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../build_profile.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../compute/day_upkeep.dart';
 import '../../compute/profile.dart'
@@ -361,23 +360,14 @@ class MetricData {
       final all = cd['percentiles'];
       final one = all is Map ? all[outcome] : null;
       pct = envValue(one);
-      if (kPersonalSideload) {
-        // The personal build keeps no journal: patterns come from meals,
-        // workouts, strain, steps and bedtime it already logs (build 81).
-        movers = kMoverOutcomes.containsKey(outcome)
-            ? await loadRecoveryMovers(
-                outcome,
-                profile: await repo.getProfile(),
-              )
-            : const [];
-      } else {
-        final j = await repo.getJournalInsights(range: '90d');
-        final ins = j['insights'];
-        movers = [
-          for (final e in (ins is List ? ins : const []))
-            if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
-        ];
-      }
+      // No journal is kept: patterns come from meals,
+      // workouts, strain, steps and bedtime it already logs (build 81).
+      movers = kMoverOutcomes.containsKey(outcome)
+          ? await loadRecoveryMovers(
+              outcome,
+              profile: await repo.getProfile(),
+            )
+          : const [];
     }
     return MetricData(
       acsmSeries: models?.acsm ?? const [],
@@ -1088,21 +1078,6 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                                   : axisFixed)),
                   floor: spec.unit == '%' ? 0 : null,
                 );
-                // WHERE A RELEASE SITS ON THE LINE.
-                //
-                // A break's stamp is the first day computed the NEW way, so the
-                // boundary is between two slots, not on one — half a slot left of it.
-                // A break at slot 0 is dropped: there is nothing before it in this
-                // window to be incomparable with.
-                final marks = <double>[
-                  if (series.length > 1 && !kPersonalSideload)
-                    for (final t in algoBreaks)
-                      if (daysBehind(t) case final b?
-                          when b >= 0 &&
-                              b < series.length &&
-                              series.length - 1 - b > 0)
-                        (series.length - 1 - b - .5) / (series.length - 1),
-                ];
                 return ChartFrame(
                   title: spec.title,
                   // Minutes already read "7h 05m"; a second "min" doubled it.
@@ -1111,20 +1086,6 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
                       : (spec.unit.isEmpty ? 'score' : spec.unit),
                   height: 150,
                   yAxis: axis,
-                  xMarks: marks,
-                  // The mark's only screen-reader form, and the only thing that can
-                  // say what it is. Deliberately flat: a version change is
-                  // provenance, not an event that happened to the user.
-                  footnote: marks.isEmpty
-                      ? null
-                      : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
-                            (marks.length == 1
-                                ? 'The dotted line is a change in how these days were '
-                                      'computed. Readings either side of it came from '
-                                      'different versions.'
-                                : 'The dotted lines are changes in how these days were '
-                                      'computed. Readings either side of one came from '
-                                      'different versions.')),
                   // The window IS the span now: `series` has one slot per calendar
                   // day whether or not that day derived, so both edges are dates
                   // rather than array positions. It used to read the length of a
@@ -1232,58 +1193,6 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
           // so no day needs the chart touched first.
           // (Today has its own day view and navigation below.)
           if (win > 1 && series.isNotEmpty) _picked(c, spec, series),
-          // L4 — the coverage denominator, under the curve it belongs to.
-          //
-          // Deliberately unflattering, and gated to the ranges where it changes
-          // the reading: a 7-day chart is one week you either wore or did not,
-          // while a 6-month line drawn over four worn nights a month is an
-          // attendance chart with a physiology label on it. It cannot make a
-          // sparse month comparable — only refuse to pretend.
-          //
-          // A day with no `worn_min` row draws NOTHING, not a zero: wear older
-          // than the 3-day substrate window is knowable only through this derived
-          // key, and nothing here reconstructs it. Same card, not a new one; the
-          // denominator is part of reading the chart, not a second claim.
-          if (!kPersonalSideload &&
-              win >= 30 &&
-              spec.chartKey != 'wear' &&
-              wear.isNotEmpty)
-            Builder(
-              builder: (c) {
-                final hrs = [
-                  for (final v in denseDays(wear, win))
-                    v == null ? null : v / 60,
-                ];
-                final have = [for (final v in hrs) ?v];
-                if (have.isEmpty) return const SizedBox.shrink();
-                final axis = AxisSpec.of(
-                  have,
-                  ticks: 2,
-                  floor: 0,
-                  ceil: 24,
-                  format: axisInt,
-                );
-                return Padding(
-                  padding: const EdgeInsets.only(top: S.x4),
-                  child: ChartFrame(
-                    title: l?.metricDetailWornChartTitle ?? 'Worn',
-                    unit: l?.metricDetailHoursADayUnit ?? 'h a day',
-                    height: 56,
-                    yAxis: axis,
-                    series: hrs,
-                    footnote:
-                        l?.metricDetailWearFootnote(have.length, win) ??
-                        '${have.length} of these $win days have a wear '
-                            'record. The rest are gaps in both charts — the line above '
-                            'is not carried across one.',
-                    child: CustomPaint(
-                      size: Size.infinite,
-                      painter: Bars(hrs, p.ink3, axis: axis),
-                    ),
-                  ),
-                );
-              },
-            ),
         ],
       ),
     );
@@ -2193,10 +2102,9 @@ class DayNav extends StatelessWidget {
   }
 }
 
-/// Whether [key]'s trend is withheld. Skin temperature is withheld in the
-/// personal build (B88-01: the WHOOP 4.0 channel is not a temperature).
-bool metricSuppressed(String key) =>
-    specOf(key).suppress != null && !(kShowSkinTemp && key == 'skin_temp');
+/// Whether [key]'s trend is withheld (skin temperature: B88-01, the WHOOP
+/// 4.0 channel is not a temperature).
+bool metricSuppressed(String key) => specOf(key).suppress != null;
 
 /// [DayNav] and the gap under it, spread into a `detailScaffold` body — or
 /// nothing at all when there is only one day to look at.

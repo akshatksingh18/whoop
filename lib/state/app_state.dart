@@ -70,7 +70,6 @@ import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/notification_prefs.dart';
 import '../platform/phone_pedometer.dart';
-import '../build_profile.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../data/models.dart';
@@ -1978,7 +1977,6 @@ class AppState extends ChangeNotifier {
   /// it. Every foreground pass: a Sideloadly refresh replaces the profile, and
   /// warnings armed from the old one must move with it.
   Future<void> refreshSigningStatus() async {
-    if (!kPersonalSideload) return;
     try {
       final expiry = await readSigningExpiry();
       if (expiry != signingExpiry) {
@@ -2189,7 +2187,7 @@ class AppState extends ChangeNotifier {
 
   void _maybeDowngradeLiveForBackground() {
     if (!engine.isConnected || !engine.liveEnabled) return;
-    // Already HR-only (the personal build always is, [kHighRateLive]):
+    // Already HR-only (the live set always is):
     // nothing to step down.
     if (_hasLiveConsumer || engine.liveHrOnly) return;
     _bgLiveDowngrade = Platform.isAndroid
@@ -2458,18 +2456,6 @@ class AppState extends ChangeNotifier {
   void _ingestLiveMagsAt(proto.ImuFrame f, int nowMs) {
     final mags = f.mags;
     if (mags.isEmpty) return;
-    // `e` is this frame's 1 Hz-equivalent ENMO (mean |a| − 1 g), read below by
-    // the stillness nudge and the posture check. Computed for EVERY frame:
-    // those two are about wear and movement, not about steps, so neither gate
-    // below may switch them off. It no longer feeds a cadence calibration —
-    // that was deleted along with the 1 Hz step estimator that was its only
-    // consumer (kAlgoVersion v55).
-    var magSum = 0.0;
-    for (final m in mags) {
-      magSum += m;
-    }
-    final e = (magSum / mags.length) - 1.0;
-
     // GATE 1 — gait activities only. See kGaitStepTypeKeys. No active session
     // is countable (passive wear is the case the ladder was built for); a
     // session that is not locomotion on foot is not.
@@ -2532,7 +2518,6 @@ class AppState extends ChangeNotifier {
         // handed to sessionCadenceSpm. `liveStepsAbsentReason` says why.
         continue;
       }
-      final before = _committedRaw;
       final minuteSteps = ana.pedometer(minute);
       _committedRaw += minuteSteps;
       // A counting minute is a COVERED minute; a silent one is not, and does

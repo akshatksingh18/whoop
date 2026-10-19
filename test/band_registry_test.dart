@@ -10,7 +10,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 void main() {
   test('ids are unique and stable — they are stamped as device_family', () {
     expect(kBandRegistry.map((e) => e.id).toList(),
-        <String>['gen4', 'gen5', 'ble_hrs', 'oura']);
+        <String>['gen4', 'gen5']);
   });
 
   test('D1 — the scan service list is exactly the two WHOOP services', () {
@@ -37,16 +37,6 @@ void main() {
     }
   });
 
-  test('D10 — a generic HRS entry has one service and one notify char', () {
-    expect(kBleHrs.isFramed, isFalse);
-    expect(kBleHrs.service, kHeartRateServiceUuid);
-    expect(kBleHrs.servicePrefix, '0000180d');
-    expect(kBleHrs.requiredCharacteristics, [kHeartRateMeasurementUuid]);
-    // The two halves that could NOT be expressed — see the registry header.
-    expect(kBleHrs.gatt, isNull, reason: 'GattProfile is six WHOOP UUIDs');
-    expect(kBleHrs.wire, isNull, reason: 'BandProfile is a framed envelope');
-  });
-
   test('D3 — frameOpcodeIndex lands on the opcode of a real built frame', () {
     // This is the byte the dangerous-opcode block reads. If it moves, the
     // block silently stops blocking.
@@ -64,10 +54,6 @@ void main() {
       expect(e.innerVersionOffset, 1, reason: e.id); // inner[1]
       expect(e.innerCounterOffset, 3, reason: e.id); // u32(inner, 3)
     }
-    // A band with no envelope has no inner payload, and -1 throws rather than
-    // reading a plausible-looking wrong byte.
-    expect(kBleHrs.innerVersionOffset, -1);
-    expect(kBleHrs.innerCounterOffset, -1);
   });
 
   test('a band declares what its timestamps ARE', () {
@@ -75,7 +61,6 @@ void main() {
     // on an arrival anchor, and this is the fact they refuse on.
     expect(kWhoopGen4.timeAnchor, TimeAnchor.measured);
     expect(kWhoopGen5.timeAnchor, TimeAnchor.measured);
-    expect(kBleHrs.timeAnchor, TimeAnchor.arrival);
   });
 
   test('bandEntryFor maps a wire profile back to its entry', () {
@@ -139,11 +124,5 @@ void main() {
     expect(a.setAdvertisingName, isNot(b.setAdvertisingName));
     expect(a.r10R11Realtime, isNot(b.r10R11Realtime));
     expect(a.offloadBody, isNot(b.offloadBody));
-  });
-
-  test('a notify-only sensor has no command table at all', () {
-    // Same rule as the -1 offsets: throwing beats answering with a
-    // plausible-looking WHOOP default that would be written to a chest strap.
-    expect(() => kBleHrs.commands, throwsA(isA<TypeError>()));
   });
 }

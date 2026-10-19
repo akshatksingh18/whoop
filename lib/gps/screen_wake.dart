@@ -5,15 +5,12 @@
 // the screen sleeping. Before this, the live session screen carried a "Keep the
 // screen on to map your route" hint — asking the user to work around the app.
 //
-// Deliberately NOT a new dependency. Both platforms already have a registered
-// method channel, and the native primitive is one line each:
-//   • Android — FLAG_KEEP_SCREEN_ON on the activity window (window-scoped, so
-//     it is released automatically when the activity goes away).
-//   • iOS     — UIApplication.isIdleTimerDisabled.
-// Neither is a true CPU wakelock: they keep the DISPLAY on while the app is
-// frontmost and nothing more, so a leaked flag can never drain the battery in
-// the background. Background *recording* is a separate mechanism entirely (the
-// location background mode / FGS location type — see gps_source.dart).
+// Deliberately NOT a new dependency: the native primitive is one line,
+// UIApplication.isIdleTimerDisabled, behind the existing config channel. It is
+// not a CPU wakelock: it keeps the DISPLAY on while the app is frontmost and
+// nothing more, so a leaked flag can never drain the battery in the
+// background. Background *recording* is a separate mechanism entirely (the
+// location background mode — see gps_source.dart).
 //
 // Failure is always silent: a screen that sleeps is a papercut, never a reason
 // to interrupt a workout.
@@ -28,24 +25,20 @@ class ScreenWake {
 
   /// What the PLATFORM last confirmed, not what we last asked for.
   ///
-  /// Only updated after a successful call. Android returns false when no
-  /// activity is attached; latching the requested value before the result came
-  /// back meant a failed enable left Dart believing the screen was held and
-  /// short-circuited every later retry.
+  /// Only updated after a successful call: latching the requested value
+  /// before the result came back meant a failed enable left Dart believing
+  /// the screen was held and short-circuited every later retry.
   static bool _on = false;
 
   /// Test seam for the platform switch below.
   ///
-  /// `Platform.isAndroid` and `Platform.isIOS` are BOTH false on the host VM
-  /// that widget tests run on, so without this the dispatch short-circuits and
-  /// no test can reach either MethodChannel — the mocks looked wired up and
-  /// asserted nothing. Set to 'android' or 'ios' in a test; null = real
-  /// platform.
+  /// `Platform.isIOS` is false on the host VM that widget tests run on, so
+  /// without this the dispatch short-circuits and no test can reach the
+  /// MethodChannel — the mocks looked wired up and asserted nothing. Set to
+  /// 'ios' in a test; null = real platform.
   @visibleForTesting
   static String? platformOverride;
 
-  static bool get _isAndroid =>
-      platformOverride == null ? Platform.isAndroid : platformOverride == 'android';
   static bool get _isIOS =>
       platformOverride == null ? Platform.isIOS : platformOverride == 'ios';
 

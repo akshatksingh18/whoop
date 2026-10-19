@@ -103,51 +103,34 @@ void main() {
     // The OS fires a zonedSchedule with no Dart running, so shouldFireOs never
     // sees one. What may be SCHEDULED is a separate, narrower list: a slot the
     // user asked for by name, at a time or interval they picked.
-    test('allows the lookback, the hydration band, the sweep and the nudge', () {
-      expect(NotificationService.maySchedule(NotificationService.idWeeklyRecap),
-          isTrue);
-      // The movement nudge earned its place by growing an off switch
-      // (NotificationPrefs.movementEnabled). Refused here for as long as it had
-      // none, which is why issue #123 never fired for anyone — the cancel on
-      // every foreground resume was the visible half of it.
-      expect(NotificationService.maySchedule(NotificationService.idStillness),
-          isTrue);
-      expect(NotificationService.maySchedule(NotificationService.idEveningBrief),
-          isTrue);
-      for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
-        expect(
-            NotificationService.maySchedule(NotificationService.idWaterBase + i),
-            isTrue,
-            reason: 'water slot $i');
+    test('allows the lookback and the reminders the user set', () {
+      for (final id in [
+        NotificationService.idWeeklyRecap,
+        NotificationService.idBodyReminder,
+        NotificationService.idFoodDayReminder,
+        NotificationService.idPushupRegular,
+        NotificationService.idPushupNudgeBase,
+      ]) {
+        expect(NotificationService.maySchedule(id), isTrue, reason: '$id');
       }
     });
 
-    test('refuses everything else, including the ids either side of the band',
-        () {
+    test('refuses everything else', () {
       for (final id in [
-        // The AI journal prompt is STILL refused: the daily check-in owns
-        // that moment now, and two prompts for one journal is how people
-        // mute everything.
-        NotificationService.idJournalLog,
         NotificationService.idLowBattery,
-        NotificationService.idWaterBase - 1,
-        NotificationService.idWaterBase + NotificationService.maxWaterSlots,
+        NotificationService.idCharging,
+        // The retired wind-down, journal, check-in, water and medication slots.
+        2002,
+        2004,
+        2201,
+        2100,
+        2300,
       ]) {
         expect(NotificationService.maySchedule(id), isFalse, reason: '$id');
       }
     });
 
-    test('wind-down and the morning briefing earned their places', () {
-      // Wind-down: armed only from a LEARNED bedtime behind its own switch
-      // (NotificationCenter.windDownSlot); morning brief: only for a BYOK user
-      // with their own AI morning switch on (aiReminderPlan).
-      expect(
-          NotificationService.maySchedule(NotificationService.idWindDown),
-          isTrue);
-      expect(
-          NotificationService.maySchedule(NotificationService.idMorningBrief),
-          isTrue);
-    });
+
   });
 
   group('shouldFireOs', () {

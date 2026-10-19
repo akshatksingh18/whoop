@@ -23,7 +23,6 @@ import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/notify/notification_report.dart';
 import 'package:openstrap_edge/gps/run_history.dart';
 import 'package:openstrap_edge/gps/workout_clock.dart';
-import 'package:openstrap_edge/live/live_activity.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/notify/notification_prefs.dart';
@@ -398,7 +397,7 @@ void main() {
       expect(latestDaySlot('2026-10-05', 0, now: now), 0);
     },
   );
-  test('focused routes and review quiet-hours opt-in gates agree', () {
+  test('focused routes resolve with their day and id', () {
     final r = datedRoute(kRouteWorkoutIdle, '2026-10-03', id: 'a/b');
     expect(routeId(resolveTapRoute(r).screen!), 'a/b');
     expect(routeDay(r), '2026-10-03');
@@ -408,25 +407,6 @@ void main() {
     );
     expect(routeDay('/today/recovery?day=2026-02-30'), isNull);
     expect(resolveTapRoute('/old/unknown').tab, 0);
-    const e = NotificationEvent(
-      dedupeKey: 'review',
-      category: NotifCategory.reminders,
-      title: 'Review',
-      body: 'Evidence',
-      date: '2026-10-03',
-      route: kRouteTrainingReview,
-    );
-    expect(const NotificationPrefs().shouldFireOs(e, 720), isFalse);
-    expect(
-      const NotificationPrefs(trainingReviewEnabled: true).shouldFireOs(e, 720),
-      isTrue,
-    );
-    expect(
-      const NotificationPrefs(
-        trainingReviewEnabled: true,
-      ).shouldFireOs(e, 1380),
-      isFalse,
-    );
   });
   test('review requires three distinct usable sessions on each side', () {
     final rows = <ana.TrainingObservation>[
@@ -487,84 +467,6 @@ void main() {
       isEmpty,
     );
   });
-  test('Live Activity updates pause and absent HR, then ends', () async {
-    const channel = MethodChannel('openstrap/live_activity');
-    final calls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          calls.add(call);
-          return true;
-        });
-    await LiveActivity.update(
-      id: 'run',
-      type: 'running',
-      elapsed: 240,
-      paused: false,
-      distanceKm: 1,
-      hr: null,
-    );
-    await LiveActivity.update(
-      id: 'run',
-      type: 'running',
-      elapsed: 240,
-      paused: true,
-      distanceKm: 1,
-      hr: null,
-    );
-    expect((calls.last.arguments as Map)['elapsed'], 240);
-    expect((calls.last.arguments as Map)['paceSeconds'], isNull);
-    expect((calls.last.arguments as Map)['hr'], isNull);
-    await LiveActivity.end();
-    expect(calls.last.method, 'end');
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, null);
-  });
-  test(
-    'queued stale Live Activity updates cannot resurrect a finished session',
-    () async {
-      const channel = MethodChannel('openstrap/live_activity');
-      final first = Completer<void>(), calls = <MethodCall>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            calls.add(call);
-            if (calls.length == 1) await first.future;
-            return true;
-          });
-      final updating = LiveActivity.update(
-        id: 'old',
-        type: 'running',
-        elapsed: 100,
-        paused: false,
-        distanceKm: 1,
-        hr: 130,
-      );
-      await Future<void>.delayed(Duration.zero);
-      final queued = LiveActivity.update(
-        id: 'old',
-        type: 'running',
-        elapsed: 101,
-        paused: false,
-        distanceKm: 1,
-        hr: 130,
-      );
-      final ending = LiveActivity.end();
-      final next = LiveActivity.update(
-        id: 'new',
-        type: 'walking',
-        elapsed: 0,
-        paused: false,
-        distanceKm: null,
-        hr: null,
-      );
-      first.complete();
-      await Future.wait([updating, queued, ending, next]);
-      expect(calls.map((c) => c.method).toList(), ['update', 'end', 'update']);
-      expect((calls.last.arguments as Map)['id'], 'new');
-      await LiveActivity.end();
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null);
-    },
-  );
   testWidgets('both calories remain visible at small width and large text', (
     tester,
   ) async {
@@ -671,18 +573,4 @@ void main() {
       expect(t.takeException(), isNull);
     },
   );
-  test('native activity attributes have identical Codable shapes', () {
-    String shape(String path) {
-      final s = File(path).readAsStringSync().replaceAll('\r\n', '\n');
-      return s.substring(
-        s.indexOf('struct OpenStrapWidgetAttributes'),
-        s.indexOf('\n}\n', s.indexOf('struct OpenStrapWidgetAttributes')) + 3,
-      );
-    }
-
-    expect(
-      shape('ios/LiveActivityBridge.swift'),
-      shape('ios/OpenStrapWidget/OpenStrapWidgetLiveActivity.swift'),
-    );
-  });
 }

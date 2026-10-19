@@ -4,16 +4,13 @@
 // where someone goes to ask "which of my things is this number coming from?".
 //
 // The answer is a quality ladder, and the ordering rule is the inverse of the
-// platform health stores: Apple Health and Health Connect rank by whatever
-// wrote last (with a manual priority list bolted on top), so a phone's step
-// estimate can quietly outrank a chest strap. Here the better sensor wins and
-// recency only breaks a tie within a tier. There is no user preference and the
+// platform health stores, which rank by whatever wrote last. Here the better
+// sensor wins (the band over the phone) and recency only breaks a tie within
+// a tier. There is no user preference and the
 // screen no longer claims one — no control ever set an order.
 //
 // Only what is measuring is listed. Importing a history is data adoption, not
-// device support, so it never appears here. A paired heart-rate sensor states
-// on its own row what it cannot do yet: it captures beats during a workout and
-// nothing derives from it.
+// device support, so it never appears here.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -36,14 +33,6 @@ import 'settings.dart' show backToRoot;
 
 /// Measurement quality, which is the ONLY thing that decides precedence.
 enum SourceTier {
-  /// An electrical beat detector: R-peaks, so genuine beat-to-beat intervals.
-  beatToBeat(
-    1,
-    'Beat-to-beat intervals',
-    'Electrical R-peak detection.',
-    C.green,
-  ),
-
   /// Optical pulse at the wrist. Everything this app ships today.
   wristOptical(
     2,
@@ -76,8 +65,6 @@ enum SourceTier {
 String sourceTierLabel(BuildContext c, SourceTier t) {
   final l = AppLocalizations.of(c);
   switch (t) {
-    case SourceTier.beatToBeat:
-      return l?.devicesTierBeatToBeatLabel ?? t.label;
     case SourceTier.wristOptical:
       return l?.devicesTierWristOpticalLabel ?? t.label;
     case SourceTier.phone:
@@ -88,8 +75,6 @@ String sourceTierLabel(BuildContext c, SourceTier t) {
 String sourceTierDetail(BuildContext c, SourceTier t) {
   final l = AppLocalizations.of(c);
   switch (t) {
-    case SourceTier.beatToBeat:
-      return l?.devicesTierBeatToBeatDetail ?? t.detail;
     case SourceTier.wristOptical:
       return l?.devicesTierWristOpticalDetail ?? t.detail;
     case SourceTier.phone:
@@ -135,12 +120,6 @@ class HealthSource {
 
   /// Where this source sits on the quality ladder, or NULL when it has no
   /// place on it.
-  ///
-  /// Null is not "unknown", it is "none". The Oura ring is the case: it holds
-  /// a pairing key, drains history and banks every frame it is sent, and it
-  /// supplies no decoded signal at all (`OuraAdapter.signals` is `const {}`),
-  /// so there is no measurement quality to rank. Filing it under the phone's
-  /// rung would have told someone their ring was reporting steps.
   final SourceTier? tier;
   final IconData icon;
   final bool connected;
@@ -155,18 +134,8 @@ class HealthSource {
   /// True for the PRIMARY band — the only source the offload engine drives,
   /// and the only one with band controls (rename, find, battery forecast).
   ///
-  /// FALSE for a paired sensor, deliberately. A chest strap is a better beat
-  /// detector than the band and a worse everything-else: it measures nothing
-  /// while a workout is not running. Letting one satisfy `hasBand` would take
-  /// the "No band is paired" card off a screen belonging to someone whose
-  /// sleep, recovery and temperature are all still abstaining.
+  /// FALSE for the phone: it counts steps and is no substitute for a band.
   final bool isBand;
-
-  /// The `device` row this source is, for a paired sensor. Null for the
-  /// primary band (whose row is `LocalDb.kPrimaryDeviceId`, `''`) and for the
-  /// phone. It is the `device_id` every measurement this source wrote carries,
-  /// which is what makes forgetting it possible without touching the data.
-  final String? deviceId;
 
   /// The ingest-stamped sensor family (`'gen4'` / `'gen5'`), or null when the
   /// link has not said yet. Not cosmetic: it is the key every sensor-dependent
@@ -176,10 +145,6 @@ class HealthSource {
   /// Publicly EXPERIMENTAL — this band is decoded but the owner has never held
   /// one (see [kOwnerConfirmedBandIds]). Not a quality tier and not a
   /// confidence: it says who has checked, not how good the numbers are.
-  /// NOT gated on [isBand]. A paired sensor is the case this exists for — it
-  /// is the one nobody here has held — and requiring `isBand` would have hidden
-  /// the label on exactly those rows while showing it on the band the owner
-  /// wears daily.
   bool get experimental =>
       family != null && !kOwnerConfirmedBandIds.contains(family);
 
@@ -194,7 +159,6 @@ class HealthSource {
     this.charging = false,
     this.lastData,
     this.isBand = false,
-    this.deviceId,
     this.family,
   });
 }
@@ -248,12 +212,7 @@ SourceTier? tierNamed(Object? name) {
 /// The sources that actually exist right now. Nothing is listed that cannot
 /// produce a number today.
 ///
-/// [sensorLive] is whether a paired sensor's link is up THIS INSTANT. It is
-/// passed in rather than read off `HrsLink` here because it changes on every
-/// beat: routing it through [AppState] would notify every listener in the app
-/// at 1 Hz for the duration of a workout, which is the rebuild storm this
-/// screen has already been fixed for once.
-List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
+List<HealthSource> liveSources(AppState app) => [
       if (app.isPaired)
         HealthSource(
           name: app.strapName ?? 'Your band',
@@ -452,22 +411,10 @@ class MyDevicesView extends StatelessWidget {
 /// "Not connected" is a statement about a radio link, and the phone has none:
 /// it is either handing steps over or it is not, which is exactly the failure
 /// the row used to hide behind a hardcoded "Connected".
-// Kept context-free and directly tested (see ui2_router_test.dart,
-// device_sources_test.dart) — this is the tier/connection LOGIC, not just
+// Kept context-free and directly tested (see ui2_router_test.dart) — this
+// is the tier/connection LOGIC, not just
 // copy. `_localizedSourceState` below is what the UI actually renders.
 String sourceState(HealthSource s) {
-  // A PAIRED SENSOR IS TESTED FOR FIRST, before the tier is consulted at all.
-  // It is armed by a workout and only by a workout, so "not connected" is its
-  // resting state and not a fault — and a sensor whose tier could not be named
-  // falls back to the phone's rung, where this function would otherwise have
-  // told the user their chest strap was reporting steps.
-  if (s.deviceId != null) {
-    if (s.connected) return 'Streaming beats';
-    // A source with no rung supplies no signal, so there is nothing for a
-    // workout to arm and nothing being derived. Say that, rather than promise
-    // a stream that will never start.
-    return s.tier == null ? 'Paired · storing what it sends' : 'Waiting for a workout';
-  }
   if (s.tier == SourceTier.phone) {
     return s.connected ? 'Reporting steps' : 'No steps arriving';
   }
@@ -477,12 +424,6 @@ String sourceState(HealthSource s) {
 
 String _localizedSourceState(BuildContext c, HealthSource s) {
   final l = AppLocalizations.of(c);
-  if (s.deviceId != null) {
-    if (s.connected) return l?.devicesStreamingBeats ?? 'Streaming beats';
-    return s.tier == null
-        ? (l?.devicesStoringWhatItSends ?? 'Paired · storing what it sends')
-        : (l?.devicesWaitingForWorkout ?? 'Waiting for a workout');
-  }
   if (s.tier == SourceTier.phone) {
     return s.connected
         ? (l?.devicesReportingSteps ?? 'Reporting steps')
@@ -819,7 +760,7 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
 
 class DeviceDetailView extends StatelessWidget {
   final HealthSource s;
-  final VoidCallback? onFind, onForget, onSync;
+  final VoidCallback? onFind, onForget;
 
   /// The beat arriving right now, or null when nothing fresh is streaming.
   /// Passed IN rather than read from a provider here: this view is rendered in
@@ -847,7 +788,6 @@ class DeviceDetailView extends StatelessWidget {
       {super.key,
       this.onFind,
       this.onForget,
-      this.onSync,
       this.onRename,
       this.liveHr,
       this.status,
@@ -906,62 +846,6 @@ class DeviceDetailView extends StatelessWidget {
                 ],
                 if (s.tier case final t?) ...[
                   TierRow(t, filled: true),
-                  const SizedBox(height: S.x5),
-                ],
-                // A PAIRED SENSOR'S OWN CARD, not the band block below. It has
-                // no advertising name it owns, no battery this app reads and
-                // nothing to buzz — and it has the one thing a user needs
-                // before they trust the row at all: what is captured, and what
-                // is calculated from it. Today the answer to the second is
-                // NOTHING, for every sensor, and that has to be on the screen
-                // rather than inferred from a metric quietly still abstaining.
-                if (!s.isBand && s.deviceId != null) ...[
-                  Surface(
-                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: Column(children: [
-                      SetRow(LucideIcons.flaskConical, C.orange,
-                          l?.devicesSupport ?? 'Support',
-                          value: l?.devicesExperimental ?? 'Experimental',
-                          sub: l?.devicesSensorExperimentalSub ??
-                              'Decoded from the protocol, never checked '
-                                  'against the hardware — nobody here owns one.',
-                          chevron: false),
-                      Divider(color: p.line, height: 1),
-                      SetRow(LucideIcons.database, C.teal,
-                          l?.devicesWhatItDoes ?? 'What it does',
-                          sub: s.tier == null
-                              ? (l?.devicesWhatItDoesUnranked ??
-                                  'Everything it sends is stored and attributed '
-                                      'to it. Nothing in the app is calculated '
-                                      'from it yet.')
-                              : (l?.devicesWhatItDoesRanked ??
-                                  'Beat timing is stored and attributed to it '
-                                      'during a workout. Nothing in the app is '
-                                      'calculated from it yet.'),
-                          chevron: false),
-                      Divider(color: p.line, height: 1),
-                      SetRow(LucideIcons.refreshCw, C.purple,
-                          l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last, l),
-                          sub: last == null
-                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
-                              : '',
-                          chevron: false),
-                      // MANUAL, and only for a sensor that holds history.
-                      // A strap has no flash and nothing to fetch; a ring
-                      // does, and putting it on a schedule would have it
-                      // contending for the radio with the band's own link
-                      // for no reason a user asked for.
-                      if (onSync != null) ...[
-                        Divider(color: p.line, height: 1),
-                        SetRow(LucideIcons.downloadCloud, C.blue,
-                            l?.devicesSyncNow ?? 'Sync now',
-                            sub: l?.devicesSyncNowSub ??
-                                'Fetch whatever it has been holding',
-                            onTap: onSync),
-                      ],
-                    ]),
-                  ),
                   const SizedBox(height: S.x5),
                 ],
                 // Band rows only. The phone has no radio link and no battery

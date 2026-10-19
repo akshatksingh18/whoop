@@ -1,12 +1,11 @@
-// Coach derived-only SQL views — verify they CREATE (json1 available) and that
-// CoachDb.runCoachSql reads them through a read-only handle while rejecting raw.
+// Derived-only SQL views (the CSV export reads them) — verify they CREATE
+// and that json1 unnesting works.
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
-import 'package:openstrap_edge/coach/coach_db.dart';
 
 void main() {
   setUpAll(() async {
@@ -18,11 +17,10 @@ void main() {
   });
 
   tearDownAll(() async {
-    await CoachDb.close();
     await LocalDb.close();
   });
 
-  test('views create + json1 unnest works; CoachDb reads, rejects raw', () async {
+  test('views create + json1 unnest works', () async {
     final db = await LocalDb.instance; // onCreate builds tables + views
 
     // Seed derived data.
@@ -54,16 +52,5 @@ void main() {
     expect(series.length, 2);
     expect((series.last['v'] as num).toInt(), 62);
 
-    // End-to-end through the read-only handle + shaping.
-    final ok = await CoachDb.runCoachSql(
-        "SELECT date, value FROM v_metric WHERE key='rhr'");
-    final decoded = jsonDecode(ok) as Map<String, dynamic>;
-    expect(decoded['row_count'], 1);
-    expect((decoded['rows'] as List).first['value'], 55.0);
-
-    // Raw access is rejected with a self-correct reason, not rows.
-    final bad = await CoachDb.runCoachSql('SELECT * FROM raw_records');
-    final badDec = jsonDecode(bad) as Map<String, dynamic>;
-    expect(badDec.containsKey('error'), isTrue);
   });
 }

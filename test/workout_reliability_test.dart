@@ -275,20 +275,16 @@ void main() {
     setUp(() {
       calls.clear();
       ScreenWake.resetForTest();
-      // Platform.isAndroid/isIOS are BOTH false on the host VM, so without this
-      // the dispatch short-circuits and these mocks are never reached — the
-      // call-count and failure assertions below asserted nothing at all.
-      ScreenWake.platformOverride = 'android';
-      for (final ch in const [
-        MethodChannel('openstrap/edge_tracking'),
-        MethodChannel('openstrap/ios_config'),
-      ]) {
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(ch, (c) async {
-          calls.add(c);
-          return true;
-        });
-      }
+      // Platform.isIOS is false on the host VM, so without this the dispatch
+      // short-circuits and these mocks are never reached — the call-count and
+      // failure assertions below asserted nothing at all.
+      ScreenWake.platformOverride = 'ios';
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('openstrap/ios_config'),
+              (c) async {
+        calls.add(c);
+        return true;
+      });
     });
 
     test('enable then release round-trips the flag and hits the channel',
@@ -303,18 +299,18 @@ void main() {
       expect((calls.last.arguments as Map)['on'], isFalse);
     });
 
-    test('a platform that refuses does NOT latch, so a retry can succeed',
+    test('a platform that fails does NOT latch, so a retry can succeed',
         () async {
-      // Android answers false when no activity is attached. Latching the
-      // requested value there left Dart believing the screen was held and
-      // suppressed every later attempt.
+      // Latching the requested value on a failed call left Dart believing the
+      // screen was held and suppressed every later attempt.
       var refuse = true;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('openstrap/edge_tracking'),
+        const MethodChannel('openstrap/ios_config'),
         (c) async {
           calls.add(c);
-          return !refuse;
+          if (refuse) throw PlatformException(code: 'unavailable');
+          return true;
         },
       );
       await ScreenWake.enable();
@@ -350,7 +346,7 @@ void main() {
       // stopping it was enough to hit this.
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('openstrap/edge_tracking'),
+        const MethodChannel('openstrap/ios_config'),
         (c) async {
           calls.add(c);
           // A real channel hop is not instantaneous; this is the window the
@@ -377,14 +373,9 @@ void main() {
     });
 
     test('a channel failure never throws into the workout path', () async {
-      for (final ch in const [
-        MethodChannel('openstrap/edge_tracking'),
-        MethodChannel('openstrap/ios_config'),
-      ]) {
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(
-                ch, (c) async => throw PlatformException(code: 'boom'));
-      }
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('openstrap/ios_config'),
+              (c) async => throw PlatformException(code: 'boom'));
       // Losing the wake flag degrades to "the screen sleeps" — it must never
       // propagate and interrupt a session.
       await expectLater(ScreenWake.enable(), completes);

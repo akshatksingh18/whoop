@@ -5,8 +5,8 @@
 //
 //   connect → prefer LE 2M PHY → discover/validate fd4b → MTU 247 → bond →
 //   600 ms → register required notifications serially → 500 ms →
-//   GET_HELLO(145, body 01, 5 s, PENDING non-terminal) → Android native name
-//   non-null → identity (serial/CPU fully alphanumeric) → clock contract
+//   GET_HELLO(145, body 01, 5 s, PENDING non-terminal) → identity
+//   (serial/CPU fully alphanumeric) → clock contract
 //   (hello's own timestamp incl. subseconds; <2 whole seconds: no write;
 //   ≥2 s: ONE awaited SET_CLOCK, no read-back) → awaited
 //   GET_ADVERTISING_NAME(141, body 01) → READY → charging-only opcode-151
@@ -94,7 +94,7 @@ Decoded _nameReply(int seq) => Decoded('cmd_response', {
 
 /// The fake link + scripted platform ops, sharing ONE trace:
 /// 'phy' / 'discover' / 'mtu:247' / 'bond:check' / 'bond:create' /
-/// 'sub:{role}' / 'native_name' / 'cmd:{opcode}' / 'ready'.
+/// 'sub:{role}' / 'cmd:{opcode}' / 'ready'.
 class _Rig {
   final logs = <String>[];
   final commands = <({int seq, int opcode, List<int> body})>[];
@@ -103,11 +103,6 @@ class _Rig {
   late final BleEngine engine;
 
   Decoded? Function(int seq, int opcode)? replyTo;
-
-  /// What the injected Android native-name reader answers; the reader also
-  /// records the remoteId it was asked about.
-  String? nativeName = 'WHOOP 4A0X';
-  final nativeNameQueries = <String>[];
 
   bool _sawReady = false;
   bool get ready => _sawReady;
@@ -125,11 +120,6 @@ class _Rig {
       },
       log: logs.add,
     );
-    engine.debugNativeNameReader = (remoteId) async {
-      nativeNameQueries.add(remoteId);
-      trace.add('native_name');
-      return nativeName;
-    };
     engine.debugBondRemover = () async {
       bondRemovals++;
     };
@@ -303,7 +293,6 @@ void main() {
             'sub:data',
             'sub:events',
             'cmd:${Cmd.getHello}',
-            'native_name',
             'cmd:${Cmd.getCustomAdvertisingName}',
           ]);
           expect(rig.count(Cmd.getClock), 0);
@@ -595,11 +584,6 @@ void main() {
 
   group('HELLO is mandatory — every failure mode stops the bootstrap', () {
     void expectNothingAfterHello(_Rig rig) {
-      expect(
-        rig.trace,
-        isNot(contains('native_name')),
-        reason: 'no name gate after a failed hello',
-      );
       expect(rig.count(Cmd.setClock), 0);
       expect(
         rig.count(Cmd.getClock),
@@ -700,47 +684,6 @@ void main() {
   });
 
   group('the post-HELLO gates', () {
-    test('a null Android native name prevents READY', () {
-      fakeAsync((async) {
-        final rig = _Rig()..answerAll();
-        rig.nativeName = null;
-        expect(_run(rig, async), isFalse);
-
-        expect(rig.ready, isFalse);
-        expect(
-          rig.count(Cmd.setClock),
-          0,
-          reason: 'the sequence stops at the name gate',
-        );
-        expect(rig.count(Cmd.getCustomAdvertisingName), 0);
-        expect(
-          rig.engine.helloFailureCount,
-          0,
-          reason:
-              'a name-gate failure is a CONNECTION failure, not a '
-              'hello-exchange failure — the evidence never counts it there',
-        );
-        expect(rig.logged('requires a non-null native name'), isTrue);
-      });
-    });
-
-    test('a cold reconnect reads the NATIVE name for the session\'s remote '
-        'id — never flutter_blue_plus\'s platformName cache', () {
-      fakeAsync((async) {
-        // The fake link's device is built the way a cold-start reconnect
-        // builds it — BluetoothDevice.fromId — so its FBP platformName cache
-        // is EMPTY by construction. Readiness must come from the injected
-        // native getter, asked about this exact remote id.
-        final rig = _Rig()..answerAll();
-        expect(_run(rig, async), isTrue);
-        expect(
-          rig.nativeNameQueries,
-          ['AA:BB:CC:DD:EE:FF'],
-          reason: 'exactly one native read, for the session device',
-        );
-      });
-    });
-
     test('a partially-alphanumeric serial prevents READY', () {
       fakeAsync((async) {
         final rig = _Rig()..answerAll(serial: 'W5-AB12');

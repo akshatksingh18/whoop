@@ -20,7 +20,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/app.dart';
-import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/day_label.dart';
@@ -1099,17 +1098,14 @@ void main() {
       await t.runAsync(app.chooseNewUser);
       final locale = LocaleController.seed('en');
       final theme = ThemeController.seed(AppThemeChoice.dark, Brightness.dark);
-      final coach = CoachConfig();
       addTearDown(app.dispose);
       addTearDown(locale.dispose);
       addTearDown(theme.dispose);
-      addTearDown(coach.dispose);
       Widget root() => MultiProvider(
         providers: [
           ChangeNotifierProvider<AppState>.value(value: app),
           ChangeNotifierProvider<LocaleController>.value(value: locale),
           ChangeNotifierProvider<ThemeController>.value(value: theme),
-          ChangeNotifierProvider<CoachConfig>.value(value: coach),
         ],
         child: const OpenStrapApp(),
       );
@@ -1182,15 +1178,6 @@ void main() {
       expect(
         t.widget<ReadinessDetail>(find.byType(ReadinessDetail)).day,
         '2026-10-03',
-      );
-      await _unmount(t);
-      app.screenRequest.value = datedRoute(kRouteSteps, '2026-10-02');
-      app.navRequest.value = 0;
-      await t.pumpWidget(root());
-      await _until(t, () => find.byType(DayStepsDetail).evaluate().isNotEmpty);
-      expect(
-        t.widget<DayStepsDetail>(find.byType(DayStepsDetail)).day,
-        '2026-10-02',
       );
       await _unmount(t);
       app.stopForegroundRefresh();

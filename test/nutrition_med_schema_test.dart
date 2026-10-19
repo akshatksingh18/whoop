@@ -10,7 +10,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
-import 'package:openstrap_edge/data/med_store.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 
 /// Enough of the v34 shape for the ladder to have something real to walk.
@@ -105,67 +104,11 @@ void main() {
     // rather than defaulting to a zero the user never claimed.
     expect(day.single.fibreG, isNull);
 
-    await MedDb.putDef(
-      db,
-      const MedDef(
-        key: 'custom_d',
-        label: 'Vitamin D',
-        doseValue: 2000,
-        doseUnit: 'IU',
-        schedule: [
-          MedSchedule(480, [1, 2, 3, 4, 5, 6, 7]),
-        ],
-      ),
+    // The medication tables stay so a restored backup keeps its rows.
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'med_%'",
     );
-    final defs = await MedDb.defs(db);
-    expect(defs.single.doseLabel, '2000 IU');
-    expect(defs.single.schedule.single.minuteOfDay, 480);
-    // `created_at` is read back, not just written: it bounds every adherence
-    // denominator, so a def that cannot say when it started makes every day
-    // before it a run of misses.
-    final createdAt = defs.single.createdAt;
-    expect(createdAt, isNotNull);
-
-    // An EDIT arrives as a fresh MedDef with no stamp, and the row is written
-    // with REPLACE — restamping it to now would silently drop every dose the
-    // schedule had already come due for out of adherence.
-    await MedDb.putDef(
-      db,
-      const MedDef(
-        key: 'custom_d',
-        label: 'Vitamin D3',
-        doseValue: 4000,
-        doseUnit: 'IU',
-        schedule: [
-          MedSchedule(480, [1, 2, 3, 4, 5, 6, 7]),
-        ],
-      ),
-    );
-    final edited = await MedDb.defs(db);
-    expect(edited.single.label, 'Vitamin D3');
-    expect(edited.single.createdAt, createdAt);
-
-    await MedDb.mark(
-      db,
-      medKey: 'custom_d',
-      date: '2026-08-14',
-      slotMin: 480,
-      taken: true,
-    );
-    final doses = await MedDb.dosesForDay(db, '2026-08-14');
-    expect(doses['custom_d']![480]!['taken_ts'], isNotNull);
-
-    // An untaken slot stores NULL rather than 0 — that distinction is what
-    // keeps a future dose out of the adherence denominator.
-    await MedDb.mark(
-      db,
-      medKey: 'custom_d',
-      date: '2026-08-13',
-      slotMin: 480,
-      taken: false,
-    );
-    final earlier = await MedDb.dosesForDay(db, '2026-08-13');
-    expect(earlier['custom_d']![480]!['taken_ts'], isNull);
+    expect(tables.map((r) => r['name']).toSet(), {'med_def', 'med_dose'});
 
     final health = await LocalDb.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');

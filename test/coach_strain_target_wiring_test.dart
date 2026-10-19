@@ -13,7 +13,6 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
-import 'package:openstrap_edge/models/payloads.dart';
 
 /// A cross-day map shaped exactly like `crossDayPipeline` emits.
 Map<String, dynamic> crossDayWith(Object? strainCoachValue) => {
@@ -44,33 +43,6 @@ void main() {
       // The headline number is the centre of the aim band.
       expect(t['value'], closeTo(11.5, 1e-9));
       expect(t['rationale'], 'Target shaped by recovery and recent load.');
-    });
-
-    test('REGRESSION: the emitted shape actually reaches CoachData', () {
-      // The point of the fix: a row built the way getToday() builds it must
-      // survive TodayData.fromJson and come out the far side as a real target.
-      // Before, coach was absent, so TodayData.coach was null forever.
-      final row = {
-        'daily': const {},
-        'sleep': const {},
-        'coach': coachToday(
-          crossDayWith({
-            'target_min': 13.0,
-            'target_max': 18.0,
-            'band': 'push',
-            'rationale': 'Recovered well.',
-          }),
-        ),
-      };
-
-      final coach = TodayData.fromJson(row).coach;
-      expect(coach, isNotNull, reason: 'the coach key must be populated');
-
-      final tgt = coach!.strainTarget;
-      expect(tgt, isNotNull, reason: 'Today/Coach/widget read this');
-      expect(tgt!.low, closeTo(13.0, 1e-9));
-      expect(tgt.high, closeTo(18.0, 1e-9));
-      expect(tgt.value, closeTo(15.5, 1e-9));
     });
 
     test('an absent target produces no coach map rather than a fake one', () {

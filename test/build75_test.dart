@@ -10,7 +10,6 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
-import 'package:openstrap_edge/live/live_activity.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/gps/run_history.dart' show isRunType;
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
@@ -554,7 +553,6 @@ void main() {
         expect(isRunType(t), isTrue, reason: t);
       }
       expect(isRunType('weight_training'), isFalse);
-      expect(liveActivityEligible('treadmill'), isTrue);
     });
 
     testWidgets('one long-press drags into the hidden No sub-heading', (
@@ -886,47 +884,6 @@ void main() {
         editableNumber(after),
         reason: 'releasing stops it',
       );
-    });
-  });
-
-  group('Live Activity', () {
-    test('running and walking only, treadmill included', () {
-      expect(liveActivityEligible('walking'), isTrue);
-      expect(liveActivityEligible('running'), isTrue);
-      expect(liveActivityEligible('treadmill'), isTrue);
-      expect(liveActivityEligible('weight_training'), isFalse);
-      expect(liveActivityEligible('other'), isFalse);
-    });
-
-    test('the bridge reason is kept, and a refusal is not active', () async {
-      const channel = MethodChannel('openstrap/live_activity');
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            if (call.method == 'update') {
-              return {
-                'ok': false,
-                'reason': 'Live Activities are off for WHOOP in iOS Settings',
-              };
-            }
-            if (call.method == 'status') {
-              return {'enabled': false, 'extensionOk': true};
-            }
-            return true;
-          });
-      await LiveActivity.update(
-        id: 'walk',
-        type: 'walking',
-        elapsed: 5,
-        paused: false,
-        distanceKm: null,
-        hr: null,
-      );
-      expect(LiveActivity.isActive, isFalse);
-      expect(LiveActivity.lastReason, contains('off for WHOOP'));
-      expect((await LiveActivity.status())['enabled'], isFalse);
-      await LiveActivity.end();
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null);
     });
   });
 

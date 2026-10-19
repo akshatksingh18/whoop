@@ -10,7 +10,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart';
-import 'package:openstrap_edge/widget/widget_service.dart';
 
 DeriveDebouncer _deb() => const DeriveDebouncer();
 
@@ -84,50 +83,6 @@ void main() {
       expect(kLinkFreshnessSeconds, lessThan(kLivenessFuseSeconds));
       expect(isLinkStale(const Duration(seconds: 30)), isTrue);
       expect(isLinkStale(const Duration(seconds: 29)), isFalse);
-    });
-  });
-
-  group('widget snapshot fingerprint', () {
-    test('covers every key push writes', () {
-      // The gate silently freezes any key absent from the fingerprint. This
-      // assertion IS the review fix: #261 added ring_*/sleep_efficiency to
-      // push() and the shipped fingerprint did not know. Keep in lockstep
-      // with push().
-      for (final key in [
-        'statusDay',
-        'has_data',
-        'readiness',
-        'readiness_tier',
-        'readiness_band',
-        'hrv',
-        'hrv_baseline',
-        'strain',
-        'sleep_min',
-        'sleep_need_min',
-        'rhr',
-        'sleep_efficiency',
-        'overnight_why',
-        'coach_line',
-        'ring_recovery_state',
-        'ring_recovery_value',
-        'ring_recovery_sub',
-        'ring_recovery_why',
-        'ring_recovery_frac',
-        'ring_strain_state',
-        'ring_strain_frac',
-        'ring_sleep_state',
-        'ring_sleep_frac',
-        // updated_at deliberately excluded: write-time metadata.
-      ]) {
-        if (key == 'updated_at') continue;
-        expect(
-          WidgetService.fingerprintKeyOrder,
-          contains(key),
-          reason: '$key is written by push() but not fingerprinted — '
-              'it would freeze until the next real change',
-        );
-      }
-      expect(WidgetService.fingerprintKeyOrder, isNot(contains('updated_at')));
     });
   });
 }

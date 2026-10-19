@@ -1842,7 +1842,6 @@ Map<String, Widget> _listCases() => {
     children: [
       TierRow(SourceTier.wristOptical, filled: true),
       SizedBox(height: S.x3),
-      TierRow(SourceTier.beatToBeat),
     ],
   ),
   'activity_row': Surface(

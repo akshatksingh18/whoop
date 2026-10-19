@@ -17,7 +17,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:openstrap_edge/cloud/cloud_import.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion;
 import 'package:openstrap_edge/compute/substrate.dart' show localDateLabel;
 import 'package:openstrap_edge/data/db.dart';
@@ -209,41 +208,6 @@ void main() {
       expect(
           await importEnergy('2026-04-03 07:00:00', 'Energy burned', '5000'),
           isNull);
-    });
-  });
-
-  group('CloudImporter session rows', () {
-    test('skips a session with no start_ts instead of filing it at epoch 0',
-        () async {
-      final wrote = await CloudImporter.debugWriteSession({
-        'id': 'malformed-1',
-        'end_ts': 1780000000,
-        'type': 'run',
-      });
-      expect(wrote, isFalse);
-      final db = await LocalDb.instance;
-      final rows = await db
-          .query('sessions', where: 'start_ts <= ?', whereArgs: [0]);
-      expect(rows, isEmpty, reason: 'a 1970-01-01 phantom workout was written');
-      final byId =
-          await db.query('sessions', where: 'id = ?', whereArgs: ['malformed-1']);
-      expect(byId, isEmpty);
-    });
-
-    test('writes a well-formed session', () async {
-      final wrote = await CloudImporter.debugWriteSession({
-        'id': 'good-1',
-        'start_ts': 1780000000,
-        'end_ts': 1780003600,
-        'type': 'run',
-      });
-      expect(wrote, isTrue);
-      final db = await LocalDb.instance;
-      final rows =
-          await db.query('sessions', where: 'id = ?', whereArgs: ['good-1']);
-      expect(rows.length, 1);
-      expect((rows.first['start_ts'] as num).toInt(), 1780000000);
-      expect((rows.first['duration_min'] as num).toInt(), 60);
     });
   });
 

@@ -29,7 +29,6 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/coach/coach_db.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/observation.dart';
@@ -206,7 +205,6 @@ void main() {
     });
 
     tearDownAll(() async {
-      await CoachDb.close();
       await LocalDb.close();
     });
 
@@ -260,21 +258,6 @@ void main() {
             'OBSERVATION_SPEC §3, and the failure it causes in production is '
             'silent — an unexplained step change in a long-horizon metric.',
       );
-    });
-
-    // ── LAYER 3 — the coach's read surface ───────────────────────────────────
-    test('the coach btree gate cannot reach observations', () async {
-      for (final sql in const [
-        'SELECT * FROM observation LIMIT 50',
-        'SELECT value FROM v_metric UNION ALL SELECT value FROM observation',
-        "SELECT * FROM v_daily WHERE date IN (SELECT date FROM observation)",
-      ]) {
-        await expectLater(
-          CoachDb.debugAssertAllowedBtrees(sql),
-          throwsA(isA<SqlGuardError>()),
-          reason: 'an LLM prompt reached the observation store: $sql',
-        );
-      }
     });
 
     // ── the storage layer itself ─────────────────────────────────────────────

@@ -642,7 +642,7 @@ class _BootstrapLink {
   bool _sawReady = false;
   bool get ready => _sawReady;
 
-  _BootstrapLink({this.band = BandProfile.gen5, String? nativeName = 'WHOOP'}) {
+  _BootstrapLink({this.band = BandProfile.gen5}) {
     engine = BleEngine(
       onRecord: (_, _) async {},
       onState: (s) {
@@ -653,15 +653,6 @@ class _BootstrapLink {
       },
       log: logs.add,
     );
-    // The post-HELLO Android native-name gate, exercisable off-device: the
-    // injected reader stands in for BluetoothDevice.getName(). Default is a
-    // present name so unrelated tests pass the gate.
-    if (band.isGen5) {
-      engine.debugNativeNameReader = (remoteId) async {
-        trace.add('native_name');
-        return nativeName;
-      };
-    }
     engine.debugInstallFakeLink(
       band: band,
       onWrite: (frame) async {

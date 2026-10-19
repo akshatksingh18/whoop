@@ -12,7 +12,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/db.dart';
-import 'package:openstrap_edge/health/health_export.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -189,23 +188,10 @@ void main() {
               'about after an app restart, the exact case the watch is for');
     });
 
-    test('a stale (past-ceiling) orphan is finalized locally but NEVER '
-        'exported to Health', () async {
+    test('a stale (past-ceiling) orphan is finalized and marked fabricated',
+        () async {
       // Its real end time is unknown — the reconcile stamps end_ts to
-      // reconcile-time as an honest "we closed this out", not a fact. Writing
-      // that fabricated span to Apple Health / Health Connect as a real
-      // workout would be a lie in the user's own health records.
-      const channel = MethodChannel('flutter_health');
-      final calls = <String>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            calls.add(call.method);
-            return call.method == 'hasPermissions' ? false : true;
-          });
-      addTearDown(() => TestDefaultBinaryMessengerBinding
-          .instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null));
-      SharedPreferences.setMockInitialValues({kHealthSyncPref: true});
+      // reconcile-time as an honest "we closed this out", not a fact.
 
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       const staleId = 'stale-past-ceiling';
@@ -222,20 +208,13 @@ void main() {
       final app = AppState.forTesting();
       addTearDown(app.dispose);
       await app.debugReconcileOrphanedLiveWorkout();
-      // exportWorkoutId is fired unawaited from the reconcile; give it a
-      // chance to run before asserting nothing came through.
-      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(calls, isEmpty,
-          reason: 'a stale orphan has a fabricated end_ts and must never '
-              'reach the platform health store');
       final row = await LocalDb.session(staleId);
       expect(row?['status'], 'done');
       expect(row?['end_ts'], isNotNull);
       expect(row?['end_ts_fabricated'], 1,
           reason: 'without this flag the row looks like any other finished '
-              'workout and _writeOneWorkout would export it on the very next '
-              'periodic exportAll pass, minutes later');
+              'workout, with an end time nobody measured');
     });
   });
 
@@ -344,11 +323,6 @@ void main() {
       addTo(app.navRequest.addListener);
       addTo(app.screenRequest.addListener);
       addTo(app.insightsRevision.addListener);
-      addTo(app.gestureSettings.addListener);
-      // NotificationRelay holds a WidgetsBindingObserver, a 15-min heal
-      // Timer.periodic and a StreamSubscription — its observer accumulated on
-      // the binding across every hot restart.
-      addTo(app.notificationRelay.addListener);
     });
   });
 

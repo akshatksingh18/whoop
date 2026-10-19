@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:openstrap_edge/coach/coach_actions.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
@@ -95,22 +94,4 @@ void main() {
       published(2);
     },
   );
-  test('coach save uses the same post-commit signal', () async {
-    final args = <String, dynamic>{
-      'date': dayLabelOf(DateTime.now().subtract(const Duration(days: 7))),
-      'start_time': '08:00',
-      'duration_min': 30,
-      'type': 'yoga',
-    };
-    await failWrites();
-    await expectLater(
-      CoachActions.addCompletedWorkout(repo, args),
-      throwsA(isA<CoachActionError>()),
-    );
-    published(0);
-    await db.execute('DROP TRIGGER synthetic_fail_session');
-    await CoachActions.addCompletedWorkout(repo, args);
-    expect(await db.query('sessions'), hasLength(1));
-    published(1);
-  });
 }

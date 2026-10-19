@@ -139,19 +139,12 @@ void main() {
 
     test('every kRoute constant lands somewhere deliberate', () {
       const routes = {
-        kRouteAiMorning: ShellDomain.home,
-        kRouteAiEvening: ShellDomain.home,
-        kRouteJournalCompose: ShellDomain.home,
-        kRouteBreathing: ShellDomain.home,
+        kRouteRecovery: ShellDomain.home,
         kRouteWorkoutSuggestion: ShellDomain.workout,
-        kRouteWater: ShellDomain.nutrition,
       };
       routes.forEach((route, domain) {
         expect(domainForRoute(route), domain, reason: route);
       });
-      // Water logging was removed from the personal build; a hydration tap
-      // armed by an older build lands on the Nutrition tab and pushes nothing.
-      expect(screenForRoute(kRouteWater), isNull);
       // Payload routes that predate the five-tab shell, and that
       // `resolveTapRoute` does not carry yet — the destinations exist here so
       // they stop landing on Home the moment it does.
@@ -371,10 +364,8 @@ void main() {
       final ranked = rankSources([
         src('Phone', SourceTier.phone, at: DateTime(2026, 8, 22, 12)),
         src('Band', SourceTier.wristOptical, at: DateTime(2026, 8, 20)),
-        src('Chest strap', SourceTier.beatToBeat, at: DateTime(2026, 8, 1)),
       ]);
-      expect(ranked.map((s) => s.name).toList(),
-          ['Chest strap', 'Band', 'Phone']);
+      expect(ranked.map((s) => s.name).toList(), ['Band', 'Phone']);
     });
 
     test('recency only breaks a tie inside a tier', () {

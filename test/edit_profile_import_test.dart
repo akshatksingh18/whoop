@@ -1,12 +1,5 @@
-// The read button on Edit profile.
-//
-// Three things have to hold, and none of them are visible from the importer's
-// own unit tests: the form has to SHOW what came back (a refresh that leaves
-// the old weight on screen has not refreshed anything a user can see), the
-// word on the button has to flip once something has arrived, and a form with
-// no importer wired must not grow a control at all — that is the case the
-// golden sweep pumps, and a real health-store prompt from a screenshot run is
-// not something to discover on CI.
+// Edit profile: decimal entry in either unit system, and leaving with unsaved
+// edits asks first.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -125,61 +118,5 @@ void main() {
     expect(find.text('Discard changes?'), findsNothing);
     expect(find.text('Settings'), findsOneWidget);
     expect(find.byType(EditProfileView), findsNothing);
-  });
-
-  testWidgets('no importer, no button', (t) async {
-    await t.pumpWidget(
-      _frame(EditProfileView(initial: _initial, onSave: (_) async {})),
-    );
-    expect(find.textContaining('from Apple Health'), findsNothing);
-    expect(find.textContaining('from Health Connect'), findsNothing);
-  });
-
-  testWidgets('the first read says Import, and fills the fields', (t) async {
-    await pump(
-      t,
-      EditProfileView(
-        initial: _initial,
-        onSave: (_) async {},
-        onImport: () async => (
-          'Updated weight from the store.',
-          false,
-          {..._initial, 'weight_kg': 70.1, 'age': 35},
-        ),
-      ),
-    );
-
-    expect(find.textContaining('Import from '), findsOneWidget);
-    expect(find.widgetWithText(TextField, '72.4'), findsOneWidget);
-
-    await t.tap(find.textContaining('Import from '));
-    await t.pumpAndSettle();
-
-    // What arrived is on screen, in the field it belongs to — not just in a
-    // confirmation line claiming it.
-    expect(find.widgetWithText(TextField, '70.1'), findsOneWidget);
-    expect(find.widgetWithText(TextField, '35'), findsOneWidget);
-    expect(find.text('Updated weight from the store.'), findsOneWidget);
-    // Same control, second verb.
-    expect(find.textContaining('Refresh from '), findsOneWidget);
-  });
-
-  testWidgets('a refusal keeps the first verb and changes nothing', (t) async {
-    await pump(
-      t,
-      EditProfileView(
-        initial: _initial,
-        onSave: (_) async {},
-        onImport: () async => ('The store granted nothing.', true, null),
-      ),
-    );
-    await t.tap(find.textContaining('Import from '));
-    await t.pumpAndSettle();
-
-    expect(find.text('The store granted nothing.'), findsOneWidget);
-    expect(find.widgetWithText(TextField, '72.4'), findsOneWidget);
-    // Nothing was read, so nothing is there to refresh.
-    expect(find.textContaining('Import from '), findsOneWidget);
-    expect(find.textContaining('Refresh from '), findsNothing);
   });
 }

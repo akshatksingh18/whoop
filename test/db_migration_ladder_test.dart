@@ -493,14 +493,16 @@ void main() {
       final version = await _openThroughLocalDb(name);
       expect(version, LocalDb.schemaVersion);
 
-      await LocalDb.putLabResult(
-        marker: 'ferritin',
-        takenOn: '2026-03-04',
-        value: 42,
-        unit: 'ng/mL',
-      );
-      expect((await LocalDb.labResults()).single['value'], 42.0);
-      expect(await LocalDb.labMarkerDefs(), isEmpty);
+      final db = await LocalDb.instance;
+      await db.insert('lab_result', {
+        'marker': 'ferritin',
+        'taken_on': '2026-03-04',
+        'value': 42,
+        'unit': 'ng/mL',
+        'updated_at': 0,
+      });
+      expect((await db.query('lab_result')).single['value'], 42.0);
+      expect(await db.query('lab_marker_def'), isEmpty);
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
@@ -521,18 +523,20 @@ void main() {
       await LocalDb.putJournalMetrics('2026-06-01', {
         'mood': const JournalMetricValue(4),
       });
-      await LocalDb.putLabResult(
-        marker: 'ferritin',
-        takenOn: '2026-03-04',
-        value: 42,
-        unit: 'ng/mL',
-      );
-      await LocalDb.putBreathingSession(
-        startedAt: 1000,
-        endedAt: 2000,
-        pattern: 'resonance',
-        seconds: 120,
-      );
+      final db = await LocalDb.instance;
+      await db.insert('lab_result', {
+        'marker': 'ferritin',
+        'taken_on': '2026-03-04',
+        'value': 42,
+        'unit': 'ng/mL',
+        'updated_at': 0,
+      });
+      await db.insert('breathing_session', {
+        'started_at': 1000,
+        'ended_at': 2000,
+        'pattern': 'resonance',
+        'seconds': 120,
+      });
       await LocalDb.putNapEdit(
         dayId: '2026-06-01',
         startTs: 1000,
@@ -544,22 +548,13 @@ void main() {
         (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
         4,
       );
-      expect((await LocalDb.labResults()).single['value'], 42.0);
-      expect((await LocalDb.breathingSessions()).single['seconds'], 120);
+      expect((await db.query('lab_result')).single['value'], 42.0);
       // MIND-06's window columns reach an OLD database through the onOpen
       // repair rather than a ladder rung, so this is the only thing that
       // proves they arrive at all on an upgrade.
-      await LocalDb.updateBreathingWindows(
-        startedAt: 1000,
-        preRmssd: 38.5,
-        postRmssd: 44.25,
-      );
-      expect((await LocalDb.breathingSessions()).single['pre_rmssd'], 38.5);
-      expect((await LocalDb.breathingSessions()).single['post_rmssd'], 44.25);
-      // An UPDATE, never an upsert: a session too short to bank has no row,
-      // and its windows must not create one behind it.
-      await LocalDb.updateBreathingWindows(startedAt: 999, preRmssd: 40);
-      expect((await LocalDb.breathingSessions()).length, 1);
+      await db.update('breathing_session', {'pre_rmssd': 38.5},
+          where: 'started_at = ?', whereArgs: [1000]);
+      expect((await db.query('breathing_session')).single['pre_rmssd'], 38.5);
       expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
       expect(await LocalDb.napEditDays(), {'2026-06-01'});
 
@@ -1164,8 +1159,8 @@ void main() {
   );
 
   test(
-    'v49 adds the device store and live_coverage.device_id without moving a '
-    'single day\'s step total',
+    'v49 adds the device store and live_coverage.device_id without touching '
+    'a band row',
     () async {
       const name = 'migrate_v48_device_table_test.db';
       created.add(name);
@@ -1193,25 +1188,12 @@ void main() {
       final db = await LocalDb.instance;
 
       // The rows are untouched and every one belongs to the primary band —
-      // which is exactly what a pre-v49 row has always meant, so no total moves.
+      // which is exactly what a pre-v49 row has always meant. They stay as
+      // history; the day's steps come from the phone alone.
       final rows = await db.query('live_coverage', orderBy: 'id ASC');
       expect([for (final r in rows) r['steps']], [3000, 3000]);
       expect([for (final r in rows) r['device_id']], ['', '']);
-      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 6000);
-
-      // And THE POINT: a second strap over the same walk now competes instead
-      // of being credited in full. This could not fire before the column
-      // existed — the resolver had handled it since the ladder gained
-      // `CoverageSpan.deviceId` and never saw a second id.
-      await LocalDb.addLiveCoverage(
-        1786000000,
-        1786001800,
-        3000,
-        '2026-08-06',
-        deviceId: 'second-strap',
-      );
-      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 6000,
-          reason: 'the walk is counted once more, not twice more');
+      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 0);
 
       // The device store exists, is empty, and is not silently absent from the
       // health check — the observation table's rung is the worked example.

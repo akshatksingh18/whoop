@@ -1,7 +1,6 @@
 // TRAIN — one page: start a session, see the week's strain, and open any
 // recent session. No sub-tabs.
 
-import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -2052,8 +2051,6 @@ Future<List<_PastWorkout>> _pastWorkouts(
   LocalRepository repo,
   String range,
 ) async {
-  final now = DateTime.now();
-  final end = DateTime(now.year, now.month, now.day);
   final past = <_PastWorkout>[];
   try {
     final rows = (await repo.getWorkouts(range: range))['workouts'];

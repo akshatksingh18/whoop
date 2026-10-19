@@ -173,7 +173,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
     setState(() => _busy = true);
     var message = '';
     try {
-      final r = await repo.logManualWorkout(
+      await repo.logManualWorkout(
         startTs: s.startTs,
         endTs: s.endTs,
         type: s.activity?.typeKey ?? 'other',

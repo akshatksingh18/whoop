@@ -46,7 +46,6 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
 import '../data/models.dart';
-import '../platform/tasker_bridge.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'adapters/_registry.dart';
@@ -6718,14 +6717,6 @@ class BleEngine {
     // drain by the time a superseded waiter's tick resolves.
     if (!report.complete && drain.taskGeneration == waiterGen) {
       _setOffloadActive(false);
-    }
-    // OUTBOUND automation event (Android only — see TaskerBridge.emitEvent for
-    // why iOS gets no equivalent). Only on a COMPLETE offload: "sync finished"
-    // must mean the strap actually drained, not that a link dropped mid-drain.
-    // Un-awaited and rate-limited inside the bridge; a broadcast that cannot be
-    // sent must never hold up the sync path.
-    if (report.complete) {
-      unawaited(TaskerBridge.emitSyncComplete(records: report.records));
     }
     _log(
       '[SYNC] OFFLOAD SUMMARY (totals since connect): records=${report.records} '

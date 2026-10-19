@@ -23,7 +23,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart';
 
 import '../ble/accessory_setup.dart';
-import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
@@ -84,7 +83,6 @@ import '../build_profile.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
-import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
 import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../data/food_day_reminder.dart' show FoodDayReminder;
@@ -94,7 +92,6 @@ import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
 import '../notify/water_buzzer.dart';
 import '../sync/background_sync.dart' show checkSyncStaleness;
-import '../sync/edge_tracking.dart';
 import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
@@ -210,11 +207,6 @@ class AppState extends ChangeNotifier {
     isConnected: () => engine.isConnected,
   );
 
-  /// Tasker integration bridge — listens for Android broadcast intents from
-  /// Tasker and buzzes the strap. Wired in the constructor.
-  late final TaskerBridge taskerBridge = TaskerBridge(
-    buzzPattern: (p) => engine.buzzPattern(p),
-  );
   Sample? lastSynced;
   // REAL device time (epoch SECONDS) of the newest record we hold — the band's
   // own clock, NOT when the BLE frame arrived. During a flash backfill, frames
@@ -1159,7 +1151,6 @@ class AppState extends ChangeNotifier {
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
     IosBleRestore.onWake = _onRestoreWake;
-    taskerBridge; // force init: register the method channel handler
     _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
@@ -2212,7 +2203,6 @@ class AppState extends ChangeNotifier {
       if (_background) {
         _keepAlive = true;
         _startReconnectSupervisor();
-        if (Platform.isAndroid) EdgeTracking.start();
         if (Platform.isIOS) {
           IosBleRestore.foregroundActive = true;
           IosBleRestore.arm(paired!.remoteId);
@@ -2270,7 +2260,6 @@ class AppState extends ChangeNotifier {
     }
     // The band owner is chosen; a wake queued before launch may now arrive.
     unawaited(IosBleRestore.announceReady());
-    unawaited(_checkPendingTaskerBuzz());
   }
 
   /// Whether iOS itself says this process is in the background — a Bluetooth
@@ -2278,51 +2267,6 @@ class AppState extends ChangeNotifier {
   /// frame must not start a foreground session for one of those.
   Future<bool> launchedInBackground() async =>
       Platform.isIOS && await IosBleRestore.appState() == 'background';
-
-  // Single-flight guard for _checkPendingTaskerBuzz — it's now invoked both
-  // from _init() and from every "became connected" transition
-  // (_onEngineState), so an overlapping call (e.g. a connect landing while
-  // the _init()-triggered call is still in its bounded wait) must no-op
-  // rather than race a second concurrent buzz/clear.
-  bool _taskerBuzzCheckInFlight = false;
-
-  Future<void> _checkPendingTaskerBuzz() async {
-    if (!Platform.isAndroid) return;
-    if (_taskerBuzzCheckInFlight) return;
-    _taskerBuzzCheckInFlight = true;
-    try {
-      final pattern = await TaskerBridge.peekPendingBuzz();
-      if (pattern == null) return;
-      // A Tasker BUZZ_STRAP can arrive while the app is fully dead; the
-      // reconnect this _init() already kicked off may not have landed by the
-      // time we get here. Wait (bounded) for a live link rather than firing
-      // into a not-yet-connected engine and silently losing the request —
-      // and only clear the persisted flag once we actually attempt delivery
-      // on a live connection. If this 20s wait still times out, the request
-      // is NOT lost: _onEngineState calls back in here on every subsequent
-      // "became connected" transition for the rest of this process's life,
-      // so a slower reconnect still eventually delivers it instead of
-      // requiring a full app restart.
-      final connected = await _waitUntil(
-        () => engine.isConnected,
-        const Duration(seconds: 20),
-      );
-      if (!connected) {
-        _log(
-          '[tasker] pending buzz (pattern=$pattern) still queued — '
-          'no connection within 20s, will retry on the next reconnect',
-        );
-        return;
-      }
-      _log(
-        '[tasker] consuming pending buzz (pattern=$pattern) from headless intent',
-      );
-      await engine.buzzPattern(pattern);
-      await TaskerBridge.clearPendingBuzz();
-    } finally {
-      _taskerBuzzCheckInFlight = false;
-    }
-  }
 
   /// Poll [check] every 500ms until it's true or [timeout] elapses. Small and
   /// generic on purpose — currently only used for the Tasker pending-buzz
@@ -2593,12 +2537,6 @@ class AppState extends ChangeNotifier {
     // HR-only so the high-rate raw flood can't starve the periodic R24 offloads
     // while backgrounded. Full live is restored on foreground reclaim.
     _maybeDowngradeLiveForBackground();
-    if (Platform.isAndroid) {
-      // Android: ensure the Edge Tracking foreground service is up (idempotent) so the
-      // process + live connection survive backgrounding. The service IS the keep-alive.
-      EdgeTracking.start();
-      return;
-    }
     if (!Platform.isIOS) return;
     if (engine.isConnected) {
       IosBleRestore.foregroundActive =
@@ -3548,16 +3486,6 @@ class AppState extends ChangeNotifier {
         _releaseForegroundLease();
       }
     }
-    if (_prevConn != 'connected' && s.connection == 'connected') {
-      // A Tasker BUZZ_STRAP that arrived while disconnected/dead only gets a
-      // bounded wait inside _checkPendingTaskerBuzz (called from _init()) —
-      // if that timed out before this connection landed, nothing else was
-      // going to retry it before a full process restart (see PR #89 review).
-      // Re-check on every fresh "became connected" transition instead; the
-      // method no-ops instantly if nothing's pending, and is single-flight
-      // guarded against overlapping with its own in-progress wait.
-      unawaited(_checkPendingTaskerBuzz());
-    }
     _prevConn = s.connection;
     notifyListeners();
   }
@@ -3967,35 +3895,9 @@ class AppState extends ChangeNotifier {
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());
-    // Android: associate the band with CompanionDeviceManager (one-time system
-    // dialog) so the OS lets us restart the tracking service from the
-    // background and — API 31+ — relaunches us when the band appears.
-    // Fire-and-forget: logging happens inside; pairing must never block on it.
-    unawaited(AndroidBackground.associateCompanion(remoteId));
     notifyListeners();
     await openSession();
   }
-
-  // ── Android background keep-alive (battery-optimization exemption) ──────────
-  /// Whether the app is exempt from battery optimizations (always true on iOS).
-  Future<bool> isIgnoringBatteryOptimizations() =>
-      AndroidBackground.isIgnoringBatteryOptimizations();
-
-  /// Fire the system "ignore battery optimizations" request dialog (Android).
-  Future<void> requestIgnoreBatteryOptimizations() =>
-      AndroidBackground.requestIgnoreBatteryOptimizations();
-
-  /// True when this device's OEM (Xiaomi/Huawei/Honor/Oppo/Vivo/OnePlus) is
-  /// known to gate background survival behind an extra autostart/protected-
-  /// apps allowlist the stock battery-optimization exemption doesn't cover.
-  /// Always false on iOS.
-  Future<bool> needsOemAutostartSettings() =>
-      AndroidBackground.needsOemAutostartSettings();
-
-  /// Open this OEM's autostart allowlist screen (falls back to the app's
-  /// standard settings page if none exists on this device).
-  Future<void> openOemAutostartSettings() =>
-      AndroidBackground.openOemAutostartSettings();
 
   Future<void> unpair() async {
     _keepAlive = false;
@@ -4003,7 +3905,6 @@ class AppState extends ChangeNotifier {
     _stopBackfillTimer();
     _stopReconnectSupervisor();
     IosBleRestore.foregroundActive = false;
-    await EdgeTracking.stop();
     await IosBleRestore.disarm();
     // Deprovision the ASK accessory (iOS 18+) so a future pair re-shows the picker and
     // re-establishes iOS-26 relaunch eligibility. No-op on Android / iOS < 18.
@@ -4334,7 +4235,6 @@ class AppState extends ChangeNotifier {
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
-      EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
       // iOS can resume with the peripheral still flagged "connected" while its GATT
       // notifications died during suspension — UI shows connected but NO events arrive,
       // and only a kill+reopen (full reconnect) recovers. Trust DATA, not the flag: if a
@@ -4395,9 +4295,6 @@ class AppState extends ChangeNotifier {
         _log('Session start aborted — band was unpaired mid-resume.');
         return;
       }
-      // Android: start the Edge Tracking foreground service so the live connection keeps
-      // draining while backgrounded (Android kills background processes otherwise).
-      EdgeTracking.start();
       // iOS: arm CoreBluetooth restoration so the band can relaunch us when terminated.
       // The foreground guard stops a wake from fighting this live session for the band.
       IosBleRestore.foregroundActive = true;
@@ -4568,7 +4465,6 @@ class AppState extends ChangeNotifier {
               IosBleRestore.foregroundActive = true;
               await IosBleRestore.setOwnsBand(true);
             }
-            EdgeTracking.start(); // ensure the Android foreground service is up too
             // Arm the strap's high-frequency sync window when a wake alarm is
             // near (denser flushes ahead of the alarm).
             await _refreshHighFreqWakeWindow();
@@ -5418,9 +5314,6 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    // Android: retype the already-running FGS to connectedDevice|location so
-    // the OS keeps delivering fixes while a route session is live.
-    EdgeTracking.start(location: true);
     notifyListeners();
     _log('Route tracking started for $type.');
   }
@@ -5617,8 +5510,6 @@ class AppState extends ChangeNotifier {
       await rt.stop();
       _routeTracker = null;
       routeLocationIssue = null;
-      // Android: drop the FGS back to connectedDevice-only now the route ended.
-      EdgeTracking.start(location: false);
     }
     // Release the display unconditionally — not inside the `rt != null` branch.
     // A session that never got a tracker (permission denied) still armed
@@ -5753,7 +5644,6 @@ class AppState extends ChangeNotifier {
       try {
         await rt.stop();
       } catch (_) {}
-      EdgeTracking.start(location: false);
     }
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.

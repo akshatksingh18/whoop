@@ -19,7 +19,6 @@ import '../compute/derivation_engine.dart' show kAlgoVersion, DerivationEngine;
 import '../compute/profile.dart';
 import '../compute/substrate.dart' show localDateLabel;
 import '../data/db.dart';
-import '../health/health_export.dart';
 import 'import_container.dart';
 import 'journal_csv_import.dart' show parseCsv;
 
@@ -346,11 +345,6 @@ class WhoopImporter {
       'duration_min': (end != null) ? ((end - start) / 60).round() : null,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
-    // exportAll only scans dates already present in day_result, so an
-    // imported workout on a date this import brought no day_result row for
-    // would otherwise never reach Health export — trigger it directly off
-    // the completed session row instead (edge#277).
-    unawaited(HealthExporter.exportWorkoutId(id));
     return true;
   }
 

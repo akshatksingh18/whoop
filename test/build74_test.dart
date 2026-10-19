@@ -18,7 +18,7 @@ import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/data/calculation_store.dart';
 import 'package:openstrap_edge/gps/route_models.dart';
 import 'package:openstrap_edge/gps/workout_measurements.dart';
-import 'package:openstrap_edge/health/phone_pedometer.dart';
+import 'package:openstrap_edge/platform/phone_pedometer.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/notify/notification_report.dart';
 import 'package:openstrap_edge/gps/run_history.dart';

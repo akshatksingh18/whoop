@@ -32,9 +32,6 @@ import '../../data/profile_history.dart';
 import '../../gps/run_analysis.dart'
     show elevationGain, kBestEffortDistances, motionMix, riegel, runMix;
 import '../../gps/run_history.dart';
-import '../../health/health_import_state.dart';
-import '../../health/auto_workout_import.dart';
-import '../../health/health_workout_import.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
@@ -491,7 +488,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         _strainWeek(c, p, d),
       ],
       if (d.runs.isNotEmpty) _running(c, p, d.runs),
-      ..._importCard(c, d),
     ];
   }
 
@@ -826,198 +822,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     );
   }
 
-  /// Bring in what another app recorded. On History because that is the list
-  /// it joins — it used to live three taps deep under More settings, next to a
-  /// database export, which is not where anybody looks for their Sunday run.
-  List<Widget> _importCard(BuildContext c, _WorkoutData d) {
-    if (kPersonalSideload) return const [];
-    final p = P.of(c);
-    final loc = AppLocalizations.of(c);
-    return [
-      const SizedBox(height: S.x3),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ONE ROW in the parent card — no nested box: tick = hourly sweep,
-            // ↻ = fetch NOW (only meaningful while the tick is on). The
-            // refresh tap is the only thing that ever prompts for access.
-            Row(
-              children: [
-                Pressable(
-                  semanticLabel: _autoImport
-                      ? (loc?.workoutAutoImportOnLabel ??
-                            'Auto-import on. Tap to turn off.')
-                      : (loc?.workoutAutoImportOffLabel ??
-                            'Auto-import off. Tap to turn on.'),
-                  onTap: () => _setAutoImport(!_autoImport),
-                  child: Icon(
-                    _autoImport
-                        ? LucideIcons.circleCheckBig
-                        : LucideIcons.circle,
-                    size: 22,
-                    color: _autoImport ? p.on(C.domMove) : p.ink3,
-                  ),
-                ),
-                const SizedBox(width: S.x3),
-                Expanded(
-                  child: Text(
-                    loc?.workoutImportFromStore(storeName) ??
-                        'Import from $storeName',
-                    style: F.body.copyWith(
-                      color: p.ink,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Pressable(
-                  semanticLabel:
-                      loc?.workoutFetchNowLabel ?? 'Fetch workouts now',
-                  onTap: (!_autoImport || _importing)
-                      ? null
-                      : () => unawaited(_importWorkouts()),
-                  child: Padding(
-                    padding: const EdgeInsets.all(S.x2),
-                    child: _importing || !_autoImport
-                        ? Icon(LucideIcons.refreshCw, size: 18, color: p.ink3)
-                        : Icon(
-                            LucideIcons.refreshCw,
-                            size: 18,
-                            color: p.on(C.domMove),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-            if (_importNote != null) ...[
-              const SizedBox(height: S.x3),
-              Text(
-                _importNote!,
-                style: F.cap.copyWith(
-                  color: _importFailed ? p.on(C.red) : p.ink2,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ];
-  }
-
-  bool _importing = false;
-  bool _autoImport = false;
-  String? _importNote;
-  bool _importFailed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (kPersonalSideload) return;
-    () async {
-      final on = await AutoWorkoutImport.isEnabled();
-      if (!mounted) return;
-      setState(() => _autoImport = on);
-      if (on) unawaited(AutoWorkoutImport.maybeRun());
-    }();
-  }
-
-  Future<void> _setAutoImport(bool v) async {
-    if (kPersonalSideload) return;
-    setState(() => _autoImport = v);
-    await AutoWorkoutImport.setEnabled(v);
-    // Silent by design: the tick only arms the hourly sweep. The refresh
-    // icon beside it is what asks for access.
-    if (v) unawaited(AutoWorkoutImport.maybeRun());
-  }
-
-  /// Read the store, then reload the tab so the new rows are in the list the
-  /// user is looking at.
-  ///
-  /// Re-reading the WHOLE window every time rather than only what is new: the
-  /// table is keyed on the health store's own uuid and the write replaces, so
-  /// a second pass over the same run updates that one row instead of stacking
-  /// a copy. It also picks up a workout the source app edited or back-dated
-  /// after the fact, which a "since last time" cursor would miss forever.
-  Future<void> _importWorkouts({bool silent = false}) async {
-    if (kPersonalSideload) return;
-    if (_importing) return;
-    setState(() {
-      _importing = true;
-      // The auto path shares this body but must not speak over it: no note
-      // clearing, and its outcomes are silent by design.
-      if (!silent) _importNote = null;
-    });
-    final importer = HealthWorkoutImporter();
-    try {
-      // Asked HERE, on the tap, and for WORKOUT alone. Nothing at launch and
-      // nothing in onboarding — a sheet asking for data the user has not asked
-      // us to read is how the whole set gets denied in one go.
-      if (!await importer.requestPermission()) {
-        if (!mounted) return;
-        final loc = AppLocalizations.of(context);
-        setState(() {
-          _importNote =
-              loc?.workoutImportDenied(storeName) ??
-              '$storeName did not grant workouts. Nothing was read.';
-          _importFailed = true;
-        });
-        return;
-      }
-      final res = await importer.sync();
-      if (res.workouts == 0) {
-        if (!mounted) return;
-        final loc = AppLocalizations.of(context);
-        setState(() {
-          _importNote =
-              loc?.workoutImportEmpty(storeName) ??
-              'Nothing came back. $storeName holds no workouts '
-                  'inside the window it will share.';
-          _importFailed = false;
-        });
-        return;
-      }
-      // Only now. A denied read on iOS comes back as an empty list rather than
-      // as an error, so marking a zero-row read as done would put "Refresh" on
-      // the button for someone who said no.
-      await markImported(HealthImport.workouts);
-      if (!mounted) return;
-      final loc = AppLocalizations.of(context);
-      final route = !res.routesSupported
-          // Said with the result rather than near it: this is the moment the
-          // user is looking for their map.
-          ? (loc?.workoutImportNoRoutes(storeName) ??
-                ' $storeName will not share routes, so none have coordinates.')
-          : res.withRoutes == 0
-          ? (loc?.workoutImportNoneWithRoute ??
-                ' None of them had a route recorded.')
-          : (loc?.workoutImportSomeWithRoute(res.withRoutes) ??
-                ' ${res.withRoutes} came with a route.');
-      if (!mounted) return;
-      setState(() {
-        _importNote =
-            (loc?.workoutImportBroughtIn(res.workouts) ??
-                '${res.workouts} workout'
-                    '${res.workouts == 1 ? '' : 's'} brought in.') +
-            route;
-        _importFailed = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      final loc = AppLocalizations.of(context);
-      setState(() {
-        _importNote = loc?.workoutImportFailed(e.toString()) ?? 'Failed: $e';
-        _importFailed = true;
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _importing = false;
-          _load = _loadWorkoutData(context.read<AppState>());
-        });
-      }
-    }
-  }
 }
 
 /// The session running now, in place of the Start row: what it is, when it
@@ -1165,9 +969,7 @@ class _HistoryRow extends StatelessWidget {
     final p = P.of(c);
     final loc = AppLocalizations.of(c);
     final a = w.activity;
-    final pairedCalories =
-        w.importedFrom == null &&
-        (isRunType(a.typeKey) || isWalkType(a.typeKey));
+    final pairedCalories = isRunType(a.typeKey) || isWalkType(a.typeKey);
     final stats = _stats(c)
         .where(
           (s) =>
@@ -1176,16 +978,10 @@ class _HistoryRow extends StatelessWidget {
         )
         .toList();
     return Surface(
-      // An imported row does not open. The summary screen behind this tap is
-      // built to show a session THIS band measured — its rating control, its
-      // heart-rate trace, its zone split — and it has nowhere to say whose
-      // workout it is. A screen that presents an Apple Watch run exactly like
-      // one of ours is the fabrication this whole table exists to avoid, so
-      // the row stays a row until that screen can name its source.
-      onTap: onToggle ?? (w.importedFrom == null ? () => _open(c) : null),
+      onTap: onToggle ?? () => _open(c),
       semanticLabel: onToggle == null
           ? null
-          : '${w.importedTitle ?? a.name}, ${w.when(loc)}, '
+          : '${a.name}, ${w.when(loc)}, '
                 '${expanded ? 'tap to close' : 'tap for details'}',
       child: Column(
         children: [
@@ -1203,19 +999,16 @@ class _HistoryRow extends StatelessWidget {
               const SizedBox(width: S.x3),
               Expanded(
                 child: Pressable(
-                  semanticLabel: 'Open ${w.importedTitle ?? a.name} session',
-                  onTap: w.importedFrom == null ? () => _open(c) : onToggle,
+                  semanticLabel: 'Open ${a.name} session',
+                  onTap: () => _open(c),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
                           Flexible(
-                            // The store's own word for it when it is not ours: the
-                            // catalogue knows the ~40 types this app can start, and
-                            // "Workout" over a surf loses the one thing we were told.
                             child: Text(
-                              w.importedTitle ?? a.name,
+                              a.name,
                               style: F.body.copyWith(
                                 color: p.ink,
                                 fontWeight: FontWeight.w600,
@@ -1230,13 +1023,8 @@ class _HistoryRow extends StatelessWidget {
                           ],
                         ],
                       ),
-                      // "Apple Watch · Today, 07:12". The source is not decoration
-                      // and it is not the word "imported": a band-measured session
-                      // and an Apple Watch session are different measurements, and
-                      // the name of the thing that took it is the difference.
                       Text(
                         [
-                          if (w.importedFrom != null) w.importedFrom!,
                           w.when(loc),
                           if (w.duration.inMinutes > 0)
                             '${w.duration.inMinutes} min',
@@ -1261,7 +1049,7 @@ class _HistoryRow extends StatelessWidget {
                   semanticLabel: 'Session options',
                   onTap: () => _sessionMenu(
                     c,
-                    w.importedTitle ?? a.name,
+                    a.name,
                     onRetime: onRetime,
                     onDelete: onDelete,
                   ),
@@ -1325,7 +1113,7 @@ class _HistoryRow extends StatelessWidget {
           // The way to correct a window the detector clipped, or one a session
           // started late. Nested inside the card's own tap: the inner Pressable
           // wins, so the row still opens the summary everywhere else.
-          if (expanded && onToggle != null && w.importedFrom == null) ...[
+          if (expanded && onToggle != null) ...[
             Divider(color: p.line, height: S.x5),
             Pressable(
               onTap: () => _open(c),
@@ -1383,31 +1171,8 @@ class _HistoryRow extends StatelessWidget {
   List<(String, String, String?)> _stats(BuildContext c) {
     final loc = AppLocalizations.of(c);
     final timeLabel = loc?.workoutTimeStatLabel ?? 'Time';
-    // Band sessions all show the conservative active estimate now; only an
-    // imported row prints the other app's own figure.
-    final caloriesLabel = w.importedFrom == null
-        ? 'Budget · active'
-        : loc?.workoutCaloriesStatLabel ?? 'Calories';
-    return w.importedFrom != null
-        ? [
-            // An imported row prints only what the recording app actually
-            // recorded, and drops the rest rather than saying "No reading": this
-            // band was not on the wrist, so there is no reading it could have
-            // taken and nothing was lost. The calories are the SOURCE's figure,
-            // shown under the source's name a line above — never added to ours,
-            // because two devices' calorie models summed is a number neither of
-            // them would stand behind.
-            (timeLabel, hms(w.duration), null),
-            if (w.distanceM != null && w.distanceM! > 0)
-              (
-                loc?.workoutDistanceStatLabel ?? 'Distance',
-                (w.distanceM! / 1000).toStringAsFixed(2),
-                'km',
-              ),
-            if (w.calories != null)
-              (caloriesLabel, grouped(w.calories!), 'kcal'),
-          ]
-        : [
+    const caloriesLabel = 'Budget · active';
+    return [
             (timeLabel, hms(w.duration), null),
             if (w.calories == null)
               (caloriesLabel, loc?.workoutNotCostedValue ?? 'Not costed', null)
@@ -1429,7 +1194,7 @@ class _HistoryRow extends StatelessWidget {
               )
             else
               (loc?.workoutMaxHrStatLabel ?? 'Max HR', '${w.maxHr}', 'bpm'),
-          ];
+    ];
   }
 }
 
@@ -2154,22 +1919,6 @@ class _PastWorkout {
   /// `sessions.private`.
   final bool private;
 
-  /// The app or watch that recorded this, when it was not us — "Apple Watch",
-  /// "Strava". Null for a session this band measured, and that null is the ONE
-  /// test everything below reads: what a row may be counted in, whether it
-  /// opens, and what is printed under its name all come off this field.
-  final String? importedFrom;
-
-  /// The health store's own name for the activity, already prettified.
-  ///
-  /// Carried because `activityByName` only resolves the types this app's own
-  /// catalogue has, and printing "Workout" over a HealthKit `SURFING` throws
-  /// away the one thing the store did tell us.
-  final String? importedTitle;
-
-  /// Metres, from the recording app. Only imported rows carry it — a band
-  /// session's distance is read on open with its route.
-  final double? distanceM;
 
   const _PastWorkout(
     this.id,
@@ -2186,9 +1935,6 @@ class _PastWorkout {
     this.steps,
     this.zoneMinutes = const [],
     this.private = false,
-    this.importedFrom,
-    this.importedTitle,
-    this.distanceM,
     this.end,
     this.live = false,
   });
@@ -2258,10 +2004,6 @@ class _WorkoutData {
   final Set<int> weekDays; // 0 = Monday
   final int weekCount;
 
-  /// How many of [weekCount] came from the phone's health store. Carried so
-  /// the gap between "This week" and "Weekly load" can be explained where the
-  /// two sit side by side, rather than left to look like a bug.
-  final int weekImported;
   final double? weekLoad;
   final int? workoutsTracked;
 
@@ -2283,10 +2025,6 @@ class _WorkoutData {
   /// dropped `recovery` channel, no notification ever did.
   final List<Suggestion> suggestions;
 
-  /// When the phone's health store last handed us a workout, or null for
-  /// never. It is the whole difference between an Import button and a Refresh
-  /// one — see health_import_state.dart for why the store cannot be asked.
-  final DateTime? importedLast;
 
   const _WorkoutData({
     this.weightKg,
@@ -2296,14 +2034,12 @@ class _WorkoutData {
     this.runs = const [],
     this.weekDays = const {},
     this.weekCount = 0,
-    this.weekImported = 0,
     this.weekLoad,
     this.workoutsTracked,
     this.recent = const [],
     this.streak,
     this.setHistory = const {},
     this.suggestions = const [],
-    this.importedLast,
   });
 
   const _WorkoutData.empty() : this();
@@ -2430,58 +2166,6 @@ Future<List<_PastWorkout>> _pastWorkouts(
     // A failed session read must not become "no sessions recorded".
     rethrow;
   }
-  // Workouts another app recorded, on the SAME window the band's own list
-  // uses. The store is read 90 days back (30 on Android) because that is the
-  // most history worth carrying, but showing three months of imports beside
-  // one month of sessions would read as a band that stopped measuring.
-  try {
-    final since = range == 'all'
-        ? DateTime.fromMillisecondsSinceEpoch(0)
-        : end.subtract(Motion.tick * 86400 * 31);
-    for (final r in await LocalDb.importedWorkouts(limit: 200)) {
-      final ts = (r['start_ts'] as num?)?.toInt();
-      final endTs = (r['end_ts'] as num?)?.toInt();
-      final src = (r['source'] as String?)?.trim();
-      // `source` is NOT NULL in the table for exactly this reason: a workout
-      // shown without the app that recorded it is a workout this app is
-      // implicitly claiming. No source, no row.
-      if (ts == null || endTs == null || endTs <= ts) continue;
-      if (src == null || src.isEmpty) continue;
-      final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-      if (at.isBefore(since)) continue;
-      final title = importedWorkoutTitle(r['kind']);
-      past.add(
-        _PastWorkout(
-          (r['uuid'] as String?) ?? '',
-          // The icon and colour only, when the catalogue happens to know the
-          // type. The NAME always comes from the store — `activityByName`
-          // resolves the ~40 types this app can start, and the fallback would
-          // print "Workout" over a surf.
-          activityByName(title) ??
-              const Activity(
-                'Workout',
-                LucideIcons.activity,
-                C.purple,
-                Track.duration,
-                5.0,
-              ),
-          at,
-          Motion.tick * (endTs - ts),
-          // No strain, ever. It is not omitted pending a better idea — there
-          // is no heart-rate series behind this row to score one from, so
-          // every load surface reads null and leaves it out on its own.
-          calories: (r['energy_kcal'] as num?)?.round(),
-          steps: (r['steps'] as num?)?.toInt(),
-          importedFrom: src,
-          importedTitle: title,
-          distanceM: (r['distance_m'] as num?)?.toDouble(),
-        ),
-      );
-    }
-  } catch (_) {
-    // Nothing imported is the normal state, and an unreadable table must not
-    // take the band's own history down with it.
-  }
   past.sort((a, b) => b.start.compareTo(a.start));
   return past;
 }
@@ -2545,13 +2229,8 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
 
   // Real recency, deduped, newest first — six tiles like the constant it
   // replaces, so the picker's row is the same shape either way.
-  //
-  // Band sessions only. These tiles START a session, and most imported types
-  // land on the generic fallback activity — a row of "Workout" tiles that
-  // begin a five-MET nothing is worse than the six real ones.
   final recent = <Activity>[];
   for (final w in past) {
-    if (w.importedFrom != null) continue;
     if (!recent.any((x) => x.name == w.activity.name)) {
       recent.add(w.activity);
     }
@@ -2575,26 +2254,18 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       }
     }(),
     workouts: past,
-    // Imported days light a dot too. This strip says "you trained", not
-    // "this band measured you", and a Sunday run left dark because the watch
-    // recorded it instead of the band is wrong in a way the user can see.
     weekDays: {for (final w in thisWeek) w.start.weekday - 1},
     weekCount: thisWeek.length,
-    weekImported: thisWeek.where((w) => w.importedFrom != null).length,
     weekLoad: weekLoad,
     workoutsTracked: tracked,
     recent: recent,
     streak: await loadMoveStreak(),
     setHistory: history,
     suggestions: await activeSuggestions(),
-    importedLast: await lastImportAt(HealthImport.workouts),
   );
 }
 
-/// Confirm, then delete [w]. Returns whether it was deleted. An imported
-/// row's health-store uuid goes onto the tombstone list first, or the next
-/// import would bring the removed row straight back. A copy in Apple Health /
-/// Health Connect itself is out of reach by design and the confirm says so.
+/// Confirm, then delete [w]. Returns whether it was deleted.
 Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
   final loc = AppLocalizations.of(c);
   final ok = await confirmRemove(
@@ -2602,31 +2273,19 @@ Future<bool> _confirmDeleteWorkout(BuildContext c, _PastWorkout w) async {
     title:
         loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
         'Delete this ${w.activity.name.toLowerCase()}?',
-    body: w.importedFrom == null && kPersonalSideload
-        ? 'It is removed from this phone, with its route and sets. This '
-              'cannot be undone.'
-        : w.importedFrom == null
-        ? (loc?.workoutDeleteBodyOwn(storeName) ??
-              'It disappears from $kAppName. A copy in $storeName, if there is '
-                  'one, stays where it is.')
-        : (loc?.workoutDeleteBodyImported(storeName) ??
-              'It disappears from $kAppName and will not be re-imported. '
-                  'The original in $storeName stays.'),
+    body:
+        'It is removed from this phone, with its route and sets. This '
+        'cannot be undone.',
   );
   if (!ok) return false;
   // Build 93 (Codex audit C12): a failed delete keeps the row and says so.
   try {
-    if (w.importedFrom != null && w.id.isNotEmpty) {
-      await rememberDeletedUuid(w.id);
-      await LocalDb.deleteImportedWorkout(w.id);
-    } else {
-      // Through AppState, so a session still recording is torn down with
-      // its row (Build 94, Codex N05).
-      final app = appOf(c);
-      app == null
-          ? await LocalDb.deleteSession(w.id)
-          : await app.deleteWorkout(w.id);
-    }
+    // Through AppState, so a session still recording is torn down with its
+    // row (Build 94, Codex N05).
+    final app = appOf(c);
+    app == null
+        ? await LocalDb.deleteSession(w.id)
+        : await app.deleteWorkout(w.id);
   } catch (_) {
     if (c.mounted) {
       ScaffoldMessenger.maybeOf(c)?.showSnackBar(
@@ -2692,7 +2351,7 @@ Future<void> _sessionMenu(
 }
 
 String _rowKey(_PastWorkout w) =>
-    '${w.importedFrom ?? ''}:${w.id}:${w.start.millisecondsSinceEpoch}';
+    '${w.id}:${w.start.millisecondsSinceEpoch}';
 
 /// A session row as Train and the history page show it: collapsed to one
 /// line, opened in place, deleted with a swipe either way (confirmed), and
@@ -2719,7 +2378,7 @@ Widget historyRow(
             await _confirmDeleteWorkout(c, w);
             onChanged();
           },
-    onRetime: w.importedFrom == null && w.id.isNotEmpty && !w.live
+    onRetime: w.id.isNotEmpty && !w.live
         ? () async {
             await Navigator.of(c).push(
               MaterialPageRoute<void>(

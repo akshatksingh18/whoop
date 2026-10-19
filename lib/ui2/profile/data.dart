@@ -44,7 +44,6 @@ import '../onboarding/welcome.dart'
         runImport;
 import '../screens/home_screen.dart' show dbRebuiltCard, repoOf;
 import '../ui2.dart';
-import 'phone_import.dart';
 import 'profile.dart';
 
 /// What an action has to say for itself: the line to show, and whether it is a
@@ -936,22 +935,6 @@ class _DataScreenState extends State<DataScreen> {
                               'overwritten',
                       onTap: _busy ? null : () => _run(() => _import(app)),
                     ),
-                    // Progressive disclosure: two health-store reads, each with
-                    // its own consent and its own ceiling, behind one row rather
-                    // than two more rows on this screen.
-                    if (!kPersonalSideload)
-                      SetRow(
-                        LucideIcons.smartphone,
-                        C.blue,
-                        l?.dataFromYourPhone ?? 'From your phone',
-                        sub:
-                            l?.dataFromYourPhoneSub ??
-                            'Resting heart rate, blood pressure, glucose and '
-                                'body temperature',
-                        onTap: _busy
-                            ? null
-                            : () => goto(c, const PhoneImport()),
-                      ),
                   ]),
                   const SizedBox(height: S.x5),
                   // Build 86: the set log that now lives in the Lift workout.

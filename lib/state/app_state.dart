@@ -79,9 +79,7 @@ import '../notify/notification_event.dart';
 import '../notify/fired_keys.dart';
 import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
-import '../health/auto_workout_import.dart';
-import '../health/health_export.dart';
-import '../health/phone_pedometer.dart';
+import '../platform/phone_pedometer.dart';
 import '../build_profile.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
@@ -353,8 +351,6 @@ class AppState extends ChangeNotifier {
       }
     }
     _onboardChoice = prefs.getString(_kOnboard);
-    healthSyncEnabled =
-        !kPersonalSideload && (prefs.getBool(_kHealthSync) ?? false);
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
     // Steps only exist if a real pedometer measured them, so kick the phone
     // pull early. This is BEST-EFFORT and establishes no ordering: it is
@@ -371,9 +367,6 @@ class AppState extends ChangeNotifier {
       unawaited(syncPhoneSteps());
       unawaited(_refreshPhoneStepsToday());
     }
-    // Best-effort, no prompt: learn the current health-permission state so the
-    // Profile toggle reflects reality on open.
-    if (healthSyncEnabled) unawaited(checkHealth());
   }
 
   /// New-user path: record the choice and advance (welcome → pairing → profile).
@@ -488,85 +481,6 @@ class AppState extends ChangeNotifier {
     // file; the caller reports "N days imported" and a row total is not that.
     return counts['_days'] ?? 0;
   }
-
-  // ── platform health export (Apple Health / Health Connect) ──────────────────
-  // The shared instance, not a private one: the coach and the log-workout
-  // sheet reach the exporter through `HealthExporter.exportWorkoutId` with no
-  // AppState in hand, and two exporters would mean two `Health()` handles and
-  // two Health-Connect availability probes doing the same work.
-  final HealthExporter _healthExport = HealthExporter.shared;
-  final HealthExportSingleFlight _healthExportSingleFlight =
-      HealthExportSingleFlight();
-  HealthLinkState healthState = HealthLinkState.unknown;
-  bool healthSyncEnabled = false;
-  // Shared with `HealthExporter.exportWorkoutId`, which has to honour this
-  // switch from callers that never see this class.
-  static const String _kHealthSync = kHealthSyncPref;
-
-  /// "Apple Health" (iOS) or "Health Connect" (Android).
-  String get healthStoreName => HealthExporter.storeName;
-
-  /// Check current permission state WITHOUT prompting (startup-safe).
-  Future<void> checkHealth() async {
-    healthState = await _healthExport.check();
-    notifyListeners();
-  }
-
-  /// Prompt for write access (user gesture). On grant + enabled, kick a sync.
-  Future<void> requestHealth() async {
-    healthState = await _healthExport.request();
-    notifyListeners();
-    if (healthState == HealthLinkState.ready && healthSyncEnabled) {
-      unawaited(healthSyncNow());
-    }
-  }
-
-  /// Android: open the Play Store to install/update Health Connect.
-  Future<void> installHealthConnect() => _healthExport.install();
-
-  /// Android: open the Health Connect app/settings so the user can enable our
-  /// per-app access manually. Re-checks state when they come back.
-  Future<void> openHealthConnect() async {
-    await _healthExport.openSettings();
-  }
-
-  /// Toggle continuous export. Enabling requests permission + does a first sync.
-  Future<void> setHealthSync(bool on) async {
-    if (kPersonalSideload) return;
-    healthSyncEnabled = on;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kHealthSync, on);
-    notifyListeners();
-    if (on) {
-      await requestHealth();
-      if (healthState == HealthLinkState.ready) unawaited(healthSyncNow());
-    }
-  }
-
-  /// Export all finalized-but-unexported days now. Returns days written.
-  Future<int> healthSyncNow() async {
-    // Both halves of this seam matter and neither subsumes the other: the
-    // export runs through the single-flight guard (main), and the phone-steps
-    // sync stays gated on the user's preference (this branch).
-    final n = await _runHealthExport(forceRetry: true);
-    // Gate on the user's own preference. `disablePhoneSteps` deliberately does
-    // NOT revoke the platform permission (that is the user's to do in
-    // Settings), so an unconditional sync here would write phone rows straight
-    // back after the user turned the feature off — and the ladder ranks a
-    // phone span above any band span that does not look like gait, so those
-    // rows would go on taking steps off the band. The exact outcome
-    // `disablePhoneSteps` exists to prevent.
-    // An explicit health sync is a user gesture — take the full window.
-    if (phoneStepsEnabled) {
-      unawaited(syncPhoneSteps(days: PhonePedometer.fullSyncDays));
-    }
-    return n;
-  }
-
-  Future<int> _runHealthExport({bool forceRetry = false}) =>
-      _healthExportSingleFlight.run(
-        () => _healthExport.exportAll(forceRetry: forceRetry),
-      );
 
   // ── phone pedometer — the fallback tier, and the only 24/7 one ────────────
   // Not "the only real source": the strap's 100 Hz counter is measured and
@@ -1111,9 +1025,7 @@ class AppState extends ChangeNotifier {
     // fields, restored only by the profile load at launch, so leaving them
     // alone kept both features RUNNING against the wiped database for the rest
     // of the session — a re-pair without a relaunch would find phone steps
-    // still on and health export still syncing, which is not "a fresh install".
-    healthSyncEnabled = false;
-    healthState = HealthLinkState.unknown;
+    // still on, which is not "a fresh install".
     phoneStepsEnabled = false;
     _startCadence();
     phoneStepsToday = 0;
@@ -1506,20 +1418,6 @@ class AppState extends ChangeNotifier {
           }
         }());
       }
-      // Continuous health export: push freshly-derived days (incl. TODAY) to Apple
-      // Health / Health Connect AS SOON as they're computed — runs on BOTH the
-      // light (every drain) and heavy passes, not only on finalize. Idempotent
-      // (delete-then-write), best-effort, never throws into the BLE/derive path.
-      if (healthSyncEnabled) {
-        unawaited(() async {
-          try {
-            final n = await _runHealthExport();
-            if (n > 0) _log('[health] exported $n day(s)');
-          } catch (e) {
-            _log('[health] export failed: $e');
-          }
-        }());
-      }
       if (heavy) unawaited(_maybeReclaimDiskSpace());
     } on DeriveCancelled {
       // Stopped on purpose (backgrounded / wake expiring): the scheduler
@@ -1713,13 +1611,6 @@ class AppState extends ChangeNotifier {
       unawaited(_maybeTrainingReview());
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
-      // Opt-in auto-import of Health workouts (off by default; self-gates on
-      // permission + a 1 h throttle — see AutoWorkoutImport). Foreground
-      // cadence is the trigger: workouts are not live data, and this never
-      // prompts.
-      if (!kPersonalSideload) {
-        unawaited(AutoWorkoutImport.maybeRun());
-      }
       unawaited(_checkSchemaHealth()); // throttled internally to 24h
       // Staleness-escalation meta-layer: the SAME check the headless path
       // runs (shared cooldown via SharedPreferences, so foreground and
@@ -5818,13 +5709,6 @@ class AppState extends ChangeNotifier {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();
       rethrow;
-    }
-    // Session-triggered Health export (issue #130) — don't wait for the next
-    // day_result/derive pass (which may not run at all if the band isn't
-    // connected right now); write this workout to Apple Health/Health Connect
-    // immediately. Best-effort, never throws, no-ops if sync is off.
-    if (healthSyncEnabled) {
-      unawaited(_healthExport.exportWorkout(sessionRow));
     }
     activeWorkout = null;
     WorkoutClock.current = null;

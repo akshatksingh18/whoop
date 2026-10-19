@@ -8,7 +8,7 @@ import 'package:openstrap_edge/compute/derive_scheduler.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
-import 'package:openstrap_edge/health/phone_pedometer.dart';
+import 'package:openstrap_edge/platform/phone_pedometer.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';

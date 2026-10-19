@@ -33,7 +33,6 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
 import 'db.dart';
-import '../health/health_export.dart';
 import 'journal_fields.dart';
 import 'local_repository.dart';
 import 'series_codec.dart';
@@ -2764,12 +2763,6 @@ class LocalRepositoryImpl extends LocalRepository {
         whereArgs: [workoutId, 'done'],
       );
       onSessionChanged?.call();
-      // This is the choke point the AI coach's `end_workout` tool reaches
-      // directly (bypassing AppState.stopWorkout, the only other place this
-      // used to happen) — without it a coach-ended workout never reached
-      // Apple Health / Health Connect (edge#277). Idempotent + best-effort;
-      // exportWorkoutId re-reads the row and no-ops if sync is off.
-      unawaited(HealthExporter.exportWorkoutId(workoutId));
     }
     return {'workout_id': workoutId};
   }
@@ -2822,15 +2815,6 @@ class LocalRepositoryImpl extends LocalRepository {
     // not the only caller; the status deserves the same treatment.
     if (existing['status'] == 'live') {
       throw StateError('setWorkoutWindow: session $id is still live');
-    }
-    // Clear the OLD Health window before the retimed row overwrites it — the
-    // caller's subsequent exportWorkoutId only deletes inside the NEW window,
-    // so a narrowed/moved retime would otherwise leave the previous sample
-    // stranded outside it.
-    final oldStart = (existing['start_ts'] as num?)?.toInt();
-    final oldEnd = (existing['end_ts'] as num?)?.toInt();
-    if (oldStart != null && oldEnd != null) {
-      await HealthExporter.deleteWorkoutWindow(oldStart, oldEnd);
     }
     // A retimed session keeps its id, so the OLD row is replaced rather than
     // orphaned — including its GPS route, which still belongs to it.

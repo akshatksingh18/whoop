@@ -29,7 +29,7 @@ import 'food_group_picker.dart';
 import 'food_left.dart';
 import 'home_screen.dart' show prettyDay, thousands;
 import 'journal_compose.dart' show OsTextField;
-import 'log_food.dart' show offCredit;
+import 'barcode_food.dart' show offCredit;
 import 'metric_detail.dart' show detailScaffold;
 
 // ══════════════════ DAYS ══════════════════

@@ -26,9 +26,7 @@ import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
-import 'package:openstrap_edge/ui2/activity/poster.dart';
 import 'package:openstrap_edge/ui2/activity/setup.dart';
-import 'package:openstrap_edge/ui2/activity/share.dart';
 import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/activity/zones.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
@@ -477,7 +475,7 @@ void main() {
         avgHr: 96,
       );
       // 'SETS 0' and 'REPS 0' used to sit directly under 'No sets logged',
-      // while the share card for the same session printed neither.
+      // even though nothing was logged.
       expect(namesOf(empty), isNot(contains('Sets')));
       expect(namesOf(empty), isNot(contains('Reps')));
       expect(namesOf(_result(Arch.strength)), contains('Reps'));
@@ -529,11 +527,6 @@ void main() {
       );
       expect(namesOf(never), isNot(contains('Your rating')));
 
-      // And a feeling is not one of the things the session MEASURED, so it is
-      // not offered to the share card.
-      expect([
-        for (final s in shareStats(rated)) s.$1,
-      ], isNot(contains('Your rating')));
     });
   });
 
@@ -556,18 +549,13 @@ void main() {
     List<String> screenNames(ActivityResult r) => [
       for (final s in sessionStats(r, null)) s.$1,
     ];
-    List<String> cardNames(ActivityResult r) => [
-      for (final s in shareStats(r)) s.$1,
-    ];
 
     test(
-      'a walk that counted them prints them, on the screen and the card',
+      'a walk that counted them prints them',
       () {
         final walk = session('Walking', steps: 8412);
         expect(screenNames(walk), contains('Steps'));
-        expect(cardNames(walk), contains('Steps'));
-        // Grouped, and bare on both: the label already says what they are.
-        expect([for (final s in shareStats(walk)) s.$2], contains('8,412'));
+        // Grouped, and bare: the label already says what they are.
         expect([
           for (final s in sessionStats(walk, null)) s.$2,
         ], contains('8,412'));
@@ -579,7 +567,6 @@ void main() {
       // walk, and '0 STEPS' beside a real distance is a fabricated measurement.
       final unmeasured = session('Walking');
       expect(screenNames(unmeasured), isNot(contains('Steps')));
-      expect(cardNames(unmeasured), isNot(contains('Steps')));
     });
 
     test('a rowing session never shows a count, even carrying one', () {
@@ -591,7 +578,6 @@ void main() {
       );
       expect(rowing.stepsCounted, isNull);
       expect(screenNames(rowing), isNot(contains('Steps')));
-      expect(cardNames(rowing), isNot(contains('Steps')));
     });
 
     test('enrichment does not lose the count', () {
@@ -1405,29 +1391,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the share card keeps its ratio on a narrow screen', (
-      tester,
-    ) async {
-      // A 320 pt viewport (SE, an iPad Slide Over pane, a split-screen pane)
-      // left 288 pt inside the sheet's padding, which squeezed the card's
-      // WIDTH while its height stayed fixed — so 'Post' exported 864×900, the
-      // 0.96:1 near-square Instagram crops. `toImage` reads the boundary, so
-      // the boundary is what has to keep the authored size.
-      tester.view.physicalSize = const Size(320 * 3, 900 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(
-        _frame(ShareSheet(_result(Arch.route)), Brightness.dark, 1.0),
-      );
-      await tester.pumpAndSettle();
-
-      final card = tester.renderObject<RenderBox>(find.byType(PosterCard));
-      expect(card.size.width, kPosterW);
-      expect(card.size.height, kPosterW, reason: 'Post is 1:1');
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets('a trailing partial split is not priced as a whole kilometre', (
       tester,
     ) async {
@@ -1883,37 +1846,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('share asks one question and prints the rest', (tester) async {
-      tester.view.physicalSize = const Size(390 * 3, 1600 * 3);
-      tester.view.devicePixelRatio = 3;
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(
-        _frame(ShareSheet(_result(Arch.strength)), Brightness.light, 1.0),
-      );
-      await tester.pumpAndSettle();
-      // One card and one question. The style list and the stat picker are
-      // gone: a lift never had a texture to choose, and asking which of your
-      // own measurements to leave off a card with room for all of them was
-      // the screen asking the user to do its job.
-      expect(find.text('CHOOSE A STYLE'), findsNothing);
-      expect(find.text('INCLUDE'), findsNothing);
-      expect(find.text('Minimal'), findsNothing);
-      expect(find.text('Muscle map'), findsNothing);
-      expect(find.text('YOUR PHOTO'), findsOneWidget);
-      // A lift has no distance, so no card of it can carry one.
-      expect(find.text('DISTANCE'), findsNothing);
-
-      await tester.pumpWidget(
-        _frame(ShareSheet(_result(Arch.route)), Brightness.light, 1.0),
-      );
-      await tester.pumpAndSettle();
-      // A run's hero IS its distance, so the grid does not repeat it — the
-      // pace it also measured is what proves the stats are being printed.
-      expect(find.text('PACE'), findsOneWidget);
-      expect(find.text('DISTANCE'), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
   });
 
   // ── goldens ──────────────────────────────────────────────────────────────
@@ -1957,7 +1889,6 @@ void main() {
       // trace (there was a court map), and a swim is now its lap times.
       'summary_match': ActivitySummary(_result(Arch.match), weightKg: 72.4),
       'summary_laps': ActivitySummary(_result(Arch.laps), weightKg: 72.4),
-      'share_strength': ShareSheet(_result(Arch.strength)),
       'picker': const ActivityPicker(weightKg: 72.4),
       'setup_run': ActivitySetup(activityByName('running')!, weightKg: 72.4),
     };

@@ -27,7 +27,7 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/data/off_lookup.dart';
-import 'package:openstrap_edge/ui2/screens/log_food.dart';
+import 'package:openstrap_edge/ui2/screens/barcode_food.dart';
 import 'package:openstrap_edge/gps/run_history.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/locale_controller.dart';

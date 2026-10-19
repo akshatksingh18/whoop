@@ -35,7 +35,6 @@ import '../../data/temporary_export.dart';
 import '../../import/backup_crypto.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
-import '../activity/share.dart' show shareOrigin;
 import '../onboarding/welcome.dart'
     show
         ImportOutcome,
@@ -163,7 +162,7 @@ class _DataScreenState extends State<DataScreen> {
     final l = AppLocalizations.of(context);
     // Read before the export runs: an anchor taken after a multi-second await
     // may be measuring a screen the user has already left.
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     final res = await exportCsvFiles(kCsvExportSets);
     if (res.paths.isEmpty) {
       return res.hasFailures
@@ -364,7 +363,7 @@ class _DataScreenState extends State<DataScreen> {
   /// Build 89: one Markdown file for an AI chat (Claude, Codex) — diet,
   /// weight, body, lifting, activity and recovery over a chosen period.
   Future<_Note> _exportAnalysis() async {
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     final repo = repoOf(context);
     final user = context.read<AppState>().user ?? const <String, dynamic>{};
     if (repo == null) return ('Your data is not open yet.', true);
@@ -449,7 +448,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<_Note> _exportBody() async {
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('body');
     final f = File('${dir.path}/body-log.csv');
     final result = await withTemporaryExport([f.path], () async {
@@ -506,7 +505,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<_Note> _exportPushups() async {
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('pushups');
     final f = File('${dir.path}/pushup-reminder.json');
     final result = await withTemporaryExport([f.path], () async {
@@ -521,7 +520,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<_Note> _exportLiftLog() async {
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     final dir = await Directory.systemTemp.createTemp('liftlog');
     final json = File('${dir.path}/lift-log.json');
     final csv = File('${dir.path}/lift-log.csv');
@@ -541,7 +540,7 @@ class _DataScreenState extends State<DataScreen> {
   }
 
   Future<_Note> _exportDb() async {
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     // VACUUM INTO — a transactionally consistent snapshot, not a file copy.
     final path = await LocalDb.exportCopy();
     final result = await withTemporaryExport(
@@ -565,7 +564,7 @@ class _DataScreenState extends State<DataScreen> {
     final pass = await askBackupPassphrase(context, creating: true);
     if (pass == null) return ('', false); // cancelled
     if (!mounted) return ('', false);
-    final origin = shareOrigin(context);
+    final origin = _shareOrigin(context);
     final plain = await LocalDb.exportCopy();
     final dest = '$plain.osbk';
     // Build 86: with progress photos to carry, the sealed payload is the
@@ -1055,4 +1054,18 @@ BackupCadence _nextCadence(BackupCadence c) =>
 String _stamp(DateTime t) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${t.year}-${two(t.month)}-${two(t.day)} ${formatClock(t)}';
+}
+
+/// The rect an iPad or Mac share popover points at.
+///
+/// `UIActivityViewController` is a popover on those, and `share_plus` throws
+/// rather than guessing when it is given no anchor — which is how every iPad
+/// share in this app failed silently. Any `share_plus` call from a widget
+/// should pass this.
+Rect _shareOrigin(BuildContext c) {
+  final box = c.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) {
+    return const Rect.fromLTWH(0, 0, 1, 1);
+  }
+  return box.localToGlobal(Offset.zero) & box.size;
 }

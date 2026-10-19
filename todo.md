@@ -439,6 +439,30 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   Phone check: Fix sleep times across midnight; Finish asks; Weekly lookback off still asks
   about a detected workout; swipe a food on the Food tab and Undo; set an amount to 0;
   Quick add calories left; a notification tapped while Body entry has typing waits.
+- [ ] 3j. Akshat's decisions after Build 94 (planned, not built):
+  - Delete the unreachable screens (Readiness glass-box `DriverBreakdown`, old occasion
+    logging `LogFoodSheet`/`AddFoodSheet`, share card `ShareSheet`/`PosterCard`) after moving
+    the live helpers they hold (barcode lookup and `offCredit` in `log_food.dart`, the summary's
+    poster stat rows, `shareOrigin`) and comparing DriverBreakdown with Recovery detail so no
+    unique content is lost.
+  - Delete the upstream-only code: Apple Health/Health Connect, AI coach, telemetry/Firebase,
+    widgets, Watch app, Live Activity, Oura, Shortcuts automation, the Android folder, the tag
+    release workflow, their packages, and the hidden Training review and guided breathing
+    once confirmed unreachable. Keep `packages/protocol`, `packages/analytics`, `LICENSE` and
+    `NOTICE.md`; the repository stays public. Its own build.
+  - Units option A: Settings → Units gets Weight (kg/lb), Distance (km/mi) and Height rows;
+    Body, Today, Food, Progress and the profile follow Weight and Body's own switch goes.
+    Migration takes `body.unit` when set, else `units_system`; stored kg and each entry's
+    typed value/unit stay unchanged.
+  - Miles as its own tested build: distance, pace, speed, charts, splits, best efforts, voice
+    cues and walk speed follow Distance; per-mile splits are recomputed from the GPS route or
+    the per-minute phone motion distance; runs with neither keep "km splits (as recorded)".
+  - Layout refinements, previews first (canvas "Build 95 layout previews"): Progress first
+    check + next action + evidence counts with the rules inline; Body latest reading, 7-day
+    average and selected-period average named; Recovery one reason near the score.
+    Found while capturing: the goal Details dialog names different review windows (Sep 28–Oct 11
+    vs Sep 14–27, waist Sep 7–21) from the card's first-check windows (Oct 4, Oct 26–Nov 1)
+    for a goal started Oct 9; the inline rules use the first-check windows only.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

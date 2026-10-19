@@ -19,17 +19,12 @@
 // Nothing here reads the database, the band or the repository: a gallery that
 // needs data is a gallery nobody opens on a fresh install.
 
-import 'dart:convert';
 import 'dart:math';
 
-import 'dart:io';
-import 'dart:ui' as ui;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../data/day_label.dart';
 import '../../data/journal_fields.dart';
@@ -41,11 +36,8 @@ import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/workout_context.dart';
 import '../activity/picker.dart' show ActivityPicker, ActivityRow;
-import '../activity/poster.dart'
-    show PosterCard, PosterFormat, PosterStatRow, kPosterMapH, kPosterMapW;
+import '../activity/stat_row.dart' show StatRow;
 import '../activity/setup.dart' show ActivitySetup;
-import '../activity/tiles.dart';
-import '../activity/share.dart' show ShareSheet, shareOrigin;
 import '../activity/summary.dart';
 import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
 // Screens are deliberately not re-exported from the ui2 barrel (see the
@@ -204,14 +196,6 @@ Map<String, Widget> goldenCases() => {
   // screen which can say more — including the one absence nothing
   // explained, which says exactly that.
   'rings_absent': const RingTrio(d: _ringsAbsent),
-  // The ONE card, both faces: the map as the background, and a photograph
-  // as the background with the route dissolved into its corner.
-  'share_card': _shareCard(photo: false),
-  'share_card_photo': _shareCard(photo: true),
-  // The other destination. Same hero, same stats, a different shape —
-  // shot because a 9:16 card is where the column's arithmetic has the
-  // most room to go wrong, not because it is a different design.
-  'share_card_story': _shareCard(photo: false, format: PosterFormat.story),
   'signal': const SignalCard(
     LucideIcons.heartPulse,
     C.blue,
@@ -825,16 +809,7 @@ Map<String, Widget> _nutritionAndWellnessCases() {
       pad: EdgeInsets.symmetric(horizontal: S.x4),
       child: PickRow('Oats', 'per 100 g: 380 kcal · P 13.0 · C 66.0'),
     ),
-    'food_row': const Surface(
-      pad: EdgeInsets.symmetric(horizontal: S.x4),
-      child: Column(
-        children: [
-          FoodRow(entry: known, trailing: LucideIcons.circlePlus),
-          FoodRow(entry: bare),
-        ],
-      ),
-    ),
-    // `.preview`, because the gallery has no band and no Provider. The numbers
+      // `.preview`, because the gallery has no band and no Provider. The numbers
     // are a fixture and are shaped like one — a resting wobble, not a workout.
     'live_hr_card': const LiveHrCard.preview(
       hr: 68,
@@ -939,41 +914,6 @@ final _finished = ActivityResult(
   ],
 );
 
-/// The card with a photo behind it, and the card without.
-///
-/// These are the two faces of the ONE card — there are no styles any more.
-/// Without a photo the basemap is the background; with one the photograph is,
-/// and the route dissolves into the corner. Neither case here has a mosaic
-/// (see the note on 'poster'), so what these shoot is the no-basemap face of
-/// both, which is also what a user with no signal gets.
-Widget _shareCard({
-  required bool photo,
-  PosterFormat format = PosterFormat.post,
-}) => PosterCard(_finished, photo: photo ? _flatPhoto : null, format: format);
-
-/// A four-pixel slab of colour, standing in for the user's photograph.
-///
-/// Embedded rather than an asset because a golden must not depend on a file
-/// somebody can move, and generated rather than fetched because a gallery
-/// that needs the network is a gallery that fails on a plane. What the photo
-/// case has to show is the LAYOUT — the scrim over a real background and the
-/// route dissolving into the corner — and a flat slab shows both.
-final _flatPhoto = MemoryImage(
-  base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGNIyGuAIwbiOAAd'
-    'EhTheEnmewAAAABJRU5ErkJggg==',
-  ),
-);
-
-/// A session that measured nothing but its own length — the grid prints the
-/// one stat it has rather than a row of blanks, and the hero falls back to
-/// the clock.
-final _bare = ActivityResult(
-  activityByName('Meditation')!,
-  start: DateTime(2026, 8, 13, 22, 5),
-  duration: Motion.tick * 900,
-);
-
 // ══════════════════ the rest of the vocabulary ══════════════════
 //
 // The primitives and the painters the goldens do not photograph. They are
@@ -1028,71 +968,6 @@ Map<String, Widget> extraCases() => {
           ],
         ),
       ),
-    ),
-  ),
-  // WHAT CHARGED AND DRAINED YOU, taken apart. Swept rather than
-  // photographed because the interesting cases are the ones a golden
-  // cannot show: a driver that moved but stayed inside its own spread, and
-  // one that could not be used at all. Both have to render as neither
-  // helping nor holding you back — a row under "what helped" reading
-  // `+0.0` is a small lie, and skin temperature is a raw ADC so its
-  // NUMBERS are suppressed as well as its chart.
-  'driver_breakdown': DriverBreakdown(
-    driverFacts(
-      breakdown: const [
-        {
-          'label': 'hrv',
-          'used': true,
-          'weight': 0.40,
-          'weighted_contribution': -6.2,
-          'past_mdc': true,
-        },
-        {
-          'label': 'rhr',
-          'used': true,
-          'weight': 0.30,
-          'weighted_contribution': 3.1,
-          'past_mdc': false,
-        },
-        {
-          'label': 'resp',
-          'used': false,
-          'weight': 0.15,
-          'note': 'need_baseline:have=2,need=7',
-        },
-        {
-          'label': 'temp',
-          'used': true,
-          'weight': 0.15,
-          'weighted_contribution': -1.4,
-          'past_mdc': true,
-        },
-      ],
-      baselines: const {
-        'hrv': {
-          'value': 41.2,
-          'baseline': 58.4,
-          'spread': 6.1,
-          'delta': -17.2,
-          'mdc_multiples': -2.3,
-        },
-        'resting_hr': {
-          'value': 54.0,
-          'baseline': 56.8,
-          'spread': 2.2,
-          'delta': -2.8,
-          'mdc_multiples': -0.7,
-        },
-        // Deliberately present and deliberately not printed — see
-        // DriverFacts.numeric.
-        'skin_temp': {
-          'value': 32411.0,
-          'baseline': 32380.0,
-          'spread': 12.0,
-          'delta': 31.0,
-          'mdc_multiples': 1.9,
-        },
-      },
     ),
   ),
   // Swept rather than photographed: it is the measured trio plus one
@@ -1464,21 +1339,21 @@ Map<String, Widget> extraCases() => {
     builder: (c) => Surface(
       child: Column(
         children: [
-          PosterStatRow(
+          StatRow(
             icon: statIcon('Time'),
             label: 'Time',
             value: '1:02:14',
             accent: P.of(c).on(C.domMove),
           ),
           Divider(color: P.of(c).line, height: S.x5),
-          PosterStatRow(
+          StatRow(
             icon: statIcon('Calories'),
             label: 'Calories',
             value: 'Not costed',
             accent: P.of(c).on(C.domMove),
           ),
           Divider(color: P.of(c).line, height: S.x5),
-          PosterStatRow(
+          StatRow(
             icon: statIcon('Max HR'),
             label: 'Max HR',
             value: 'No reading',
@@ -1492,21 +1367,12 @@ Map<String, Widget> extraCases() => {
   ..._listCases(),
   ..._onboardingCases(),
   ..._stateCases(),
-  ..._shareCases(),
-  // No `mosaic`: a gallery that needs the network is a gallery that fails
-  // on a plane. This is the card's honest no-basemap face, which is also
-  // what a user with no signal gets.
-  'poster': PosterCard(_finished),
-  // A session that measured nothing but its own length: the grid prints
-  // the one stat it has rather than a row of blanks.
-  'poster_bare': PosterCard(_bare),
-  // The poster's stat row on its own, on a normal card — it takes its ink
-  // from the page when none is given, which is the whole reason it is not
-  // a private widget inside poster.dart.
-  'poster_stat_row': Surface(
+  // The stat row on its own: it takes its ink from the page when none is
+  // given.
+  'stat_row': Surface(
     child: Column(
       children: [
-        const PosterStatRow(
+        const StatRow(
           icon: LucideIcons.gauge,
           label: 'Pace',
           value: '5:12',
@@ -1514,7 +1380,7 @@ Map<String, Widget> extraCases() => {
           accent: C.domMove,
         ),
         const SizedBox(height: S.x3),
-        const PosterStatRow(
+        const StatRow(
           icon: LucideIcons.flame,
           label: 'Calories',
           value: '2,310',
@@ -1523,7 +1389,7 @@ Map<String, Widget> extraCases() => {
         ),
         const SizedBox(height: S.x3),
         // No unit, and the longest duration anyone will post.
-        const PosterStatRow(
+        const StatRow(
           icon: LucideIcons.timer,
           label: 'Time',
           value: '10h 24m 18s',
@@ -1730,16 +1596,6 @@ Map<String, Widget> _stateCases() => {
     '—',
     sub: 'NEED 4 MORE NIGHTS',
   ),
-};
-
-/// The share card in every archetype it can be.
-///
-/// Eight archetypes on the one card. The picture no longer changes with the
-/// sport — that was the textured card, and it is gone — but the STATS do, and
-/// the grid has to hold all of them: a hike prints six, a lift prints five,
-/// and the old four-row ceiling silently dropped whatever came after.
-Map<String, Widget> _shareCases() => {
-  for (final s in _sessions.entries) 'share_${s.key}': PosterCard(s.value),
 };
 
 /// The fixture sessions, for a test that has to build one screen per
@@ -2332,29 +2188,6 @@ Map<String, Widget> _onboardingCases() => {
   ),
 };
 
-/// A REAL run, on a real park loop, so the poster can be seen doing the one
-/// thing the offline case cannot show: sitting on actual streets.
-///
-/// Deliberately not in [galleryCases]. Every case in that map is shot by the
-/// goldens and swept for overflow at five text scales, and a case that reaches
-/// the network would make both of those a function of the wifi. This is
-/// screen-only, opt-in, and fetches nothing until it is on screen.
-final _demoRun = ActivityResult(
-  activityByName('Running')!,
-  start: DateTime(2026, 8, 16, 6, 40),
-  duration: Motion.tick * 920,
-  avgHr: 152,
-  maxHr: 171,
-  calories: 214,
-  strain: 8.4,
-  distanceKm: 3.07,
-  hr: [for (var i = 0; i < 15; i++) 138 + (i * 23 % 29) * 1.0],
-  zoneMinutes: const [1, 3, 6, 4, 1],
-  geo: _demoLoop,
-  route: _normalisedDemoLoop,
-  routePace: [for (var i = 0; i < _demoLoop.length; i++) (i * 7 % 20) / 20],
-);
-
 /// A lap of Cubbon Park, Bengaluru — about 3.07 km. Real coordinates, because
 /// the whole point is that the tiles underneath are a real place.
 const _demoLoop = <(double, double)>[
@@ -2416,185 +2249,6 @@ final _normalisedDemoLoop = () {
       Offset(dx + (lng - loLng) * k / span, dy + (hiLat - lat) / span),
   ];
 }();
-
-/// The poster with a live basemap, and a photo slot.
-///
-/// Everything else in the gallery is a pure function of its fixtures. This one
-/// is not — it fetches tiles and it reads a file the user picks — which is
-/// exactly why it lives at the bottom of the screen, behind its own button,
-/// and not in the map the goldens shoot.
-class _PosterPreview extends StatefulWidget {
-  const _PosterPreview();
-
-  @override
-  State<_PosterPreview> createState() => _PosterPreviewState();
-}
-
-class _PosterPreviewState extends State<_PosterPreview> {
-  RouteMosaic? _mosaic;
-  File? _photo;
-  bool _loading = false;
-  bool _tried = false;
-
-  /// The card, as pixels. This is the only place in the app a share can be
-  /// exercised without a recorded session, so it captures the SAME way the
-  /// share sheet does — boundary, 3×, `shareXFiles` with an anchor.
-  final _card = GlobalKey();
-  bool _sharing = false;
-
-  @override
-  void dispose() {
-    _mosaic?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    if (_loading) return;
-    setState(() {
-      _loading = true;
-      _tried = true;
-    });
-    // The card's own map styling, not the reader's palette — the same two
-    // tokens the real share sheet passes, so this preview cannot show a map
-    // the shipped card would never draw.
-    final m = await buildRouteMosaic(
-      _demoLoop,
-      width: kPosterMapW.round() * 3,
-      height: kPosterMapH(PosterFormat.post).round() * 3,
-      bg: C.mapFloor,
-      ink: C.mapCeil,
-    );
-    if (!mounted) {
-      m?.dispose();
-      return;
-    }
-    setState(() {
-      _mosaic?.dispose();
-      _mosaic = m;
-      _loading = false;
-    });
-  }
-
-  Future<void> _pick() async {
-    try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-      );
-      final path = picked?.files.single.path;
-      if (path != null && mounted) setState(() => _photo = File(path));
-    } catch (_) {
-      /* cancelled, or no picker — neither is an error */
-    }
-  }
-
-  /// Share the card that is on screen, rather than re-drawing a second,
-  /// slightly different one. The anchor is `shareOrigin` from share.dart and
-  /// not a rect invented here: `UIActivityViewController` is a popover on iPad
-  /// and `share_plus` throws rather than guessing without one.
-  Future<void> _share() async {
-    if (_sharing) return;
-    _sharing = true;
-    final origin = shareOrigin(context);
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final boundary =
-          _card.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return;
-      final image = await boundary.toImage(pixelRatio: 3);
-      final png = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (png == null) return;
-      await Share.shareXFiles([
-        XFile.fromData(
-          png.buffer.asUint8List(),
-          mimeType: 'image/png',
-          name: 'poster.png',
-        ),
-      ], sharePositionOrigin: origin);
-    } catch (e) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Could not open the share sheet.')),
-      );
-      debugPrint('gallery share failed: $e');
-    } finally {
-      _sharing = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('poster · live', style: F.over.copyWith(color: p.ink3)),
-        const SizedBox(height: S.x2),
-        Center(
-          child: RepaintBoundary(
-            key: _card,
-            child: PosterCard(
-              _demoRun,
-              photo: _photo == null ? null : FileImage(_photo!),
-              mosaic: _mosaic,
-            ),
-          ),
-        ),
-        const SizedBox(height: S.x3),
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Column(
-            children: [
-              SetRow(
-                LucideIcons.map,
-                C.green,
-                _mosaic == null ? 'Load the map' : 'Reload the map',
-                sub: 'A real lap of Cubbon Park — fetches OpenStreetMap tiles',
-                value: _loading ? 'Loading' : '',
-                onTap: _loading ? null : _load,
-              ),
-              Divider(color: p.line, height: 1),
-              SetRow(
-                LucideIcons.imagePlus,
-                C.purple,
-                _photo == null ? 'Add a photo' : 'Change photo',
-                sub: 'From this phone. Nothing is uploaded',
-                onTap: _pick,
-              ),
-              if (_photo != null) ...[
-                Divider(color: p.line, height: 1),
-                SetRow(
-                  LucideIcons.trash2,
-                  C.red,
-                  'Remove the photo',
-                  chevron: false,
-                  onTap: () => setState(() => _photo = null),
-                ),
-              ],
-              Divider(color: p.line, height: 1),
-              SetRow(
-                LucideIcons.share2,
-                C.blue,
-                'Share this card',
-                sub: 'The real export — the boundary above, at 3×',
-                chevron: false,
-                onTap: _share,
-              ),
-            ],
-          ),
-        ),
-        if (_tried && !_loading && _mosaic == null) ...[
-          const SizedBox(height: S.x3),
-          const StatusCard(
-            'No map came back',
-            'The tiles could not be fetched, so the route is drawn on its own — '
-                'which is exactly what the card does on a phone with no signal.',
-            icon: LucideIcons.mapPinOff,
-          ),
-        ],
-      ],
-    );
-  }
-}
 
 // ══════════════════ THE SCREEN ══════════════════
 
@@ -2874,7 +2528,7 @@ class _Flows extends StatelessWidget {
 /// One activity's flow, in the order the app walks it.
 ///
 /// Every row pushes the REAL screen — the same `ActivityPicker`,
-/// `ActivitySetup`, `liveFor`, `ActivitySummary` and `ShareSheet` the app
+/// `ActivitySetup`, `liveFor` and `ActivitySummary` the app
 /// routes to — over [ActivityHost.none]. Nothing is persisted and nothing
 /// reads the database, which is the only reason a gallery can push them.
 class _FlowScreen extends StatelessWidget {
@@ -2914,12 +2568,6 @@ class _FlowScreen extends StatelessWidget {
         LucideIcons.flag,
         'What this session becomes',
         ActivitySummary(r, weightKg: _fixtureWeightKg),
-      ),
-      (
-        'Share',
-        LucideIcons.share2,
-        'Styles, stat chips and the card',
-        ShareSheet(r),
       ),
     ];
     return Scaffold(
@@ -3097,13 +2745,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                   S.x10,
                                 ),
                                 children: [
-                                  // FIRST, not last. It is the only case that
-                                  // touches the network or the filesystem, and it
-                                  // is also the one worth opening the gallery for
-                                  // — burying it under ninety other cases at 3.1x
-                                  // text would make it unreachable in practice.
-                                  const _PosterPreview(),
-                                  const SizedBox(height: S.x6),
                                   for (final e in cases.entries) ...[
                                     Text(
                                       e.key,

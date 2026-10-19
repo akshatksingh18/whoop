@@ -58,12 +58,7 @@ import '../../data/lift_log.dart' show LiftLogDb, setMarkMinutes;
 import 'lift_log_ui.dart' show LiftSummaryCard;
 import 'picker.dart';
 import 'run_detail.dart';
-// The share card and this screen describe the same session, so they draw its
-// stats with the same widget and split its values with the same function.
-// poster.dart imports this file back for [ActivityResult]; that is the seam,
-// not a layering mistake.
-import 'poster.dart' show PosterStatRow, posterStatIcon, splitStatUnit;
-import 'share.dart';
+import 'stat_row.dart';
 
 /// The defining visual object of an activity. Everything else supports it.
 ///
@@ -707,8 +702,8 @@ String _shortDate(DateTime t) =>
 
 /// The glyph for a stat name.
 ///
-/// [posterStatIcon] already owns every name a share card can offer; these are
-/// the ones only a session screen prints, and everything else falls through to
+/// [commonStatIcon] owns the names every session can print; these are the
+/// ones only a session screen prints, and everything else falls through to
 /// it. One mapping, so `Pace` cannot end up with two marks.
 IconData statIcon(String name) => switch (name) {
   'Reps' => LucideIcons.repeat2,
@@ -723,12 +718,11 @@ IconData statIcon(String name) => switch (name) {
   // no part in.
   'Your rating' => LucideIcons.userRound,
   'Cadence' => LucideIcons.footprints,
-  _ => posterStatIcon(name),
+  _ => commonStatIcon(name),
 };
 
 /// The supporting numbers a finished session can honestly print, as
-/// `(name, formatted value)` — the shape [shareStats] hands the share card, so
-/// one session cannot describe itself two ways.
+/// `(name, formatted value)`.
 ///
 /// A stat with nothing behind it is DROPPED, never dashed. There is no cap:
 /// the three-across strip this replaced could hold exactly three, so a lift's
@@ -767,8 +761,7 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
       }
     case Arch.strength:
       // Guarded like Arch.match below. 'SETS 0' and 'REPS 0' used to sit
-      // directly under the card saying nothing was logged, and the share card
-      // for the same session — which does gate on this — printed neither.
+      // directly under the card saying nothing was logged.
       add('Sets', r.strength.isEmpty ? null : '${r.strength.setCount}');
       add('Reps', r.strength.isEmpty ? null : '${r.strength.repCount}');
     case Arch.laps:
@@ -821,9 +814,7 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   );
   add('Strain', r.strain?.toStringAsFixed(1));
   // TS-09 — last, under the measurements, and named 'Your rating' rather than
-  // 'RPE' so the row cannot read as something the band found out. It is not on
-  // the share card: `shareStats` is its own list and a self-report is not one
-  // of the things a session measured.
+  // 'RPE' so the row cannot read as something the band found out.
   add('Your rating', r.rpe == null ? null : '${r.rpe!.round()} of 10');
   return out;
 }
@@ -831,9 +822,8 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
 /// The stat the hero is already showing large, or null when the hero is a
 /// number this list does not carry anyway (a distance, a volume, a swim).
 ///
-/// The poster subtracts its hero from its grid for exactly this reason; the
-/// screen the poster is generated from printed '45:12' at 48 pt and then
-/// 'TIME 45:12' as the next card's first row.
+/// Without this the screen printed '45:12' at 48 pt and then 'TIME 45:12' as
+/// the next card's first row.
 String? _heroStatName(ActivityResult r) => switch (r.arch) {
   Arch.route || Arch.journey => r.distanceKm == null ? 'Time' : null,
   // Without a volume the hero falls back to the set COUNT, not the clock.
@@ -848,9 +838,8 @@ String? _heroStatName(ActivityResult r) => switch (r.arch) {
 /// with a caption under each. The value column was a third of a card, so
 /// '5:08 /mi' had to hide its unit inside the label, and the fourth stat was
 /// dropped without saying so. One row per stat gives every one of them the
-/// same ringed mark, the same caps name, and the same value/unit pair the
-/// share card sets — [PosterStatRow], not a second row that agrees with it
-/// until somebody edits one of them.
+/// same ringed mark, the same caps name, and the same value/unit pair
+/// ([StatRow], shared with the workout history detail).
 class SessionStats extends StatelessWidget {
   final ActivityResult r;
   const SessionStats(this.r, {super.key});
@@ -858,15 +847,14 @@ class SessionStats extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    // Solved against the page, not raw pigment: the poster paints its rings on
-    // one dark card it controls, and this one lands on both themes.
+    // Solved against the page, not raw pigment: the card lands on both themes.
     final accent = p.on(r.activity.color);
     final rows = <Widget>[];
     for (final s in sessionStats(r, unitsOf(c))) {
       if (rows.isNotEmpty) rows.add(Divider(color: p.line, height: S.x5));
       final (value, unit) = splitStatUnit(s.$2);
       rows.add(
-        PosterStatRow(
+        StatRow(
           icon: statIcon(s.$1),
           label: s.$1,
           value: value,
@@ -1541,8 +1529,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       // ONE flexible child. A `Flexible` hero next to a `Spacer` split the row
       // by flex, so the headline got half the width whatever it said, and a
       // 1,500 m swim printed '1,…' at 2x text. The privacy pill keeps its
-      // natural width; the hero takes the rest and, like the share card's,
-      // scales down rather than truncating — a cut-off measurement is not a
+      // natural width; the hero takes the rest and scales down rather than
+      // truncating — a cut-off measurement is not a
       // measurement.
       Row(
         children: [
@@ -1874,10 +1862,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               height: 200,
               legend: r.routePace == null
                   ? const []
-                  // Fast is GREEN, matching `paceColor` on the share card.
-                  // These were opposite: the same run read green at its
-                  // slowest here and green at its fastest on the poster, so a
-                  // card and the screen it came from disagreed about the run.
+                  // Fast is GREEN, slow is red.
                   : [
                       (l?.activitySummarySlower ?? 'Slower', p.on(C.red)),
                       (l?.activitySummaryFaster ?? 'Faster', p.on(C.green)),

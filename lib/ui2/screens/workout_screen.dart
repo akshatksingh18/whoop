@@ -43,7 +43,7 @@ import '../activity/live.dart';
 import '../activity/lift_log_ui.dart'
     show LiftChoice, LiftSplitChoice, finishLiftLogFor, reconcileLiftLogs;
 import '../activity/picker.dart';
-import '../activity/poster.dart' show PosterStatRow;
+import '../activity/stat_row.dart' show StatRow;
 import '../activity/setup.dart';
 import '../activity/summary.dart';
 import '../charts.dart';
@@ -1314,7 +1314,7 @@ class _HistoryRow extends StatelessWidget {
           ],
           for (var i = 0; expanded && i < stats.length; i++) ...[
             if (i > 0) Divider(color: p.line, height: S.x5),
-            PosterStatRow(
+            StatRow(
               icon: statIcon(stats[i].$1),
               label: stats[i].$1,
               value: stats[i].$2,

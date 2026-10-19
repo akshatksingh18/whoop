@@ -252,7 +252,7 @@ const _notComponents = {
   // Nutrition logging sheets and the per-day log: each reads or writes the
   // food tables on open. Their rows (PickRow, CalorieCard) ARE in the
   // gallery.
-  'AddFoodSheet', 'GramsSheet', 'FoodEditor', 'MealEditor', 'NutritionDayView',
+  'GramsSheet', 'FoodEditor', 'MealEditor', 'NutritionDayView',
   'MealGroupPicker', // Reads meal/date headings; covered by ui2_food_flow_test.
   // Owns async day-specific repository reads/revision lifecycle. Its measured
   // HR/HRV/wear charts and small-phone layout are covered by build73_details_test.
@@ -298,7 +298,6 @@ const _notComponents = {
   // Reads the day bundle AND the raw beat store to draw one night's Poincaré
   // cloud — a gallery case would have to mock 27 000 beat intervals.
   'JournalCompose',
-  'LogFoodSheet',
   // Where the hydration notification lands: a Scaffold route that reads and
   // writes the day's journal metrics. The one control on it — FieldStepper —
   // IS in the gallery.
@@ -320,8 +319,8 @@ const _notComponents = {
   // a live session — a stateful screen with a clock, per archetype
   'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
   'LiveFlow', 'LiveMatch', 'LiveInterval',
-  // the activity flow: pick → set up → do → summarise → share
-  'ActivityPicker', 'ActivitySetup', 'ActivitySummary', 'ShareSheet',
+  // the activity flow: pick → set up → do → summarise
+  'ActivityPicker', 'ActivitySetup', 'ActivitySummary',
   // The two write routes for a session the band did not capture as it
   // happened. Both are Scaffolds that read `sessions` / `workout_suggestions`
   // and write through the repo; the second also asks the OS for a date and a

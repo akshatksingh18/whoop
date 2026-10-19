@@ -82,9 +82,18 @@ class _RecentHrvSectionState extends State<RecentHrvSection>
 }
 
 class RecentHrvCard extends StatelessWidget {
-  const RecentHrvCard(this.view, {super.key, this.sharedWith = 'Recovery'});
+  const RecentHrvCard(
+    this.view, {
+    super.key,
+    this.sharedWith = 'Recovery',
+    this.nightShown = false,
+  });
 
   final RecentHrvView view;
+
+  /// The page already states last night's value against the usual range, so
+  /// the sentence speaks only to the nights before it.
+  final bool nightShown;
 
   /// The other page that reads the same nights and window.
   final String sharedWith;
@@ -94,7 +103,11 @@ class RecentHrvCard extends StatelessWidget {
   /// Build 91 (Codex audit F08): "last night" only for today's view (an
   /// older day names its date), and the 7-night average's side is judged on
   /// its own, never borrowed from the night.
-  static String sentence(RecentHrvView v, {String? today}) {
+  static String sentence(
+    RecentHrvView v, {
+    String? today,
+    bool nightShown = false,
+  }) {
     final last = v.last, band = v.usual, avg = v.before;
     final current = v.day == (today ?? todayLabel());
     final when = current ? 'last night' : 'on ${prettyDay(v.day)}';
@@ -117,6 +130,16 @@ class RecentHrvCard extends StatelessWidget {
     // Build 91: judged on the nights BEFORE this one. A 7-night average that includes a single crash can sit below
     // the band and wrongly read as "several nights".
     final week = 'The nights before averaged ${avg.round()} ms,';
+    if (nightShown) {
+      final night = side == 'below' ? 'low' : 'high';
+      return switch (avgSide) {
+        'inside' =>
+          '$week inside your usual range: one $night night, not a trend yet.',
+        _ when avgSide == side =>
+          '$week $side your usual range too: several nights, not one.',
+        _ => '$week $avgSide your usual range.',
+      };
+    }
     if (avgSide == 'inside') {
       return '$ms, $side your usual $range. $week inside it: '
           'one night, not a trend yet.';
@@ -133,7 +156,7 @@ class RecentHrvCard extends StatelessWidget {
     final p = P.of(c);
     final col = p.on(C.recovery);
     return Surface(
-      semanticLabel: 'Recent HRV. ${sentence(view)}',
+      semanticLabel: 'Recent HRV. ${sentence(view, nightShown: nightShown)}',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -200,7 +223,7 @@ class RecentHrvCard extends StatelessWidget {
           ),
           const SizedBox(height: S.x2),
           Text(
-            sentence(view),
+            sentence(view, nightShown: nightShown),
             style: F.body.copyWith(color: p.ink, height: 1.4),
           ),
           const SizedBox(height: S.x1),

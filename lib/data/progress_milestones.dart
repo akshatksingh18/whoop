@@ -25,17 +25,22 @@ String _in(double v, [int places = 1]) {
   return s.replaceFirst(RegExp(r'\.?0+$'), '');
 }
 
+/// One body milestone: the day it happened, what changed, and what it was
+/// compared with.
+typedef BodyMilestone = ({String date, String title, String sub});
+
 /// Waist readings inside [from]…[to] that were the lowest so far, newest
 /// first (at most [limit]). Compared with every earlier reading, not only
 /// those in range.
-List<String> bodyMilestones(
+List<BodyMilestone> bodyMilestones(
   List<BodyMeasure> measures,
   String from,
   String to, {
   int limit = 5,
 }) {
   final s = siteSeries(measures, BodySite.waistNavel);
-  final out = <String>[];
+  final site = BodySite.waistNavel.title;
+  final out = <BodyMilestone>[];
   DatedValue? low;
   DatedValue? first;
   var count = 0;
@@ -47,16 +52,20 @@ List<String> bodyMilestones(
         r.date.compareTo(from) >= 0 &&
         r.date.compareTo(to) <= 0) {
       final places = bodyComparisonPlaces(low.value, r.value);
+      // Two decimals can still tie; then the difference itself is stated.
       final indistinguishable =
           low.value.toStringAsFixed(places) == r.value.toStringAsFixed(places);
-      final comparison = indistinguishable
-          ? '${(low.value - r.value).toStringAsPrecision(2)} in lower than the previous lowest on ${_md(low.date)}'
-          : 'previous lowest ${_in(low.value, places)} in, ${_md(low.date)}';
-      out.add(
-        '${BodySite.waistNavel.title} ${_in(r.value, places)} in on ${_md(r.date)}: '
-        'the lowest of $count readings since ${_md(first.date)} '
-        '($comparison).',
-      );
+      final since = 'Lowest of $count since ${_md(first.date)}';
+      out.add((
+        date: r.date,
+        title: indistinguishable
+            ? '$site ${_in(r.value, places)} in'
+            : '$site ${_in(low.value, places)} → ${_in(r.value, places)} in',
+        sub: indistinguishable
+            ? '$since · ${(low.value - r.value).toStringAsPrecision(2)} in '
+                  'lower than the previous lowest on ${_md(low.date)}'
+            : '$since · was ${_in(low.value, places)} on ${_md(low.date)}',
+      ));
     }
     if (low == null || r.value < low.value) low = r;
   }

@@ -1400,7 +1400,10 @@ void main() {
         'Nov',
         'Dec',
       ];
-      expect(text, contains('vs ${months[prior.month - 1]} ${prior.day}'));
+      expect(
+        text,
+        contains('vs the week from ${months[prior.month - 1]} ${prior.day}'),
+      );
       await t.drag(find.byType(Scrollable).first, const Offset(0, 5000));
       await t.pumpAndSettle();
       final waist = find.text('Waist (navel)');
@@ -1645,12 +1648,17 @@ void main() {
           if (scale <= 1.3 ||
               !['progress_body', 'progress_context'].contains(name))
             return;
-          final first = find.text(
-            name == 'progress_body' ? 'Start' : 'Calories / day',
+          // Body labels its stats for the line drawn: readings, or the
+          // 7-day average ("First" / "Latest").
+          Finder either(List<String> words) => find.byWidgetPredicate(
+            (w) => w is Text && words.contains(w.data),
           );
-          final second = find.text(
-            name == 'progress_body' ? 'Latest' : 'Protein / day',
-          );
+          final first = name == 'progress_body'
+              ? either(['First reading', 'First'])
+              : find.text('Calories / day');
+          final second = name == 'progress_body'
+              ? either(['Latest reading', 'Latest'])
+              : find.text('Protein / day');
           if (first.evaluate().isEmpty || second.evaluate().isEmpty) return;
           // Build 90: Body shows more than one comparison block, so compare
           // the first pair rather than an ambiguous single match.

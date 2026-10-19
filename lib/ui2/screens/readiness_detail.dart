@@ -374,13 +374,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
   ReadinessData? _d;
   bool _showHow = false;
 
-  /// One plain line for the band the score falls in.
-  static String _advice(int tier) => switch (tier) {
-    3 => 'Recovered. A good day to push hard.',
-    2 => 'Normal recovery. Train as planned.',
-    1 => 'Below your usual. Keep today easier.',
-    _ => 'Well below your usual. Put rest first.',
-  };
   bool _loading = true, _failed = false;
 
   @override
@@ -502,19 +495,19 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
                     value: '${v.round()}',
                     color: C.recovery,
                     label: l?.homeRingRecovery ?? 'Recovery',
-                    lines: [
-                      band.label,
-                      'vs your own last 28 nights, within 60 days',
-                    ],
-                  ),
-                  Text(
-                    _advice(band.tier),
-                    style: F.body.copyWith(color: p.ink2),
+                    // The band's own word ("Take it easy") is the advice; it
+                    // is not said again in a second sentence (Build 95).
+                    lines: [band.label],
                   ),
                   if (_lead(c, d) case final lead?) ...[
                     const SizedBox(height: S.x2),
                     Text(lead, style: F.body.copyWith(color: p.ink)),
                   ],
+                  const SizedBox(height: S.x1),
+                  Text(
+                    'Against your own last 28 nights, within 60 days',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
                   if (d.breakdown.isNotEmpty) ...[
                     const SizedBox(height: S.x3),
                     Divider(color: p.line, height: 1),
@@ -545,7 +538,12 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
 
           if (v != null && d.hrv != null) ...[
             const SizedBox(height: S.x3),
-            RecentHrvCard(d.hrv!, sharedWith: 'the HRV page'),
+            // The hero already gave last night's HRV when it led the score.
+            RecentHrvCard(
+              d.hrv!,
+              sharedWith: 'the HRV page',
+              nightShown: _topMover(d)?['label'] == 'hrv',
+            ),
           ],
           if (d.breakdown.isNotEmpty) ...[
             // A scored day shows its drivers in the hero panel above; an
@@ -774,14 +772,20 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
   static bool _hasPoints(ReadinessData d) =>
       d.breakdown.any((r) => r['points'] is int);
 
-  /// "Mostly HRV." plus what it did, from the biggest movers (3+ points).
+  /// The inputs that moved the score 3 points or more, biggest first.
+  static List<Map> _movers(ReadinessData d) => [
+    for (final r in d.breakdown)
+      if (r['points'] is int && (r['points'] as int).abs() >= 3) r,
+  ]..sort((a, b) =>
+      (b['points'] as int).abs().compareTo((a['points'] as int).abs()));
+
+  static Map? _topMover(ReadinessData d) => _movers(d).firstOrNull;
+
+  /// The one reason by the score: "Mostly HRV: 41 ms last night, well below
+  /// your usual 52–60. Everything else was close to usual."
   String? _lead(BuildContext c, ReadinessData d) {
     final l = AppLocalizations.of(c);
-    final movers = [
-      for (final r in d.breakdown)
-        if (r['points'] is int && (r['points'] as int).abs() >= 3) r,
-    ]..sort((a, b) =>
-        (b['points'] as int).abs().compareTo((a['points'] as int).abs()));
+    final movers = _movers(d);
     if (!_hasPoints(d)) return null;
     if (movers.isEmpty) return 'Every input was close to your usual.';
     String name(Map r) {
@@ -798,14 +802,17 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     final top = movers.first;
     final word = (top['word'] as String?)?.toLowerCase();
     final head = movers.length == 1
-        ? 'Mostly ${name(top)}.'
-        : 'Mostly ${name(top)}, then ${lower(name(movers[1]))}.';
-    final what = word == null
-        ? ''
-        : ' Last night\'s ${lower(name(top))} '
-              'was ${word.replaceFirst(' usual', ' your usual')}';
-    final rest = movers.length == 1 ? '; everything else was close to usual.' : '.';
-    return word == null ? head : '$head$what$rest';
+        ? 'Mostly ${name(top)}'
+        : 'Mostly ${name(top)}, then ${lower(name(movers[1]))}';
+    final rest = movers.length == 1 ? ' Everything else was close to usual.' : '';
+    if (word == null) return '$head.$rest';
+    final value = top['value_text'] as String?;
+    final range = (top['usual_text'] as String?)?.replaceFirst('usual ', '');
+    final judged = word.replaceFirst(' usual', ' your usual');
+    final what = value == null
+        ? 'last night was $judged'
+        : '$value last night, $judged${range == null ? '' : ' $range'}';
+    return '$head: $what.$rest';
   }
 
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {

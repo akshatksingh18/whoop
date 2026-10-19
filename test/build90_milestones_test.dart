@@ -39,9 +39,9 @@ void main() {
       '2026-10-14',
     );
     expect(notes, hasLength(1));
-    expect(notes.single, contains('33.1 in on Oct 9'));
-    expect(notes.single, contains('lowest of 3 readings since Sep 2'));
-    expect(notes.single, contains('previous lowest 34 in, Sep 2'));
+    expect(notes.single.date, '2026-10-09');
+    expect(notes.single.title, 'Waist (navel) 34 → 33.1 in');
+    expect(notes.single.sub, 'Lowest of 3 since Sep 2 · was 34 on Sep 2');
   });
 
   test('a milestone keeps the second decimal when one decimal would tie', () {
@@ -50,9 +50,8 @@ void main() {
       '2026-10-01',
       '2026-10-14',
     ).single;
-    expect(note, contains('37.21 in on Oct 9'));
-    expect(note, contains('previous lowest 37.24 in'));
-    expect(note, isNot(contains('previous lowest 37.2 in')));
+    expect(note.title, contains('37.24 → 37.21 in'));
+    expect(note.sub, contains('was 37.24 on Sep 2'));
   });
 
   test(
@@ -63,12 +62,12 @@ void main() {
         '2026-10-01',
         '2026-10-14',
       ).single;
-      expect(note, contains('38.21 in on Oct 9'));
+      expect(note.title, endsWith('38.21 in'));
+      expect(note.title, isNot(contains('→')));
       expect(
-        note,
+        note.sub,
         contains('0.0030 in lower than the previous lowest on Sep 2'),
       );
-      expect(note, isNot(contains('previous lowest 38.21 in')));
     },
   );
 
@@ -80,8 +79,7 @@ void main() {
         '2026-10-01',
         '2026-10-14',
       ).single;
-      expect(note, contains('36.6 in on Oct 9'));
-      expect(note, contains('previous lowest 36.8 in'));
+      expect(note.title, contains('36.8 → 36.6 in'));
       expect(bodyComparisonPlaces(36.78, 36.64), 1);
       expect(bodyComparisonPlaces(37.24, 37.21), 2);
     },

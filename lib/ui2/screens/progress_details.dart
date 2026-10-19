@@ -153,7 +153,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
       const SizedBox(height: S.x1),
       ...switch (kind) {
         _DetailKind.body => [
-          _beforeNow(c, p, d, per),
+          _bodySummary(c, p, d, per, today),
           const SizedBox(height: S.x4),
           Surface(
             child: Column(
@@ -202,95 +202,212 @@ class _ProgressDetailState extends State<_ProgressDetail>
     ];
   }
 
-  /// Earlier value → current value → change for the range's two halves, with
-  /// their dates. Observations only: no verdict here.
-  Widget _beforeNow(BuildContext c, P p, ProgressData d, ProgressPeriod per) {
-    final before = per.before, after = per.after;
-    if (before == null || after == null) {
-      return Surface(
-        child: Text(
-          'This range has no earlier stretch to compare with. Its readings are '
-          'below.',
-          style: F.body.copyWith(color: p.ink2),
+  /// "3-month average", for the selected period's row.
+  static String _averageLabel(ProgressRange r) => switch (r) {
+    ProgressRange.week => '7-day average',
+    ProgressRange.month => '30-day average',
+    ProgressRange.twoMonths => '2-month average',
+    ProgressRange.threeMonths => '3-month average',
+    ProgressRange.sixMonths => '6-month average',
+    ProgressRange.year => '1-year average',
+    ProgressRange.sinceStart => 'Average since the start',
+    ProgressRange.all => 'Average of all readings',
+  };
+
+  /// The three weights a reader asks about, each named for what it is: the
+  /// latest reading, the last 7 days, and the period chosen above (Build 95,
+  /// Akshat's pick). Tape sites that moved across the period follow.
+  Widget _bodySummary(
+    BuildContext c,
+    P p,
+    ProgressData d,
+    ProgressPeriod per,
+    String today,
+  ) {
+    double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
+    String w(double kg) => '${_num(u(kg))} $_unit';
+    String signed(double kg) =>
+        '${kg >= 0 ? '+' : '−'}${_num(u(kg.abs()))} $_unit';
+    String readings(int n) => '$n ${n == 1 ? 'reading' : 'readings'}';
+    String span(String from, String to) => reviewWeekLabel(from, to);
+
+    final ws = [
+      for (final x in d.weights)
+        if (x.date.compareTo(today) <= 0) x,
+    ]..sort((a, b) => a.date.compareTo(b.date));
+    final latest = ws.lastOrNull;
+    final t = DateTime.parse(today);
+    String back(int n) => dayLabelOf(DateTime(t.year, t.month, t.day - n));
+    final now7 = BodyLogDb.sevenDayMean(d.weights, today);
+    final prev7 = BodyLogDb.sevenDayMean(d.weights, back(7));
+    final week = span(back(6), today), weekBefore = span(back(13), back(7));
+
+    Widget row(String label, String sub, String value, {bool selected = false}) {
+      final body = Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label.toUpperCase(),
+                  style: F.label.copyWith(
+                    color: selected ? p.on(C.body) : p.ink2,
+                  ),
+                ),
+                Text(sub, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+              ],
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: F.n24.copyWith(color: p.ink),
+            ),
+          ),
+        ],
+      );
+      return Semantics(
+        container: true,
+        label: '$label${selected ? ', selected period' : ''}: $value. $sub',
+        child: ExcludeSemantics(
+          child: selected
+              ? Container(
+                  margin: const EdgeInsets.symmetric(vertical: S.x2),
+                  padding: const EdgeInsets.all(S.x3),
+                  decoration: BoxDecoration(
+                    color: p.wash(C.body),
+                    borderRadius: R.rMd,
+                    border: Border.all(color: p.on(C.body), width: 1.5),
+                  ),
+                  child: body,
+                )
+              : Padding(
+                  padding: const EdgeInsets.symmetric(vertical: S.x3),
+                  child: body,
+                ),
         ),
       );
     }
-    double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
-    final ws = weightSeries(d.weights, unit: 'kg');
-    final wb = weightWindow(ws, before), wa = weightWindow(ws, after);
-    String line(double a, double b, String unit) {
-      final places = bodyComparisonPlaces(a, b);
-      final delta = (b - a).abs();
-      final change =
-          delta != 0 &&
-              delta.toStringAsFixed(places) == 0.toStringAsFixed(places)
-          ? delta.toStringAsPrecision(2)
-          : _num(delta, places);
-      return '${_num(a, places)} → ${_num(b, places)} $unit '
-          '(${b - a >= 0 ? '+' : '−'}$change)';
+
+    final rows = <Widget>[];
+    // A rule between plain rows; the selected row is its own box.
+    void add(Widget r, {bool boxed = false}) {
+      if (rows.isNotEmpty && !boxed) {
+        rows.add(Divider(color: p.line, height: 1));
+      }
+      rows.add(r);
     }
 
-    final rows = <(String, String, String)>[
-      if (wa.mean != null && wb.mean != null)
-        (
-          'Average weight',
-          line(u(wb.mean!), u(wa.mean!), _unit),
-          '${wb.count} and ${wa.count} weigh-ins',
-        )
-      // A known average stays visible when there is nothing to compare.
-      else if (wa.mean != null)
-        (
-          'Average weight',
-          '${_num(u(wa.mean!))} $_unit',
-          '${wa.count} weigh-ins · none in ${_md(before.from)} – '
-              '${_md(before.to)} to compare',
-        )
-      else if (wb.mean != null)
-        (
-          'Average weight',
-          '${_num(u(wb.mean!))} $_unit earlier',
-          'No weigh-in since ${_md(after.from)}',
-        ),
-    ];
-    for (final site in BodySite.values) {
-      final s = siteSeries(d.measures, site);
-      final b = readingNear(s, before.from);
-      final a = inRange(s, after.from, after.to).lastOrNull;
-      if (a == null || b == null || a.date == b.date) continue;
-      rows.add((
-        site.title,
-        line(b.value, a.value, 'in'),
-        '${_md(b.date)} → ${_md(a.date)}',
+    if (latest == null) {
+      add(row('Latest reading', 'No weigh-in yet', '—'));
+    } else {
+      final at = latest.atTs > 0
+          ? DateTime.fromMillisecondsSinceEpoch(latest.atTs * 1000)
+          : null;
+      add(row(
+        'Latest reading',
+        at == null
+            ? _md(latest.date)
+            : '${_md(latest.date)}, '
+                  '${MaterialLocalizations.of(c).formatTimeOfDay(TimeOfDay.fromDateTime(at))}',
+        bodyWeightText(latest, unit: _unit),
       ));
     }
+    final weekSelected = _range == ProgressRange.week;
+    add(row(
+      '7-day average',
+      now7 == null
+          ? 'No weigh-in in $week'
+          : [
+              week,
+              readings(now7.count),
+              prev7 == null
+                  ? 'none in $weekBefore to compare'
+                  : '${signed(now7.kg - prev7.kg)} vs $weekBefore',
+            ].join(' · '),
+      now7 == null ? '—' : w(now7.kg),
+      selected: weekSelected,
+    ), boxed: weekSelected);
+    if (!weekSelected) {
+      final after =
+          per.after ??
+          (from: per.shownFrom, to: per.shownTo, days: 0, partial: false);
+      final series = weightSeries(d.weights, unit: 'kg');
+      final wa = weightWindow(series, after);
+      final before = per.before;
+      final wb = before == null ? null : weightWindow(series, before);
+      add(row(
+        '${_averageLabel(_range)} · selected',
+        [
+          span(after.from, after.to),
+          if (wa.mean != null) readings(wa.count),
+          if (wa.mean == null)
+            'no weigh-in'
+          else if (before == null)
+            'no earlier stretch to compare'
+          else if (wb?.mean == null)
+            'none in ${span(before.from, before.to)} to compare'
+          else
+            '${signed(wa.mean! - wb!.mean!)} vs ${span(before.from, before.to)}',
+        ].join(' · '),
+        wa.mean == null ? '—' : w(wa.mean!),
+        selected: true,
+      ), boxed: true);
+    }
+
+    // Tape sites that moved across the period, earlier → latest.
+    final before = per.before, after = per.after;
+    final sites = <Widget>[];
+    if (before != null && after != null) {
+      for (final site in BodySite.values) {
+        final s = siteSeries(d.measures, site);
+        final b = readingNear(s, before.from);
+        final a = inRange(s, after.from, after.to).lastOrNull;
+        if (a == null || b == null || a.date == b.date) continue;
+        final places = bodyComparisonPlaces(b.value, a.value);
+        final delta = a.value - b.value;
+        sites.add(
+          Padding(
+            padding: const EdgeInsets.only(top: S.x2),
+            // Wraps rather than squeezing: at large text the numbers drop
+            // under the site and dates.
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: S.x2,
+              children: [
+                Text(
+                  '${site.title} · ${_md(b.date)} → ${_md(a.date)}',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+                Text(
+                  '${_num(b.value, places)} → ${_num(a.value, places)} in '
+                  '(${delta >= 0 ? '+' : '−'}${_num(delta.abs(), places)})',
+                  style: F.cap.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
     return Surface(
+      pad: const EdgeInsets.fromLTRB(S.x4, S.x1, S.x4, S.x3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '${_md(before.from)} – ${_md(before.to)} → ${_md(after.from)} – ${_md(after.to)}',
-            style: F.label.copyWith(color: p.ink2),
-          ),
-          for (final (k, v, sub) in rows)
-            Padding(
-              padding: const EdgeInsets.only(top: S.x3),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(k, style: F.body.copyWith(color: p.ink)),
-                  const SizedBox(height: S.x1),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Text(
-                      v,
-                      softWrap: false,
-                      style: F.n17.copyWith(color: p.ink),
-                    ),
-                  ),
-                  Text(sub, style: F.cap.copyWith(color: p.ink3)),
-                ],
-              ),
-            ),
+          ...rows,
+          if (sites.isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            Text('TAPE', style: F.label.copyWith(color: p.ink2)),
+            ...sites,
+          ],
         ],
       ),
     );
@@ -311,14 +428,60 @@ class _ProgressDetailState extends State<_ProgressDetail>
       Section(
         'Milestones',
         Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x1),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final n in notes)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: S.x1),
-                  child: Text(n, style: F.body.copyWith(color: p.ink)),
+              for (var i = 0; i < notes.length; i++) ...[
+                if (i > 0) Divider(color: p.line, height: 1),
+                Semantics(
+                  container: true,
+                  label:
+                      '${_md(notes[i].date)}: ${notes[i].title}. ${notes[i].sub}',
+                  child: ExcludeSemantics(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: S.x3),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 64,
+                            child: Text(
+                              _md(notes[i].date),
+                              style: F.body.copyWith(
+                                color: p.ink,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: S.x2),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  notes[i].title,
+                                  style: F.body.copyWith(
+                                    color: p.ink,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  notes[i].sub,
+                                  style: F.cap.copyWith(
+                                    color: p.ink2,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
+              ],
             ],
           ),
         ),
@@ -476,7 +639,17 @@ class _ProgressDetailState extends State<_ProgressDetail>
       SiteMetric(:final site) => siteSeries(d.measures, site),
     };
     final r = inRange(series, from, today);
-    final summary = m is StepsMetric ? null : bodySummary(r);
+    final trend = m is WeightMetric && _trend;
+    // The stats under the chart describe the line that is drawn: readings,
+    // or the 7-day average when that is the line.
+    final List<DatedValue> drawn = trend
+        ? [
+            for (final day in daysBetween(from, today))
+              if (BodyLogDb.sevenDayMean(d.weights, day) case final mean?)
+                (date: day, value: _unit == 'lb' ? mean.kg * kLbPerKg : mean.kg),
+          ]
+        : r;
+    final summary = m is StepsMetric || drawn.isEmpty ? null : bodySummary(drawn);
     final steps = m is StepsMetric ? stepsSummary(r) : null;
     final labels = daysBetween(from, today);
     final readings = {for (final x in r) x.date: x.value};
@@ -508,7 +681,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
           children: [
             if (m is WeightMetric)
               SubTabs(
-                const ['Readings', '7-day mean'],
+                const ['Readings', '7-day average'],
                 _trend ? 1 : 0,
                 (i) => setState(() {
                   _trend = i == 1;
@@ -526,7 +699,11 @@ class _ProgressDetailState extends State<_ProgressDetail>
               )
             else ...[
               ChartFrame(
-                title: m is WeightMetric && _trend ? '7-day average' : m.label,
+                title: trend
+                    ? '7-day average'
+                    : m is WeightMetric
+                    ? 'Readings'
+                    : m.label,
                 unit: m.unit,
                 height: 160,
                 yAxis: axis,
@@ -557,17 +734,24 @@ class _ProgressDetailState extends State<_ProgressDetail>
                 ),
               ),
               const SizedBox(height: S.x2),
+              if (summary != null) ...[
+                Text(
+                  'ON THE CHART · ${trend ? '7-DAY AVERAGE' : 'READINGS'}',
+                  style: F.label.copyWith(color: p.ink2),
+                ),
+                const SizedBox(height: S.x1),
+              ],
               if (summary != null)
                 _stats(c, [
                   _stat(
                     p,
-                    'Start',
+                    trend ? 'First' : 'First reading',
                     '${_num(summary.start.value)} ${m.unit}',
                     _md(summary.start.date),
                   ),
                   _stat(
                     p,
-                    'Latest',
+                    trend ? 'Latest' : 'Latest reading',
                     '${_num(summary.latest.value)} ${m.unit}',
                     _md(summary.latest.date),
                   ),
@@ -577,7 +761,9 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     summary.count < 2
                         ? '—'
                         : '${summary.change >= 0 ? '+' : '−'}${_num(summary.change.abs())} ${m.unit}',
-                    '${summary.count} ${summary.count == 1 ? 'reading' : 'readings'}',
+                    trend
+                        ? 'over ${summary.count} days'
+                        : '${summary.count} ${summary.count == 1 ? 'reading' : 'readings'}',
                   ),
                 ]),
               if (steps != null)
@@ -595,19 +781,18 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     'per measured day',
                   ),
                 ]),
-              if (m is WeightMetric && d.weights.isNotEmpty)
-                if (BodyLogDb.sevenDayMean(d.weights, today) case final mean?)
-                  Padding(
-                    padding: const EdgeInsets.only(top: S.x2),
-                    child: Text(
-                      '7-day average ${_num(_unit == 'lb' ? mean.kg * kLbPerKg : mean.kg)} $_unit '
-                      'from ${mean.count} ${mean.count == 1 ? 'reading' : 'readings'}',
-                      style: F.cap.copyWith(color: p.ink3),
-                    ),
-                  ),
               if (m is WeightMetric)
                 if (_blockLine(d, today) case final line?)
-                  Text(line, style: F.cap.copyWith(color: p.ink3)),
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x2),
+                    child: Text(line, style: F.cap.copyWith(color: p.ink3)),
+                  ),
+              // Body has no unit switch of its own any more (Build 95).
+              if (m is WeightMetric)
+                Text(
+                  '$_unit · set in Settings → Units → Weight',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
               if (m is SiteMetric && m.site == BodySite.waistNavel)
                 ..._estimates(p, d, today),
             ],
@@ -637,7 +822,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
       'This week (from ${_md(b.from)}) ${_num(u(b.kg))} $_unit from '
           '${b.count} ${b.count == 1 ? 'reading' : 'readings'}',
       if (b.change case final ch? when previous != null)
-        '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))} vs ${_md(previous.from)}',
+        '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))} vs the week from ${_md(previous.from)}',
     ].join(' · ');
   }
 

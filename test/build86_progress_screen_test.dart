@@ -126,7 +126,13 @@ void main() {
             .first,
       );
       final page = find.byElementPredicate((e) => identical(e, pageElement));
-      await t.scrollUntilVisible(find.text('Latest'), 200, scrollable: page);
+      await t.scrollUntilVisible(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data == 'Latest reading' || w.data == 'Latest'),
+        ),
+        200,
+        scrollable: page,
+      );
       expect(t.takeException(), isNull);
       final waist = find.text('Waist (navel)');
       await t.scrollUntilVisible(waist.first, 150, scrollable: page);

@@ -154,4 +154,34 @@ void main() {
     expect(s, contains('one night, not a trend yet'));
     expect(s, isNot(contains('several nights')));
   });
+
+  test('Recovery states the night once; the card then speaks of the nights '
+      'before (Build 95)', () {
+    RecentHrvView view(double last, double avg) => (
+      day: '2026-09-20',
+      nights: [(date: '2026-09-20', ms: last)],
+      usual: (lo: 50.0, hi: 60.0),
+      avg7: avg,
+      before: avg,
+      last: last,
+      lastDate: '2026-09-20',
+    );
+    final one = RecentHrvCard.sentence(
+      view(40, 56),
+      today: '2026-09-20',
+      nightShown: true,
+    );
+    expect(
+      one,
+      'The nights before averaged 56 ms, inside your usual range: one low '
+      'night, not a trend yet.',
+    );
+    expect(one, isNot(contains('40 ms')));
+    final several = RecentHrvCard.sentence(
+      view(40, 45),
+      today: '2026-09-20',
+      nightShown: true,
+    );
+    expect(several, contains('below your usual range too: several nights'));
+  });
 }

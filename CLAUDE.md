@@ -14,8 +14,9 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.62`/`95` (branch `build-95`, `todo.md` 3j) is
-the current candidate: it removes the upstream-only code (Apple Health, AI coach, telemetry and
+**Status:** Active iPhone verification. Build `0.9.62`/`95` (source `f5b270f3` on `main`,
+`todo.md` 3j) is the testing candidate `../final-ipas/whoop/testing/WHOOP-0.9.62-build95-f5b270f3`,
+not yet installed: it removes the upstream-only code (Apple Health, AI coach, telemetry and
 Firebase, widgets, the Watch app, Live Activities, Oura and generic sensors, Shortcuts automation,
 the in-workout set logger, Android and the upstream workflows), so the committed Xcode project is
 the personal app itself; it splits units into Weight, Distance and Height, follows miles through

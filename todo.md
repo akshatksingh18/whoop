@@ -432,13 +432,13 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   Released: `build-94` fast-forwarded to `main` at `9d664632`; Linux CI `39172587592` (3,975
   tests, 457 intentional skips), personal macOS build `39174734367`; downloaded IPA SHA-256
   `75aaa91c2a55ac3d9769a757588360ade356f464cc3519e354c101baaf394f49`, source/version manifest, ZIP CRC and personal
-  payload validation pass. Single testing candidate
-  `final-ipas/whoop/testing/WHOOP-0.9.61-build94-9d664632`; Build 93's folder (never installed)
-  went to the Windows Recycle Bin (reproducible from run `39127375040`).
+  payload validation pass. It was the testing candidate until Build 95 replaced it (never
+  installed); Build 93's folder went to the Windows Recycle Bin (reproducible from run
+  `39127375040`).
   Phone check: Fix sleep times across midnight; Finish asks; Weekly lookback off still asks
   about a detected workout; swipe a food on the Food tab and Undo; set an amount to 0;
   Quick add calories left; a notification tapped while Body entry has typing waits.
-- [x] 3j. Build 95, Akshat's decisions after Build 94 (built on `build-95`; phone check open):
+- [x] 3j. Build 95, Akshat's decisions after Build 94 (released; phone check open):
   - Unreachable screens removed (Readiness glass-box `DriverBreakdown`, `LogFoodSheet` /
     `AddFoodSheet`, `ShareSheet` / `PosterCard`), their live helpers moved first (barcode lookup
     and `offCredit` to `barcode_food.dart`, the stat rows to `stat_row.dart`, `shareOrigin`).
@@ -465,6 +465,12 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
     first, kept 90 days on the phone; tapping one reopens its destination. Scheduled ones are
     recorded once their time has passed. What changed is reachable from Trends; the gap under
     its week-review box is fixed.
+
+  Released: `build-95` fast-forwarded to `main` at `f5b270f3`; Linux CI `39290874149` (3,345
+  tests, 429 intentional skips), personal macOS build `39293589709`; downloaded IPA SHA-256
+  `a0a291b8702a18fb783830296bb0c0cf42ab46035959e0c0ff9e2b8db7e7f9f7`, source/version manifest, ZIP
+  CRC and payload validation pass. Single testing candidate
+  `final-ipas/whoop/testing/WHOOP-0.9.62-build95-f5b270f3`.
 
   Phone check: units migration keeps the Body unit; switch Distance to miles and record a short
   walk (mile splits, voice "1 mile", best efforts); open an older run in miles ("km splits (as

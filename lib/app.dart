@@ -8,6 +8,7 @@ import 'build_profile.dart';
 import 'package:provider/provider.dart';
 
 import 'l10n/app_localizations.dart';
+import 'notify/notification_log.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
 import 'data/home_region.dart';
@@ -92,6 +93,8 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       // to latch for the whole process, silencing every notification and
       // scheduled reminder until a full app restart.
       NotificationService.instance.invalidatePermissionCache();
+      // Scheduled notifications that fired while the app was away.
+      unawaited(NotificationLog.instance.reconcile());
       app.runCadenceChecks(); // evening wind-down / weekly recap nudges (best-effort)
       // Backups run on foreground, when due — there is no background scheduler
       // that works on both platforms, and a schedule that claims "daily" while

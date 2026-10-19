@@ -60,6 +60,7 @@ import 'week_card.dart' show WeekCard;
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
 import 'day_steps.dart' show DayStepsDetail;
+import 'notifications_screen.dart' show NotificationsBell;
 
 // ═══════════════════ shared plumbing ═══════════════════
 
@@ -1943,6 +1944,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                   ),
                   const SizedBox(width: S.x3),
                 ],
+                // Build 95: every notification, kept 90 days.
+                const NotificationsBell(),
+                const SizedBox(width: S.x2),
                 Pressable(
                   semanticLabel: 'Settings',
                   onTap: () => go(c, const MoreSettings()),

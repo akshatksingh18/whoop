@@ -76,6 +76,7 @@ import '../data/models.dart';
 import '../data/nutrition_store.dart' show NutritionDb, autoCountKcalGoal;
 import '../data/food_day_reminder.dart' show FoodDayReminder;
 import '../notify/device_alerts.dart';
+import '../notify/notification_log.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
 import '../sync/background_sync.dart' show checkSyncStaleness;
@@ -996,6 +997,13 @@ class AppState extends ChangeNotifier {
   StreamSubscription<String>? _tapSub;
 
   void _handleTapRoute(String route) {
+    // Opened from the phone's own list: read on the Notifications page too.
+    unawaited(NotificationLog.instance.markRouteRead(route));
+    openRoute(route);
+  }
+
+  /// Go where a notification's route points, as a tap on it would.
+  void openRoute(String route) {
     final t = resolveTapRoute(route); // pure — lib/notify/tap_router.dart
     screenRequest.value = t.screen;
     navRequest.value = t.tab;

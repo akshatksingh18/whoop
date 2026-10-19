@@ -18,6 +18,7 @@ import '../ui2.dart';
 import 'findings_log.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
+import 'what_changed.dart' show WhatChangedScreen;
 
 /// One trend row: the `getChart` key, what to call it, its unit, its colour,
 /// and which way is good news.
@@ -511,6 +512,59 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               ],
             ..._observations(c, d),
             // Naps moved into Sleep, beside the night they belong to.
+            // Build 95: the week review and the day-by-day findings were
+            // reachable only from a notification.
+            Section(
+              'Against your own history',
+              Surface(
+                semanticLabel:
+                    'What changed. This week in review and anything unusual, '
+                    'day by day',
+                onTap: () => Navigator.of(c).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const WhatChangedScreen(),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: p.card2,
+                        borderRadius: R.rMd,
+                      ),
+                      child: Icon(
+                        LucideIcons.history,
+                        size: 20,
+                        color: p.ink2,
+                      ),
+                    ),
+                    const SizedBox(width: S.x3),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'What changed',
+                            style: F.body.copyWith(
+                              color: p.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            'This week in review and anything unusual, day '
+                            'by day',
+                            style: F.cap.copyWith(color: p.ink2),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+                  ],
+                ),
+              ),
+            ),
           ],
         ],
       ),

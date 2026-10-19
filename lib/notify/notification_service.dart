@@ -41,6 +41,7 @@ import '../data/pushup_reminders.dart'
 import '../data/food_day_reminder.dart'
     show FoodDayReminder, kFoodCompleteAction, kFoodDayCategory,
         kFoodNotYetAction;
+import 'notification_log.dart';
 import 'notification_event.dart';
 import 'tap_router.dart';
 import 'notification_ids.dart';
@@ -284,6 +285,8 @@ class NotificationService {
     await androidImpl?.createNotificationChannel(_recoveryChannel);
     await androidImpl?.createNotificationChannel(_remindersChannel);
     _inited = true;
+    // Scheduled notifications that fired while the app was closed.
+    unawaited(NotificationLog.instance.reconcile());
   }
 
   void _onTap(NotificationResponse r) {
@@ -470,12 +473,22 @@ class NotificationService {
       // share an id, and `show` REPLACES: one of them vanished silently.
       // e.osId overrides only for a caller that also cancels by id (see
       // NotificationEvent.osId).
+      final payload = e.route == null ? null : datedRoute(e.route!, e.date);
       await _plugin.show(
         e.osId ?? await NotificationIds.instance.idFor(e),
         e.title,
         e.body.isEmpty ? null : e.body,
         _details(e.category),
-        payload: e.route == null ? null : datedRoute(e.route!, e.date),
+        payload: payload,
+      );
+      // The Notifications page keeps what was shown (Build 95).
+      unawaited(
+        NotificationLog.instance.record(
+          title: e.title,
+          body: e.body,
+          category: e.category.name,
+          route: payload,
+        ),
       );
       return true;
     } catch (_) {
@@ -555,7 +568,33 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time,
         payload: route,
       );
+      await _plan(id, when, PlanRepeat.daily, category, title, body, route);
     } catch (_) {}
+  }
+
+  /// Write a schedule down for the Notifications page, which records each
+  /// occurrence once its time has passed (see [NotificationLog]). The rest
+  /// timer is a cue during a set, not something to go back to, so it is left
+  /// out.
+  Future<void> _plan(
+    int id,
+    DateTime first,
+    PlanRepeat repeat,
+    NotifCategory category,
+    String title,
+    String body,
+    String? route,
+  ) async {
+    if (id == idRestTimer) return;
+    await NotificationLog.instance.plan(
+      id: id,
+      first: first,
+      repeat: repeat,
+      title: title,
+      body: body,
+      category: category.name,
+      route: route,
+    );
   }
 
   /// True only when the repeat was handed to the system (Build 93, Codex
@@ -575,11 +614,12 @@ class NotificationService {
       if (!_maySchedule(id)) return false;
       if (!await ensurePermission(allowPrompt: false)) return false;
       await ensureTimezone();
+      final first = _nextInstanceOf(hour, minute, weekday: weekday);
       await _plugin.zonedSchedule(
         id,
         title,
         body,
-        _nextInstanceOf(hour, minute, weekday: weekday),
+        first,
         _details(category),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
@@ -587,6 +627,7 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
         payload: route,
       );
+      await _plan(id, first, PlanRepeat.weekly, category, title, body, route);
       return true;
     } catch (_) {
       return false;
@@ -624,6 +665,7 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: route,
       );
+      await _plan(id, at, PlanRepeat.once, category, title, body, route);
     } catch (_) {}
   }
 
@@ -657,6 +699,15 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: payload,
       );
+      await _plan(
+        id,
+        at,
+        PlanRepeat.once,
+        NotifCategory.reminders,
+        title,
+        body,
+        payload,
+      );
       return true;
     } catch (_) {
       return false;
@@ -675,6 +726,8 @@ class NotificationService {
   }
 
   Future<void> cancel(int id) async {
+    // What it already showed stays on the Notifications page.
+    await NotificationLog.instance.unplan(id);
     try {
       await _plugin.cancel(id);
     } catch (_) {}
@@ -687,6 +740,7 @@ class NotificationService {
   /// per-id [cancel] cannot reach them, because the ids live in the
   /// preferences the reset is clearing at the same time.
   Future<void> cancelAll() async {
+    await NotificationLog.instance.clear();
     try {
       await _plugin.cancelAll();
     } catch (_) {}

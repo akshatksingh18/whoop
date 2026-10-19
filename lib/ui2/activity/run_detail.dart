@@ -26,6 +26,7 @@ import '../../gps/workout_clock.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
 import 'summary.dart';
+import '../screens/home_screen.dart' show unitsOf;
 
 /// Everything the run screen draws, worked out once per session.
 class RunView {
@@ -174,6 +175,39 @@ String pace(double? secPerKm) =>
 /// A walk's rate as km/h ("5.8"), Strava's walking metric; runs keep [pace].
 /// Same distance and moving time, only the unit of the rate differs.
 String speedKmh(double secPerKm) => (3600 / secPerKm).toStringAsFixed(1);
+
+/// The distance unit this page speaks in, from Settings → Units → Distance
+/// (Build 95). Every pace here is stored per km and converted on the way out.
+class DistUnit {
+  const DistUnit(this.meters, this.name, this.speedUnit);
+  factory DistUnit.of(BuildContext c) {
+    final u = unitsOf(c);
+    return u == null
+        ? const DistUnit(1000, 'km', 'km/h')
+        : DistUnit(u.distanceUnitMeters, u.distanceUnit, u.speedUnit);
+  }
+
+  /// Metres in one unit: 1000, or 1609.344.
+  final double meters;
+
+  /// 'km' / 'mi', and 'km/h' / 'mph'.
+  final String name, speedUnit;
+
+  double perUnit(double secPerKm) => secPerKm * meters / 1000;
+
+  /// "8:03 /mi".
+  String pace(double? secPerKm) => secPerKm == null
+      ? ''
+      : '${UnitsController.formatPace(perUnit(secPerKm)) ?? ''} /$name';
+
+  /// "11.4 mph".
+  String speed(double secPerKm) =>
+      '${(3600 / perUnit(secPerKm)).toStringAsFixed(1)} $speedUnit';
+
+  /// "5.24 km" from metres.
+  String distance(double m, [int places = 2]) =>
+      '${(m / meters).toStringAsFixed(places)} $name';
+}
 
 String _effortTime(double sec) => clock(sec.round());
 
@@ -433,13 +467,14 @@ class RunStatsGrid extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final r = v.r;
+    final d = DistUnit.of(c);
     final cells = <(String, String)>[
       if (r.distanceKm != null)
-        ('Distance', '${r.distanceKm!.toStringAsFixed(2)} km'),
+        ('Distance', d.distance(r.distanceKm! * 1000)),
       if (v.movingPace != null)
         isWalkType(r.activity.typeKey)
-            ? ('Avg speed', '${speedKmh(v.movingPace!)} km/h')
-            : ('Avg pace', '${pace(v.movingPace)} /km'),
+            ? ('Avg speed', d.speed(v.movingPace!))
+            : ('Avg pace', d.pace(v.movingPace)),
       if (r.movingSec != null) ('Moving time', clock(r.movingSec!)),
       ('Elapsed', hms(r.duration)),
       if (r.avgHr != null) ('Avg HR', '${r.avgHr} bpm'),
@@ -631,8 +666,8 @@ class RunCaloriesCard extends StatelessWidget {
           if (mix != null && mix.walkM >= 50 && mix.runM >= 50) ...[
             const SizedBox(height: S.x3),
             Text(
-              'Running ${(mix.runM / 1000).toStringAsFixed(2)} km · walking '
-              '${(mix.walkM / 1000).toStringAsFixed(2)} km',
+              'Running ${DistUnit.of(c).distance(mix.runM)} · walking '
+              '${DistUnit.of(c).distance(mix.walkM)}',
               style: F.cap.copyWith(color: p.ink2),
             ),
           ],
@@ -668,6 +703,7 @@ class BestEffortsCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final d = DistUnit.of(c);
     final rows = <Widget>[];
     for (final (label, _) in kBestEffortDistances) {
       final sec = v.efforts[label];
@@ -695,7 +731,7 @@ class BestEffortsCard extends StatelessWidget {
               Expanded(
                 flex: 3,
                 child: Text(
-                  '${_effortTime(sec)} · ${pace(sec / (kBestEffortDistances.firstWhere((d) => d.$1 == label).$2 / kMetersPerKm))} /km',
+                  '${_effortTime(sec)} · ${d.pace(sec / (kBestEffortDistances.firstWhere((x) => x.$1 == label).$2 / kMetersPerKm))}',
                   style: F.cap.copyWith(color: p.ink2),
                 ),
               ),
@@ -752,8 +788,9 @@ class RunSplitsCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final shown = shownSplits(r, unitsOf(c));
     final rows = [
-      for (final s in r.splits)
+      for (final s in shown.splits)
         if (s.km > 0) (s.km, s.sec / s.km, s.avgHr),
     ];
     if (rows.isEmpty) return const SizedBox.shrink();
@@ -766,7 +803,10 @@ class RunSplitsCard extends StatelessWidget {
             children: [
               SizedBox(
                 width: 36,
-                child: Text('KM', style: F.over.copyWith(color: p.ink3)),
+                child: Text(
+                  shown.unit.toUpperCase(),
+                  style: F.over.copyWith(color: p.ink3),
+                ),
               ),
               SizedBox(
                 width: 56,
@@ -776,6 +816,16 @@ class RunSplitsCard extends StatelessWidget {
               Text('HR', style: F.over.copyWith(color: p.ink3)),
             ],
           ),
+          // An older session with neither a route nor the phone's motion
+          // distance cannot be re-cut into miles.
+          if (shown.asRecorded)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'km splits (as recorded)',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+            ),
           const SizedBox(height: S.x2),
           for (var i = 0; i < rows.length; i++)
             Padding(
@@ -863,7 +913,7 @@ class RunCharts extends StatelessWidget {
 
   static const _bins = 160;
 
-  String _describe(double f) {
+  String _describe(double f, DistUnit d) {
     final i = v.pointAt(f);
     final meters = v.pace.isEmpty ? null : v.paceAt(f)?.meters;
     final pc = v.paceAt(f)?.paceSecPerKm;
@@ -871,12 +921,12 @@ class RunCharts extends StatelessWidget {
     final cad = v.cadenceAt(f);
     final alt = v.r.track[i].alt;
     return [
-      if (meters != null) '${(meters / 1000).toStringAsFixed(2)} km',
+      if (meters != null) d.distance(meters),
       pc == null
           ? 'stopped'
           : isWalkType(v.r.activity.typeKey)
-          ? '${speedKmh(pc)} km/h'
-          : '${pace(pc)} /km',
+          ? d.speed(pc)
+          : d.pace(pc),
       if (hr != null) '${hr.round()} bpm',
       if (cad != null) '${cad.round()} spm',
       if (alt != null) '${alt.round()} m',
@@ -886,7 +936,11 @@ class RunCharts extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final paceV = v.paceBins(_bins);
+    final d = DistUnit.of(c);
+    // Seconds per km, negative so faster draws higher, in the chosen unit.
+    final paceV = [
+      for (final x in v.paceBins(_bins)) x == null ? null : d.perUnit(x),
+    ];
     final hrV = v.hrBins(_bins);
     final elV = v.elevationBins(_bins);
     final cadV = v.cadenceBins(_bins);
@@ -937,7 +991,7 @@ class RunCharts extends StatelessWidget {
           Text(
             cursor == null
                 ? 'Touch and drag to read any moment'
-                : _describe(cursor!),
+                : _describe(cursor!, d),
             style: cursor == null
                 ? F.cap.copyWith(color: p.ink3)
                 : F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
@@ -947,7 +1001,7 @@ class RunCharts extends StatelessWidget {
             value: cursor,
             onChanged: onCursor,
             label: 'Pace, heart rate and elevation through the run',
-            describe: _describe,
+            describe: (f) => _describe(f, d),
             step: 1 / 100,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -955,13 +1009,19 @@ class RunCharts extends StatelessWidget {
                 if (isWalkType(v.r.activity.typeKey))
                   chart(
                     'Speed',
-                    'km/h',
+                    d.speedUnit,
                     [for (final x in paceV) x == null ? null : 3600 / -x],
                     p.on(C.run),
                     (x) => x.toStringAsFixed(1),
                   )
                 else
-                  chart('Pace', '/km', paceV, p.on(C.run), (x) => pace(-x)),
+                  chart(
+                    'Pace',
+                    '/${d.name}',
+                    paceV,
+                    p.on(C.run),
+                    (x) => pace(-x),
+                  ),
                 chart('Heart rate', 'bpm', hrV, p.on(C.heart), axisInt),
                 // From the phone, a minute at a time. Around 160+ a minute is the
                 // usual running-economy cue.
@@ -997,12 +1057,15 @@ class PaceZonesCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final d = DistUnit.of(c);
     final bounds = paceZoneBounds(fiveKPace);
+    String at(double? secPerKm) =>
+        secPerKm == null ? '' : pace(d.perUnit(secPerKm));
     String range(int z) {
       final (fast, slow) = bounds[z];
-      if (fast == null) return '> ${pace(slow)}';
-      if (slow == null) return '< ${pace(fast)}';
-      return '${pace(fast)}–${pace(slow)}';
+      if (fast == null) return '> ${at(slow)}';
+      if (slow == null) return '< ${at(fast)}';
+      return '${at(fast)}–${at(slow)}';
     }
 
     return Section(
@@ -1012,7 +1075,7 @@ class PaceZonesCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Based on your predicted 5K pace of ${pace(fiveKPace)} /km',
+              'Based on your predicted 5K pace of ${d.pace(fiveKPace)}',
               style: F.cap.copyWith(color: p.ink3),
             ),
             const SizedBox(height: S.x3),

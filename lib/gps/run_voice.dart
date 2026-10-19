@@ -1,5 +1,6 @@
-// Spoken updates during a run or walk: at every whole kilometre, the
-// distance and that kilometre's pace, so the phone does not have to be held up
+// Spoken updates during a run or walk: at every whole kilometre (or mile,
+// when Settings → Units → Distance says miles), the distance and that
+// split's pace, so the phone does not have to be held up
 // to read it. Uses the iPhone's built-in voice (`SpeechBridge` in
 // AppDelegate.swift); music is ducked, not stopped. On by default, switchable
 // on the live screen.
@@ -17,21 +18,35 @@ const String kRunVoicePref = 'run.voice';
 bool get runVoiceOn => Prefs.getBool(kRunVoicePref, true);
 set runVoiceOn(bool v) => Prefs.setBool(kRunVoicePref, v);
 
-/// What to say at kilometre [km] after a split of [splitSec] seconds, e.g.
-/// "3 kilometres. Last kilometre 6 minutes 41."
-String kmCue(int km, int splitSec) {
+/// Metres in a mile.
+const double kVoiceMileMeters = 1609.344;
+
+/// What to say at unit [n] after a split of [splitSec] seconds, e.g.
+/// "3 kilometres. Last kilometre 6 minutes 41." or "2 miles. Last mile 9
+/// minutes 30."
+String kmCue(int n, int splitSec, {bool miles = false}) {
   final m = splitSec ~/ 60, s = splitSec % 60;
   final pace = s == 0 ? '$m minutes' : '$m minutes $s';
-  return '$km ${km == 1 ? 'kilometre' : 'kilometres'}. Last kilometre $pace.';
+  final one = miles ? 'mile' : 'kilometre';
+  return '$n ${n == 1 ? one : '${one}s'}. Last $one $pace.';
 }
 
-/// Tracks the run's distance and speaks once per whole kilometre crossed.
+/// The distance unit the voice uses, from Settings → Units → Distance.
+bool get voiceInMiles => Prefs.getString('units.distance', 'km') == 'mi';
+
+/// Tracks the run's distance and speaks once per whole kilometre (or mile)
+/// crossed. A session keeps the unit it started with.
 class KmVoice {
   int _spoken;
   double _lastKm = 0, _lastSec = 0, _markSec = 0;
   bool _resume;
-  KmVoice({int spoken = 0}) : _spoken = spoken, _resume = spoken > 0;
+  final bool miles;
+  KmVoice({int spoken = 0, this.miles = false})
+    : _spoken = spoken,
+      _resume = spoken > 0;
   int? lastSplitSec;
+
+  /// Whole units spoken so far (kilometres, or miles).
   int get spokenKm => _spoken;
   Map<String, dynamic> snapshot() => {
     'spoken': _spoken,
@@ -39,9 +54,13 @@ class KmVoice {
     'seconds': _lastSec,
     'crossing': _markSec,
     'lastSplit': lastSplitSec,
+    if (miles) 'mi': true,
   };
-  static KmVoice restore(Map? saved, {int spoken = 0}) {
-    final out = KmVoice(spoken: spoken);
+  static KmVoice restore(Map? saved, {int spoken = 0, bool miles = false}) {
+    final out = KmVoice(
+      spoken: spoken,
+      miles: saved == null ? miles : saved['mi'] == true,
+    );
     if (saved != null &&
         saved['km'] is num &&
         saved['seconds'] is num &&
@@ -56,8 +75,15 @@ class KmVoice {
     return out;
   }
 
-  String? update(double? km, int elapsedSec, {bool speak = true}) {
-    if (km == null || !km.isFinite || km < 0 || elapsedSec < 0) return null;
+  String? update(double? distanceKm, int elapsedSec, {bool speak = true}) {
+    if (distanceKm == null ||
+        !distanceKm.isFinite ||
+        distanceKm < 0 ||
+        elapsedSec < 0) {
+      return null;
+    }
+    // In the session's own unit from here on.
+    final km = miles ? distanceKm * 1000 / kVoiceMileMeters : distanceKm;
     if (_resume) {
       _lastKm = km;
       _lastSec = elapsedSec.toDouble();
@@ -77,7 +103,7 @@ class KmVoice {
       _markSec = crossing;
       if (split > 0) {
         lastSplitSec = split;
-        line = kmCue(boundary, split);
+        line = kmCue(boundary, split, miles: miles);
         if (speak && runVoiceOn) say(line);
       }
     }

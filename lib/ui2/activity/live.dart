@@ -1494,10 +1494,10 @@ class _VoiceCueState extends State<_VoiceCue> {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final miles = unitsOf(c)?.isMiles ?? false;
+    final each = miles ? 'mile' : 'kilometre';
     return Pressable(
-      semanticLabel: _on
-          ? 'Voice each kilometre, on'
-          : 'Voice each kilometre, off',
+      semanticLabel: _on ? 'Voice each $each, on' : 'Voice each $each, off',
       onTap: () => setState(() {
         _on = !_on;
         runVoiceOn = _on;
@@ -1512,7 +1512,7 @@ class _VoiceCueState extends State<_VoiceCue> {
           ),
           const SizedBox(width: S.x2),
           Text(
-            _on ? 'Voice each km' : 'Voice off',
+            _on ? 'Voice each ${miles ? 'mile' : 'km'}' : 'Voice off',
             style: F.cap.copyWith(color: _on ? p.ink2 : p.ink3),
           ),
         ],

@@ -46,7 +46,7 @@ import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import 'home_screen.dart'
-    show calendarDaysBetween, monthName, pad, prettyDay, pullToRefresh;
+    show calendarDaysBetween, monthName, pad, prettyDay, pullToRefresh, unitsOf;
 import 'food_picker.dart' show PickRow, SwipeDelete;
 import 'metric_detail.dart' show dayNavLabel, detailLinkRow, detailScaffold;
 import '../../data/local_repository.dart' show LocalRepository;
@@ -499,6 +499,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// predicted 5K and 10K times, and the best time at each distance. Updates
   /// with each new run.
   Widget _running(BuildContext c, P p, List<RunSummary> runs) {
+    final u = unitsOf(c);
+    final unit = u?.distanceUnit ?? 'km';
+    final unitMeters = u?.distanceUnitMeters ?? 1000;
     final now = DateTime.now();
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
     final weeks = List<double?>.filled(8, null);
@@ -513,7 +516,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               .ceil();
       final slot = r.start.isBefore(monday) ? 7 - w : 7;
       if (slot >= 0 && slot < 8) {
-        weeks[slot] = (weeks[slot] ?? 0) + r.meters / 1000;
+        weeks[slot] = (weeks[slot] ?? 0) + r.meters / unitMeters;
       }
     }
     final p5 = predicted5k(runs);
@@ -536,7 +539,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       );
       final km = weeks[i];
       return '${i == 7 ? 'This week' : 'Week of ${formatShortDate(from)}'} · '
-          '${km == null ? 'no runs' : '${km.toStringAsFixed(1)} km'}';
+          '${km == null ? 'no runs' : '${km.toStringAsFixed(1)} $unit'}';
     }
 
     final wk = _weekPick;
@@ -549,7 +552,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             if (axis != null)
               ChartFrame(
                 title: 'Distance per week',
-                unit: 'km',
+                unit: unit,
                 height: 88,
                 yAxis: axis,
                 xLabels: const ['8 weeks ago', 'This week'],
@@ -669,12 +672,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   /// label / last-seven-days / value line, with the streak's own controls.
   Widget _weekPanel(BuildContext c, P p, _WorkoutData d) {
     final end = d.weekEnd ?? DateTime.now();
+    final u = unitsOf(c);
+    final unitMeters = u?.distanceUnitMeters ?? 1000;
     String labelOf(int i) =>
         dayLabelOf(DateTime(end.year, end.month, end.day - (6 - i)));
     final km = List<double?>.filled(7, null);
     for (final r in d.runs) {
       final i = List.generate(7, labelOf).indexOf(dayLabelOf(r.start));
-      if (i >= 0) km[i] = (km[i] ?? 0) + r.meters / 1000;
+      if (i >= 0) km[i] = (km[i] ?? 0) + r.meters / unitMeters;
     }
     final weekKm = km.whereType<double>().fold<double>(0, (a, b) => a + b);
     if (d.streak == null && d.runs.isEmpty) return const SizedBox.shrink();
@@ -689,7 +694,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           if (d.runs.isNotEmpty) ...[
             if (d.streak != null) Divider(color: p.line, height: 1),
             MetricLine(
-              label: 'Run km',
+              label: 'Run ${u?.distanceUnit ?? 'km'}',
               values: km,
               color: C.run,
               value: weekKm.toStringAsFixed(1),
@@ -1448,6 +1453,14 @@ ActivityResult _withRoute(ActivityResult r, WorkoutRoute route) {
       for (final s in route.splitsKm)
         KmSplit(s.meters / 1000, s.durationSec, avgHr: s.avgHr?.round()),
     ],
+    mileSplits: [
+      for (final s in route.splitsMi)
+        KmSplit(
+          s.meters / kMetersPerMile,
+          s.durationSec,
+          avgHr: s.avgHr?.round(),
+        ),
+    ],
   );
 }
 
@@ -1723,6 +1736,13 @@ Future<ActivityResult> _withMotion(ActivityResult r) async {
       splits: [
         for (final s in w.splits(
           hrAtMinute: (i) => i >= 0 && i < hr.length ? hr[i] : null,
+        ))
+          KmSplit(s.km, s.sec, avgHr: s.hr),
+      ],
+      mileSplits: [
+        for (final s in w.splits(
+          hrAtMinute: (i) => i >= 0 && i < hr.length ? hr[i] : null,
+          unitMeters: kMetersPerMile,
         ))
           KmSplit(s.km, s.sec, avgHr: s.hr),
       ],

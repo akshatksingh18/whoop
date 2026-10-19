@@ -2507,8 +2507,12 @@ Widget _maintenanceContents(
   }
   final a = u.acsmParts;
   final pr = u.profile;
+  // In the units chosen in Settings → Units (Build 95).
+  final units = unitsOf(c);
   String kg(double? w) => w == null
       ? ''
+      : units?.isLb == true
+      ? '${(w * kLbPerKg).toStringAsFixed(1)} lb'
       : (w == w.roundToDouble()
             ? '${w.round()} kg'
             : '${w.toStringAsFixed(1)} kg');
@@ -2637,7 +2641,7 @@ Widget _maintenanceContents(
                 'Unknown speeds and slower jogging are labelled movement estimates. '
                 'All-day walking speed is not established from a daily step total.',
             'Resting: Mifflin–St Jeor for the whole day, from age '
-                '${pr.ageYears}, ${pr.heightCm?.toStringAsFixed(1)} cm and '
+                '${pr.ageYears}, ${units?.height(pr.heightCm) ?? '${pr.heightCm?.toStringAsFixed(1)} cm'} and '
                 '${kg(pr.weightKg)}.',
             walked == null
                 ? 'Walking: no steps counted yet.'
@@ -2646,7 +2650,7 @@ Widget _maintenanceContents(
                       '${kg(pr.weightKg)} (Weyand). The movement equation prices the same '
                       'walking by distance as an estimate when speed is unknown.',
             if (u.runs.count > 0)
-              'Running: ${u.runs.km.toStringAsFixed(2)} km in ${u.runs.count} '
+              'Running: ${units?.distance(u.runs.km * 1000) ?? '${u.runs.km.toStringAsFixed(2)} km'} in ${u.runs.count} '
                   '${u.runs.count == 1 ? 'run' : 'runs'}, by distance at each '
                   "run's recorded weight (Budget and movement equation).",
             u.eaten > 0

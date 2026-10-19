@@ -315,7 +315,12 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
     final kg = w.weightChangeKg;
     final weight = kg == null ? null : (_lb ? kg * kLbPerKg : kg);
     final bottom = <(String, String, Color)>[
-      ('RUN', '${w.km.toStringAsFixed(1)} km', C.run),
+      (
+        'RUN',
+        _units?.distance(w.km * 1000, decimals: 1) ??
+            '${w.km.toStringAsFixed(1)} km',
+        C.run,
+      ),
       if (w.streak != null) ('STREAK', '${w.streak} d', C.steps),
       if (w.avgSleepMin != null && !lastWeek)
         ('SLEEP', hm(w.avgSleepMin), C.sleep),

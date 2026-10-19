@@ -11,10 +11,11 @@ import 'dart:math' as math;
 import 'route_math.dart';
 import 'route_models.dart';
 
-/// The best-effort distances shown, shortest first: (label, metres). Metric
-/// only, and only the ones that matter for training: no 400 m, no miles.
+/// The best-effort distances shown, shortest first: (label, metres). The
+/// race distances plus a mile (Build 95), and nothing shorter than 1K.
 const kBestEffortDistances = <(String, double)>[
   ('1K', 1000),
+  ('1 mile', 1609.344),
   ('5K', 5000),
   ('10K', 10000),
   ('Half marathon', 21097.5),
@@ -25,6 +26,7 @@ const kBestEffortDistances = <(String, double)>[
 /// is too short for Riegel's rule to hold).
 const kAllEfforts = <(String, double)>[
   ('1K', 1000),
+  ('1 mile', 1609.344),
   ('3K', 3000),
   ('5K', 5000),
   ('10K', 10000),

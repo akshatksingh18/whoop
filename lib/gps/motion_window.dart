@@ -70,12 +70,15 @@ class MotionWindow {
   /// Per-kilometre splits from the cumulative distance, each kilometre's
   /// crossing time interpolated inside its chunk. [hrAtMinute] gives each
   /// split's mean heart rate from the band's per-minute curve.
+  /// Splits every [unitMeters] (a kilometre, or a mile): `km` is how many
+  /// of that unit the split covers, 1 for every whole one.
   List<({double km, int sec, int? hr})> splits({
     double? Function(int minute)? hrAtMinute,
+    double unitMeters = 1000,
   }) {
     if (totalMeters == null) return const [];
     final out = <({double km, int sec, int? hr})>[];
-    var cum = 0.0, lastT = 0.0, nextKm = 1000.0, lastKmM = 0.0;
+    var cum = 0.0, lastT = 0.0, nextKm = unitMeters, lastKmM = 0.0;
     int? hrMean(double fromSec, double toSec) {
       if (hrAtMinute == null) return null;
       final v = <double>[];
@@ -100,7 +103,7 @@ class MotionWindow {
         out.add((km: 1, sec: (t - lastT).round(), hr: hrMean(lastT, t)));
         lastT = t;
         lastKmM = nextKm;
-        nextKm += 1000;
+        nextKm += unitMeters;
       }
       cum += m;
       elapsed += duration;
@@ -109,7 +112,7 @@ class MotionWindow {
     final end = elapsed;
     if (rest >= 50 && end > lastT) {
       out.add((
-        km: rest / 1000,
+        km: rest / unitMeters,
         sec: (end - lastT).round(),
         hr: hrMean(lastT, end),
       ));

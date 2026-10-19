@@ -203,11 +203,28 @@ ActivityResult withEnteredDetail(ActivityResult r, String? json) {
 
 /// One distance split. Named `KmSplit` because Flutter's animation library
 /// already owns `Split`, and a screen importing both should not have to.
+/// One split. [km] is how many of its unit it covers (kilometres, or miles
+/// in [ActivityResult.mileSplits]): 1 for every whole one, less for the last.
 class KmSplit {
   final double km;
   final int sec;
   final int? avgHr;
   const KmSplit(this.km, this.sec, {this.avgHr});
+}
+
+/// The splits to show for [u]'s distance unit (Build 95): per mile when miles
+/// are chosen and the session has them, else per kilometre. [asRecorded] is
+/// set when miles were asked for and only kilometre splits exist (an older
+/// session with neither a route nor the phone's motion distance).
+({List<KmSplit> splits, String unit, bool asRecorded}) shownSplits(
+  ActivityResult r,
+  UnitsController? u,
+) {
+  final miles = u?.isMiles ?? false;
+  if (miles && r.mileSplits.isNotEmpty) {
+    return (splits: r.mileSplits, unit: 'mi', asRecorded: false);
+  }
+  return (splits: r.splits, unit: 'km', asRecorded: miles);
 }
 
 /// Everything a finished session knows about itself. Absent means absent.
@@ -352,6 +369,10 @@ class ActivityResult {
   final double? gainM, lossM;
   final List<KmSplit> splits;
 
+  /// The same session cut every mile, from the route or the phone's motion
+  /// distance; empty when neither exists.
+  final List<KmSplit> mileSplits;
+
   /// The recorded fixes themselves, for the run screen's map, best efforts,
   /// pace curve and shared scrub. Empty without GPS.
   final List<RoutePoint> track;
@@ -422,6 +443,7 @@ class ActivityResult {
     this.gainM,
     this.lossM,
     this.splits = const [],
+    this.mileSplits = const [],
     this.track = const [],
     this.movingSec,
     this.mix,
@@ -462,6 +484,7 @@ class ActivityResult {
     double? gainM,
     double? lossM,
     List<KmSplit>? splits,
+    List<KmSplit>? mileSplits,
     List<RoutePoint>? track,
     int? movingSec,
     RunMix? mix,
@@ -506,6 +529,7 @@ class ActivityResult {
     gainM: gainM ?? this.gainM,
     lossM: lossM ?? this.lossM,
     splits: splits ?? this.splits,
+    mileSplits: mileSplits ?? this.mileSplits,
     track: track ?? this.track,
     movingSec: movingSec ?? this.movingSec,
     mix: mix ?? this.mix,
@@ -2275,18 +2299,18 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         // run read 2:24 and became the fastest-split reference every real
         // kilometre was drawn against. `KmSplit.km` was on the record the
         // whole time and read by nothing.
+        final shown = shownSplits(r, _u);
+        final splits = shown.splits;
         final paces = <double?>[
-          for (final s in r.splits) s.km <= 0 ? null : s.sec / s.km,
+          for (final s in splits) s.km <= 0 ? null : s.sec / s.km,
         ];
         final measured = [for (final v in paces) ?v];
         final fastest = measured.isEmpty
             ? null
             : measured.reduce((x, y) => x < y ? x : y);
-        // SPLITS STAY PER-KILOMETRE in either unit system, and the header says
-        // so. The route tracker cuts them at each kilometre (`route.splitsKm`);
-        // showing them as miles would mean re-cutting the route, which is a
-        // compute change, not a formatting one. Relabelling them 'MI' without
-        // re-cutting would simply be a wrong number.
+        // Build 95: per mile when miles are chosen, re-cut from the route or
+        // the phone's motion distance; an older session with neither keeps
+        // its kilometre splits and says so.
         return [
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
@@ -2297,7 +2321,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     SizedBox(
                       width: 26,
                       child: Text(
-                        l?.activitySummaryKm ?? 'KM',
+                        shown.unit == 'mi' ? 'MI' : (l?.activitySummaryKm ?? 'KM'),
                         style: F.over.copyWith(color: p.ink3),
                       ),
                     ),
@@ -2319,20 +2343,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     ),
                   ],
                 ),
+                if (shown.asRecorded)
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x1),
+                    child: Text(
+                      'km splits (as recorded)',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ),
                 const SizedBox(height: S.x2),
-                for (var i = 0; i < r.splits.length; i++)
+                for (var i = 0; i < splits.length; i++)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: S.x1),
                     child: Row(
                       children: [
                         SizedBox(
                           width: 26,
-                          // A partial split is not kilometre N — it is the
-                          // 0.4 km that was left, and it says so.
+                          // A partial split is not split N — it is the 0.4 that
+                          // was left, and it says so.
                           child: Text(
-                            r.splits[i].km >= .95
+                            splits[i].km >= .95
                                 ? '${i + 1}'
-                                : r.splits[i].km.toStringAsFixed(1),
+                                : splits[i].km.toStringAsFixed(1),
                             style: F.cap.copyWith(color: p.ink3),
                           ),
                         ),
@@ -2356,7 +2388,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                         SizedBox(
                           width: 34,
                           child: Text(
-                            r.splits[i].avgHr?.toString() ?? '',
+                            splits[i].avgHr?.toString() ?? '',
                             textAlign: TextAlign.right,
                             style: F.cap.copyWith(color: p.ink2),
                           ),

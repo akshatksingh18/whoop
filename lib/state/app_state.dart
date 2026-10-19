@@ -4658,7 +4658,7 @@ class AppState extends ChangeNotifier {
       start,
       calculationProfile ?? Profile.fromMap(user),
     ).onPauseChanged = _onWorkoutPause;
-    _workoutVoice = KmVoice();
+    _workoutVoice = KmVoice(miles: voiceInMiles);
     _workoutMeasurements = null;
     _movementAt = DateTime.fromMillisecondsSinceEpoch(0);
     _workoutMinuteSteps.clear();
@@ -4922,6 +4922,7 @@ class AppState extends ChangeNotifier {
           _workoutVoice = KmVoice.restore(
             clock.results['voice'] as Map?,
             spoken: clock.spokenKm,
+            miles: voiceInMiles,
           );
           if (clock.pausedAt != null) _pauseRawAt = _liveRaw;
           _workoutRawBase = _liveRaw;

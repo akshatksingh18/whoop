@@ -1,9 +1,8 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat reports Build `0.9.58`/`91` installed; Build `0.9.60`/`93` (algorithm 97,
-`7a4b6021` on `main`, items 3g-3h) is the validated testing candidate, not yet installed. Build 70
-remains cached recovery until a later build is accepted and enrolled; phone acceptance (item 4)
-remains open.
+**State:** Akshat reports Build `0.9.58`/`91` installed. Build `0.9.62`/`95` (item 3j) is the
+testing candidate; Builds 92–94 were never installed. Build 70 remains cached recovery until a
+later build is accepted and enrolled; phone acceptance (item 4) remains open.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -439,34 +438,39 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   Phone check: Fix sleep times across midnight; Finish asks; Weekly lookback off still asks
   about a detected workout; swipe a food on the Food tab and Undo; set an amount to 0;
   Quick add calories left; a notification tapped while Body entry has typing waits.
-- [ ] 3j. Akshat's decisions after Build 94 (planned, not built):
-  - Delete the unreachable screens (Readiness glass-box `DriverBreakdown`, old occasion
-    logging `LogFoodSheet`/`AddFoodSheet`, share card `ShareSheet`/`PosterCard`) after moving
-    the live helpers they hold (barcode lookup and `offCredit` in `log_food.dart`, the summary's
-    poster stat rows, `shareOrigin`) and comparing DriverBreakdown with Recovery detail so no
-    unique content is lost.
-  - Delete the upstream-only code: Apple Health/Health Connect, AI coach, telemetry/Firebase,
-    widgets, Watch app, Live Activity, Oura, Shortcuts automation, the Android folder, the tag
-    release workflow, their packages, and the hidden Training review and guided breathing
-    once confirmed unreachable. Keep `packages/protocol`, `packages/analytics`, `LICENSE` and
-    `NOTICE.md`; the repository stays public. Its own build.
-  - Units option A: Settings → Units gets Weight (kg/lb), Distance (km/mi) and Height rows;
-    Body, Today, Food, Progress and the profile follow Weight and Body's own switch goes.
-    Migration takes `body.unit` when set, else `units_system`; stored kg and each entry's
-    typed value/unit stay unchanged.
-  - Miles as its own tested build: distance, pace, speed, charts, splits, best efforts, voice
-    cues and walk speed follow Distance; per-mile splits are recomputed from the GPS route or
-    the per-minute phone motion distance; runs with neither keep "km splits (as recorded)".
-  - Layout refinements, previews first (canvas "Build 95 layout previews"): Progress first
-    check + next action + evidence counts with the rules inline; Body latest reading, 7-day
-    average and selected-period average named; Recovery one reason near the score.
-    Found while capturing: the goal Details dialog names different review windows (Sep 28–Oct 11
-    vs Sep 14–27, waist Sep 7–21) from the card's first-check windows (Oct 4, Oct 26–Nov 1)
-    for a goal started Oct 9; the inline rules use the first-check windows only.
-  - Notifications (Akshat, from the phone): a Notifications page (bell on Today, unread dot)
-    listing every notification by day, newest first, each reopening its destination, kept
-    90 days on the phone; What changed reachable from Trends; a gap between the week-review
-    box and the card under it on What changed. Previews on the same canvas.
+- [x] 3j. Build 95, Akshat's decisions after Build 94 (built on `build-95`; phone check open):
+  - Unreachable screens removed (Readiness glass-box `DriverBreakdown`, `LogFoodSheet` /
+    `AddFoodSheet`, `ShareSheet` / `PosterCard`), their live helpers moved first (barcode lookup
+    and `offCredit` to `barcode_food.dart`, the stat rows to `stat_row.dart`, `shareOrigin`).
+    Recovery detail already held everything DriverBreakdown showed.
+  - Upstream-only code removed: Apple Health/Health Connect, AI coach, telemetry/Firebase, OTA,
+    widgets, the Watch app, Live Activities, Oura and generic sensors, Shortcuts automation,
+    gestures and the notification relay, Training review, guided breathing, the in-workout set
+    logger, Android, the upstream workflows and community files, their packages, and 1,268
+    unused strings. Data tables stay (old rows remain readable and exported). The committed
+    Xcode project is the personal app; `tool/personal_ios.py check` enforces it. `LICENSE` and
+    `NOTICE.md` stay; the repository is public.
+  - Units (option A): Settings → Units has Weight, Distance and Height. Weight keeps Body's
+    `body.unit` key; a choice not yet made starts from the old `units_system`. Body, Today,
+    Food, Progress and the profile follow Weight; Body's own switches are gone.
+  - Miles: pace, speed, charts, splits, best efforts (with a mile added), voice cues, walk
+    speed and weekly distance follow Distance. Splits are re-cut per mile from the route or
+    the phone's motion distance; a session with neither keeps "km splits (as recorded)".
+  - Layouts (approved previews): Progress leads with the first check, the next step and a tile
+    per requirement, with the rules inline; they name the first check's own weeks (the dialog
+    quoted closed weeks that could predate the goal). Body names Latest reading, 7-day average
+    and the selected period's average, labels the chart stats and dates its milestones.
+    Recovery gives one reason with its numbers and does not repeat the advice.
+  - Notifications page: a bell on Today with an unread dot; every notification by day, newest
+    first, kept 90 days on the phone; tapping one reopens its destination. Scheduled ones are
+    recorded once their time has passed. What changed is reachable from Trends; the gap under
+    its week-review box is fixed.
+
+  Phone check: units migration keeps the Body unit; switch Distance to miles and record a short
+  walk (mile splits, voice "1 mile", best efforts); open an older run in miles ("km splits (as
+  recorded)" where it has no route); Progress first check, Next and How the check works; Body
+  summary rows; Recovery reason; a notification appears on the Notifications page, the bell dot
+  clears, and tapping a row opens it; What changed from Trends.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 

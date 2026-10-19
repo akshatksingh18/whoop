@@ -2,9 +2,8 @@
 
 ## Current repository state
 
-This folder is one Git repository; the current local checkout is `build-89` at documentation
-HEAD `ee2dd55c`, with app/packaging source `77d6a365`. It preserves the OpenStrap histories and contains
-contains:
+This folder is one Git repository. Each build is prepared on its own branch (`build-95` now) and
+`main` is fast-forwarded to it on release. It preserves the OpenStrap histories and contains:
 
 - edge base `daf6011d3aa0312e22b991713b7af9e5c4433b32`
 - protocol `471034cb84b85edb37e72b6f6add79a2d7929294` under `packages/protocol/`
@@ -180,12 +179,14 @@ were repointed too. Verified afterward by running `java`, `adb` and `flutter --v
 from the new location. From this repository root, the repeatable validation commands are:
 
 ```powershell
-Copy-Item .env.example .env
 flutter pub get
-flutter analyze
+flutter analyze --no-fatal-infos
 flutter test
-flutter build apk --release
 ```
+
+Build 95 removed the Android target and `.env.example` (it only configured removed cloud/OTA
+features); the Android notes below are history. Full test runs belong on GitHub Actions; locally
+run only targeted files.
 
 `flutter pub get` completed. Flutter 3.41.6 resolved four test-tool transitive packages to the
 compatible versions now recorded in `pubspec.lock` (`meta` 1.17.0, `test` 1.30.0, `test_api`
@@ -227,7 +228,7 @@ Flutter's native-assets hook still needs paths without spaces on Windows:
 GitHub Actions (`ubuntu-latest`) remains the release test gate. Do not leave `test/goldens` after
 screenshot checks; its presence enables local golden groups that are not committed.
 
-The Android release build is validated on Windows. The first personal iOS candidate exposed an
+Before Build 95 the Android release build was validated on Windows. The first personal iOS candidate exposed an
 AccessorySetupKit discovery-descriptor validation abort; the bridge fix shipped in `0.9.30` build
 `63`. Build 70 is installed over build 69 and Akshat reports its phone check passed. Build 67
 was the accepted recovery/refresh build until build 70's promotion.
@@ -261,8 +262,8 @@ without following `CLAUDE.md`'s `kAlgoVersion` requirements.
 The public GitHub repository and CLI authentication are configured. The manual
 `.github/workflows/personal-ios.yml` workflow is the selected build host and refuses to allocate a
 macOS runner if the repository is private. Standard GitHub-hosted runners for the public repository
-do not consume the private-repository minute allowance. Never use the existing tag workflow as the
-personal build.
+do not consume the private-repository minute allowance. It is the only release path: Build 95
+removed the upstream tag workflow, and the committed Xcode project is the personal app.
 
 The accepted daily-use target is now Akshat's iPhone through a standard unsigned Flutter
 **release/AOT** IPA, signed and installed directly from Windows with Sideloadly and the free Apple
@@ -280,12 +281,10 @@ one candidate in `testing\`.
 The initially low step count came from leaving **This phone → Steps** off; enabling it verified the
 direct iPhone-pedometer import. This profile deliberately excludes HealthKit and does not import the
 Apple Health aggregate. Keep phone steps enabled for normal iPhone-carried use; WHOOP 4 band-only
-historical data is too low-rate for honest all-day step reconstruction. The current tag workflow
-remains unchanged.
+historical data is too low-rate for honest all-day step reconstruction.
 
-Personal implementation scope is iPhone only. Do not schedule Android fixes, builds, or device
-validation. Keep the imported Android target unchanged as upstream/reference source: it is absent
-from the IPA, so deleting it would not simplify signing, installation, runtime, or iPhone testing.
+Personal implementation scope is iPhone only. Akshat chose in Build 95 to remove the upstream-only
+code and the Android target; git history holds them.
 
 The accepted shared portfolio is standalone WHOOP plus the native AkshatOS hub (two free-signing
 slots). See `../akshatos/hub-plan.md`. WHOOP retains its independent
@@ -690,9 +689,8 @@ refresh works, and a controlled forced-due daemon cycle reused that identity suc
 The next naturally elapsed cycle remains the long-term proof.
 Never commit Apple/GitHub
 credentials, 2FA codes, signing material, Anisette data, personal health exports, or IPAs.
-The personal build selects the supplied black-and-white circular logo from
-`ios/Runner/Assets.xcassets/AppIconPersonal.appiconset`; upstream/reference builds continue using
-their existing icon catalog.
+The app icon is the supplied black-and-white circular logo in
+`ios/Runner/Assets.xcassets/AppIcon.appiconset`, the only icon from Build 95.
 
 Windows is partly ready already: iTunes 12.13.10.3 and Apple Mobile Device Support 19.4.0.10 are
 installed, the Apple Mobile Device Service is automatic/running, and the Sideloadly daemon runs
@@ -702,7 +700,7 @@ automatic running service; its signed installer added the UDP 5353 firewall rule
 Local Anisette configuration should be rechecked after tool changes; build 67 was installed with
 Sideloadly 0.70.1. Bonjour discovery alone is not proof of an actual wireless refresh.
 
-See `guides/IOS_INSTALLATION.md` for the personal-versus-full build boundary and
+See `guides/IOS_INSTALLATION.md` for what the committed project contains and how it is built, and
 `guides/IOS_SIDELOAD.md` for the accepted Windows install/refresh/recovery workflow. `CLAUDE.md`
 owns the complete physical-device, encrypted-backup, expiry, upgrade, and activation gates.
 

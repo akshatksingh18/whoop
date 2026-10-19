@@ -274,8 +274,9 @@ weight; robust z-scores are combined with weights renormalised over available in
 scores store `readiness_absent_diag`; `readinessGap` exposes the per-day reason. The sparse history
 before 30 September reflects those baseline/missing-input/import rules, not a broken read path.
 
-**Steps (phone only, personal build; Build 89 source):** every step total — the day, the
-hourly graph, step calories, workouts and runs — counts the phone alone (`kBandSteps` off).
+**Steps (phone only; Build 89 decision):** every step total — the day, the hourly graph, step
+calories, workouts and runs — counts the phone alone (`LocalDb.resolvedStepsForDay` keeps band
+steps off; tests of the band ladder switch it on).
 Band step rows are still stored but never counted, so time the phone did not measure has no
 steps and a day the phone did not cover shows "—". Before Build 89 the band filled uncovered
 time (phone first): positive phone measurements owned overlapping time, accepted wrist-only
@@ -524,7 +525,10 @@ an additional statistical confidence claim.
   iOS audio mode and interruption handling require locked-screen/calls/music device acceptance.
 - A captured workout profile preserves its weight basis; dated profile/scale records anchor days.
   Older sessions without those records use the available dated fallback; old missing weights
-  cannot be reconstructed. Decimal metric/imperial inputs preserve precision across saves.
+  cannot be reconstructed. Decimal inputs preserve precision across saves in either unit. From
+  Build 95 Settings → Units sets Weight (kg/lb), Distance (km/mi) and Height (cm / ft, in)
+  separately; stored values stay metric, and runs and walks follow Distance (pace, speed,
+  splits re-cut per mile, best efforts including a mile, spoken updates).
   Metric prefills and food quantity/nutrient editors retain all supplied decimals.
   Sub-minute movement allocation from older minute-level records remains proportional; the
   app cannot reconstruct an exact step timestamp that was never recorded.
@@ -677,11 +681,19 @@ what each tab still contains.
   is distinct from source implementation; the new UI must not regress these paths.
 - **Sleep/Steps/metric detail:** naps remain available on empty days; sleep correction is folded;
   Tonight/target-bedtime surfaces remain removed. Hourly Steps bars/totals stay, the per-stretch
-  list stays removed. Personal metric charts still omit algorithm dotted/locked lines and Worn bars.
-- **Settings:** band, profile, alarm, This phone steps, notifications, units, data, privacy and
-  Status stay. Tasker/Shortcuts, double-tap, app icon, add-a-sensor, HealthKit import, AI coach/
-  briefings, language picker and paced breathing stay hidden/removed in the personal build.
-  Personal movement-nudge/wind-down/step-goal alerts stay off; earning a streak needs no alert.
+  list stays removed. Metric charts omit algorithm dotted/locked lines and Worn bars (their code
+  was removed in Build 95).
+- **Settings:** band, profile, alarm, This phone steps, notifications, units (Weight, Distance,
+  Height), data, privacy and Status. Tasker/Shortcuts, double-tap, app icon, add-a-sensor,
+  HealthKit import, AI coach/briefings, language picker and paced breathing were removed (Build 95
+  removed their code). Movement-nudge/wind-down/step-goal alerts no longer exist; earning a streak
+  needs no alert.
+- **Notifications page (Build 95):** a bell on Today (unread dot) opens every notification by day,
+  newest first, kept 90 days in preferences on the phone; tapping one opens its destination. What
+  changed is reachable from Trends.
+- **Progress, Body, Recovery (Build 95):** Progress leads with the first check, the next step and a
+  tile per requirement, rules inline; Body names Latest reading, 7-day average and the selected
+  period's average; Recovery states one reason with its numbers beside the score.
 - **Pushups:** completed-set events, separate goal/streak/history and optional Home auto-pause;
   never sensor-measured reps, strain, maintenance calories or general activity-streak credit.
   Always permission is approved for Home only, not a new walking requirement.

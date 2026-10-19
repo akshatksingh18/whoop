@@ -62,11 +62,10 @@ Before following installation steps, the candidate IPA must pass the personal-bu
 
 - phone `Runner`, local BLE/database/analytics, local notifications, `bluetooth-central`, and
   CoreBluetooth restoration retained;
-- Watch companion, general/home/breathing widgets and every app extension excluded; the
-  workout Live Activity (builds 74–80) was dropped in build 81 because Sideloadly's free signing
-  provisions only the app's App ID and iOS refused to launch the extension;
-- App Group and HealthKit entitlements absent in the initial personal flavor;
-- health-data contribution and required telemetry/backend/OTA behavior off;
+- no Watch app, widget or app extension, App Group or HealthKit entitlement: from Build 95 none
+  exists in the project (the build 74–80 workout Live Activity never launched because
+  Sideloadly's free signing provisions only the app's App ID);
+- no health-data contribution, telemetry, backend or OTA code (removed in Build 95);
 - conventional `Payload/Runner.app` release/AOT artifact with no injected libraries, JIT,
   credentials, personal data, or installer metadata;
 - permanent verified bundle ID plus source version/revision, capability manifest, and SHA-256
@@ -102,21 +101,6 @@ Current external constraints must be rechecked at activation:
   <https://sideloadly.io/faq.html> and <https://sideloadly.io/changelog>
 
 ## First controlled installation
-
-For migration from an existing Android installation, preserve this order:
-
-1. Let Android finish a final band sync, then export a **passphrase-encrypted backup**. This is the
-   same lossless database as the plaintext export; spreadsheets are readable summaries and cannot
-   restore the full app history. Keep the Android data and passphrase until the iPhone restore is
-   verified.
-2. Transfer the `.osbk` file somewhere the iPhone Files picker can reach. On the iPhone welcome
-   screen, choose **Bring my history first**, select the backup, enter its passphrase, and wait for
-   the import to finish. The importer deliberately skips the source phone's non-portable primary
-   BLE identity while merging the raw ledger, derived history, sessions, journal, and other data.
-3. Only after the import succeeds, choose **Forget this band** in the Android app, fully close it,
-   and turn Android Bluetooth off for the first iPhone pairing. If the band is listed in Android's
-   system Bluetooth devices, forget it there too. Do not uninstall or erase Android until iPhone
-   history and a fresh encrypted iPhone backup have both been verified.
 
 1. On Windows, connect the iPhone over USB, trust the computer, enable iOS Developer Mode, and use
    iTunes to enable **Sync with this iPhone over Wi-Fi**. Keep Apple's Bonjour service installed,
@@ -189,7 +173,7 @@ For migration from an existing Android installation, preserve this order:
   including force-quit; verify this phone's provisioning and behavior rather than assuming
   either guaranteed restoration or blanket suppression. Reboot restoration requires first unlock.
   `../background-sync-plan.md` owns the iPhone 17/iOS 26.6.2 research and proposed repair.
-- Apple Health, general widgets, App Groups, Watch and app extensions remain excluded. A
+- Apple Health, widgets, App Groups, Watch and app extensions do not exist in the project. A
   Sideloadly install log shows one App ID ("Using app ID "WHOOP"") in both bundle-ID modes: free
   signing does not provision extensions, which is why the build 74–80 Live Activity never drew.
 - Local Anisette avoids dependence on Sideloadly's remote Anisette service, but Apple signing servers

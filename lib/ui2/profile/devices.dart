@@ -16,16 +16,11 @@
 // nothing derives from it.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart'
-    show BluetoothDevice;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../build_profile.dart' show kPersonalSideload;
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura;
-import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
-import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+    show kBandRegistry;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
@@ -36,7 +31,6 @@ import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
-import 'pair_sensor.dart' show PairSensorScreen;
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
 
@@ -238,13 +232,6 @@ class HealthSource {
   );
 }
 
-/// The glyph for a paired sensor. A ring is not a chest strap and the row is
-/// the only place a user can tell two paired sensors apart at a glance.
-IconData sensorIcon(String? adapterId) => switch (adapterId) {
-      'oura' => LucideIcons.circleDot,
-      _ => LucideIcons.heartPulse,
-    };
-
 /// The tier named by a `device.tier` column, or null when the column is blank
 /// or holds a name this build does not have.
 ///
@@ -286,31 +273,6 @@ List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
           lastData: app.lastRecordAt,
           isBand: true,
           family: app.device.generation,
-        ),
-      // Sensors paired alongside the band. One row each, ranked by their own
-      // tier like everything else — a beat-to-beat strap sorts ABOVE the wrist
-      // band, which is the whole point of the ladder being quality-first.
-      for (final r in app.sensors)
-        HealthSource(
-          // The advertised name the user picked, then the registry's word for
-          // what it is. Never a placeholder — `cleanDeviceLabel` already
-          // refused anything junk at pairing.
-          name: (r['label'] as String?) ??
-              bandLabelFor(r['adapter_id'] as String?) ??
-              'Paired sensor',
-          kind: bandLabelFor(r['adapter_id'] as String?) ?? 'Unknown sensor',
-          // Null when the column is blank (a source with nothing to rank) or
-          // names a rung this build does not have. Either way it is a refusal,
-          // never the nearest rung we happen to know.
-          tier: tierNamed(r['tier']),
-          icon: sensorIcon(r['adapter_id'] as String?),
-          // `sensorLive` reflects HrsLink.reading ONLY — a live HRS session
-          // must not mark an unrelated paired Oura row as connected just
-          // because some sensor happens to be live right now.
-          connected: sensorLive && r['adapter_id'] == kBleHrs.id,
-          isBand: false,
-          deviceId: r['id'] as String?,
-          family: r['adapter_id'] as String?,
         ),
       if (app.phoneStepsEnabled)
         HealthSource(
@@ -357,18 +319,8 @@ class MyDevices extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
-    // The live reading is subscribed HERE and nowhere higher. It moves on every
-    // beat, so a listener on AppState would rebuild the whole app at 1 Hz for
-    // the length of a workout; this rebuilds one screen.
-    return ValueListenableBuilder<HrsReading?>(
-      valueListenable: HrsLink.instance.reading,
-      builder: (c, reading, _) => _build(c, app, reading != null),
-    );
-  }
-
-  Widget _build(BuildContext c, AppState app, bool sensorLive) {
     return MyDevicesView(
-      sources: rankSources(liveSources(app, sensorLive: sensorLive)),
+      sources: rankSources(liveSources(app)),
       // The band row's dot says connected or not. That covers six different
       // problems with six different fixes, and a user cannot fix a problem the
       // app will not name — so the engine's own verdict rides alongside it.
@@ -381,91 +333,10 @@ class MyDevices extends StatelessWidget {
       // months of data behind an onboarding screen), which makes this the only
       // way back to pairing. So push it.
       onPair: () => goto(c, const RePair()),
-      onAddSensor: () => addSensor(c),
     );
   }
 }
 
-/// Every sensor that can be paired from this screen — a second device
-/// alongside the band, never a replacement for it.
-///
-/// Data, not a switch statement, because the ONLY thing that differs between
-/// them is which entry the picker filters on and what has to happen once the
-/// user taps one. `PairSensorScreen` is generic over exactly that.
-final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDevice)? pick})>
-    kPairableSensors = [
-  (
-    entry: kBleHrs,
-    blurb: 'A chest strap or armband. Beat timing measured electrically, '
-        'which a wrist pulse cannot match. Runs during a workout.',
-    // Null means the plain notify-class pairing, which is the whole of what a
-    // heart-rate sensor needs.
-    pick: null,
-  ),
-  if (!kPersonalSideload)
-    (
-      entry: kOura,
-      blurb: 'Reads the ring directly, with no Oura account and no subscription. '
-          'The ring must be factory reset FIRST — one that is already set up in '
-          'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
-          'unpair the ring), then close that app before pairing here.',
-      pick: pairOuraRing,
-    ),
-];
-
-/// Choose which kind of sensor to pair, then hand off to the pairing screen.
-Future<void> addSensor(BuildContext c) async {
-  final p = P.of(c);
-  final choice = await showModalBottomSheet<int>(
-    context: c,
-    backgroundColor: p.bg,
-    builder: (d) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const SizedBox(height: S.x4),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Row(children: [
-            Text(AppLocalizations.of(c)?.devicesAddASensor ?? 'Add a sensor',
-                style: F.t2.copyWith(color: p.ink)),
-          ]),
-        ),
-        const SizedBox(height: S.x3),
-        // Same horizontal inset as the header text above and every other
-        // SetRow list in this file (each lives inside a `Surface(pad:
-        // EdgeInsets.symmetric(horizontal: S.x4))`) — without it these rows
-        // ran edge-to-edge against the sheet, the one place in the screen
-        // that broke the convention.
-        for (var i = 0; i < kPairableSensors.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: SetRow(
-              sensorIcon(kPairableSensors[i].entry.id),
-              C.green,
-              kPairableSensors[i].entry.label,
-              sub: kPairableSensors[i].blurb,
-              onTap: () => Navigator.of(d).pop(i),
-            ),
-          ),
-        const SizedBox(height: S.x4),
-      ]),
-    ),
-  );
-  if (choice == null || !c.mounted) return;
-  final sensor = kPairableSensors[choice];
-  await goto(
-    c,
-    PairSensorScreen(entry: sensor.entry, onPicked: sensor.pick),
-  );
-  // The screen writes a `device` row; nothing tells AppState that happened.
-  if (c.mounted) await c.read<AppState>().refreshSensors();
-}
-
-/// Pairing, pushed rather than gated.
-///
-/// The onboarding gate is what used to take the pairing screen away once a
-/// band answered. A pushed copy has no gate under it, so it closes itself —
-/// otherwise it sits there on "Paired · Continue", whose button re-runs the
-/// scan.
 class RePair extends StatelessWidget {
   const RePair({super.key});
 
@@ -482,7 +353,7 @@ class RePair extends StatelessWidget {
 
 class MyDevicesView extends StatelessWidget {
   final List<HealthSource> sources;
-  final VoidCallback? onPair, onAddSensor;
+  final VoidCallback? onPair;
 
   /// The band's own state, from `bandStatusFor`. Null when nothing is paired.
   final BandStatus? status;
@@ -491,7 +362,6 @@ class MyDevicesView extends StatelessWidget {
     super.key,
     this.sources = const [],
     this.onPair,
-    this.onAddSensor,
     this.status,
   });
 
@@ -567,36 +437,6 @@ class MyDevicesView extends StatelessWidget {
                         icon: LucideIcons.bluetoothOff),
                   ],
                   const SizedBox(height: S.x3),
-                ],
-                // At the foot of LIVE, because that is what it adds to. Not
-                // gated on having a band: a sensor is a second source, and
-                // someone with no band at all is exactly who benefits most
-                // from being able to pair one.
-                if (onAddSensor != null && !kPersonalSideload)
-                  Surface(
-                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: SetRow(LucideIcons.plus, C.green,
-                        l?.devicesAddASensor ?? 'Add a sensor',
-                        sub: l?.devicesAddASensorSub ??
-                            'A heart-rate strap or a ring, alongside the band',
-                        onTap: onAddSensor),
-                  ),
-                if (!kPersonalSideload) ...[
-                const SizedBox(height: S.x5),
-                Text(l?.devicesQualityLadder ?? 'THE QUALITY LADDER',
-                    style: F.over.copyWith(color: p.ink3)),
-                const SizedBox(height: S.x3),
-                for (final t in SourceTier.values)
-                  // Every rung is drawn now, filled or not. The tier-1 rung
-                  // used to be hidden because nothing could reach it and an
-                  // unreachable empty rung is just something to go hunting
-                  // for; "Add a sensor" above is how it is reached, so an
-                  // empty one is now a genuine invitation rather than a dead
-                  // end.
-                  ...[
-                    TierRow(t, filled: sources.any((s) => s.tier == t)),
-                    const SizedBox(height: S.x3),
-                  ],
                 ],
               ],
             ),
@@ -864,71 +704,9 @@ class _DeviceDetailState extends State<DeviceDetail> {
       onRename: (app != null && app.isConnected)
           ? () => _renameBand(c, app, s.name)
           : null,
-      // A sensor is forgotten through its own path: `unpair()` tears down the
-      // primary band's link, its restore identity and its trim cursor, none of
-      // which a sensor has — pointing this at it would have unpaired the
-      // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
-      onForget: s.deviceId != null
-          ? () => _confirmForgetSensor(c, s)
-          : app == null
-              ? null
-              : () => _confirmForget(c, app, s.name),
+      onForget: app == null ? null : () => _confirmForget(c, app, s.name),
     );
   }
-}
-
-/// Drain the ring, now, because the user asked. The result is a sentence
-/// either way: a sync that silently did nothing is indistinguishable from a
-/// ring that had nothing to give, and those need different remedies.
-Future<void> _syncRing(BuildContext c) async {
-  final l = AppLocalizations.of(c);
-  final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(
-      SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
-  final ok = await OuraLink.instance.sync();
-  if (!c.mounted) return;
-  messenger?.showSnackBar(SnackBar(
-    content: Text(ok
-        ? (l?.devicesSynced ?? 'Synced.')
-        : (l?.devicesCouldNotReachRing ??
-            'Could not reach the ring. It has to be nearby, and not connected '
-                'to another app.')),
-  ));
-}
-
-/// Forget a paired sensor. Same promise as forgetting the band — the source
-/// goes, the measurements stay — and it is true for the same reason: every row
-/// the sensor wrote keeps its own `device_id`, and nothing here touches them.
-Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
-  final id = s.deviceId;
-  if (id == null) return;
-  final app = c.read<AppState>();
-  final l = AppLocalizations.of(c);
-  final ok = await showDialog<bool>(
-    context: c,
-    builder: (d) => AlertDialog(
-      title: Text(l?.devicesForgetSensor(s.name) ?? 'Forget ${s.name}?'),
-      content: Text(
-        l?.devicesForgetSensorBody ??
-            'It stops being used during workouts and has to be paired again. '
-                'Everything already banked on this phone is kept — this removes the '
-                'source, not the data.',
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l?.devicesKeepItPaired ?? 'Keep it paired')),
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(l?.devicesForgetIt ?? 'Forget it')),
-      ],
-    ),
-  );
-  if (ok != true) return;
-  await HrsLink.forgetDevice(id);
-  await app.refreshSensors();
-  if (c.mounted) backToRoot(c);
 }
 
 /// Rename the strap.

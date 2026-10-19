@@ -1759,42 +1759,6 @@ class LocalDb {
     );
   }
 
-  /// Upsert imported readings. Idempotent on the source store's uuid.
-  static Future<int> putImportedMeasurements(
-    List<Map<String, Object?>> rows,
-  ) async {
-    if (rows.isEmpty) return 0;
-    final db = await instance;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final r in rows) {
-        batch.insert(
-          'imported_measurement',
-          r,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-      await batch.commit(noResult: true);
-    });
-    return rows.length;
-  }
-
-  /// Imported readings of one kind, newest first. The caller renders the
-  /// `source` with the value; a row without its source is not renderable.
-  static Future<List<Map<String, dynamic>>> importedMeasurements(
-    String kind, {
-    int limit = 200,
-  }) async {
-    final db = await instance;
-    return db.query(
-      'imported_measurement',
-      where: 'kind = ?',
-      whereArgs: [kind],
-      orderBy: 'ts DESC',
-      limit: limit,
-    );
-  }
-
   // ── DEVICES (the things that measure) ─────────────────────────────────────
   /// The devices this phone knows about, one row each.
   ///
@@ -2054,47 +2018,6 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_imported_workout_start '
       'ON imported_workout(start_ts)',
-    );
-  }
-
-  /// Upsert imported workouts. Idempotent on the health store's uuid.
-  static Future<int> putImportedWorkouts(
-    List<Map<String, Object?>> rows,
-  ) async {
-    if (rows.isEmpty) return 0;
-    final db = await instance;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final r in rows) {
-        batch.insert(
-          'imported_workout',
-          r,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-      await batch.commit(noResult: true);
-    });
-    return rows.length;
-  }
-
-  /// Imported workouts, newest first.
-  static Future<List<Map<String, dynamic>>> importedWorkouts({
-    int limit = 200,
-  }) async {
-    final db = await instance;
-    return db.query('imported_workout', orderBy: 'start_ts DESC', limit: limit);
-  }
-
-  /// Drop one imported workout AND its route. `deleteSession` cannot do this —
-  /// these ids are never in `sessions` — so without the cascade here every
-  /// lat/lng point of a removed import would stay on disk unreachable.
-  static Future<void> deleteImportedWorkout(String uuid) async {
-    final db = await instance;
-    await db.delete('imported_workout', where: 'uuid = ?', whereArgs: [uuid]);
-    await db.delete(
-      'workout_route',
-      where: 'session_id = ?',
-      whereArgs: [uuid],
     );
   }
 

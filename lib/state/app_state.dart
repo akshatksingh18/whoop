@@ -24,7 +24,6 @@ import 'package:flutter/widgets.dart';
 
 import '../ble/accessory_setup.dart';
 import '../ble/ble_engine.dart';
-import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
 import '../gps/live_cadence.dart';
 import '../ble/live_step_runs.dart';
@@ -287,29 +286,6 @@ class AppState extends ChangeNotifier {
   bool _background = false;
 
   bool get isPaired => paired != null;
-
-  /// Sensors paired ALONGSIDE the primary band — a chest strap, a ring.
-  ///
-  /// Raw `device` rows, minus the primary. Not `PairedDevice`: that type is the
-  /// one band the offload engine drives, and it holds a serial, a trim cursor
-  /// and a restore identity none of which a notify-class sensor has. These rows
-  /// are the whole of what a sensor is (`id`, `adapter_id`, `remote_id`,
-  /// `label`, `tier`), and `id` is the `device_id` its measurements carry.
-  ///
-  /// Read once at startup and after a pair or a forget — a `device` row only
-  /// changes when the user changes it, so nothing polls this.
-  List<Map<String, Object?>> _sensors = const [];
-  List<Map<String, Object?>> get sensors => _sensors;
-
-  /// Re-read the sensor rows. Call after pairing or forgetting one.
-  Future<void> refreshSensors() async {
-    final rows = await LocalDb.deviceRows();
-    _sensors = [
-      for (final r in rows)
-        if (r['id'] != LocalDb.kPrimaryDeviceId) r,
-    ];
-    notifyListeners();
-  }
 
   // Foreground only (backgrounded, the engine's floored timer owns offloads):
   // every 5 minutes while the app is open, so the screen keeps up with the band.
@@ -2155,7 +2131,6 @@ class AppState extends ChangeNotifier {
     await _settleLaunchKind();
     await DayZoneStore.check('launch');
     paired = await PairedDevice.load();
-    await refreshSensors();
     await _loadProfile();
     await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
     await CalculationStore.hydrate();
@@ -5221,9 +5196,6 @@ class AppState extends ChangeNotifier {
     _startCadence();
     // GPS route: only for run/ride/walk, and only if the user grants location.
     unawaited(_maybeStartRouteTracking(id, type));
-    // A paired heart-rate sensor is armed by a workout and only by a workout —
-    // the same rule GPS follows. No-op when nothing is paired.
-    unawaited(HrsLink.instance.arm());
   }
 
   /// Why route tracking is NOT running for the current route-eligible workout
@@ -5439,7 +5411,6 @@ class AppState extends ChangeNotifier {
           // rows (`id` is unchanged), so the pre-restart part of the route is
           // kept and the gap shows honestly as a segment break.
           unawaited(_maybeStartRouteTracking(id, activeWorkout!.type));
-          unawaited(HrsLink.instance.arm());
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
@@ -5515,9 +5486,6 @@ class AppState extends ChangeNotifier {
     // A session that never got a tracker (permission denied) still armed
     // nothing, but a session whose tracker was already cleared by another path
     // would otherwise leave the screen pinned awake until the app is killed.
-    // AWAITED, like the route tail: an unawaited disarm races the finish screen
-    // and the last buffered batch of sensor beats never reaches the database.
-    await HrsLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
@@ -5645,9 +5613,6 @@ class AppState extends ChangeNotifier {
         await rt.stop();
       } catch (_) {}
     }
-    // AWAITED, like the route tail: an unawaited disarm races the finish screen
-    // and the last buffered batch of sensor beats never reaches the database.
-    await HrsLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;

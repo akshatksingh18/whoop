@@ -18,7 +18,6 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ble/ble_engine.dart';
-import '../ble/oura_link.dart';
 import '../data/db.dart';
 import '../data/day_zone_store.dart';
 import '../notify/notification_center.dart';
@@ -166,17 +165,6 @@ Future<bool> _runHeadlessSync({BandLease? lease, required String wake}) async {
       '(${BandOwnership.debugState})',
     );
     BandOwnership.release(ownedLease);
-    // Piggyback the ring on the same OS wake window, after the band work is
-    // fully done so it can never delay or interfere with WHOOP's own timing.
-    // OuraLink.sync() already no-ops when nothing is paired and never throws,
-    // but this is the one shared headless entry point (every wake source
-    // funnels through runHeadlessSync via HeadlessSyncGate) so a failure here
-    // must not be allowed to escape and mark the WHOOP cycle as errored.
-    try {
-      await OuraLink.instance.sync();
-    } catch (e) {
-      _bgLog('[bgsync] oura sync skipped: $e');
-    }
   }
 }
 

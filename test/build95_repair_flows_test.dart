@@ -21,7 +21,6 @@ import 'package:openstrap_edge/data/lift_log.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/import/backup_crypto.dart';
-import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/compute/profile.dart';
@@ -33,7 +32,6 @@ import 'package:openstrap_edge/ui2/screens/food_picker.dart';
 import 'package:openstrap_edge/ui2/screens/progress_screen.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/screens/log_workout.dart';
-import 'package:openstrap_edge/ui2/screens/health_screen.dart';
 import 'package:openstrap_edge/ui2/screens/sleep_detail.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
@@ -388,7 +386,7 @@ void main() {
         ),
       ),
     );
-    final before = t.widget<HeroStat>(find.byType(HeroStat).first).value;
+    expect(find.byType(HeroStat), findsWidgets);
     await t.tap(
       find.byWidgetPredicate(
         (w) => w is Pressable && w.semanticLabel == 'Previous day',

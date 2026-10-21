@@ -170,7 +170,8 @@ the existing Build 95 IPA does not contain those repairs.
 ## Environment
 - Dev machine: Windows laptop, no local Mac
 - Intended primary daily-use device: iPhone via the minimal Sideloadly-sideloaded release IPA;
-  build 89 is installed and being tested; build 70 remains cached recovery pending the requested promotion. Enabling **This phone →
+  Build 91 is the last reported installation; the testing candidate and accepted Build 70 recovery
+  are recorded in `setup.md`. Enabling **This phone →
   Steps** on build 63 verified direct iPhone-pedometer import; recheck that setting and behavior on
   the current candidate. Apple Health’s aggregate is deliberately not read. Band reconnection, installed About/
   profile details, complete sync/background behavior, GPS, and same-ID refresh remain unverified.
@@ -190,7 +191,8 @@ The bridge is now fixed. The accepted build is `0.9.37`/70, cached at
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\` (`setup.md` owns the location).
 `0.9.31`/64 passed automated checks but was superseded without installation.
 Previously installed `0.9.32`/65 adds the confirmed-phone-stillness step guard. Neither is cached any more:
-`testing\` holds installed Build 90 pending acceptance (Build 89 was not promotable: its phone acceptance and current-version enrollment are unconfirmed), and older candidates are reproducible from their workflow
+`testing\` holds the one current candidate recorded in `setup.md`; none of Builds 89–95 has
+completed the acceptance and enrollment needed for promotion. Older candidates are reproducible from their workflow
 runs recorded in `setup.md`. Build 65's encrypted restore, launch, scheduled
 enrollment and exact-final-ID same-app refresh work. Install stalls once blamed on the automatic
 bundle-ID path happen in both modes and their cause is open (`guides/IOS_SIDELOAD.md`); the health
@@ -729,8 +731,8 @@ symbol names don't; verify against the source, not this doc.
 
 A Flutter app for a reverse-engineered WHOOP 4.0 band. **Fully on-device,
 local-first**: BLE offload → SQLite → on-device analytics → UI. No backend owns
-user data. Network use is limited to OTA update pointers, opt-in
-telemetry/Crashlytics, and BYOK LLM calls.
+user data. Network use is limited to Apple Maps snapshots and opt-in Open Food Facts barcode
+lookup; OTA, telemetry/Crashlytics and LLM calls were removed in Build 95.
 
 One monorepo, strict source-area separation — put work in the right tree:
 - `packages/protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
@@ -942,8 +944,9 @@ This monorepo tracks protocol and analytics under `packages/` and resolves both
 through paths in `pubspec.yaml`; the package trees and app therefore move in the
 same Git history. Do not use `pubspec_overrides.yaml` or restore floating Git
 refs for them. Keep `pubspec.lock` consistent with those paths. `version:` must
-always keep its `+BUILD` suffix, and the iOS widget/watch
-`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are bumped manually and drift.
+always keep its `+BUILD` suffix, and the iOS RunnerTests
+`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` must match it; Runner reads Flutter's build values.
+The widget and Watch targets were removed in Build 95.
 
 #### 4.10 Duplicated / inconsistent values across screens
 Today showed strain/sleep/stress twice; a week-load wheel duplicated the strain

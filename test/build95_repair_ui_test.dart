@@ -1,5 +1,4 @@
 // Synthetic independent audit of nested target editing.
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -15,7 +14,6 @@ import 'package:openstrap_edge/ui2/screens/progress_screen.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
-import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';

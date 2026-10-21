@@ -97,8 +97,9 @@ Local synthetic checks do not establish native iPhone acceptance.
 The original split below governed the first engine/UI implementation. Akshat subsequently
 assigned the entire approved A + compact B UI task and related documentation to Codex;
 Today, Trends, Train, Progress, shared components and their tests are now included. Existing
-reviewed features are retained from `1ceba06b`. Claude still handles integration, privacy review,
-pushes, cloud checks and release metadata; Codex never pushes or edits another worktree.
+reviewed features are retained from `1ceba06b`. For Build 96 Akshat assigned Codex the full
+integration, privacy review, pushes, cloud checks, release metadata and IPA delivery. Existing
+other worktrees remain untouched.
 
 - **Claude lane (`build-90-claude`, separate worktree):** Progress overview and Body / Strength /
   context details, History range, quick weigh-in, milestones (B90-01, B90-04, B90-09); Today
@@ -123,7 +124,7 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   and additive-only changes to the food-window/rollup functions Progress reads. Codex keeps new
   Food widgets private to its own files; any public widget it adds is registered in the
   gallery in a marked Codex block. Codex updates the full approved UI render cases and affected current-state design/docs.
-  Claude records cloud/release evidence in `setup.md` and guides at integration. Small targeted local checks only; full
+  The releasing agent records cloud/release evidence in `setup.md` and guides at integration. Small targeted local checks only; full
   suites run on GitHub.
 
 ### Phases

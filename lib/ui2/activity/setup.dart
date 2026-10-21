@@ -17,7 +17,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../../data/db.dart' show LocalDb;
 import '../../compute/profile.dart'
     show Profile, conservativeMet, isLiftType, sessionActiveKcal;
 import '../../l10n/app_localizations.dart';
@@ -75,7 +74,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
     // button is released instead of staying disabled.
     bool ok;
     try {
-      ok = start == null || await start(widget.a);
+      ok = start == null || await start(widget.a, private: private);
     } catch (_) {
       ok = false;
     }
@@ -95,16 +94,15 @@ class _ActivitySetupState extends State<ActivitySetup> {
         clock.save();
         // Private from the first row (Build 94, Codex N03), so a minimised or
         // half-finished session is never exported as public.
-        if (private) {
-          try {
-            await LocalDb.setSessionPrivate(clock.id, true);
-          } catch (_) {}
-        }
         // The set log belongs to this same session id and clock. A failure
         // here leaves a time-only workout, never a second session.
         if (_logsSets) {
           try {
-            await beginLiftLog(_lift, sessionId: clock.id, startedAt: clock.start);
+            await beginLiftLog(
+              _lift,
+              sessionId: clock.id,
+              startedAt: clock.start,
+            );
           } catch (_) {}
         }
       }

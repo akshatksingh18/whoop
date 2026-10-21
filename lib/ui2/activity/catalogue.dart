@@ -77,9 +77,19 @@ class Activity {
   /// took. `kGaitStepTypeKeys` is derived from this flag and pinned to it in
   /// both directions by test/gait_step_types_test.dart.
   final bool gait;
+  final String? storedType;
 
-  const Activity(this.name, this.icon, this.color, this.track, this.met,
-      {this.gps = false, this.private = false, this.gait = false});
+  const Activity(
+    this.name,
+    this.icon,
+    this.color,
+    this.track,
+    this.met, {
+    this.gps = false,
+    this.private = false,
+    this.gait = false,
+    this.storedType,
+  });
 
   /// kcal = MET × 3.5 × kg / 200 × minutes.
   ///
@@ -91,7 +101,7 @@ class Activity {
       : (met! * 3.5 * kg / 200 * minutes).round();
 
   /// The stored `sessions.type` for this activity.
-  String get typeKey => name.toLowerCase().replaceAll(' ', '_');
+  String get typeKey => storedType ?? name.toLowerCase().replaceAll(' ', '_');
 }
 
 class ActGroup {
@@ -103,53 +113,142 @@ class ActGroup {
 
 const activityLibrary = <ActGroup>[
   ActGroup('Cardio', LucideIcons.heartPulse, [
-    Activity('Running', LucideIcons.footprints, C.green, Track.distance, 9.8,
-        gps: true, gait: true),
     Activity(
-        'Trail running', LucideIcons.mountain, C.green, Track.distance, 10.5,
-        gps: true, gait: true),
-    Activity('Walking', LucideIcons.footprints, C.teal, Track.distance, 3.5,
-        gps: true, gait: true),
-    Activity('Hiking', LucideIcons.mountainSnow, C.green, Track.distance, 6.0,
-        gps: true, gait: true),
-    Activity('Cycling', LucideIcons.bike, C.blue, Track.distance, 8.0,
-        gps: true),
+      'Running',
+      LucideIcons.footprints,
+      C.green,
+      Track.distance,
+      9.8,
+      gps: true,
+      gait: true,
+    ),
+    Activity(
+      'Trail running',
+      LucideIcons.mountain,
+      C.green,
+      Track.distance,
+      10.5,
+      gps: true,
+      gait: true,
+    ),
+    Activity(
+      'Walking',
+      LucideIcons.footprints,
+      C.teal,
+      Track.distance,
+      3.5,
+      gps: true,
+      gait: true,
+    ),
+    Activity(
+      'Hiking',
+      LucideIcons.mountainSnow,
+      C.green,
+      Track.distance,
+      6.0,
+      gps: true,
+      gait: true,
+    ),
+    Activity(
+      'Cycling',
+      LucideIcons.bike,
+      C.blue,
+      Track.distance,
+      8.0,
+      gps: true,
+    ),
     Activity('Indoor bike', LucideIcons.bike, C.blue, Track.duration, 7.0),
     Activity('Rowing', LucideIcons.sailboat, C.teal, Track.distance, 7.0),
     Activity('Swimming', LucideIcons.waves, C.blue, Track.distance, 8.3),
     Activity('Elliptical', LucideIcons.activity, C.purple, Track.duration, 5.0),
     Activity(
-        'Stair climber', LucideIcons.trendingUp, C.orange, Track.duration, 9.0),
+      'Stair climber',
+      LucideIcons.trendingUp,
+      C.orange,
+      Track.duration,
+      9.0,
+    ),
     // Tracked by duration, not distance: a treadmill belt reports nothing to
     // this app and a wrist cannot measure indoor distance, so the session is
     // its heart rate and its clock.
-    Activity('Treadmill', LucideIcons.footprints, C.green, Track.duration, 8.3, gait: true),
-    Activity('Jump rope', LucideIcons.circleDashed, C.red, Track.interval, 12.3),
+    Activity(
+      'Treadmill',
+      LucideIcons.footprints,
+      C.green,
+      Track.duration,
+      8.3,
+      gait: true,
+    ),
+    Activity(
+      'Jump rope',
+      LucideIcons.circleDashed,
+      C.red,
+      Track.interval,
+      12.3,
+    ),
   ]),
   ActGroup('Strength', LucideIcons.dumbbell, [
-    Activity('Weight training', LucideIcons.dumbbell, C.purple, Track.sets, 6.0),
+    Activity(
+      'Weight training',
+      LucideIcons.dumbbell,
+      C.purple,
+      Track.sets,
+      6.0,
+    ),
     Activity('Powerlifting', LucideIcons.dumbbell, C.purple, Track.sets, 6.0),
     Activity(
-        'Bodyweight', LucideIcons.personStanding, C.purple, Track.sets, 4.5),
+      'Bodyweight',
+      LucideIcons.personStanding,
+      C.purple,
+      Track.sets,
+      4.5,
+    ),
     Activity(
-        'Calisthenics', LucideIcons.personStanding, C.purple, Track.sets, 5.0),
+      'Calisthenics',
+      LucideIcons.personStanding,
+      C.purple,
+      Track.sets,
+      5.0,
+    ),
     Activity('Kettlebell', LucideIcons.dumbbell, C.orange, Track.interval, 8.0),
     Activity('CrossFit', LucideIcons.flame, C.red, Track.interval, 9.0),
     Activity('HIIT', LucideIcons.zap, C.red, Track.interval, 10.0),
     Activity(
-        'Circuit training', LucideIcons.repeat2, C.orange, Track.interval, 7.5),
+      'Circuit training',
+      LucideIcons.repeat2,
+      C.orange,
+      Track.interval,
+      7.5,
+    ),
     Activity('Functional', LucideIcons.boxes, C.purple, Track.sets, 5.5),
   ]),
   ActGroup('Sports', LucideIcons.trophy, [
     Activity('Football', LucideIcons.volleyball, C.green, Track.duration, 8.0),
-    Activity('Basketball', LucideIcons.volleyball, C.orange, Track.duration, 8.0),
+    Activity(
+      'Basketball',
+      LucideIcons.volleyball,
+      C.orange,
+      Track.duration,
+      8.0,
+    ),
     Activity('Cricket', LucideIcons.target, C.green, Track.duration, 5.0),
     Activity('Tennis', LucideIcons.volleyball, C.yellow, Track.duration, 7.3),
     Activity('Badminton', LucideIcons.volleyball, C.teal, Track.duration, 5.5),
     Activity(
-        'Table tennis', LucideIcons.volleyball, C.blue, Track.duration, 4.0),
+      'Table tennis',
+      LucideIcons.volleyball,
+      C.blue,
+      Track.duration,
+      4.0,
+    ),
     Activity('Squash', LucideIcons.volleyball, C.red, Track.duration, 12.0),
-    Activity('Volleyball', LucideIcons.volleyball, C.orange, Track.duration, 6.0),
+    Activity(
+      'Volleyball',
+      LucideIcons.volleyball,
+      C.orange,
+      Track.duration,
+      6.0,
+    ),
     Activity('Hockey', LucideIcons.target, C.blue, Track.duration, 8.0),
     Activity('Baseball', LucideIcons.target, C.red, Track.duration, 5.0),
     Activity('Rugby', LucideIcons.volleyball, C.green, Track.duration, 8.3),
@@ -168,38 +267,101 @@ const activityLibrary = <ActGroup>[
     Activity('Sprinting', LucideIcons.zap, C.red, Track.interval, 23.0),
     Activity('Track intervals', LucideIcons.timer, C.red, Track.interval, 11.8),
     Activity(
-        'Cross country', LucideIcons.mountain, C.green, Track.distance, 9.0,
-        gps: true, gait: true),
+      'Cross country',
+      LucideIcons.mountain,
+      C.green,
+      Track.distance,
+      9.0,
+      gps: true,
+      gait: true,
+    ),
     Activity('Hurdles', LucideIcons.zap, C.orange, Track.interval, 10.0),
-    Activity('Long jump', LucideIcons.moveUpRight, C.orange, Track.duration, 6.0),
+    Activity(
+      'Long jump',
+      LucideIcons.moveUpRight,
+      C.orange,
+      Track.duration,
+      6.0,
+    ),
     Activity('Shot put', LucideIcons.circle, C.purple, Track.duration, 4.0),
     Activity('Javelin', LucideIcons.moveUpRight, C.purple, Track.duration, 4.0),
     Activity('Pole vault', LucideIcons.moveUp, C.orange, Track.duration, 6.0),
   ]),
   ActGroup('Outdoor', LucideIcons.trees, [
-    Activity('Mountain biking', LucideIcons.bike, C.green, Track.distance, 8.5,
-        gps: true),
-    Activity('Kayaking', LucideIcons.sailboat, C.blue, Track.distance, 5.0,
-        gps: true),
-    Activity('Surfing', LucideIcons.waves, C.blue, Track.duration, 5.0),
-    Activity('Paddleboard', LucideIcons.sailboat, C.teal, Track.distance, 6.0,
-        gps: true),
-    Activity('Skiing', LucideIcons.snowflake, C.blue, Track.distance, 7.0,
-        gps: true),
     Activity(
-        'Snowboarding', LucideIcons.snowflake, C.indigo, Track.distance, 5.3,
-        gps: true),
-    Activity('Skating', LucideIcons.circleDashed, C.purple, Track.distance, 7.0,
-        gps: true),
+      'Mountain biking',
+      LucideIcons.bike,
+      C.green,
+      Track.distance,
+      8.5,
+      gps: true,
+    ),
+    Activity(
+      'Kayaking',
+      LucideIcons.sailboat,
+      C.blue,
+      Track.distance,
+      5.0,
+      gps: true,
+    ),
+    Activity('Surfing', LucideIcons.waves, C.blue, Track.duration, 5.0),
+    Activity(
+      'Paddleboard',
+      LucideIcons.sailboat,
+      C.teal,
+      Track.distance,
+      6.0,
+      gps: true,
+    ),
+    Activity(
+      'Skiing',
+      LucideIcons.snowflake,
+      C.blue,
+      Track.distance,
+      7.0,
+      gps: true,
+    ),
+    Activity(
+      'Snowboarding',
+      LucideIcons.snowflake,
+      C.indigo,
+      Track.distance,
+      5.3,
+      gps: true,
+    ),
+    Activity(
+      'Skating',
+      LucideIcons.circleDashed,
+      C.purple,
+      Track.distance,
+      7.0,
+      gps: true,
+    ),
     Activity('Horse riding', LucideIcons.rabbit, C.orange, Track.duration, 5.5),
   ]),
   ActGroup('Mind & body', LucideIcons.leaf, [
     Activity('Yoga', LucideIcons.personStanding, C.teal, Track.stillness, 3.0),
-    Activity('Pilates', LucideIcons.personStanding, C.teal, Track.stillness, 3.8),
     Activity(
-        'Stretching', LucideIcons.personStanding, C.green, Track.stillness, 2.3),
+      'Pilates',
+      LucideIcons.personStanding,
+      C.teal,
+      Track.stillness,
+      3.8,
+    ),
     Activity(
-        'Mobility', LucideIcons.personStanding, C.green, Track.stillness, 3.0),
+      'Stretching',
+      LucideIcons.personStanding,
+      C.green,
+      Track.stillness,
+      2.3,
+    ),
+    Activity(
+      'Mobility',
+      LucideIcons.personStanding,
+      C.green,
+      Track.stillness,
+      3.0,
+    ),
     Activity('Tai chi', LucideIcons.wind, C.teal, Track.stillness, 3.0),
     Activity('Breathwork', LucideIcons.wind, C.teal, Track.stillness, 1.5),
     Activity('Meditation', LucideIcons.brain, C.purple, Track.stillness, 1.3),
@@ -207,8 +369,15 @@ const activityLibrary = <ActGroup>[
   ActGroup('Everyday', LucideIcons.house, [
     Activity('Housework', LucideIcons.house, C.n500, Track.duration, 3.3),
     Activity('Gardening', LucideIcons.sprout, C.green, Track.duration, 3.8),
-    Activity('Dog walking', LucideIcons.dog, C.teal, Track.distance, 3.0,
-        gps: true, gait: true),
+    Activity(
+      'Dog walking',
+      LucideIcons.dog,
+      C.teal,
+      Track.distance,
+      3.0,
+      gps: true,
+      gait: true,
+    ),
     Activity('Childcare', LucideIcons.baby, C.pink, Track.duration, 3.0),
     Activity('DIY', LucideIcons.hammer, C.orange, Track.duration, 4.5),
     Activity('Shopping', LucideIcons.shoppingBag, C.n500, Track.duration, 2.3),
@@ -221,17 +390,39 @@ const activityLibrary = <ActGroup>[
     // near miss, and it prices a gym session, which is not what this row
     // means. Tracked by duration because the clock and the heart-rate trace
     // are everything the app knows about a workout nobody named.
-    Activity('General workout', LucideIcons.activity, C.purple,
-        Track.duration, null),
+    Activity(
+      'General workout',
+      LucideIcons.activity,
+      C.purple,
+      Track.duration,
+      null,
+    ),
     Activity('Dancing', LucideIcons.music, C.pink, Track.duration, 7.8),
     // A normal entry with a real MET and a privacy default, exactly as Apple
     // Health carries it. Coyness here would be its own kind of judgement.
-    Activity('Intimacy', LucideIcons.heart, C.pink, Track.duration, 5.8,
-        private: true),
     Activity(
-        'Physiotherapy', LucideIcons.stethoscope, C.blue, Track.duration, 3.0),
+      'Intimacy',
+      LucideIcons.heart,
+      C.pink,
+      Track.duration,
+      5.8,
+      private: true,
+    ),
+    Activity(
+      'Physiotherapy',
+      LucideIcons.stethoscope,
+      C.blue,
+      Track.duration,
+      3.0,
+    ),
     Activity('Sauna', LucideIcons.thermometer, C.orange, Track.stillness, 1.5),
-    Activity('Cold plunge', LucideIcons.snowflake, C.blue, Track.stillness, 2.0),
+    Activity(
+      'Cold plunge',
+      LucideIcons.snowflake,
+      C.blue,
+      Track.stillness,
+      2.0,
+    ),
     // There is no 'Custom activity' row. It carried a MET of 4.0, which is not
     // in the compendium and could not be — the whole point of a custom entry
     // is that the app does not know what it is — and every session made with
@@ -244,7 +435,8 @@ const activityLibrary = <ActGroup>[
 /// What the app has to say about a calorie figure, in one place because it was
 /// said in four and drifted: one site kept quoting a "±15%" error bar that no
 /// estimator computes, long after the others dropped it.
-const kCalorieWhy = 'MET value × your weight, refined by heart rate — or '
+const kCalorieWhy =
+    'MET value × your weight, refined by heart rate — or '
     'heart rate alone, for an activity that carries no MET.';
 
 /// TS-03 — what every zone chart in the app has to admit about its own edges.
@@ -267,12 +459,14 @@ const kCalorieWhy = 'MET value × your weight, refined by heart rate — or '
 /// DELIBERATELY IGNORES IT (hr_max.dart) — Tanaka is a population regression on
 /// age alone, and swapping the strap does not move it by one bpm. The sentence
 /// named an input that provably has no effect on the number it describes.
-const kZonesWhy = 'Zone edges are percentages of a maximum heart rate '
+const kZonesWhy =
+    'Zone edges are percentages of a maximum heart rate '
     'estimated from your age — not one measured on you.';
 
 /// English, non-localized fallback/test seam — see [zonesWhyFootnote] and
 /// [zonesWhy] for the localized callers actually used by the UI.
-String zonesWhyFootnote([AppLocalizations? l]) => l?.catalogueZonesWhy ?? kZonesWhy;
+String zonesWhyFootnote([AppLocalizations? l]) =>
+    l?.catalogueZonesWhy ?? kZonesWhy;
 
 /// THE sentence a zone chart carries, for the anchors THAT chart was banded on.
 ///
@@ -290,7 +484,8 @@ String zonesWhyFootnote([AppLocalizations? l]) => l?.catalogueZonesWhy ?? kZones
 /// both "we cannot say this was measured on you", which is what the estimate
 /// sentence already says. [l] is optional so the non-UI test seam
 /// (`hr_ceiling_zones_test.dart`) can call this with the plain English copy.
-String zonesWhy(String? source, num? maxHr, [AppLocalizations? l]) => maxHr == null
+String zonesWhy(String? source, num? maxHr, [AppLocalizations? l]) =>
+    maxHr == null
     ? zonesWhyFootnote(l)
     : switch (source) {
         'karvonen' =>
@@ -307,12 +502,26 @@ String zonesWhy(String? source, num? maxHr, [AppLocalizations? l]) => maxHr == n
 
 /// The row that means most people never open the catalogue.
 const quickStart = <Activity>[
-  Activity('Running', LucideIcons.footprints, C.green, Track.distance, 9.8,
-      gps: true, gait: true),
+  Activity(
+    'Running',
+    LucideIcons.footprints,
+    C.green,
+    Track.distance,
+    9.8,
+    gps: true,
+    gait: true,
+  ),
   Activity('Weight training', LucideIcons.dumbbell, C.purple, Track.sets, 6.0),
   Activity('Cycling', LucideIcons.bike, C.blue, Track.distance, 8.0, gps: true),
-  Activity('Walking', LucideIcons.footprints, C.teal, Track.distance, 3.5,
-      gps: true, gait: true),
+  Activity(
+    'Walking',
+    LucideIcons.footprints,
+    C.teal,
+    Track.distance,
+    3.5,
+    gps: true,
+    gait: true,
+  ),
   Activity('Football', LucideIcons.volleyball, C.green, Track.duration, 8.0),
   Activity('Yoga', LucideIcons.personStanding, C.teal, Track.stillness, 3.0),
 ];
@@ -330,3 +539,15 @@ final Map<String, Activity> _byKey = {
 /// what it has rather than guessing an icon and a MET.
 Activity? activityByName(String? type) =>
     type == null ? null : _byKey[type.toLowerCase().replaceAll(' ', '_')];
+
+/// Retain a historical activity's identity without assigning it a made-up MET.
+Activity storedActivity(String type) =>
+    activityByName(type) ??
+    Activity(
+      type.isEmpty ? 'Workout' : type.replaceAll('_', ' '),
+      LucideIcons.activity,
+      C.purple,
+      Track.duration,
+      null,
+      storedType: type,
+    );

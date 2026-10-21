@@ -1,8 +1,14 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 89 is installed and being tested; background phone acceptance remains open.
-The following contract originated in Build 86 and retains later Build 87/88 repairs described
-in `bugs.md`/`todo.md`. `build-90-audit.md` proposes additional source/UI repairs; it implements none.
+**Status:** Build 95 is the existing testing candidate; Build 91 is the last reported
+installation and background phone acceptance remains open. `todo.md` and `setup.md` own
+release/device evidence. The unreleased `build-95-codex-fixes` repairs in `build-95-repairs.md`
+leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
+publication, stops capture, holds calculation on every platform, and awaits active phone-step,
+profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
+permission/storage waits; a failed final session save stays stopped and retryable.
+
+The following background contract originated in Build 86 and retains subsequent repairs.
 Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation

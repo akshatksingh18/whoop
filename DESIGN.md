@@ -12,15 +12,20 @@ Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (loca
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
 Impeccable reads. Product truth stays in `CLAUDE.md` and `metrics-map.md`.
 
-Build 90 source (integrated on `build-90-codex`, not yet installed) applies the calm framework
-Akshat selected (A), with B's full calorie-ring/compact-macro card on Food, and Progress's approved composition:
-a goal card with one closed-week verdict, its dates and the exact missing evidence; Weight,
-Waist and Strength results from the same weeks; and Body, Strength and Food/training/recovery
-detail pages with a History range. The kraft/cream palette and metric-family colours stay
-locked. Screen titles clamp to Apple's Large Title scaling and tab-bar labels keep their size
-under large text. Native screenshot and phone acceptance remain open; `build-90-audit.md` and
-`todo.md` retain the feature, correctness and device gates.
+Build 95 retains the calm A framework Akshat selected with B's whole calorie-ring/compact-macro
+card on Food. Progress has one closed-week goal check with the real first-check date, Next and
+expandable method; Body outcomes and inputs use rolling periods against equal earlier periods.
+The Body summary separates the latest individual reading, the 7-day average and the selected
+period average. Recovery explains its measured inputs without changing its score. The kraft/cream
+palette and metric-family colours stay locked. Titles clamp to Apple's Large Title scaling;
+supporting labels and actions respect Dynamic Type. `todo.md` retains phone acceptance gates.
 
+The approved Build 95 repairs keep this composition: Body comparisons stack labels and intact
+values when text or width requires it, Notifications gives Mark all read its own full-width row,
+and enlarged notifications place time/unread context above the message. Save failures retain the
+draft and name the retry; a stopped workout cannot appear to be recording. Selected settings
+choices expose the same state to VoiceOver as to sighted users. See `build-95-repairs.md` for
+implementation and verification status; this is not a new visual direction.
 The approved follow-up keeps targets under Today values in a consistent `of <goal>` format.
 Trends places pins in its header and keeps units/coverage intact; the second energy method gets
 full-width context. Food puts calories in every meal heading without repeating a singleton's

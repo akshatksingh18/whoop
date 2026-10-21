@@ -62,6 +62,7 @@ class Pressable extends StatefulWidget {
   /// Screen-reader label. Required for anything whose child is not plain text
   /// (an icon-only control), optional otherwise.
   final String? semanticLabel;
+  final bool? selected;
 
   // There is no `expand: false`. It used to exist, documented as "the hit area
   // is still expanded via the parent's slop" — no such mechanism was ever in
@@ -80,6 +81,7 @@ class Pressable extends StatefulWidget {
     required this.child,
     this.onTap,
     this.semanticLabel,
+    this.selected,
     this.repeat = false,
   });
 
@@ -132,10 +134,17 @@ class _PressableState extends State<Pressable> {
     if (widget.onTap == null) {
       return widget.semanticLabel == null
           ? out
-          : Semantics(label: widget.semanticLabel, child: out);
+          : Semantics(
+              label: widget.semanticLabel,
+              selected: widget.selected,
+              inMutuallyExclusiveGroup: widget.selected == null ? null : true,
+              child: out,
+            );
     }
     return Semantics(
       button: true,
+      selected: widget.selected,
+      inMutuallyExclusiveGroup: widget.selected == null ? null : true,
       label: widget.semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -2291,10 +2300,7 @@ class SubTabs extends StatelessWidget {
               children: [
                 for (var i = 0; i < items.length; i++) ...[
                   if (i > 0) const SizedBox(width: S.x2),
-                  SizedBox(
-                    width: widths[i] + spare,
-                    child: _segment(c, p, i),
-                  ),
+                  SizedBox(width: widths[i] + spare, child: _segment(c, p, i)),
                 ],
               ],
             );

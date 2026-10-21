@@ -1,23 +1,28 @@
 # WHOOP personal app: metrics map
 
-Everything the app stores and where each item appears in the approved local build. This file is the
-reference for keeping the personal build focused on lifting, running, sleep and recovery. It covers
-the Build 86 feature contracts, subsequent Build 87/88 repairs and installed Build `0.9.56`/`89`;
-complete physical-device acceptance is pending.
+Everything the app stores and where it appears in the personal iPhone app. This file is the
+reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Akshat reports Build 89 installed and being tested. Recorded Linux/macOS and artifact
-checks pass; full physical acceptance remains open. He rejects Progress's information overload;
-`build-90-audit.md` retains the all-tab findings. The accepted A + compact B interface is
-implemented in Build 90 local source; `todo.md` records checks and outstanding integration/device gates. Build 89 still occupies testing; its recovery promotion
-is requested after the review. Build 70 remains cached recovery. `build-85-audit.md` owns earlier approved changes;
-`build-74-audit.md` owns the Budget/ACSM research and comparison contract. Budget coefficients
-moved to 0.17 mL/kg/m for running in Build 90 (Akshat's decision); the distance comparison uses ACSM only at supported measured speeds,
-otherwise it is labelled Movement estimate using the same ledger. `todo.md` owns
-current phone gates; `setup.md` owns source/hash/workflow evidence for current and superseded builds.
+**Status:** Build 95 (`f5b270f3`) is the testing candidate; Build 91 is the last reported
+installation. The approved A framework with B's calorie ring and compact macros is retained.
+The separate, unreleased repair branch is described in `build-95-repairs.md`; its changes need
+integration, cloud checks and a new phone build. Build 70 remains accepted recovery. `todo.md`
+owns phone gates and `setup.md` owns source/hash/workflow evidence.
 
-Build 88 (`0.9.55`/`88`, algorithm 92) was installed before Build 89 (algorithm 93). Historical
-sections below describe the originating build; Build 89 retains those changes except where stated.
-Stored metrics remain intact; any removal still needs Akshat's per-item approval.
+Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
+floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is
+labelled as such only at supported measured speeds. These audit repairs do not tune a coefficient,
+recovery score, HRV, sleep or day-strain formula.
+
+The repair contracts are: the latest individual weigh-in is distinct from the first reading used
+for each day's weight/averages; tape uses the latest reading of each site per day while retaining
+all entries; nutrition target decimals, recorded portions and unknown nutrients survive editing;
+notification history retains its occurrence date and physically prunes expired entries; workout
+privacy commits with its first row, corrected endpoints bound the trace and all stats, and an
+unknown finish time cannot supply a duration or calorie estimate. Private workouts remain in
+personal history but are excluded from weekly/Progress session-count and session-load aggregates.
+Observed daily physiology still includes the band data; privacy does not change the strain formula. A stopped session
+whose final write failed offers retry rather than implying that recording resumed.
 
 ## What is stored
 

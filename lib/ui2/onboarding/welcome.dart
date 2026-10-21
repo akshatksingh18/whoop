@@ -156,17 +156,24 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
     final v = _a.text;
     if (widget.creating) {
       if (v.length < kMinPassphraseChars) {
-        setState(() => _error = l?.welcomePassphraseTooShort(kMinPassphraseChars) ??
-            'At least $kMinPassphraseChars characters.');
+        setState(
+          () => _error =
+              l?.welcomePassphraseTooShort(kMinPassphraseChars) ??
+              'At least $kMinPassphraseChars characters.',
+        );
         return;
       }
       if (v != _b.text) {
-        setState(() => _error = l?.welcomePassphraseMismatch ??
-            'The two do not match.');
+        setState(
+          () =>
+              _error = l?.welcomePassphraseMismatch ?? 'The two do not match.',
+        );
         return;
       }
     } else if (v.isEmpty) {
-      setState(() => _error = l?.welcomePassphraseEmpty ?? 'Enter the passphrase.');
+      setState(
+        () => _error = l?.welcomePassphraseEmpty ?? 'Enter the passphrase.',
+      );
       return;
     }
     Navigator.of(context).pop(v);
@@ -177,55 +184,68 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
     final creating = widget.creating;
     final l = AppLocalizations.of(c);
     return AlertDialog(
-      title: Text(creating
-          ? (l?.welcomeChoosePassphrase ?? 'Choose a passphrase')
-          : (l?.welcomePassphrase ?? 'Passphrase')),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(creating
-            // Both halves, in the same breath. The second half is not a
-            // warning bolted onto a feature — it IS the feature: nothing can
-            // open this file without the passphrase, including us, because
-            // there is no account and no server holding a key.
-            ? (l?.welcomePassphraseCreateNote ??
-                'The file is unreadable without it. And a forgotten passphrase '
-                    'means that backup is gone — there is no recovery, because '
-                    'there is no account and no server holding a key. That is the '
-                    'same thing that keeps it private.')
-            : (l?.welcomePassphraseOpenNote ??
-                'The one you chose when this backup was written.')),
-        const SizedBox(height: S.x4),
-        TextField(
-          controller: _a,
-          obscureText: true,
-          autofocus: true,
-          decoration: InputDecoration(
-              labelText: l?.welcomePassphrase ?? 'Passphrase'),
-          onSubmitted: creating ? null : (_) => _submit(),
-        ),
-        if (creating) ...[
-          const SizedBox(height: S.x3),
-          TextField(
-            controller: _b,
-            obscureText: true,
-            decoration: InputDecoration(
-                labelText: l?.welcomeRepeatIt ?? 'Repeat it'),
-            onSubmitted: (_) => _submit(),
+      title: Text(
+        creating
+            ? (l?.welcomeChoosePassphrase ?? 'Choose a passphrase')
+            : (l?.welcomePassphrase ?? 'Passphrase'),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            creating
+                // Both halves, in the same breath. The second half is not a
+                // warning bolted onto a feature — it IS the feature: nothing can
+                // open this file without the passphrase, including us, because
+                // there is no account and no server holding a key.
+                ? (l?.welcomePassphraseCreateNote ??
+                      'The file is unreadable without it. And a forgotten passphrase '
+                          'means that backup is gone — there is no recovery, because '
+                          'there is no account and no server holding a key. That is the '
+                          'same thing that keeps it private.')
+                : (l?.welcomePassphraseOpenNote ??
+                      'The one you chose when this backup was written.'),
           ),
+          const SizedBox(height: S.x4),
+          TextField(
+            controller: _a,
+            obscureText: true,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: l?.welcomePassphrase ?? 'Passphrase',
+            ),
+            onSubmitted: creating ? null : (_) => _submit(),
+          ),
+          if (creating) ...[
+            const SizedBox(height: S.x3),
+            TextField(
+              controller: _b,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: l?.welcomeRepeatIt ?? 'Repeat it',
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: S.x3),
+            Text(_error!, style: F.cap.copyWith(color: P.of(c).on(C.red))),
+          ],
         ],
-        if (_error != null) ...[
-          const SizedBox(height: S.x3),
-          Text(_error!, style: F.cap.copyWith(color: P.of(c).on(C.red))),
-        ],
-      ]),
+      ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(c).pop(),
-            child: Text(l?.actionCancel ?? 'Cancel')),
+          onPressed: () => Navigator.of(c).pop(),
+          child: Text(l?.actionCancel ?? 'Cancel'),
+        ),
         TextButton(
-            onPressed: _submit,
-            child: Text(creating
+          onPressed: _submit,
+          child: Text(
+            creating
                 ? (l?.welcomeEncrypt ?? 'Encrypt')
-                : (l?.welcomeUnlock ?? 'Unlock'))),
+                : (l?.welcomeUnlock ?? 'Unlock'),
+          ),
+        ),
       ],
     );
   }
@@ -246,12 +266,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final app = context.read<AppState>();
     FilePickerResult? picked;
     try {
-      picked = await FilePicker.platform
-          .pickFiles(allowMultiple: true, withReadStream: false);
+      picked = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withReadStream: false,
+      );
     } catch (e) {
       if (mounted) {
-        setState(() =>
-            _outcome = ImportOutcome(source: 'File picker', error: '$e'));
+        setState(
+          () => _outcome = ImportOutcome(source: 'File picker', error: '$e'),
+        );
       }
       return;
     }
@@ -266,8 +289,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       _outcome = null;
     });
     try {
-      final outcome = await runImport(app, paths,
-          askPassphrase: () => askBackupPassphrase(context));
+      final outcome = await runImport(
+        app,
+        paths,
+        askPassphrase: () => askBackupPassphrase(context),
+      );
       if (!mounted) return;
       setState(() => _outcome = outcome);
       // Anything that landed counts as bringing history in — a workouts-only
@@ -278,8 +304,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       // Closing the prompt is a decision, not a failure. Say nothing.
     } catch (e) {
       if (mounted) {
-        setState(() =>
-            _outcome = ImportOutcome(source: 'Import', error: '$e'));
+        setState(() => _outcome = ImportOutcome(source: 'Import', error: '$e'));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -288,11 +313,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext c) => WelcomeView(
-        busy: _busy,
-        outcome: _outcome,
-        onNew: () => context.read<AppState>().chooseNewUser(),
-        onImport: _import,
-      );
+    busy: _busy,
+    outcome: _outcome,
+    onNew: () => context.read<AppState>().chooseNewUser(),
+    onImport: _import,
+  );
 }
 
 /// Route [paths] to the importer that understands them and normalise the
@@ -324,56 +349,57 @@ Future<ImportOutcome> runImport(
   // Build 94 (Codex N07): from the first decrypted file onward, any failure
   // before the import's own cleanup below still shreds every plaintext copy.
   try {
-  for (final p in paths) {
-    if (!await isEncryptedBackup(p)) {
-      plain.add(p);
-      continue;
-    }
-    if (askPassphrase == null) {
-      cryptoError = 'That file is an encrypted backup. Open it from '
-          'Settings → Your data, where the passphrase can be asked for.';
-      continue;
-    }
-    final pass = await askPassphrase();
-    if (pass == null) {
-      // Shred here, not in the `finally` below. The picker is multi-select, so
-      // an EARLIER encrypted file in the same selection may already be sitting
-      // in the temp directory as the whole health record in plaintext — and
-      // this throw jumps past the try/finally that would normally delete it,
-      // because that try has not been entered yet. Cancelling the second
-      // passphrase prompt used to leave the first backup decrypted on disk.
-      for (final d in decrypted) {
-        try {
-          await File(d).delete();
-        } catch (_) {}
+    for (final p in paths) {
+      if (!await isEncryptedBackup(p)) {
+        plain.add(p);
+        continue;
       }
-      throw PassphraseCancelled();
+      if (askPassphrase == null) {
+        cryptoError =
+            'That file is an encrypted backup. Open it from '
+            'Settings → Your data, where the passphrase can be asked for.';
+        continue;
+      }
+      final pass = await askPassphrase();
+      if (pass == null) {
+        // Shred here, not in the `finally` below. The picker is multi-select, so
+        // an EARLIER encrypted file in the same selection may already be sitting
+        // in the temp directory as the whole health record in plaintext — and
+        // this throw jumps past the try/finally that would normally delete it,
+        // because that try has not been entered yet. Cancelling the second
+        // passphrase prompt used to leave the first backup decrypted on disk.
+        for (final d in decrypted) {
+          try {
+            await _cleanRestore(d);
+          } catch (_) {}
+        }
+        throw PassphraseCancelled();
+      }
+      try {
+        decrypted.add(await decryptToTemp(p, pass));
+      } on BackupFormatException catch (e) {
+        // ONE message for a wrong passphrase and a tampered file, because GCM
+        // cannot tell them apart and pretending otherwise would be a guess.
+        cryptoError = e.message;
+      }
     }
-    try {
-      decrypted.add(await decryptToTemp(p, pass));
-    } on BackupFormatException catch (e) {
-      // ONE message for a wrong passphrase and a tampered file, because GCM
-      // cannot tell them apart and pretending otherwise would be a guess.
-      cryptoError = e.message;
-    }
-  }
 
-  // EVERY group runs, not the first one that matches. The picker is
-  // multi-select and this used to return inside the winning branch, so a
-  // backup selected alongside a vendor CSV imported the backup and threw the
-  // CSV away without a word.
-  // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
-  // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
-  // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
-  // fine, both refused, both with advice for the other file.
-  for (final p in plain) {
-    if (_isDbBackup(p)) continue;
-    (await isNoopExport(p) ? raw : csv).add(p);
-  }
+    // EVERY group runs, not the first one that matches. The picker is
+    // multi-select and this used to return inside the winning branch, so a
+    // backup selected alongside a vendor CSV imported the backup and threw the
+    // CSV away without a word.
+    // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
+    // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
+    // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
+    // fine, both refused, both with advice for the other file.
+    for (final p in plain) {
+      if (_isDbBackup(p)) continue;
+      (await isNoopExport(p) ? raw : csv).add(p);
+    }
   } catch (_) {
     for (final d in decrypted) {
       try {
-        await File(d).delete();
+        await _cleanRestore(d);
       } catch (_) {}
     }
     rethrow;
@@ -394,6 +420,7 @@ Future<ImportOutcome> runImport(
       try {
         days += await app.importEdgeBackup(p);
         records += app.lastImportRecords;
+        await _commitRestorePhotos(p);
       } catch (e) {
         firstError ??= e;
         failed.add(decrypted.contains(p) ? 'the encrypted backup' : nameOf(p));
@@ -410,7 +437,7 @@ Future<ImportOutcome> runImport(
     // directory would undo the reason the backup was encrypted.
     for (final p in decrypted) {
       try {
-        await File(p).delete();
+        await _cleanRestore(p);
       } catch (_) {}
     }
   }
@@ -551,16 +578,17 @@ bool _sameBytes(List<int> a, List<int> b) {
 /// crashed. Nothing here touches a plugin, which is what makes that legal.
 Future<String> decryptToTemp(String path, String passphrase) async {
   final tmp = await getTemporaryDirectory();
-  final stamp = DateTime.now().millisecondsSinceEpoch;
+  final stamp = DateTime.now().microsecondsSinceEpoch;
   final dest = '${tmp.path}/restore-$stamp.db';
   final payload = '${tmp.path}/restore-$stamp.payload';
   try {
     final version = await Isolate.run(
-        () => decryptBackupFile(File(path), File(payload), passphrase));
+      () => decryptBackupFile(File(path), File(payload), passphrase),
+    );
     if (version == kBackupFormatVersionMedia) {
-      // Database to [dest]; progress photos straight into the photo folder
-      // (existing files kept). Their rows arrive with the database merge.
-      await unpackMediaBackup(payload, dest, (await BodyLogDb.photoDir()).path);
+      // Preflight owns a temporary staging folder. Cancelling a later prompt
+      // or rejecting the database must not alter the live photo library.
+      await unpackMediaBackup(payload, dest, '$dest.photos');
     } else {
       await File(payload).rename(dest);
     }
@@ -569,13 +597,46 @@ Future<String> decryptToTemp(String path, String passphrase) async {
     // Build 94 (Codex N07): a failure part-way leaves no plaintext behind —
     // the caller never learns [dest], so it cannot delete it.
     try {
-      await File(dest).delete();
+      await _cleanRestore(dest);
     } catch (_) {}
     rethrow;
   } finally {
     try {
       await File(payload).delete();
     } catch (_) {}
+  }
+}
+
+Future<void> _cleanRestore(String dbPath) async {
+  final db = File(dbPath);
+  try {
+    if (await db.exists()) await db.delete();
+  } finally {
+    final staged = Directory('$dbPath.photos');
+    if (await staged.exists()) await staged.delete(recursive: true);
+  }
+}
+
+Future<void> _commitRestorePhotos(String dbPath) async {
+  final staged = Directory('$dbPath.photos');
+  if (!await staged.exists()) return;
+  final live = await BodyLogDb.photoDir();
+  final referenced = {
+    for (final photo in await BodyLogDb.photos()) photo.fileName,
+  };
+  await for (final file in staged.list()) {
+    if (file is! File) continue;
+    final name = file.uri.pathSegments.last;
+    if (!referenced.contains(name)) continue;
+    final dest = File('${live.path}/$name');
+    if (await dest.exists()) continue;
+    final partial = File('${dest.path}.restore');
+    try {
+      await file.copy(partial.path);
+      if (!await dest.exists()) await partial.rename(dest.path);
+    } finally {
+      if (await partial.exists()) await partial.delete();
+    }
   }
 }
 
@@ -619,8 +680,10 @@ class WelcomeView extends StatelessWidget {
           children: [
             Icon(LucideIcons.activity, size: 40, color: p.on(C.green)),
             const SizedBox(height: S.x5),
-            Text(l?.welcomeHeadline ?? 'Your band, decoded here',
-                style: F.display.copyWith(color: p.ink)),
+            Text(
+              l?.welcomeHeadline ?? 'Your band, decoded here',
+              style: F.display.copyWith(color: p.ink),
+            ),
             const SizedBox(height: S.x3),
             Text(
               l?.welcomeSubhead ??
@@ -628,22 +691,28 @@ class WelcomeView extends StatelessWidget {
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),
-            Pill(l?.pillLocalNoCloud ?? 'Local · no cloud', C.green,
-                icon: LucideIcons.shieldCheck),
+            Pill(
+              l?.pillLocalNoCloud ?? 'Local · no cloud',
+              C.green,
+              icon: LucideIcons.shieldCheck,
+            ),
             const SizedBox(height: S.x8),
-            BigButton(l?.welcomeSetUpMyBand ?? 'Set up my band',
-                icon: LucideIcons.bluetooth,
-                color: C.green,
-                onTap: busy ? null : onNew),
+            BigButton(
+              l?.welcomeSetUpMyBand ?? 'Set up my band',
+              icon: LucideIcons.bluetooth,
+              color: C.green,
+              onTap: busy ? null : onNew,
+            ),
             const SizedBox(height: S.x3),
             BigButton(
-                busy
-                    ? (l?.welcomeImporting ?? 'Importing…')
-                    : (l?.welcomeBringMyHistoryFirst ?? 'Bring my history first'),
-                icon: LucideIcons.upload,
-                color: C.blue,
-                soft: true,
-                onTap: busy ? null : onImport),
+              busy
+                  ? (l?.welcomeImporting ?? 'Importing…')
+                  : (l?.welcomeBringMyHistoryFirst ?? 'Bring my history first'),
+              icon: LucideIcons.upload,
+              color: C.blue,
+              soft: true,
+              onTap: busy ? null : onImport,
+            ),
             const SizedBox(height: S.x3),
             Text(
               // Was: "imported days are marked as imported — they are never
@@ -664,10 +733,7 @@ class WelcomeView extends StatelessWidget {
               const SizedBox(height: S.x6),
               Center(child: CircularProgressIndicator(color: p.on(C.blue))),
             ],
-            if (o != null) ...[
-              const SizedBox(height: S.x6),
-              ImportReport(o),
-            ],
+            if (o != null) ...[const SizedBox(height: S.x6), ImportReport(o)],
           ],
         ),
       ),
@@ -703,120 +769,135 @@ class ImportReport extends StatelessWidget {
         // has to survive the empty case or the validation is invisible.
         o.rejectedRows.isNotEmpty
             ? (l?.welcomeEveryRowRefused(_rejects(o)) ??
-                'Every row was refused: ${_rejects(o)}')
+                  'Every row was refused: ${_rejects(o)}')
             : o.readError ??
-                (l?.welcomeNothingUsableInFile ??
-                    'The file was read but there was nothing in it this app could '
-                        'use, or every day in it was one this band had already '
-                        'measured.'),
+                  (l?.welcomeNothingUsableInFile ??
+                      'The file was read but there was nothing in it this app could '
+                          'use, or every day in it was one this band had already '
+                          'measured.'),
         fix: l?.actionTryAnotherFile ?? 'Try another file',
         icon: LucideIcons.fileWarning,
       );
     }
     final also = [
-      if (o.workouts > 0) l?.welcomeWorkoutsCount(o.workouts) ??
-          '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
-      if (o.skippedDays > 0) l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
-          '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
-              'here and left alone',
+      if (o.workouts > 0)
+        l?.welcomeWorkoutsCount(o.workouts) ??
+            '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
+      if (o.skippedDays > 0)
+        l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
+            '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
+                'here and left alone',
     ];
     // A journal CSV writes no days, so the old headline read "0 days imported"
     // over a successful import of 300 notes.
     final headline = o.days > 0
         ? l?.welcomeDaysImported(o.days) ??
-            '${o.days} day${o.days == 1 ? '' : 's'} imported'
+              '${o.days} day${o.days == 1 ? '' : 's'} imported'
         // A backup of workouts, food or Body with no scored day (Codex N13).
         : o.journalRows == 0 && o.records > 0
         ? '${o.records} record${o.records == 1 ? '' : 's'} restored'
         : l?.welcomeJournalDaysWritten(o.journalRows) ??
-            '${o.journalRows} journal '
-                'day${o.journalRows == 1 ? '' : 's'} written';
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Surface(
-        child: Row(children: [
-          Icon(LucideIcons.check, size: 20, color: p.on(C.green)),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(headline, style: F.head.copyWith(color: p.ink)),
-              Text(o.source, style: F.over.copyWith(color: p.ink3)),
-              if (also.isNotEmpty)
-                Text(also.join(' · '), style: F.over.copyWith(color: p.ink3)),
-              if (o.days > 0 && o.journalRows > 0)
-                Text(l?.welcomeJournalDaysReplaced(o.journalRows) ??
-                        '${o.journalRows} journal '
-                        'day${o.journalRows == 1 ? '' : 's'} replaced',
-                    style: F.over.copyWith(color: p.ink3)),
-            ]),
+              '${o.journalRows} journal '
+                  'day${o.journalRows == 1 ? '' : 's'} written';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Surface(
+          child: Row(
+            children: [
+              Icon(LucideIcons.check, size: 20, color: p.on(C.green)),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(headline, style: F.head.copyWith(color: p.ink)),
+                    Text(o.source, style: F.over.copyWith(color: p.ink3)),
+                    if (also.isNotEmpty)
+                      Text(
+                        also.join(' · '),
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    if (o.days > 0 && o.journalRows > 0)
+                      Text(
+                        l?.welcomeJournalDaysReplaced(o.journalRows) ??
+                            '${o.journalRows} journal '
+                                'day${o.journalRows == 1 ? '' : 's'} replaced',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ]),
-      ),
-      // REJECTED, never clamped. A row outside its declared range is not
-      // salvageable by trimming it — that would store a value the user never
-      // wrote — so it is refused by line number and the other 300 land.
-      if (o.rejectedRows.isNotEmpty) ...[
-        const SizedBox(height: S.x3),
-        StatusCard(
-          l?.welcomeRowsRefused(o.rejectedRows.length) ??
-              '${o.rejectedRows.length} '
-                  'row${o.rejectedRows.length == 1 ? ' was' : 's were'} refused',
-          l?.welcomeRejectedDetail(_rejects(o)) ??
-              '${_rejects(o)} Nothing was trimmed to fit — fix those lines and '
-                  'import again.',
-          icon: LucideIcons.fileWarning,
         ),
+        // REJECTED, never clamped. A row outside its declared range is not
+        // salvageable by trimming it — that would store a value the user never
+        // wrote — so it is refused by line number and the other 300 land.
+        if (o.rejectedRows.isNotEmpty) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(
+            l?.welcomeRowsRefused(o.rejectedRows.length) ??
+                '${o.rejectedRows.length} '
+                    'row${o.rejectedRows.length == 1 ? ' was' : 's were'} refused',
+            l?.welcomeRejectedDetail(_rejects(o)) ??
+                '${_rejects(o)} Nothing was trimmed to fit — fix those lines and '
+                    'import again.',
+            icon: LucideIcons.fileWarning,
+          ),
+        ],
+        if (o.readError != null) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(
+            l?.welcomeOneFileCouldNotBeRead ??
+                'One of those files could not be read',
+            l?.welcomeRestImported('${o.readError}') ??
+                'The rest imported. ${o.readError}',
+            icon: LucideIcons.fileWarning,
+          ),
+        ],
+        if (o.rollupError != null) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(
+            l?.welcomeSummariesDidNotTitle ??
+                'The days landed, the summaries did not',
+            l?.welcomeSummariesDidNotBody('${o.rollupError}') ??
+                'Every imported row is in the database, but rebuilding the cross-day '
+                    'summaries over them threw (${o.rollupError}), so trends and '
+                    'insights still describe the data you had before. Re-analyze '
+                    'everything from Your data rebuilds them.',
+            icon: LucideIcons.triangleAlert,
+          ),
+        ],
+        if (o.lostSomething) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(
+            l?.welcomePartOfFileNotUsedTitle ??
+                'Part of that file could not be used',
+            [
+              if (o.strandedDays > 0)
+                l?.welcomeStrandedDays(o.strandedDays) ??
+                    '${o.strandedDays} day${o.strandedDays == 1 ? '' : 's'} arrived '
+                        'out of order and were only used as context for the day '
+                        'that followed.',
+              if (o.lateRows > 0)
+                l?.welcomeLateRows(o.lateRows) ??
+                    '${o.lateRows} row${o.lateRows == 1 ? '' : 's'} arrived after '
+                        'their day had already been scored and closed.',
+              if (o.corruptTables.isNotEmpty)
+                '${o.corruptTables.join(', ')} could not be read — SQLite '
+                    'reported the file itself as corrupted for those tables. '
+                    'Every other table imported normally.',
+            ].join(' '),
+            fix: o.corruptTables.isNotEmpty
+                ? (l?.actionTryAnotherFile ?? 'Try another file')
+                : (l?.welcomeExportAgainInDateOrder ??
+                      'Export again in date order'),
+            icon: LucideIcons.fileWarning,
+          ),
+        ],
       ],
-      if (o.readError != null) ...[
-        const SizedBox(height: S.x3),
-        StatusCard(
-          l?.welcomeOneFileCouldNotBeRead ??
-              'One of those files could not be read',
-          l?.welcomeRestImported('${o.readError}') ??
-              'The rest imported. ${o.readError}',
-          icon: LucideIcons.fileWarning,
-        ),
-      ],
-      if (o.rollupError != null) ...[
-        const SizedBox(height: S.x3),
-        StatusCard(
-          l?.welcomeSummariesDidNotTitle ??
-              'The days landed, the summaries did not',
-          l?.welcomeSummariesDidNotBody('${o.rollupError}') ??
-              'Every imported row is in the database, but rebuilding the cross-day '
-                  'summaries over them threw (${o.rollupError}), so trends and '
-                  'insights still describe the data you had before. Re-analyze '
-                  'everything from Your data rebuilds them.',
-          icon: LucideIcons.triangleAlert,
-        ),
-      ],
-      if (o.lostSomething) ...[
-        const SizedBox(height: S.x3),
-        StatusCard(
-          l?.welcomePartOfFileNotUsedTitle ??
-              'Part of that file could not be used',
-          [
-            if (o.strandedDays > 0)
-              l?.welcomeStrandedDays(o.strandedDays) ??
-                  '${o.strandedDays} day${o.strandedDays == 1 ? '' : 's'} arrived '
-                  'out of order and were only used as context for the day '
-                  'that followed.',
-            if (o.lateRows > 0)
-              l?.welcomeLateRows(o.lateRows) ??
-                  '${o.lateRows} row${o.lateRows == 1 ? '' : 's'} arrived after '
-                      'their day had already been scored and closed.',
-            if (o.corruptTables.isNotEmpty)
-              '${o.corruptTables.join(', ')} could not be read — SQLite '
-                  'reported the file itself as corrupted for those tables. '
-                  'Every other table imported normally.',
-          ].join(' '),
-          fix: o.corruptTables.isNotEmpty
-              ? (l?.actionTryAnotherFile ?? 'Try another file')
-              : (l?.welcomeExportAgainInDateOrder ??
-                  'Export again in date order'),
-          icon: LucideIcons.fileWarning,
-        ),
-      ],
-    ]);
+    );
   }
 }
 

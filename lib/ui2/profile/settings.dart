@@ -146,8 +146,7 @@ class _MoreSettingsState extends State<MoreSettings> {
       onNotifications: () => goto(c, const NotificationSettings()),
       onData: () => goto(c, const DataScreen()),
       onCycleWeight: () => units.setWeightUnit(units.isLb ? 'kg' : 'lb'),
-      onCycleDistance: () =>
-          units.setDistanceUnit(units.isMiles ? 'km' : 'mi'),
+      onCycleDistance: () => units.setDistanceUnit(units.isMiles ? 'km' : 'mi'),
       onCycleHeight: () => units.setHeightUnit(
         units.heightUnit == HeightUnit.ftIn ? HeightUnit.cm : HeightUnit.ftIn,
       ),
@@ -1136,6 +1135,7 @@ class _EditProfileViewState extends State<EditProfileView> {
                           Pressable(
                             onTap: () => setState(() => _sex = key),
                             semanticLabel: label,
+                            selected: _sex == key,
                             child: Container(
                               alignment: Alignment.center,
                               padding: const EdgeInsets.symmetric(

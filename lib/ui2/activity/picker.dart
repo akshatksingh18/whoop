@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../compute/profile.dart';
 import '../grammar.dart';
 import '../theme.dart';
 import 'catalogue.dart';
@@ -323,7 +324,12 @@ class ActivityRow extends StatelessWidget {
     final l = AppLocalizations.of(c);
     final kcal = isRunType(a.typeKey) || isWalkType(a.typeKey)
         ? null
-        : a.kcal(weightKg, 30);
+        : sessionActiveKcal(
+            p: Profile(weightKg: weightKg),
+            type: a.typeKey,
+            minutes: 30,
+            catalogueMet: a.met,
+          )?.round();
     final met = a.met;
     final metStr = met?.toStringAsFixed(1);
     // The catch-all row has neither: no weight means no kcal, and no named

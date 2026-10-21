@@ -50,7 +50,9 @@ import '../data/day_label.dart';
 import '../data/auto_backup.dart' show BackupCadence, BackupOutcome, runBackup;
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
-import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import '../data/auto_backup.dart'
+    as backup
+    show runBackupIfDue, withoutBackupsDuringReset;
 import '../data/backup_passphrase.dart';
 import '../platform/signing_profile.dart';
 import 'prefs.dart';
@@ -547,6 +549,7 @@ class AppState extends ChangeNotifier {
   /// [foregroundRefreshEvery] while the app is open; the band offload itself
   /// rides `openSession` and the 5-minute backfill timer.
   Future<void> refreshForeground() async {
+    if (_resetting) return;
     // Calendar rollover and local edits must refresh even without a band.
     await _routeTracker?.flush();
     await _publishLiveGait();
@@ -682,7 +685,19 @@ class AppState extends ChangeNotifier {
   /// Idempotent (delete-then-insert per day, scoped to the phone source), so
   /// calling it repeatedly — on launch, after a sync, from a background pass —
   /// can never accumulate. Best-effort; never throws.
-  Future<int> syncPhoneSteps({
+  Future<int>? _phoneSync;
+  Future<int> syncPhoneSteps({int days = PhonePedometer.routineSyncDays}) {
+    if (_resetting) return Future.value(0);
+    final pending = _phoneSync;
+    if (pending != null) return pending;
+    final job = _syncPhoneSteps(days: days);
+    _phoneSync = job;
+    return job.whenComplete(() {
+      if (identical(_phoneSync, job)) _phoneSync = null;
+    });
+  }
+
+  Future<int> _syncPhoneSteps({
     int days = PhonePedometer.routineSyncDays,
   }) async {
     try {
@@ -703,6 +718,7 @@ class AppState extends ChangeNotifier {
   /// old cloud PATCH /profile (no network).
   Future<void> _profileWrite = Future.value();
   Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> fields) {
+    if (_resetting) return Future.error(StateError('Reset is in progress'));
     final next = _profileWrite.then((_) => _updateProfile(fields));
     _profileWrite = next.then<void>(
       (_) {},
@@ -917,7 +933,53 @@ class AppState extends ChangeNotifier {
   ///   2. The database, then the preferences, then the keychain — the reads
   ///      that could re-create state are all downstream of the writes.
   ///   3. [signOut] last, because it flips the route and the UI unwinds.
-  Future<void> resetAllData() async {
+  bool _resetting = false;
+  Future<void>? _resetJob;
+  Future<void> resetAllData() {
+    final pending = _resetJob;
+    if (pending != null) return pending;
+    final job = _runResetAllData();
+    _resetJob = job;
+    return job.whenComplete(() => _resetJob = null);
+  }
+
+  Future<void> _runResetAllData() async {
+    _resetting = true;
+    _deriveScheduler.suspendForReset(true);
+    try {
+      await backup.withoutBackupsDuringReset(() async {
+        // Stop capture before wiping; any final committed burst is included in
+        // the wipe. Never change the capture commit-before-ACK contract.
+        await unpair();
+        phoneStepsEnabled = false;
+        _phoneCadence.stop();
+        // A failed prior save still has to settle, but must not prevent the
+        // user deleting everything afterwards.
+        Future<void> settle(Future<dynamic>? pending) async {
+          try {
+            await pending;
+          } catch (_) {}
+        }
+
+        await Future.wait([
+          settle(_phoneSync),
+          settle(_profileWrite),
+          settle(_movementRead),
+          settle(_workoutStartWrite),
+          settle(_workoutStopWrite),
+        ]);
+        while (_derive.running || _deriveScheduler.running) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+        await _resetAllData();
+      });
+    } finally {
+      _resetting = false;
+      _deriveScheduler.suspendForReset(false);
+    }
+  }
+
+  Future<void> _resetAllData() async {
     // 1 · a workout still recording is stopped first, so no timer, route or
     // clock writes into the wiped store afterwards (Build 94, Codex N04).
     if (activeWorkout != null) await _cancelActiveWorkoutTeardown();
@@ -1249,25 +1311,25 @@ class AppState extends ChangeNotifier {
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
       // not only at the end (a multi-day backfill can be many days of work).
       await _derive.run(
-          _profile,
-          heavy: heavy,
-          onDayDone: (day, index, total) async {
-            if (day == todayLabel()) {
-              // Today's row just changed. Screens re-read only on a revision
-              // bump, and this pass bumped only at its end (a heavy pass runs
-              // four days, up to a minute), so Today kept the morning's 0.0
-              // strain while Day strain, read on open, showed the new value.
-              _todayDerivedAt = DateTime.now();
-              // B88-05: refresh the overnight freshness the moment today's
-              // row lands, not only when the whole pass ends — a cancelled
-              // background pass skipped it and Today kept saying "still being
-              // worked out" about a night that had already committed.
-              await LocalDb.refreshComputeFreshness();
-              bumpInsights();
-            } else if (index == total || index == 1 || index % 3 == 0) {
-              notifyListeners();
-            }
-          },
+        _profile,
+        heavy: heavy,
+        onDayDone: (day, index, total) async {
+          if (day == todayLabel()) {
+            // Today's row just changed. Screens re-read only on a revision
+            // bump, and this pass bumped only at its end (a heavy pass runs
+            // four days, up to a minute), so Today kept the morning's 0.0
+            // strain while Day strain, read on open, showed the new value.
+            _todayDerivedAt = DateTime.now();
+            // B88-05: refresh the overnight freshness the moment today's
+            // row lands, not only when the whole pass ends — a cancelled
+            // background pass skipped it and Today kept saying "still being
+            // worked out" about a night that had already committed.
+            await LocalDb.refreshComputeFreshness();
+            bumpInsights();
+          } else if (index == total || index == 1 || index % 3 == 0) {
+            notifyListeners();
+          }
+        },
       );
       // A drain can bank band coverage and a day can have rolled over since the
       // last read — both change which source owns today's steps.
@@ -2009,9 +2071,7 @@ class AppState extends ChangeNotifier {
       await NotificationCenter.instance.scheduleStandingReminders(
         prefs,
         weeklyFinding: prefs.remindersEnabled
-            ? NotificationCenter.weeklyLookbackFinding(
-                await _readRecentDays(),
-              )
+            ? NotificationCenter.weeklyLookbackFinding(await _readRecentDays())
             : null,
       );
     } catch (e) {
@@ -3766,6 +3826,7 @@ class AppState extends ChangeNotifier {
 
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
+    if (_resetting) return;
     await DayZoneStore.check('foreground');
     // B88-05: the app IS in the foreground now, whatever the link is doing.
     // These resets used to sit below the busy/unpaired early return — the only
@@ -4094,6 +4155,7 @@ class AppState extends ChangeNotifier {
   /// connection (no reconnect, no teardown). Used when a workout ends so a session
   /// that rode the live feed still gets its window backfilled from flash.
   Future<void> forceResync() async {
+    if (_resetting) return;
     if (!engine.isConnected) return;
     try {
       // Wait out any burst already in flight (it's pulling the same flash), then
@@ -4357,6 +4419,8 @@ class AppState extends ChangeNotifier {
   }
 
   LiveWorkoutState? activeWorkout;
+  bool get workoutAwaitingSave =>
+      activeWorkout != null && WorkoutClock.current?.end != null;
   Timer? _workoutTimer;
   KmVoice? _workoutVoice;
   WorkoutMeasurements? _workoutMeasurements;
@@ -4633,107 +4697,114 @@ class AppState extends ChangeNotifier {
     return rt != null && rt.isRunning && !rt.receivingFixes;
   }
 
-  void startWorkout({
+  bool _workoutStarting = false;
+
+  Future<bool> startWorkout({
     double targetKcal = 300,
     String? workoutId,
     String type = 'other',
     Profile? calculationProfile,
     double? met,
-  }) {
-    if (activeWorkout != null) return;
+    bool private = false,
+  }) async {
+    if (_resetting || activeWorkout != null || _workoutStarting) return false;
+    _workoutStarting = true;
     final start = DateTime.now();
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
-    // A deliberate workout start arms the live heart-rate stream if it is not
-    // already up (after the background downgrade has settled, so its trailing
-    // OFF writes cannot kill what this arms).
-    unawaited(() async {
-      await _settleBgLiveDowngrade();
-      if (isConnected && !engine.liveEnabled) await engine.enableLiveStreams();
-    }());
-    _workoutRawBase = _liveRaw;
-    _workoutSawSamples = false;
-    _pauseRawAt = null;
-    WorkoutClock.begin(
-      id,
-      start,
-      calculationProfile ?? Profile.fromMap(user),
-    ).onPauseChanged = _onWorkoutPause;
-    _workoutVoice = KmVoice(miles: voiceInMiles);
-    _workoutMeasurements = null;
-    _movementAt = DateTime.fromMillisecondsSinceEpoch(0);
-    _workoutMinuteSteps.clear();
-    _startCadence();
-    // A first night may have been derived since init. This read finishes
-    // after the session below is constructed, so it back-fills the anchor on
-    // `activeWorkout` when it lands rather than blocking the start.
-    unawaited(_refreshNightlyRhr());
-    // Hold heavy derivation for the session — an isolate spawn mid-ride
-    // competes with GPS, the live map and the BLE drain (see
-    // DeriveScheduler.setWorkoutActive).
-    _deriveScheduler.setWorkoutActive(true);
-    // Hold the display for EVERY live session, not just route-eligible ones.
-    // Arming this from _maybeStartRouteTracking meant an indoor workout, a
-    // location-denied run, and a resumed non-route session all watched the
-    // screen sleep mid-set. Released unconditionally on both teardown paths.
-    ScreenWake.enable();
-    activeWorkout = LiveWorkoutState(
-      startTime: start,
-      targetKcal: targetKcal,
-      workoutId: id,
-      type: type,
-      age: (user?['age'] as num?)?.round(),
-      // Score against the profile the session is performed under.
-      profile: calculationProfile ?? Profile.fromMap(user),
-      // ...and against the strap performing it. Pinned at start for the same
-      // reason the profile is: the link can drop mid-session, and a workout
-      // that silently changed zone ceilings halfway through is worse than one
-      // scored end-to-end on the band it began on. Null when nothing is
-      // linked — unknown provenance, which refuses rather than assuming gen4.
-      hrMax: estimatedMaxHr((user?['age'] as num?), engine.linkDeviceFamily),
-      // TS-04 — zones are banded on the MEASURED pair when both exist. The
-      // anchors are read on the same refresh that loads the nightly resting HR
-      // (see [_refreshNightlyRhr]); an anchor that has not landed yet simply
-      // yields the age-estimate set, which is what this session would have got
-      // before TS-03 anyway.
-      zoneSet: trainingZones(
-        age: (user?['age'] as num?),
-        deviceFamily: engine.linkDeviceFamily,
-        observedCeilingBpm: _observedCeilingBpm,
-        restingHrHistory: _rhr28,
-      ),
-      restingHr: _liveRestingHr,
-      met: met,
-    );
-    // Persist the live session (INSERT OR REPLACE — idempotent if repo already
-    // inserted this id). Final stats are written on stop.
-    _workoutStartWrite = LocalDb.putSession({
-      'id': id,
-      'start_ts': start.millisecondsSinceEpoch ~/ 1000,
-      'end_ts': null,
-      'type': type,
-      'status': 'live',
-      'source': 'manual',
-      // Which strap is measuring this workout, if one is linked right now.
-      // Null when nothing is connected — unknown provenance, not gen4.
-      'device_family': engine.linkDeviceFamily,
-      'created_at': start.millisecondsSinceEpoch,
-    }).then((_) => publishSessionChange());
-    unawaited(
-      _workoutStartWrite!.catchError((Object e) {
-        _log('[workout] start write failed: $e');
-      }),
-    );
-    // Never leak a previous periodic tick by overwriting the reference.
-    _workoutTimer?.cancel();
-    _workoutTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _tickWorkout(),
-    );
-    notifyListeners();
-    _log('Live session started. Goal: ${targetKcal.round()} kcal');
-    _startCadence();
-    // GPS route: only for run/ride/walk, and only if the user grants location.
-    unawaited(_maybeStartRouteTracking(id, type));
+    try {
+      _workoutStartWrite = LocalDb.putSession({
+        'id': id,
+        'start_ts': start.millisecondsSinceEpoch ~/ 1000,
+        'end_ts': null,
+        'type': type,
+        'status': 'live',
+        'source': 'manual',
+        'private': private ? 1 : 0,
+        'device_family': engine.linkDeviceFamily,
+        'created_at': start.millisecondsSinceEpoch,
+      });
+      await _workoutStartWrite;
+      if (_resetting) return false;
+      // A deliberate workout start arms the live heart-rate stream if it is not
+      // already up (after the background downgrade has settled, so its trailing
+      // OFF writes cannot kill what this arms).
+      unawaited(() async {
+        await _settleBgLiveDowngrade();
+        if (isConnected && !engine.liveEnabled)
+          await engine.enableLiveStreams();
+      }());
+      _workoutRawBase = _liveRaw;
+      _workoutSawSamples = false;
+      _pauseRawAt = null;
+      WorkoutClock.begin(
+        id,
+        start,
+        calculationProfile ?? Profile.fromMap(user),
+      ).onPauseChanged = _onWorkoutPause;
+      _workoutVoice = KmVoice(miles: voiceInMiles);
+      _workoutMeasurements = null;
+      _movementAt = DateTime.fromMillisecondsSinceEpoch(0);
+      _workoutMinuteSteps.clear();
+      _startCadence();
+      // A first night may have been derived since init. This read finishes
+      // after the session below is constructed, so it back-fills the anchor on
+      // `activeWorkout` when it lands rather than blocking the start.
+      unawaited(_refreshNightlyRhr());
+      // Hold heavy derivation for the session — an isolate spawn mid-ride
+      // competes with GPS, the live map and the BLE drain (see
+      // DeriveScheduler.setWorkoutActive).
+      _deriveScheduler.setWorkoutActive(true);
+      // Hold the display for EVERY live session, not just route-eligible ones.
+      // Arming this from _maybeStartRouteTracking meant an indoor workout, a
+      // location-denied run, and a resumed non-route session all watched the
+      // screen sleep mid-set. Released unconditionally on both teardown paths.
+      ScreenWake.enable();
+      activeWorkout = LiveWorkoutState(
+        startTime: start,
+        targetKcal: targetKcal,
+        workoutId: id,
+        type: type,
+        age: (user?['age'] as num?)?.round(),
+        // Score against the profile the session is performed under.
+        profile: calculationProfile ?? Profile.fromMap(user),
+        // ...and against the strap performing it. Pinned at start for the same
+        // reason the profile is: the link can drop mid-session, and a workout
+        // that silently changed zone ceilings halfway through is worse than one
+        // scored end-to-end on the band it began on. Null when nothing is
+        // linked — unknown provenance, which refuses rather than assuming gen4.
+        hrMax: estimatedMaxHr((user?['age'] as num?), engine.linkDeviceFamily),
+        // TS-04 — zones are banded on the MEASURED pair when both exist. The
+        // anchors are read on the same refresh that loads the nightly resting HR
+        // (see [_refreshNightlyRhr]); an anchor that has not landed yet simply
+        // yields the age-estimate set, which is what this session would have got
+        // before TS-03 anyway.
+        zoneSet: trainingZones(
+          age: (user?['age'] as num?),
+          deviceFamily: engine.linkDeviceFamily,
+          observedCeilingBpm: _observedCeilingBpm,
+          restingHrHistory: _rhr28,
+        ),
+        restingHr: _liveRestingHr,
+        met: met,
+      );
+      // Persist the live session (INSERT OR REPLACE — idempotent if repo already
+      // inserted this id). Final stats are written on stop.
+      publishSessionChange();
+      // Never leak a previous periodic tick by overwriting the reference.
+      _workoutTimer?.cancel();
+      _workoutTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _tickWorkout(),
+      );
+      notifyListeners();
+      _log('Live session started. Goal: ${targetKcal.round()} kcal');
+      _startCadence();
+      // GPS route: only for run/ride/walk, and only if the user grants location.
+      unawaited(_maybeStartRouteTracking(id, type));
+      return true;
+    } finally {
+      _workoutStarting = false;
+    }
   }
 
   /// Why route tracking is NOT running for the current route-eligible workout
@@ -4752,6 +4823,7 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
+    if (_resetting || WorkoutClock.current?.end != null) return;
     // Lowercased for the same reason every other type lookup is: the stored
     // `type` column is free-form text and older rows carry mixed case.
     if (!typeRecordsRoute(type)) return;
@@ -4765,7 +4837,7 @@ class AppState extends ChangeNotifier {
     }
     // The permission round-trip can outlive the whole AppState (a resumed
     // workout kicks this off unawaited during startup), so re-check both.
-    if (_disposed) return;
+    if (_disposed || _resetting || workoutAwaitingSave) return;
     // The session may have ended while we awaited the permission dialog.
     if (activeWorkout?.workoutId != id) return;
     if (perm != GpsPermissionStatus.granted) {
@@ -4784,11 +4856,19 @@ class AppState extends ChangeNotifier {
       // while 0 would overwrite whatever is stored.
       firstSeq = DateTime.now().millisecondsSinceEpoch;
     }
-    if (_disposed || activeWorkout?.workoutId != id || _routeTracker != null) {
+    if (_disposed ||
+        _resetting ||
+        workoutAwaitingSave ||
+        activeWorkout?.workoutId != id ||
+        _routeTracker != null) {
       return;
     }
     final savedRoute = await repo?.getWorkoutRoute(id);
-    if (_disposed || activeWorkout?.workoutId != id || _routeTracker != null) {
+    if (_disposed ||
+        _resetting ||
+        workoutAwaitingSave ||
+        activeWorkout?.workoutId != id ||
+        _routeTracker != null) {
       return;
     }
     final tracker = RouteTracker(
@@ -4831,6 +4911,7 @@ class AppState extends ChangeNotifier {
   /// Re-attempt route tracking after the user fixed permissions (returns from
   /// Settings). No-op unless a route-eligible session is live without a tracker.
   Future<void> retryRouteTracking() async {
+    if (_resetting || workoutAwaitingSave) return;
     final w = activeWorkout;
     if (w == null || w.workoutId == null || _routeTracker != null) return;
     await _maybeStartRouteTracking(w.workoutId!, w.type);
@@ -4919,6 +5000,10 @@ class AppState extends ChangeNotifier {
           // calories/strain/zone-minutes already (honestly) do here.
           WorkoutClock.current = clock;
           clock.onPauseChanged = _onWorkoutPause;
+          if (clock.end != null) {
+            notifyListeners();
+            return;
+          }
           _workoutVoice = KmVoice.restore(
             clock.results['voice'] as Map?,
             spoken: clock.spokenKm,
@@ -5010,6 +5095,9 @@ class AppState extends ChangeNotifier {
     WorkoutClock.current?.finish(endedAt);
     _workoutTimer?.cancel();
     _workoutTimer = null;
+    // Recording has ended even if flushing GPS or saving the row fails.
+    ScreenWake.release();
+    _deriveScheduler.setWorkoutActive(false);
     // Stop GPS route recording and AWAIT the buffered-tail flush before the
     // finish screen loads the route — an unawaited stop raced the navigation
     // and the finish/detail map missed the last batch of fixes.
@@ -5025,9 +5113,7 @@ class AppState extends ChangeNotifier {
     // A session that never got a tracker (permission denied) still armed
     // nothing, but a session whose tracker was already cleared by another path
     // would otherwise leave the screen pinned awake until the app is killed.
-    ScreenWake.release();
-    _deriveScheduler.setWorkoutActive(false);
-    final w = activeWorkout!;
+    var w = activeWorkout!;
     // Nullable for the same reason `steps` below is: an unanchored profile
     // means this session was never costed, and a 0 in the column reads as
     // "burned nothing" rather than "not measured".
@@ -5038,6 +5124,15 @@ class AppState extends ChangeNotifier {
       _workoutMeasurements = null;
       _log('[workout] movement unavailable; preserving the session: $e');
     }
+    final activeDuration = Duration(
+      seconds:
+          WorkoutClock.current?.activeSeconds(endedAt) ?? w.elapsed.inSeconds,
+    );
+    if (activeDuration < w.elapsed || w.hasSamplesAfter(activeDuration)) {
+      w = w.boundedAt(activeDuration, _zoneFor);
+      activeWorkout = w;
+    }
+    w.elapsed = activeDuration;
     final finalKcal = workoutActiveKcal;
     // Nullable: an unmeasured workout must leave the column unset rather than
     // bank a zero that reads as "you took no steps".
@@ -5079,6 +5174,7 @@ class AppState extends ChangeNotifier {
       'calories_basis': finalKcal == null ? null : kCaloriesBasisActive,
       'strain': w.strain,
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
+      'avg_hr': w.meanHr?.round(),
       'duration_min': w.elapsed.inMinutes,
       'zone_min_json': jsonEncode(
         zoneMin.any((v) => v > 0) ? zoneMin : const <num>[],
@@ -5552,6 +5648,43 @@ class LiveWorkoutState {
   /// integer — this is bounded at a couple of hundred entries for a bout of any
   /// length, while retaining raw 1 Hz samples is not.
   final Map<int, double> _secondsByBpm = {};
+  final List<({Duration at, int hr})> _samples = [];
+  bool _replaying = false;
+  bool hasSamplesAfter(Duration until) => _samples.any((s) => s.at >= until);
+
+  /// Replays only real observations inside a corrected active window through
+  /// the same accumulators. No sample after "last set" may survive in a trace,
+  /// peak, zone, strain or energy value. Work is linear once at finish.
+  LiveWorkoutState boundedAt(Duration until, int Function(int) zoneFor) {
+    final out = LiveWorkoutState(
+      startTime: startTime,
+      targetKcal: targetKcal,
+      workoutId: workoutId,
+      type: type,
+      profile: profile,
+      hrMax: hrMax,
+      zoneSet: zoneSet,
+      restingHr: restingHr,
+      met: met,
+      age: profile.ageYears,
+    ).._replaying = true;
+    for (final sample in _samples) {
+      if (sample.at >= until) continue;
+      out.elapsed = sample.at;
+      out.accrueHr(sample.hr);
+      out.zoneSeconds[zoneFor(sample.hr)] += 1;
+    }
+    out._replaying = false;
+    out.elapsed = until;
+    out.strain = strainFromPerMinuteHr(
+      out.perMinuteHr(),
+      profile: profile,
+      restingHr: restingHr,
+      hrMax: hrMax,
+    );
+    out._scoreCalories();
+    return out;
+  }
 
   /// The most recent accepted sample, still unbilled: its duration is the time
   /// until the NEXT sample, which has not arrived. Also what makes a gap in the
@@ -5600,6 +5733,7 @@ class LiveWorkoutState {
   /// filtered out of the stream it re-scores.
   void accrueHr(int hr) {
     if (hr <= 0) return;
+    _samples.add((at: elapsed, hr: hr));
     _hrPeak.add(hr);
     if (_hrPeak.max > maxHrSeen) maxHrSeen = _hrPeak.max;
 
@@ -5639,6 +5773,7 @@ class LiveWorkoutState {
     // ONE strain method across the app (see strainFromPerMinuteHr). Null when
     // an anchor is missing — the gauge shows "—" rather than a number built on
     // an invented HRmax or resting HR.
+    if (_replaying) return;
     strain = strainFromPerMinuteHr(
       perMinuteHr(),
       profile: profile,

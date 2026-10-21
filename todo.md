@@ -2,7 +2,9 @@
 
 **State:** Akshat reports Build `0.9.58`/`91` installed. Build `0.9.62`/`95` (item 3j) is the
 testing candidate; Builds 92–94 were never installed. Build 70 remains cached recovery until a
-later build is accepted and enrolled; phone acceptance (item 4) remains open.
+later build is accepted and enrolled; phone acceptance (item 4) remains open. The separately
+implemented Build 95 audit repairs (`build-95-repairs.md`, `build-95-codex-fixes`) are not in that
+IPA and require integration, cloud checks and a new build.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -539,7 +541,14 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: Independent calorie/recovery review is complete in
+- Codex: All 29 Build 95 audit repairs are implemented and committed on isolated
+  `build-95-codex-fixes`, based on integrated `b0c2c8d6` / app `f5b270f3`.
+  `build-95-repairs.md` owns the checklist and handoff: 73 focused synthetic checks pass,
+  including full-scroll normal/enlarged Body and Notifications captures; focused analysis has no
+  errors/warnings. The backend commit is `c52cedbd`, followed by the UI/lifecycle regression
+  commit at the repair branch tip. Existing checkouts remain untouched. Claude integration,
+  privacy review, full cloud checks, a new IPA and phone acceptance remain open. Nothing pushed.
+  Independent calorie/recovery review is complete in
   `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.
   Two synthetic reproductions remain open: legacy stored workout kcal includes resting energy
   (and assumes 170 cm when height is missing), and the other-workout HR/MET minimum has a

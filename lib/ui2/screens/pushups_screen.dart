@@ -101,15 +101,30 @@ class _PushupsScreenState extends State<PushupsScreen> {
   Future<void> _start() async {
     // Known to be away from Home: ask rather than guess.
     if (_home != null && _auto?.presence == HomePresence.outside) {
-      final paused = await confirmRemove(
-        context,
-        title: "You're away from Home",
-        body:
-            'Start paused until you get back, or start reminders now. '
-            'Arriving home resumes a day started paused.',
-        remove: 'Start paused',
-        keep: 'Start reminders now',
+      final paused = await showDialog<bool>(
+        context: context,
+        builder: (dc) => AlertDialog(
+          title: const Text("You're away from Home"),
+          content: const Text(
+            'Start paused until you get back, or start reminders now. Arriving home resumes a day started paused.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop(false),
+              child: const Text('Start reminders now'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop(true),
+              child: const Text('Start paused'),
+            ),
+          ],
+        ),
       );
+      if (paused == null || !mounted) return;
       return _run(() => Pushups.start(paused: paused));
     }
     return _run(Pushups.start);
@@ -741,6 +756,7 @@ class _PushupSettingsScreenState extends State<PushupSettingsScreen> {
     final p = P.of(c);
     final i = _interval, g = _goal;
     Widget choice(String label, bool on, VoidCallback? tap) => Pressable(
+      selected: on,
       semanticLabel: label,
       onTap: tap,
       child: Pill(label, on ? C.orange : C.n500),
@@ -850,7 +866,8 @@ class HomeSetupScreen extends StatefulWidget {
   State<HomeSetupScreen> createState() => _HomeSetupScreenState();
 }
 
-class _HomeSetupScreenState extends State<HomeSetupScreen> {
+class _HomeSetupScreenState extends State<HomeSetupScreen>
+    with WidgetsBindingObserver {
   HomeBoundary? _saved;
   HomeRegionStatus _status = const HomeRegionStatus();
   ({double lat, double lon, double accuracy})? _here;
@@ -861,17 +878,31 @@ class _HomeSetupScreenState extends State<HomeSetupScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
+  }
+
+  int _read = 0;
   Future<void> _load() async {
+    final read = ++_read;
     final b = await HomeRegion.boundary();
     final st = await HomeRegion.status();
-    if (mounted) {
+    if (mounted && read == _read) {
       setState(() {
         _saved = b;
         _status = st;
-        if (b != null) _radius = b.radius;
+        if (b != null && _here == null) _radius = b.radius;
       });
     }
   }
@@ -997,6 +1028,7 @@ class _HomeSetupScreenState extends State<HomeSetupScreen> {
                   for (final r in const [100.0, 150.0, 250.0, 500.0])
                     Pressable(
                       semanticLabel: '${r.round()} metres',
+                      selected: _radius == r,
                       onTap: () => setState(() => _radius = r),
                       child: Pill(
                         '${r.round()} m',

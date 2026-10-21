@@ -140,8 +140,7 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
     final age = Typed.of(_age.text).value;
     final cm = (f['height_cm'] as num?)?.toDouble();
     final kg = (f['weight_kg'] as num?)?.toDouble();
-    if ((age != null &&
-            (age < 1 || age > 120 || age != age.roundToDouble())) ||
+    if ((age != null && (age < 1 || age > 120 || age != age.roundToDouble())) ||
         (cm != null && (!cm.isFinite || cm < 30 || cm > 280)) ||
         (kg != null && (!kg.isFinite || kg < 1 || kg > 500))) {
       sayUnreadable(context, [
@@ -278,6 +277,7 @@ class _Choice extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel: label,
+      selected: on,
       child: Container(
         constraints: const BoxConstraints(minHeight: S.tap),
         alignment: Alignment.center,

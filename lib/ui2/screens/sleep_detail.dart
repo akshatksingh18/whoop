@@ -2100,15 +2100,34 @@ class _Strip extends StatelessWidget {
   TimeOfDay bed,
   TimeOfDay up,
 ) {
-  DateTime at(int dayOffset, TimeOfDay t) =>
-      DateTime(onset.year, onset.month, onset.day + dayOffset, t.hour, t.minute);
-  final start = [at(-1, bed), at(0, bed), at(1, bed)].reduce(
-    (a, b) =>
-        a.difference(onset).abs() <= b.difference(onset).abs() ? a : b,
+  DateTime at(int dayOffset, TimeOfDay t) => DayClock.wallTime(
+    onset,
+    onset.year,
+    onset.month,
+    onset.day + dayOffset,
+    t.hour,
+    t.minute,
   );
-  var end = DateTime(start.year, start.month, start.day, up.hour, up.minute);
+  final start = [at(-1, bed), at(0, bed), at(1, bed)].reduce(
+    (a, b) => a.difference(onset).abs() <= b.difference(onset).abs() ? a : b,
+  );
+  var end = DayClock.wallTime(
+    start,
+    start.year,
+    start.month,
+    start.day,
+    up.hour,
+    up.minute,
+  );
   if (!end.isAfter(start)) {
-    end = DateTime(start.year, start.month, start.day + 1, up.hour, up.minute);
+    end = DayClock.wallTime(
+      start,
+      start.year,
+      start.month,
+      start.day + 1,
+      up.hour,
+      up.minute,
+    );
   }
   return (start, end);
 }

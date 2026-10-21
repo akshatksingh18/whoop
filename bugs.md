@@ -5,13 +5,13 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Akshat reports build `0.9.56`/`89` installed and being tested; background
-phone acceptance remains open. `build-90-audit.md` owns the current visual/source findings,
-including reproduced export and Reduce Motion defects; Build 90 source (merged on `build-90`,
-not yet installed) repairs them (`todo.md` Build 90). Earlier supplied logs confirm
-background transfers can succeed, but long transfer gaps, foreground-only recovery and background
-CPU-limit exits remain. Build 70 remains accepted recovery; `todo.md` owns current acceptance
-gates. The background-sync section below owns the current evidence and source findings.
+**Current verification:** Build 91 is the last build Akshat reported installed. Build 95
+(`f5b270f3`) is the existing testing candidate, with phone acceptance still open. All 29
+confirmed Build 95 audit findings are implemented and locally checked on isolated `build-95-codex-fixes`;
+[build-95-repairs.md](build-95-repairs.md) owns their current status, regressions and
+integration/device gates. These edits are not in the existing IPA. Build 70 remains accepted
+recovery; `todo.md` owns acceptance and `setup.md` owns artifact evidence. The background-sync
+section below retains the source/protocol evidence and physical verification risks.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

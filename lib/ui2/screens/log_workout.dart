@@ -453,8 +453,8 @@ String windowLabel(int startTs, int endTs, [AppLocalizations? l]) {
 /// a 24-hour subtraction — the day after a spring-forward is 23 hours long.
 String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
   final n = now ?? DateTime.now();
-  final today = DateTime(n.year, n.month, n.day);
-  final d = DateTime(at.year, at.month, at.day);
+  final today = DateTime.utc(n.year, n.month, n.day);
+  final d = DateTime.utc(at.year, at.month, at.day);
   final diff = today.difference(d).inDays;
   if (diff == 0) return l?.logWorkoutToday ?? 'Today';
   if (diff == 1) return l?.logWorkoutYesterday ?? 'Yesterday';

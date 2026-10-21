@@ -35,7 +35,10 @@ class NotificationsBell extends StatelessWidget {
               Container(
                 width: 40,
                 height: 40,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: p.card),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: p.card,
+                ),
                 child: Icon(LucideIcons.bell, size: 18, color: p.ink2),
               ),
               if (n > 0)
@@ -72,6 +75,7 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   List<LoggedNotification>? _all;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -90,14 +94,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _load() async {
-    await NotificationLog.instance.reconcile();
-    final all = await NotificationLog.instance.entries();
-    if (mounted) setState(() => _all = all);
+    try {
+      final all = await NotificationLog.instance.entries();
+      if (mounted) setState(() => (_all = all, _failed = false));
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
   }
 
   Future<void> _open(BuildContext c, LoggedNotification e) async {
     if (widget.entries != null) return;
-    await NotificationLog.instance.markRead(e.key);
+    try {
+      await NotificationLog.instance.markRead(e.key);
+    } catch (_) {
+      if (c.mounted)
+        ScaffoldMessenger.of(c).showSnackBar(
+          const SnackBar(content: Text('Could not mark it read. Try again.')),
+        );
+      return;
+    }
     final route = e.route;
     if (route == null || !c.mounted) return;
     // The shell pops back to itself before it opens the destination, so
@@ -138,59 +153,79 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       days.putIfAbsent(dayLabelOf(e.at), () => []).add(e);
     }
     final time = MaterialLocalizations.of(c);
-    return detailScaffold(
-      c,
-      'Notifications',
-      trailing: anyUnread && widget.entries == null
-          ? TextButton(
-              onPressed: () => NotificationLog.instance.markAllRead(),
-              child: Text(
-                'Mark all read',
-                style: F.cap.copyWith(
-                  color: p.on(C.recovery),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            )
-          : null,
-      [
-        if (all == null)
-          const SizedBox.shrink()
-        else if (all.isEmpty)
-          Surface(
+    return detailScaffold(c, 'Notifications', [
+      if (_failed)
+        StatusCard(
+          'Notifications could not load',
+          'Your saved history has not been marked read.',
+          fix: 'Retry',
+          onFix: _load,
+        ),
+      if (anyUnread)
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: widget.entries != null
+                ? null
+                : () async {
+                    try {
+                      await NotificationLog.instance.markAllRead();
+                    } catch (_) {
+                      if (c.mounted)
+                        ScaffoldMessenger.of(c).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not mark them read. Try again.',
+                            ),
+                          ),
+                        );
+                    }
+                  },
             child: Text(
-              'Nothing yet. Notifications this app shows appear here, by day, '
-              'for 90 days.',
-              style: F.body.copyWith(color: p.ink2),
-            ),
-          )
-        else
-          for (final MapEntry(key: day, value: rows) in days.entries)
-            Section(
-              _dayTitle(day),
-              Surface(
-                pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < rows.length; i++) ...[
-                      if (i > 0) Divider(color: p.line, height: 1),
-                      _row(c, p, rows[i], time),
-                    ],
-                  ],
-                ),
+              'Mark all read',
+              style: F.cap.copyWith(
+                color: p.on(C.recovery),
+                fontWeight: FontWeight.w600,
               ),
-            ),
-        if (all != null && all.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(S.x1, S.x4, S.x1, 0),
-            child: Text(
-              'Tap one to open what it was about. Kept for 90 days, on this '
-              'phone only.',
-              style: F.cap.copyWith(color: p.onGround),
             ),
           ),
-      ],
-    );
+        ),
+      if (all == null)
+        const SizedBox.shrink()
+      else if (all.isEmpty)
+        Surface(
+          child: Text(
+            'Nothing yet. Notifications this app shows appear here, by day, '
+            'for 90 days.',
+            style: F.body.copyWith(color: p.ink2),
+          ),
+        )
+      else
+        for (final MapEntry(key: day, value: rows) in days.entries)
+          Section(
+            _dayTitle(day),
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  for (var i = 0; i < rows.length; i++) ...[
+                    if (i > 0) Divider(color: p.line, height: 1),
+                    _row(c, p, rows[i], time),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      if (all != null && all.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(S.x1, S.x4, S.x1, 0),
+          child: Text(
+            'Tap one to open what it was about. Kept for 90 days, on this '
+            'phone only.',
+            style: F.cap.copyWith(color: p.onGround),
+          ),
+        ),
+    ]);
   }
 
   Widget _row(
@@ -225,6 +260,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (bigText(c))
+                    Text(
+                      '${e.read ? '' : 'Unread · '}$at',
+                      style: F.cap.copyWith(color: p.ink2),
+                    ),
                   Text(
                     e.title,
                     style: F.body.copyWith(
@@ -240,24 +280,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ],
               ),
             ),
-            const SizedBox(width: S.x2),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(at, style: F.cap.copyWith(color: p.ink2)),
-                if (!e.read) ...[
-                  const SizedBox(height: S.x1),
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.on(C.orange),
+            if (!bigText(c)) const SizedBox(width: S.x2),
+            if (!bigText(c))
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(at, style: F.cap.copyWith(color: p.ink2)),
+                  if (!e.read) ...[
+                    const SizedBox(height: S.x1),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: p.on(C.orange),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
+              ),
           ],
         ),
       ),

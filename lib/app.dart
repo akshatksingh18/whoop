@@ -11,6 +11,8 @@ import 'l10n/app_localizations.dart';
 import 'notify/notification_log.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
+import 'data/day_label.dart';
+import 'ui2/screens/food_diary.dart' show DayFoodPage;
 import 'data/home_region.dart';
 import 'data/pushup_reminders.dart' show Pushups;
 import 'state/app_state.dart';
@@ -349,14 +351,14 @@ ShellDomain domainForTab(int tab) => switch (tab) {
 /// to Home rather than crashing a cold launch on a payload from an older
 /// build.
 ShellDomain domainForRoute(String route) => switch (routePath(route)) {
+  kRouteFoodDay => ShellDomain.nutrition,
   // The recovery-ready note: about what already lives on Today.
   kRouteRecovery => ShellDomain.home,
   kRouteWorkoutSuggestion => ShellDomain.workout,
   // The forgotten-workout nudge. The Workouts tab is the destination
   // itself — the live session bar with its finish control is pinned to
   // the shell there — so screenForRoute stays null for it.
-  kRouteWorkoutIdle ||
-  kRoutePushups => ShellDomain.workout,
+  kRouteWorkoutIdle || kRoutePushups => ShellDomain.workout,
   // Emitted by the battery forecast (`app_state.dart`) and the weekly
   // recap (`notification_center.dart`), and declared in `tap_router`
   // alongside every other deep link — see the note below.
@@ -384,6 +386,7 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
 /// `lib/ui/workouts/` and nothing read `workout_suggestions`. There is a
 /// destination again, and confirming on it writes a real session.
 Widget? screenForRoute(String route) => switch (routePath(route)) {
+  kRouteFoodDay => DayFoodPage(date: routeDay(route) ?? todayLabel()),
   // A CONSTRUCTOR ARGUMENT: this screen is PUSHED by `_consume`, so every
   // tap builds a fresh one and the id reaches it.
   kRouteWorkoutSuggestion => WorkoutSuggestionScreen(focusId: routeId(route)),
@@ -577,12 +580,13 @@ class _LiveSessionBar extends StatelessWidget {
   /// row after a crash. Keying on the draft alone meant both of those left the
   /// workout open with no way to reach or end it, and `startWorkout` refuses
   /// every later workout while one is open.
-  static Activity? _activityFor(AppState app) =>
-      activityByName(LiveDraft.current?.activityKey ?? app.activeWorkout?.type);
+  static Activity? _activityFor(AppState app) {
+    final type = LiveDraft.current?.activityKey ?? app.activeWorkout?.type;
+    return type == null ? null : storedActivity(type);
+  }
 
   Future<void> _resume(BuildContext c) async {
     final app = c.read<AppState>();
-    final draft = LiveDraft.current;
     final a = _activityFor(app);
     if (a == null || _opening) return;
     _opening = true;
@@ -590,12 +594,7 @@ class _LiveSessionBar extends StatelessWidget {
     try {
       final route = nav.push(
         MaterialPageRoute<void>(
-          builder: (_) => liveFor(
-            a,
-            private: draft?.private ?? a.private,
-            weightKg: draft?.weightKg,
-            host: activityHost(app),
-          ),
+          builder: (_) => SessionDestination(app.activeWorkout?.workoutId),
         ),
       );
       _opening = false;
@@ -689,7 +688,9 @@ class _LiveSessionBar extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      'Session running',
+                      app.workoutAwaitingSave
+                          ? 'Stopped · retry save'
+                          : 'Session running',
                       style: F.over.copyWith(color: p.ink3),
                     ),
                   ],

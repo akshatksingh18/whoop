@@ -177,7 +177,7 @@ typedef SessionFinish = Future<ActivityResult> Function(ActivityResult draft);
 
 /// Starts a session in the app before the live screen opens. Returns false if
 /// the app refused (one is already running).
-typedef SessionStart = Future<bool> Function(Activity a);
+typedef SessionStart = Future<bool> Function(Activity a, {bool private});
 
 /// Everything the activity screens need FROM the app, in one object.
 ///
@@ -271,11 +271,16 @@ class LiveDraft {
   }
 
   /// Open a draft for a session the app has just accepted.
-  static LiveDraft begin(Activity a, {bool private = false, double? weightKg}) {
+  static LiveDraft begin(
+    Activity a, {
+    bool private = false,
+    double? weightKg,
+    DateTime? startedAt,
+  }) {
     _loaded = true;
     _current = LiveDraft._(
       a.typeKey,
-      startedAt: DateTime.now(),
+      startedAt: startedAt ?? WorkoutClock.current?.start ?? DateTime.now(),
       private: private,
       weightKg: weightKg,
     );
@@ -301,6 +306,11 @@ class LiveDraft {
 
   /// Wall-clock seconds this session has been running, pauses removed.
   int get elapsedSec {
+    final clock = WorkoutClock.current;
+    if (clock != null &&
+        clock.start.difference(startedAt).abs().inSeconds <= 1) {
+      return clock.activeSeconds(clock.end ?? DateTime.now());
+    }
     final now = DateTime.now();
     final inPause = pausedAt == null ? 0 : now.difference(pausedAt!).inSeconds;
     final v = now.difference(startedAt).inSeconds - pausedSec - inPause;
@@ -386,6 +396,13 @@ Widget liveFor(
   final onFinish = host.onFinish;
   return switch (archOf(a)) {
     Arch.laps => LiveSwim(
+      a,
+      feed: feed,
+      weightKg: weightKg,
+      private: p,
+      onFinish: onFinish,
+    ),
+    Arch.flow when a.name != 'Yoga' && a.name != 'Breathwork' => LiveMeasured(
       a,
       feed: feed,
       weightKg: weightKg,
@@ -520,9 +537,7 @@ class LiveShellState extends State<LiveShell> {
     final start = LiveDraft.current == null
         ? null
         : WorkoutClock.current?.start;
-    final started = start == null
-        ? ''
-        : 'Started ${formatClock(start)}';
+    final started = start == null ? '' : 'Started ${formatClock(start)}';
     return [
       if (widget.subtitle.isNotEmpty) widget.subtitle,
       if (started.isNotEmpty) started,
@@ -602,6 +617,29 @@ class LiveShellState extends State<LiveShell> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final a = widget.a;
+    if (WorkoutClock.current?.end != null) {
+      return Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(S.x5),
+            children: [
+              NavBar(a.name),
+              const StatusCard(
+                'Stopped · save pending',
+                'Recording has stopped. Your entries and finish time are still here. Retry saving before closing the app or starting another session.',
+              ),
+              const SizedBox(height: S.x4),
+              BigButton(
+                'Retry save',
+                color: C.orange,
+                onTap: _finishing ? null : finish,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -1543,6 +1581,7 @@ class LiveSwim extends StatefulWidget {
 }
 
 class _LiveSwimState extends State<LiveSwim> {
+  bool get rowing => widget.a.name == 'Rowing';
   int poolLen = 25;
   int stroke = 0;
   final lapAt = <int>[]; // elapsed seconds at each lap
@@ -1593,12 +1632,13 @@ class _LiveSwimState extends State<LiveSwim> {
     final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle:
-          l?.activityLivePoolSubtitle(
-            poolLen,
-            _strokeLabel(c, strokes[stroke]).toUpperCase(),
-          ) ??
-          '${poolLen}M POOL · ${strokes[stroke].toUpperCase()}',
+      subtitle: rowing
+          ? 'Timed laps · distance not measured'
+          : l?.activityLivePoolSubtitle(
+                  poolLen,
+                  _strokeLabel(c, strokes[stroke]).toUpperCase(),
+                ) ??
+                '${poolLen}M POOL · ${strokes[stroke].toUpperCase()}',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1609,8 +1649,8 @@ class _LiveSwimState extends State<LiveSwim> {
         elapsed,
         widget.private,
         lapSecs: lapSecs,
-        poolLengthM: poolLen,
-        stroke: strokes[stroke],
+        poolLengthM: rowing ? null : poolLen,
+        stroke: rowing ? null : strokes[stroke],
       ),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
@@ -1619,14 +1659,20 @@ class _LiveSwimState extends State<LiveSwim> {
         return Column(
           children: [
             const SizedBox(height: S.x5),
-            bigNum(p, '${laps * poolLen}', 'm'),
+            bigNum(
+              p,
+              rowing ? '$laps' : '${laps * poolLen}',
+              rowing ? 'laps' : 'm',
+            ),
             const SizedBox(height: S.x2),
             Text(
-              l?.activityLiveLapsCount(
-                    laps,
-                    _strokeLabel(ctx, strokes[stroke]),
-                  ) ??
-                  '$laps ${laps == 1 ? 'lap' : 'laps'} · ${strokes[stroke]}',
+              rowing
+                  ? 'Laps counted by you · distance not measured'
+                  : l?.activityLiveLapsCount(
+                          laps,
+                          _strokeLabel(ctx, strokes[stroke]),
+                        ) ??
+                        '$laps ${laps == 1 ? 'lap' : 'laps'} · ${strokes[stroke]}',
               style: F.body.copyWith(color: p.ink3),
             ),
             const SizedBox(height: S.x6),
@@ -1685,51 +1731,54 @@ class _LiveSwimState extends State<LiveSwim> {
                   ),
                 ),
                 const SizedBox(width: S.x6),
-                counterButton(
-                  p,
-                  LucideIcons.repeat2,
-                  p.ink,
-                  l?.activityLiveChangeStroke ?? 'Change stroke',
-                  () {
-                    setState(() => stroke = (stroke + 1) % strokes.length);
-                    _persist();
-                  },
-                ),
+                if (!rowing)
+                  counterButton(
+                    p,
+                    LucideIcons.repeat2,
+                    p.ink,
+                    l?.activityLiveChangeStroke ?? 'Change stroke',
+                    () {
+                      setState(() => stroke = (stroke + 1) % strokes.length);
+                      _persist();
+                    },
+                  ),
               ],
             ),
             const SizedBox(height: S.x6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                for (final len in pools) ...[
-                  Pressable(
-                    semanticLabel:
-                        l?.activityLiveMetrePoolLabel(len) ?? '$len metre pool',
-                    onTap: () {
-                      setState(() => poolLen = len);
-                      _persist();
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: S.x1),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: S.x3,
-                        vertical: S.x2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: poolLen == len ? p.wash(C.blue) : p.card2,
-                        borderRadius: R.rPill,
-                      ),
-                      child: Text(
-                        '$len m',
-                        style: F.cap.copyWith(
-                          color: poolLen == len ? p.on(C.blue) : p.ink2,
+            if (!rowing)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final len in pools) ...[
+                    Pressable(
+                      semanticLabel:
+                          l?.activityLiveMetrePoolLabel(len) ??
+                          '$len metre pool',
+                      onTap: () {
+                        setState(() => poolLen = len);
+                        _persist();
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: S.x1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: S.x3,
+                          vertical: S.x2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: poolLen == len ? p.wash(C.blue) : p.card2,
+                          borderRadius: R.rPill,
+                        ),
+                        child: Text(
+                          '$len m',
+                          style: F.cap.copyWith(
+                            color: poolLen == len ? p.on(C.blue) : p.ink2,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
+              ),
             const SizedBox(height: S.x5),
             Builder(
               builder: (_) {
@@ -1813,7 +1862,8 @@ class _LiveFlowState extends State<LiveFlow>
   /// so stepping back to hold Bridge again deleted the two poses after it from
   /// a session in which they were done — and going back to Mountain at the end
   /// recorded '1 poses'.
-  int reached = 0;
+  bool get yoga => widget.a.name == 'Yoga';
+  int reached = -1;
   int hold = 30;
   Timer? _hold;
 
@@ -1832,7 +1882,7 @@ class _LiveFlowState extends State<LiveFlow>
   void initState() {
     super.initState();
     pose = (LiveDraft.current?.data['pose'] as num?)?.toInt() ?? 0;
-    reached = (LiveDraft.current?.data['pose_max'] as num?)?.toInt() ?? pose;
+    reached = (LiveDraft.current?.data['pose_max'] as num?)?.toInt() ?? -1;
     // No `setState`: this body follows the shell's clock, which already
     // rebuilds it once a second, so the wrapper only bought a second rebuild
     // of the same subtree at the same rate.
@@ -1886,9 +1936,10 @@ class _LiveFlowState extends State<LiveFlow>
     final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle:
-          l?.activityLivePoseOf(pose + 1, poses.length) ??
-          'POSE ${pose + 1} OF ${poses.length}',
+      subtitle: !yoga
+          ? 'Breathing pacer · not a measurement'
+          : l?.activityLivePoseOf(pose + 1, poses.length) ??
+                'POSE ${pose + 1} OF ${poses.length}',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1898,7 +1949,7 @@ class _LiveFlowState extends State<LiveFlow>
         widget.weightKg,
         elapsed,
         widget.private,
-        poses: poses.sublist(0, reached + 1),
+        poses: yoga ? poses.sublist(0, reached + 1) : const [],
       ),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
@@ -1942,13 +1993,17 @@ class _LiveFlowState extends State<LiveFlow>
                       ),
                       const SizedBox(height: S.x2),
                       Text(
-                        _poseLabel(ctx, poses[pose]),
+                        yoga
+                            ? _poseLabel(ctx, poses[pose])
+                            : 'Breathe at your own pace',
                         style: F.t2.copyWith(color: p.ink),
                       ),
                       const SizedBox(height: S.x1),
                       Text(
-                        l?.activityLiveHoldTime(clock(hold)) ??
-                            'Hold · ${clock(hold)}',
+                        !yoga
+                            ? 'Guide only'
+                            : l?.activityLiveHoldTime(clock(hold)) ??
+                                  'Hold · ${clock(hold)}',
                         style: F.cap.copyWith(color: p.on(C.teal)),
                       ),
                     ],
@@ -1957,46 +2012,48 @@ class _LiveFlowState extends State<LiveFlow>
               ),
             ),
             const SizedBox(height: S.x4),
-            Row(
-              children: [
-                Expanded(
-                  child: BigButton(
-                    l?.activityLivePreviousLabel ?? 'Previous',
-                    icon: LucideIcons.chevronLeft,
-                    color: C.teal,
-                    soft: true,
-                    onTap: () => _go(pose - 1),
-                  ),
-                ),
-                const SizedBox(width: S.x3),
-                Expanded(
-                  child: BigButton(
-                    l?.activityLiveNextPose ?? 'Next pose',
-                    icon: LucideIcons.chevronRight,
-                    color: C.teal,
-                    onTap: () => _go(pose + 1),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: S.x5),
-            Row(
-              children: List.generate(
-                poses.length,
-                (i) => Expanded(
-                  child: Container(
-                    margin: EdgeInsets.only(
-                      right: i == poses.length - 1 ? 0 : 3,
+            if (yoga)
+              Row(
+                children: [
+                  Expanded(
+                    child: BigButton(
+                      l?.activityLivePreviousLabel ?? 'Previous',
+                      icon: LucideIcons.chevronLeft,
+                      color: C.teal,
+                      soft: true,
+                      onTap: () => _go(pose - 1),
                     ),
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: i <= pose ? p.on(C.teal) : p.track,
-                      borderRadius: R.rPill,
+                  ),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    child: BigButton(
+                      l?.activityLiveNextPose ?? 'Next pose',
+                      icon: LucideIcons.chevronRight,
+                      color: C.teal,
+                      onTap: () => _go(pose + 1),
+                    ),
+                  ),
+                ],
+              ),
+            const SizedBox(height: S.x5),
+            if (yoga)
+              Row(
+                children: List.generate(
+                  poses.length,
+                  (i) => Expanded(
+                    child: Container(
+                      margin: EdgeInsets.only(
+                        right: i == poses.length - 1 ? 0 : 3,
+                      ),
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: i <= pose ? p.on(C.teal) : p.track,
+                        borderRadius: R.rPill,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
             const SizedBox(height: S.x6),
             LiveHeart(f),
           ],
@@ -2256,89 +2313,98 @@ class LiveInterval extends StatefulWidget {
 }
 
 class _LiveIntervalState extends State<LiveInterval> {
-  // ponytail: the round position is not written to the draft — minimising a
-  // HIIT session restarts it at round 1. Nothing here is typed, so nothing is
-  // LOST; it is a timer, and a timer that keeps running while the screen is
-  // gone needs the countdown to live on the draft's clock. Do that if anyone
-  // actually minimises intervals.
-  /// [rounds] is how many pips the row starts with, NOT a plan the session
-  /// runs to: nothing stops this timer at the eighth round, so a session that
-  /// keeps going simply grows the row.
   static const workSec = 45, restSec = 30, rounds = 8;
-
-  int round = 1;
-  int left = workSec;
+  int round = 1, left = workSec;
   bool work = true;
   final done = <IntervalRound>[];
   Timer? _t;
+  final _fallbackClock = Stopwatch()..start();
+  final Map<String, List<int>> _hr = {};
+  int _sampledSecond = -1;
 
-  /// Heart-rate samples taken during the CURRENT round, so each finished
-  /// round carries a real mean rather than the reading that happened to be on
-  /// screen when it ended.
-  final _roundHr = <int>[];
+  // Phase and completed rounds follow the durable active clock, so neither
+  // navigation nor a suspended Dart timer can restart or stretch an interval.
+  void _sync({bool sample = false}) {
+    final draft = LiveDraft.current;
+    final elapsed = draft?.elapsedSec ?? _fallbackClock.elapsed.inSeconds;
+    if (sample &&
+        draft?.pausedAt == null &&
+        elapsed != _sampledSecond &&
+        WorkoutClock.current?.end == null) {
+      final hr = widget.feed?.call().hr;
+      if (hr != null && hr > 0) {
+        final totals = _hr.putIfAbsent(
+          '${elapsed ~/ (workSec + restSec)}',
+          () => [0, 0],
+        );
+        totals[0] += hr;
+        totals[1]++;
+      }
+      _sampledSecond = elapsed;
+      draft?.data['interval_hr'] = _hr;
+      draft?.data['interval_sampled_second'] = elapsed;
+      if (elapsed % 15 == 0) draft?.put('interval_hr', _hr);
+    }
+    final completed = elapsed ~/ (workSec + restSec);
+    done.clear();
+    for (var i = 0; i < completed; i++) {
+      final totals = _hr['$i'];
+      done.add(
+        IntervalRound(
+          workSec,
+          restSec,
+          avgHr: totals == null || totals[1] == 0
+              ? null
+              : (totals[0] / totals[1]).round(),
+        ),
+      );
+    }
+    round = completed + 1;
+    final phase = elapsed % (workSec + restSec);
+    work = phase < workSec;
+    left = work ? workSec - phase : workSec + restSec - phase;
+  }
 
   @override
   void initState() {
     super.initState();
+    final saved = LiveDraft.current?.data['interval_hr'];
+    if (saved is Map) {
+      for (final e in saved.entries) {
+        if (e.value is List && (e.value as List).length == 2) {
+          _hr['${e.key}'] = [
+            for (final n in e.value as List) (n as num).toInt(),
+          ];
+        }
+      }
+    }
+    _sampledSecond =
+        (LiveDraft.current?.data['interval_sampled_second'] as num?)?.toInt() ??
+        -1;
+    _sync();
     _t = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
-      // PAUSE STOPS THE INTERVAL ENGINE. Without this the countdown kept
-      // running while the session was paused: it buzzed and announced
-      // "Work"/"Rest" at a phone in your pocket, advanced the round pips, and
-      // BANKED IntervalRounds you never performed — so a five-minute pause
-      // wrote four rounds of 45 s work into the summary while the elapsed
-      // clock, which does subtract pauses, said the session was shorter than
-      // the rounds it listed.
-      //
-      // The heart-rate sample is skipped too: readings taken while you stand
-      // still would drag the round's mean down toward resting.
-      if (LiveDraft.current?.pausedAt != null) return;
-      final hr = widget.feed?.call().hr;
-      if (hr != null && hr > 0) _roundHr.add(hr);
-      setState(() {
-        if (left > 0) {
-          left--;
-          return;
-        }
+      final wasWork = work;
+      setState(() => _sync(sample: true));
+      if (wasWork != work &&
+          LiveDraft.current?.pausedAt == null &&
+          WorkoutClock.current?.end == null) {
         HapticFeedback.mediumImpact();
         final l = AppLocalizations.of(context);
         say(
           context,
           work
-              ? (l?.activityLiveRestWord ?? 'Rest')
-              : (l?.activityLiveWorkWord ?? 'Work'),
+              ? (l?.activityLiveWorkWord ?? 'Work')
+              : (l?.activityLiveRestWord ?? 'Rest'),
         );
-        if (work) {
-          work = false;
-          left = restSec;
-        } else {
-          done.add(
-            IntervalRound(
-              workSec,
-              restSec,
-              avgHr: _roundHr.isEmpty
-                  ? null
-                  : (_roundHr.reduce((x, y) => x + y) / _roundHr.length)
-                        .round(),
-            ),
-          );
-          _roundHr.clear();
-          work = true;
-          left = workSec;
-          // UNCAPPED. `done` is unconditional and the timer never stops at the
-          // eighth round, so `if (round < rounds) round++` froze the live
-          // counter at 8 while the summary counted 11 — two screens, one
-          // session, two round counts. [rounds] is the pip row's floor now,
-          // not a limit the session has.
-          round++;
-        }
-      });
+      }
     });
   }
 
   @override
   void dispose() {
     _t?.cancel();
+    LiveDraft.current?.put('interval_hr', _hr);
     super.dispose();
   }
 

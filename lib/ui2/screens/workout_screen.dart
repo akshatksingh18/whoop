@@ -80,26 +80,61 @@ class _SessionDestinationState extends State<SessionDestination> {
         if (mounted) setState(() => _screen = const WorkoutScreen());
         return;
       }
-      if (app.activeWorkout?.workoutId == id) {
-        final activity = activityByName(app.activeWorkout!.type);
-        if (activity != null) {
-          if (mounted)
-            setState(
-              () => _screen = liveFor(
-                activity,
-                private: LiveDraft.current?.private ?? activity.private,
-                weightKg: LiveDraft.current?.weightKg,
-                host: activityHost(app),
-              ),
-            );
-          return;
-        }
-      }
       final row = await LocalDb.session(id);
+      final activity = storedActivity(
+        row?['type']?.toString() ?? app.activeWorkout?.type ?? '',
+      );
+      if (app.activeWorkout?.workoutId == id) {
+        final draft =
+            LiveDraft.current ??
+            LiveDraft.begin(
+              activity,
+              private: row?['private'] == 1,
+              weightKg: app.activeWorkout?.profile.weightKg,
+              startedAt: app.activeWorkout!.startTime,
+            );
+        if (mounted)
+          setState(
+            () => _screen = liveFor(
+              activity,
+              private: draft.private,
+              weightKg: draft.weightKg,
+              host: activityHost(app),
+            ),
+          );
+        return;
+      }
       final start = row?['start_ts'] as num?;
       final end = row?['end_ts'] as num?;
-      final activity = activityByName(row?['type']?.toString());
-      if (start == null || end == null || activity == null) {
+      if (start != null && row?['end_ts_fabricated'] == 1) {
+        final at = DateTime.fromMillisecondsSinceEpoch(start.toInt() * 1000);
+        if (mounted)
+          setState(
+            () => _screen = detailScaffold(context, activity.name, [
+              StatusCard(
+                'Finish time unknown',
+                'Recording was interrupted. Choose the real finish time before this session can show a duration, calories or strain.',
+                fix: 'Fix the times',
+                onFix: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => LogWorkout(
+                        sessionId: id,
+                        start: at,
+                        end: at,
+                        activity: activity,
+                        title: 'Fix the times',
+                      ),
+                    ),
+                  );
+                  if (mounted) _load();
+                },
+              ),
+            ]),
+          );
+        return;
+      }
+      if (start == null || end == null) {
         if (mounted)
           setState(
             () => _screen = detailScaffold(context, 'Session', [
@@ -809,7 +844,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       ),
     );
   }
-
 }
 
 /// The session running now, in place of the Start row: what it is, when it
@@ -940,7 +974,7 @@ class _HistoryRow extends StatelessWidget {
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
-    if (w.live) {
+    if (w.live || w.endUnknown) {
       await nav.push(
         MaterialPageRoute<void>(builder: (_) => SessionDestination(w.id)),
       );
@@ -1014,7 +1048,9 @@ class _HistoryRow extends StatelessWidget {
                       Text(
                         [
                           w.when(loc),
-                          if (w.duration.inMinutes > 0)
+                          if (w.endUnknown)
+                            'Finish time unknown'
+                          else if (w.duration.inMinutes > 0)
                             '${w.duration.inMinutes} min',
                         ].join(' · '),
                         style: F.over.copyWith(color: p.ink3),
@@ -1161,27 +1197,25 @@ class _HistoryRow extends StatelessWidget {
     final timeLabel = loc?.workoutTimeStatLabel ?? 'Time';
     const caloriesLabel = 'Budget · active';
     return [
-            (timeLabel, hms(w.duration), null),
-            if (w.calories == null)
-              (caloriesLabel, loc?.workoutNotCostedValue ?? 'Not costed', null)
-            else
-              (caloriesLabel, grouped(w.calories!), 'kcal'),
-            if (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
-              (
-                w.acsmQualified
-                    ? 'ACSM · active'
-                    : 'Movement estimate · active',
-                w.acsmCalories == null ? '—' : grouped(w.acsmCalories!),
-                'kcal',
-              ),
-            if (w.maxHr == null)
-              (
-                loc?.workoutMaxHrStatLabel ?? 'Max HR',
-                loc?.workoutNoReadingValue ?? 'No reading',
-                null,
-              )
-            else
-              (loc?.workoutMaxHrStatLabel ?? 'Max HR', '${w.maxHr}', 'bpm'),
+      (timeLabel, w.endUnknown ? 'Unknown' : hms(w.duration), null),
+      if (w.calories == null)
+        (caloriesLabel, loc?.workoutNotCostedValue ?? 'Not costed', null)
+      else
+        (caloriesLabel, grouped(w.calories!), 'kcal'),
+      if (isRunType(w.activity.typeKey) || isWalkType(w.activity.typeKey))
+        (
+          w.acsmQualified ? 'ACSM · active' : 'Movement estimate · active',
+          w.acsmCalories == null ? '—' : grouped(w.acsmCalories!),
+          'kcal',
+        ),
+      if (w.maxHr == null)
+        (
+          loc?.workoutMaxHrStatLabel ?? 'Max HR',
+          loc?.workoutNoReadingValue ?? 'No reading',
+          null,
+        )
+      else
+        (loc?.workoutMaxHrStatLabel ?? 'Max HR', '${w.maxHr}', 'bpm'),
     ];
   }
 }
@@ -1250,7 +1284,8 @@ ActivityHost activityHost(AppState app) {
   String? sessionId;
   return ActivityHost(
     feed: () => _feedOf(app),
-    onStart: (a) => _startSession(app, a),
+    onStart: (a, {bool private = false}) =>
+        _startSession(app, a, private: private),
     onFinish: (draft) {
       sessionId ??= app.activeWorkout?.workoutId;
       return _finishSession(app, draft, sessionId);
@@ -1344,14 +1379,22 @@ List<double?> _curveOverSession(LiveWorkoutState? w) {
 /// Open a real session. Until this existed the live screens ran their own
 /// clock over an app that had recorded nothing: no `sessions` row, no zone
 /// tally, no calorie scoring, no GPS.
-Future<bool> _startSession(AppState app, Activity a) async {
+Future<bool> _startSession(
+  AppState app,
+  Activity a, {
+  bool private = false,
+}) async {
   if (app.activeWorkout != null) return false;
   final profile = await ProfileHistory.on(
     dayLabelOf(DateTime.now()),
     Profile.fromMap(app.user),
   );
-  app.startWorkout(type: a.typeKey, calculationProfile: profile, met: a.met);
-  return app.activeWorkout != null;
+  return app.startWorkout(
+    type: a.typeKey,
+    calculationProfile: profile,
+    met: a.met,
+    private: private,
+  );
 }
 
 /// Close it: finalize the session, persist what the user typed and the
@@ -1509,11 +1552,7 @@ List<double> _spread(List<double> v) {
 /// the last minute that had samples, so a band that dropped at minute 30 of a
 /// 45-minute session ends the line there and the chart stretches it across an
 /// axis that says 45:00.
-List<double?> _denseMinutes(
-  Object? hr, [
-  Duration? session,
-  int? startSec,
-]) {
+List<double?> _denseMinutes(Object? hr, [Duration? session, int? startSec]) {
   final pts = <(int, double)>[
     for (final e in (hr as List? ?? const []))
       if (e is Map && e['t'] is num && e['v'] is num)
@@ -1662,6 +1701,7 @@ Future<ActivityResult> _withCalculation(ActivityResult r, AppState app) async {
   final id = r.sessionId, repo = app.repo;
   if (id == null || repo == null) return r;
   final row = await LocalDb.session(id);
+  if (row?['end_ts_fabricated'] == 1) return r;
   final end = (row?['end_ts'] as num?)?.toInt();
   if (end == null) return r;
   final m = await WorkoutMeasurements.read(
@@ -1674,6 +1714,13 @@ Future<ActivityResult> _withCalculation(ActivityResult r, AppState app) async {
   );
   final c = m.clock;
   var out = r.copyWith(
+    replaceWindowStats: true,
+    calories: (row?['calories'] as num?)?.round(),
+    strain: (row?['strain'] as num?)?.toDouble(),
+    avgHr: (row?['avg_hr'] as num?)?.round(),
+    maxHr: (row?['max_hr'] as num?)?.round(),
+    hrr60: (row?['hrr_bpm'] as num?)?.round(),
+    steps: (row?['steps'] as num?)?.round(),
     calculationProfile: m.profile,
     duration: c.activeDuration(),
     phoneSteps: m.steps,
@@ -1831,7 +1878,7 @@ class _PastWorkout {
   /// The user's "keep this one off the shared surfaces" flag, read back from
   /// `sessions.private`.
   final bool private;
-
+  final bool endUnknown;
 
   const _PastWorkout(
     this.id,
@@ -1848,6 +1895,7 @@ class _PastWorkout {
     this.steps,
     this.zoneMinutes = const [],
     this.private = false,
+    this.endUnknown = false,
     this.end,
     this.live = false,
   });
@@ -1935,7 +1983,6 @@ class _WorkoutData {
   /// dropped `recovery` channel, no notification ever did.
   final List<Suggestion> suggestions;
 
-
   const _WorkoutData({
     this.weightKg,
     this.strain7 = const [],
@@ -1969,15 +2016,9 @@ Future<List<_PastWorkout>> _pastWorkouts(
         if (r is! Map) continue;
         final ts = (r['start_ts'] as num?)?.toInt();
         if (ts == null) continue;
-        final a =
-            activityByName(r['type'] as String?) ??
-            const Activity(
-              'Workout',
-              LucideIcons.activity,
-              C.purple,
-              Track.duration,
-              5.0,
-            );
+        final a = storedActivity(r['type'] as String? ?? '');
+        final endUnknown =
+            r['end_ts_fabricated'] == true || r['end_ts_fabricated'] == 1;
         final id = (r['id'] as String?) ?? '';
         final start = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
         final endTs = (r['end_ts'] as num?)?.toInt();
@@ -2006,7 +2047,9 @@ Future<List<_PastWorkout>> _pastWorkouts(
             // Duration literal in theme.dart.
             // Active time (start to stop minus pauses) wherever a clock
             // exists, the same time the calories below are priced on.
-            measured != null
+            endUnknown
+                ? Duration.zero
+                : measured != null
                 ? Motion.tick * measured.clock.activeSeconds()
                 : endTs != null && endTs > ts
                 ? Motion.tick *
@@ -2018,13 +2061,16 @@ Future<List<_PastWorkout>> _pastWorkouts(
                 : Motion.tick *
                       60 *
                       ((r['duration_min'] as num?)?.toInt() ?? 0),
-            strain: (r['strain'] as num?)?.toDouble(),
+            endUnknown: endUnknown,
+            strain: endUnknown ? null : (r['strain'] as num?)?.toDouble(),
             // Every band session shows active (net) energy by a conservative
             // method: distance/steps for runs and walks, MET only for lifting,
             // otherwise the lower of net heart-rate and net activity energy
             // (sessionActiveKcal). Recomputed here so older sessions read the
             // same way as the session screen and the maintenance Lifting line.
-            calories: (isRunType(a.typeKey) || isWalkType(a.typeKey))
+            calories: endUnknown
+                ? null
+                : (isRunType(a.typeKey) || isWalkType(a.typeKey))
                 ? measured?.method1(a.typeKey)?.round()
                 : sessionActiveKcal(
                     p: await sessionProfile(
@@ -2117,7 +2163,11 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
   final weekStart = DateTime(end.year, end.month, end.day - (end.weekday - 1));
   final thisWeek = [
     for (final w in past)
-      if (!w.start.isBefore(weekStart)) w,
+      if (!w.start.isBefore(weekStart) &&
+          !w.live &&
+          !w.private &&
+          !w.endUnknown)
+        w,
   ];
 
   int? tracked;
@@ -2251,8 +2301,7 @@ Future<void> _sessionMenu(
   }
 }
 
-String _rowKey(_PastWorkout w) =>
-    '${w.id}:${w.start.millisecondsSinceEpoch}';
+String _rowKey(_PastWorkout w) => '${w.id}:${w.start.millisecondsSinceEpoch}';
 
 /// A session row as Train and the history page show it: collapsed to one
 /// line, opened in place, deleted with a swipe either way (confirmed), and
@@ -2288,7 +2337,9 @@ Widget historyRow(
                   start: w.start,
                   // The stored end: [duration] is active time, without pauses
                   // (Build 94, Codex N11).
-                  end: w.end ?? w.start.add(w.duration),
+                  end: w.endUnknown
+                      ? w.start
+                      : w.end ?? w.start.add(w.duration),
                   activity: w.activity,
                   title: loc?.workoutFixTimes ?? 'Fix the times',
                 ),
@@ -2661,6 +2712,7 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
     return [
       '${ws.length} session${ws.length == 1 ? '' : 's'}',
       mins >= 60 ? '${mins ~/ 60} h ${mins % 60} min' : '$mins min',
+      if (ws.any((w) => w.endUnknown)) 'known time · finish time missing',
       if (runs > 0) '$runs run${runs == 1 ? '' : 's'}',
       if (walks > 0) '$walks walk${walks == 1 ? '' : 's'}',
     ].join(' · ');

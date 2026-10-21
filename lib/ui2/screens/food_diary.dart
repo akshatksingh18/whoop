@@ -2564,7 +2564,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       return;
     }
     final kcal = Typed.of(_kcal.text).value;
-    if (kcal == null) {
+    if (kcal == null && !(widget.editing && widget.from?.kcal == null)) {
       setState(() => _error = 'Enter calories. Other macros can stay blank.');
       return;
     }
@@ -2613,43 +2613,50 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       }
       // Build 93 (Codex audit C04): the saved food and the diary entry are
       // written in ONE transaction, published after it commits.
+      final samePortion =
+          original != null &&
+          savedKey == null &&
+          ((original.unit == 'g' && grams == original.quantity) ||
+              (original.unit != 'g' && grams == null));
       final entry = FoodEntry(
-          id: original?.id ?? NutritionDb.newId(),
-          date: widget.date,
-          meal: _meal,
-          label: name.isEmpty ? 'Quick add' : name,
-          atTs: keepTime
-              ? original!.atTs
-              : DateTime(
-                      d.year,
-                      d.month,
-                      d.day,
-                      _time.hour,
-                      _time.minute,
-                    ).millisecondsSinceEpoch ~/
-                    1000,
-          kcal: kcal,
-          proteinG: Typed.of(_p.text).value,
-          carbsG: Typed.of(_c.text).value,
-          fatG: Typed.of(_f.text).value,
-          fibreG: Typed.of(_fibre.text).value,
-          foodKey: savedKey ?? original?.foodKey,
-          quantity: grams ?? (savedKey != null ? 1 : null),
-          unit: grams != null
-              ? 'g'
-              : savedKey != null
-              ? 'serving'
-              : original?.unit ?? 'g',
-          sugarG: original?.sugarG,
-          satFatG: original?.satFatG,
-          sodiumMg: original?.sodiumMg,
-          ironMg: original?.ironMg,
-          calciumMg: original?.calciumMg,
-          source: original?.source ?? FoodSource.manual,
-          note: original?.note ?? '',
-          group: _group,
-          confirmed: true,
-        );
+        id: original?.id ?? NutritionDb.newId(),
+        date: widget.date,
+        meal: _meal,
+        label: name.isEmpty ? 'Quick add' : name,
+        atTs: keepTime
+            ? original!.atTs
+            : DateTime(
+                    d.year,
+                    d.month,
+                    d.day,
+                    _time.hour,
+                    _time.minute,
+                  ).millisecondsSinceEpoch ~/
+                  1000,
+        kcal: kcal,
+        proteinG: Typed.of(_p.text).value,
+        carbsG: Typed.of(_c.text).value,
+        fatG: Typed.of(_f.text).value,
+        fibreG: Typed.of(_fibre.text).value,
+        foodKey: savedKey ?? original?.foodKey,
+        quantity: grams ?? (savedKey != null ? 1 : original?.quantity),
+        unit: grams != null
+            ? 'g'
+            : savedKey != null
+            ? 'serving'
+            : original?.unit ?? 'g',
+        sugarG: original?.sugarG,
+        satFatG: original?.satFatG,
+        sodiumMg: original?.sodiumMg,
+        ironMg: original?.ironMg,
+        calciumMg: original?.calciumMg,
+        conv: samePortion ? original.conv : '',
+        loggedAt: original?.loggedAt,
+        source: original?.source ?? FoodSource.manual,
+        note: original?.note ?? '',
+        group: _group,
+        confirmed: true,
+      );
       await db.transaction((tx) async {
         if (def != null) await NutritionDb.putFoodDef(tx, def, notify: false);
         await NutritionDb.put(tx, entry, notify: false);
@@ -2735,7 +2742,11 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       ),
       const SizedBox(height: S.x3),
       pair(
-        OsTextField(controller: _kcal, label: 'Calories (kcal)', keyboard: decimal),
+        OsTextField(
+          controller: _kcal,
+          label: 'Calories (kcal)',
+          keyboard: decimal,
+        ),
         OsTextField(
           controller: _grams,
           label: 'Weight (g)',

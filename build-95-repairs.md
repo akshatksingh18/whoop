@@ -1,43 +1,95 @@
 # Build 95 audit repairs
 
-**Status:** Implementation approved for all 29 confirmed audit findings, based on Build 95 app source `f5b270f3` and integrated documentation `b0c2c8d6`. Work is isolated on `build-95-codex-fixes`; no new release or phone acceptance is claimed.
+**Status:** All 29 confirmed findings are implemented on isolated `build-95-codex-fixes`, based on Build 95 app source `f5b270f3` and integrated documentation `b0c2c8d6`. 73 distinct focused synthetic checks pass locally, including 9 render/scroll checks. Full cloud checks, integration, a new IPA and physical iPhone acceptance remain open. The existing Build 95 IPA does not contain these repairs.
 
 Keep the approved kraft/cream interface, existing activities and recorded data. Reuse approved energy/goal methods; repair fabricated inputs, persistence and consumers rather than tuning scientific coefficients. Keep algorithm/schema unchanged unless an actual analytics-output/schema change requires its normal version review. No dependencies, BLE ACK ordering or release metadata change is planned.
 
-## Worklist
+## Implemented repairs
 
-- [ ] B95-01: commit privacy with the initial session; atomic metadata preservation and durable start.
-- [ ] B95-02: hydrate unread notification history on launch/resume.
-- [ ] B95-03: persist notification retention pruning without reload loops.
-- [ ] B95-04: dated historical Food notification destination.
-- [ ] B95-05: first-check checklist uses its own evidence weeks.
-- [ ] B95-06: latest individual weigh-in separate from daily-first means.
-- [ ] B95-07: intact Body values and full labels at enlarged text.
-- [ ] B95-08: readable notification action and enlarged messages.
-- [ ] B95-09: quiesce writers and backup publication before reset.
-- [ ] B95-10: stage restore media; cancellation/failure leaves no orphan photos.
-- [ ] B95-11: historical Sleep/Nap clock choices use stored IANA zones.
-- [ ] B95-12: Body retries pending stages without stale profile or duplicate readings.
-- [ ] B95-13: deleted-food editing preserves portion/conversion and unknown nutrients.
-- [ ] B95-14: deterministic same-day tape selection across consumers.
-- [ ] B95-15: preserve editable nutrition target precision.
-- [ ] B95-16: interval rounds/phase persist and use the shared active clock.
-- [ ] B95-17: activity-appropriate inputs; no unlogged poses or pool-derived rowing.
-- [ ] B95-18: picker/setup share approved active calorie estimate.
-- [ ] B95-19: failed final save has a truthful stopped/retry lifecycle.
-- [ ] B95-20: private sessions excluded from promised summary aggregates.
-- [ ] B95-21: reviewed last-set end bounds all retained workout evidence.
-- [ ] B95-22: preserve unknown-finish flag and withhold fabricated duration/energy.
-- [ ] B95-23: unknown activity keeps identity/reachable detail without invented MET.
-- [ ] B95-24: split editor shows save failure and preserves retry state.
-- [ ] B95-25: Body history refreshes immediate changes on return.
-- [ ] B95-26: dismissing away-from-Home choice does not start reminders.
-- [ ] B95-27: Home permission/armed status reloads on foreground.
-- [ ] B95-28: selected settings choices expose accessibility state.
-- [ ] B95-29: workout relative dates use calendar-day arithmetic across DST.
+- [x] B95-01: commit privacy with the initial session; atomic metadata preservation and durable start.
+- [x] B95-02: hydrate unread notification history on launch/resume.
+- [x] B95-03: persist notification retention pruning without reload loops.
+- [x] B95-04: dated historical Food notification destination.
+- [x] B95-05: first-check checklist uses its own evidence weeks.
+- [x] B95-06: latest individual weigh-in separate from daily-first means.
+- [x] B95-07: intact Body values and full labels at enlarged text.
+- [x] B95-08: readable notification action and enlarged messages.
+- [x] B95-09: quiesce writers and backup publication before reset.
+- [x] B95-10: stage restore media; cancellation/failure leaves no orphan photos.
+- [x] B95-11: historical Sleep/Nap clock choices use stored IANA zones.
+- [x] B95-12: Body retries pending stages without stale profile or duplicate readings.
+- [x] B95-13: deleted-food editing preserves portion/conversion and unknown nutrients.
+- [x] B95-14: deterministic same-day tape selection across consumers.
+- [x] B95-15: preserve editable nutrition target precision.
+- [x] B95-16: interval rounds/phase persist and use the shared active clock.
+- [x] B95-17: activity-appropriate inputs; no unlogged poses or pool-derived rowing.
+- [x] B95-18: picker/setup share approved active calorie estimate.
+- [x] B95-19: failed final save has a truthful stopped/retry lifecycle.
+- [x] B95-20: private sessions excluded from promised summary aggregates.
+- [x] B95-21: reviewed last-set end bounds all retained workout evidence.
+- [x] B95-22: preserve unknown-finish flag and withhold fabricated duration/energy.
+- [x] B95-23: unknown activity keeps identity/reachable detail without invented MET.
+- [x] B95-24: split editor shows save failure and preserves retry state.
+- [x] B95-25: Body history refreshes immediate changes on return.
+- [x] B95-26: dismissing away-from-Home choice does not start reminders.
+- [x] B95-27: Home permission/armed status reloads on foreground.
+- [x] B95-28: selected settings choices expose accessibility state.
+- [x] B95-29: workout relative dates use calendar-day arithmetic across DST.
 
-## Verification and handoff
+## Verification
 
-Convert synthetic diagnostic probes into desired-behavior regressions. Run focused files locally only; full analysis/tests/build stay on GitHub Actions under the existing integration/privacy workflow. Use full-page before/after previews for the Body and Notifications reflow; retain normal layout while applying approved stacking/toolbar repairs. Check normal, missing, failure and enlarged-text states. No private export or phone data is needed.
+Six new focused files contain 58 runnable regression/render cases:
+- `test/build95_repair_store_test.dart`: 4 — stable unread hydration, old repeating plans, tape ties and stored-zone DST arithmetic.
+- `test/build95_repair_flows_test.dart`: 19 — existing audit closures plus durable private start, failed start/reset, dated Food routes, retention, first-check weeks and latest individual weight.
+- `test/build95_repair_lifecycle_test.dart`: 9 — historic sleep instants, cancelled/accepted media restore, backup/reset race, final-save retry, tape selection, private totals, older invalid traces and last-set cutoffs (including a tick that already clamped elapsed time).
+- `test/build95_repair_ui_test.dart`: 8 — target precision, dirty forms, deleted-food portions, partial Body retry, active picker energy, activity-specific fields, interval reopening and Body history refresh.
+- `test/build95_repair_interactions_test.dart`: 9 — DST labels, unknown activity/finish, stopped-session retry UI, split persistence failure/retry, cancelled away choice, Home permission/radius refresh and selected semantics.
+- `test/build95_repair_render_test.dart`: 9 — Notifications normal/2x/3.1x and empty states; Body normal, 2x and 3.1x including 320-point width. Full vertical scroll is checked and captured; weight digits stay on one line.
 
-Only the repair checkout is edited and committed. Existing main/Claude worktrees stay untouched; nothing is pushed, merged or packaged by this lane. Final handoff must distinguish implemented, locally executed, cloud-pending and physical iPhone-pending behavior.
+15 existing checks also pass: all 7 `notification_log_test.dart` cases, both
+`workout_stop_durability_test.dart` cases, and 6 selected existing automatic-backup queue,
+encryption and format-2 media round-trip cases. This is targeted local verification, not a full
+suite run. Focused Dart analysis of routing, lifecycle, repository, summary, Food, Body and the
+interaction harness has zero errors/warnings; 12 informational lints remain.
+
+The legacy trace repair preserves complete pre-end minute observations and clears unbounded
+aggregates, re-scoring from actual bounded raw records if still present. It does not keep a
+post-finish peak/strain merely because that older value was larger. New final saves and their
+immediate summary read the same bounded stats. Algorithm 97 and schema 50 remain unchanged;
+no scientific coefficient, dependency, release version or ACK ordering changed.
+
+Local-only evidence is under this checkout's ignored `build/`: `repair-confirmation.log`,
+`repair-lifecycle-final.log`, `repair-interactions-final.log`, `repair-store.log`,
+`repair-existing-backup.log`, `repair-stopped-ui.log`, `repair-branch-confirmation.log`,
+`repair-render-confirmation.log`, and `repair-final-analysis.log`.
+`build/ui_capture/repair-review.html` contains before/after and complete scroll capture sequences.
+All fixtures and captures are synthetic. The Windows render uses Manrope as a stand-in for SF;
+actual iPhone typography, VoiceOver, permission delivery, BLE/GPS and suspend/kill behavior are
+not proven by these renders or platform mocks.
+
+## Integration and device gate
+
+Only this repair checkout was edited. The backend commit is `c52cedbd`; its UI/lifecycle and
+regression follow-up is the branch tip (`git log -2 --oneline`). Existing main and Claude
+checkouts are untouched. Nothing was pushed, merged or packaged by Codex.
+
+Claude should review and integrate both repair commits, inspect the complete pages, privacy-review
+the outgoing code/docs/fixtures, then run the full analysis/tests and personal iOS workflow on
+GitHub Actions. Do not treat the earlier source's passing CI or IPA as verification of these edits.
+Record the new artifact/source evidence in `setup.md` during release; no existing artifact evidence
+or version metadata was changed here.
+
+The phone pass should include cold-launch unread/history and dated Food taps; a private workout
+from start through history; minimise/pause/reopen intervals; stopped-save retry and corrected finish
+times; Body multi-reading/profile/history behavior; saved-food fallback editing; Home Settings
+return, cancellation, radius and VoiceOver choices; historical Sleep/Nap times after travel; and
+backup/restore/reset on a disposable test copy. BLE/GPS background continuity and native permission
+behavior remain the existing physical-device gates. Release and phone acceptance are not claimed.
+
+## Documentation impact
+
+`CLAUDE.md`, `todo.md`, `bugs.md`, `metrics-map.md`, `background-sync-plan.md` and `DESIGN.md`
+are synchronized with the unreleased repair state and the last reported installation. Ancestor
+routing, `README.md`, `setup.md`, guides, dependencies, workflows and signing/artifact metadata
+were checked: their ownership, commands and existing release evidence did not change, so no
+release/configuration edit was made. Keep the existing IPA and new repair source distinct.

@@ -235,40 +235,65 @@ class _ProgressDetailState extends State<_ProgressDetail>
       for (final x in d.weights)
         if (x.date.compareTo(today) <= 0) x,
     ]..sort((a, b) => a.date.compareTo(b.date));
-    final latest = ws.lastOrNull;
+    final latest = d.latestWeightReading;
+    final daily = ws.lastOrNull;
     final t = DateTime.parse(today);
     String back(int n) => dayLabelOf(DateTime(t.year, t.month, t.day - n));
     final now7 = BodyLogDb.sevenDayMean(d.weights, today);
     final prev7 = BodyLogDb.sevenDayMean(d.weights, back(7));
     final week = span(back(6), today), weekBefore = span(back(13), back(7));
 
-    Widget row(String label, String sub, String value, {bool selected = false}) {
-      final body = Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+    Widget row(
+      String label,
+      String sub,
+      String value, {
+      bool selected = false,
+    }) {
+      final labelBlock = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label.toUpperCase(),
-                  style: F.label.copyWith(
-                    color: selected ? p.on(C.body) : p.ink2,
-                  ),
-                ),
-                Text(sub, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
-              ],
-            ),
+          Text(
+            label.toUpperCase(),
+            style: F.label.copyWith(color: selected ? p.on(C.body) : p.ink2),
           ),
-          const SizedBox(width: S.x2),
-          Flexible(
+          Text(sub, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+        ],
+      );
+      final body = LayoutBuilder(
+        builder: (c, box) {
+          final painter = TextPainter(
+            text: TextSpan(text: value, style: F.n24),
+            textDirection: Directionality.of(c),
+            textScaler: MediaQuery.textScalerOf(c),
+          )..layout();
+          final stacked = bigText(c) || box.maxWidth < painter.width + 160;
+          painter.dispose();
+          final number = SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             child: Text(
               value,
-              textAlign: TextAlign.end,
+              softWrap: false,
               style: F.n24.copyWith(color: p.ink),
             ),
-          ),
-        ],
+          );
+          if (stacked)
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                labelBlock,
+                const SizedBox(height: S.x2),
+                Align(alignment: Alignment.centerRight, child: number),
+              ],
+            );
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(child: labelBlock),
+              const SizedBox(width: S.x2),
+              number,
+            ],
+          );
+        },
       );
       return Semantics(
         container: true,
@@ -303,35 +328,52 @@ class _ProgressDetailState extends State<_ProgressDetail>
     }
 
     if (latest == null) {
-      add(row('Latest reading', 'No weigh-in yet', '—'));
+      add(
+        row(
+          'Latest reading',
+          d.readErrors.contains('Latest weight')
+              ? 'Could not load. Pull to retry.'
+              : daily == null
+              ? 'No weigh-in yet'
+              : 'Individual reading unavailable; daily weight shown below',
+          '—',
+        ),
+      );
+      if (daily != null)
+        add(row('Latest daily weight', _md(daily.date), w(daily.kg)));
     } else {
-      final at = latest.atTs > 0
-          ? DateTime.fromMillisecondsSinceEpoch(latest.atTs * 1000)
-          : null;
-      add(row(
-        'Latest reading',
-        at == null
-            ? _md(latest.date)
-            : '${_md(latest.date)}, '
-                  '${MaterialLocalizations.of(c).formatTimeOfDay(TimeOfDay.fromDateTime(at))}',
-        bodyWeightText(latest, unit: _unit),
-      ));
+      final at = latest.atTs > 0 ? DayClock.localAt(latest.atTs) : null;
+      add(
+        row(
+          'Latest reading',
+          at == null
+              ? _md(latest.date)
+              : '${_md(latest.date)}, '
+                    '${MaterialLocalizations.of(c).formatTimeOfDay(TimeOfDay.fromDateTime(at))}',
+          latest.entered != null && latest.unit == _unit
+              ? '${_num(latest.entered!)} $_unit'
+              : w(latest.kg),
+        ),
+      );
     }
     final weekSelected = _range == ProgressRange.week;
-    add(row(
-      '7-day average',
-      now7 == null
-          ? 'No weigh-in in $week'
-          : [
-              week,
-              readings(now7.count),
-              prev7 == null
-                  ? 'none in $weekBefore to compare'
-                  : '${signed(now7.kg - prev7.kg)} vs $weekBefore',
-            ].join(' · '),
-      now7 == null ? '—' : w(now7.kg),
-      selected: weekSelected,
-    ), boxed: weekSelected);
+    add(
+      row(
+        '7-day average',
+        now7 == null
+            ? 'No weigh-in in $week'
+            : [
+                week,
+                readings(now7.count),
+                prev7 == null
+                    ? 'none in $weekBefore to compare'
+                    : '${signed(now7.kg - prev7.kg)} vs $weekBefore',
+              ].join(' · '),
+        now7 == null ? '—' : w(now7.kg),
+        selected: weekSelected,
+      ),
+      boxed: weekSelected,
+    );
     if (!weekSelected) {
       final after =
           per.after ??
@@ -340,23 +382,26 @@ class _ProgressDetailState extends State<_ProgressDetail>
       final wa = weightWindow(series, after);
       final before = per.before;
       final wb = before == null ? null : weightWindow(series, before);
-      add(row(
-        '${_averageLabel(_range)} · selected',
-        [
-          span(after.from, after.to),
-          if (wa.mean != null) readings(wa.count),
-          if (wa.mean == null)
-            'no weigh-in'
-          else if (before == null)
-            'no earlier stretch to compare'
-          else if (wb?.mean == null)
-            'none in ${span(before.from, before.to)} to compare'
-          else
-            '${signed(wa.mean! - wb!.mean!)} vs ${span(before.from, before.to)}',
-        ].join(' · '),
-        wa.mean == null ? '—' : w(wa.mean!),
-        selected: true,
-      ), boxed: true);
+      add(
+        row(
+          '${_averageLabel(_range)} · selected',
+          [
+            span(after.from, after.to),
+            if (wa.mean != null) readings(wa.count),
+            if (wa.mean == null)
+              'no weigh-in'
+            else if (before == null)
+              'no earlier stretch to compare'
+            else if (wb?.mean == null)
+              'none in ${span(before.from, before.to)} to compare'
+            else
+              '${signed(wa.mean! - wb!.mean!)} vs ${span(before.from, before.to)}',
+          ].join(' · '),
+          wa.mean == null ? '—' : w(wa.mean!),
+          selected: true,
+        ),
+        boxed: true,
+      );
     }
 
     // Tape sites that moved across the period, earlier → latest.
@@ -646,10 +691,15 @@ class _ProgressDetailState extends State<_ProgressDetail>
         ? [
             for (final day in daysBetween(from, today))
               if (BodyLogDb.sevenDayMean(d.weights, day) case final mean?)
-                (date: day, value: _unit == 'lb' ? mean.kg * kLbPerKg : mean.kg),
+                (
+                  date: day,
+                  value: _unit == 'lb' ? mean.kg * kLbPerKg : mean.kg,
+                ),
           ]
         : r;
-    final summary = m is StepsMetric || drawn.isEmpty ? null : bodySummary(drawn);
+    final summary = m is StepsMetric || drawn.isEmpty
+        ? null
+        : bodySummary(drawn);
     final steps = m is StepsMetric ? stepsSummary(r) : null;
     final labels = daysBetween(from, today);
     final readings = {for (final x in r) x.date: x.value};

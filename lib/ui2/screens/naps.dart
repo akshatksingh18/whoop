@@ -234,18 +234,26 @@ class _NapsScreenState extends State<NapsScreen> with RevisionReload {
     );
     if (to == null || !mounted) return;
 
-    final start = DateTime(
-      base.year,
-      base.month,
-      base.day,
-      from.hour,
-      from.minute,
-    );
+    final start = DayClock.onDate(day, from.hour, from.minute);
     // An end at or before the start crossed midnight. `day + 1`, not a
     // Duration: this is calendar arithmetic over a possible DST boundary.
-    var end = DateTime(base.year, base.month, base.day, to.hour, to.minute);
+    var end = DayClock.wallTime(
+      start,
+      start.year,
+      start.month,
+      start.day,
+      to.hour,
+      to.minute,
+    );
     if (!end.isAfter(start)) {
-      end = DateTime(base.year, base.month, base.day + 1, to.hour, to.minute);
+      end = DayClock.wallTime(
+        start,
+        start.year,
+        start.month,
+        start.day + 1,
+        to.hour,
+        to.minute,
+      );
     }
     final s = start.millisecondsSinceEpoch ~/ 1000;
     final e = end.millisecondsSinceEpoch ~/ 1000;
@@ -265,8 +273,7 @@ class _NapsScreenState extends State<NapsScreen> with RevisionReload {
     // future hour would count as sleep that did not happen.
     if (end.isAfter(clock.now())) {
       setState(
-        () => _failed =
-            'That nap has not ended yet. Log it once you are up.',
+        () => _failed = 'That nap has not ended yet. Log it once you are up.',
       );
       return;
     }

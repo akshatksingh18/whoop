@@ -105,6 +105,7 @@ class ProgressData {
     this.goalChosen = false,
     this.user = const {},
     this.readErrors = const [],
+    this.latestWeightReading,
   });
 
   /// The goal you chose (recomposition until you choose), and the profile
@@ -113,6 +114,7 @@ class ProgressData {
   final bool goalChosen;
   final Map<String, dynamic> user;
   final List<String> readErrors;
+  final BodyWeightReading? latestWeightReading;
 
   /// Body's measurement weekday: weekly weight blocks start on it.
   final int measureWeekday;
@@ -241,6 +243,11 @@ class ProgressData {
       <Map<String, dynamic>>[],
     );
     return ProgressData(
+      latestWeightReading: await read(
+        'Latest weight',
+        BodyLogDb.latestReading(),
+        null,
+      ),
       weights: await read(
         'Weight',
         BodyLogDb.weights(),
@@ -280,7 +287,10 @@ class ProgressData {
           ? previous.sessions
           : [
               for (final r in sessions)
-                if (r['status'] != 'live' && r['start_ts'] is num)
+                if (r['status'] != 'live' &&
+                    r['start_ts'] is num &&
+                    r['private'] != 1 &&
+                    r['end_ts_fabricated'] != 1)
                   (
                     date: dayLabelOf(
                       DateTime.fromMillisecondsSinceEpoch(
@@ -553,7 +563,11 @@ class _ProgressScreenState extends State<ProgressScreen>
       size: size,
       color: p.on(C.body),
     ),
-    NeedState.none => Icon(LucideIcons.circle, size: size, color: p.on(C.alert)),
+    NeedState.none => Icon(
+      LucideIcons.circle,
+      size: size,
+      color: p.on(C.alert),
+    ),
   };
 
   static String _needWord(NeedState s) => switch (s) {
@@ -577,7 +591,10 @@ class _ProgressScreenState extends State<ProgressScreen>
       lifts: d.lifts,
     );
     final first = r.firstCheck;
-    final open = [for (final n in needs) if (n.state != NeedState.met) n];
+    final open = [
+      for (final n in needs)
+        if (n.state != NeedState.met) n,
+    ];
     // The next thing to do: one whose window is open today, else the first
     // still missing.
     final next = open.where((n) => n.actNow).firstOrNull ?? open.firstOrNull;
@@ -840,7 +857,9 @@ class _ProgressScreenState extends State<ProgressScreen>
   Future<void> _changeGoal(BuildContext c, ProgressData d, GoalPlan g) async {
     final kg = BodyLogDb.sevenDayMean(d.weights, todayLabel())?.kg;
     final changed = await Navigator.of(c).push<bool>(
-      MaterialPageRoute(builder: (_) => GoalScreen(plan: g, kg: kg)),
+      MaterialPageRoute(
+        builder: (_) => GoalScreen(plan: g, kg: kg),
+      ),
     );
     if (changed == true) reload();
   }
@@ -1487,7 +1506,8 @@ class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
               onTap: () async {
                 final changed = await Navigator.of(c).push<bool>(
                   MaterialPageRoute(
-                    builder: (_) => BodyEntryScreen(unit: _unit, showTape: true),
+                    builder: (_) =>
+                        BodyEntryScreen(unit: _unit, showTape: true),
                   ),
                 );
                 if (changed == true) reload();
@@ -1583,6 +1603,10 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
 
   /// The newest day read; a slower earlier read never overwrites it.
   int _loadSeq = 0;
+  Future<void>? _dayRead;
+  String? _committedWeight;
+  String? _profilePendingDate;
+  late final String _tapeId = widget.measure?.id ?? newLiftId();
 
   bool get _dirty =>
       _weight.text.trim() != _weightAtOpen.trim() ||
@@ -1604,7 +1628,9 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     _loadDay();
   }
 
-  Future<void> _loadDay() async {
+  Future<void> _loadDay() => _dayRead = _readDay();
+
+  Future<void> _readDay() async {
     final seq = ++_loadSeq;
     final w = await BodyLogDb.weightOn(_date);
     List<BodyWeightReading> readings = const [];
@@ -1662,6 +1688,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     final app = context.read<AppState>();
     final saved = <String>[];
     try {
+      await _dayRead;
       // 1. Validate everything.
       final wText = _weight.text.trim();
       double? value, kg;
@@ -1675,10 +1702,11 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
       // Build 94 (Codex N10): the day's own weight, prefilled and left alone,
       // is not a new reading — saving tape on a weighed day used to add a
       // second weigh-in.
-      if (kg != null &&
-          _existing != null &&
-          (_existing!.kg - kg).abs() < 0.05 &&
-          wText == _weightAtOpen.trim()) {
+      if (_committedWeight == '$_date|$_unit|$wText' ||
+          (kg != null &&
+              _existing != null &&
+              (_existing!.kg - kg).abs() < 0.05 &&
+              wText == _weightAtOpen.trim())) {
         kg = null;
         value = null;
       }
@@ -1695,12 +1723,12 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         inches[s.name] = tapeReading(s.title, t);
         tape = true;
       }
-      if (kg == null && !tape) {
+      if (kg == null && !tape && _profilePendingDate == null) {
         if (wText.isNotEmpty) {
           // Nothing changed: leave as Save would.
           if (mounted) {
             _leaving = true;
-            Navigator.of(context).pop(false);
+            Navigator.of(context).pop(_committedWeight != null);
           }
           return;
         }
@@ -1727,6 +1755,8 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
           _unit,
           correctFirst: correctFirst,
         );
+        _committedWeight = '$_date|$_unit|$wText';
+        if (_date == todayLabel()) _profilePendingDate = _date;
         saved.add('weight');
         // A Retry after a later write failed must not add this reading again:
         // it is now the day's saved weight, unchanged.
@@ -1734,18 +1764,19 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         _weightAtOpen = wText;
         // Today's FIRST reading is the current profile weight; a later one
         // is kept but does not move it. A past day's never re-prices.
-        if (_date == todayLabel()) {
-          final first = await BodyLogDb.weightOn(_date);
-          if (first != null) {
-            await app.updateProfile({'weight_kg': first.kg});
-          }
-          saved.add('current weight');
+      }
+      if (_profilePendingDate != null) {
+        final first = await BodyLogDb.weightOn(_profilePendingDate!);
+        if (first != null) {
+          await app.updateProfile({'weight_kg': first.kg});
         }
+        _profilePendingDate = null;
+        saved.add('current weight');
       }
       if (tape) {
         await BodyLogDb.putMeasure(
           BodyMeasure(
-            id: widget.measure?.id,
+            id: _tapeId,
             date: _date,
             recordedAt: widget.measure?.recordedAt ?? DateTime.now(),
             inches: inches,
@@ -2368,7 +2399,8 @@ class BodyHistoryScreen extends StatefulWidget {
   State<BodyHistoryScreen> createState() => _BodyHistoryScreenState();
 }
 
-class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
+class _BodyHistoryScreenState extends State<BodyHistoryScreen>
+    with RevisionReload {
   late ProgressData d = widget.data;
   UnitsController? _units;
   String get _unit => _units?.weightUnit ?? 'kg';
@@ -2379,9 +2411,14 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
     _units = unitsOf(context);
   }
 
+  int _readSeq = 0;
+  @override
+  void reload() => _refresh();
   Future<void> _refresh() async {
+    if (!mounted) return;
+    final seq = ++_readSeq;
     final n = await ProgressData.load(context);
-    if (mounted) setState(() => d = n);
+    if (mounted && seq == _readSeq) setState(() => d = n);
   }
 
   @override
@@ -2505,7 +2542,11 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                               } catch (_) {
                                 if (c.mounted) {
                                   ScaffoldMessenger.maybeOf(c)?.showSnackBar(
-                                    const SnackBar(content: Text('Could not delete it. Try again.')),
+                                    const SnackBar(
+                                      content: Text(
+                                        'Could not delete it. Try again.',
+                                      ),
+                                    ),
                                   );
                                 }
                               }
@@ -2521,7 +2562,7 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                   Pressable(
                     semanticLabel: 'Edit ${_md(day)}',
                     onTap: () async {
-                      final changed = await Navigator.of(c).push<bool>(
+                      await Navigator.of(c).push<bool>(
                         MaterialPageRoute(
                           builder: (_) => BodyEntryScreen(
                             unit: _unit,
@@ -2530,7 +2571,7 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                           ),
                         ),
                       );
-                      if (changed == true) await _refresh();
+                      if (mounted) await _refresh();
                     },
                     child: Padding(
                       padding: const EdgeInsets.only(top: S.x2, right: S.x4),
@@ -2557,7 +2598,11 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                           } catch (_) {
                             if (c.mounted) {
                               ScaffoldMessenger.maybeOf(c)?.showSnackBar(
-                                const SnackBar(content: Text('Could not delete it. Try again.')),
+                                const SnackBar(
+                                  content: Text(
+                                    'Could not delete it. Try again.',
+                                  ),
+                                ),
                               );
                             }
                           }
@@ -2587,7 +2632,11 @@ class _BodyHistoryScreenState extends State<BodyHistoryScreen> {
                           } catch (_) {
                             if (c.mounted) {
                               ScaffoldMessenger.maybeOf(c)?.showSnackBar(
-                                const SnackBar(content: Text('Could not delete it. Try again.')),
+                                const SnackBar(
+                                  content: Text(
+                                    'Could not delete it. Try again.',
+                                  ),
+                                ),
                               );
                             }
                           }
@@ -2995,113 +3044,116 @@ class _GoalScreenState extends State<GoalScreen> {
               _pace != widget.plan.pace ||
               _age != widget.plan.trainingAge),
       child: detailScaffold(c, 'Your goal', [
-      Surface(
-        pad: const EdgeInsets.symmetric(horizontal: S.x4),
-        child: Column(
-          children: [
-            for (final ph in GoalPhase.values)
-              option(
-                ph.title,
-                ph.plain,
-                _phase == ph,
-                () => setState(() => _phase = ph),
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              for (final ph in GoalPhase.values)
+                option(
+                  ph.title,
+                  ph.plain,
+                  _phase == ph,
+                  () => setState(() => _phase = ph),
+                ),
+            ],
+          ),
+        ),
+        if (_phase == GoalPhase.fatLoss) ...[
+          const SizedBox(height: S.x4),
+          Text('PACE', style: F.section.copyWith(color: p.ink3)),
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(
+              children: [
+                for (final pc in GoalPace.values)
+                  option(
+                    pc.title,
+                    () {
+                      final b = GoalPlan(
+                        phase: GoalPhase.fatLoss,
+                        pace: pc,
+                      ).band;
+                      return '${pct(b.high)} to ${pct(b.low)} a week${kgWeek(b.low)}'
+                          '${pc == GoalPace.faster ? '. Harder to keep strength.' : ''}';
+                    }(),
+                    _pace == pc,
+                    () => setState(() => _pace = pc),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        if (_phase == GoalPhase.leanGain) ...[
+          const SizedBox(height: S.x4),
+          Text('TRAINING AGE', style: F.section.copyWith(color: p.ink3)),
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(
+              children: [
+                for (final a in TrainingAge.values)
+                  option(
+                    a.title,
+                    () {
+                      final b = GoalPlan(
+                        phase: GoalPhase.leanGain,
+                        trainingAge: a,
+                      ).band;
+                      return '${pct(b.low)} to ${pct(b.high)} a week${kgWeek(b.high)}';
+                    }(),
+                    _age == a,
+                    () => setState(() => _age = a),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: S.x4),
+        Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'What the review will aim for',
+                style: F.cap.copyWith(color: p.ink3),
               ),
-          ],
-        ),
-      ),
-      if (_phase == GoalPhase.fatLoss) ...[
-        const SizedBox(height: S.x4),
-        Text('PACE', style: F.section.copyWith(color: p.ink3)),
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Column(
-            children: [
-              for (final pc in GoalPace.values)
-                option(
-                  pc.title,
-                  () {
-                    final b = GoalPlan(phase: GoalPhase.fatLoss, pace: pc).band;
-                    return '${pct(b.high)} to ${pct(b.low)} a week${kgWeek(b.low)}'
-                        '${pc == GoalPace.faster ? '. Harder to keep strength.' : ''}';
-                  }(),
-                  _pace == pc,
-                  () => setState(() => _pace = pc),
-                ),
+              const SizedBox(height: S.x1),
+              Text(
+                'Weight ${pct(band.low)} to ${pct(band.high)} a week on the 7-day '
+                'average, protein ${band.proteinLow}–${band.proteinHigh} g per kg, '
+                'and comparable lifts holding or better.',
+                style: F.cap.copyWith(color: p.ink),
+              ),
+              const SizedBox(height: S.x2),
+              Text(
+                'It waits two weeks after a goal change, then needs five weigh-ins '
+                'and five full food days in each week it looks at (one week '
+                'against the one before for losing fat or building muscle, four '
+                'weeks for the others). It suggests changes of 100 to 250 kcal, '
+                'raises protein before cutting calories, and never suggests '
+                'going below your resting energy or 1,500 kcal (1,200 for '
+                'women). Water, salt and glycogen move the scale day to day; the '
+                'trend is what counts. With a medical condition or a history of '
+                'disordered eating, set goals with a clinician instead.',
+                style: F.over.copyWith(color: p.ink3),
+              ),
             ],
           ),
         ),
-      ],
-      if (_phase == GoalPhase.leanGain) ...[
+        if (_saveError != null) ...[
+          const SizedBox(height: S.x3),
+          Text(_saveError!, style: F.cap.copyWith(color: p.on(C.red))),
+        ],
         const SizedBox(height: S.x4),
-        Text('TRAINING AGE', style: F.section.copyWith(color: p.ink3)),
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Column(
-            children: [
-              for (final a in TrainingAge.values)
-                option(
-                  a.title,
-                  () {
-                    final b = GoalPlan(
-                      phase: GoalPhase.leanGain,
-                      trainingAge: a,
-                    ).band;
-                    return '${pct(b.low)} to ${pct(b.high)} a week${kgWeek(b.high)}';
-                  }(),
-                  _age == a,
-                  () => setState(() => _age = a),
-                ),
-            ],
-          ),
+        BigButton(
+          _saving
+              ? 'Saving…'
+              : _saveError != null
+              ? 'Try again'
+              : 'Use this goal from today',
+          color: C.body,
+          onTap: _saving ? null : () => _save(c),
         ),
-      ],
-      const SizedBox(height: S.x4),
-      Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'What the review will aim for',
-              style: F.cap.copyWith(color: p.ink3),
-            ),
-            const SizedBox(height: S.x1),
-            Text(
-              'Weight ${pct(band.low)} to ${pct(band.high)} a week on the 7-day '
-              'average, protein ${band.proteinLow}–${band.proteinHigh} g per kg, '
-              'and comparable lifts holding or better.',
-              style: F.cap.copyWith(color: p.ink),
-            ),
-            const SizedBox(height: S.x2),
-            Text(
-              'It waits two weeks after a goal change, then needs five weigh-ins '
-              'and five full food days in each week it looks at (one week '
-              'against the one before for losing fat or building muscle, four '
-              'weeks for the others). It suggests changes of 100 to 250 kcal, '
-              'raises protein before cutting calories, and never suggests '
-              'going below your resting energy or 1,500 kcal (1,200 for '
-              'women). Water, salt and glycogen move the scale day to day; the '
-              'trend is what counts. With a medical condition or a history of '
-              'disordered eating, set goals with a clinician instead.',
-              style: F.over.copyWith(color: p.ink3),
-            ),
-          ],
-        ),
-      ),
-      if (_saveError != null) ...[
-        const SizedBox(height: S.x3),
-        Text(_saveError!, style: F.cap.copyWith(color: p.on(C.red))),
-      ],
-      const SizedBox(height: S.x4),
-      BigButton(
-        _saving
-            ? 'Saving…'
-            : _saveError != null
-            ? 'Try again'
-            : 'Use this goal from today',
-        color: C.body,
-        onTap: _saving ? null : () => _save(c),
-      ),
-    ]),
+      ]),
     );
   }
 }

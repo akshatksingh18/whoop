@@ -464,6 +464,10 @@ class ActivityResult {
   /// recorded route above all. Every field defaults to `this`, so enrichment
   /// can never silently drop the sets or the score the user typed.
   ActivityResult copyWith({
+    bool replaceWindowStats = false,
+    int? calories,
+    double? strain,
+    int? steps,
     String? sessionId,
     Duration? duration,
     Profile? calculationProfile,
@@ -506,12 +510,12 @@ class ActivityResult {
     private: private,
     sessionId: sessionId ?? this.sessionId,
     rpe: rpe ?? this.rpe,
-    avgHr: avgHr ?? this.avgHr,
-    maxHr: maxHr ?? this.maxHr,
-    hrr60: hrr60 ?? this.hrr60,
-    calories: _storedCalories,
+    avgHr: replaceWindowStats ? avgHr : avgHr ?? this.avgHr,
+    maxHr: replaceWindowStats ? maxHr : maxHr ?? this.maxHr,
+    hrr60: replaceWindowStats ? hrr60 : hrr60 ?? this.hrr60,
+    calories: replaceWindowStats ? calories : calories ?? _storedCalories,
     calculationProfile: calculationProfile ?? this.calculationProfile,
-    strain: strain,
+    strain: replaceWindowStats ? strain : strain ?? this.strain,
     hr: hr ?? this.hr,
     zoneMinutes: zoneMinutes ?? this.zoneMinutes,
     zoneSource: zoneSource ?? this.zoneSource,
@@ -519,7 +523,7 @@ class ActivityResult {
     // Carried, never re-derived: every enrichment pass on this object goes
     // through here, and a field left off this list is a measurement the
     // detail screen silently loses the moment it opens.
-    steps: steps,
+    steps: replaceWindowStats ? steps : steps ?? this.steps,
     traceCoveragePct: traceCoveragePct ?? this.traceCoveragePct,
     route: route ?? this.route,
     geo: geo ?? this.geo,
@@ -2321,7 +2325,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     SizedBox(
                       width: 26,
                       child: Text(
-                        shown.unit == 'mi' ? 'MI' : (l?.activitySummaryKm ?? 'KM'),
+                        shown.unit == 'mi'
+                            ? 'MI'
+                            : (l?.activitySummaryKm ?? 'KM'),
                         style: F.over.copyWith(color: p.ink3),
                       ),
                     ),

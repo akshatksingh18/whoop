@@ -114,6 +114,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     super.didChangeDependencies();
     _units = unitsOf(context);
   }
+
   bool _loading = true;
   bool _editingLibrary = false;
 
@@ -2138,16 +2139,14 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
     FoodDayReminder.enabled().then((on) {
       if (mounted) setState(() => _evening = on);
     });
+    String targetText(String key) {
+      final value = _targetOf(widget.app.user ?? const {}, key);
+      return value == null ? '' : editableNumber(value);
+    }
+
     ctrls = {
       for (final t in kNutritionTargets)
-        t.$1: TextEditingController(
-          text:
-              _targetOf(
-                widget.app.user ?? const {},
-                t.$1,
-              )?.round().toString() ??
-              '',
-        ),
+        t.$1: TextEditingController(text: targetText(t.$1)),
     };
     _start;
   }
@@ -2245,7 +2244,9 @@ class _NutritionGoalsSheetState extends State<_NutritionGoalsSheet> {
             } catch (_) {
               messenger?.showSnackBar(
                 const SnackBar(
-                  content: Text('The evening check could not change. Try again.'),
+                  content: Text(
+                    'The evening check could not change. Try again.',
+                  ),
                 ),
               );
             }

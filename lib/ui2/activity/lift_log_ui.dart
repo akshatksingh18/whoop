@@ -1762,12 +1762,14 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
       if (mounted) setState(() => (_splits = s, _error = null));
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Your splits could not load. Go back and try again.');
+        setState(
+          () => _error = 'Your splits could not load. Go back and try again.',
+        );
       }
     }
   }
 
-  Future<void> _save(List<LiftSplit> next) async {
+  Future<bool> _save(List<LiftSplit> next) async {
     try {
       final ctl = widget.controller;
       if (ctl != null) {
@@ -1776,8 +1778,9 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
       } else {
         await LiftLogDb.saveSplits(next);
       }
-      if (!mounted) return;
+      if (!mounted) return true;
       setState(() => (_splits = LiftSplit.validatedList(next), _error = null));
+      return true;
     } on LiftLogError catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -1785,6 +1788,7 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
         setState(() => _error = 'That change was not saved. Please try again.');
       }
     }
+    return false;
   }
 
   Future<String?> _name(String title, String initial) async {
@@ -1937,7 +1941,7 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
 class _SplitEditor extends StatefulWidget {
   const _SplitEditor({required this.split, required this.onSave});
   final LiftSplit split;
-  final Future<void> Function(LiftSplit) onSave;
+  final Future<bool> Function(LiftSplit) onSave;
   @override
   State<_SplitEditor> createState() => _SplitEditorState();
 }
@@ -1945,146 +1949,183 @@ class _SplitEditor extends StatefulWidget {
 class _SplitEditorState extends State<_SplitEditor> {
   late LiftSplit s = widget.split.copy();
 
-  Future<void> _commit() async => widget.onSave(s.copy());
+  bool _saving = false;
+  bool _saveAgain = false;
+  String? _error;
+  Future<void> _commit() async {
+    if (_saving) {
+      _saveAgain = true;
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      do {
+        _saveAgain = false;
+        final ok = await widget.onSave(s.copy());
+        if (!ok) throw StateError('Split was not saved');
+        if (mounted) setState(() => _error = null);
+      } while (_saveAgain && mounted);
+    } catch (_) {
+      if (mounted)
+        setState(
+          () => _error =
+              'Not saved. Your changes are still here; retry before leaving.',
+        );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Scaffold(
-      backgroundColor: p.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: S.x4),
-              child: NavBar(s.name),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-                children: [
-                  Pressable(
-                    semanticLabel: 'Rename split',
-                    onTap: () async {
-                      final t = TextEditingController(text: s.name);
-                      final ok = await _sheet<bool>(
-                        c,
-                        (sc) => [
-                          Text(
-                            'Rename split',
-                            style: F.head.copyWith(color: P.of(sc).ink),
-                          ),
-                          const SizedBox(height: S.x4),
-                          OsTextField(controller: t, label: 'Name'),
-                          const SizedBox(height: S.x4),
-                          BigButton(
-                            'Save',
-                            color: C.purple,
-                            onTap: () => Navigator.of(sc).pop(true),
-                          ),
-                        ],
-                      );
-                      if (ok == true && t.text.trim().isNotEmpty) {
-                        setState(() => s.name = t.text.trim());
-                        await _commit();
-                      }
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: S.x3),
-                      child: Text(
-                        'Rename',
-                        style: F.cap.copyWith(color: p.ink2),
+    return DirtyPopScope(
+      dirty: () => _saving || _error != null,
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: NavBar(s.name),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                  children: [
+                    if (_error != null)
+                      StatusCard(
+                        'Changes not saved',
+                        _error!,
+                        fix: 'Retry',
+                        onFix: _saving ? null : _commit,
+                      ),
+                    if (_saving) const LinearProgressIndicator(),
+                    Pressable(
+                      semanticLabel: 'Rename split',
+                      onTap: () async {
+                        final t = TextEditingController(text: s.name);
+                        final ok = await _sheet<bool>(
+                          c,
+                          (sc) => [
+                            Text(
+                              'Rename split',
+                              style: F.head.copyWith(color: P.of(sc).ink),
+                            ),
+                            const SizedBox(height: S.x4),
+                            OsTextField(controller: t, label: 'Name'),
+                            const SizedBox(height: S.x4),
+                            BigButton(
+                              'Save',
+                              color: C.purple,
+                              onTap: () => Navigator.of(sc).pop(true),
+                            ),
+                          ],
+                        );
+                        if (ok == true && t.text.trim().isNotEmpty) {
+                          setState(() => s.name = t.text.trim());
+                          await _commit();
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: S.x3),
+                        child: Text(
+                          'Rename',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
                       ),
                     ),
-                  ),
-                  for (var i = 0; i < s.exercises.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: S.x2),
-                      child: Surface(
-                        semanticLabel: s.exercises[i].name,
-                        onTap: () async {
-                          final e = await editLiftExercise(
-                            c,
-                            existing: s.exercises[i],
-                          );
-                          if (e == null) return;
-                          setState(() => s.exercises[i] = e);
-                          await _commit();
-                        },
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    s.exercises[i].name,
-                                    style: F.body.copyWith(color: p.ink),
-                                  ),
-                                  Text(
-                                    s.exercises[i].loadMode.title,
-                                    style: F.over.copyWith(color: p.ink3),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (i > 0)
-                              Pressable(
-                                semanticLabel: 'Move ${s.exercises[i].name} up',
-                                onTap: () async {
-                                  setState(
-                                    () => s.exercises.insert(
-                                      i - 1,
-                                      s.exercises.removeAt(i),
+                    for (var i = 0; i < s.exercises.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: S.x2),
+                        child: Surface(
+                          semanticLabel: s.exercises[i].name,
+                          onTap: () async {
+                            final e = await editLiftExercise(
+                              c,
+                              existing: s.exercises[i],
+                            );
+                            if (e == null) return;
+                            setState(() => s.exercises[i] = e);
+                            await _commit();
+                          },
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      s.exercises[i].name,
+                                      style: F.body.copyWith(color: p.ink),
                                     ),
-                                  );
+                                    Text(
+                                      s.exercises[i].loadMode.title,
+                                      style: F.over.copyWith(color: p.ink3),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (i > 0)
+                                Pressable(
+                                  semanticLabel:
+                                      'Move ${s.exercises[i].name} up',
+                                  onTap: () async {
+                                    setState(
+                                      () => s.exercises.insert(
+                                        i - 1,
+                                        s.exercises.removeAt(i),
+                                      ),
+                                    );
+                                    await _commit();
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(S.x2),
+                                    child: Icon(
+                                      LucideIcons.arrowUp,
+                                      size: 17,
+                                      color: p.ink3,
+                                    ),
+                                  ),
+                                ),
+                              Pressable(
+                                semanticLabel: 'Remove ${s.exercises[i].name}',
+                                onTap: () async {
+                                  setState(() => s.exercises.removeAt(i));
                                   await _commit();
                                 },
                                 child: Padding(
                                   padding: const EdgeInsets.all(S.x2),
                                   child: Icon(
-                                    LucideIcons.arrowUp,
+                                    LucideIcons.x,
                                     size: 17,
                                     color: p.ink3,
                                   ),
                                 ),
                               ),
-                            Pressable(
-                              semanticLabel: 'Remove ${s.exercises[i].name}',
-                              onTap: () async {
-                                setState(() => s.exercises.removeAt(i));
-                                await _commit();
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(S.x2),
-                                child: Icon(
-                                  LucideIcons.x,
-                                  size: 17,
-                                  color: p.ink3,
-                                ),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  if (s.exercises.length < LiftSplit.maxExercises)
-                    BigButton(
-                      'Add exercise',
-                      icon: LucideIcons.plus,
-                      color: C.purple,
-                      soft: true,
-                      onTap: () async {
-                        final e = await editLiftExercise(c);
-                        if (e == null) return;
-                        setState(() => s.exercises.add(e));
-                        await _commit();
-                      },
-                    ),
-                ],
+                    if (s.exercises.length < LiftSplit.maxExercises)
+                      BigButton(
+                        'Add exercise',
+                        icon: LucideIcons.plus,
+                        color: C.purple,
+                        soft: true,
+                        onTap: () async {
+                          final e = await editLiftExercise(c);
+                          if (e == null) return;
+                          setState(() => s.exercises.add(e));
+                          await _commit();
+                        },
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

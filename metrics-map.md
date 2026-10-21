@@ -5,8 +5,8 @@ reference for keeping recorded values, absences, estimates and their destination
 
 **Status:** Build 95 (`f5b270f3`) is the testing candidate; Build 91 is the last reported
 installation. The approved A framework with B's calorie ring and compact macros is retained.
-The separate, unreleased repair branch is described in `build-95-repairs.md`; its changes need
-integration, cloud checks and a new phone build. Build 70 remains accepted recovery. `todo.md`
+The repairs described in `build-95-repairs.md` are integrated into Build 96 preparation on
+`build-96`; its cloud checks and new phone build are pending. Build 70 remains accepted recovery. `todo.md`
 owns phone gates and `setup.md` owns source/hash/workflow evidence.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step

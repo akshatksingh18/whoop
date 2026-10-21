@@ -2,7 +2,7 @@
 
 **Status:** Build 95 is the existing testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence. The unreleased `build-95-codex-fixes` repairs in `build-95-repairs.md`
+release/device evidence. The repairs in `build-95-repairs.md`, integrated into Build 96 preparation on `build-96`,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after

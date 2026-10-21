@@ -1,8 +1,8 @@
 # Build 95 audit repairs
 
-**Status:** All 29 confirmed findings are implemented on isolated `build-95-codex-fixes`, based on Build 95 app source `f5b270f3` and integrated documentation `b0c2c8d6`. 73 distinct focused synthetic checks pass locally, including 9 render/scroll checks. Full cloud checks, integration, a new IPA and physical iPhone acceptance remain open. The existing Build 95 IPA does not contain these repairs.
+**Status:** All 29 confirmed findings are implemented in Build 96 preparation on `build-96`, based on Build 95 app source `f5b270f3` and integrated documentation `b0c2c8d6`. 73 distinct focused synthetic checks pass locally, including 9 render/scroll checks; Akshat approved the visual checks and authorized Codex to integrate and deliver the IPA. Full cloud checks and the new IPA are pending; physical iPhone acceptance remains open. The existing Build 95 IPA does not contain these repairs.
 
-Keep the approved kraft/cream interface, existing activities and recorded data. Reuse approved energy/goal methods; repair fabricated inputs, persistence and consumers rather than tuning scientific coefficients. Keep algorithm/schema unchanged unless an actual analytics-output/schema change requires its normal version review. No dependencies, BLE ACK ordering or release metadata change is planned.
+Keep the approved kraft/cream interface, existing activities and recorded data. Reuse approved energy/goal methods; repair fabricated inputs, persistence and consumers rather than tuning scientific coefficients. Algorithm 97 and schema 50 are unchanged. Build 96 uses version `0.9.63+96`; dependencies and BLE ACK ordering are unchanged.
 
 ## Implemented repairs
 
@@ -56,7 +56,7 @@ The legacy trace repair preserves complete pre-end minute observations and clear
 aggregates, re-scoring from actual bounded raw records if still present. It does not keep a
 post-finish peak/strain merely because that older value was larger. New final saves and their
 immediate summary read the same bounded stats. Algorithm 97 and schema 50 remain unchanged;
-no scientific coefficient, dependency, release version or ACK ordering changed.
+no scientific coefficient, dependency or ACK ordering changed. Release metadata advances to Build 96.
 
 Local-only evidence is under this checkout's ignored `build/`: `repair-confirmation.log`,
 `repair-lifecycle-final.log`, `repair-interactions-final.log`, `repair-store.log`,
@@ -69,15 +69,11 @@ not proven by these renders or platform mocks.
 
 ## Integration and device gate
 
-Only this repair checkout was edited. The backend commit is `c52cedbd`; its UI/lifecycle and
-regression follow-up is the branch tip (`git log -2 --oneline`). Existing main and Claude
-checkouts are untouched. Nothing was pushed, merged or packaged by Codex.
-
-Claude should review and integrate both repair commits, inspect the complete pages, privacy-review
-the outgoing code/docs/fixtures, then run the full analysis/tests and personal iOS workflow on
-GitHub Actions. Do not treat the earlier source's passing CI or IPA as verification of these edits.
-Record the new artifact/source evidence in `setup.md` during release; no existing artifact evidence
-or version metadata was changed here.
+The backend commit is `c52cedbd`; the UI/lifecycle and regression follow-up is `88209956`.
+Akshat approved the complete-page checks and assigned Codex the full integration, privacy review,
+GitHub checks and IPA delivery. Release preparation is on `build-96`; existing main and Claude
+checkouts are preserved. Do not treat the earlier source's passing CI or IPA as verification of
+these edits. `setup.md` owns the new artifact/source evidence as each release gate completes.
 
 The phone pass should include cold-launch unread/history and dated Food taps; a private workout
 from start through history; minimise/pause/reopen intervals; stopped-save retry and corrected finish
@@ -88,8 +84,8 @@ behavior remain the existing physical-device gates. Release and phone acceptance
 
 ## Documentation impact
 
-`CLAUDE.md`, `todo.md`, `bugs.md`, `metrics-map.md`, `background-sync-plan.md` and `DESIGN.md`
-are synchronized with the unreleased repair state and the last reported installation. Ancestor
-routing, `README.md`, `setup.md`, guides, dependencies, workflows and signing/artifact metadata
-were checked: their ownership, commands and existing release evidence did not change, so no
-release/configuration edit was made. Keep the existing IPA and new repair source distinct.
+`CLAUDE.md`, `todo.md`, `bugs.md`, `metrics-map.md`, `background-sync-plan.md`, `setup.md`
+and the iOS guides track Build 96 preparation separately from the last reported installation.
+`DESIGN.md` retains the approved layout and `README.md` retains the existing build/install
+contract. Ancestor routing, dependencies, workflows, signing identity and capabilities are
+unchanged. Keep the existing IPA and new repair source distinct until delivery.

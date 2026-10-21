@@ -2,9 +2,9 @@
 
 **State:** Akshat reports Build `0.9.58`/`91` installed. Build `0.9.62`/`95` (item 3j) is the
 testing candidate; Builds 92–94 were never installed. Build 70 remains cached recovery until a
-later build is accepted and enrolled; phone acceptance (item 4) remains open. The separately
-implemented Build 95 audit repairs (`build-95-repairs.md`, `build-95-codex-fixes`) are not in that
-IPA and require integration, cloud checks and a new build.
+later build is accepted and enrolled; phone acceptance (item 4) remains open. Build 96 (`0.9.63+96`, item 3k) integrates the
+29 Build 95 audit repairs on `build-96`; Akshat approved the visual checks and authorized Codex
+to deliver it. Full cloud checks and a validated IPA are pending.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -39,10 +39,10 @@ identity, with no error. The completed feature checklist is cleared; `CLAUDE.md`
 **State:** the Claude lane, the Codex engine/data lane and the calm interface Akshat selected
 (A overall with B's compact macro rows, built by Codex) are merged on `build-90` (version
 `0.9.57+90`, algorithm 96, schema 50), with Akshat's calorie decisions (D8) and the remaining
-UI audit fixes; its validated IPA is installed on Akshat's iPhone (item 3b). Claude now carries every remaining
+UI audit fixes; its validated IPA is installed on Akshat's iPhone (item 3b). The earlier lane split is complete; Codex now owns the remaining
 Build 90 step, including UI (Akshat: Codex is not needed from here). Akshat chose to ship the whole backlog in `build-90-audit.md` ("Complete
 App-Wide Worklist") in this one build, including the full engine depth, plus a home bodyweight
-workout (`home-workout-proposal.md`). Claude integrates, pushes and runs every GitHub check.
+workout (`home-workout-proposal.md`). Akshat assigned Codex full integration, privacy review, cloud checks and IPA delivery for Build 96.
 Next: Build 91 from items 3c-3e when Akshat says, then the phone acceptance in item 4.
 Local synthetic checks do not establish native iPhone acceptance.
 
@@ -88,8 +88,8 @@ Local synthetic checks do not establish native iPhone acceptance.
   with outcomes and inputs opening the full details and all eight exploration periods.
 - D7 Fallback: Build 89 works on Akshat's phone; it becomes the cached recovery build before
   Build 90 (which changes the database) is installed, after an off-phone encrypted export.
-- D8 Process: Claude writes Codex's brief; Codex commits on its own branch and never pushes;
-  Claude privacy-reviews, pushes and runs CI. Screenshot gates: an early Progress preview, then
+- D8 Process: the Build 90 two-lane process is complete. For Build 96 Akshat explicitly assigned
+  Codex the full integration, privacy review, pushes, cloud checks and IPA delivery. Screenshot gates: an early Progress preview, then
   one full review of every changed screen before the IPA.
 
 ### Lanes and file ownership
@@ -479,6 +479,12 @@ pushes, cloud checks and release metadata; Codex never pushes or edits another w
   recorded)" where it has no route); Progress first check, Next and How the check works; Body
   summary rows; Recovery reason; a notification appears on the Notifications page, the bell dot
   clears, and tapping a row opens it; What changed from Trends.
+- [ ] 3k. Build 96 (`0.9.63+96`, algorithm 97, schema 50): all 29 Build 95 audit repairs
+  are implemented, commits `c52cedbd` and `88209956`; `build-95-repairs.md` owns the complete
+  scope and 73 passing focused checks. Akshat approved the visual checks and authorized Codex
+  to integrate, privacy-review, push, run full GitHub checks, build and deliver the IPA.
+  Cloud checks and artifact delivery are pending; phone checks include the report's nested
+  workout, Food, Body, notification, travel, permission, restore and reset flows.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
@@ -546,8 +552,9 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   `build-95-repairs.md` owns the checklist and handoff: 73 focused synthetic checks pass,
   including full-scroll normal/enlarged Body and Notifications captures; focused analysis has no
   errors/warnings. The backend commit is `c52cedbd`, followed by the UI/lifecycle regression
-  commit at the repair branch tip. Existing checkouts remain untouched. Claude integration,
-  privacy review, full cloud checks, a new IPA and phone acceptance remain open. Nothing pushed.
+  commit `88209956`. Existing checkouts remain untouched. Akshat approved the visual checks and
+  assigned Codex integration and release on `build-96` (`0.9.63+96`). Full cloud checks, a new IPA
+  and phone acceptance remain open; release evidence is tracked in `setup.md`.
   Independent calorie/recovery review is complete in
   `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.
   Two synthetic reproductions remain open: legacy stored workout kcal includes resting energy

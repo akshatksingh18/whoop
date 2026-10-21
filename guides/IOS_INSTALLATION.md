@@ -4,8 +4,9 @@
 release/AOT iPhone IPA for direct Sideloadly installation. Akshat reports Build 91 installed; the
 Build 95 candidate in `../../final-ipas/whoop/testing/` is not yet installed. Build `0.9.37`/`70`
 remains accepted recovery in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`.
-`../setup.md` owns source/hash/workflow evidence and `../todo.md` the phone checks. This state
-changes when Akshat reports the candidate installed and checked.
+`../setup.md` owns source/hash/workflow evidence and `../todo.md` the phone checks. Build 96 (`0.9.63+96`) preparation now includes the audit repairs, with full cloud checks and IPA
+delivery pending. This state changes when the new artifact is validated and when Akshat reports
+the candidate installed and checked.
 
 The app reads the iPhone's own pedometer when **This phone → Steps** is on and does not use Apple
 Health. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID manual refresh

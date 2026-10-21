@@ -7,9 +7,11 @@ restoration and reconnection path on the personal iPhone build.
 
 **Current verification:** Build 91 is the last build Akshat reported installed. Build 95
 (`f5b270f3`) is the existing testing candidate, with phone acceptance still open. All 29
-confirmed Build 95 audit findings are implemented and locally checked on isolated `build-95-codex-fixes`;
+confirmed Build 95 audit findings are implemented and locally checked, and integrated into
+Build 96 preparation on `build-96`;
 [build-95-repairs.md](build-95-repairs.md) owns their current status, regressions and
-integration/device gates. These edits are not in the existing IPA. Build 70 remains accepted
+release/device gates. Akshat approved the visual checks and authorized Codex to deliver
+Build 96; cloud checks and a new IPA are pending. These edits are not in the existing Build 95 IPA. Build 70 remains accepted
 recovery; `todo.md` owns acceptance and `setup.md` owns artifact evidence. The background-sync
 section below retains the source/protocol evidence and physical verification risks.
 

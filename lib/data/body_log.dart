@@ -290,6 +290,20 @@ class BodyLogDb {
     ];
   }
 
+  /// Actual latest timed reading, separate from the first-reading daily view.
+  static Future<BodyWeightReading?> latestReading({DateTime? through}) async {
+    final now = through ?? DateTime.now();
+    final db = await LocalDb.instance;
+    final rows = await db.query(
+      'body_weight_reading',
+      where: 'date <= ? AND (at_ts <= ? OR at_ts IS NULL)',
+      whereArgs: [todayLabel(now), now.millisecondsSinceEpoch ~/ 1000],
+      orderBy: 'date DESC, at_ts DESC, id DESC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _reading(rows.single);
+  }
+
   /// Build 90 (C3, Akshat): THE DAY'S WEIGHT IS ITS FIRST READING — taken on
   /// waking, before food or water. Every weigh-in is kept in
   /// `body_weight_reading`; `body_weight` stays the one-row-per-day value every
@@ -502,7 +516,7 @@ class BodyLogDb {
     return [
       for (final r in await db.query(
         'body_measure',
-        orderBy: 'date DESC, recorded_at DESC',
+        orderBy: 'date DESC, recorded_at DESC, id DESC',
       ))
         _m(r),
     ];

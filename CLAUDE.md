@@ -24,9 +24,12 @@ runs and walks, adds a Notifications page and builds Akshat's approved Progress,
 layouts. Build 91 is the last build Akshat reported installed; Builds 92–94 were never installed.
 `setup.md` owns artifact and CI evidence, `todo.md` the phone checks; phone acceptance remains open,
 and changes when Akshat reports the candidate installed and checked. Earlier builds' notes are in
-`build-history.md`.
+`build-history.md`. Unreleased audit repairs are isolated on `build-95-codex-fixes`;
+`build-95-repairs.md` owns their scope, test evidence and integration gate. The existing Build 95
+IPA does not contain those repairs.
 
 ## Files
+- `build-95-repairs.md` — approved 29-finding repair scope, current implementation/check status and integration/device gates; read before continuing the repair branch.
 - `build-90-audit.md` — current Build 89 all-tab visual/source audit, targeted synthetic evidence,
   reliability findings, complete app-wide repair/verification/enhancement backlog,
   feature-preserving Progress redesign and next-build options. Its worklist is Build 90's

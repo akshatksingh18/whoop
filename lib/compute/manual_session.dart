@@ -66,14 +66,15 @@ enum ManualWindowError {
 extension ManualWindowErrorMessage on ManualWindowError {
   /// User-facing copy. Plain, specific, no jargon.
   String get message => switch (this) {
-        ManualWindowError.endNotAfterStart =>
-          'The end time has to be after the start time.',
-        ManualWindowError.tooShort => 'A workout has to be at least a minute.',
-        ManualWindowError.tooLong => "That's longer than 24 hours — check the date.",
-        ManualWindowError.inFuture => "That window hasn't happened yet.",
-        ManualWindowError.overlapsExisting =>
-          'That overlaps a workout already in your log.',
-      };
+    ManualWindowError.endNotAfterStart =>
+      'The end time has to be after the start time.',
+    ManualWindowError.tooShort => 'A workout has to be at least a minute.',
+    ManualWindowError.tooLong =>
+      "That's longer than 24 hours — check the date.",
+    ManualWindowError.inFuture => "That window hasn't happened yet.",
+    ManualWindowError.overlapsExisting =>
+      'That overlaps a workout already in your log.',
+  };
 }
 
 /// Thrown by the repo when a proposed window fails [validateManualWindow].
@@ -216,7 +217,8 @@ List<double> zoneMinutesFor(
   double zoneMaxHr, {
   ana.HeartRateZoneSet? zoneSet,
 }) {
-  final set = zoneSet ??
+  final set =
+      zoneSet ??
       (zoneMaxHr > 0 ? ana.HeartRateZones.zonesFromMaxHr(zoneMaxHr) : null);
   if (hrBpm.isEmpty || set == null) return const [];
   final secs = List<int>.filled(5, 0);
@@ -259,7 +261,10 @@ double? strainFromPerMinuteHr(
   required double? hrMax,
 }) {
   final sex = profile.sex?.toLowerCase();
-  if (perMinuteHr.isEmpty || hrMax == null || restingHr == null || sex == null) {
+  if (perMinuteHr.isEmpty ||
+      hrMax == null ||
+      restingHr == null ||
+      sex == null) {
     return null;
   }
   final trimp = ana.banisterTrimp(
@@ -361,11 +366,16 @@ ManualSessionStats computeManualSessionStats({
   // window is pruned there is nothing left to correct it from. Smoothing here
   // means the stored value is the same quantity the re-score and the Heart page
   // report, rather than three producers agreeing by convention.
-  final peak = smoothedMaxHr(worn, age: age?.round()) ??
+  final peak =
+      smoothedMaxHr(worn, age: age?.round()) ??
       worn.reduce((a, b) => a > b ? a : b);
 
-  final strain = strainFromPerMinuteHr(perMin,
-      profile: profile, restingHr: restingHr, hrMax: hrMax);
+  final strain = strainFromPerMinuteHr(
+    perMin,
+    profile: profile,
+    restingHr: restingHr,
+    hrMax: hrMax,
+  );
 
   // The mean is rounded exactly as `avg_hr` is stored, because the screens
   // recompute from that column: same inputs, same function, same number.
@@ -425,6 +435,7 @@ Map<String, dynamic> buildManualSessionRow({
     'id': id,
     'start_ts': startSec,
     'end_ts': endSec,
+    'end_ts_fabricated': 0,
     'type': type,
     'status': 'done',
     'calories': stats.calories,
@@ -449,8 +460,7 @@ Map<String, dynamic> buildManualSessionRow({
     'private': (existing?['private'] as num?)?.toInt() ?? 0,
     'rpe': existing?['rpe'],
     'device_family': existing?['device_family'],
-    'created_at':
-        (existing?['created_at'] as num?)?.toInt() ?? createdAtMs,
+    'created_at': (existing?['created_at'] as num?)?.toInt() ?? createdAtMs,
   };
 }
 

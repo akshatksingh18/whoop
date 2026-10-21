@@ -18,6 +18,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../data/day_label.dart';
+import 'tap_router.dart';
 
 /// One notification as it was shown.
 class LoggedNotification {
@@ -72,9 +74,9 @@ class LoggedNotification {
       key: key,
       at: DateTime.fromMillisecondsSinceEpoch(at),
       title: title,
-      body: (j['b'] as String?) ?? '',
-      category: (j['c'] as String?) ?? 'reminders',
-      route: j['r'] as String?,
+      body: j['b'] is String ? j['b'] as String : '',
+      category: j['c'] is String ? j['c'] as String : 'reminders',
+      route: j['r'] is String ? j['r'] as String : null,
       read: j['read'] == true,
     );
   }
@@ -130,16 +132,35 @@ class NotificationLog {
       for (final e in all)
         if (e.at.isAfter(cutoff)) e,
     ]..sort((a, b) => b.at.compareTo(a.at));
-    await p.setString(
-      _kLog,
-      jsonEncode([for (final e in kept) e.toJson()]),
-    );
+    final encoded = jsonEncode([for (final e in kept) _dated(e).toJson()]);
+    final old = p.getString(_kLog);
+    final changed = old != encoded && (old != null || kept.isNotEmpty);
+    if (changed && !await p.setString(_kLog, encoded)) {
+      throw StateError('Notification history could not save');
+    }
     unread.value = kept.where((e) => !e.read).length;
-    revision.value++;
+    if (changed) revision.value++;
+  }
+
+  LoggedNotification _dated(LoggedNotification e) {
+    if (e.route == null || routePath(e.route!) != '/food') return e;
+    return LoggedNotification(
+      key: e.key,
+      at: e.at,
+      title: e.title,
+      body: e.body,
+      category: e.category,
+      read: e.read,
+      route: datedRoute(
+        kRouteFoodDay,
+        dayLabelAtSec(e.at.millisecondsSinceEpoch ~/ 1000),
+      ),
+    );
   }
 
   /// Newest first, the last 90 days.
   Future<List<LoggedNotification>> entries() => _locked(() async {
+    await _reconcile();
     final p = await SharedPreferences.getInstance();
     final all = await _read(p);
     final cutoff = clock().subtract(keep);
@@ -147,8 +168,8 @@ class NotificationLog {
       for (final e in all)
         if (e.at.isAfter(cutoff)) e,
     ]..sort((a, b) => b.at.compareTo(a.at));
-    unread.value = out.where((e) => !e.read).length;
-    return out;
+    await _write(p, out);
+    return [for (final e in out) _dated(e)];
   });
 
   /// Record a notification shown now.
@@ -201,10 +222,37 @@ class NotificationLog {
   ) {
     final out = <DateTime>[];
     var t = first;
+    if (repeat != PlanRepeat.once && t.isBefore(after)) {
+      final days = DateTime.utc(
+        after.year,
+        after.month,
+        after.day,
+      ).difference(DateTime.utc(first.year, first.month, first.day)).inDays;
+      final jump = repeat == PlanRepeat.weekly ? (days ~/ 7) * 7 : days;
+      t = DateTime(
+        first.year,
+        first.month,
+        first.day + jump,
+        first.hour,
+        first.minute,
+      );
+    }
     // Calendar steps, not fixed hours, so a DST change keeps the wall time.
     DateTime step(DateTime d) => switch (repeat) {
-      PlanRepeat.daily => DateTime(d.year, d.month, d.day + 1, d.hour, d.minute),
-      PlanRepeat.weekly => DateTime(d.year, d.month, d.day + 7, d.hour, d.minute),
+      PlanRepeat.daily => DateTime(
+        d.year,
+        d.month,
+        d.day + 1,
+        d.hour,
+        d.minute,
+      ),
+      PlanRepeat.weekly => DateTime(
+        d.year,
+        d.month,
+        d.day + 7,
+        d.hour,
+        d.minute,
+      ),
       PlanRepeat.once => d,
     };
     for (var i = 0; i < 400 && !t.isAfter(upTo); i++) {
@@ -223,11 +271,10 @@ class NotificationLog {
     try {
       final p = await SharedPreferences.getInstance();
       final plans = await _plans(p);
-      if (plans.isEmpty) return;
       final now = clock();
       final floor = now.subtract(keep);
       final all = await _read(p);
-      var changed = false;
+      final keys = {for (final e in all) e.key};
       for (final MapEntry(key: id, value: plan) in plans.entries.toList()) {
         if (only != null && id != '$only') continue;
         final first = DateTime.fromMillisecondsSinceEpoch(plan['first'] as int);
@@ -237,9 +284,11 @@ class NotificationLog {
         final repeat = PlanRepeat.values.byName(plan['repeat'] as String);
         final after = done.isBefore(floor) ? floor : done;
         for (final t in occurrences(first, repeat, after, now)) {
+          final key = 's$id-${t.millisecondsSinceEpoch}';
+          if (!keys.add(key)) continue;
           all.add(
             LoggedNotification(
-              key: 's$id-${t.millisecondsSinceEpoch}',
+              key: key,
               at: t,
               title: plan['title'] as String,
               body: (plan['body'] as String?) ?? '',
@@ -247,7 +296,6 @@ class NotificationLog {
               route: plan['route'] as String?,
             ),
           );
-          changed = true;
         }
         if (repeat == PlanRepeat.once && !first.isAfter(now)) {
           plans.remove(id);
@@ -255,8 +303,12 @@ class NotificationLog {
           plans[id] = {...plan, 'done': now.millisecondsSinceEpoch};
         }
       }
-      await p.setString(_kPlans, jsonEncode(plans));
-      if (changed) await _write(p, all);
+      // History must commit before the processed watermark. A failed watermark
+      // write can replay safely because occurrence keys are stable.
+      await _write(p, all);
+      if (!await p.setString(_kPlans, jsonEncode(plans))) {
+        throw StateError('Notification schedule history could not save');
+      }
     } catch (_) {}
   }
 
@@ -303,14 +355,12 @@ class NotificationLog {
   // ── read state ────────────────────────────────────────────────────────────
 
   Future<void> markRead(String key) => _locked(() async {
-    try {
-      final p = await SharedPreferences.getInstance();
-      final all = await _read(p);
-      final i = all.indexWhere((e) => e.key == key && !e.read);
-      if (i < 0) return;
-      all[i] = all[i].asRead();
-      await _write(p, all);
-    } catch (_) {}
+    final p = await SharedPreferences.getInstance();
+    final all = await _read(p);
+    final i = all.indexWhere((e) => e.key == key && !e.read);
+    if (i < 0) return;
+    all[i] = all[i].asRead();
+    await _write(p, all);
   });
 
   /// A notification was opened from the phone's own list: its newest unread
@@ -319,8 +369,16 @@ class NotificationLog {
     try {
       await _reconcile();
       final p = await SharedPreferences.getInstance();
-      final all = await _read(p)..sort((a, b) => b.at.compareTo(a.at));
-      final i = all.indexWhere((e) => e.route == route && !e.read);
+      final all = await _read(p)
+        ..sort((a, b) => b.at.compareTo(a.at));
+      final i = all.indexWhere(
+        (e) =>
+            !e.read &&
+            (e.route == route ||
+                (routePath(route) == '/food' &&
+                    e.route != null &&
+                    routePath(e.route!) == kRouteFoodDay)),
+      );
       if (i < 0) return;
       all[i] = all[i].asRead();
       await _write(p, all);
@@ -328,11 +386,9 @@ class NotificationLog {
   });
 
   Future<void> markAllRead() => _locked(() async {
-    try {
-      final p = await SharedPreferences.getInstance();
-      final all = await _read(p);
-      await _write(p, [for (final e in all) e.read ? e : e.asRead()]);
-    } catch (_) {}
+    final p = await SharedPreferences.getInstance();
+    final all = await _read(p);
+    await _write(p, [for (final e in all) e.read ? e : e.asRead()]);
   });
 
   /// "Delete everything": the log and the plans go with the data.

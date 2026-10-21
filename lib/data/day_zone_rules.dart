@@ -261,6 +261,37 @@ class DayClock {
   }
 
   static int offsetAt(int second) => localAt(second).timeZoneOffset.inSeconds;
+
+  /// Rebuild a wall-clock choice in its recorded zone, not today's OS zone.
+  static DateTime wallTime(
+    DateTime reference,
+    int year,
+    int month,
+    int day,
+    int hour,
+    int minute,
+  ) {
+    final zone = reference is tz.TZDateTime ? reference.location : null;
+    return zone == null
+        ? DateTime(year, month, day, hour, minute)
+        : tz.TZDateTime(zone, year, month, day, hour, minute);
+  }
+
+  static DateTime onDate(String date, int hour, int minute) {
+    final d = DateTime.parse(date);
+    final day = forDate(date);
+    return day == null
+        ? DateTime(d.year, d.month, d.day, hour, minute)
+        : tz.TZDateTime(
+            dayZoneLocation(day.zoneId),
+            d.year,
+            d.month,
+            d.day,
+            hour,
+            minute,
+          );
+  }
+
   static bool spansZoneChange(int start, int end) => _changes.any(
     (c) => c.atSec > start && c.atSec < end && zoneAt(c.atSec - 1) != c.zoneId,
   );

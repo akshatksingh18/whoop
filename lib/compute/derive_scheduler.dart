@@ -81,6 +81,22 @@ class DeriveScheduler {
   // derives DO run; their cadence is capped by DeriveDebouncer's background
   // tier, not blocked here.) Held exactly like _offloadActive.
   bool _background = false;
+  bool _suspended = false;
+
+  /// A destructive reset must hold every platform, including Android.
+  void suspendForReset(bool suspended) {
+    _suspended = suspended;
+    if (suspended) {
+      _timer?.cancel();
+      _timer = null;
+      DeriveStop.request('reset');
+    } else {
+      _pendingLight = false;
+      _pendingHeavy = false;
+      _arm();
+    }
+  }
+
   bool _running = false;
   bool _pendingLight = false;
   bool _pendingHeavy = false;
@@ -99,14 +115,14 @@ class DeriveScheduler {
   bool get pendingHeavy => _pendingHeavy;
 
   Map<String, dynamic> snapshot() => {
-        'offload_active': _offloadActive,
-        'workout_active': _workoutActive,
-        'workout_hold_expired': _workoutHoldExpired,
-        'background': _background,
-        'running': _running,
-        'pending_light': _pendingLight,
-        'pending_heavy': _pendingHeavy,
-      };
+    'offload_active': _offloadActive,
+    'workout_active': _workoutActive,
+    'workout_hold_expired': _workoutHoldExpired,
+    'background': _background,
+    'running': _running,
+    'pending_light': _pendingLight,
+    'pending_heavy': _pendingHeavy,
+  };
 
   Future<void> markStoredData() =>
       _enqueue(type: 'derive_light', reason: 'stored_data');
@@ -126,8 +142,10 @@ class DeriveScheduler {
       _workoutCapTimer?.cancel();
       _workoutCapTimer = Timer(workoutHoldCap, () {
         _workoutHoldExpired = true;
-        log('[derive-scheduler] workout still live past the hold cap — '
-            'treating it as forgotten; derive may run');
+        log(
+          '[derive-scheduler] workout still live past the hold cap — '
+          'treating it as forgotten; derive may run',
+        );
         onChanged();
         _arm();
       });
@@ -191,17 +209,16 @@ class DeriveScheduler {
     _workoutCapTimer = null;
   }
 
-  Future<void> _enqueue({
-    required String type,
-    required String reason,
-  }) async {
+  Future<void> _enqueue({required String type, required String reason}) async {
+    if (_suspended) return;
     await LocalDb.enqueueDeriveJob(type: type, reason: reason);
     await _refreshSnapshot();
     _arm();
   }
 
   void _arm() {
-    if (_running || _offloadActive || _background || _workoutHeld) return;
+    if (_suspended || _running || _offloadActive || _background || _workoutHeld)
+      return;
     if (!_pendingLight && !_pendingHeavy) {
       unawaited(_refreshSnapshot());
       return;
@@ -214,7 +231,8 @@ class DeriveScheduler {
   }
 
   Future<void> _drain() async {
-    if (_running || _offloadActive || _background || _workoutHeld) return;
+    if (_suspended || _running || _offloadActive || _background || _workoutHeld)
+      return;
     _timer?.cancel();
     _timer = null;
     final job = await LocalDb.takeNextComputeJob();
@@ -228,7 +246,7 @@ class DeriveScheduler {
     // land) inside it — at which point running the pass is exactly what the
     // gate exists to prevent. The job is already marked `running` by
     // takeNextComputeJob, so hand it back rather than leaving it claimed.
-    if (_offloadActive || _background || _workoutHeld) {
+    if (_suspended || _offloadActive || _background || _workoutHeld) {
       if (id != null && id.isNotEmpty) {
         await LocalDb.requeueComputeJob(id);
       }
@@ -238,7 +256,9 @@ class DeriveScheduler {
     final kind = _parseKind(job['type']?.toString());
     _running = true;
     await _refreshSnapshot();
-    log('[derive-scheduler] running ${kind == DeriveJobKind.heavy ? "heavy" : "light"} pass');
+    log(
+      '[derive-scheduler] running ${kind == DeriveJobKind.heavy ? "heavy" : "light"} pass',
+    );
     try {
       await run(kind: kind);
       if (id != null && id.isNotEmpty) {
@@ -289,12 +309,10 @@ class DeriveScheduler {
     try {
       final jobs = await LocalDb.computeJobs(state: 'queued', limit: 50);
       _pendingLight = jobs.any(
-        (job) =>
-            job['type']?.toString() == 'derive_light',
+        (job) => job['type']?.toString() == 'derive_light',
       );
       _pendingHeavy = jobs.any(
-        (job) =>
-            job['type']?.toString() == 'derive_heavy',
+        (job) => job['type']?.toString() == 'derive_heavy',
       );
     } finally {
       onChanged();

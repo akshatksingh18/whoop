@@ -131,12 +131,14 @@ String backupFileName(DateTime when) {
 ///     deletes them once an encrypted backup has been published.
 ///   • a `-N` collision suffix — [_uniqueDestination] emits these when two runs
 ///     land in the same second.
-final _backupNamePattern =
-    RegExp(r'^(?:whoop|openstrap)-(\d{8}-\d{6})(-\d+)?(\.db(\.gz)?|\.osbk)$');
+final _backupNamePattern = RegExp(
+  r'^(?:whoop|openstrap)-(\d{8}-\d{6})(-\d+)?(\.db(\.gz)?|\.osbk)$',
+);
 
 /// The plaintext shapes older builds wrote.
-final _plaintextBackupPattern =
-    RegExp(r'^(?:whoop|openstrap)-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
+final _plaintextBackupPattern = RegExp(
+  r'^(?:whoop|openstrap)-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$',
+);
 
 /// Appended while a backup is still being written. Chosen so
 /// [_backupNamePattern] does NOT match it: a partial file must be invisible to
@@ -192,7 +194,10 @@ Future<void> pruneStagingFiles(Directory dir) async {
   // same moment rank by time, never by prefix.
   final stamp = m.group(1)!;
   final collision = m.group(2);
-  return (stamp, collision == null ? 1 : (int.tryParse(collision.substring(1)) ?? 1));
+  return (
+    stamp,
+    collision == null ? 1 : (int.tryParse(collision.substring(1)) ?? 1),
+  );
 }
 
 /// Existing backups, newest first.
@@ -270,6 +275,22 @@ Future<Directory> backupDirectory() async {
 /// it due, and started another export. A resume can fire more than once, and a
 /// cadence change lands on the same path.
 Future<void> _tail = Future<void>.value();
+int _generation = 0;
+bool _resetting = false;
+
+/// Invalidates publications already in flight, drains them, then keeps all
+/// backup entry points closed until deletion has finished.
+Future<T> withoutBackupsDuringReset<T>(Future<T> Function() reset) async {
+  if (_resetting) throw StateError('Reset is already running');
+  _resetting = true;
+  _generation++;
+  try {
+    await _tail;
+    return await reset();
+  } finally {
+    _resetting = false;
+  }
+}
 
 Future<T> _serialize<T>(Future<T> Function() body) {
   final result = _tail.then((_) => body());
@@ -295,12 +316,14 @@ Future<BackupOutcome> runBackup({
   DateTime? now,
   Future<String> Function()? exportSnapshot,
   int iterations = kDefaultIterations,
-}) =>
-    _serialize(() => _runBackup(
-        passphrase: passphrase,
-        now: now,
-        exportSnapshot: exportSnapshot,
-        iterations: iterations));
+}) => _serialize(
+  () => _runBackup(
+    passphrase: passphrase,
+    now: now,
+    exportSnapshot: exportSnapshot,
+    iterations: iterations,
+  ),
+);
 
 Future<BackupOutcome> _runBackup({
   required Future<String?> Function() passphrase,
@@ -310,12 +333,16 @@ Future<BackupOutcome> _runBackup({
   Future<String> Function()? exportSnapshot,
   int iterations = kDefaultIterations,
 }) async {
+  if (_resetting) return const BackupOutcome(skipped: true);
+  final generation = _generation;
   final when = now ?? DateTime.now();
   try {
     final pass = await passphrase();
     if (pass == null || pass.isEmpty) {
       return const BackupOutcome(
-          error: kBackupNeedsPassphrase, needsPassphrase: true);
+        error: kBackupNeedsPassphrase,
+        needsPassphrase: true,
+      );
     }
     final dir = await backupDirectory();
     // Destination FIRST. Exporting before checking meant a failure here left a
@@ -338,8 +365,13 @@ Future<BackupOutcome> _runBackup({
       final stagingPath = staging.path;
       // Nothing in here touches a plugin, which is what makes the worker
       // legal; minutes of pure-Dart crypto on the UI isolate is a frozen app.
-      await Isolate.run(() =>
-          sealAndVerifyBackup(snapshot, stagingPath, pass, iterations));
+      await Isolate.run(
+        () => sealAndVerifyBackup(snapshot, stagingPath, pass, iterations),
+      );
+      if (_resetting || generation != _generation) {
+        if (await staging.exists()) await staging.delete();
+        return const BackupOutcome(skipped: true);
+      }
       await staging.rename(dest.path);
     } catch (_) {
       try {
@@ -367,23 +399,31 @@ Future<BackupOutcome> _runBackup({
 ///
 /// Every intermediate lives beside the snapshot (temp) and is deleted whatever
 /// happens. Throws on any failure; the caller discards the staging file.
-Future<void> sealAndVerifyBackup(String snapshotPath, String stagingPath,
-    String passphrase, int iterations) async {
+Future<void> sealAndVerifyBackup(
+  String snapshotPath,
+  String stagingPath,
+  String passphrase,
+  int iterations,
+) async {
   final gz = File('$snapshotPath.gz');
   final check = File('$snapshotPath.verify');
   try {
-    await File(snapshotPath)
-        .openRead()
-        .transform(gzip.encoder)
-        .pipe(gz.openWrite());
-    await encryptBackupFile(gz, File(stagingPath), passphrase,
-        iterations: iterations);
+    await File(
+      snapshotPath,
+    ).openRead().transform(gzip.encoder).pipe(gz.openWrite());
+    await encryptBackupFile(
+      gz,
+      File(stagingPath),
+      passphrase,
+      iterations: iterations,
+    );
     // The GCM tag already proves integrity on a good decrypt; comparing the
     // bytes as well catches a sealing bug that authenticates the wrong input.
     await decryptBackupFile(File(stagingPath), check, passphrase);
     if (!await _sameContent(gz, check)) {
       throw const BackupFormatException(
-          'the sealed backup did not decrypt back to its own snapshot');
+        'the sealed backup did not decrypt back to its own snapshot',
+      );
     }
   } finally {
     for (final f in [gz, check]) {
@@ -484,6 +524,7 @@ Future<BackupOutcome> runBackupIfDue({
   Future<String> Function()? exportSnapshot,
   int iterations = kDefaultIterations,
 }) => _serialize(() async {
+  if (_resetting) return const BackupOutcome(skipped: true);
   final when = now ?? DateTime.now();
   // Cadence is read here too, for the same reason as the timestamp: a call
   // that waits behind an export would otherwise act on the setting as it was
@@ -494,10 +535,11 @@ Future<BackupOutcome> runBackupIfDue({
     return const BackupOutcome(skipped: true);
   }
   final outcome = await _runBackup(
-      passphrase: passphrase,
-      now: when,
-      exportSnapshot: exportSnapshot,
-      iterations: iterations);
+    passphrase: passphrase,
+    now: when,
+    exportSnapshot: exportSnapshot,
+    iterations: iterations,
+  );
   if (outcome.succeeded) await markRun(when);
   return outcome;
 });

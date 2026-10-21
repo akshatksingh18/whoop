@@ -120,10 +120,22 @@ List<DatedValue> weightSeries(List<BodyWeightRow> all, {String unit = 'kg'}) =>
         (date: w.date, value: unit == 'lb' ? w.kg * kLbPerKg : w.kg),
     ];
 
-List<DatedValue> siteSeries(List<BodyMeasure> all, BodySite site) => [
-  for (final m in all)
-    if (m.value(site) != null) (date: m.date, value: m.value(site)!),
-]..sort((a, b) => a.date.compareTo(b.date));
+/// Tape uses the latest timed session for each site/day, consistently across
+/// charts and reviews. Weight's separate daily-first policy is unchanged.
+List<DatedValue> siteSeries(List<BodyMeasure> all, BodySite site) {
+  final ordered = [...all]
+    ..sort((a, b) {
+      final date = a.date.compareTo(b.date);
+      if (date != 0) return date;
+      final at = a.recordedAt.compareTo(b.recordedAt);
+      return at == 0 ? a.id.compareTo(b.id) : at;
+    });
+  final byDay = <String, double>{};
+  for (final m in ordered) {
+    if (m.value(site) case final value?) byDay[m.date] = value;
+  }
+  return [for (final e in byDay.entries) (date: e.key, value: e.value)];
+}
 
 /// B88-08: the reading a period's change starts from — the one nearest
 /// [start] within [days] calendar days either side, or null. A tape or waist

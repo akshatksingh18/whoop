@@ -2182,27 +2182,29 @@ class LocalRepositoryImpl extends LocalRepository {
   Map<String, dynamic> _workoutOf(Map<String, dynamic> r) {
     final zoneMin = _decodeList(r['zone_min_json']);
     final type = (r['type'] as String?) ?? 'other';
+    final unknown = r['end_ts_fabricated'] == 1;
     return {
       'id': r['id'],
       'start_ts': (r['start_ts'] as num?)?.toInt(),
       'end_ts': (r['end_ts'] as num?)?.toInt(),
+      'end_ts_fabricated': r['end_ts_fabricated'] == 1,
       'status': r['status'],
       'type': type,
       'title': type,
-      'strain': (r['strain'] as num?)?.toDouble(),
-      'calories': (r['calories'] as num?)?.round(),
-      'duration_min': (r['duration_min'] as num?)?.toInt(),
-      'steps': (r['steps'] as num?)?.toInt(),
-      'max_hr': (r['max_hr'] as num?)?.toInt(),
+      'strain': unknown ? null : (r['strain'] as num?)?.toDouble(),
+      'calories': unknown ? null : (r['calories'] as num?)?.round(),
+      'duration_min': unknown ? null : (r['duration_min'] as num?)?.toInt(),
+      'steps': unknown ? null : (r['steps'] as num?)?.toInt(),
+      'max_hr': unknown ? null : (r['max_hr'] as num?)?.toInt(),
       // Mean HR over the whole session window, banked at score time so it
       // outlives the 3-day raw retention. `getWorkouts`/`getWorkout` still
       // recompute from the substrate while it exists and overwrite this; every
       // other caller (getSessions, getDayTimeline) now gets a REAL average
       // instead of nothing.
-      'avg_hr': (r['avg_hr'] as num?)?.toInt(),
+      'avg_hr': unknown ? null : (r['avg_hr'] as num?)?.toInt(),
       // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
-      'hrr60': (r['hrr_bpm'] as num?)?.round(),
-      'zone_min': zoneMin,
+      'hrr60': unknown ? null : (r['hrr_bpm'] as num?)?.round(),
+      'zone_min': unknown ? const <num>[] : zoneMin,
       // manual / auto — the detail screen shows the AUTO tag + correct-type CTA.
       'source': r['source'],
       // "Keep this one off the shared surfaces." NOT NULL DEFAULT 0 in the
@@ -2229,7 +2231,8 @@ class LocalRepositoryImpl extends LocalRepository {
     final fromTs = _rangeFromSec(range, now);
     final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
     final workouts = [
-      for (final r in rows) _workoutOf(await _movementScoredRow(r)),
+      for (final r in rows)
+        _workoutOf(await _movementScoredRow(await _boundStoredSessionTrace(r))),
     ];
 
     // Per-session HR aggregates from the 1 Hz substrate (one indexed join).
@@ -2251,6 +2254,7 @@ class LocalRepositoryImpl extends LocalRepository {
         nowSec,
       );
       for (final w in workouts) {
+        if (w['end_ts_fabricated'] == true) continue;
         final s = stats[w['id']];
         var raw = rawBySession[w['id']];
         var sessionAge = age;
@@ -2295,7 +2299,12 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     // Summary excludes live sessions (no final stats yet).
-    final done = workouts.where((w) => w['status'] != 'live');
+    final done = workouts.where(
+      (w) =>
+          w['status'] != 'live' &&
+          w['private'] != true &&
+          w['end_ts_fabricated'] != true,
+    );
     var count = 0, totalMin = 0, totalCal = 0;
     final zoneSum = <num>[];
     for (final w in done) {
@@ -2352,6 +2361,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // list and the share card see the corrected value too.
     final rescored = await _rescoreSessionFromSubstrate(stored);
     final w = _workoutOf(rescored.row);
+    if (w['end_ts_fabricated'] == true) return w;
     // TS-04 — whether `zone_min` below and the `zone_bands` added further down
     // describe the SAME zone set. They are recomputed from the current anchors
     // while the minutes can be a kept live split binned against an older
@@ -2959,6 +2969,55 @@ class LocalRepositoryImpl extends LocalRepository {
   /// did not run the reconcile at all (no substrate, unfinished, row moved):
   /// those serve the FROZEN trace, whose bands were banked beside the same
   /// minutes, so there is nothing for the caller to correct for.
+  /// Repair the old last-set bug on read as well as preventing new writes.
+  /// A trace extending past the saved window proves its aggregates included
+  /// discarded time. Keep complete pre-end minutes; re-score only from real
+  /// bounded raw data when still available, otherwise leave stats absent.
+  Future<Map<String, dynamic>> _boundStoredSessionTrace(
+    Map<String, dynamic> row,
+  ) async {
+    if (row['status'] != 'done' ||
+        row['end_ts'] == null ||
+        row['end_ts_fabricated'] == 1)
+      return row;
+    final clock = _clockFor(row);
+    final hr = clock.results['hr'];
+    final seconds = clock.activeSeconds();
+    if (hr is! List || hr.length <= seconds ~/ 60 + 1) return row;
+    final kept = hr.take(seconds ~/ 60).toList();
+    clock.results['hr'] = kept;
+    clock.results['zones'] = <num>[];
+    await clock.persist();
+    final clean = <String, dynamic>{
+      'strain': null,
+      'calories': null,
+      'calories_basis': null,
+      'avg_hr': null,
+      'max_hr': null,
+      'hrr_bpm': null,
+      'steps': null,
+      'cadence_spm': null,
+      'zone_min_json': '[]',
+      'trace_json': _encodeTrace({
+        'hr': [
+          for (var i = 0; i < kept.length; i++)
+            if (kept[i] is num)
+              {'t': (row['start_ts'] as num).toInt() + i * 60, 'v': kept[i]},
+        ],
+      }),
+    };
+    final changed = await (await LocalDb.instance).update(
+      'sessions',
+      clean,
+      where: 'id = ? AND end_ts = ?',
+      whereArgs: [row['id'], row['end_ts']],
+    );
+    if (changed > 0) onSessionChanged?.call();
+    return changed > 0
+        ? {...row, ...clean}
+        : await LocalDb.session(row['id'] as String) ?? row;
+  }
+
   WorkoutClock _clockFor(Map<String, dynamic> row) => WorkoutClock.read(
     row['id'] as String,
     DateTime.fromMillisecondsSinceEpoch(
@@ -3051,11 +3110,13 @@ class LocalRepositoryImpl extends LocalRepository {
     })
   >
   _rescoreSessionFromSubstrate(Map<String, dynamic> row) async {
+    row = await _boundStoredSessionTrace(row);
     final id = row['id'];
     final startTs = (row['start_ts'] as num?)?.toInt();
     final endTs = (row['end_ts'] as num?)?.toInt();
     // A live row is still accumulating; scoring it here would race the tally.
     if (id is! String ||
+        row['end_ts_fabricated'] == 1 ||
         startTs == null ||
         endTs == null ||
         endTs <= startTs ||

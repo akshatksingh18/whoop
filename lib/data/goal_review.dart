@@ -541,21 +541,30 @@ List<GoalNeed> goalNeeds(
     from: dayLabelOf(DateTime(c.year, c.month, c.day - 7)),
     to: dayLabelOf(DateTime(c.year, c.month, c.day - 1)),
   );
-  final weeksOk = r.weeks.every(
+  final eligibleWeights = weightSeries([
+    for (final x in weights)
+      if (x.date.compareTo(today) <= 0) x,
+  ], unit: 'kg');
+  final eligibleFood = [
+    for (final x in food)
+      if (x.date.compareTo(today) <= 0) x,
+  ];
+  final checkWeeks = [
+    for (var i = 1; i <= 2 * n; i++)
+      (
+        weighIns: weightWindow(eligibleWeights, _week(c, i)).count,
+        foodDays: foodWindow(eligibleFood, _week(c, i)).kcalDays,
+      ),
+  ];
+  final weeksOk = checkWeeks.every(
     (x) => x.weighIns >= kReviewWeekMinimum && x.foodDays >= kReviewWeekMinimum,
   );
-  final ev = thisWeekEvidence(today: today, weights: weights, food: food);
   final out = <GoalNeed>[
     (
       kind: GoalNeedKind.evidence,
       state: weeksOk
           ? NeedState.met
-          : ev.weighIns + ev.foodDays > 0 ||
-                r.weeks.any(
-                  (x) =>
-                      x.weighIns >= kReviewWeekMinimum &&
-                      x.foodDays >= kReviewWeekMinimum,
-                )
+          : checkWeeks.any((x) => x.weighIns + x.foodDays > 0)
           ? NeedState.partly
           : NeedState.none,
       title: 'Weigh-ins and food, every week',

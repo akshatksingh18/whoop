@@ -8908,26 +8908,28 @@ class LocalDb {
   /// public (Build 94, Codex N01/N03).
   static Future<void> putSession(Map<String, dynamic> row) async {
     final db = await instance;
-    final out = Map<String, dynamic>.of(row);
-    final id = row['id'];
-    if (id != null &&
-        (!row.containsKey('private') || !row.containsKey('rpe'))) {
-      final kept = await db.query(
-        'sessions',
-        columns: ['private', 'rpe'],
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      if (kept.isNotEmpty) {
-        out.putIfAbsent('private', () => kept.first['private']);
-        out.putIfAbsent('rpe', () => kept.first['rpe']);
+    await db.transaction((tx) async {
+      final out = Map<String, dynamic>.of(row);
+      final id = row['id'];
+      if (id != null &&
+          (!row.containsKey('private') || !row.containsKey('rpe'))) {
+        final kept = await tx.query(
+          'sessions',
+          columns: ['private', 'rpe'],
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        if (kept.isNotEmpty) {
+          out.putIfAbsent('private', () => kept.first['private']);
+          out.putIfAbsent('rpe', () => kept.first['rpe']);
+        }
       }
-    }
-    await db.insert(
-      'sessions',
-      out,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+      await tx.insert(
+        'sessions',
+        out,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   /// Update ONLY a session's derived score columns.
@@ -9439,12 +9441,13 @@ class LocalDb {
   /// row, so a re-score would revert a flag it never read.
   static Future<void> setSessionPrivate(String id, bool private) async {
     final db = await instance;
-    await db.update(
+    final written = await db.update(
       'sessions',
       {'private': private ? 1 : 0},
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (written != 1) throw StateError('The workout no longer exists');
   }
 
   /// Set (or clear, with null) a session's self-reported RPE. Its own narrow

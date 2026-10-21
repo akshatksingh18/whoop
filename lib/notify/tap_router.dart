@@ -97,6 +97,7 @@ const String kRouteRecap = '/recap';
 /// The signing-expiry warnings land on the Status screen, which shows the
 /// installed profile's live expiry, the last band data and the last backup.
 const String kRouteStatus = '/status';
+const String kRouteFoodDay = '/food/day';
 
 class TapTarget {
   /// Shell tab index to land on (always valid; unknown → 0 = Today).
@@ -134,6 +135,7 @@ const Map<String, int> _tabRoutes = {
 // on the home screen — three taps from the battery it was about. The
 // destinations exist in app.dart; this is the half that was missing.
 const Map<String, int> _screenRoutes = {
+  kRouteFoodDay: 6,
   kRouteWorkoutSuggestion: 4,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab

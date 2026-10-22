@@ -1,14 +1,12 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat last reported Build `0.9.58`/`91` installed. Build `0.9.63`/`96` (item 3k)
-is the single validated testing candidate, including all 29 Build 95 audit repairs. Full cloud
-analysis/tests and the macOS build pass; the downloaded IPA and source/version/checksum/ZIP/payload
-checks pass. Builds 92–95 were never reported installed. Build 70 remains cached recovery;
-phone acceptance and current-version refresh enrollment remain open. `setup.md` owns the exact
-artifact and workflow evidence, and `build-95-repairs.md` owns the repair checklist.
-The independent `build-96-audit.md` identifies seven additional reproduced faults in the
-unchanged candidate. The approved repair bundle and selected enhancements are implemented in Build 97 source
-(item 3l); full cloud checks and a replacement IPA are pending.
+**State:** Akshat last reported Build `0.9.58`/`91` installed. Build `0.9.64`/`97` (3l) is
+the single validated testing candidate. All B96-01–07 repairs and the selected refinements are
+included, retaining the earlier 29 repairs and approved interface. Full cloud analysis/tests,
+synthetic visual checks, native build and downloaded IPA validation pass. Build 96's superseded
+folder went to the Recycle Bin. No later installation or phone acceptance is inferred.
+`setup.md` owns exact source/hash/workflow evidence; `build-96-audit.md` owns scope and limits.
+Current-version signing enrollment and the device matrix remain open.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -490,26 +488,25 @@ other worktrees remain untouched.
   `build-95-repairs.md` owns scope and 73 passing focused checks. Linux CI `39637738288`
   passes 3,403 tests (429 intentional skips), no analysis errors/warnings; personal macOS build
   `39638043524` and downloaded source/version/checksum, ZIP CRC and payload validation pass.
-  The single testing candidate is `final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`;
+  Its testing candidate was `final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`;
   SHA-256 `bae9d2b00ef8cfffe9047adda1890b729782570b94e64ef833c13fdd67253a8b`.
-  Build 95's folder went to the Windows Recycle Bin; accepted Build 70 recovery is unchanged.
+  Build 97 superseded it; both Build 95 and Build 96 folders went to the Windows Recycle Bin.
+  Accepted Build 70 recovery is unchanged.
   Phone checks remain open for nested workout, Food, Body, notification, travel, permission,
   restore/reset flows, BLE/GPS lifecycle and current-version signing enrollment; see the report.
-- [ ] 3l. Build 97: Akshat approved the seven additional Build 96 repairs and useful refinements.
-  `build-96-audit.md` owns B96-01–07 and exact source/test evidence. Preserve the stopped
-  workout's complete measured payload across failed-save → cold restart → Retry; make photo
-  imports collision-safe; reject impossible dates and unknown units before writes; make
-  notification read retries durable; refresh retained battery forecasts; and carry every
-  accepted safe photo through media backup/restore. Add desired-behavior regressions and
-  remove unnecessary private-export-derived details from source comments.
-  The original diagnostic probes are reproduction evidence. All seven repairs and the selected
-    refinements are implemented in Build 97 source; 26 focused checks pass. Cloud/release
-    verification remains pending and will replace this statement after completion. Add cloud visual-smoke
-    artifacts, a quieter single-reading Body state and honest notification provenance while
-    retaining the approved A+B composition. Body deletion Undo is deferred: it needs a separate
-    recovery contract for profile changes and photo files. The skipped golden-image cases and
-    native-device gaps remain explicit.
-- [ ] 4. Akshat's phone acceptance: clear B96-01–07, then the still-open Build 89 checks below, every Build 90
+- [x] 3l. Build 97 (`bde5818b`, `0.9.64+97`): all seven B96-01–07 faults repaired.
+  Cold-restart final-save evidence is retained; photo publication/backup is collision-safe and
+  complete; Body dates/units are validated; notification read retries are durable; retained
+  battery forecasts refresh. The quieter one-day Body state keeps lone tape values visible,
+  notification provenance is explicit, and continuous synthetic visual artifacts are retained.
+  Twenty-six focused and seven existing notification checks pass locally. Full cloud run
+  `39815813645` passes 3,426 tests (429 intentional skips), no analysis errors/warnings, and
+  131 visual checks with 550 captures. Native run `39815817300` and local IPA validation pass.
+  The sole testing candidate is `WHOOP-0.9.64-build97-bde5818b`; accepted Build 70 is unchanged.
+  `build-96-audit.md` owns scope/limits and `setup.md` owns source/hash/workflow evidence.
+  A+B, all features, scientific coefficients, algorithm 97 and schema 50 remain. Optional Body
+  deletion Undo is deferred for its profile/photo recovery contract; pixel and phone gaps remain.
+- [ ] 4. Akshat's phone acceptance: recheck the repaired B96-01–07 flows, then the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
 ### Home bodyweight workout (audit, Claude lane)
@@ -571,10 +568,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: All 29 Build 95 audit repairs are integrated in released Build 96 app source
-  `f05969f0` on `build-96` / `main`, backend commit `c52cedbd` and UI/lifecycle commit `88209956`.
+- Codex: Validated Build 97 app source `bde5818b` is integrated from `build-97` to `main`.
+  All seven B96 faults and the selected enhancements are implemented; full cloud/visual/native
+  checks and IPA validation pass. The earlier 29 repairs (`c52cedbd`, `88209956`) are retained.
   Akshat approved the full-page checks and assigned Codex the entire integration and release.
-  `build-95-repairs.md` owns the checklist and focused evidence. Full cloud checks and the new
+  `build-96-audit.md` owns the new checklist; `build-95-repairs.md` retains the earlier evidence. Full cloud checks and the new
   validated IPA pass; `setup.md` owns source/hash/workflow records. Existing other checkouts
   remain untouched. Phone acceptance remains open.
   Independent calorie/recovery review is complete in

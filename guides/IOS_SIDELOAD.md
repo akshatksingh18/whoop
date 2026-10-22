@@ -1,7 +1,7 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 96 (`0.9.63+96`, app source
-`f05969f0`) is the single testing candidate, including all 29 audit repairs. Full cloud analysis/
+**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 97 (`0.9.64+97`, app source
+`bde5818b`) is the single testing candidate, including all seven follow-up repairs and the retained 29 earlier repairs. Full cloud analysis/
 tests, the macOS build and downloaded IPA/source/version/checksum/ZIP/payload checks pass.
 `../setup.md` owns exact evidence; `../todo.md` owns feature, background, signing and refresh
 acceptance. No later candidate has been reported installed or accepted. Earlier same-ID refresh
@@ -13,8 +13,9 @@ Build `0.9.37`/`70` remains the accepted recovery build: its phone check and com
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.63-build96-f05969f0` holds validated Build 96, not yet installed. Build 95's
-folder (run `39293589709`, never reported installed) went to the Recycle Bin. Build 94's folder (run
+`testing\WHOOP-0.9.64-build97-bde5818b` holds validated Build 97, not yet installed. Build 95's
+folder (run `39293589709`, never reported installed) went to the Recycle Bin. Build 96’s
+folder (run `39638043524`, not reported installed) also went to the Recycle Bin. Build 94's folder (run
 `39174734367`, never installed), Build 93's (run
 `39127375040`, never installed) and Build 92's (run `39118323380`, never installed) went to the
 Recycle Bin; Build 91's folder (run

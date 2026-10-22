@@ -5,19 +5,15 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Build 91 is the last reported installation. Build 96 (`f05969f0`)
-is the single validated testing candidate, with all 29 confirmed Build 95 findings repaired.
-Full cloud analysis/tests, macOS compilation and downloaded IPA validation pass;
-[build-95-repairs.md](build-95-repairs.md) owns scope, regressions and phone checks. Build 70
-remains accepted recovery. `todo.md` owns acceptance and `setup.md` owns artifact evidence;
-physical background/restoration, native permission and signing gates remain open.
-
-**Additional Build 96 findings:** [build-96-audit.md](build-96-audit.md) owns seven reproduced
-functional faults: cold-restart finish retry, duplicate imported photos, impossible Body dates,
-unsupported weight units, notification read-state retry, retained battery forecasts and accepted
-photos omitted from media backup. Build 97 source repairs all seven; cloud verification and
-the replacement IPA are pending. The unnecessary private-derived source comment is removed.
-Unexecuted device cases remain separately qualified in the report.
+**Current verification:** Build 91 is the last reported installation. Build 97 (`bde5818b`)
+is the validated testing candidate. It retains all 29 Build 95 repairs and fixes B96-01–07:
+cold-restart final-save evidence, duplicate photo publication, invalid Body dates/units,
+notification read persistence, retained battery freshness and safe-photo backup completeness.
+`build-96-audit.md` owns regressions and limits. Full Linux/visual checks, the macOS build and
+downloaded IPA validation pass; `setup.md` owns exact evidence. Body stays quieter without
+hiding lone tape readings, and notification provenance distinguishes submission/due/legacy state.
+Build 70 accepted recovery is unchanged. Physical background/restoration, native permission,
+gesture, delivery and current-version signing gates remain open in `todo.md`.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

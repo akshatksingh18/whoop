@@ -3,14 +3,12 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 96 (`f05969f0`) is the single validated testing candidate; Build 91 is the
-last reported installation. The approved A framework with B's calorie ring and compact macros
-is retained. All 29 repairs in `build-95-repairs.md` are included; cloud analysis/tests, the macOS
-build and downloaded IPA validation pass. Build 70 remains accepted recovery. `todo.md` owns
-phone gates and `setup.md` owns source/hash/workflow evidence.
-The independent `build-96-audit.md` records cold-restart evidence-retention, import
-date/unit/photo integrity, notification persistence and battery-freshness faults repaired in
-Build 97 source, pending cloud/release verification. No scientific formula or coefficient changes.
+**Status:** Build 97 (`bde5818b`) is the single validated testing candidate; Build 91 remains
+the last reported installation. The A framework and B calorie-ring/macros are retained.
+All seven faults in `build-96-audit.md` are repaired, in addition to the 29 earlier repairs.
+Full cloud analysis/tests, synthetic visual checks, native compilation and downloaded IPA
+validation pass. `setup.md` owns evidence; `todo.md` owns phone gates. Build 70 remains recovery.
+No scientific coefficient or headline formula changes.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is
@@ -181,7 +179,7 @@ The full analysis of each day, including curves:
 | `sessions` | every workout: type, start/end, strain, Method 1 active calories for run/walk, estimated HR/MET calories for other types, max HR, time in each HR zone, steps, cadence, device |
 | `workout_route` / `workout_split` | GPS route points and per-kilometre splits (runs, rides, walks) |
 | `session_detail` | From Build 93: what was typed during a workout that no sensor records (laps, pool length, stroke, interval rounds, poses, breathing pace, game score) as JSON by session; shown again when the workout reopens, deleted with it, carried by backup import and rebuild salvage |
-| `baselines` calculation anchors (preferences mirrored) | retained `motion.<session>` answers, active workout windows/pauses, captured profiles, voice milestones, dated profile and step-goal history; included in backup/import |
+| `baselines` calculation anchors (preferences mirrored) | retained `motion.<session>` answers, active workout windows/pauses and exact pending final-save payloads, captured profiles, voice milestones, dated profile and step-goal history; included in backup/import |
 | `strength_set` / `exercise_def` | lifting sets: exercise, weight, reps |
 | `workout_suggestions` | auto-detected efforts waiting for confirmation |
 

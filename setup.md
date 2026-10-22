@@ -34,10 +34,44 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 96 Candidate
+## Build 97 Candidate
+
+Source `bde5818bbaf87588e1f31cdd3823ee68d43f6538`, version `0.9.64+97`, algorithm 97,
+schema 50, is the released app source, integrated from `build-97` into `main`. All seven
+B96-01–07 repairs and the selected Body/notification/visual-check refinements are included;
+`build-96-audit.md` owns their contracts and coverage limits. Twenty-six focused checks plus
+seven existing notification checks pass locally. Dependencies, scientific coefficients, BLE ACK
+ordering, signing identity and capabilities are unchanged. Outgoing code/docs/fixtures and the
+artifact were privacy-reviewed; only synthetic data appears in the new tests/captures.
+
+Linux CI `39815813645` passes 3,426 tests (429 intentional skips), no analysis errors/warnings,
+182 informational lints and eight personal-iOS contract checks. Its parallel visual-smoke job
+passes 131 checks and retains 550 synthetic captures, including full-scroll positions. The
+inspectable local review is `build/release97/final/visual/review.html` in the release worktree;
+these use a font substitute and do not establish native typography or physical gestures.
+The prior run `39812219484` passed 3,424 tests but failed one retained-copy assertion. The
+accurate retention phrase and lone-tape readout correction are included in the final source.
+GitHub reported degraded Actions performance during runner allocation; final jobs passed.
+
+Personal macOS run `39815817300` passes at the same source. Downloaded
+`whoop-personal-bde5818bbaf8-unsigned.ipa` (15,463,593 bytes), SHA-256
+`348a7b8ad7e5fb887444bd074abf5a9bc2b22eff7926d6c3658dfe2c02b88c7c`, matches its source/version
+manifest and checksum. Full ZIP CRC, `personal_ios.py validate`, compiled Runner/AOT frameworks
+and the exact capability contract pass: one Runner.app, no extension, Watch app, provisioning
+profile, database or debug kernel. Later release-record changes are documentation only; the
+source-identical binary remains pinned to `bde5818b`.
+
+It is the sole testing folder `../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`,
+with checksum, manifest, validation and build-info. Build 96's identified superseded folder went
+to the Windows Recycle Bin. Accepted Build 70 recovery is unchanged (SHA-256
+`0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 remains the last
+reported installation. Install over the existing app with its exact identity; current-version
+signing enrollment and the device matrix remain open. Delivery is not phone acceptance.
+
+## Build 96 artifact (superseded)
 
 Source `f05969f021669d3bfb0741b136cfb1d98c129a4b`, version `0.9.63+96`, algorithm 97, schema 50,
-is the released app source on `main`, fast-forwarded from `build-96`. It includes all 29 repairs
+was released from `build-96` to `main` and is retained here as artifact evidence. It includes all 29 repairs
 in `build-95-repairs.md`, commits `c52cedbd` and `88209956`, with analyzer cleanup in `f05969f0`.
 Akshat approved the visual checks and assigned Codex the complete integration and release.
 Dependencies, formulas, signing identity and capability contract are unchanged. The outgoing
@@ -59,9 +93,8 @@ provisioning profile, database or debug kernel. The source-identical release is 
 `f05969f0`; later release-record edits change documentation only and need no new binary or
 repeated full suite.
 
-It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`, with the IPA, checksum, manifest,
-local validation and build-info beside it. Build 95's superseded folder (not reported installed)
+It was the testing candidate `../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`
+until validated Build 97 replaced it; its folder went to the Windows Recycle Bin. Build 95's superseded folder (not reported installed)
 was moved to the Windows Recycle Bin; its hash and reproducible workflow remain below. Build 70's
 accepted recovery file is unchanged (SHA-256
 `0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 remains the last
@@ -69,8 +102,7 @@ reported installation. Signing/installation, current-version enrollment and the 
 matrix in `todo.md` / `build-95-repairs.md` remain open; delivery is not device acceptance.
 The subsequent independent `build-96-audit.md` reproduces seven additional faults in this
 unchanged source/IPA. Its targeted probes do not replace or invalidate the earlier CI record;
-they expose cases that record did not cover. Build 97 source now repairs all seven and adds the approved Body/notification/visual-check
-refinements. Its full cloud checks and replacement IPA are pending; no phone acceptance is claimed.
+they expose cases that record did not cover. Validated Build 97 repairs all seven and replaces this artifact. No phone acceptance is inferred.
 
 ## Build 95 Candidate
 

@@ -1,9 +1,11 @@
 # Build 96 independent verification
 
-**Status:** Build 97 (`0.9.64+97`, algorithm 97, schema 50) implements all seven faults
-found in released Build 96 source `f05969f0`. Local desired-behavior regressions pass;
-full cloud checks, visual artifacts and the replacement IPA are pending. Build 96 remains the
-cached candidate until replacement validation. No phone installation or acceptance is inferred.
+**Status:** All seven findings are repaired in validated Build 97 (`0.9.64+97`, app source
+`bde5818b`, algorithm 97, schema 50). Full Linux CI `39815813645` passes 3,426 tests
+(429 intentional skips; no analysis errors/warnings), and its visual job passes 131 checks with
+550 synthetic captures. Native run `39815817300` and downloaded IPA validation pass. It replaces
+Build 96 in the testing cache. Installation and physical iPhone acceptance remain unreported;
+`setup.md` owns exact source/hash/workflow evidence.
 
 ## Repair contract and verification
 
@@ -33,8 +35,9 @@ checks (`test/build97_notification_test.dart`), one retained-device widget check
 (`test/build97_device_test.dart`), and ten normal/enlarged render cases, including a lone tape readout
 (`test/build95_repair_render_test.dart`) pass locally: 26 checks. A static refinement preview
 preceded the UI edits; actual Flutter captures were inspected at normal and enlarged text.
-They use synthetic data and a Windows font substitute. Cloud evidence will be recorded after it
-finishes; no successful diagnostic assertion from the original fault harness is counted as a fix.
+They use synthetic data and a Windows font substitute. The final cloud run and downloaded
+artifact match the source above. No original successful fault-diagnostic assertion is counted
+as a fix; desired-behavior regressions establish the repair.
 
 ## Original Build 96 findings
 
@@ -204,7 +207,7 @@ appearance or icon family as incidental polish; those are existing product decis
 
 ## Phone and other blind spots
 
-- Build 96 installation and current-version signing enrollment are not reported.
+- Build 97 installation and current-version signing enrollment are not reported.
 - BLE restoration/commit continuity, overnight/background/kill behavior, GPS/motion/audio,
   Home-region and notification delivery still require real hardware evidence.
 - Native Files/share completion, Photos/camera permissions, low space and interrupted recovery
@@ -228,7 +231,7 @@ tooling drift, not an app-flow failure; its `init` refresh can wait and is not p
 
 ## Release gate
 
-The authorized repair bundle is implemented above. Release only after full cloud checks,
-synthetic visual artifacts, native compilation and downloaded IPA validation pass at the same
-source. Then run the real-device matrix. The original diagnostic harness remains reproduction
-evidence; native phone gestures, OS delivery and background behavior remain separate gates.
+The authorized repair bundle is implemented above. Full cloud checks, synthetic visual
+artifacts, native compilation and downloaded IPA validation pass at the same source. The
+remaining acceptance gate is the real-device matrix. The original diagnostic harness remains
+reproduction evidence; native phone gestures, OS delivery and background behavior remain separate gates.

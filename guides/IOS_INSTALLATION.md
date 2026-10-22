@@ -1,10 +1,10 @@
 # WHOOP iPhone build
 
 **State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
-Build 96 (`0.9.63+96`, app source `f05969f0`) is the validated unsigned testing candidate in
-`../../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`. Full cloud analysis/tests, the macOS
+Build 97 (`0.9.64+97`, app source `bde5818b`) is the validated unsigned testing candidate in
+`../../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`. Full cloud analysis/tests, the macOS
 build and downloaded source/version/checksum/ZIP/payload checks pass. Akshat last reported Build 91
-installed; Build 96 is not yet installed or phone-accepted. Build `0.9.37`/`70` remains accepted
+installed; Build 97 is not yet installed or phone-accepted. Build `0.9.37`/`70` remains accepted
 recovery in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact
 artifact evidence and `../todo.md` owns phone checks. This state changes on installation and
 completion of the device/signing gates, not on compilation alone.
@@ -77,8 +77,8 @@ and the bundle identity never changes.
 ## Acceptance
 
 The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
-Build 97 source implements their repairs and focused regressions. Its replacement IPA and
-full cloud checks remain pending; the Build 96 payload record is historical verification only.
+Build 97 source implements their repairs and focused regressions. Its full cloud/visual/native checks and replacement IPA validation pass; Build 96
+is retained only as historical payload evidence.
 
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,
 require the shared signing-health check to print `ENROLLED` for the exact WHOOP signed identity and

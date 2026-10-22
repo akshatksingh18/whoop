@@ -1,8 +1,8 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 96 is the validated testing candidate; Build 91 is the last reported
+**Status:** Build 97 is the validated testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence; full cloud checks and IPA validation pass. The repairs in `build-95-repairs.md`, included in released Build 96 app source `f05969f0`,
+release/device evidence; full cloud checks and IPA validation pass. The repairs in `build-95-repairs.md`, retained in released Build 97 app source `bde5818b`,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
@@ -11,7 +11,7 @@ The independent Build 96 audit found that a cold restart before retry can still 
 previously saved HR/zone evidence with an empty accumulator (B96-01 in `build-96-audit.md`).
 Build 97 stages the exact final session row and HR/zone trace in the existing durable workout
 clock before final writes. Cold retry replays it, even beyond the live-resume age ceiling, while
-privacy/RPE retain their current stored values. New regressions preserve end/profile/trace and
+privacy/RPE retain their current stored values. Local and full cloud regressions preserve end/profile/trace and
 measured summary fields across restart. No native background behavior is claimed by these tests.
 
 The following background contract originated in Build 86 and retains subsequent repairs.

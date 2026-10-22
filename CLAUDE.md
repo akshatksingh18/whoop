@@ -14,20 +14,17 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.63`/`96` (app source `f05969f0`,
-`todo.md` 3k) is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`, not yet installed. It includes all 29
-confirmed Build 95 audit repairs, preserving the approved interface, formulas, schema and signing
-identity. Akshat approved the visual checks and assigned Codex the complete release. Full Linux
-analysis/tests, the macOS build, source/version/checksum, ZIP and payload validation pass.
-`setup.md` owns exact release evidence; `build-95-repairs.md` owns repair scope and regressions.
-Build 91 is the last reported installation; Builds 92–95 were never reported installed. Build 70
-remains accepted recovery. Phone acceptance in `todo.md` remains open and changes only when Akshat
-reports installation and the checks. Earlier builds' notes are in `build-history.md`.
-The independent `build-96-audit.md` reopens seven additional failure-sequence/import/freshness
-faults in that unchanged IPA. Build 97 source implements their repairs and the approved
-Body/notification refinements; cloud checks and a replacement IPA are pending. Existing green
-checks remain evidence for covered cases, not universal flow verification.
+**Status:** Active iPhone verification. Build `0.9.64`/`97` (app source `bde5818b`,
+`todo.md` 3l) is the single validated testing candidate:
+`../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`. All seven additional faults in
+`build-96-audit.md` are repaired, with the quieter Body state, explicit notification provenance
+and continuous synthetic visual checks. No feature, scientific coefficient, dependency, schema,
+algorithm version or signing capability was removed/changed. Full Linux/visual checks, native
+compilation and downloaded IPA validation pass; `setup.md` owns source/hash/workflow evidence.
+Build 96's superseded candidate went to the Recycle Bin. Build 91 remains the last reported
+installation and Build 70 remains accepted recovery. Current-version installation, signing
+enrollment and the physical-device matrix remain open; software checks are not universal
+flow or hardware proof. Earlier build notes are in `build-history.md`.
 
 ## Files
 - `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.

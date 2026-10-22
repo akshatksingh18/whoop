@@ -1,7 +1,7 @@
 # Build 95 audit repairs
 
 **Status:** All 29 confirmed findings are released in Build 96 (`0.9.63+96`, app source
-`f05969f0`), the single validated testing IPA. Akshat approved the visual checks and assigned
+`f05969f0`), and retained in validated Build 97 (`bde5818b`). Akshat approved the visual checks and assigned
 Codex the complete integration and release. 73 focused synthetic checks pass locally; full Linux
 CI passes 3,403 tests (429 intentional skips), no analysis errors/warnings. The macOS build and
 downloaded IPA/source/version/checksum/ZIP/payload checks pass. Physical iPhone acceptance remains
@@ -99,4 +99,4 @@ and the iOS guides track the verified Build 96 artifact separately from the last
 `DESIGN.md` retains the approved layout and `README.md` retains the existing build/install
 contract. Ancestor routing, dependencies, workflows, signing identity and capabilities are
 unchanged. Build 95's superseded testing folder went to the Windows Recycle Bin; accepted
-Build 70 recovery is unchanged. The shared final-IPA index records the single Build 96 candidate.
+Build 70 recovery is unchanged. The shared final-IPA index now records the single Build 97 candidate.

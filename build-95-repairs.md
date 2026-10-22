@@ -1,6 +1,11 @@
 # Build 95 audit repairs
 
-**Status:** All 29 confirmed findings are implemented in Build 96 preparation on `build-96`, based on Build 95 app source `f5b270f3` and integrated documentation `b0c2c8d6`. 73 distinct focused synthetic checks pass locally, including 9 render/scroll checks; Akshat approved the visual checks and authorized Codex to integrate and deliver the IPA. Full cloud checks and the new IPA are pending; physical iPhone acceptance remains open. The existing Build 95 IPA does not contain these repairs.
+**Status:** All 29 confirmed findings are released in Build 96 (`0.9.63+96`, app source
+`f05969f0`), the single validated testing IPA. Akshat approved the visual checks and assigned
+Codex the complete integration and release. 73 focused synthetic checks pass locally; full Linux
+CI passes 3,403 tests (429 intentional skips), no analysis errors/warnings. The macOS build and
+downloaded IPA/source/version/checksum/ZIP/payload checks pass. Physical iPhone acceptance remains
+open. `setup.md` owns the exact artifact and workflow records.
 
 Keep the approved kraft/cream interface, existing activities and recorded data. Reuse approved energy/goal methods; repair fabricated inputs, persistence and consumers rather than tuning scientific coefficients. Algorithm 97 and schema 50 are unchanged. Build 96 uses version `0.9.63+96`; dependencies and BLE ACK ordering are unchanged.
 
@@ -71,21 +76,24 @@ not proven by these renders or platform mocks.
 
 The backend commit is `c52cedbd`; the UI/lifecycle and regression follow-up is `88209956`.
 Akshat approved the complete-page checks and assigned Codex the full integration, privacy review,
-GitHub checks and IPA delivery. Release preparation is on `build-96`; existing main and Claude
-checkouts are preserved. Do not treat the earlier source's passing CI or IPA as verification of
-these edits. `setup.md` owns the new artifact/source evidence as each release gate completes.
+GitHub checks and IPA delivery. Build 96 app source `f05969f0` is released from `build-96`
+to `main`; existing other checkouts are preserved. Linux CI `39637738288` and personal iOS
+run `39638043524` both pass at that source. The downloaded IPA is validated and cached in
+`../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`; `setup.md` owns its hash and evidence.
 
 The phone pass should include cold-launch unread/history and dated Food taps; a private workout
 from start through history; minimise/pause/reopen intervals; stopped-save retry and corrected finish
 times; Body multi-reading/profile/history behavior; saved-food fallback editing; Home Settings
 return, cancellation, radius and VoiceOver choices; historical Sleep/Nap times after travel; and
 backup/restore/reset on a disposable test copy. BLE/GPS background continuity and native permission
-behavior remain the existing physical-device gates. Release and phone acceptance are not claimed.
+behavior remain physical-device gates. IPA delivery is complete; installation and phone
+acceptance are not claimed.
 
 ## Documentation impact
 
 `CLAUDE.md`, `todo.md`, `bugs.md`, `metrics-map.md`, `background-sync-plan.md`, `setup.md`
-and the iOS guides track Build 96 preparation separately from the last reported installation.
+and the iOS guides track the verified Build 96 artifact separately from the last reported installation.
 `DESIGN.md` retains the approved layout and `README.md` retains the existing build/install
 contract. Ancestor routing, dependencies, workflows, signing identity and capabilities are
-unchanged. Keep the existing IPA and new repair source distinct until delivery.
+unchanged. Build 95's superseded testing folder went to the Windows Recycle Bin; accepted
+Build 70 recovery is unchanged. The shared final-IPA index records the single Build 96 candidate.

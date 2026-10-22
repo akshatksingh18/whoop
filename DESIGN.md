@@ -12,7 +12,7 @@ Reference sketches with synthetic data are in `.impeccable/mocks/screens/` (loca
 gitignored); regenerate them with `gen.py` there. This file is the visual contract that
 Impeccable reads. Product truth stays in `CLAUDE.md` and `metrics-map.md`.
 
-Build 95 retains the calm A framework Akshat selected with B's whole calorie-ring/compact-macro
+Build 96 retains the calm A framework Akshat selected with B's whole calorie-ring/compact-macro
 card on Food. Progress has one closed-week goal check with the real first-check date, Next and
 expandable method; Body outcomes and inputs use rolling periods against equal earlier periods.
 The Body summary separates the latest individual reading, the 7-day average and the selected

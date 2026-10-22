@@ -3,11 +3,11 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 95 (`f5b270f3`) is the testing candidate; Build 91 is the last reported
-installation. The approved A framework with B's calorie ring and compact macros is retained.
-The repairs described in `build-95-repairs.md` are integrated into Build 96 preparation on
-`build-96`; its cloud checks and new phone build are pending. Build 70 remains accepted recovery. `todo.md`
-owns phone gates and `setup.md` owns source/hash/workflow evidence.
+**Status:** Build 96 (`f05969f0`) is the single validated testing candidate; Build 91 is the
+last reported installation. The approved A framework with B's calorie ring and compact macros
+is retained. All 29 repairs in `build-95-repairs.md` are included; cloud analysis/tests, the macOS
+build and downloaded IPA validation pass. Build 70 remains accepted recovery. `todo.md` owns
+phone gates and `setup.md` owns source/hash/workflow evidence.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is

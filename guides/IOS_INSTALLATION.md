@@ -1,12 +1,13 @@
 # WHOOP iPhone build
 
-**State:** From Build 95 the committed Xcode project is the personal app: one standalone
-release/AOT iPhone IPA for direct Sideloadly installation. Akshat reports Build 91 installed; the
-Build 95 candidate in `../../final-ipas/whoop/testing/` is not yet installed. Build `0.9.37`/`70`
-remains accepted recovery in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`.
-`../setup.md` owns source/hash/workflow evidence and `../todo.md` the phone checks. Build 96 (`0.9.63+96`) preparation now includes the audit repairs, with full cloud checks and IPA
-delivery pending. This state changes when the new artifact is validated and when Akshat reports
-the candidate installed and checked.
+**State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
+Build 96 (`0.9.63+96`, app source `f05969f0`) is the validated unsigned testing candidate in
+`../../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`. Full cloud analysis/tests, the macOS
+build and downloaded source/version/checksum/ZIP/payload checks pass. Akshat last reported Build 91
+installed; Build 96 is not yet installed or phone-accepted. Build `0.9.37`/`70` remains accepted
+recovery in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact
+artifact evidence and `../todo.md` owns phone checks. This state changes on installation and
+completion of the device/signing gates, not on compilation alone.
 
 The app reads the iPhone's own pedometer when **This phone → Steps** is on and does not use Apple
 Health. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID manual refresh

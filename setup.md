@@ -34,14 +34,39 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 96 preparation
+## Build 96 Candidate
 
-Version `0.9.63+96` on `build-96` includes all 29 repairs in `build-95-repairs.md`, commits
-`c52cedbd` and `88209956`. Algorithm 97, schema 50, dependencies and signing/capability contract
-are unchanged. Akshat approved the visual checks and assigned Codex the complete release.
-73 focused synthetic checks pass locally. Full cloud analysis/tests and a new validated IPA
-are pending; the existing testing slot still holds Build 95. Build 91 is the last reported
-installation, and Build 70 remains accepted recovery.
+Source `f05969f021669d3bfb0741b136cfb1d98c129a4b`, version `0.9.63+96`, algorithm 97, schema 50,
+is the released app source on `main`, fast-forwarded from `build-96`. It includes all 29 repairs
+in `build-95-repairs.md`, commits `c52cedbd` and `88209956`, with analyzer cleanup in `f05969f0`.
+Akshat approved the visual checks and assigned Codex the complete integration and release.
+Dependencies, formulas, signing identity and capability contract are unchanged. The outgoing
+commits, fixtures and release metadata were privacy-reviewed; no private records or captures
+were published. The same-machine `local-backup` mirror retains the published branches.
+
+Linux CI `39637738288` passes 3,403 tests (429 intentional skips), with no analysis errors or
+warnings (178 informational lints). All eight personal-iOS contract checks pass. The earlier
+preparation run `39637216402` stopped on five unused test imports/variables; these were removed
+before the successful run, without changing application behavior. 73 focused synthetic checks
+also passed locally, including nine normal/enlarged render and full-scroll cases.
+
+Personal macOS run `39638043524` passes at the same app source. Downloaded
+`whoop-personal-f05969f02166-unsigned.ipa` (15,452,104 bytes), SHA-256
+`bae9d2b00ef8cfffe9047adda1890b729782570b94e64ef833c13fdd67253a8b`, matches its source/version
+manifest and checksum. Full ZIP CRC, `personal_ios.py validate`, compiled Runner/AOT framework
+inspection and the exact capability check pass: one `Runner.app`, no app extension, Watch app,
+provisioning profile, database or debug kernel. The source-identical release is pinned to
+`f05969f0`; later release-record edits change documentation only and need no new binary or
+repeated full suite.
+
+It is the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`, with the IPA, checksum, manifest,
+local validation and build-info beside it. Build 95's superseded folder (not reported installed)
+was moved to the Windows Recycle Bin; its hash and reproducible workflow remain below. Build 70's
+accepted recovery file is unchanged (SHA-256
+`0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 remains the last
+reported installation. Signing/installation, current-version enrollment and the phone acceptance
+matrix in `todo.md` / `build-95-repairs.md` remain open; delivery is not device acceptance.
 
 ## Build 95 Candidate
 
@@ -55,8 +80,9 @@ regenerated on macOS without the removed plugins.
 Personal macOS run `39293589709` passes. Downloaded `whoop-personal-f5b270f3fa78-unsigned.ipa`
 (15,424,602 bytes), SHA-256 `a0a291b8702a18fb783830296bb0c0cf42ab46035959e0c0ff9e2b8db7e7f9f7`,
 matches its source/version manifest and checksum; full ZIP CRC and `personal_ios.py validate` pass
-(one `Runner.app`, no extension, no Watch app). It is the single testing candidate
-`../final-ipas/whoop/testing/WHOOP-0.9.62-build95-f5b270f3`, not yet installed. Build 94's testing
+(one `Runner.app`, no extension, no Watch app). It was the testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.62-build95-f5b270f3` until Build 96 replaced it; no
+installation was reported, and its folder went to the Windows Recycle Bin. Build 94's testing
 folder (never installed; run `39174734367`, SHA-256
 `75aaa91c2a55ac3d9769a757588360ade356f464cc3519e354c101baaf394f49`) was moved to the Windows
 Recycle Bin; Build 70 remains accepted recovery.

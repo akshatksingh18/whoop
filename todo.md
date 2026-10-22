@@ -1,10 +1,11 @@
 # WHOOP Build Plan And Verification
 
-**State:** Akshat reports Build `0.9.58`/`91` installed. Build `0.9.62`/`95` (item 3j) is the
-testing candidate; Builds 92–94 were never installed. Build 70 remains cached recovery until a
-later build is accepted and enrolled; phone acceptance (item 4) remains open. Build 96 (`0.9.63+96`, item 3k) integrates the
-29 Build 95 audit repairs on `build-96`; Akshat approved the visual checks and authorized Codex
-to deliver it. Full cloud checks and a validated IPA are pending.
+**State:** Akshat last reported Build `0.9.58`/`91` installed. Build `0.9.63`/`96` (item 3k)
+is the single validated testing candidate, including all 29 Build 95 audit repairs. Full cloud
+analysis/tests and the macOS build pass; the downloaded IPA and source/version/checksum/ZIP/payload
+checks pass. Builds 92–95 were never reported installed. Build 70 remains cached recovery;
+phone acceptance and current-version refresh enrollment remain open. `setup.md` owns the exact
+artifact and workflow evidence, and `build-95-repairs.md` owns the repair checklist.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -472,20 +473,25 @@ other worktrees remain untouched.
   Released: `build-95` fast-forwarded to `main` at `f5b270f3`; Linux CI `39290874149` (3,345
   tests, 429 intentional skips), personal macOS build `39293589709`; downloaded IPA SHA-256
   `a0a291b8702a18fb783830296bb0c0cf42ab46035959e0c0ff9e2b8db7e7f9f7`, source/version manifest, ZIP
-  CRC and payload validation pass. Single testing candidate
-  `final-ipas/whoop/testing/WHOOP-0.9.62-build95-f5b270f3`.
+  CRC and payload validation pass. It was the testing candidate until Build 96 replaced it;
+  its never-installed folder went to the Windows Recycle Bin (reproducible from the run above).
 
   Phone check: units migration keeps the Body unit; switch Distance to miles and record a short
   walk (mile splits, voice "1 mile", best efforts); open an older run in miles ("km splits (as
   recorded)" where it has no route); Progress first check, Next and How the check works; Body
   summary rows; Recovery reason; a notification appears on the Notifications page, the bell dot
   clears, and tapping a row opens it; What changed from Trends.
-- [ ] 3k. Build 96 (`0.9.63+96`, algorithm 97, schema 50): all 29 Build 95 audit repairs
-  are implemented, commits `c52cedbd` and `88209956`; `build-95-repairs.md` owns the complete
-  scope and 73 passing focused checks. Akshat approved the visual checks and authorized Codex
-  to integrate, privacy-review, push, run full GitHub checks, build and deliver the IPA.
-  Cloud checks and artifact delivery are pending; phone checks include the report's nested
-  workout, Food, Body, notification, travel, permission, restore and reset flows.
+- [x] 3k. Build 96 (`0.9.63+96`, algorithm 97, schema 50): all 29 Build 95 audit repairs,
+  commits `c52cedbd` and `88209956`, plus analyzer cleanup in released app source `f05969f0`.
+  Akshat approved the visual checks and assigned Codex complete integration and IPA delivery.
+  `build-95-repairs.md` owns scope and 73 passing focused checks. Linux CI `39637738288`
+  passes 3,403 tests (429 intentional skips), no analysis errors/warnings; personal macOS build
+  `39638043524` and downloaded source/version/checksum, ZIP CRC and payload validation pass.
+  The single testing candidate is `final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`;
+  SHA-256 `bae9d2b00ef8cfffe9047adda1890b729782570b94e64ef833c13fdd67253a8b`.
+  Build 95's folder went to the Windows Recycle Bin; accepted Build 70 recovery is unchanged.
+  Phone checks remain open for nested workout, Food, Body, notification, travel, permission,
+  restore/reset flows, BLE/GPS lifecycle and current-version signing enrollment; see the report.
 - [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
@@ -548,25 +554,20 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: All 29 Build 95 audit repairs are implemented and committed on isolated
-  `build-95-codex-fixes`, based on integrated `b0c2c8d6` / app `f5b270f3`.
-  `build-95-repairs.md` owns the checklist and handoff: 73 focused synthetic checks pass,
-  including full-scroll normal/enlarged Body and Notifications captures; focused analysis has no
-  errors/warnings. The backend commit is `c52cedbd`, followed by the UI/lifecycle regression
-  commit `88209956`. Existing checkouts remain untouched. Akshat approved the visual checks and
-  assigned Codex integration and release on `build-96` (`0.9.63+96`). Full cloud checks, a new IPA
-  and phone acceptance remain open; release evidence is tracked in `setup.md`.
+- Codex: All 29 Build 95 audit repairs are integrated in released Build 96 app source
+  `f05969f0` on `build-96` / `main`, backend commit `c52cedbd` and UI/lifecycle commit `88209956`.
+  Akshat approved the full-page checks and assigned Codex the entire integration and release.
+  `build-95-repairs.md` owns the checklist and focused evidence. Full cloud checks and the new
+  validated IPA pass; `setup.md` owns source/hash/workflow records. Existing other checkouts
+  remain untouched. Phone acceptance remains open.
   Independent calorie/recovery review is complete in
   `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.
-  Two synthetic reproductions remain open: legacy stored workout kcal includes resting energy
-  (and assumes 170 cm when height is missing), and the other-workout HR/MET minimum has a
-  discontinuity around zero net HR. `bugs.md` and `metrics-map.md` qualify those paths.
-  Running 0.17 is a reasonable conservative candidate; a universal awake 1.2 multiplier and
-  exact three-night/two-z recovery tuning are not established by the supplied justification.
-  Existing targeted energy tests pass (28); an ignored synthetic semantics probe passes (1)
-  while reproducing both issues. No private export, formula, schema, algorithm version or
-  dependency changed; no full build/suite, commit, push or phone validation in this review.
-  New numerical behavior remains subject to Akshat's approval.
+  Both reproduced calorie issues were approved and fixed in Build 90 (algorithm 96): stored
+  workouts use the shown active-only estimate, and HR is selected only within its validity
+  domain. Running 0.17 was accepted; the awake multiplier and recovery-score tuning were not.
+  The later audit repairs preserve those coefficients and the unchanged recovery formula.
+  The independent review used synthetic inputs and no private export; its earlier local checks
+  are review evidence, while current full-release evidence belongs to `setup.md`.
   Akshat selected A overall with B's compact macro section and approved app
   implementation. This supersedes the earlier D6 single-row macro composition: Food now
   uses the selected B balance ring and four compact nutrient/target rows (protein larger),

@@ -14,20 +14,16 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.62`/`95` (source `f5b270f3` on `main`,
-`todo.md` 3j) is the testing candidate `../final-ipas/whoop/testing/WHOOP-0.9.62-build95-f5b270f3`,
-not yet installed: it removes the upstream-only code (Apple Health, AI coach, telemetry and
-Firebase, widgets, the Watch app, Live Activities, Oura and generic sensors, Shortcuts automation,
-the in-workout set logger, Android and the upstream workflows), so the committed Xcode project is
-the personal app itself; it splits units into Weight, Distance and Height, follows miles through
-runs and walks, adds a Notifications page and builds Akshat's approved Progress, Body and Recovery
-layouts. Build 91 is the last build Akshat reported installed; Builds 92–94 were never installed.
-`setup.md` owns artifact and CI evidence, `todo.md` the phone checks; phone acceptance remains open,
-and changes when Akshat reports the candidate installed and checked. Earlier builds' notes are in
-`build-history.md`. Build 96 (`0.9.63+96`) on `build-96` integrates the 29 audit repairs;
-`build-95-repairs.md` owns their scope and test evidence. Akshat approved the visual checks and
-authorized Codex to complete integration, cloud checks and IPA delivery. These gates are pending;
-the existing Build 95 IPA does not contain those repairs.
+**Status:** Active iPhone verification. Build `0.9.63`/`96` (app source `f05969f0`,
+`todo.md` 3k) is the single testing candidate
+`../final-ipas/whoop/testing/WHOOP-0.9.63-build96-f05969f0`, not yet installed. It includes all 29
+confirmed Build 95 audit repairs, preserving the approved interface, formulas, schema and signing
+identity. Akshat approved the visual checks and assigned Codex the complete release. Full Linux
+analysis/tests, the macOS build, source/version/checksum, ZIP and payload validation pass.
+`setup.md` owns exact release evidence; `build-95-repairs.md` owns repair scope and regressions.
+Build 91 is the last reported installation; Builds 92–95 were never reported installed. Build 70
+remains accepted recovery. Phone acceptance in `todo.md` remains open and changes only when Akshat
+reports installation and the checks. Earlier builds' notes are in `build-history.md`.
 
 ## Files
 - `build-95-repairs.md` — approved 29-finding repair scope, current implementation/check status and integration/device gates; read before continuing the repair branch.
@@ -51,7 +47,7 @@ the existing Build 95 IPA does not contain those repairs.
   source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
 - `build-history.md` — the build-by-build notes this file carried through Build 94, moved out
   verbatim; history only, not current guidance.
-- `todo.md` — Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
+- `todo.md` — Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,

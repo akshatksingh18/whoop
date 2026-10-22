@@ -572,9 +572,15 @@ class _DataScreenState extends State<DataScreen> {
     String? zip;
     try {
       final photoDir = (await BodyLogDb.photoDir()).path;
+      final requiredPhotos = await mediaSnapshotPhotoNames(plain);
+      await validateMediaPhotoFiles(photoDir, requiredPhotos);
       photoCount = await mediaBackupPhotoCount(photoDir);
       if (photoCount > 0) {
-        final packed = await packMediaBackupWithCount(plain, photoDir);
+        final packed = await packMediaBackupWithCount(
+          plain,
+          photoDir,
+          requiredPhotoNames: requiredPhotos,
+        );
         zip = packed.path;
         photoCount = packed.photos;
       }

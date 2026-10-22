@@ -14,10 +14,11 @@ import 'dart:isolate';
 
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
+import 'body_photo_file.dart';
 
 const kMediaBackupDbName = 'openstrap.db';
 const kMediaBackupPhotoDir = 'body_photos';
-final _photoName = RegExp(r'^[0-9A-Za-z-]{8,64}\.jpg$');
 
 /// Count exactly the filename family the media packer carries, not DB references.
 Future<int> mediaBackupPhotoCount(String photoDir) => Isolate.run(() async {
@@ -25,7 +26,7 @@ Future<int> mediaBackupPhotoCount(String photoDir) => Isolate.run(() async {
   if (!await dir.exists()) return 0;
   return (await dir.list().toList())
       .whereType<File>()
-      .where((f) => _photoName.hasMatch(p.basename(f.path)))
+      .where((f) => isBodyPhotoFileName(p.basename(f.path)))
       .length;
 });
 
@@ -35,8 +36,10 @@ Future<String> packMediaBackup(String dbPath, String photoDir) async =>
 
 Future<({String path, int photos})> packMediaBackupWithCount(
   String dbPath,
-  String photoDir,
-) => Isolate.run(() async {
+  String photoDir, {
+  List<String> requiredPhotoNames = const [],
+}) => Isolate.run(() async {
+  await validateMediaPhotoFiles(photoDir, requiredPhotoNames);
   final out = '$dbPath.zip';
   final enc = ZipFileEncoder()..create(out, level: 0);
   var photos = 0;
@@ -47,7 +50,7 @@ Future<({String path, int photos})> packMediaBackupWithCount(
       if (await dir.exists()) {
         for (final f in dir.listSync().whereType<File>()) {
           final name = p.basename(f.path);
-          if (_photoName.hasMatch(name)) {
+          if (isBodyPhotoFileName(name)) {
             await enc.addFile(f, '$kMediaBackupPhotoDir/$name');
             photos++;
           }
@@ -88,7 +91,7 @@ Future<int> unpackMediaBackup(String zipPath, String dbDest, String photoDir) =>
           final parts = f.name.split('/');
           if (parts.length != 2 ||
               parts[0] != kMediaBackupPhotoDir ||
-              !_photoName.hasMatch(parts[1])) {
+              !isBodyPhotoFileName(parts[1])) {
             continue;
           }
           final dest = File(p.join(photoDir, parts[1]));
@@ -105,3 +108,37 @@ Future<int> unpackMediaBackup(String zipPath, String dbDest, String photoDir) =>
       if (!db) throw const FormatException('The backup has no database in it.');
       return photos;
     });
+
+/// Missing or unsupported referenced media must fail explicitly, never become
+/// a seemingly complete database-only backup. Also used before restore commit.
+Future<void> validateMediaPhotoFiles(
+  String photoDir,
+  List<String> names,
+) async {
+  for (final name in names) {
+    if (!isBodyPhotoFileName(name) ||
+        !await File(p.join(photoDir, name)).exists()) {
+      throw const FormatException(
+        'A referenced Body photo is missing or has an unsupported name. '
+        'The complete photo backup cannot be made or restored.',
+      );
+    }
+  }
+}
+
+/// Read the exported/imported snapshot, rather than a racing live-library list.
+Future<List<String>> mediaSnapshotPhotoNames(String dbPath) async {
+  final db = await openDatabase(dbPath, readOnly: true, singleInstance: false);
+  try {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='body_photo'",
+    );
+    if (tables.isEmpty) return [];
+    return [
+      for (final row in await db.query('body_photo', columns: ['id']))
+        bodyPhotoFileName(row['id'] as String),
+    ];
+  } finally {
+    await db.close();
+  }
+}

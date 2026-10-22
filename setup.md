@@ -67,6 +67,10 @@ accepted recovery file is unchanged (SHA-256
 `0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 remains the last
 reported installation. Signing/installation, current-version enrollment and the phone acceptance
 matrix in `todo.md` / `build-95-repairs.md` remain open; delivery is not device acceptance.
+The subsequent independent `build-96-audit.md` reproduces seven additional faults in this
+unchanged source/IPA. Its targeted probes do not replace or invalidate the earlier CI record;
+they expose cases that record did not cover. Build 97 source now repairs all seven and adds the approved Body/notification/visual-check
+refinements. Its full cloud checks and replacement IPA are pending; no phone acceptance is claimed.
 
 ## Build 95 Candidate
 

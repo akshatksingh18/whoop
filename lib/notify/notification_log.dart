@@ -21,7 +21,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/day_label.dart';
 import 'tap_router.dart';
 
-/// One notification as it was shown.
+/// What the app can establish, not proof the person saw a banner.
+enum NotificationOrigin { submitted, scheduled, unknown }
+
+/// One submitted notification or inferred due occurrence.
 class LoggedNotification {
   /// Stable for the life of the entry; what marks one read.
   final String key;
@@ -35,6 +38,7 @@ class LoggedNotification {
   /// `NotifCategory.name`, for the row's icon.
   final String category;
   final bool read;
+  final NotificationOrigin origin;
 
   const LoggedNotification({
     required this.key,
@@ -44,6 +48,7 @@ class LoggedNotification {
     required this.category,
     this.route,
     this.read = false,
+    this.origin = NotificationOrigin.unknown,
   });
 
   LoggedNotification asRead() => LoggedNotification(
@@ -54,6 +59,7 @@ class LoggedNotification {
     category: category,
     route: route,
     read: true,
+    origin: origin,
   );
 
   Map<String, Object?> toJson() => {
@@ -64,6 +70,7 @@ class LoggedNotification {
     'c': category,
     if (route != null) 'r': route,
     if (read) 'read': true,
+    'origin': origin.name,
   };
 
   static LoggedNotification? fromJson(Object? j) {
@@ -78,6 +85,11 @@ class LoggedNotification {
       category: j['c'] is String ? j['c'] as String : 'reminders',
       route: j['r'] is String ? j['r'] as String : null,
       read: j['read'] == true,
+      origin:
+          NotificationOrigin.values
+              .where((v) => v.name == j['origin'])
+              .firstOrNull ??
+          NotificationOrigin.unknown,
     );
   }
 }
@@ -104,6 +116,30 @@ class NotificationLog {
   DateTime Function() clock = DateTime.now;
 
   Future<void> _chain = Future<void>.value();
+  bool _needsReload = false;
+
+  Future<void> _authoritative(SharedPreferences p) async {
+    if (!_needsReload) return;
+    await p.reload();
+    _needsReload = false;
+  }
+
+  Future<void> _save(SharedPreferences p, String key, String value) async {
+    await _authoritative(p);
+    try {
+      if (!await p.setString(key, value)) {
+        throw StateError('Notification history could not save');
+      }
+    } catch (_) {
+      // SharedPreferences mutates its cache before persistence completes.
+      // A refused/throwing write must never make Retry trust that cache.
+      _needsReload = true;
+      try {
+        await _authoritative(p);
+      } catch (_) {}
+      rethrow;
+    }
+  }
 
   /// Serialised: a present and a reconcile landing together must not each
   /// read the list, add one, and write back over the other.
@@ -114,6 +150,7 @@ class NotificationLog {
   }
 
   Future<List<LoggedNotification>> _read(SharedPreferences p) async {
+    await _authoritative(p);
     try {
       final raw = p.getString(_kLog);
       if (raw == null) return [];
@@ -135,9 +172,7 @@ class NotificationLog {
     final encoded = jsonEncode([for (final e in kept) _dated(e).toJson()]);
     final old = p.getString(_kLog);
     final changed = old != encoded && (old != null || kept.isNotEmpty);
-    if (changed && !await p.setString(_kLog, encoded)) {
-      throw StateError('Notification history could not save');
-    }
+    if (changed) await _save(p, _kLog, encoded);
     unread.value = kept.where((e) => !e.read).length;
     if (changed) revision.value++;
   }
@@ -151,6 +186,7 @@ class NotificationLog {
       body: e.body,
       category: e.category,
       read: e.read,
+      origin: e.origin,
       route: datedRoute(
         kRouteFoodDay,
         dayLabelAtSec(e.at.millisecondsSinceEpoch ~/ 1000),
@@ -192,6 +228,7 @@ class NotificationLog {
             body: body,
             category: category,
             route: route,
+            origin: NotificationOrigin.submitted,
           ),
         );
       await _write(p, all);
@@ -201,6 +238,7 @@ class NotificationLog {
   // ── scheduled notifications ──────────────────────────────────────────────
 
   Future<Map<String, Map<String, Object?>>> _plans(SharedPreferences p) async {
+    await _authoritative(p);
     try {
       final raw = p.getString(_kPlans);
       if (raw == null) return {};
@@ -294,6 +332,7 @@ class NotificationLog {
               body: (plan['body'] as String?) ?? '',
               category: (plan['category'] as String?) ?? 'reminders',
               route: plan['route'] as String?,
+              origin: NotificationOrigin.scheduled,
             ),
           );
         }
@@ -306,9 +345,7 @@ class NotificationLog {
       // History must commit before the processed watermark. A failed watermark
       // write can replay safely because occurrence keys are stable.
       await _write(p, all);
-      if (!await p.setString(_kPlans, jsonEncode(plans))) {
-        throw StateError('Notification schedule history could not save');
-      }
+      await _save(p, _kPlans, jsonEncode(plans));
     } catch (_) {}
   }
 
@@ -336,7 +373,7 @@ class NotificationLog {
         'category': category,
         'route': ?route,
       };
-      await p.setString(_kPlans, jsonEncode(plans));
+      await _save(p, _kPlans, jsonEncode(plans));
     } catch (_) {}
   });
 
@@ -347,7 +384,7 @@ class NotificationLog {
       final p = await SharedPreferences.getInstance();
       final plans = await _plans(p);
       if (plans.remove('$id') != null) {
-        await p.setString(_kPlans, jsonEncode(plans));
+        await _save(p, _kPlans, jsonEncode(plans));
       }
     } catch (_) {}
   });

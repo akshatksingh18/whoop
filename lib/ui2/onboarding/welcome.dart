@@ -418,6 +418,12 @@ Future<ImportOutcome> runImport(
   try {
     for (final p in db) {
       try {
+        if (await Directory('$p.photos').exists()) {
+          await validateMediaPhotoFiles(
+            '$p.photos',
+            await mediaSnapshotPhotoNames(p),
+          );
+        }
         days += await app.importEdgeBackup(p);
         records += app.lastImportRecords;
         await _commitRestorePhotos(p);

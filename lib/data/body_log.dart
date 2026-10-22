@@ -23,6 +23,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'calculation_store.dart';
+import 'body_photo_file.dart';
 import 'day_label.dart';
 import 'db.dart';
 import 'lift_log.dart' show newLiftId;
@@ -161,7 +162,7 @@ class BodyPhoto {
   DateTime recordedAt;
   String source;
 
-  String get fileName => '$id.jpg';
+  String get fileName => bodyPhotoFileName(id);
 }
 
 class BodyLogError implements Exception {
@@ -252,6 +253,9 @@ class BodyLogDb {
   /// The kilograms [value] in [unit] stands for, or a [BodyLogError] when it
   /// is not a plausible weight. Callers validate with it before any write.
   static double checkWeight(double value, String unit) {
+    if (unit != 'kg' && unit != 'lb') {
+      throw const BodyLogError('Choose kg or lb for weight.');
+    }
     if (!value.isFinite || value <= 0) {
       throw const BodyLogError('Enter a weight.');
     }
@@ -350,6 +354,7 @@ class BodyLogDb {
     DateTime? at,
     bool correctFirst = false,
   }) async {
+    _checkDay(date);
     final kg = checkWeight(value, unit);
     final now = DateTime.now();
     final d = DateTime.parse(date);
@@ -524,6 +529,7 @@ class BodyLogDb {
 
   /// Checked like Body: 5–80 in, rounded to 0.01 in, at least one site.
   static Future<void> putMeasure(BodyMeasure m) async {
+    _checkDay(m.date);
     final clean = <String, double>{};
     for (final e in m.inches.entries) {
       final v = e.value;
@@ -638,6 +644,7 @@ class BodyLogDb {
     String source = 'whoop',
     String? id,
   }) async {
+    _checkDay(date);
     final ph = BodyPhoto(
       id: id,
       date: date,
@@ -646,9 +653,20 @@ class BodyLogDb {
       source: source,
     );
     final f = await photoFile(ph);
-    await f.writeAsBytes(jpeg, flush: true);
+    final db = await LocalDb.instance;
+    if ((await db.query(
+      'body_photo',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [ph.id],
+    )).isNotEmpty) {
+      throw const BodyLogError('This photo is already here.');
+    }
+    // Exclusive creation owns this file or fails without touching it. A stale
+    // import preview or concurrent call must never overwrite an existing photo.
+    await f.create(exclusive: true);
     try {
-      final db = await LocalDb.instance;
+      await f.writeAsBytes(jpeg, flush: true);
       await db.insert('body_photo', {
         'id': ph.id,
         'date': ph.date,
@@ -736,10 +754,16 @@ DateTime _appleDate(Object? v) {
   throw const FormatException('Unreadable date');
 }
 
-bool _validDay(Object? d) =>
-    d is String &&
-    RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d) &&
-    DateTime.tryParse(d) != null;
+bool _validDay(Object? d) {
+  if (d is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d)) return false;
+  final parsed = DateTime.tryParse(d);
+  return parsed != null && dayLabelOf(parsed) == d;
+}
+
+void _checkDay(String date) {
+  if (!_validDay(date))
+    throw const BodyLogError('Choose a valid calendar date.');
+}
 
 /// A validated, not-yet-applied body import, for the preview.
 class BodyImportPlan {
@@ -815,9 +839,7 @@ Future<BodyImportPlan> planBodyImport(
       throw FormatException('Two weights on $day');
     final unit = generated ? (w['unit'] as String? ?? 'lb') : 'lb';
     final value = ((generated ? w['value'] : w['pounds']) as num).toDouble();
-    final kg = unit == 'lb' ? value / kLbPerKg : value;
-    if (!value.isFinite || kg < 30 || kg > 300)
-      throw FormatException('Weight out of range on $day');
+    final kg = BodyLogDb.checkWeight(value, unit);
     final origin = (w['id'] as String?) ?? '$source:$day';
     final existing = here[day];
     if (existing == null) {
@@ -863,6 +885,7 @@ Future<BodyImportPlan> planBodyImport(
   final existingPhotos = {for (final x in await BodyLogDb.photos()) x.id};
   final photos = <({BodyPhoto photo, String path})>[];
   final missing = <BodyPhoto>[];
+  final incomingPhotos = <String>{};
   for (final raw in (m['photos'] as List? ?? const [])) {
     final x = raw as Map;
     if (!_validDay(x['day'])) throw FormatException('Bad date ${x['day']}');
@@ -873,6 +896,12 @@ Future<BodyImportPlan> planBodyImport(
       recordedAt: _appleDate(x['recordedAt']),
       source: source,
     );
+    bodyPhotoFileName(ph.id);
+    if (!incomingPhotos.add(ph.id)) {
+      throw const FormatException(
+        'Two photos have the same ID. Nothing was imported.',
+      );
+    }
     if (existingPhotos.contains(ph.id)) {
       already++;
       continue;
@@ -887,6 +916,9 @@ Future<BodyImportPlan> planBodyImport(
   final h = (m['heightInches'] as num?)?.toDouble();
   final wd = (m['measurementWeekday'] as num?)?.toInt();
   final base = (m['baseline'] as Map?)?['date'];
+  if (base != null && !_validDay(base)) {
+    throw const FormatException('Choose a valid baseline date.');
+  }
   return BodyImportPlan(
     source: source,
     weights: weights,

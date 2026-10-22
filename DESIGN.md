@@ -26,6 +26,10 @@ and enlarged notifications place time/unread context above the message. Save fai
 draft and name the retry; a stopped workout cannot appear to be recording. Selected settings
 choices expose the same state to VoiceOver as to sighted users. See `build-95-repairs.md` for
 implementation and verification status; this is not a new visual direction.
+Build 97 keeps the same composition. For one recorded weight day, the latest reading and a
+short comparison explanation replace repeated average/endpoints; the chart, entries, measures
+and photos remain. Notification rows add one provenance label, with a short explanation below
+the history; a due schedule is never presented as confirmed delivery.
 The approved follow-up keeps targets under Today values in a consistent `of <goal>` format.
 Trends places pins in its header and keeps units/coverage intact; the second energy method gets
 full-width context. Food puts calories in every meal heading without repeating a singleton's

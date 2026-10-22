@@ -77,3 +77,35 @@ jobs:
       # tests SKIP here and run locally.
       - name: Test
         run: flutter test --concurrency=1 --reporter=expanded
+
+  synthetic-pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # These tests seed only synthetic data and assert overflow, range/route
+      # state and full-scroll reachability. No golden baseline is required.
+      - name: Render main pages, details, forms and failure states
+        run: >-
+          flutter test --concurrency=1 --dart-define=UI_CAPTURE=true
+          test/build87_redesign_render_test.dart
+          test/build95_repair_render_test.dart
+          --reporter=expanded
+      - name: Build local image index
+        if: always()
+        run: python3 tool/ui_smoke_gallery.py build/ui_capture
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: synthetic-ui-${{ github.sha }}
+          path: build/ui_capture/
+          if-no-files-found: error
+          retention-days: 14

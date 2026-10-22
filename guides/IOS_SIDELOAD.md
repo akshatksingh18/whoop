@@ -193,6 +193,10 @@ the daily WHOOP plan.
 
 ## Acceptance
 
+Build 96 has seven additional reproduced faults documented in `../build-96-audit.md`.
+Artifact validation does not clear those application failures; repair/recheck them before
+promoting the candidate. The accepted Build 70 cache remains unchanged.
+
 Do not call this workflow dependable until WHOOP passes its physical-device matrix, encrypted
 restore, same-IPA Wi-Fi/USB refresh, new-IPA upgrade, controlled expiry recovery, two consecutive
 unattended portfolio refresh cycles, alert escalation, and USB recovery gates in `CLAUDE.md`.

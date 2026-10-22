@@ -240,6 +240,11 @@ class _ProgressDetailState extends State<_ProgressDetail>
     final t = DateTime.parse(today);
     String back(int n) => dayLabelOf(DateTime(t.year, t.month, t.day - n));
     final now7 = BodyLogDb.sevenDayMean(d.weights, today);
+    final oneDay =
+        ws.length == 1 &&
+        latest?.date == daily?.date &&
+        latest?.kg == daily?.kg &&
+        now7?.count == 1;
     final prev7 = BodyLogDb.sevenDayMean(d.weights, back(7));
     final week = span(back(6), today), weekBefore = span(back(13), back(7));
 
@@ -357,24 +362,37 @@ class _ProgressDetailState extends State<_ProgressDetail>
       );
     }
     final weekSelected = _range == ProgressRange.week;
-    add(
-      row(
-        '7-day average',
-        now7 == null
-            ? 'No weigh-in in $week'
-            : [
-                week,
-                readings(now7.count),
-                prev7 == null
-                    ? 'none in $weekBefore to compare'
-                    : '${signed(now7.kg - prev7.kg)} vs $weekBefore',
-              ].join(' · '),
-        now7 == null ? '—' : w(now7.kg),
-        selected: weekSelected,
-      ),
-      boxed: weekSelected,
-    );
-    if (!weekSelected) {
+    if (oneDay) {
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: S.x2),
+          child: Text(
+          'One day of weight data. Its first reading is the 7-day average '
+          'for now; a change needs another day.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.4),
+          ),
+        ),
+      );
+    } else {
+      add(
+        row(
+          '7-day average',
+          now7 == null
+              ? 'No weigh-in in $week'
+              : [
+                  week,
+                  readings(now7.count),
+                  prev7 == null
+                      ? 'none in $weekBefore to compare'
+                      : '${signed(now7.kg - prev7.kg)} vs $weekBefore',
+                ].join(' · '),
+          now7 == null ? '—' : w(now7.kg),
+          selected: weekSelected,
+        ),
+        boxed: weekSelected,
+      );
+    }
+    if (!weekSelected && !oneDay) {
       final after =
           per.after ??
           (from: per.shownFrom, to: per.shownTo, days: 0, partial: false);
@@ -784,14 +802,19 @@ class _ProgressDetailState extends State<_ProgressDetail>
                 ),
               ),
               const SizedBox(height: S.x2),
-              if (summary != null) ...[
+              if (summary != null && r.length > 1) ...[
                 Text(
                   'ON THE CHART · ${trend ? '7-DAY AVERAGE' : 'READINGS'}',
                   style: F.label.copyWith(color: p.ink2),
                 ),
                 const SizedBox(height: S.x1),
               ],
-              if (summary != null)
+              if (summary != null && r.length == 1)
+                Text(
+                  'No earlier reading in this period to compare.',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              if (summary != null && r.length > 1)
                 _stats(c, [
                   _stat(
                     p,
@@ -831,7 +854,7 @@ class _ProgressDetailState extends State<_ProgressDetail>
                     'per measured day',
                   ),
                 ]),
-              if (m is WeightMetric)
+              if (m is WeightMetric && d.weights.length > 1)
                 if (_blockLine(d, today) case final line?)
                   Padding(
                     padding: const EdgeInsets.only(top: S.x2),

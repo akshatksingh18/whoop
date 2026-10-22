@@ -24,8 +24,13 @@ analysis/tests, the macOS build, source/version/checksum, ZIP and payload valida
 Build 91 is the last reported installation; Builds 92–95 were never reported installed. Build 70
 remains accepted recovery. Phone acceptance in `todo.md` remains open and changes only when Akshat
 reports installation and the checks. Earlier builds' notes are in `build-history.md`.
+The independent `build-96-audit.md` reopens seven additional failure-sequence/import/freshness
+faults in that unchanged IPA. Build 97 source implements their repairs and the approved
+Body/notification refinements; cloud checks and a replacement IPA are pending. Existing green
+checks remain evidence for covered cases, not universal flow verification.
 
 ## Files
+- `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.
 - `build-95-repairs.md` — approved 29-finding repair scope, current implementation/check status and integration/device gates; read before continuing the repair branch.
 - `build-90-audit.md` — current Build 89 all-tab visual/source audit, targeted synthetic evidence,
   reliability findings, complete app-wide repair/verification/enhancement backlog,
@@ -47,7 +52,8 @@ reports installation and the checks. Earlier builds' notes are in `build-history
   source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
 - `build-history.md` — the build-by-build notes this file carried through Build 94, moved out
   verbatim; history only, not current guidance.
-- `todo.md` — Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
+- `.github/workflows/test.yml` and `tool/ui_smoke_gallery.py` — full Linux checks plus the synthetic full-scroll visual-smoke job and its local image index; captures are test fixtures, not phone evidence.
+- `todo.md` — Build 97 repairs (3l), Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,

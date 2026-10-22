@@ -6,6 +6,8 @@ analysis/tests and the macOS build pass; the downloaded IPA and source/version/c
 checks pass. Builds 92–95 were never reported installed. Build 70 remains cached recovery;
 phone acceptance and current-version refresh enrollment remain open. `setup.md` owns the exact
 artifact and workflow evidence, and `build-95-repairs.md` owns the repair checklist.
+The independent `build-96-audit.md` identifies seven additional reproduced faults in the
+unchanged candidate. Their recommended repair bundle below is not implemented or released.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -492,7 +494,21 @@ other worktrees remain untouched.
   Build 95's folder went to the Windows Recycle Bin; accepted Build 70 recovery is unchanged.
   Phone checks remain open for nested workout, Food, Body, notification, travel, permission,
   restore/reset flows, BLE/GPS lifecycle and current-version signing enrollment; see the report.
-- [ ] 4. Akshat's phone acceptance: the still-open Build 89 checks below, every Build 90
+- [ ] 3l. Build 97: Akshat approved the seven additional Build 96 repairs and useful refinements.
+  `build-96-audit.md` owns B96-01–07 and exact source/test evidence. Preserve the stopped
+  workout's complete measured payload across failed-save → cold restart → Retry; make photo
+  imports collision-safe; reject impossible dates and unknown units before writes; make
+  notification read retries durable; refresh retained battery forecasts; and carry every
+  accepted safe photo through media backup/restore. Add desired-behavior regressions and
+  remove unnecessary private-export-derived details from source comments.
+  The original diagnostic probes are reproduction evidence. All seven repairs and the selected
+    refinements are implemented in Build 97 source; 24 focused checks pass. Cloud/release
+    verification remains pending and will replace this statement after completion. Add cloud visual-smoke
+    artifacts, a quieter single-reading Body state and honest notification provenance while
+    retaining the approved A+B composition. Body deletion Undo is deferred: it needs a separate
+    recovery contract for profile changes and photo files. The skipped golden-image cases and
+    native-device gaps remain explicit.
+- [ ] 4. Akshat's phone acceptance: clear B96-01–07, then the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
 ### Home bodyweight workout (audit, Claude lane)

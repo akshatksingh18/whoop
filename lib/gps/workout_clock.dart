@@ -16,6 +16,21 @@ class WorkoutClock {
   DateTime? pausedAt, end;
   int spokenKm;
   Map<String, dynamic> results;
+
+  /// Exact final measurements, staged before the session write. A retry after
+  /// process death must not rebuild them from a new, empty live accumulator.
+  Map<String, dynamic>? get pendingSession {
+    final row = results['pendingSession'];
+    if (row is! Map ||
+        end == null ||
+        row['id'] != id ||
+        row['status'] != 'done' ||
+        row['start_ts'] != start.millisecondsSinceEpoch ~/ 1000 ||
+        row['end_ts'] != end!.millisecondsSinceEpoch ~/ 1000)
+      return null;
+    return Map<String, dynamic>.from(row);
+  }
+
   void Function(bool)? onPauseChanged;
   static WorkoutClock? current;
   WorkoutClock(

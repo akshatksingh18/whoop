@@ -44,7 +44,9 @@ yourself.
   [`packages/analytics`](packages/analytics), both from OpenStrap.
 - **Bands:** WHOOP 4.0 is the one used every day; the WHOOP 5.0 decoder is kept but less tested.
 - **CI on GitHub Actions:** every change runs the analyzer and the full test suite (several
-  thousand tests) on Linux. A manual macOS workflow builds the unsigned iPhone IPA from the
+  thousand tests) on Linux. A parallel synthetic visual-smoke job retains full-scroll
+  page/form captures and checks layout at normal and enlarged text; these do not replace native
+  iPhone acceptance or a pixel baseline. A manual macOS workflow builds the unsigned iPhone IPA from the
   committed Xcode project, checks it carries nothing but the app (no extensions, no HealthKit, no
   secrets) and publishes it with a checksum.
 - **Install:** the IPA is signed and installed from Windows with Sideloadly and refreshed every

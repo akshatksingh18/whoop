@@ -7,6 +7,12 @@ leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
 permission/storage waits; a failed final session save stays stopped and retryable.
+The independent Build 96 audit found that a cold restart before retry can still overwrite
+previously saved HR/zone evidence with an empty accumulator (B96-01 in `build-96-audit.md`).
+Build 97 stages the exact final session row and HR/zone trace in the existing durable workout
+clock before final writes. Cold retry replays it, even beyond the live-resume age ceiling, while
+privacy/RPE retain their current stored values. New regressions preserve end/profile/trace and
+measured summary fields across restart. No native background behavior is claimed by these tests.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
 Build 86 introduced one

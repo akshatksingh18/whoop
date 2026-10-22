@@ -76,6 +76,10 @@ and the bundle identity never changes.
 
 ## Acceptance
 
+The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
+Build 97 source implements their repairs and focused regressions. Its replacement IPA and
+full cloud checks remain pending; the Build 96 payload record is historical verification only.
+
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,
 require the shared signing-health check to print `ENROLLED` for the exact WHOOP signed identity and
 current version, pair and drain offline, prove CoreBluetooth background/restoration behaviour,

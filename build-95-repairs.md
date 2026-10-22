@@ -6,6 +6,9 @@ Codex the complete integration and release. 73 focused synthetic checks pass loc
 CI passes 3,403 tests (429 intentional skips), no analysis errors/warnings. The macOS build and
 downloaded IPA/source/version/checksum/ZIP/payload checks pass. Physical iPhone acceptance remains
 open. `setup.md` owns the exact artifact and workflow records.
+The later `build-96-audit.md` independently reproduces seven additional faults, including the
+cold-restart extension of the same-process finish-retry case. Those remain open in Build 96;
+the original 29 regression contracts do not constitute exhaustive deeper-flow verification.
 
 Keep the approved kraft/cream interface, existing activities and recorded data. Reuse approved energy/goal methods; repair fabricated inputs, persistence and consumers rather than tuning scientific coefficients. Algorithm 97 and schema 50 are unchanged. Build 96 uses version `0.9.63+96`; dependencies and BLE ACK ordering are unchanged.
 

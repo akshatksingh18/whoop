@@ -195,7 +195,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       else if (all.isEmpty)
         Surface(
           child: Text(
-            'Nothing yet. Notifications this app shows appear here, by day, '
+            'Nothing yet. Sent notifications and due reminders appear here, by day, '
             'for 90 days.',
             style: F.body.copyWith(color: p.ink2),
           ),
@@ -220,8 +220,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(S.x1, S.x4, S.x1, 0),
           child: Text(
-            'Tap one to open what it was about. Kept for 90 days, on this '
-            'phone only.',
+            'Sent to iOS records submission; scheduled entries record due times. '
+            'Neither confirms a banner was displayed. Older entries have no '
+            'delivery record. Tap to open. Kept here for 90 days.',
             style: F.cap.copyWith(color: p.onGround),
           ),
         ),
@@ -236,9 +237,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   ) {
     final at = time.formatTimeOfDay(TimeOfDay.fromDateTime(e.at));
     final tone = _tone(e.category);
+    final origin = switch (e.origin) {
+      NotificationOrigin.submitted => 'Sent to iOS',
+      NotificationOrigin.scheduled => 'Scheduled time passed',
+      NotificationOrigin.unknown => 'Delivery not recorded',
+    };
     return Pressable(
       semanticLabel:
-          '${e.read ? '' : 'Unread. '}${e.title}. ${e.body} $at.'
+          '${e.read ? '' : 'Unread. '}${e.title}. ${e.body} $at. $origin.'
           '${e.route == null ? '' : ' Opens what it was about'}',
       onTap: () => _open(c, e),
       child: Padding(
@@ -272,6 +278,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       fontWeight: e.read ? FontWeight.w500 : FontWeight.w700,
                     ),
                   ),
+                  Text(origin, style: F.cap.copyWith(color: p.ink2)),
                   if (e.body.isNotEmpty)
                     Text(
                       e.body,

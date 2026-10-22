@@ -103,6 +103,7 @@ void main() {
           body:
               'Your overnight score is available. Open it to see which inputs were measured.',
           category: 'recovery',
+          origin: NotificationOrigin.submitted,
         ),
         LoggedNotification(
           key: '2',
@@ -111,6 +112,7 @@ void main() {
           body:
               'Mark it complete, or leave it — a day with half your goal or more counts on its own.',
           category: 'reminders',
+          origin: NotificationOrigin.scheduled,
         ),
         LoggedNotification(
           key: '3',
@@ -255,6 +257,8 @@ void main() {
       await settle(t);
       final value = find.text('181.4 lb').first;
       expect(value, findsOneWidget);
+      expect(find.textContaining('One day of weight data.'), findsOneWidget);
+      expect(find.text('FIRST READING'), findsNothing);
       await t.ensureVisible(value);
       await settle(t);
       await capture(t, 'b95_repaired_body_numeric_${width.toInt()}w_${scale}x');

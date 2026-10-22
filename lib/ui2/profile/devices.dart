@@ -107,12 +107,7 @@ String? bandLabelFor(String? adapterId) {
 /// exists (ASSUMPTIONS E5). Move it there and delete this — it must never
 /// become a CI rule, which would hand the key to the PR author.
 const Set<String> kOwnerConfirmedBandIds = {'gen4', 'gen5'};
-// gen5 promoted 2026-08-23: WHOOP 5 worn by the owner, paired, connected,
-// live HR streaming, and a full historical drain completed (the trim token
-// reached `sync_cursor`, so the band was told it may release that flash).
-// 249,596 decoded seconds and 151,595 beats stamped `device_family='gen5'`
-// on his own export. That is the promotion path in ASSUMPTIONS E5 — hardware
-// in his hands — not a fixture passing.
+// Promotion requires physical-device validation, not only passing fixtures.
 
 /// One thing that can produce measurements.
 class HealthSource {
@@ -557,7 +552,8 @@ class DeviceDetail extends StatefulWidget {
   State<DeviceDetail> createState() => _DeviceDetailState();
 }
 
-class _DeviceDetailState extends State<DeviceDetail> {
+class _DeviceDetailState extends State<DeviceDetail>
+    with WidgetsBindingObserver {
   /// Held, not rebuilt: this screen watches AppState, so a FutureBuilder given
   /// a fresh `batteryHealth()` on every build would rescan the sample table on
   /// every connection tick.
@@ -568,20 +564,58 @@ class _DeviceDetailState extends State<DeviceDetail> {
   /// got", and the answer was already being calculated and only ever spent on a
   /// notification they may have dismissed.
   BatteryForecast? _forecast;
+  AppState? _app;
+  int _load = 0;
 
   @override
   void initState() {
     super.initState();
-    if (!widget.s.isBand) return;
-    LocalDb.batteryHealth().then((h) {
-      if (mounted) setState(() => _health = h);
-    }).catchError((_) {});
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = widget.s.isBand ? context.read<AppState>() : null;
+    if (identical(app, _app)) return;
+    _app?.batteryRevision.removeListener(_loadForecast);
+    _app = app;
+    _app?.batteryRevision.addListener(_loadForecast);
     _loadForecast();
   }
 
+  @override
+  void didUpdateWidget(covariant DeviceDetail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.s.batteryPct != widget.s.batteryPct ||
+        oldWidget.s.charging != widget.s.charging ||
+        oldWidget.s.family != widget.s.family)
+      _loadForecast();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _loadForecast();
+  }
+
+  @override
+  void dispose() {
+    _load++;
+    _app?.batteryRevision.removeListener(_loadForecast);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> _loadForecast() async {
+    final load = ++_load;
+    if (!widget.s.isBand) return;
+    setState(() {
+      _forecast = null;
+      _health = null;
+    });
     try {
       final rows = await LocalDb.recentBandBatterySamples(limit: 400);
+      final health = await LocalDb.batteryHealth();
       final now = DateTime.now();
       final f = const BatteryForecaster().forecast(
         samples: [
@@ -599,7 +633,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
         // question, not this screen's.
         wakeAt: now,
       );
-      if (mounted) setState(() => _forecast = f);
+      if (mounted && load == _load)
+        setState(() {
+          _forecast = f;
+          _health = health;
+        });
     } catch (_) {
       // A projection is a nicety. The screen's real job is the band's state.
     }
@@ -618,7 +656,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       s,
       status: app?.engine.bandStatus,
       health: _health,
-      forecast: _forecast,
+      forecast: s.charging ? null : _forecast,
       onFind: app != null && app.isConnected
           ? () async {
               final messenger = ScaffoldMessenger.maybeOf(c);

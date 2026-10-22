@@ -1056,6 +1056,9 @@ class AppState extends ChangeNotifier {
   /// Bumped whenever stored insights change so listeners can re-query without a
   /// full ChangeNotifier repaint.
   final ValueNotifier<int> insightsRevision = ValueNotifier<int>(0);
+
+  /// Only committed battery/charging changes, never the live-HR heartbeat.
+  final ValueNotifier<int> batteryRevision = ValueNotifier<int>(0);
   StreamSubscription<String>? _tapSub;
 
   void _handleTapRoute(String route) {
@@ -1236,6 +1239,7 @@ class AppState extends ChangeNotifier {
     navRequest.dispose();
     screenRequest.dispose();
     insightsRevision.dispose();
+    batteryRevision.dispose();
     super.dispose();
   }
 
@@ -3035,12 +3039,18 @@ class AppState extends ChangeNotifier {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       unawaited(
         LocalDb.insertBandBatterySample(
-          ts: nowSec,
-          batteryPct: roundedPct?.toDouble(),
-          charging: s.charging,
-          wristOn: s.wristOn,
-          source: 'device_state',
-        ),
+              ts: nowSec,
+              batteryPct: roundedPct?.toDouble(),
+              charging: s.charging,
+              wristOn: s.wristOn,
+              source: 'device_state',
+            )
+            .then((_) {
+              if (!_disposed) batteryRevision.value++;
+            })
+            .catchError((Object e) {
+              _log('[battery] sample could not save: $e');
+            }),
       );
     }
     // A fresh battery reading is exactly when the overnight forecast is worth
@@ -4962,17 +4972,20 @@ class AppState extends ChangeNotifier {
       for (final row in rows) {
         final startSec = (row['start_ts'] as num?)?.toInt();
         final ageMs = startSec == null ? null : nowMs - startSec * 1000;
+        final savedClock = startSec == null
+            ? null
+            : WorkoutClock.read(
+                row['id'] as String,
+                DateTime.fromMillisecondsSinceEpoch(startSec * 1000),
+              );
         if (!resumed &&
             ageMs != null &&
             ageMs >= 0 &&
-            ageMs <= _kMaxLiveWorkoutAgeMs) {
+            (ageMs <= _kMaxLiveWorkoutAgeMs || savedClock?.end != null)) {
           resumed = true;
           final startMs = startSec! * 1000;
           final id = row['id'] as String? ?? 'w$startMs';
-          final clock = WorkoutClock.read(
-            id,
-            DateTime.fromMillisecondsSinceEpoch(startMs),
-          );
+          final clock = savedClock!;
           activeWorkout = LiveWorkoutState(
             startTime: DateTime.fromMillisecondsSinceEpoch(startMs),
             targetKcal: 300,
@@ -5001,6 +5014,7 @@ class AppState extends ChangeNotifier {
           WorkoutClock.current = clock;
           clock.onPauseChanged = _onWorkoutPause;
           if (clock.end != null) {
+            activeWorkout!.elapsed = clock.activeDuration();
             notifyListeners();
             return;
           }
@@ -5098,93 +5112,105 @@ class AppState extends ChangeNotifier {
     // Recording has ended even if flushing GPS or saving the row fails.
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
-    // Stop GPS route recording and AWAIT the buffered-tail flush before the
-    // finish screen loads the route — an unawaited stop raced the navigation
-    // and the finish/detail map missed the last batch of fixes.
+    final clock = WorkoutClock.current;
+    var sessionRow = clock?.pendingSession;
+    var w = activeWorkout!;
+    if (sessionRow == null) {
+      // Nullable for the same reason `steps` below is: an unanchored profile
+      // means this session was never costed, and a 0 in the column reads as
+      // "burned nothing" rather than "not measured".
+      try {
+        await _movementRead;
+        await _refreshWorkoutMovement();
+      } catch (e) {
+        _workoutMeasurements = null;
+        _log('[workout] movement unavailable; preserving the session: $e');
+      }
+      final activeDuration = Duration(
+        seconds:
+            WorkoutClock.current?.activeSeconds(endedAt) ?? w.elapsed.inSeconds,
+      );
+      if (activeDuration < w.elapsed || w.hasSamplesAfter(activeDuration)) {
+        w = w.boundedAt(activeDuration, _zoneFor);
+        activeWorkout = w;
+      }
+      w.elapsed = activeDuration;
+      final finalKcal = workoutActiveKcal;
+      // Nullable: an unmeasured workout must leave the column unset rather than
+      // bank a zero that reads as "you took no steps".
+      final wSteps = workoutStepCount;
+      // Measured walking cadence, or null when this session had too few gait-like
+      // minutes to have one — most indoor sessions. Never 0.
+      final wCadence = _workoutSawSamples
+          ? sessionCadenceSpm(_workoutMinuteSteps)
+          : null;
+      // Persist the finalized session before clearing the live state. zone_min =
+      // the per-zone seconds the 1 Hz tick accumulated (Z1..Z5, minutes).
+      final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
+      final zoneMin = w.zoneMinutes();
+      // Older stopped clocks may already contain a trace without a final row.
+      // Keep that evidence; a cold accumulator cannot reconstruct sample peaks
+      // or duration-weighted means from minute averages.
+      final legacyTrace =
+          w.perMinuteHrDense().isEmpty &&
+          clock?.results['hr'] is List &&
+          (clock!.results['hr'] as List).isNotEmpty;
+      if (!legacyTrace) {
+        clock?.results.addAll({'hr': w.perMinuteHrDense(), 'zones': zoneMin});
+      }
+      w.elapsed = Duration(
+        seconds:
+            WorkoutClock.current?.activeSeconds(endedAt) ?? w.elapsed.inSeconds,
+      );
+      final endTs = endedAt.millisecondsSinceEpoch ~/ 1000;
+      // Which strap measured this workout. `putSession` is INSERT OR REPLACE, so
+      // an omitted key would blank the stamp startWorkout banked — keep that one
+      // when the link has since dropped rather than downgrading a real answer to
+      // "unknown".
+      final bandFamily =
+          engine.linkDeviceFamily ??
+          ((await LocalDb.session(id))?['device_family'] as String?);
+      final savedZones = legacyTrace
+          ? clock.results['zones'] as List?
+          : zoneMin;
+      sessionRow = {
+        'id': id,
+        'start_ts': w.startTime.millisecondsSinceEpoch ~/ 1000,
+        'end_ts': endTs,
+        'type': w.type,
+        'status': 'done',
+        'calories': finalKcal,
+        // Live saves are active energy by the shown method (workoutActiveKcal).
+        'calories_basis': finalKcal == null ? null : kCaloriesBasisActive,
+        'strain': w.strain,
+        'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
+        'avg_hr': w.meanHr?.round(),
+        'duration_min': w.elapsed.inMinutes,
+        'zone_min_json': jsonEncode(
+          savedZones?.any((v) => v is num && v > 0) == true
+              ? savedZones
+              : const <num>[],
+        ),
+        if (wSteps != null && wSteps > 0) 'steps': wSteps,
+        'cadence_spm': ?wCadence,
+        'source': 'manual',
+        'device_family': bandFamily,
+        'created_at': w.startTime.millisecondsSinceEpoch,
+      };
+      // This write precedes GPS teardown and the final session INSERT. Both can
+      // fail; the exact measured evidence must still survive process death.
+      clock?.results['pendingSession'] = sessionRow;
+    }
+    // Also retry a failed staging write before attempting either final write.
+    await clock?.persist();
+    final id = sessionRow['id'] as String;
+    final finalKcal = sessionRow['calories'];
     final rt = _routeTracker;
     if (rt != null) {
-      // Preserve the stopped tracker and its buffered points on a failed write;
-      // the finish action can retry without losing the route or saving a partial session.
       await rt.stop();
       _routeTracker = null;
       routeLocationIssue = null;
     }
-    // Release the display unconditionally — not inside the `rt != null` branch.
-    // A session that never got a tracker (permission denied) still armed
-    // nothing, but a session whose tracker was already cleared by another path
-    // would otherwise leave the screen pinned awake until the app is killed.
-    var w = activeWorkout!;
-    // Nullable for the same reason `steps` below is: an unanchored profile
-    // means this session was never costed, and a 0 in the column reads as
-    // "burned nothing" rather than "not measured".
-    try {
-      await _movementRead;
-      await _refreshWorkoutMovement();
-    } catch (e) {
-      _workoutMeasurements = null;
-      _log('[workout] movement unavailable; preserving the session: $e');
-    }
-    final activeDuration = Duration(
-      seconds:
-          WorkoutClock.current?.activeSeconds(endedAt) ?? w.elapsed.inSeconds,
-    );
-    if (activeDuration < w.elapsed || w.hasSamplesAfter(activeDuration)) {
-      w = w.boundedAt(activeDuration, _zoneFor);
-      activeWorkout = w;
-    }
-    w.elapsed = activeDuration;
-    final finalKcal = workoutActiveKcal;
-    // Nullable: an unmeasured workout must leave the column unset rather than
-    // bank a zero that reads as "you took no steps".
-    final wSteps = workoutStepCount;
-    // Measured walking cadence, or null when this session had too few gait-like
-    // minutes to have one — most indoor sessions. Never 0.
-    final wCadence = _workoutSawSamples
-        ? sessionCadenceSpm(_workoutMinuteSteps)
-        : null;
-    // Persist the finalized session before clearing the live state. zone_min =
-    // the per-zone seconds the 1 Hz tick accumulated (Z1..Z5, minutes).
-    final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
-    final zoneMin = w.zoneMinutes();
-    WorkoutClock.current?.results.addAll({
-      'hr': w.perMinuteHrDense(),
-      'zones': zoneMin,
-    });
-    await WorkoutClock.current?.persist();
-    w.elapsed = Duration(
-      seconds:
-          WorkoutClock.current?.activeSeconds(endedAt) ?? w.elapsed.inSeconds,
-    );
-    final endTs = endedAt.millisecondsSinceEpoch ~/ 1000;
-    // Which strap measured this workout. `putSession` is INSERT OR REPLACE, so
-    // an omitted key would blank the stamp startWorkout banked — keep that one
-    // when the link has since dropped rather than downgrading a real answer to
-    // "unknown".
-    final bandFamily =
-        engine.linkDeviceFamily ??
-        ((await LocalDb.session(id))?['device_family'] as String?);
-    final sessionRow = {
-      'id': id,
-      'start_ts': w.startTime.millisecondsSinceEpoch ~/ 1000,
-      'end_ts': endTs,
-      'type': w.type,
-      'status': 'done',
-      'calories': finalKcal,
-      // Live saves are active energy by the shown method (workoutActiveKcal).
-      'calories_basis': finalKcal == null ? null : kCaloriesBasisActive,
-      'strain': w.strain,
-      'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
-      'avg_hr': w.meanHr?.round(),
-      'duration_min': w.elapsed.inMinutes,
-      'zone_min_json': jsonEncode(
-        zoneMin.any((v) => v > 0) ? zoneMin : const <num>[],
-      ),
-      if (wSteps != null && wSteps > 0) 'steps': wSteps,
-      'cadence_spm': ?wCadence,
-      'source': 'manual',
-      'device_family': bandFamily,
-      'created_at': w.startTime.millisecondsSinceEpoch,
-    };
     // AWAITED, and the live state is not cleared until it lands. This was
     // fire-and-forget with `activeWorkout = null` on the next line: the
     // in-memory session is the ONLY other copy, so a failed write silently
@@ -5204,6 +5230,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+    // The committed session is authoritative now. Keeping this replay payload
+    // would let a later edit be mistaken for an unfinished save.
+    clock?.results.remove('pendingSession');
+    await clock?.persist().catchError((Object e) {
+      _log('[workout] session committed; pending-save cleanup will retry: $e');
+    });
     activeWorkout = null;
     WorkoutClock.current = null;
     _workoutVoice = null;

@@ -12,6 +12,13 @@ Full cloud analysis/tests, macOS compilation and downloaded IPA validation pass;
 remains accepted recovery. `todo.md` owns acceptance and `setup.md` owns artifact evidence;
 physical background/restoration, native permission and signing gates remain open.
 
+**Additional Build 96 findings:** [build-96-audit.md](build-96-audit.md) owns seven reproduced
+functional faults: cold-restart finish retry, duplicate imported photos, impossible Body dates,
+unsupported weight units, notification read-state retry, retained battery forecasts and accepted
+photos omitted from media backup. Build 97 source repairs all seven; cloud verification and
+the replacement IPA are pending. The unnecessary private-derived source comment is removed.
+Unexecuted device cases remain separately qualified in the report.
+
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does
 nothing for pairing). Once connected, live data works fine.

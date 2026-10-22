@@ -597,11 +597,19 @@ void main() {
         await _settle(t);
         expect(t.takeException(), isNull);
         await _capture(t, 'b87_${name}_${scale}x');
-        for (var i = 0; i < 3; i++) {
-          await t.drag(find.byType(Scrollable).first, const Offset(0, -500));
+        final scrolling = find
+            .byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            )
+            .first;
+        final position = t.state<ScrollableState>(scrolling).position;
+        for (var i = 0; i < 60 && position.extentAfter > .5; i++) {
+          await t.drag(scrolling, const Offset(0, -500));
           await _settle(t);
           expect(t.takeException(), isNull);
+          await _capture(t, 'b87_${name}_${scale}x_scroll_$i');
         }
+        expect(position.extentAfter, lessThanOrEqualTo(.5));
         if (name == 'photos') {
           await t.scrollUntilVisible(
             find.text('Front'),
@@ -1265,9 +1273,7 @@ void main() {
     await t.pumpWidget(
       MaterialApp(
         theme: buildTheme(Brightness.light),
-        home: const Scaffold(
-          body: CalorieCard(eaten: null, goal: 2300),
-        ),
+        home: const Scaffold(body: CalorieCard(eaten: null, goal: 2300)),
       ),
     );
     // Unknown intake remains explicit, separately from the user's goal, and
@@ -1601,6 +1607,11 @@ void main() {
             'progress_empty',
             ShellDomain.progress,
             () => ProgressScreen(data: _progress(empty: true)),
+          ),
+          (
+            'progress_failed',
+            ShellDomain.progress,
+            () => ProgressScreen(data: _progress(failed: true)),
           ),
           // Build 90: the detail pages the overview's rows open.
           (

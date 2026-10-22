@@ -8,6 +8,9 @@ last reported installation. The approved A framework with B's calorie ring and c
 is retained. All 29 repairs in `build-95-repairs.md` are included; cloud analysis/tests, the macOS
 build and downloaded IPA validation pass. Build 70 remains accepted recovery. `todo.md` owns
 phone gates and `setup.md` owns source/hash/workflow evidence.
+The independent `build-96-audit.md` records cold-restart evidence-retention, import
+date/unit/photo integrity, notification persistence and battery-freshness faults repaired in
+Build 97 source, pending cloud/release verification. No scientific formula or coefficient changes.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is
@@ -22,7 +25,14 @@ privacy commits with its first row, corrected endpoints bound the trace and all 
 unknown finish time cannot supply a duration or calorie estimate. Private workouts remain in
 personal history but are excluded from weekly/Progress session-count and session-load aggregates.
 Observed daily physiology still includes the band data; privacy does not change the strain formula. A stopped session
-whose final write failed offers retry rather than implying that recording resumed.
+whose final write failed offers retry rather than implying that recording resumed. Build 97
+stages its exact final measurements for cold retry. Body rejects impossible dates/unsupported
+weight units and preserves safe photo files through shared import/storage/backup validation.
+With one recorded day, Body states why change is unavailable instead of repeating endpoints;
+charts, all entries, tape sites and history remain. Notification provenance distinguishes
+submission to iOS, inferred due schedules and unknown legacy delivery; none proves a banner
+was seen. Read state changes only after durable writes. Retained device detail refreshes on
+committed battery changes and foreground return, not on every live-HR tick.
 
 ## What is stored
 

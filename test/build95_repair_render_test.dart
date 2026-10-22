@@ -168,6 +168,61 @@ void main() {
       await settle(t);
     });
   }
+  testWidgets(
+    'one tape reading retains its number without duplicate endpoints',
+    (t) async {
+      SharedPreferences.setMockInitialValues({});
+      await Prefs.ensureLoaded();
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      final units = UnitsController.withUnits();
+      addTearDown(units.dispose);
+      final day = todayLabel();
+      final data = ProgressData(
+        weights: [],
+        measures: [
+          BodyMeasure(
+            date: day,
+            recordedAt: DateTime.now(),
+            inches: {BodySite.waistNavel.name: 34.25},
+          ),
+        ],
+        photos: [],
+        lifts: [],
+        food: [],
+        steps: [],
+        sleepMin: [],
+        recovery: [],
+        sessions: [],
+        baseline: null,
+        heightCm: null,
+      );
+      await t.pumpWidget(
+        frame(
+          app,
+          progressDetailPage(
+            ProgressDest.waist,
+            initial: data,
+            range: ProgressRange.week,
+          ),
+          1,
+          units,
+        ),
+      );
+      await settle(t);
+      final value = find.text('34.3 in');
+      expect(value, findsOneWidget);
+      await t.ensureVisible(value);
+      await settle(t);
+      expect(t.takeException(), isNull);
+      expect(find.text('First reading'), findsNothing);
+      await capture(t, 'b97_single_tape_readout');
+      await t.pumpWidget(const SizedBox.shrink());
+    },
+  );
   for (final scale in [1.0, 3.1]) {
     testWidgets('notification empty state at ${scale}x', (t) async {
       SharedPreferences.setMockInitialValues({});

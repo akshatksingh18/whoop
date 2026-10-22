@@ -7,7 +7,8 @@ checks pass. Builds 92–95 were never reported installed. Build 70 remains cach
 phone acceptance and current-version refresh enrollment remain open. `setup.md` owns the exact
 artifact and workflow evidence, and `build-95-repairs.md` owns the repair checklist.
 The independent `build-96-audit.md` identifies seven additional reproduced faults in the
-unchanged candidate. Their recommended repair bundle below is not implemented or released.
+unchanged candidate. The approved repair bundle and selected enhancements are implemented in Build 97 source
+(item 3l); full cloud checks and a replacement IPA are pending.
 Build `0.9.37`/`70` remains the accepted recovery build. Akshat confirmed its phone check
 (including build 69's) and current-version automatic-refresh enrollment at the existing signed
 identity, with no error. The completed feature checklist is cleared; `CLAUDE.md` and
@@ -502,7 +503,7 @@ other worktrees remain untouched.
   accepted safe photo through media backup/restore. Add desired-behavior regressions and
   remove unnecessary private-export-derived details from source comments.
   The original diagnostic probes are reproduction evidence. All seven repairs and the selected
-    refinements are implemented in Build 97 source; 25 focused checks pass. Cloud/release
+    refinements are implemented in Build 97 source; 26 focused checks pass. Cloud/release
     verification remains pending and will replace this statement after completion. Add cloud visual-smoke
     artifacts, a quieter single-reading Body state and honest notification provenance while
     retaining the approved A+B composition. Body deletion Undo is deferred: it needs a separate

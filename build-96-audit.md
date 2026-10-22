@@ -30,8 +30,8 @@ cached candidate until replacement validation. No phone installation or acceptan
 
 Focused evidence: ten integrity checks (`test/build97_integrity_test.dart`), five notification
 checks (`test/build97_notification_test.dart`), one retained-device widget check
-(`test/build97_device_test.dart`), and nine normal/enlarged full-scroll render cases
-(`test/build95_repair_render_test.dart`) pass locally: 25 checks. A static refinement preview
+(`test/build97_device_test.dart`), and ten normal/enlarged render cases, including a lone tape readout
+(`test/build95_repair_render_test.dart`) pass locally: 26 checks. A static refinement preview
 preceded the UI edits; actual Flutter captures were inspected at normal and enlarged text.
 They use synthetic data and a Windows font substitute. Cloud evidence will be recorded after it
 finishes; no successful diagnostic assertion from the original fault harness is counted as a fix.
@@ -173,31 +173,31 @@ This is an evidence map, not a claim that every possible click sequence was exec
 | Today/heart | card destinations, 10 min/hour/day cursor bounds, latest finite recorded point, freshness | Existing range guards retained; native scrubbing and new samples still need phone evidence. |
 | Trends/metrics | range/date propagation, retained revision reload, stale-read tokens, metric factory and day links | No additional confirmed fault in these paths; numerical/visual combinations are not exhaustively executed. |
 | Food | calendar/day notification route, meal detail, quantity/unit edits, saved foods/meals, filtered/grouped drag, copy review and transactional writes | Earlier contracts retained; device gestures/camera/offline lookup remain open. No new claim of complete click coverage. |
-| Train/live/summary | durable start, pause/window clock, typed details, finish failure, cold restart, history re-score, privacy and bounded traces | B96-01 remains; original same-process retry/end guards are present. |
+| Train/live/summary | durable start, pause/window clock, typed details, finish failure, cold restart, history re-score, privacy and bounded traces | B96-01 repaired in Build 97, including cold retry beyond six hours; native interruption remains a phone gate. |
 | Lift/Pushups | split-save errors, revision publication, active-session ownership, away cancellation, Home return | Original repairs present; long-running reminders, spoken cues and real region events need phone checks. |
-| Progress/Body | fixed-week verdict versus rolling history, partial-read warnings, history refresh, reading/profile stages, photos/import | B96-02/03/04/07; valid-input daily-first/latest-reading distinction retained. |
+| Progress/Body | fixed-week verdict versus rolling history, partial-read warnings, history refresh, reading/profile stages, photos/import | B96-02/03/04/07 repaired with strict import validation, collision-safe publication and media round-trip checks; daily-first/latest distinction retained. |
 | Sleep/Recovery | stored-zone edit helpers, dated detail links, absent stages, shared explanations, nap mutations | Original repairs retained; real travel/DST pickers and physiological/reference accuracy not proven by this pass. |
-| Notifications | due-plan ledger, unread/history, routes, serialized writes, false-write/cold-cache retry | B96-05. Inferred scheduled occurrences still need honest delivery provenance. |
-| Settings/devices | profile/units, Status reload, pairing/alarm failure copy, retained band detail | B96-06. Rename/find/alarm acknowledgements require a real connection. |
-| Data/recovery | per-file import outcome, staging/cleanup, photo references, export cleanup, reset writer barriers | B96-07 and Body import faults remain. Full native Files/share/space-pressure cases need device verification. |
+| Notifications | due-plan ledger, unread/history, routes, serialized writes, false-write/cold-cache retry | B96-05 repaired; submission/due/legacy provenance is explicit. iOS display still requires phone evidence. |
+| Settings/devices | profile/units, Status reload, pairing/alarm failure copy, retained band detail | B96-06 repaired with committed-battery and foreground refresh. Rename/find/alarm acknowledgements require a real connection. |
+| Data/recovery | per-file import outcome, staging/cleanup, photo references, export cleanup, reset writer barriers | B96-07 and Body import faults repaired. Full native Files/share/space-pressure cases need device verification. |
 | BLE/analytics | ledger/cursor before ACK seam, derivation/version boundaries, known null/estimate rules | No formula/ACK changes or new protocol-fault reproduction; native interruption/transfer integrity remains a device gate. |
 
 ## Enhancement rationale
 
-1. **Continuous synthetic visual coverage.** Add a cloud visual-smoke job covering routed screens
-   and deeper forms in empty, thin-data, populated, failed-write and stale/offline states, with
-   normal/enlarged text and full scroll. Retain inspectable synthetic images and assert layout/
-   semantics even without a committed pixel baseline. Keep actual-device acceptance separate.
-2. **Body with one reading.** The existing capture legitimately repeats the same reading in
-   Latest, average and chart-endpoint slots. A concise single-reading explanation can replace
-   redundant endpoint comparisons until there is a real comparison. Keep the reading/chart and
-   full history reachable; show a full-page before/after preview before changing the composition.
-3. **Notification provenance.** Distinguish shown-now records from inferred due schedules. A due
-   plan is not proof iOS delivered it, particularly with permission/Focus changes. Store the
-   provenance and explain it briefly without adding another dashboard.
-4. **Recovery convenience.** Consider Undo for accidental Body deletions after the integrity fixes.
-   It is an optional feature, not a current broken-flow claim; its storage/profile/photo semantics
-   and preview need agreement first.
+1. **Continuous synthetic visual coverage — implemented.** A parallel Linux CI job renders
+   the main tabs, chart/detail ranges, Body entry/photos, live workout/summary, notifications and
+   an explicit failed Progress refresh. It retains full-scroll images and an HTML index; normal,
+   enlarged and narrow/landscape cases assert layout and selected interactions without a golden
+   baseline. It does not execute every possible screen state or replace hardware acceptance.
+2. **Body with one recorded day — implemented.** Keep the latest reading, chart, reading/average
+   switch and full history. Explain that the average has one recorded day and cannot establish
+   change, instead of printing the same number in multiple endpoint/average slots. Multiple-day
+   comparisons retain their full summary. A static preview preceded the actual Flutter captures.
+3. **Notification provenance — implemented.** Store submission to iOS separately from inferred
+   due schedules; leave legacy provenance unknown. Compact row labels and one explanation state
+   that neither submission nor due time proves a displayed banner.
+4. **Body deletion Undo — deferred.** It is optional, not a broken-flow finding. Restoring photo
+   files and profile-affecting weights needs a deliberate recovery contract before implementation.
 
 Keep the current calm A+B layout. Do not reopen the goal window, calorie/recovery formulas, dark
 appearance or icon family as incidental polish; those are existing product decisions.
@@ -220,10 +220,8 @@ Pass/Fail/Not run. Do not execute reset or induced storage faults on the live he
 
 ## Source/document hygiene
 
-An existing device-family provenance comment in `lib/ui2/profile/devices.dart` quotes evidence
-derived from the owner's private export. Remove that unnecessary private-derived detail in the
-next source cleanup; do not repeat its contents in public audit notes. This audit does not change
-published history or repository visibility. No private excerpt is included here.
+The unnecessary private-derived detail was removed from the device-family provenance comment.
+No private excerpt was copied into public notes. Published history and visibility were not changed.
 
 The optional Impeccable product adapter is older than its current metadata schema. This is
 tooling drift, not an app-flow failure; its `init` refresh can wait and is not part of these fixes.

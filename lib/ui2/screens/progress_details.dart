@@ -367,8 +367,8 @@ class _ProgressDetailState extends State<_ProgressDetail>
         Padding(
           padding: const EdgeInsets.only(bottom: S.x2),
           child: Text(
-          'One day of weight data. Its first reading is the 7-day average '
-          'for now; a change needs another day.',
+            'One day of weight data. Its first reading is the 7-day average '
+            'for now; a change needs another day.',
             style: F.cap.copyWith(color: p.ink2, height: 1.4),
           ),
         ),
@@ -809,6 +809,13 @@ class _ProgressDetailState extends State<_ProgressDetail>
                 ),
                 const SizedBox(height: S.x1),
               ],
+              if (summary != null && r.length == 1 && m is! WeightMetric)
+                _stat(
+                  p,
+                  'Latest reading',
+                  '${_num(summary.latest.value)} ${m.unit}',
+                  _md(summary.latest.date),
+                ),
               if (summary != null && r.length == 1)
                 Text(
                   'No earlier reading in this period to compare.',

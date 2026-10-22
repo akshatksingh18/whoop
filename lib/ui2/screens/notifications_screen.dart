@@ -222,7 +222,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           child: Text(
             'Sent to iOS records submission; scheduled entries record due times. '
             'Neither confirms a banner was displayed. Older entries have no '
-            'delivery record. Tap to open. Kept here for 90 days.',
+            'delivery record. Tap to open. Kept for 90 days on this phone.',
             style: F.cap.copyWith(color: p.onGround),
           ),
         ),

@@ -502,7 +502,7 @@ other worktrees remain untouched.
   accepted safe photo through media backup/restore. Add desired-behavior regressions and
   remove unnecessary private-export-derived details from source comments.
   The original diagnostic probes are reproduction evidence. All seven repairs and the selected
-    refinements are implemented in Build 97 source; 24 focused checks pass. Cloud/release
+    refinements are implemented in Build 97 source; 25 focused checks pass. Cloud/release
     verification remains pending and will replace this statement after completion. Add cloud visual-smoke
     artifacts, a quieter single-reading Body state and honest notification provenance while
     retaining the approved A+B composition. Body deletion Undo is deferred: it needs a separate

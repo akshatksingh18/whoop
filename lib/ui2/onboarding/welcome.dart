@@ -594,6 +594,9 @@ Future<String> decryptToTemp(String path, String passphrase) async {
     if (version == kBackupFormatVersionMedia) {
       // Preflight owns a temporary staging folder. Cancelling a later prompt
       // or rejecting the database must not alter the live photo library.
+      // Keep the media-format marker even if the archive contains no images;
+      // missing referenced files still need checking before the database write.
+      await Directory('$dest.photos').create(recursive: true);
       await unpackMediaBackup(payload, dest, '$dest.photos');
     } else {
       await File(payload).rename(dest);

@@ -402,4 +402,44 @@ void main() {
       );
     },
   );
+
+  test(
+    'media backup with zero images cannot restore dangling photo rows',
+    () async {
+      final photo = await BodyLogDb.addPhoto(
+        [1, 2, 3],
+        date: '2026-09-02',
+        pose: 'front',
+        id: 'synthetic_missing',
+      );
+      final snapshot = await LocalDb.exportCopy();
+      final directory = await BodyLogDb.photoDir();
+      await (await BodyLogDb.photoFile(photo)).delete();
+      // Deliberately recreate the old malformed media payload, bypassing the
+      // new export preflight. Restore must independently refuse it.
+      final packed = await packMediaBackupWithCount(snapshot, directory.path);
+      expect(packed.photos, 0);
+      final sealed = File(p.join(tmp.path, 'missing.osbk'));
+      await encryptBackupFile(
+        File(packed.path),
+        sealed,
+        'synthetic passphrase',
+        iterations: 1000,
+        version: kBackupFormatVersionMedia,
+      );
+      await LocalDb.wipeAll();
+      final app = AppState.forTesting();
+      try {
+        await expectLater(
+          runImport(app, [
+            sealed.path,
+          ], askPassphrase: () async => 'synthetic passphrase'),
+          throwsFormatException,
+        );
+        expect(await BodyLogDb.photos(), isEmpty);
+      } finally {
+        app.dispose();
+      }
+    },
+  );
 }

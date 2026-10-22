@@ -28,10 +28,10 @@ cached candidate until replacement validation. No phone installation or acceptan
 - No dependency, scientific coefficient, schema, algorithm version, signing capability or BLE ACK
   order changed. Unnecessary private-derived details were removed from a source comment.
 
-Focused evidence: nine integrity checks (`test/build97_integrity_test.dart`), five notification
+Focused evidence: ten integrity checks (`test/build97_integrity_test.dart`), five notification
 checks (`test/build97_notification_test.dart`), one retained-device widget check
 (`test/build97_device_test.dart`), and nine normal/enlarged full-scroll render cases
-(`test/build95_repair_render_test.dart`) pass locally: 24 checks. A static refinement preview
+(`test/build95_repair_render_test.dart`) pass locally: 25 checks. A static refinement preview
 preceded the UI edits; actual Flutter captures were inspected at normal and enlarged text.
 They use synthetic data and a Windows font substitute. Cloud evidence will be recorded after it
 finishes; no successful diagnostic assertion from the original fault harness is counted as a fix.

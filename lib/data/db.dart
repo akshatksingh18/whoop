@@ -7055,23 +7055,24 @@ class LocalDb {
   /// run inside `openDatabase` on iOS's CPU watchdog — not somewhere to be on
   /// the tail of a destructive user action). Views are `type='view'` and are
   /// not matched; the sqlite/Android internal tables are skipped by name.
-  static Future<int> wipeAll() async {
+  static Future<int> wipeAll({Future<void> Function()? afterWipe}) async {
     await WorkoutClock.flushWrites();
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
       "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
     );
-    var deleted = 0;
-    await db.transaction((txn) async {
-      for (final r in rows) {
-        final t = r['name'];
-        if (t is String) deleted += await txn.delete(t);
-      }
-    });
-    await CalculationStore.clearCache();
-    DayClock.install([], []);
-    return deleted;
+    return CalculationStore.resetWith(() async {
+      var deleted = 0;
+      await db.transaction((txn) async {
+        for (final r in rows) {
+          final t = r['name'];
+          if (t is String) deleted += await txn.delete(t);
+        }
+      });
+      DayClock.install([], []);
+      return deleted;
+    }, afterWipe: afterWipe);
   }
 
   /// Every table this database owns, for callers that need to reason about the

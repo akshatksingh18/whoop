@@ -43,8 +43,9 @@ yourself.
   [`packages/protocol`](packages/protocol) and the metric engine in
   [`packages/analytics`](packages/analytics), both from OpenStrap.
 - **Bands:** WHOOP 4.0 is the one used every day; the WHOOP 5.0 decoder is kept but less tested.
-- **CI on GitHub Actions:** every change runs the analyzer and the full test suite (several
-  thousand tests) on Linux. A parallel synthetic visual-smoke job retains full-scroll
+- **CI on GitHub Actions:** Linux runs the analyzer, the app's full suite and independent
+  protocol/analytics package suites. App checks retain instrumented Dart line coverage, which
+  identifies exercised code rather than proving every line or native behavior. A parallel visual job retains full-scroll
   page/form captures and checks layout at normal and enlarged text; these do not replace native
   iPhone acceptance or a pixel baseline. A manual macOS workflow builds the unsigned iPhone IPA from the
   committed Xcode project, checks it carries nothing but the app (no extensions, no HealthKit, no

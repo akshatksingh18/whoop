@@ -167,7 +167,7 @@ in imported Dart libraries; generated/unimported code and native iOS behavior mu
 separately and cannot be certified from a green test count.
 Five additional secondary-flow checks pass: DST wake target, grid failure propagation, actual
 What changed Retry and complete month-grid labels at normal/3.1x text. Seven existing wake/grid
-controls pass as well. The expanded review now adds 44 regression cases, including GPS input,
+controls pass as well. The expanded review now adds 46 regression cases, including GPS input,
 alarm wording, Food clocks/unknown-time editing at normal/3.1x and refused consent. Their targeted
 groups pass; repeat executions are not extra tests and full successor CI remains required.
 
@@ -213,6 +213,15 @@ repair branch before any default-branch integration.
   only that the detailed timeline is unavailable and that saved totals can still be shown.
   The fallback and all six translations agree. The widget regression retains the stage totals;
   no stage, duration or recording is removed or recalculated.
+- **B98-22, P1 — reset races self-healing calculation reads.** A read queued during the
+  table deletion can see an empty ledger and migrate its still-present preference mirror back
+  into SQLite before cache cleanup runs. A supported workout-clock key clears sequentially but
+  survives twelve concurrent reads in the failing control. Serialize table deletion and mirror
+  cleanup with those reads, discover additional mirror keys from the ledger before deletion,
+  and retain that gate through the full reset's native/keychain/preference cleanup. The cleanup
+  callback must not re-enter CalculationStore. Two controls cover ordinary/generic anchors and
+  legacy preference-only anchors during full AppState reset; all 16 durability cases pass.
+  Failed cleanup still reports partial reset and permits retry; ACK ordering is unchanged.
 
 B98-11 also covers Settings: a refused grant previously left the optimistic preference cache
 enabled even though the scanner's own error path closed it. Fail closed in the shared setter,

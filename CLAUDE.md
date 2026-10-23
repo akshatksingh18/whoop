@@ -28,7 +28,7 @@ matrix remain open; software checks are not universal flow or hardware proof. Ea
 notes are in `build-history.md`.
 
 The additional comprehensive review and authorized repairs continue on `build-99`, tracked in
-`build-98-audit.md` and `todo.md` 3n. Twenty-one persistence/date/timing/barcode/editor/GPS/alarm/copy families have source repairs
+`build-98-audit.md` and `todo.md` 3n. Twenty-two persistence/date/timing/barcode/editor/GPS/alarm/copy families have source repairs
 and targeted synthetic evidence; the remaining review and successor release gates are open.
 Build 98 remains the cached binary until a fully validated successor is delivered.
 
@@ -862,6 +862,11 @@ a hotspot.
 15. **Dangerous opcodes are never auto-sent** (`dangerousCmds`, gated in
     `ble/ble_engine.dart` wherever a write checks it): force-trim, reboot,
     power-cycle, firmware load.
+16. **Reset orders deletion with self-healing reads.** `LocalDb.wipeAll` uses
+    `CalculationStore.resetWith` through mirror cleanup and the full reset's native/preference
+    completion callback. Do not re-enter CalculationStore from that callback. Otherwise a read
+    can restore an anchor after the ledger was wiped. This is an in-isolate gate, not proof of
+    native/background cross-process delivery; retain the reset capture/derive shutdown gates.
 
 ### Recurring bug patterns — what actually ships broken here
 

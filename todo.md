@@ -528,14 +528,14 @@ other worktrees remain untouched.
   and ACK ordering. Local readability fixes are approved; major page replacements retain the
   before/after review gate. Confirm findings with runnable synthetic evidence, batch coherent
   repairs and run appropriate targeted/cloud/native checks before replacing the testing IPA.
-  Twenty-one families B98-01–21 have source repairs: authoritative profile rollback,
+  Twenty-two families B98-01–22 have source repairs: authoritative profile rollback,
   ordered/acknowledged calculation removal, backup Off, paired-identity removal, Home setup/stop,
   partial reset/keychain failure reporting, recorded travel days, restored profile anchors,
   active-window lifting deduplication, and barcode input/opt-in/scrolling. Algorithm 99 versions
   date/timing corrections without coefficient changes. Existing settings/nutrient/consent cases
   pass targeted checks. The source also repairs run voice, acknowledged
   native reminder/reset cancellation, backup metadata/ordering and Body read/camera lifecycle.
-  Forty-four added checks have passing targeted groups, including full-scroll failure states
+  Forty-six added checks have passing targeted groups, including full-scroll failure states
   with substitute fonts and Food editing at normal/3.1x.
   Other source/UI/metric
   flows are under review; successor identity is `0.9.66+99`/algorithm 99/schema 50;
@@ -554,6 +554,9 @@ other worktrees remain untouched.
   Sleep no longer invents a reason for a missing timeline; saved stage totals stay visible.
   Staging native/package/visual checks pass, but a redundant null assertion blocked app analysis
   and is removed. Fresh complete checks of the final source are still required before delivery.
+  A further concurrency control reproduced anchor resurrection during reset. Deletion and
+  native/preference completion now share the calculation-reader gate; generic and legacy
+  mirror controls pass with all 16 durability cases. The earlier staging binary is held.
   No Build 99 artifact or full verification is claimed yet.
 - [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

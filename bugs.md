@@ -23,16 +23,19 @@ enlarged action labels remain visible. All 52 added synthetic regressions pass w
 checks and native run `39942864975` pass. `build-97-audit.md` owns individual contracts and the
 unexecuted-device limits. These software results do not establish physical acceptance.
 
-The subsequent `build-98-audit.md` review is active on `build-99`. B98-01–21 now have source
+The subsequent `build-98-audit.md` review is active on `build-99`. B98-01–22 now have source
 repairs for profile-history rollback, calculation-cache resurrection, refused backup Off,
 forgotten-device recovery mirrors, Home persistence/native stop and partial reset/keychain
 cleanup, recorded travel-day consistency, restored profile anchors, active lifting windows and
-barcode input/opt-in/scrolling. Forty-four added checks have passing targeted groups, alongside
+barcode input/opt-in/scrolling. Forty-six added checks have passing targeted groups, alongside
 existing settings/cache/nutrient/consent checks. Run voice, reminder/reset cancellation, backup metadata/ordering and
 Body read/camera lifecycle, invalid GPS input, elapsed-alarm wording and Food timestamp
 preservation and honest unavailable-timeline wording also have source repairs and targeted checks; remaining
 review, UI-state checks and successor cloud/native verification are still open. These repairs
 are not in the cached Build 98 IPA.
+Reset also holds deletion/mirror cleanup against concurrent self-healing calculation reads,
+including legacy preference-only anchors; two concurrency controls and all 16 durability cases
+pass. Earlier staging Build 99 IPAs remain undelivered because they lack this B98-22 repair.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

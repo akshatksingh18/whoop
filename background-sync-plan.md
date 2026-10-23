@@ -35,6 +35,10 @@ travel-day actions can be validated without a background SQLite open. Backup las
 stays inside the publication lock; bookkeeping refusal produces a warning about a valid file.
 Wake-window wall times follow the recorded zone, with calendar-next-day targets across DST;
 the existing history minimum, window duration, band commands and transfer/ACK rules stay unchanged.
+Reset table deletion, calculation-mirror removal and final native/preference cleanup also hold
+the CalculationStore read/write gate. Concurrent readers cannot heal an erased anchor from a
+remaining mirror. This gate is per isolate; capture/derivation shutdown and the physical reset
+and background-delivery matrix remain necessary. No ACK or band command ordering changes.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
 Build 86 introduced one

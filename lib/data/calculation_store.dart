@@ -85,12 +85,38 @@ class CalculationStore {
     );
   });
 
-  static Future<void> clearCache() => _serial(() async {
+  /// Keep deletion and mirror cleanup in the same ordering as reads that can
+  /// heal a missing row. [afterWipe] may finish native/preference reset, but
+  /// must not re-enter CalculationStore while this gate is held.
+  static Future<T> resetWith<T>(
+    Future<T> Function() deleteRows, {
+    Future<void> Function()? afterWipe,
+  }) => _serial(() async {
+    final rows = await (await LocalDb.instance).query(
+      'baselines',
+      columns: ['key'],
+      where: 'key LIKE ?',
+      whereArgs: ['$prefix%'],
+    );
+    final keys = {
+      for (final row in rows) (row['key'] as String).substring(prefix.length),
+    };
+    final result = await deleteRows();
+    await _clearCache(additionalKeys: keys);
+    await afterWipe?.call();
+    return result;
+  });
+
+  static Future<void> clearCache() => _serial(_clearCache);
+  static Future<void> _clearCache({
+    Set<String> additionalKeys = const {},
+  }) async {
     final p = await SharedPreferences.getInstance();
     final keys = p
         .getKeys()
         .where(
           (k) =>
+              additionalKeys.contains(k) ||
               k == 'steps.goal_history' ||
               k == 'profile.calculation_history' ||
               k == 'streak.protection' ||
@@ -102,7 +128,7 @@ class CalculationStore {
         )
         .toList();
     await Prefs.saveValues({for (final key in keys) key: null});
-  });
+  }
 
   static Future<void> hydrate() => _serial(() async {
     final rows = await (await LocalDb.instance).query(

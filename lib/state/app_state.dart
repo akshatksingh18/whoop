@@ -1008,7 +1008,12 @@ class AppState extends ChangeNotifier {
 
     // 3 · every row in every table (see LocalDb.wipeAll for why it is not a
     // hand-written table list, and for the sync_cursor decision).
-    await LocalDb.wipeAll();
+    await LocalDb.wipeAll(afterWipe: _finishResetOutsideDatabase);
+  }
+
+  // Keep readers behind the reset gate until the complete preference namespace
+  // is cleared too; a legacy mirror must not heal a deleted database row.
+  Future<void> _finishResetOutsideDatabase() async {
     publishSessionChange();
 
     // Surfaces outside the database that were still showing it.

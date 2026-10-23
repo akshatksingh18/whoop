@@ -166,6 +166,48 @@ void main() {
   );
 
   test(
+    'reset cannot resurrect an anchor through concurrent cache reads',
+    () async {
+      for (final key in [
+        'workout.clock.synthetic-reset',
+        'synthetic.future-anchor',
+      ]) {
+        await CalculationStore.write(key, 'synthetic anchor');
+        await LocalDb.wipeAll();
+        expect(await CalculationStore.read(key), isNull);
+        await CalculationStore.write(key, 'synthetic anchor');
+        final reset = LocalDb.wipeAll();
+        final reads = [for (var i = 0; i < 12; i++) CalculationStore.read(key)];
+        await reset;
+        await Future.wait(reads);
+        expect(await CalculationStore.read(key), isNull);
+        expect(
+          await LocalDb.baseline('${CalculationStore.prefix}$key'),
+          isNull,
+        );
+      }
+    },
+  );
+
+  test(
+    'full reset holds legacy-mirror reads until all preferences are cleared',
+    () async {
+      const key = 'synthetic.legacy-anchor';
+      store.values['flutter.$key'] = 'synthetic legacy anchor';
+      SharedPreferences.resetStatic();
+      await Prefs.ensureLoaded();
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      final reset = app.resetAllData();
+      final reads = [for (var i = 0; i < 12; i++) CalculationStore.read(key)];
+      await reset;
+      await Future.wait(reads);
+      expect(await CalculationStore.read(key), isNull);
+      expect(await LocalDb.baseline('${CalculationStore.prefix}$key'), isNull);
+    },
+  );
+
+  test(
     'failed calculation-cache removal cannot resurrect a deleted value',
     () async {
       await CalculationStore.write('synthetic.removal', 'retained');
@@ -435,7 +477,10 @@ void main() {
       await t.tap(find.text('Weekly reminder'));
       await settle();
       expect(t.takeException(), isNull);
-      t.state<ScrollableState>(find.byType(Scrollable).first).position.jumpTo(0);
+      t
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position
+          .jumpTo(0);
       await t.pumpAndSettle();
       expect(find.text('Check reminder'), findsOneWidget);
       expect(

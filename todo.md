@@ -502,29 +502,28 @@ other worktrees remain untouched.
   Twenty-six focused and seven existing notification checks pass locally. Full cloud run
   `39815813645` passes 3,426 tests (429 intentional skips), no analysis errors/warnings, and
   131 visual checks with 550 captures. Native run `39815817300` and local IPA validation pass.
-  The sole testing candidate is `WHOOP-0.9.64-build97-bde5818b`; accepted Build 70 is unchanged.
+  Build 98 supersedes this candidate in 3m; accepted Build 70 is unchanged.
   `build-96-audit.md` owns scope/limits and `setup.md` owns source/hash/workflow evidence.
   A+B, all features, scientific coefficients, algorithm 97 and schema 50 remain. Optional Body
   deletion Undo is deferred for its profile/photo recovery contract; pixel and phone gaps remain.
-- [ ] 3m. Build 98 (`0.9.65+98`, algorithm 98, schema 50) implements all eighteen
-  B97-01–18 repairs from `build-97-audit.md`: canonical/imported Body history, complete nested
-  validation, atomic and replay-safe module/config imports, partial-restore reporting/refresh,
-  acknowledged settings/buzz actions, private aggregates, recorded-zone dates, replayable Home
-  events, visible/retryable pause/draft persistence, retained editor drafts and large-text actions.
-  `test/build98_integrity_test.dart`, `build98_boundary_test.dart` and `build98_nested_render_test.dart`
-  assert the desired behavior using synthetic data. All 51 new-file checks pass (27 deep-flow,
-  18 boundary and six normal/3.1x full-scroll interactions), plus the added HR-only-run case.
-  Settings coverage includes thrown-write retry, rapid ordered changes and partial multi-key rollback.
-  The seven first full-suite failures
-  and one additional HR-only-run check pass after fixture/async-ack corrections and lazy numeric
-  import staging. Both generations also retain the haptic transport result through AppState.
-  Eight iOS contract checks pass. First cloud run `39885147300` passes analysis and 137 visual checks/570 captures, but fails
-  seven older regressions. Their corrections pass locally. Final native run `39942864975`
-  passes at app source `7c13f1a6`; downloaded IPA validation and the full rerun including the
-  expanded settings matrix remain pending. No successor binary is delivered yet. No feature,
-  dependency, schema or scientific coefficient changed; algorithm 98 versions date attribution.
-- [ ] 4. Akshat's phone acceptance: recheck the repaired B96-01–07 flows, then the still-open Build 89 checks below, every Build 90
-  change, and the device/operational matrix in `build-90-audit.md`.
+- [x] 3m. Build 98 (`0.9.65+98`, app source `7c13f1a6`, algorithm 98, schema 50) repairs
+  all eighteen B97-01–18 findings from `build-97-audit.md`: canonical/imported Body history,
+  complete nested validation, atomic/replay-safe module/config imports, partial-restore
+  reporting/refresh, acknowledged settings/buzz actions, private aggregates, recorded-zone dates,
+  replayable Home events, retryable pause/draft persistence, retained editor drafts and large-text
+  actions. The 51 new-file checks (27 deep-flow, 18 boundary and six normal/3.1x full-scroll
+  interactions), plus the added HR-only-run case, pass. Settings cover refusal, thrown-write
+  retry, rapid ordered changes and partial multi-key rollback; haptic results cover both generations.
+  Full Linux/visual run `39943912609` at source-equivalent verification commit `86bfc895` passes
+  3,478 tests (429 intentional skips), no analysis errors/warnings, and 137 visual checks/570
+  captures. Eight iOS contract checks pass. Native run `39942864975` and downloaded IPA checks
+  pass. The sole testing candidate is `WHOOP-0.9.65-build98-7c13f1a6`; `setup.md` owns source/hash
+  evidence and superseded run outcomes. Build 97's folder went to the Recycle Bin; accepted
+  Build 70 is unchanged. No feature, dependency, schema or scientific coefficient changed;
+  algorithm 98 versions date attribution. Installation and physical acceptance are unreported.
+- [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
+  still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
+  `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.
 
 ### Home bodyweight workout (audit, Claude lane)
 
@@ -587,8 +586,8 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
     while asleep.
 - Codex: All eighteen B97 findings have source repairs on `build-98`, with desired-behavior
   synthetic regression files and expanded real import/editor interactions. Build 98 is `0.9.65+98`,
-  algorithm 98/schema 50. All 49 added regression cases pass targeted runs; full cloud/visual/native release
-  verification is pending (3m). Build 97 remains cached until a validated replacement.
+  algorithm 98/schema 50. All 52 added regression cases and full cloud/visual/native release
+  verification pass (3m). Build 98 replaces Build 97 in the one-slot testing cache.
   `build-97-audit.md` owns repair coverage; `setup.md` owns workflow/artifact evidence. No work is
   waiting on Claude, and existing other checkouts remain untouched. Phone acceptance stays open.
   Independent calorie/recovery review is complete in

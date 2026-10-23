@@ -5,23 +5,23 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Build 91 is the last reported installation. Build 97 (`bde5818b`)
-is the validated testing candidate. It retains all 29 Build 95 repairs and fixes B96-01–07:
-cold-restart final-save evidence, duplicate photo publication, invalid Body dates/units,
-notification read persistence, retained battery freshness and safe-photo backup completeness.
-`build-96-audit.md` owns regressions and limits. Full Linux/visual checks, the macOS build and
-downloaded IPA validation pass; `setup.md` owns exact evidence. Body stays quieter without
-hiding lone tape readings, and notification provenance distinguishes submission/due/legacy state.
-Build 70 accepted recovery is unchanged. Physical background/restoration, native permission,
-gesture, delivery and current-version signing gates remain open in `todo.md`.
+**Current verification:** Build 91 is the last reported installation. Build 98 (`7c13f1a6`,
+`0.9.65+98`, algorithm 98/schema 50) is the validated testing candidate. All eighteen
+B97-01–18, seven B96-01–07 and 29 earlier repair contracts are retained. Full Linux/visual
+checks, the macOS build and downloaded IPA validation pass; `setup.md` owns source/hash/workflow
+evidence. The calm A+B presentation remains; no feature or scientific coefficient changed.
+Build 70 recovery is unchanged. Physical background/restoration, native permissions, gestures,
+delivery, current-version installation and signing gates remain open in `todo.md`.
 
-**Build 98 repair state:** all eighteen B97-01–18 findings have source fixes and synthetic
-regressions. Imports validate identities/counts/times and commit history/configuration together;
-Body projection and partial restore readers reconcile; settings acknowledge refusal; private
-summaries and recorded-day consumers follow their contracts. Home events are receipt-protected,
-live checkpoint failures are retryable, editors retain drafts and enlarged action labels remain
-visible. `build-97-audit.md` owns the individual contracts. Full cloud tests/visuals are pending; native compilation and
-downloaded IPA validation pass in `todo.md` 3m; these are not device-acceptance claims.
+**Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
+together; Body projections and partial-restore readers reconcile; settings/actions acknowledge
+write refusal, and haptics preserve transport success/failure for both generations without claiming
+physical delivery. Private summaries and recorded-day consumers follow their contracts. Home
+events are receipt-protected, live checkpoint failures are retryable, editors retain drafts and
+enlarged action labels remain visible. All 52 added synthetic regressions pass within full run
+`39943912609` (3,478 passed/429 skipped; 137 visual checks/570 captures); eight iOS contract
+checks and native run `39942864975` pass. `build-97-audit.md` owns individual contracts and the
+unexecuted-device limits. These software results do not establish physical acceptance.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

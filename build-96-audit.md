@@ -3,11 +3,11 @@
 **Status:** All seven findings are repaired in validated Build 97 (`0.9.64+97`, app source
 `bde5818b`, algorithm 97, schema 50). Full Linux CI `39815813645` passes 3,426 tests
 (429 intentional skips; no analysis errors/warnings), and its visual job passes 131 checks with
-550 synthetic captures. Native run `39815817300` and downloaded IPA validation pass. It replaces
-Build 96 in the testing cache. Installation and physical iPhone acceptance remain unreported;
+550 synthetic captures. Native run `39815817300` and downloaded IPA validation pass. It replaced
+Build 96 in the testing cache and is now superseded by Build 98. Installation and physical iPhone acceptance remain unreported;
 `setup.md` owns exact source/hash/workflow evidence.
 The successor audit `build-97-audit.md` finds eighteen additional faults in the unchanged Build 97
-source. These original seven remain repaired. The eighteen have Build 98 source repairs; successor verification is tracked in `todo.md` 3m.
+source. These original seven remain repaired. The eighteen are repaired in validated Build 98; completed successor software checks and open phone gates are tracked in `todo.md` 3m.
 
 ## Repair contract and verification
 
@@ -211,7 +211,7 @@ appearance or icon family as incidental polish; those are existing product decis
 
 ## Phone and other blind spots
 
-- Build 97 installation and current-version signing enrollment are not reported.
+- Build 98 installation and current-version signing enrollment are not reported.
 - BLE restoration/commit continuity, overnight/background/kill behavior, GPS/motion/audio,
   Home-region and notification delivery still require real hardware evidence.
 - Native Files/share completion, Photos/camera permissions, low space and interrupted recovery
@@ -237,6 +237,6 @@ tooling drift, not an app-flow failure; its `init` refresh can wait and is not p
 
 The authorized repair bundle is implemented above. Full cloud checks, synthetic visual
 artifacts, native compilation and downloaded IPA validation pass at the same source. The
-successor audit's eighteen findings have Build 98 source repairs and require successor verification in addition to the real-device
-matrix. The original diagnostic harness remains
+successor audit's eighteen findings are repaired and software-verified in Build 98 (`todo.md` 3m);
+the real-device matrix remains open. The original diagnostic harness remains
 reproduction evidence; native phone gestures, OS delivery and background behavior remain separate gates.

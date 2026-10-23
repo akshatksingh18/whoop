@@ -1,16 +1,15 @@
 # WHOOP iPhone build
 
 **State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
-Build 97 (`0.9.64+97`, app source `bde5818b`) is the validated unsigned testing candidate in
-`../../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`. Full cloud analysis/tests, the macOS
-build and downloaded source/version/checksum/ZIP/payload checks pass. Akshat last reported Build 91
-installed; Build 97 is not yet installed or phone-accepted. Build `0.9.37`/`70` remains accepted
-recovery in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact
-artifact evidence and `../todo.md` owns phone checks. This state changes on installation and
-completion of the device/signing gates, not on compilation alone.
-`../build-97-audit.md` owns eighteen findings repaired in Build 98 source (`0.9.65+98`,
-algorithm 98/schema 50). Its full cloud/visual/native and artifact-validation gates are pending;
-Build 97 stays cached until a successor is validated. Phone/signing acceptance remains separate.
+Build 98 (`0.9.65+98`, app source `7c13f1a6`, algorithm 98/schema 50) is the validated unsigned
+candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.65-build98-7c13f1a6`. All eighteen
+`../build-97-audit.md` repairs are implemented, retaining earlier repair contracts. Full cloud
+analysis/tests/visuals, the macOS build and downloaded source/version/checksum/ZIP/payload checks
+pass. Akshat last reported Build 91 installed; Build 98 is not yet installed or phone-accepted.
+Build `0.9.37`/`70` remains accepted recovery in
+`../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact artifact
+evidence and `../todo.md` owns phone checks. This state changes on installation and completion
+of device/signing gates, not on compilation alone.
 
 The app reads the iPhone's own pedometer when **This phone → Steps** is on and does not use Apple
 Health. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID manual refresh
@@ -80,8 +79,9 @@ and the bundle identity never changes.
 ## Acceptance
 
 The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
-Build 97 source implements their repairs and focused regressions. Its full cloud/visual/native checks and replacement IPA validation pass; Build 96
-is retained only as historical payload evidence.
+Build 98 retains those repairs and implements the eighteen additional `../build-97-audit.md`
+contracts. Full cloud/visual/native checks and replacement IPA validation pass; Builds 96/97
+are retained only as historical payload evidence.
 
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,
 require the shared signing-health check to print `ENROLLED` for the exact WHOOP signed identity and

@@ -3,18 +3,18 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 97 (`bde5818b`) is the single validated testing candidate; Build 91 remains
-the last reported installation. The A framework and B calorie-ring/macros are retained.
-All seven faults in `build-96-audit.md` are repaired, in addition to the 29 earlier repairs.
-Full cloud analysis/tests, synthetic visual checks, native compilation and downloaded IPA
-validation pass. `setup.md` owns evidence; `todo.md` owns phone gates. Build 70 remains recovery.
-No scientific coefficient or headline formula changes.
+**Status:** Build 98 (`7c13f1a6`, `0.9.65+98`) is the single validated testing candidate;
+Build 91 remains the last reported installation. The A framework and B calorie-ring/macros are
+retained. All eighteen faults in `build-97-audit.md`, seven in `build-96-audit.md` and the
+29 earlier repairs are implemented. Full cloud analysis/tests, synthetic visual checks, native
+compilation and downloaded IPA validation pass. `setup.md` owns evidence; `todo.md` owns phone
+gates. Build 70 remains recovery. No scientific coefficient or headline formula changes.
 
-Build 98 implements the eighteen `build-97-audit.md` consumer/storage repairs: first-reading
-weights after merge, validated/replay-safe module imports, private Lift/Run presentation filters,
-recorded-zone Food/workout dates, partial-restore refresh and visible live checkpoint failures.
-Algorithm 98 versions session profile/run/day attribution; scientific formulas are unchanged.
-`todo.md` 3m distinguishes focused regressions from pending full release/device verification.
+Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
+private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh
+and visible live checkpoint failures. Algorithm 98 versions session profile/run/day attribution;
+scientific formulas are unchanged. `todo.md` 3m distinguishes completed software verification
+from the unexecuted installation, signing and physical-device matrix.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is

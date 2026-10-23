@@ -1,12 +1,14 @@
 # Build 97 independent end-to-end audit
 
-**Status:** All eighteen findings have source repairs on `build-98`, version `0.9.65+98`,
-algorithm 98 and schema 50. Desired-behavior regressions replace the diagnostic assumptions;
-focused data/editor checks and normal/3.1x nested interactions pass. The first full run passes
-137 visual checks/570 captures, with seven older-suite failures. Those seven and an added
-HR-only-run case pass targeted corrections; full rerun and rebuilt native artifact remain gates. Build 97 is
-still the cached testing binary until that successor is validated. Build 70 recovery is unchanged;
-no Build 98 installation or hardware acceptance is claimed.
+**Status:** All eighteen findings are repaired in validated Build 98 (`0.9.65+98`, app source
+`7c13f1a6`, algorithm 98/schema 50). Full Linux run `39943912609` at source-equivalent test
+commit `86bfc895` passes 3,478 tests (429 intentional skips), no analysis errors/warnings, and
+137 visual checks/570 synthetic captures. The 52 added regressions cover desired behavior,
+including normal/3.1x nested interactions. Eight iOS contract checks, native run `39942864975`
+and downloaded IPA integrity/payload checks pass. The first full run's seven older failures
+were corrected and pass in the final suite. Build 98 replaces Build 97 in the testing cache;
+`setup.md` owns source/hash evidence. Build 70 recovery is unchanged. No Build 98 installation
+or hardware acceptance is claimed.
 
 ## Repair verification
 
@@ -37,6 +39,10 @@ no Build 98 installation or hardware acceptance is claimed.
 Tracked regression sources are `test/build98_integrity_test.dart`,
 `test/build98_boundary_test.dart` and `test/build98_nested_render_test.dart`; all fixtures are
 synthetic. The current execution and release results live in `todo.md` 3m and `setup.md`.
+Manual spot checks of the final gallery cover Today, Food, Body, Recovery, Strength, Copy a day
+and live-save failure states, including enlarged action/retry text. The A+B ring/macros and
+readable failure guidance are retained. These use a font substitute and do not prove native
+iPhone typography, gestures or delivery.
 The descriptions below reproduce faults in **old Build 97**, not outstanding source defects.
 
 ## Original Build 97 scope and evidence
@@ -458,7 +464,7 @@ targeted checks locally and the full analysis/test/visual jobs on GitHub for a s
 a changed binary needs its own native build, source/hash validation and testing-cache replacement.
 The original diagnostic runs are not repaired-behavior evidence. Replace the cached candidate only after the successor checks pass.
 
-Still unverified: actual Build 97 installation/upgrade and signing enrollment, BLE range loss /
+Still unverified: actual Build 98 installation/upgrade and signing enrollment, BLE range loss /
 restoration / background / termination / reboot, GPS/motion/audio, Home-region/notification delivery,
 native Files/share/Photos/camera, VoiceOver and physical gestures, low-space/interrupted recovery,
 long-history phone memory/performance, travel/DST system pickers and the 72-hour soak. The prior
@@ -466,4 +472,4 @@ long-history phone memory/performance, travel/DST system pickers and the 72-hour
 turn those skips into pixel verification. Use disposable test data for reset/storage-fault tests.
 
 Optional Body deletion Undo remains deferred for its profile/photo recovery contract. It is not
-an additional confirmed defect. No work is waiting on Claude; release verification remains with Codex.
+an additional confirmed defect. No work is waiting on Claude. Software release verification is complete; physical acceptance remains open.

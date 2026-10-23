@@ -14,21 +14,18 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.64`/`97` (app source `bde5818b`,
-`todo.md` 3l) is the single validated testing candidate:
-`../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`. All seven additional faults in
-`build-96-audit.md` are repaired, with the quieter Body state, explicit notification provenance
-and continuous synthetic visual checks. No feature, scientific coefficient, dependency, schema,
-algorithm version or signing capability was removed/changed. Full Linux/visual checks, native
-compilation and downloaded IPA validation pass; `setup.md` owns source/hash/workflow evidence.
-All eighteen subsequent `build-97-audit.md` findings are repaired in Build 98 source
-(`0.9.65+98`, algorithm 98, schema 50) on `build-98`. Targeted synthetic regressions pass;
-full cloud tests/visuals are pending; native compilation and downloaded IPA validation pass. Build 97 remains the
-cached testing binary until those gates pass. No calorie/recovery coefficient or feature changed.
-Build 96's superseded candidate went to the Recycle Bin. Build 91 remains the last reported
-installation and Build 70 remains accepted recovery. Current-version installation, signing
-enrollment and the physical-device matrix remain open; software checks are not universal
-flow or hardware proof. Earlier build notes are in `build-history.md`.
+**Status:** Active iPhone verification. Build `0.9.65`/`98` (app source `7c13f1a6`,
+`todo.md` 3m) is the single validated testing candidate:
+`../final-ipas/whoop/testing/WHOOP-0.9.65-build98-7c13f1a6`. All eighteen findings in
+`build-97-audit.md` are repaired, retaining the seven Build 97 and 29 earlier repairs and the
+locked kraft/cream A+B interface. Full Linux/visual checks, native compilation and downloaded
+IPA validation pass; `setup.md` owns source/hash/workflow evidence. Algorithm 98 versions
+recorded-zone date attribution; schema 50, dependencies, scientific coefficients, BLE ACK ordering,
+features, signing identity and capabilities are unchanged. Build 97's superseded testing folder
+went to the Recycle Bin. Build 91 remains the last reported installation and Build 70 remains
+accepted recovery. Current-version installation, signing enrollment and the physical-device
+matrix remain open; software checks are not universal flow or hardware proof. Earlier build
+notes are in `build-history.md`.
 
 ## Files
 - `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.
@@ -55,7 +52,7 @@ flow or hardware proof. Earlier build notes are in `build-history.md`.
 - `build-history.md` — the build-by-build notes this file carried through Build 94, moved out
   verbatim; history only, not current guidance.
 - `.github/workflows/test.yml` and `tool/ui_smoke_gallery.py` — full Linux checks plus the synthetic full-scroll visual-smoke job and its local image index; captures are test fixtures, not phone evidence.
-- `todo.md` — Build 97 repairs (3l), Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
+- `todo.md` — Build 98 repairs/release (3m), Build 97 repairs (3l), Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,

@@ -1,8 +1,8 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 97 is the validated testing candidate; Build 91 is the last reported
+**Status:** Build 98 (`7c13f1a6`) is the validated testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence; full cloud checks and IPA validation pass. The repairs in `build-95-repairs.md`, retained in released Build 97 app source `bde5818b`,
+release/device evidence; full cloud checks and IPA validation pass. The repairs in `build-95-repairs.md`, retained in Build 98,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
@@ -19,8 +19,9 @@ Dart persists session receipts and automation before acknowledging event IDs. Fa
 preference writes replay without duplicate transitions. Pause/draft save failures expose retry,
 including on foreground return, and retain their original instants. Partial paged restores report
 committed rows, reconcile derived projections/cache and publish refresh revisions even on failure.
-Synthetic failure/replay tests support these contracts; full successor checks are pending in
-`todo.md` 3m. Real region delivery, termination and background scheduling remain phone gates.
+Synthetic failure/replay tests, full Linux/visual run `39943912609`, native run `39942864975`
+and downloaded IPA checks pass; `todo.md` 3m tracks the completed software release. Real region
+delivery, termination and background scheduling remain phone gates.
 BLE commit-before-ACK remains unchanged; algorithm 98 only changes recorded-zone attribution.
 
 The following background contract originated in Build 86 and retains subsequent repairs.

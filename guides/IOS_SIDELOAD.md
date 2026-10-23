@@ -1,22 +1,21 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 97 (`0.9.64+97`, app source
-`bde5818b`) is the single testing candidate, including all seven follow-up repairs and the retained 29 earlier repairs. Full cloud analysis/
-tests, the macOS build and downloaded IPA/source/version/checksum/ZIP/payload checks pass.
-`../setup.md` owns exact evidence; `../todo.md` owns feature, background, signing and refresh
-acceptance. No later candidate has been reported installed or accepted. Earlier same-ID refresh
-and recovery proof applies to those earlier builds, not as current-version enrollment evidence.
-SideStore laptop setup is reported; app handover/on-phone renewal remain unconfirmed. No refresh
-ownership or installed identity change is inferred from that report.
-`../build-97-audit.md` owns eighteen findings repaired in Build 98 source (`0.9.65+98`,
-algorithm 98/schema 50). Its full cloud/visual/native and artifact-validation gates are pending;
-Build 97 stays cached until a successor is validated. Phone/signing acceptance remains separate.
+**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 98 (`0.9.65+98`, app source
+`7c13f1a6`) is the single testing candidate, including all eighteen B97 repairs and the retained
+seven B96/29 earlier repairs. Full cloud analysis/tests/visuals, the macOS build and downloaded
+IPA/source/version/checksum/ZIP/payload checks pass. `../setup.md` owns exact evidence;
+`../todo.md` and `../build-97-audit.md` own feature, native/background, signing and refresh gates.
+No later candidate has been reported installed or accepted. Earlier same-ID refresh and recovery
+proof applies to earlier builds, not as current-version enrollment evidence. SideStore laptop
+setup is reported; app handover/on-phone renewal remain unconfirmed. No refresh ownership or
+installed identity change is inferred from that report.
 
 Build `0.9.37`/`70` remains the accepted recovery build: its phone check and completed
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.64-build97-bde5818b` holds validated Build 97, not yet installed. Build 95's
+`testing\WHOOP-0.9.65-build98-7c13f1a6` holds validated Build 98, not yet installed. Build 97's
+superseded folder (run `39815817300`, not reported installed) went to the Recycle Bin. Build 95's
 folder (run `39293589709`, never reported installed) went to the Recycle Bin. Build 96’s
 folder (run `39638043524`, not reported installed) also went to the Recycle Bin. Build 94's folder (run
 `39174734367`, never installed), Build 93's (run

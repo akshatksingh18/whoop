@@ -358,6 +358,27 @@ void main() {
       expect(marked, 0, reason: 'a skip is not a run');
     });
 
+    test('published backup survives failed last-run bookkeeping with a warning', () async {
+      final outcome = await runBackup(passphrase: _pass, iterations: _kIt,
+        markRun: (_) async => throw StateError('Synthetic storage refusal'));
+      expect(outcome.succeeded, isTrue);
+      expect(outcome.error, isNull);
+      expect(outcome.warning, contains('last-run time'));
+      expect(await File(outcome.path!).exists(), isTrue);
+    });
+
+    test('manual backup marks its time before a queued automatic decision', () async {
+      DateTime? last;
+      final when = DateTime(2026, 8, 9, 12);
+      final manual = runBackup(passphrase: _pass, iterations: _kIt, now: when,
+        markRun: (at) async => last = at);
+      final automatic = runBackupIfDue(passphrase: _pass, iterations: _kIt,
+        cadence: () => BackupCadence.daily, lastRun: () => last,
+        markRun: (at) async => last = at, now: when);
+      expect((await manual).succeeded, isTrue);
+      expect((await automatic).skipped, isTrue);
+    });
+
     test('reads the timestamp inside the lock, not before queueing', () async {
       // THE RACE this serialization exists to close. Two triggers arrive
       // together; the first backs up and records it. The second must see that

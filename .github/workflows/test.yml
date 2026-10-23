@@ -100,6 +100,12 @@ jobs:
           test/build95_repair_render_test.dart
           test/build98_nested_render_test.dart
           --reporter=expanded
+      - name: Render barcode disclosure and reminder failure states
+        run: >-
+          flutter test --concurrency=1 --dart-define=UI_CAPTURE=true
+          test/build99_barcode_test.dart test/build99_durability_test.dart
+          --name 'barcode disclosure|Body nested states'
+          --reporter=expanded
       - name: Build local image index
         if: always()
         run: python3 tool/ui_smoke_gallery.py build/ui_capture

@@ -15,6 +15,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../state/prefs.dart';
 
 import '../../compute/profile.dart' show Profile, bmrMifflin;
 import '../../data/body_log.dart';
@@ -1578,6 +1579,8 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   List<BodyWeightReading> _readings = const [];
   List<BodyPhoto> _photos = const [];
   bool _busy = false;
+  bool _photoBusy = false;
+  bool _dayReadFailed = false;
   String? _error;
 
   /// B90 quick weigh-in: weight and Save come first; tape and photos are
@@ -1624,40 +1627,41 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
 
   Future<void> _readDay() async {
     final seq = ++_loadSeq;
-    final w = await BodyLogDb.weightOn(_date);
-    List<BodyWeightReading> readings = const [];
     try {
-      readings = await BodyLogDb.readingsOn(_date);
+      final w = await BodyLogDb.weightOn(_date);
+      final readings = await BodyLogDb.readingsOn(_date);
+      final ph = [
+        for (final x in await BodyLogDb.photos())
+          if (x.date == _date) x,
+      ];
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _dayReadFailed = false;
+        _existing = w;
+        _readings = readings;
+        _photos = ph;
+        if (w != null && _weight.text.isEmpty && widget.date != null) {
+          _weight.text = w.entered != null && w.unit == _unit
+              ? _num(w.entered!)
+              : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
+          _weightAtOpen = _weight.text;
+        }
+      });
     } catch (_) {
-      /* the day's weight still shows without its reading list */
+      if (mounted && seq == _loadSeq) setState(() => _dayReadFailed = true);
     }
-    final ph = [
-      for (final x in await BodyLogDb.photos())
-        if (x.date == _date) x,
-    ];
-    if (!mounted || seq != _loadSeq) return;
-    setState(() {
-      _existing = w;
-      _readings = readings;
-      _photos = ph;
-      if (w != null && _weight.text.isEmpty && widget.date != null) {
-        _weight.text = w.entered != null && w.unit == _unit
-            ? _num(w.entered!)
-            : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
-        _weightAtOpen = _weight.text;
-      }
-    });
   }
 
   Future<void> _pickDate() async {
-    final now = DateTime.now();
+    if (_busy || _photoBusy) return;
+    final now = DateTime.parse(todayLabel());
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.parse(_date),
       firstDate: DateTime(2000),
       lastDate: now,
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() {
       _date = dayLabelOf(picked);
       // Build 92 (Codex audit 2): a weight the user typed stays and is saved
@@ -1681,6 +1685,8 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
     final saved = <String>[];
     try {
       await _dayRead;
+      if (!mounted) return;
+      if (_dayReadFailed) throw const BodyLogError('This day could not be read. Retry loading it before saving.');
       // 1. Validate everything.
       final wText = _weight.text.trim();
       double? value, kg;
@@ -1920,6 +1926,9 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
   }
 
   Future<void> _addPhoto(String pose, {required bool camera}) async {
+    if (_photoBusy || _busy) return;
+    final date = _date;
+    setState(() => _photoBusy = true);
     try {
       Uint8List? raw;
       if (camera) {
@@ -1931,14 +1940,17 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
         final path = picked?.files.single.path;
         if (path != null) raw = await File(path).readAsBytes();
       }
-      if (raw == null) return;
+      if (raw == null || !mounted) return;
       final jpeg = await encodeProgressPhoto(raw);
-      await BodyLogDb.addPhoto(jpeg, date: _date, pose: pose);
+      if (!mounted) return;
+      await BodyLogDb.addPhoto(jpeg, date: date, pose: pose);
       await _loadDay();
     } on PlatformException catch (e) {
-      setState(() => _error = e.message ?? 'The camera is not available.');
+      if (mounted) setState(() => _error = e.message ?? 'The camera is not available.');
     } catch (_) {
-      setState(() => _error = 'That photo could not be added.');
+      if (mounted) setState(() => _error = 'That photo could not be added.');
+    } finally {
+      if (mounted) setState(() => _photoBusy = false);
     }
   }
 
@@ -2002,7 +2014,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                   padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
                   children: [
                     Surface(
-                      onTap: _pickDate,
+                      onTap: _busy || _photoBusy ? null : _pickDate,
                       semanticLabel: 'Day ${_md(_date)}. Change',
                       child: Row(
                         children: [
@@ -2035,6 +2047,12 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                       ),
                     ),
                     if (_readings.isNotEmpty) _readingList(p),
+                    if (_dayReadFailed) ...[
+                      const SizedBox(height: S.x3),
+                      StatusCard('This day could not be read',
+                        'Your entries are still here. Reload the saved history before adding or changing a reading.',
+                        icon: LucideIcons.databaseZap, fix: 'Retry loading', onFix: _loadDay),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: S.x3),
                       Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
@@ -2043,7 +2061,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                     BigButton(
                       _busy ? 'Saving' : 'Save',
                       color: C.body,
-                      onTap: _busy ? null : _save,
+                      onTap: _busy || _photoBusy ? null : _save,
                     ),
                     const SizedBox(height: S.x5),
                     _section(
@@ -2114,7 +2132,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                           for (final pose in const ['front', 'side']) ...[
                             Pressable(
                               semanticLabel: 'Take a $pose photo',
-                              onTap: () => _addPhoto(pose, camera: true),
+                              onTap: _photoBusy || _busy ? null : () => _addPhoto(pose, camera: true),
                               child: Pill(
                                 'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
                                 C.body,
@@ -2123,7 +2141,7 @@ class _BodyEntryScreenState extends State<BodyEntryScreen> {
                             ),
                             Pressable(
                               semanticLabel: 'Choose a $pose photo',
-                              onTap: () => _addPhoto(pose, camera: false),
+                              onTap: _photoBusy || _busy ? null : () => _addPhoto(pose, camera: false),
                               child: Pill(
                                 'Photos · ${pose == 'front' ? 'Front' : 'Side'}',
                                 C.n400,
@@ -2693,6 +2711,8 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
   int _weekday = DateTime.saturday;
   bool _reminder = false;
   int _hour = 8;
+  bool _savingSettings = false;
+  String? _settingsError;
   String? _baseline;
 
   static const _names = [
@@ -2724,54 +2744,106 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
     });
   }
 
-  Future<void> _setReminder(bool on) async {
-    // Build 93 (Codex audit C09): On means a reminder iOS will deliver. With
-    // notifications not allowed the switch stays Off and says why.
-    if (on && !await NotificationService.instance.ensurePermission()) {
-      if (!mounted) return;
-      setState(() => _reminder = false);
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Notifications are off for this app. Allow them in iPhone '
-            'Settings, then turn the reminder on again.',
-          ),
-        ),
-      );
-      return;
-    }
-    final p = await SharedPreferences.getInstance();
-    if (on) {
-      final ok = await NotificationService.instance.scheduleWeekly(
+  Future<bool> _scheduleReminder(int weekday, int hour) =>
+      NotificationService.instance.scheduleWeekly(
         id: NotificationService.idBodyReminder,
         category: NotifCategory.reminders,
         title: 'Measurement day',
         body: 'Weigh in and take your tape measurements in Progress.',
-        weekday: _weekday,
-        hour: _hour,
+        weekday: weekday,
+        hour: hour,
         minute: 0,
       );
-      // Permission alone is not a scheduled reminder: On is saved and shown
-      // only once the system has it.
-      if (!ok) {
-        await p.setBool('body.reminder', false);
-        if (!mounted) return;
-        setState(() => _reminder = false);
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(
-            content: Text('The reminder could not be set. Try again.'),
-          ),
+
+  Future<void> _changeSettings({
+    bool? reminder,
+    int? weekday,
+    int? hour,
+  }) async {
+    if (_savingSettings) return;
+    final before = (on: _reminder, weekday: _weekday, hour: _hour);
+    final next = (
+      on: reminder ?? _reminder,
+      weekday: weekday ?? _weekday,
+      hour: hour ?? _hour,
+    );
+    var nativeTouched = false;
+    var storageTouched = false;
+    setState(() {
+      _savingSettings = true;
+      _settingsError = null;
+    });
+    try {
+      if (next.on && !await NotificationService.instance.ensurePermission()) {
+        throw StateError(
+          'Notifications are off for WHOOP. Allow them in iPhone Settings, then retry.',
         );
-        return;
       }
-      await p.setBool('body.reminder', true);
-    } else {
-      await p.setBool('body.reminder', false);
-      await NotificationService.instance.cancel(
-        NotificationService.idBodyReminder,
-      );
+      storageTouched = true;
+      await Prefs.saveValues({
+        'body.reminder': next.on,
+        'body.reminder.hour': next.hour,
+      });
+      await BodyLogDb.setMeasureWeekday(next.weekday);
+      nativeTouched = true;
+      if (next.on) {
+        if (!await _scheduleReminder(next.weekday, next.hour)) {
+          throw StateError(
+            'The reminder could not be confirmed on your iPhone.',
+          );
+        }
+      } else {
+        await NotificationService.instance.cancel(
+          NotificationService.idBodyReminder,
+          requireAcknowledgement: true,
+        );
+      }
+      if (mounted)
+        setState(() {
+          _reminder = next.on;
+          _weekday = next.weekday;
+          _hour = next.hour;
+        });
+    } catch (error) {
+      var restored = true;
+      if (storageTouched) {
+        try {
+          await Prefs.saveValues({
+            'body.reminder': before.on,
+            'body.reminder.hour': before.hour,
+          });
+          await BodyLogDb.setMeasureWeekday(before.weekday);
+        } catch (_) {
+          restored = false;
+        }
+      }
+      if (nativeTouched) {
+        try {
+          if (before.on) {
+            if (!await _scheduleReminder(before.weekday, before.hour))
+              restored = false;
+          } else {
+            await NotificationService.instance.cancel(
+              NotificationService.idBodyReminder,
+              requireAcknowledgement: true,
+            );
+          }
+        } catch (_) {
+          restored = false;
+        }
+      }
+      final reason = error is StateError
+          ? error.message.toString()
+          : 'Your iPhone did not confirm the reminder change.';
+      if (mounted)
+        setState(
+          () => _settingsError = restored
+              ? 'The change did not finish. Your previous settings are kept. $reason'
+              : 'Reminder status is unconfirmed. Retry your choice below.',
+        );
+    } finally {
+      if (mounted) setState(() => _savingSettings = false);
     }
-    if (mounted) setState(() => _reminder = on);
   }
 
   @override
@@ -2791,6 +2863,10 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
                 children: [
+                  if (_settingsError != null) ...[
+                    StatusCard('Check reminder', _settingsError!, icon: LucideIcons.bell),
+                    const SizedBox(height: S.x4),
+                  ],
                   Section(
                     'Measurement day',
                     Surface(
@@ -2800,12 +2876,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                           for (var i = 1; i <= 7; i++)
                             Pressable(
                               semanticLabel: _names[i - 1],
-                              onTap: () async {
-                                await BodyLogDb.setMeasureWeekday(i);
-                                if (!mounted) return;
-                                setState(() => _weekday = i);
-                                if (_reminder) await _setReminder(true);
-                              },
+                              onTap: _savingSettings ? null : () => _changeSettings(weekday: i),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: S.x3,
@@ -2834,7 +2905,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                   ),
                   const SizedBox(height: S.x4),
                   Surface(
-                    onTap: () => _setReminder(!_reminder),
+                    onTap: _savingSettings ? null : () => _changeSettings(reminder: !_reminder),
                     semanticLabel:
                         'Weekly reminder ${_reminder ? 'on' : 'off'}',
                     child: Row(
@@ -2870,12 +2941,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                         for (final h in const [6, 7, 8, 9, 10])
                           Pressable(
                             semanticLabel: 'Remind at $h:00',
-                            onTap: () async {
-                              final pr = await SharedPreferences.getInstance();
-                              await pr.setInt('body.reminder.hour', h);
-                              setState(() => _hour = h);
-                              await _setReminder(true);
-                            },
+                            onTap: _savingSettings ? null : () => _changeSettings(hour: h),
                             child: Pill('$h:00', _hour == h ? C.body : C.n400),
                           ),
                       ],
@@ -2890,7 +2956,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                           _baseline ?? d.earliest ?? todayLabel(),
                         ),
                         firstDate: DateTime(2000),
-                        lastDate: DateTime.now(),
+                        lastDate: DateTime.parse(todayLabel()),
                       );
                       if (picked == null) return;
                       final v = dayLabelOf(picked);

@@ -847,36 +847,48 @@ class AppState extends ChangeNotifier {
   /// Change the cadence. Switching it ON takes a backup immediately rather
   /// than waiting for the interval — otherwise nothing visible happens and the
   /// setting looks broken.
-  Future<void> setBackupCadence(BackupCadence cadence) async {
+  Future<BackupOutcome?> setBackupCadence(BackupCadence cadence) async {
     await Prefs.saveValues({Prefs.backupCadence: cadence.name});
     notifyListeners();
-    if (cadence != BackupCadence.off) await runBackupNow();
+    if (cadence != BackupCadence.off) return runBackupNow();
+    return null;
   }
 
-  void _markBackupRun(DateTime when) {
-    Prefs.setInt(Prefs.backupLastRunMs, when.millisecondsSinceEpoch);
-    notifyListeners();
-  }
+  Future<void> _markBackupRun(DateTime when) =>
+      Prefs.saveValues({Prefs.backupLastRunMs: when.millisecondsSinceEpoch});
+
+  String? lastBackupWarning;
 
   /// Persist the last attempt's result: cleared on success, the reason on
   /// failure. A skipped (not due) run changes nothing.
-  void _recordBackupOutcome(BackupOutcome outcome) {
-    if (outcome.skipped) return;
-    Prefs.setString(
-      Prefs.backupLastError,
-      outcome.succeeded ? '' : (outcome.error ?? 'unknown error'),
-    );
+  Future<BackupOutcome> _recordBackupOutcome(BackupOutcome outcome) async {
+    if (outcome.skipped) return outcome;
+    var reported = outcome;
+    try {
+      await Prefs.saveValues({
+        Prefs.backupLastError: outcome.succeeded
+            ? ''
+            : (outcome.error ?? 'unknown error'),
+      });
+    } catch (_) {
+      reported = reported.withWarning(
+        'The backup status could not be saved. Check the backup folder and retry.',
+      );
+    }
+    lastBackupWarning = reported.warning;
     notifyListeners();
+    return reported;
   }
 
   /// Take one now, whatever the schedule says. Returns what happened so the
   /// caller can say so — a backup that silently did not happen is the failure
   /// this feature exists to prevent.
   Future<BackupOutcome> runBackupNow() async {
-    final outcome = await runBackup(passphrase: BackupPassphrase.read);
-    if (outcome.succeeded) _markBackupRun(DateTime.now());
-    _recordBackupOutcome(outcome);
-    return outcome;
+    final outcome = await runBackup(
+      passphrase: BackupPassphrase.read,
+      markRun: _markBackupRun,
+    );
+    return _recordBackupOutcome(outcome);
   }
 
   /// Foreground hook. Silent unless it actually writes something.
@@ -905,10 +917,10 @@ class AppState extends ChangeNotifier {
       // still get a copy of their health data written after disabling it.
       cadence: () => backupCadence,
       lastRun: () => lastBackupAt,
-      markRun: (when) async => _markBackupRun(when),
+      markRun: _markBackupRun,
       passphrase: BackupPassphrase.read,
     );
-    _recordBackupOutcome(outcome);
+    await _recordBackupOutcome(outcome);
     if (outcome.error != null) _log('Backup failed: ${outcome.error}');
   }
 
@@ -1000,13 +1012,14 @@ class AppState extends ChangeNotifier {
     publishSessionChange();
 
     // Surfaces outside the database that were still showing it.
-    await NotificationService.instance.cancelAll();
+    await NotificationService.instance.cancelAll(requireAcknowledgement: true);
     // The set log's in-memory owner of the forgotten-workout ask.
     LiftReminders.loggingSessions.clear();
     // Pushups' Home watch, its Home point and its action inbox.
     await Pushups.reset();
     await BackupPassphrase.clear();
     hasBackupPassphrase = false;
+    lastBackupWarning = null;
 
     // 4 · the whole preference namespace, not a remembered subset — same
     // reason as wipeAll. A fresh install is the state being restored, and a

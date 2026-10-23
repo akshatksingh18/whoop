@@ -744,7 +744,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   Widget _streakCard(BuildContext c, P p, MoveStreak s, _WorkoutData d) {
-    final now = DateTime.now();
+    final now = DateTime.parse(todayLabel());
     return Container(
       padding: const EdgeInsets.symmetric(vertical: S.x3),
       child: Column(
@@ -1388,7 +1388,7 @@ Future<bool> _startSession(
 }) async {
   if (app.activeWorkout != null) return false;
   final profile = await ProfileHistory.on(
-    dayLabelOf(DateTime.now()),
+    todayLabel(),
     Profile.fromMap(app.user),
   );
   return app.startWorkout(
@@ -2451,7 +2451,7 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen>
       });
       return;
     }
-    final now = DateTime.now();
+    final now = DateTime.parse(todayLabel());
     final today = DateTime(now.year, now.month, now.day);
     var first = today;
     for (final w in _all ?? const <_PastWorkout>[]) {

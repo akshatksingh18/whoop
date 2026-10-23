@@ -423,7 +423,7 @@ class _PushupsScreenState extends State<PushupsScreen> {
 
   Widget _loggedToday(BuildContext c, PushupStatus s) {
     final p = P.of(c);
-    final today = dayLabelOf(DateTime.now());
+    final today = todayLabel();
     final times = [
       for (final x in s.sessions)
         if (x.day == today) ...x.completions,

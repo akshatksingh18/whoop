@@ -143,7 +143,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       final db = await LocalDb.instance;
       final month = await NutritionDb.window(db, days: 31);
       final months = await NutritionDb.historyMonths(db);
-      final now = DateTime.now();
+      final now = DateTime.parse(todayLabel());
       final weights = await BodyWeight.since(
         db,
         dayLabelOf(DateTime(now.year, now.month, now.day - 60)),
@@ -530,7 +530,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   Widget _weightCard(BuildContext c, P p, Profile pr, List<NutritionDay> days) {
     final w = _weights;
     final trend = weightTrend(w);
-    final now = DateTime.now();
+    final now = DateTime.parse(todayLabel());
     final since = dayLabelOf(DateTime(now.year, now.month, now.day - 27));
     final recent = [
       for (final x in w)

@@ -49,7 +49,18 @@ typedef PushupMirror = ({
   String day,
   String state,
   int interval,
+  int? startSec,
+  int? endSec,
 });
+
+/// Background isolates do not open SQLite. The mirror carries real recorded
+/// day bounds so an action on a held travel day still belongs to its session.
+bool pushupMirrorContains(PushupMirror m, DateTime at) {
+  final second = at.millisecondsSinceEpoch ~/ 1000;
+  return m.startSec != null && m.endSec != null
+      ? second >= m.startSec! && second < m.endSec!
+      : dayLabelAt(at) == m.day;
+}
 
 class PushupReminders {
   PushupReminders._();
@@ -79,6 +90,8 @@ class PushupReminders {
           'day': s.day,
           'state': s.state.name,
           'interval': s.interval,
+          'startSec': localDayStartSec(s.day),
+          'endSec': localDayEndSec(s.day),
         }),
       );
     } catch (_) {}
@@ -94,6 +107,8 @@ class PushupReminders {
         day: m['day'] as String,
         state: m['state'] as String,
         interval: (m['interval'] as num).toInt(),
+        startSec: (m['startSec'] as num?)?.toInt(),
+        endSec: (m['endSec'] as num?)?.toInt(),
       );
     } catch (_) {
       return null;
@@ -175,7 +190,8 @@ class PushupReminders {
     if (kind == 'pause') {
       await cancelBatch();
       await _writeMirrorState(live, 'paused');
-    } else if (live.state == 'running' && dayLabelOf(action.at) == live.day) {
+    } else if (live.state == 'running' &&
+        pushupMirrorContains(live, action.at)) {
       await scheduleBatch(sid, action.at.add(Duration(minutes: live.interval)));
     }
   }
@@ -189,6 +205,8 @@ class PushupReminders {
           'day': m.day,
           'state': state,
           'interval': m.interval,
+          'startSec': m.startSec,
+          'endSec': m.endSec,
         }),
       );
     } catch (_) {}
@@ -292,7 +310,7 @@ class PushupStatus {
   final int inboxWaiting;
 
   int get today {
-    final d = dayLabelOf(DateTime.now());
+    final d = todayLabel();
     return sessions
         .where((s) => s.day == d)
         .fold<int>(0, (n, s) => n + s.count);
@@ -363,9 +381,10 @@ class Pushups {
     final s = await PushupDb.active();
     if (s == null) return null;
     final now = DateTime.now();
-    if (s.day == dayLabelOf(now)) return s;
-    final d = DateTime.parse(s.day);
-    final midnight = DateTime(d.year, d.month, d.day + 1);
+    if (s.day == todayLabel(now)) return s;
+    final midnight = DateTime.fromMillisecondsSinceEpoch(
+      localDayEndSec(s.day)! * 1000,
+    );
     s.state = PushupState.ended;
     s.ended = midnight.isAfter(now) ? now : midnight;
     s.anchor = null;
@@ -385,7 +404,7 @@ class Pushups {
         final now = DateTime.now();
         final goal = await PushupDb.goal();
         final s = PushupSession(
-          day: dayLabelOf(now),
+          day: todayLabel(now),
           started: now,
           interval: await PushupDb.interval(),
           goal: goal > 0 ? goal : null,
@@ -517,7 +536,7 @@ class Pushups {
           e.presence,
           e.at,
           active: s,
-          today: dayLabelOf(DateTime.now()),
+          today: todayLabel(),
         );
         if (s == null) continue;
         if (s.receipts.contains(e.receipt)) continue;
@@ -555,9 +574,10 @@ class Pushups {
     }
     // A day still open after its own midnight ends at that midnight.
     final now = DateTime.now();
-    if (s != null && s.day != dayLabelOf(now)) {
-      final d = DateTime.parse(s.day);
-      final midnight = DateTime(d.year, d.month, d.day + 1);
+    if (s != null && s.day != todayLabel(now)) {
+      final midnight = DateTime.fromMillisecondsSinceEpoch(
+        localDayEndSec(s.day)! * 1000,
+      );
       s.state = PushupState.ended;
       s.ended = midnight.isAfter(now) ? now : midnight;
       s.anchor = null;

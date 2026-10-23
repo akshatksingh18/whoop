@@ -1835,14 +1835,14 @@ class LocalRepositoryImpl extends LocalRepository {
     // Every local day the night touches: a 23:10 onset puts the first hour
     // in yesterday's bundle, which a calendar-day read never saw (B86-03).
     final labels = <String>{};
-    for (
-      var t = DateTime.fromMillisecondsSinceEpoch(onsetTs * 1000);
-      !t.isAfter(DateTime.fromMillisecondsSinceEpoch(wakeTs * 1000));
-      t = DateTime(t.year, t.month, t.day + 1)
-    ) {
-      labels.add(dayLabelOf(t));
+    var cursor = onsetTs;
+    while (cursor <= wakeTs) {
+      final date = dayLabelAtSec(cursor);
+      labels.add(date);
+      final next = localDayEndSec(date);
+      if (next == null || next <= cursor) break;
+      cursor = next;
     }
-    labels.add(dayLabelOf(DateTime.fromMillisecondsSinceEpoch(wakeTs * 1000)));
     final merged = <String, Map<int, num>>{
       'hr': {},
       'hrv': {},
@@ -3455,7 +3455,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // hours, so a flat day-length silently moves the window by an hour.
       final fromTs =
           localDayStartSec(
-            dayLabelOf(DateTime.now().subtract(Duration(days: sinceDays))),
+            _rangeSinceLabel("${sinceDays}d")!,
           ) ??
           (nowSec - sinceDays * 86400);
       final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
@@ -4101,7 +4101,8 @@ class LocalRepositoryImpl extends LocalRepository {
     if (range == 'all') return null;
     final m = RegExp(r'(\d+)').firstMatch(range);
     final days = m == null ? 30 : int.parse(m.group(1)!);
-    return dayLabelOf(DateTime.now().subtract(Duration(days: days)));
+    final today = DateTime.parse(todayLabel());
+    return dayLabelOf(DateTime(today.year, today.month, today.day - days));
   }
 
   // ── menstrual cycle — local log + honest phase/prediction ───────────────────

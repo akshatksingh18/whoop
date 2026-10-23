@@ -29,6 +29,10 @@ configuration/native stop, cache-removal ordering and reset preference/keychain 
 failed cleanup remains retryable and cannot report complete deletion. Targeted synthetic checks
 pass; the successor's full/native and real Home-delivery checks remain open. The band history
 drain and ACK protocol are untouched.
+The successor also waits for iPhone notification cancellation during reset and retains reminder
+plans when cancellation fails. Its Pushups background mirror includes recorded day bounds, so
+travel-day actions can be validated without a background SQLite open. Backup last-run marking
+stays inside the publication lock; bookkeeping refusal produces a warning about a valid file.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
 Build 86 introduced one

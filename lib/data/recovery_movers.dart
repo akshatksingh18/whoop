@@ -76,8 +76,7 @@ String _prev(String date) {
   return dayLabelOf(DateTime(d.year, d.month, d.day - 1));
 }
 
-int _localHour(int epochSec) =>
-    DateTime.fromMillisecondsSinceEpoch(epochSec * 1000).hour;
+int _localHour(int epochSec) => DayClock.localAt(epochSec).hour;
 
 /// Tags for each morning in [dates], from logs the app already keeps.
 ///
@@ -101,7 +100,7 @@ Map<String, Map<String, bool>> moverTags({
     if (ts == null) continue;
     if (_localHour(ts) >= 19) {
       eveningWorkout.add(
-        dayLabelOf(DateTime.fromMillisecondsSinceEpoch(ts * 1000)),
+        dayLabelAtSec(ts),
       );
     }
   }

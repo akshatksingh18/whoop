@@ -116,8 +116,47 @@ and consent suite pass (37 combined). Before-fix logs reproduce the failures. Th
 coefficient's comment now accurately calls 0.85 a budgeting calibration, above the cited 0.81
 mean and not a guaranteed personal minimum; the coefficient itself is unchanged.
 
-Additional review queues, not yet closed: run voice and Body reminder persistence/native
-cancellation; backup status persistence; historical journal/custom-field drafts
+The recorded-day trace also covers dense chart positions/freshness, metric comparisons, weekly
+averages, Sleep signals, dated workout-profile selection, Food/Body calendars and Pushups.
+Pushups' background mirror carries actual day bounds, so it can validate a Done action without
+opening SQLite. Calendar-only goal-window arithmetic and elapsed-time GPS/retention limits keep
+their original meanings. Three added travel controls exercise dense charts, Pushups status/
+actions and the unhydrated background mirror.
+
+- **B98-13, P2 — run voice Off does not acknowledge storage.** The live switch flips before
+  an unchecked preference write. Persist before changing the selection, retain the old choice
+  on refusal/cold reload, prevent repeated in-flight taps and show a retry message.
+- **B98-14, P2 — reminder Off/reset can hide failed native cancellation.** NotificationService
+  swallows cancellation failures and removes its plan first. Retain the plan on refusal and
+  require acknowledgement for user Off/reset paths. Body's weekday/hour/On changes also need
+  acknowledged persistence and serialized application; restore previous settings/plan where
+  possible and show an explicit uncertain-state message if rollback cannot finish. Food's Off
+  follows the same acknowledged contract, and daily scheduling exposes its actual result.
+- **B98-15, P2 — backup bookkeeping claims success without durable status.** Last-run/error
+  writes are unchecked, and a manual backup releases the global lock before marking its time.
+  A queued automatic decision can export again. Mark inside the shared lock and acknowledge
+  metadata. A valid written file remains successful with a separate warning if bookkeeping fails;
+  Data distinguishes that warning from a failed export. Tests cover both ordering and refusal.
+- **B98-16, P2 — Body entry read/camera failure paths are unsafe.** An initial history-read
+  failure escapes without an on-page retry; a late camera failure calls setState after leaving.
+  Catch day-read failures, keep typed fields, block blind saving and offer Retry loading. Capture
+  the intended photo date, prevent concurrent photo/date/save actions and guard late callbacks.
+  Synthetic widget tests exercise a missing-table/read retry and a delayed camera refusal.
+
+The Strength summary also uses singular/plural labels correctly. No metric or detail is hidden.
+Version `0.9.66+99` and matching RunnerTests metadata reserve the successor identity; the actual
+Build 99 binary/release checks remain pending.
+
+Current focused evidence: 28 passing checks across `build99_durability_test.dart`,
+`build99_recorded_days_test.dart` and `build99_barcode_test.dart`, plus two backup publication/
+ordering cases in `auto_backup_test.dart`. The compound Body widget check exercises normal and
+3.1x settings failure, read retry with retained input and leaving during a camera operation in
+one test-clock zone. This avoids a Windows FFI fixture-order stall; isolated read retry also
+passes. Initial fixture mistakes/stalled batches are not counted as app passes. Full-scroll
+captures of the disclosure and reminder error states were inspected with substitute fonts.
+The cloud visual job now includes these states; its successor result is still pending.
+
+Additional review queues, not yet closed: historical journal/custom-field drafts
 (first establish personal-build reachability); short arrival-day wall-clock choices; all remaining
 activity/metric/data/lifecycle consumers. Scientific coefficients remain unchanged.
 

@@ -65,7 +65,7 @@ class WeekNumbers {
     bool withFood = true,
   }) async {
     final now = at ?? DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateTime.parse(todayLabel(now));
     final monday = DateTime(
       today.year,
       today.month,
@@ -139,7 +139,7 @@ class WeekNumbers {
         final vs = [
           for (final p in pointsOf(await repo.getChart(chart)))
             if (inWeek(
-              dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
+              dayLabelAtSec(p.t),
             ))
               p.v,
         ];
@@ -217,7 +217,7 @@ class _WeekCardState extends State<WeekCard> with RevisionReload {
   }
 
   /// Monday shows last week: this week is one unfinished day.
-  static bool get _monday => DateTime.now().weekday == DateTime.monday;
+  static bool get _monday => DateTime.parse(todayLabel()).weekday == DateTime.monday;
 
   @override
   bool get revisionReloads => widget.data == null;

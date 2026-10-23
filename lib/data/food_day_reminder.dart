@@ -31,16 +31,25 @@ class FoodDayReminder {
   }
 
   static Future<void> setEnabled(bool on) async {
+    final before = await enabled();
     await Prefs.saveValues({_kOn: on});
-    await arm();
+    try {
+      await arm(requireAcknowledgement: true);
+    } catch (_) {
+      await Prefs.saveValues({_kOn: before});
+      // Restore the prior plan too if a scheduling call partly completed.
+      try { await arm(requireAcknowledgement: true); } catch (_) {}
+      rethrow;
+    }
   }
 
   /// Schedule (or cancel) the daily question. Tonight's is skipped once today
   /// is already marked either way.
-  static Future<void> arm() async {
+  static Future<void> arm({bool requireAcknowledgement = false}) async {
     final n = NotificationService.instance;
     if (!await enabled()) {
-      await n.cancel(NotificationService.idFoodDayReminder);
+      await n.cancel(NotificationService.idFoodDayReminder,
+          requireAcknowledgement: requireAcknowledgement);
       return;
     }
     final t = await time();
@@ -48,7 +57,7 @@ class FoodDayReminder {
     final marked =
         (await NutritionDb.dayMarks(await LocalDb.instance, today))[today] !=
         null;
-    await n.scheduleDaily(
+    final scheduled = await n.scheduleDaily(
       id: NotificationService.idFoodDayReminder,
       category: NotifCategory.reminders,
       title: "Is today's food complete?",
@@ -61,15 +70,20 @@ class FoodDayReminder {
       skipToday: marked,
       iosCategory: kFoodDayCategory,
     );
+    if (!scheduled && requireAcknowledgement) {
+      throw StateError('The food reminder could not be confirmed on your iPhone. Check notification permission and retry.');
+    }
   }
 
   /// "Mark complete" from the notification. The question is asked in the
   /// evening, so an answer before 5 am belongs to the day before.
-  static Future<void> onComplete() async {
-    final now = DateTime.now();
-    final day = now.hour < 5
+  static Future<void> onComplete({DateTime? at}) async {
+    final instant = at ?? DateTime.now();
+    final now = DateTime.parse(todayLabel(instant));
+    final local = DayClock.localAt(instant.millisecondsSinceEpoch ~/ 1000);
+    final day = local.hour < 5
         ? dayLabelOf(DateTime(now.year, now.month, now.day - 1))
-        : todayLabel();
+        : todayLabel(instant);
     await NutritionDb.setDayMark(await LocalDb.instance, day, 'complete');
     await arm();
   }

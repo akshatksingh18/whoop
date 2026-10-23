@@ -375,7 +375,7 @@ class MetricData {
         for (final p in points)
           if (imported.isEmpty ||
               !imported.contains(
-                dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
+                dayLabelAtSec(p.t),
               ))
             p,
       ],
@@ -402,15 +402,15 @@ Future<({List<ChartPoint> budget, List<ChartPoint> acsm})> stepCalorieModels(
   final out = <ChartPoint>[], acsm = <ChartPoint>[];
   final runs = await loadRuns(repo);
   final now = at ?? DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
+  final today = DateTime.parse(todayLabel(now));
   final cutoff = DateTime(
-    now.year,
-    now.month,
-    now.day - days.clamp(1, 365) + 1,
+    today.year,
+    today.month,
+    today.day - days.clamp(1, 365) + 1,
   );
   for (final point in steps) {
     final instant = DateTime.fromMillisecondsSinceEpoch(point.t * 1000);
-    final date = dayLabelOf(instant), day = DateTime.parse(date);
+    final date = dayLabelAt(instant), day = DateTime.parse(date);
     if (day.isBefore(cutoff) || day.isAfter(today)) continue;
     final upkeep = await DayUpkeep.read(
       repo,
@@ -1213,7 +1213,7 @@ class _MetricDetailState extends State<MetricDetail> with RevisionReload {
   /// with, walked through [DateTime]'s own calendar so the two days a year that
   /// are 23 or 25 hours long land on the right date.
   String _dayOfSlot(int i, int len) {
-    final n = DateTime.now();
+    final n = DateTime.parse(todayLabel());
     return dayLabelOf(DateTime(n.year, n.month, n.day - (len - 1 - i)));
   }
 

@@ -35,7 +35,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../compute/profile.dart' show Profile, stepCalories;
-import '../../data/day_label.dart' show todayLabel, localDayStartSec;
+import '../../data/day_label.dart'
+    show todayLabel, localDayStartSec, dayLabelAtSec, DayClock;
 import '../../data/day_zone_rules.dart' show DayClock;
 import '../../data/db.dart' show DbRebuild, LocalDb;
 import '../../data/nutrition_store.dart' show NutritionDb;
@@ -356,10 +357,10 @@ List<double> valuesOf(List<ChartPoint> pts) => [for (final p in pts) p.v];
 /// four-day sync gap the newest point sat at the right-hand edge under the
 /// label "Today", and the line ran straight through the missing week as though
 /// it had been measured.
-List<double?> denseDays(List<ChartPoint> pts, int days) {
+List<double?> denseDays(List<ChartPoint> pts, int days, {DateTime? at}) {
   final out = List<double?>.filled(days, null);
   for (final p in pts) {
-    final behind = daysBehind(p.t);
+    final behind = daysBehind(p.t, at: at);
     if (behind == null || behind < 0 || behind >= days) continue;
     out[days - 1 - behind] = p.v;
   }
@@ -394,11 +395,11 @@ String axisDay(
 /// Whole calendar days between a stored point and today, or null when there is
 /// no point. Anything above zero means the number drawn is not today's, and a
 /// card that presents it as today's has to say so.
-int? daysBehind(int? epochSec) {
+int? daysBehind(int? epochSec, {DateTime? at}) {
   if (epochSec == null) return null;
   return calendarDaysBetween(
-    DateTime.fromMillisecondsSinceEpoch(epochSec * 1000),
-    DateTime.now(),
+    DateTime.parse(dayLabelAtSec(epochSec)),
+    DateTime.parse(todayLabel(at)),
   );
 }
 
@@ -2216,13 +2217,12 @@ class _HeartCardState extends State<_HeartCard> {
         ? null
         : '${vals.reduce((a, b) => a < b ? a : b).round()} – '
               '${vals.reduce((a, b) => a > b ? a : b).round()} bpm';
-    String time(int sec) =>
-        formatClock(DateTime.fromMillisecondsSinceEpoch(sec * 1000));
+    String time(int sec) => formatClock(DayClock.localAt(sec));
 
     final end = _window == 2 && start != null
         ? start + g.hr.length * 60
         : recent.endSec;
-    final labels = start == null || _window == 2
+    final labels = start == null
         ? const ['Midnight', 'Noon', 'Midnight']
         : [time(start), time(start + (end - start) ~/ 2), time(end)];
     // The minute under a finger at fraction [f] of the chart.

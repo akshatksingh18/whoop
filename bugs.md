@@ -23,12 +23,13 @@ enlarged action labels remain visible. All 52 added synthetic regressions pass w
 checks and native run `39942864975` pass. `build-97-audit.md` owns individual contracts and the
 unexecuted-device limits. These software results do not establish physical acceptance.
 
-The subsequent `build-98-audit.md` review is active on `build-99`. B98-01–12 now have source
+The subsequent `build-98-audit.md` review is active on `build-99`. B98-01–16 now have source
 repairs for profile-history rollback, calculation-cache resurrection, refused backup Off,
 forgotten-device recovery mirrors, Home persistence/native stop and partial reset/keychain
 cleanup, recorded travel-day consistency, restored profile anchors, active lifting windows and
 barcode input/opt-in/scrolling. Twenty new synthetic checks and existing settings/cache/nutrient/
-consent checks pass; remaining
+consent checks pass. Run voice, reminder/reset native cancellation, backup metadata/ordering and
+Body read/camera lifecycle also have source repairs and expanded targeted checks; remaining
 review, UI-state checks and successor cloud/native verification are still open. These repairs
 are not in the cached Build 98 IPA.
 

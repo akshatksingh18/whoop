@@ -5051,8 +5051,9 @@ class DerivationEngine {
       // finding is current. Anything older is history, and history does not
       // interrupt.
       final today = LocalDb.localDayLabelNow();
+      final calendar = DateTime.parse(today);
       final yesterday = dayLabelOf(
-        DateTime.now().subtract(const Duration(days: 1)),
+        DateTime(calendar.year, calendar.month, calendar.day - 1),
       );
       if (date == null || (date != today && date != yesterday)) return;
       // ONE exception per day, not one per finding.

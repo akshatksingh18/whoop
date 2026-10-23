@@ -25,6 +25,10 @@ step streaks and Today's chart origin; absent startup profiles preserve restored
 The separate lifting line unions active windows and retains captured weights through overlaps.
 Barcode lookup requires first-use consent and numeric identifiers; its disclosure scrolls at
 accessibility sizes. Scientific coefficients stay unchanged; these are source-only pending release.
+Shared chart positions, weekly metric means, Sleep signal windows and Pushups/background actions
+use those same recorded days. Voice and reminder changes acknowledge persistence/native outcomes;
+Body retains drafts through a failed history read. Backup bookkeeping warnings remain separate
+from the existence of a valid encrypted file. Strength summary copy pluralizes its real counts.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is

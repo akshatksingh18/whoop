@@ -142,8 +142,7 @@ class HealthData {
     charts['step_kcal'] = movement.budget;
     charts['step_kcal_acsm'] = movement.acsm;
 
-    String labelAt(int t) =>
-        dayLabelOf(DateTime.fromMillisecondsSinceEpoch(t * 1000));
+    String labelAt(int t) => dayLabelAtSec(t);
     final ready = {for (final p in charts['recovery']!) labelAt(p.t): p.v};
     final irregular = {
       for (final p in pointsOf(await repo.getChart('irregular_rhythm_flag')))

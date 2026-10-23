@@ -53,7 +53,7 @@ String shiftDay(String date, int days) {
 
 /// The calendar, up to today.
 Future<String?> pickDate(BuildContext c, String current) async {
-  final now = DateTime.now();
+  final now = DateTime.parse(todayLabel());
   final picked = await showDatePicker(
     context: c,
     initialDate: DateTime.parse(current),

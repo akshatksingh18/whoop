@@ -675,8 +675,9 @@ class _DataScreenState extends State<DataScreen> {
     }
     // Turning it on runs the first backup straight away, so its result is
     // what gets reported.
-    await app.setBackupCadence(next);
+    final outcome = await app.setBackupCadence(next);
     if (next == BackupCadence.off) return ('', false);
+    if (outcome?.warning != null) return (outcome!.warning!, true);
     final err = app.lastBackupError;
     return err == null
         ? ('Automatic backup is on. The first one is written.', false)
@@ -693,6 +694,9 @@ class _DataScreenState extends State<DataScreen> {
       }
     }
     final outcome = await app.runBackupNow();
+    if (outcome.warning != null && outcome.succeeded) {
+      return ('Backed up to ${outcome.path}. ${outcome.warning}', true);
+    }
     if (outcome.error != null) {
       return (
         l?.dataBackupFailed(outcome.error!) ??
@@ -918,9 +922,9 @@ class _DataScreenState extends State<DataScreen> {
                       LucideIcons.clock,
                       C.n500,
                       l?.dataLastBackup ?? 'Last backup',
-                      sub: app.lastBackupError == null
+                      sub: app.lastBackupWarning ?? (app.lastBackupError == null
                           ? ''
-                          : 'The last attempt failed: ${app.lastBackupError}',
+                          : 'The last attempt failed: ${app.lastBackupError}'),
                       value: last == null
                           ? (l?.dataNever ?? 'Never')
                           : _stamp(last),

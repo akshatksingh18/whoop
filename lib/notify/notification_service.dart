@@ -24,8 +24,10 @@
 // [taps]; AppState listens and navigates.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
@@ -398,6 +400,9 @@ class NotificationService {
   @visibleForTesting
   Future<bool> Function()? debugProbePermission;
 
+  @visibleForTesting
+  Future<void> Function(int? id)? debugCancel;
+
   /// Non-mutating: whether notifications are currently enabled, WITHOUT ever
   /// showing the OS authorization prompt. Safe to call from any context,
   /// including headless/background. Does not populate [_granted] — a
@@ -522,7 +527,7 @@ class NotificationService {
     return false;
   }
 
-  Future<void> scheduleDaily({
+  Future<bool> scheduleDaily({
     required int id,
     required NotifCategory category,
     required String title,
@@ -534,8 +539,8 @@ class NotificationService {
     String? iosCategory,
   }) async {
     try {
-      if (!_maySchedule(id)) return;
-      if (!await ensurePermission(allowPrompt: false)) return;
+      if (!_maySchedule(id)) return false;
+      if (!await ensurePermission(allowPrompt: false)) return false;
       await ensureTimezone();
       var when = _nextInstanceOf(hour, minute);
       // skipToday: tonight's instance is already handled (e.g. the journal was
@@ -569,7 +574,10 @@ class NotificationService {
         payload: route,
       );
       await _plan(id, when, PlanRepeat.daily, category, title, body, route);
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Write a schedule down for the Notifications page, which records each
@@ -725,12 +733,20 @@ class NotificationService {
     }
   }
 
-  Future<void> cancel(int id) async {
-    // What it already showed stays on the Notifications page.
-    await NotificationLog.instance.unplan(id);
+  Future<void> cancel(int id, {bool requireAcknowledgement = false}) async {
     try {
-      await _plugin.cancel(id);
-    } catch (_) {}
+      final cancel = debugCancel;
+      if (cancel != null) {
+        await cancel(id);
+      } else if (Platform.isIOS) {
+        await _plugin.cancel(id);
+      }
+    } catch (_) {
+      if (requireAcknowledgement) rethrow;
+      return; // Keep the plan when iOS did not acknowledge cancellation.
+    }
+    // What already happened stays in history, after cancellation succeeds.
+    await NotificationLog.instance.unplan(id);
   }
 
   /// Drop every notification this app has scheduled or posted.
@@ -739,10 +755,21 @@ class NotificationService {
   /// survives a full reset fires days later, about data that is gone. The
   /// per-id [cancel] cannot reach them, because the ids live in the
   /// preferences the reset is clearing at the same time.
-  Future<void> cancelAll() async {
-    await NotificationLog.instance.clear();
+  Future<void> cancelAll({bool requireAcknowledgement = false}) async {
     try {
-      await _plugin.cancelAll();
-    } catch (_) {}
+      final cancel = debugCancel;
+      if (cancel != null) {
+        await cancel(null);
+      } else if (Platform.isIOS) {
+        await _plugin.cancelAll();
+      }
+    } on MissingPluginException {
+      if (requireAcknowledgement && Platform.isIOS) rethrow;
+      // Synthetic desktop tests have no iPhone plugin.
+    } catch (_) {
+      if (requireAcknowledgement) rethrow;
+      return;
+    }
+    await NotificationLog.instance.clear();
   }
 }

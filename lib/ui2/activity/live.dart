@@ -1576,6 +1576,24 @@ class _VoiceCue extends StatefulWidget {
 
 class _VoiceCueState extends State<_VoiceCue> {
   late bool _on = runVoiceOn;
+  bool _saving = false;
+
+  Future<void> _toggle() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await setRunVoiceOn(!_on);
+      if (mounted) setState(() => _on = runVoiceOn);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('The voice setting could not be saved. Try again.'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   void didUpdateWidget(_VoiceCue old) {
@@ -1590,10 +1608,7 @@ class _VoiceCueState extends State<_VoiceCue> {
     final each = miles ? 'mile' : 'kilometre';
     return Pressable(
       semanticLabel: _on ? 'Voice each $each, on' : 'Voice each $each, off',
-      onTap: () => setState(() {
-        _on = !_on;
-        runVoiceOn = _on;
-      }),
+      onTap: _saving ? null : _toggle,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

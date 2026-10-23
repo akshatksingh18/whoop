@@ -16,7 +16,7 @@
 // renaming either would be worse, because both names are the right word for
 // what they are.
 
-import 'day_label.dart' show dayLabelOf;
+import 'day_label.dart' show dayLabelAt;
 
 /// Where an observation came from — the `observation.source_kind` column.
 ///
@@ -89,7 +89,7 @@ class Observation {
 
   /// The LOCAL calendar day this observation belongs to — the same day model
   /// every other table is keyed by, via the one helper that gets DST right.
-  String get date => dayLabelOf(at);
+  String get date => dayLabelAt(at);
 
   final ObservationSource sourceKind;
 }

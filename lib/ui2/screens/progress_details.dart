@@ -1151,7 +1151,8 @@ class _ProgressDetailState extends State<_ProgressDetail>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${lifts.length} workouts · $sets sets',
+                '${lifts.length} ${lifts.length == 1 ? 'workout' : 'workouts'} · '
+                    '$sets ${sets == 1 ? 'set' : 'sets'}',
                 style: F.cap.copyWith(color: p.ink3),
               ),
               Text(

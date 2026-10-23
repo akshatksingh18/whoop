@@ -104,7 +104,7 @@ class DayStrainData {
     try {
       days = {
         for (final p in pointsOf(await repo.getChart('strain')))
-          dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
+          dayLabelAtSec(p.t),
         todayLabel(),
         // NEWEST FIRST: the contract `DayNav` walks (its Previous button takes
         // index + 1). Oldest-first sent Previous to tomorrow and Next to

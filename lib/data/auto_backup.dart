@@ -227,6 +227,7 @@ class BackupOutcome {
     this.error,
     this.skipped = false,
     this.needsPassphrase = false,
+    this.warning,
   });
 
   /// The file written, or null when nothing was.
@@ -236,6 +237,18 @@ class BackupOutcome {
   /// a backup silently not happening is the failure mode this whole feature
   /// exists to prevent.
   final String? error;
+
+  /// The file is valid, but bookkeeping did not finish. Do not call the file
+  /// failed or imply that the schedule's last-run timestamp was saved.
+  final String? warning;
+
+  BackupOutcome withWarning(String message) => BackupOutcome(
+    path: path,
+    error: error,
+    skipped: skipped,
+    needsPassphrase: needsPassphrase,
+    warning: [if (warning != null) warning!, message].join(' '),
+  );
 
   /// Not due yet. Distinct from both success and failure.
   final bool skipped;
@@ -316,14 +329,34 @@ Future<BackupOutcome> runBackup({
   DateTime? now,
   Future<String> Function()? exportSnapshot,
   int iterations = kDefaultIterations,
-}) => _serialize(
-  () => _runBackup(
+  Future<void> Function(DateTime)? markRun,
+}) => _serialize(() async {
+  final when = now ?? DateTime.now();
+  final outcome = await _runBackup(
     passphrase: passphrase,
-    now: now,
+    now: when,
     exportSnapshot: exportSnapshot,
     iterations: iterations,
-  ),
-);
+  );
+  return _markPublished(outcome, when, markRun);
+});
+
+Future<BackupOutcome> _markPublished(
+  BackupOutcome outcome,
+  DateTime when,
+  Future<void> Function(DateTime)? markRun,
+) async {
+  if (outcome.succeeded && markRun != null) {
+    try {
+      await markRun(when);
+    } catch (_) {
+      return outcome.withWarning(
+        'The backup file was written, but its last-run time could not be saved. Automatic backup may retry.',
+      );
+    }
+  }
+  return outcome;
+}
 
 Future<BackupOutcome> _runBackup({
   required Future<String?> Function() passphrase,
@@ -540,6 +573,5 @@ Future<BackupOutcome> runBackupIfDue({
     exportSnapshot: exportSnapshot,
     iterations: iterations,
   );
-  if (outcome.succeeded) await markRun(when);
-  return outcome;
+  return _markPublished(outcome, when, markRun);
 });

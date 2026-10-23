@@ -12,8 +12,12 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/data/profile_history.dart';
+import 'package:openstrap_edge/data/pushups.dart';
+import 'package:openstrap_edge/data/pushup_reminders.dart';
 import 'package:openstrap_edge/gps/workout_clock.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/ui2/screens/home_screen.dart'
+    show denseDays, daysBehind;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -118,6 +122,71 @@ void main() {
     expect(
       await StepGoals.qualifying(initial: 1000, at: now),
       contains(day.date),
+    );
+  });
+
+  test(
+    'dense charts place held-day evidence under today without losing a slot',
+    () {
+      final now = travelNow();
+      final second = now.millisecondsSinceEpoch ~/ 1000;
+      expect(daysBehind(second, at: now), 0);
+      expect(denseDays([(t: second, v: 60)], 7, at: now), [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        60,
+      ]);
+    },
+  );
+
+  test('Pushups actions and day status agree on the recorded travel day', () {
+    final now = travelNow();
+    final session = PushupSession(
+      id: 'synthetic-pushups',
+      day: '2026-01-02',
+      started: now.subtract(const Duration(hours: 1)),
+      interval: 45,
+      goal: 2,
+      state: PushupState.running,
+    );
+    final action = PushupAction(
+      id: 'synthetic-action',
+      kind: 'done',
+      sessionId: session.id,
+      at: now,
+    );
+    expect(action.applyTo(session), isTrue);
+    expect(
+      PushupDay.of(session.day, [session], now)?.status,
+      PushupGoalStatus.atRisk,
+    );
+    session.log(PushupEvent(at: now, kind: PushupEventKind.done));
+    expect(pushupQualifiedDays([session], now), contains(session.day));
+  });
+
+  test('background Pushups bounds work without a hydrated day timeline', () {
+    final now = travelNow();
+    final day = DayClock.forDate('2026-01-02')!;
+    final mirror = (
+      session: 'synthetic-pushups',
+      day: day.date,
+      state: 'running',
+      interval: 45,
+      startSec: day.startSec,
+      endSec: day.endSec,
+    );
+    DayClock.install([], []);
+    expect(pushupMirrorContains(mirror, now), isTrue);
+    expect(
+      pushupMirrorContains(
+        mirror,
+        DateTime.fromMillisecondsSinceEpoch(day.endSec * 1000),
+      ),
+      isFalse,
     );
   });
 

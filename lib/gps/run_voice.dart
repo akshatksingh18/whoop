@@ -16,7 +16,7 @@ const MethodChannel _channel = MethodChannel('openstrap/speech');
 const String kRunVoicePref = 'run.voice';
 
 bool get runVoiceOn => Prefs.getBool(kRunVoicePref, true);
-set runVoiceOn(bool v) => Prefs.setBool(kRunVoicePref, v);
+Future<void> setRunVoiceOn(bool on) => Prefs.saveValues({kRunVoicePref: on});
 
 /// Metres in a mile.
 const double kVoiceMileMeters = 1609.344;

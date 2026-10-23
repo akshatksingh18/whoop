@@ -1,7 +1,5 @@
 // Synthetic identifiers and mocked HTTP only; never contacts a service.
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -10,25 +8,11 @@ import 'package:openstrap_edge/data/off_lookup.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/screens/barcode_food.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'support/audit_visual.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() async {
-    for (final family in ['Manrope', '.SF Pro Text']) {
-      final loader = FontLoader(family);
-      for (final file in Directory(
-        'assets/fonts/Manrope',
-      ).listSync().whereType<File>().where((f) => f.path.endsWith('.ttf'))) {
-        loader.addFont(file.readAsBytes().then((b) => ByteData.sublistView(b)));
-      }
-      await loader.load();
-    }
-    final icons = FontLoader('packages/lucide_icons_flutter/Lucide')
-      ..addFont(
-        rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'),
-      );
-    await icons.load();
-  });
+  setUpAll(loadAuditFonts);
   test('invalid barcode text never becomes a path or query', () async {
     SharedPreferences.setMockInitialValues({kOffConsentKey: true});
     await Prefs.ensureLoaded();
@@ -71,22 +55,26 @@ void main() {
       addTearDown(t.view.reset);
       var finished = false;
       await t.pumpWidget(
-        MaterialApp(
-          theme: buildTheme(Brightness.light),
-          builder: (c, child) => MediaQuery(
-            data: MediaQuery.of(
-              c,
-            ).copyWith(textScaler: TextScaler.linear(scale)),
-            child: child!,
-          ),
-          home: Scaffold(
-            body: Builder(
-              builder: (c) => TextButton(
-                onPressed: () async {
-                  expect(await scanFoodProduct(c), isNull);
-                  finished = true;
-                },
-                child: const Text('Scan'),
+        RepaintBoundary(
+          key: auditCaptureKey,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(Brightness.light),
+            builder: (c, child) => MediaQuery(
+              data: MediaQuery.of(
+                c,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Builder(
+                builder: (c) => TextButton(
+                  onPressed: () async {
+                    expect(await scanFoodProduct(c), isNull);
+                    finished = true;
+                  },
+                  child: const Text('Scan'),
+                ),
               ),
             ),
           ),
@@ -95,6 +83,7 @@ void main() {
       await t.tap(find.text('Scan'));
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
+      await captureAuditScroll(t, 'barcode_${scale}x');
       await t.ensureVisible(find.text('Not now'));
       await t.tap(find.text('Not now'));
       await t.pumpAndSettle();

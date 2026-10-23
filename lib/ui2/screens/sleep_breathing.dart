@@ -35,7 +35,7 @@ class SleepBreathingScreen extends StatefulWidget {
   static Future<List<ana.CvhrNight>> nights(LocalRepository repo) async {
     final days = [...await repo.availableDays()]
       ..sort((a, b) => b.compareTo(a));
-    final stop = DateTime.parse(dayLabelOf(DateTime.now()));
+    final stop = DateTime.parse(todayLabel());
     final cutoff = dayLabelOf(
       DateTime(
         stop.year,
@@ -45,7 +45,7 @@ class SleepBreathingScreen extends StatefulWidget {
     );
     final flags = <String, double>{
       for (final p in pointsOf(await repo.getChart('irregular_rhythm_flag')))
-        dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)): p.v,
+        dayLabelAtSec(p.t): p.v,
     };
     final nights = <ana.CvhrNight>[];
     for (final day

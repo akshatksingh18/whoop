@@ -209,19 +209,19 @@ DateTime? pushupNextDue(PushupSession s, DateTime now) {
   List<PushupSession> sessions,
   DateTime now,
 ) {
-  final run = restAwareRun(pushupQualifiedDays(sessions, now), dayLabelOf(now));
+  final run = restAwareRun(pushupQualifiedDays(sessions, now), todayLabel(now));
   return (current: run.current, best: run.best);
 }
 
 /// Whether ending today short of the goal would use an automatic rest day
 /// and keep the streak (Build 92).
 bool pushupRestCovers(List<PushupSession> sessions, DateTime now) =>
-    restWouldCover(pushupQualifiedDays(sessions, now), dayLabelOf(now));
+    restWouldCover(pushupQualifiedDays(sessions, now), todayLabel(now));
 
 /// The local days up to [now] whose completed sets reached the goal captured
 /// that day.
 Set<String> pushupQualifiedDays(List<PushupSession> sessions, DateTime now) {
-  final today = dayLabelOf(now);
+  final today = todayLabel(now);
   final byDay = <String, List<PushupSession>>{};
   for (final s in sessions) {
     (byDay[s.day] ??= []).add(s);
@@ -280,7 +280,7 @@ class PushupDay {
         ? PushupGoalStatus.notSet
         : sets >= goal
         ? PushupGoalStatus.reached
-        : day == dayLabelOf(now)
+        : day == todayLabel(now)
         ? PushupGoalStatus.atRisk
         : PushupGoalStatus.missed;
     final pauses = <({DateTime from, DateTime to})>[];
@@ -375,7 +375,7 @@ class PushupAction {
     if (at.isBefore(s.started)) return false;
     switch (kind) {
       case 'done':
-        if (dayLabelOf(at) != s.day) return false;
+        if (dayLabelAt(at) != s.day) return false;
         s.log(
           PushupEvent(
             id: eventId,

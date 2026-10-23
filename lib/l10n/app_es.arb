@@ -598,7 +598,7 @@
   "sleepDetailWakeTimeHelp": "CUÁNDO TE LEVANTASTE",
   "sleepDetailReanalyseFailed": "La noche no se ha vuelto a analizar: ya había otro reanálisis en curso, o falló. Las horas que estableciste están guardadas; \"Reanalizar todo\" en Tus datos las aplicará.",
   "sleepDetailNoHypnogramTitle": "No hay hipnograma para esta noche",
-  "sleepDetailNoHypnogramBody": "El cálculo de fases necesita movimiento y ritmo cardíaco. Faltaba uno de los dos.",
+  "sleepDetailNoHypnogramBody": "La cronología detallada no está disponible para esta noche. Los totales de las fases guardados pueden seguir mostrándose abajo.",
   "sleepDetailThroughTheNight": "Durante la noche",
   "sleepDetailTapDragCycles": "{n, plural, one{Toca o arrastra el gráfico para ver cualquier momento. {n} ciclo.} other{Toca o arrastra el gráfico para ver cualquier momento. {n} ciclos.}}",
   "sleepDetailTapDragCyclesAvg": "{n, plural, one{Toca o arrastra el gráfico para ver cualquier momento. {n} ciclo, {avg} de media.} other{Toca o arrastra el gráfico para ver cualquier momento. {n} ciclos, {avg} de media.}}",

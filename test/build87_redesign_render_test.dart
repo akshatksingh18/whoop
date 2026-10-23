@@ -515,6 +515,16 @@ void main() {
         ),
       );
     }
+    // Match the repo-backed history and the database-backed streak so the
+    // preview cannot show sessions beside an unrelated empty week.
+    for (final row in (await _Repo().getWorkouts())['workouts'] as List) {
+      await LocalDb.putSession({
+        ...Map<String, dynamic>.from(row as Map),
+        'type': row['type'] == 'Cycling' ? 'cycling' : 'weight_training',
+        'status': 'done',
+        'created_at': 1,
+      });
+    }
   });
 
   tearDownAll(() async {
@@ -812,6 +822,21 @@ void main() {
       expect(fill, const P(false).fill(color));
       expect(P.contrast(ink, fill), greaterThanOrEqualTo(4.5));
     }
+  });
+
+  testWidgets('missing sleep timeline does not invent its cause or hide totals', (t) async {
+    final app = AppState.forTesting()..repo = _Repo();
+    addTearDown(app.dispose);
+    await t.pumpWidget(_app(app, SleepDetail(data: SleepData(night: const {
+      'duration_min': 440, 'light_min': 260, 'deep_min': 85, 'rem_min': 95,
+    })), 1, ShellDomain.home, shell: false));
+    await _settle(t);
+    expect(find.text('The detailed timeline is unavailable for this night. Saved stage totals may still be shown below.'), findsOneWidget);
+    expect(find.text('Staging needs movement and beat timing. One was missing.'), findsNothing);
+    expect(find.text('Deep'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    await t.pumpWidget(const SizedBox.shrink());
+    await _settle(t);
   });
 
   test('energy and protein totals qualify unknown and partial logs', () {

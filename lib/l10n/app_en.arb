@@ -2926,7 +2926,7 @@
   "@sleepDetailNoHypnogramTitle": {
     "description": "Status card title when no hypnogram data exists for the night."
   },
-  "sleepDetailNoHypnogramBody": "Staging needs movement and beat timing. One was missing.",
+  "sleepDetailNoHypnogramBody": "The detailed timeline is unavailable for this night. Saved stage totals may still be shown below.",
   "@sleepDetailNoHypnogramBody": {
     "description": "Status card body explaining why no hypnogram is available."
   },

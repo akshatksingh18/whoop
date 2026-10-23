@@ -2647,7 +2647,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         meal: _meal,
         label: name.isEmpty ? 'Quick add' : name,
         atTs: keepTime
-            ? original!.atTs
+            ? original.atTs
             : chosenTime == null ? null : chosenTime.millisecondsSinceEpoch ~/ 1000,
         kcal: kcal,
         proteinG: Typed.of(_p.text).value,

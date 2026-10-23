@@ -588,7 +588,7 @@
   "sleepDetailWakeTimeHelp": "起床时间",
   "sleepDetailReanalyseFailed": "这一夜未能重新分析——可能另一次重新分析正在进行，也可能分析失败了。你设置的时间已保存；在“你的数据”中点击“重新分析全部”即可应用。",
   "sleepDetailNoHypnogramTitle": "这一夜没有睡眠阶段图",
-  "sleepDetailNoHypnogramBody": "阶段判定需要运动和心跳时序数据，其中有一项缺失。",
+  "sleepDetailNoHypnogramBody": "此夜的详细时间线不可用。下方仍可能显示已保存的各睡眠阶段总时长。",
   "sleepDetailThroughTheNight": "整夜变化",
   "sleepDetailTapDragCycles": "{n, plural, other{点击或拖动图表查看任意时刻。共 {n} 个睡眠周期。}}",
   "sleepDetailTapDragCyclesAvg": "{n, plural, other{点击或拖动图表查看任意时刻。共 {n} 个睡眠周期，平均 {avg}。}}",

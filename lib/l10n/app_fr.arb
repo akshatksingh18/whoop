@@ -588,7 +588,7 @@
   "sleepDetailWakeTimeHelp": "HEURE DU LEVER",
   "sleepDetailReanalyseFailed": "La nuit n'a pas été réanalysée : une autre réanalyse était déjà en cours, ou elle a échoué. Les horaires que vous avez définis sont enregistrés ; « Tout réanalyser » dans Vos données les appliquera.",
   "sleepDetailNoHypnogramTitle": "Aucun hypnogramme pour cette nuit",
-  "sleepDetailNoHypnogramBody": "L'analyse des phases nécessite le mouvement et le rythme cardiaque. L'un des deux manquait.",
+  "sleepDetailNoHypnogramBody": "La chronologie détaillée n’est pas disponible pour cette nuit. Les totaux des phases enregistrés peuvent toujours apparaître ci-dessous.",
   "sleepDetailThroughTheNight": "Au fil de la nuit",
   "sleepDetailTapDragCycles": "{n, plural, one{Touchez ou faites glisser le graphique pour n'importe quel instant. {n} cycle.} other{Touchez ou faites glisser le graphique pour n'importe quel instant. {n} cycles.}}",
   "sleepDetailTapDragCyclesAvg": "{n, plural, one{Touchez ou faites glisser le graphique pour n'importe quel instant. {n} cycle, {avg} en moyenne.} other{Touchez ou faites glisser le graphique pour n'importe quel instant. {n} cycles, {avg} en moyenne.}}",

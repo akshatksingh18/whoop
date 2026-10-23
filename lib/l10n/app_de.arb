@@ -588,7 +588,7 @@
   "sleepDetailWakeTimeHelp": "WANN DU AUFGESTANDEN BIST",
   "sleepDetailReanalyseFailed": "Die Nacht wurde nicht neu analysiert — entweder lief bereits eine andere Neuanalyse, oder sie ist fehlgeschlagen. Die von dir festgelegten Zeiten sind gespeichert; „Alles neu analysieren“ unter Deine Daten wendet sie an.",
   "sleepDetailNoHypnogramTitle": "Kein Hypnogramm für diese Nacht",
-  "sleepDetailNoHypnogramBody": "Die Phasenanalyse benötigt Bewegung und Herzschlag-Timing. Eines davon fehlte.",
+  "sleepDetailNoHypnogramBody": "Für diese Nacht ist keine detaillierte Zeitleiste verfügbar. Gespeicherte Schlafphasensummen können unten weiterhin angezeigt werden.",
   "sleepDetailThroughTheNight": "Im Verlauf der Nacht",
   "sleepDetailTapDragCycles": "{n, plural, one{Tippe oder ziehe im Diagramm für jeden Moment. {n} Zyklus.} other{Tippe oder ziehe im Diagramm für jeden Moment. {n} Zyklen.}}",
   "sleepDetailTapDragCyclesAvg": "{n, plural, one{Tippe oder ziehe im Diagramm für jeden Moment. {n} Zyklus, im Schnitt {avg}.} other{Tippe oder ziehe im Diagramm für jeden Moment. {n} Zyklen, im Schnitt {avg}.}}",

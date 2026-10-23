@@ -28,7 +28,7 @@ matrix remain open; software checks are not universal flow or hardware proof. Ea
 notes are in `build-history.md`.
 
 The additional comprehensive review and authorized repairs continue on `build-99`, tracked in
-`build-98-audit.md` and `todo.md` 3n. Twenty deeper persistence/date/timing/barcode/editor/GPS/alarm families have source repairs
+`build-98-audit.md` and `todo.md` 3n. Twenty-one persistence/date/timing/barcode/editor/GPS/alarm/copy families have source repairs
 and targeted synthetic evidence; the remaining review and successor release gates are open.
 Build 98 remains the cached binary until a fully validated successor is delivered.
 

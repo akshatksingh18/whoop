@@ -1037,7 +1037,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       return StatusCard(
         l?.sleepDetailNoHypnogramTitle ?? 'No hypnogram for this night',
         l?.sleepDetailNoHypnogramBody ??
-            'Staging needs movement and beat timing. One was missing.',
+            'The detailed timeline is unavailable for this night. Saved stage totals may still be shown below.',
         icon: LucideIcons.chartNoAxesColumn,
       );
     }

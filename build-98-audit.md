@@ -167,7 +167,7 @@ in imported Dart libraries; generated/unimported code and native iOS behavior mu
 separately and cannot be certified from a green test count.
 Five additional secondary-flow checks pass: DST wake target, grid failure propagation, actual
 What changed Retry and complete month-grid labels at normal/3.1x text. Seven existing wake/grid
-controls pass as well. The expanded review now adds 43 regression cases, including GPS input,
+controls pass as well. The expanded review now adds 44 regression cases, including GPS input,
 alarm wording, Food clocks/unknown-time editing at normal/3.1x and refused consent. Their targeted
 groups pass; repeat executions are not extra tests and full successor CI remains required.
 
@@ -208,6 +208,11 @@ repair branch before any default-branch integration.
   spring-forward day stays absent, visibly labelled as unrecorded; quantities and the chosen
   diary date still save. Copy and saved-meal defaults use the same resolver. No existing entry
   is rewritten by a migration. Synthetic controls cover travel, short days, DST, copy and editing.
+- **B98-21, P3 — missing Sleep timeline asserts an unverified cause.** An empty hypnogram
+  always says movement or beat timing was missing, even when cached stage totals remain. Say
+  only that the detailed timeline is unavailable and that saved totals can still be shown.
+  The fallback and all six translations agree. The widget regression retains the stage totals;
+  no stage, duration or recording is removed or recalculated.
 
 B98-11 also covers Settings: a refused grant previously left the optimistic preference cache
 enabled even though the scanner's own error path closed it. Fail closed in the shared setter,
@@ -222,6 +227,13 @@ The second visual run produced 570 captures and passed 136 cases; its remaining 
 captured an unfinished read, not a layout overflow. Fixed-clock and live-draft fixtures now
 unmount/drain their writes in their own test clock. Ten affected existing controls pass locally.
 Incomplete/superseded cloud runs are not successor release evidence.
+The latest staging native build `39997222912` compiled successfully, and run `39997217880`
+passed both complete package suites and all visual steps. Its app job stopped at a redundant
+null-assertion analyzer warning, which is removed. The Sleep-copy and fixture consistency edit
+also requires fresh verification before delivery; no staging binary has replaced the testing IPA.
+Train's render database now contains the same synthetic sessions as its history repository,
+so week dots/streaks no longer depict an unrelated empty database. Two focused Sleep/Train
+checks pass; the diary still has its approved ring, all four macros and full detail paths.
 
 ## Flow coverage and user meaning
 

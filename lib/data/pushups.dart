@@ -627,7 +627,7 @@ Future<PushupImportPlan> planPushupImport(String json) async {
         if (n is! num || !n.isFinite || n != n.roundToDouble())
           throw const FormatException('Invalid Pushup day settings');
       }
-      sessions.add(PushupSession.fromJson(raw as Map));
+      sessions.add(PushupSession.fromJson(raw));
     }
   } catch (_) {
     throw const FormatException('The backup has unreadable Pushup history.');

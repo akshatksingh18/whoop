@@ -256,9 +256,7 @@ class _DataScreenState extends State<DataScreen> {
     );
     if (n > 0 || links.isNotEmpty) app.publishSessionChange();
     return (
-      '$n workouts imported'
-          '${links.isEmpty ? '' : ', ${links.length} linked to WHOOP sessions'}.'
-          '${useSplits ? ' Splits saved.' : ''}',
+      '$n workouts imported.${useSplits ? ' Splits saved.' : ''}',
       false,
     );
   }

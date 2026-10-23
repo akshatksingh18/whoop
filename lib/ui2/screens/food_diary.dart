@@ -2008,9 +2008,8 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
         ? widget.unit!
         : foodUnit(widget.def),
   );
-  late TimeOfDay _time = TimeOfDay.fromDateTime(
-    foodEntryTime(widget.date, widget.meal),
-  );
+  late final _initialTime = foodEntryTime(widget.date, widget.meal);
+  late TimeOfDay _time = TimeOfDay.fromDateTime(_initialTime);
   List<Map<String, Object?>> _with = const [];
   final _picked = <String>{};
 
@@ -2078,13 +2077,15 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
     }
   }
 
-  int get _ts {
-    return DayClock.onDate(
+  DateTime? get _entryTime => foodTimeOnDate(
           widget.date,
           _time.hour,
           _time.minute,
-        ).millisecondsSinceEpoch ~/
-        1000;
+          original: _initialTime,
+        );
+  int? get _ts {
+    final at = _entryTime;
+    return at == null ? null : at.millisecondsSinceEpoch ~/ 1000;
   }
 
   Future<void> _log() async {
@@ -2275,12 +2276,15 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
               ),
             ),
           Pressable(
-            semanticLabel: 'Time ${_time.format(c)}',
+            semanticLabel: _entryTime == null
+                ? 'Time not recorded. Choose a time'
+                : 'Time ${_time.format(c)}',
             onTap: () async {
               final t = await showTimePicker(context: c, initialTime: _time);
               if (t != null && mounted) setState(() => _time = t);
             },
-            child: Pill(_time.format(c), C.n400, icon: LucideIcons.clock),
+            child: Pill(_entryTime == null ? (bigText(c) ? 'No time' : 'Time not recorded') : _time.format(c),
+                C.n400, icon: LucideIcons.clock),
           ),
         ],
       ),
@@ -2529,11 +2533,17 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   late String _group = widget.editing
       ? widget.from?.group ?? widget.group
       : widget.group;
-  late TimeOfDay _time = TimeOfDay.fromDateTime(
+  late final _initialTime =
     widget.editing && widget.from?.atTs != null
         ? DayClock.localAt(widget.from!.atTs!)
-        : foodEntryTime(widget.date, widget.meal),
+        : foodEntryTime(widget.date, widget.meal);
+  late TimeOfDay _time = TimeOfDay.fromDateTime(_initialTime);
+  bool _timeChosen = false;
+  DateTime? get _entryTime => foodTimeOnDate(
+    widget.date, _time.hour, _time.minute, original: _initialTime,
   );
+  bool get _timeMissing =>
+      (widget.editing && widget.from?.atTs == null && !_timeChosen) || _entryTime == null;
 
   static String _t(double? v) => editableNumber(v);
 
@@ -2598,10 +2608,12 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         ? null
         : DayClock.localAt(original!.atTs!);
     final keepTime =
-        previousTime != null &&
-        dayLabelAt(previousTime) == widget.date &&
-        previousTime.hour == _time.hour &&
-        previousTime.minute == _time.minute;
+        original != null && original.date == widget.date &&
+        (!_timeChosen ||
+          (previousTime != null &&
+            dayLabelAt(previousTime) == widget.date &&
+            previousTime.hour == _time.hour &&
+            previousTime.minute == _time.minute));
     try {
       final db = await LocalDb.instance;
       String? savedKey;
@@ -2628,6 +2640,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           savedKey == null &&
           ((original.unit == 'g' && grams == original.quantity) ||
               (original.unit != 'g' && grams == null));
+      final chosenTime = _entryTime;
       final entry = FoodEntry(
         id: original?.id ?? NutritionDb.newId(),
         date: widget.date,
@@ -2635,12 +2648,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         label: name.isEmpty ? 'Quick add' : name,
         atTs: keepTime
             ? original!.atTs
-            : DayClock.onDate(
-                    widget.date,
-                    _time.hour,
-                    _time.minute,
-                  ).millisecondsSinceEpoch ~/
-                  1000,
+            : chosenTime == null ? null : chosenTime.millisecondsSinceEpoch ~/ 1000,
         kcal: kcal,
         proteinG: Typed.of(_p.text).value,
         carbsG: Typed.of(_c.text).value,
@@ -2732,12 +2740,22 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
               ),
             ),
           Pressable(
-            semanticLabel: 'Time ${_time.format(c)}',
+            semanticLabel: _timeMissing
+                ? 'Time not recorded. Choose a time'
+                : 'Time ${_time.format(c)}',
             onTap: () async {
               final t = await showTimePicker(context: c, initialTime: _time);
-              if (t != null && mounted) setState(() => _time = t);
+              if (t != null && mounted) setState(() {
+                _time = t;
+                _timeChosen = true;
+              });
             },
-            child: Pill(_time.format(c), C.n400, icon: LucideIcons.clock),
+            child: Pill(
+              _timeMissing
+                  ? (bigText(c) ? 'No time' : 'Time not recorded')
+                  : _time.format(c),
+              C.n400, icon: LucideIcons.clock,
+            ),
           ),
         ],
       ),

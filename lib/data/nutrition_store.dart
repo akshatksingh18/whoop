@@ -309,6 +309,80 @@ DateTime foodEntryTime(String date, String meal, {DateTime? now}) {
   return clock.hour >= from && clock.hour < to ? clock : usual;
 }
 
+/// Keep the original instant when the user has not changed its clock time.
+/// Rebuilding just hour/minute in the day's initial zone shifts a food logged
+/// after a flight, and picks the wrong occurrence of a repeated DST hour.
+DateTime? foodTimeOnDate(
+  String date,
+  int hour,
+  int minute, {
+  required DateTime original,
+}) {
+  final clock = DayClock.localAt(original.millisecondsSinceEpoch ~/ 1000);
+  if (dayLabelAt(original) == date &&
+      clock.hour == hour &&
+      clock.minute == minute)
+    return original;
+  final day = DayClock.forDate(date);
+  if (day == null) return DayClock.onDate(date, hour, minute);
+  final cuts = [
+    day.startSec,
+    for (final change in DayClock.changes)
+      if (change.atSec > day.startSec && change.atSec < day.endSec)
+        change.atSec,
+    day.endSec,
+  ];
+  final candidates = <int>{};
+  for (var i = 0; i + 1 < cuts.length; i++) {
+    final first = DayClock.localAt(cuts[i]);
+    final last = DayClock.localAt(cuts[i + 1] - 1);
+    for (final calendar in {
+      DateTime.utc(first.year, first.month, first.day),
+      DateTime.utc(last.year, last.month, last.day),
+    }) {
+      // Try the zone's usual resolution and the original offset, preserving
+      // the nearby occurrence when a DST clock hour happens twice.
+      for (final candidate in [
+        DayClock.wallTime(
+          first,
+          calendar.year,
+          calendar.month,
+          calendar.day,
+          hour,
+          minute,
+        ),
+        DateTime.utc(
+          calendar.year,
+          calendar.month,
+          calendar.day,
+          hour,
+          minute,
+        ).subtract(clock.timeZoneOffset),
+      ]) {
+        final second = candidate.millisecondsSinceEpoch ~/ 1000;
+        if (second < cuts[i] || second >= cuts[i + 1]) continue;
+        final local = DayClock.localAt(second);
+        if (local.year == calendar.year &&
+            local.month == calendar.month &&
+            local.day == calendar.day &&
+            local.hour == hour &&
+            local.minute == minute) {
+          candidates.add(second);
+        }
+      }
+    }
+  }
+  if (candidates.isEmpty)
+    return null; // That clock time never occurred on this day.
+  final ordered = candidates.toList()
+    ..sort(
+      (a, b) => (a * 1000 - original.millisecondsSinceEpoch).abs().compareTo(
+        (b * 1000 - original.millisecondsSinceEpoch).abs(),
+      ),
+    );
+  return DayClock.localAt(ordered.first);
+}
+
 class FoodEntry {
   const FoodEntry({
     required this.id,
@@ -422,9 +496,8 @@ class FoodEntry {
     int? ts = atTs;
     if (ts != null && newDate != date) {
       final t = DayClock.localAt(ts);
-      ts =
-          DayClock.onDate(newDate, t.hour, t.minute).millisecondsSinceEpoch ~/
-          1000;
+      final moved = foodTimeOnDate(newDate, t.hour, t.minute, original: t);
+      ts = moved == null ? null : moved.millisecondsSinceEpoch ~/ 1000;
     }
     return FoodEntry(
       id: newId,
@@ -2030,7 +2103,8 @@ class MyFoods {
     List<String>? units,
   }) async {
     var n = 0;
-    final at = foodEntryTime(date, meal, now: now);
+    final initial = foodEntryTime(date, meal, now: now);
+    final at = foodTimeOnDate(date, initial.hour, initial.minute, original: initial);
     await db.transaction((tx) async {
       for (final (i, (key, saved)) in m.items.indexed) {
         final grams = amounts == null
@@ -2058,7 +2132,7 @@ class MyFoods {
             id: '${NutritionDb.newId()}_$n',
             date: date,
             meal: meal,
-            atTs: at.millisecondsSinceEpoch ~/ 1000,
+            atTs: at == null ? null : at.millisecondsSinceEpoch ~/ 1000,
             amount: grams,
             unit: unit,
           ).inGroup(

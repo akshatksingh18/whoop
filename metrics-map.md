@@ -613,6 +613,10 @@ implementation. Akshat clarified that B includes its circular calorie-balance di
 shows calories left/over in the ring, eaten and the fixed goal beside it, then four slim macro
 rows (protein larger). A partial balance keeps its bound and withholds an exact arc. All four values/targets and explicit
 missing/partial labels remain visible; maintenance comparisons live in their own panel.
+Food edits preserve a recorded instant or missing time unless the user chooses a time. New and
+copied clocks resolve within the recorded day's actual zone segments; a short arrival day or
+DST gap that never contained that clock time leaves it unrecorded, visibly labelled. Logging
+time remains separate from eaten time; no historical timestamp migration is applied.
 The former decorative plate/utensil and linear calorie bar are replaced by that selected ring.
 Unlogged nutrient bars are hatched with explicit not-zero copy. Diary items show calories and protein; full meal, group and entry
 views retain all nutrients, portions and edit/delete/copy/save routes. Accessibility text

@@ -30,8 +30,6 @@ Future<OffResult?> scanFoodProduct(
     final agreed = await _askLookupConsent(c);
     if (agreed != true || !c.mounted) return null;
     if (!await setOffLookupAllowed(true)) {
-      // Keep the optimistic cache closed too after a refused grant.
-      await setOffLookupAllowed(false);
       if (c.mounted) {
         ScaffoldMessenger.maybeOf(c)?.showSnackBar(
           const SnackBar(

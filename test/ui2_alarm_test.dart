@@ -5,11 +5,32 @@
 // the alarm is armed for, and the mapping that decides what the screen is
 // allowed to claim about it.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/ui2/profile/alarm.dart';
 
 void main() {
+  testWidgets('an elapsed alarm today is not labelled later today', (t) async {
+    final now = DateTime(2026, 8, 21, 12);
+    for (final (hour, past) in [(6, true), (18, false)]) {
+      await t.pumpWidget(
+        MaterialApp(
+          home: AlarmScreenView(
+            armedAt: DateTime(2026, 8, 21, hour),
+            now: now,
+            state: AlarmArmState.unknown,
+          ),
+        ),
+      );
+      expect(find.text('Later today'), past ? findsNothing : findsOneWidget);
+      expect(
+        find.text('In the past — it has already fired or been missed'),
+        past ? findsOneWidget : findsNothing,
+      );
+    }
+  });
+
   group('nextAt', () {
     test('a time still ahead is today', () {
       final now = DateTime(2026, 8, 21, 5, 0);
@@ -27,10 +48,14 @@ void main() {
     });
 
     test('month and year rollover is calendar arithmetic', () {
-      expect(AlarmScreenView.nextAt(6, 30, DateTime(2026, 8, 31, 23, 0)),
-          DateTime(2026, 9, 1, 6, 30));
-      expect(AlarmScreenView.nextAt(6, 30, DateTime(2026, 12, 31, 23, 0)),
-          DateTime(2027, 1, 1, 6, 30));
+      expect(
+        AlarmScreenView.nextAt(6, 30, DateTime(2026, 8, 31, 23, 0)),
+        DateTime(2026, 9, 1, 6, 30),
+      );
+      expect(
+        AlarmScreenView.nextAt(6, 30, DateTime(2026, 12, 31, 23, 0)),
+        DateTime(2027, 1, 1, 6, 30),
+      );
     });
 
     test('the wall-clock time is preserved across a DST boundary', () {
@@ -53,8 +78,10 @@ void main() {
         expect(AlarmScreenView.stateLabel(s), isNot(contains('Confirmed')));
         expect(view.state, s);
       }
-      expect(AlarmScreenView.stateLabel(AlarmArmState.confirmed),
-          contains('Confirmed'));
+      expect(
+        AlarmScreenView.stateLabel(AlarmArmState.confirmed),
+        contains('Confirmed'),
+      );
     });
   });
 }

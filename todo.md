@@ -528,14 +528,15 @@ other worktrees remain untouched.
   and ACK ordering. Local readability fixes are approved; major page replacements retain the
   before/after review gate. Confirm findings with runnable synthetic evidence, batch coherent
   repairs and run appropriate targeted/cloud/native checks before replacing the testing IPA.
-  Eighteen families B98-01–18 have source repairs: authoritative profile rollback,
+  Twenty families B98-01–20 have source repairs: authoritative profile rollback,
   ordered/acknowledged calculation removal, backup Off, paired-identity removal, Home setup/stop,
   partial reset/keychain failure reporting, recorded travel days, restored profile anchors,
   active-window lifting deduplication, and barcode input/opt-in/scrolling. Algorithm 99 versions
-  date/timing corrections without coefficient changes. Twenty new cases and existing settings/
-  nutrient/consent cases pass targeted checks. The source also repairs run voice, acknowledged
+  date/timing corrections without coefficient changes. Existing settings/nutrient/consent cases
+  pass targeted checks. The source also repairs run voice, acknowledged
   native reminder/reset cancellation, backup metadata/ordering and Body read/camera lifecycle.
-  Thirty-five added focused checks pass, including full-scroll failure states with substitute fonts.
+  Forty-three added checks have passing targeted groups, including full-scroll failure states
+  with substitute fonts and Food editing at normal/3.1x.
   Other source/UI/metric
   flows are under review; successor identity is `0.9.66+99`/algorithm 99/schema 50;
   the secondary Trends grid now exposes read failure/retry and retains enlarged labels, and
@@ -546,6 +547,10 @@ other worktrees remain untouched.
   attempt stalled in persistence queues under widget clocks; those queues now release while
   idle, and the affected Today/history controls pass targeted reruns. Its incomplete result is
   not a release pass; full cloud verification remains required.
+  Past-today alarm wording and Food's unknown/travel/DST timestamps are repaired. Refused
+  barcode grants now fail closed through Settings as well as the scanner. The independent
+  analytics suite exposed two old assertions for Build 90's removed sleep bonus; only those
+  expectations changed, with the approved production calculation retained.
   No Build 99 artifact or full verification is claimed yet.
 - [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

@@ -45,8 +45,8 @@ Review families:
 ## Findings and repair evidence
 
 Seven synthetic failure probes in `test/build99_durability_test.dart` initially fail against
-Build 98, confirming six repair families. Their source repairs now pass all nine tests in that
-file, including ordered read/removal and keychain refusal/retry controls. Five existing settings
+Build 98, confirming six repair families. The expanded 14-case file passes targeted checks,
+including ordered read/removal and keychain refusal/retry controls. Five existing settings
 and calculation-cache cases also pass in the combined targeted run (14 distinct cases across
 these runs). Full cloud/native and new UI-state checks remain pending. Build 98 stays cached.
 
@@ -154,7 +154,7 @@ The Strength summary also uses singular/plural labels correctly. No metric or de
 Version `0.9.66+99` and matching RunnerTests metadata reserve the successor identity; the actual
 Build 99 binary/release checks remain pending.
 
-Current focused evidence: 28 passing checks across `build99_durability_test.dart`,
+Focused evidence includes the checks across `build99_durability_test.dart`,
 `build99_recorded_days_test.dart` and `build99_barcode_test.dart`, plus two backup publication/
 ordering cases in `auto_backup_test.dart`. The compound Body widget check exercises normal and
 3.1x settings failure, read retry with retained input and leaving during a camera operation in
@@ -167,7 +167,9 @@ in imported Dart libraries; generated/unimported code and native iOS behavior mu
 separately and cannot be certified from a green test count.
 Five additional secondary-flow checks pass: DST wake target, grid failure propagation, actual
 What changed Retry and complete month-grid labels at normal/3.1x text. Seven existing wake/grid
-controls pass as well. This makes 35 distinct added checks; repeat executions are not extra tests.
+controls pass as well. The expanded review now adds 43 regression cases, including GPS input,
+alarm wording, Food clocks/unknown-time editing at normal/3.1x and refused consent. Their targeted
+groups pass; repeat executions are not extra tests and full successor CI remains required.
 
 - **B98-V1, verification gap — package suites were outside the app test command.** The root
   Flutter run does not discover the 55 test files under `packages/protocol/test` and
@@ -193,9 +195,103 @@ repair branch before any default-branch integration.
   freshness or speed. The regression retains valid fixes and their distance. Existing accuracy,
   movement, gap and speed thresholds are unchanged; this is input validation, not calibration.
 
-Additional review queues, not yet closed: historical journal/custom-field drafts
-(first establish personal-build reachability); short arrival-day wall-clock choices; all remaining
-activity/metric/data/lifecycle consumers. Scientific coefficients remain unchanged.
+- **B98-19, P2 — a past alarm today is described as upcoming.** An unconfirmed alarm whose
+  clock time has already passed still says "Later today". Compare the actual instant before
+  deciding the calendar-day label. A widget regression fails before the fix and passes for both
+  past and future times on the same date. The band protocol and confirmation logic are unchanged.
+- **B98-20, P2 — Food editing changes recorded/unknown meal times.** Portion and Quick add
+  reduce their initial instant to hour/minute and reconstruct it in the day's initial zone.
+  After a westward flight this shifts a meal; an untouched old entry with no time also acquires
+  one merely by editing its calories. Preserve unchanged instants and missing timestamps.
+  Resolve changed clocks inside the stored day's actual zone segments, including the nearby
+  occurrence of a repeated DST hour. A clock that never occurred on a short arrival day or a
+  spring-forward day stays absent, visibly labelled as unrecorded; quantities and the chosen
+  diary date still save. Copy and saved-meal defaults use the same resolver. No existing entry
+  is rewritten by a migration. Synthetic controls cover travel, short days, DST, copy and editing.
+
+B98-11 also covers Settings: a refused grant previously left the optimistic preference cache
+enabled even though the scanner's own error path closed it. Fail closed in the shared setter,
+and have Settings display the effective choice. The refused-grant regression fails before the
+fix and the full 34-case nutrient/consent file then passes without network calls.
+
+The first independent analytics run passed 643 cases and skipped six private-capture cases,
+but failed two pre-Build-90 expectations for the removed 45-minute strain bonus. Those two
+assertions now match the approved quarter-gap/no-bonus contract, already checked by the app's
+Build 90 tests; all 37 coaching cases pass targeted checks. The production formula is unchanged.
+The second visual run produced 570 captures and passed 136 cases; its remaining Food case
+captured an unfinished read, not a layout overflow. Fixed-clock and live-draft fixtures now
+unmount/drain their writes in their own test clock. Ten affected existing controls pass locally.
+Incomplete/superseded cloud runs are not successor release evidence.
+
+## Flow coverage and user meaning
+
+This is a map of traced responsibilities and runnable evidence, not a claim that 636 static
+bindings have each been exercised on a phone. The latest complete cloud results and coverage
+denominator must be read alongside it; native delivery and physical gestures remain separate.
+
+- **Startup, profile and navigation:** startup restores the committed profile/calculation
+  anchors and paired identity, then the shell opens the selected tab. A profile edit must
+  either commit with its dated anchors or retain the previous values. Cross-tab Progress links
+  push the requested detail over the caller, preserving Back/day/range/scroll. Evidence includes
+  `startup_and_rebuild_recovery_test`, `ui2_router_test`, `ui2_revision_reload_test` and B98-01/08.
+- **Today and heart history:** Today answers current status; 10 min, 1 hour and Day expose
+  recorded heart samples. Scrubbing ends at the latest real minute, gaps remain gaps, and old
+  refreshes cannot replace newer data. Sleep/Recovery/Steps open their own dated detail.
+  `build87_redesign_render_test`, `background_sync_staleness_test` and B98-07 cover these contracts.
+- **Sleep and Recovery:** sleep stages are estimates; absent stages/cycles remain absent,
+  recording gaps qualify duration, and resting HR means the lowest asleep 30-minute average.
+  Recovery uses its stored overnight evidence and baseline, not a score tuned to look higher.
+  `readiness_freeze_test`, `readiness_baseline_pollution_test`, `readiness_saturation_test`,
+  `readiness_explain_test`, `build90_sleep_accounting_test` and the analytics suite check these
+  boundaries. They do not establish physiological accuracy against a reference device.
+- **Trends and What changed:** range selection changes the evidence window; coverage means
+  measured days, not confidence in a causal explanation. Month-grid failure is visible and
+  retryable, and enlarged labels remain complete. Evidence: `build99_secondary_flows_test`,
+  revision controls and the 7/30/90-day full-scroll render cases.
+- **Food:** Today/History/Foods lead to the diary, dated history and reusable library. Calories
+  and macros retain independent completeness; a missing nutrient is not zero. Add/search/scan,
+  portion conversion, per-item edit, grouping, saved meals, filtered drag order, swipe/delete/Undo,
+  labels, copy review and explicit commit remain reachable. Counts use frozen provenance and
+  manual marks win. Evidence: `ui2_food_flow_test`, barcode/consent controls, Build 90 accounting/
+  export tests, B98-07/10–12/20 and full-scroll normal/enlarged captures.
+- **Train and live activities:** Start/Resume owns one durable session, with archetype-specific
+  rounds/laps/sets rather than invented fields. Pause/minimise/resume/finish retry preserve the
+  clock, input and measured trace; privacy, edits and deletion publish dependent refreshes.
+  GPS has separate freshness/uncertainty, distance/gap and persistence rules. Evidence includes
+  `workout_reliability_test`, `workout_stop_durability_test`, `workout_route_test`,
+  `route_tracker_test`, `build95_repair_ui_test` and the live failure render cases.
+- **Lift Log, Pushups and Home:** loads retain equipment/load meaning, unique active lifting
+  time is counted once, and completed sets feed Strength. Pushups actions validate the recorded
+  day without opening SQLite in the background. Home receipts are committed before native inbox
+  acknowledgement; failed setup/stop remains retryable. Evidence includes the Build 86 lift/
+  Pushups tests, `build90_home_workout_test`, B98-05/07/09/14 and prior retained Home regressions.
+- **Progress and Body:** exploration compares rolling equal periods; the goal check separately
+  names closed Monday–Sunday weeks and evidence requirements. Body keeps every timed reading,
+  uses the first daily weight and retains tape/photo/history/edit/compare flows. Entry read,
+  camera and reminder failures retain drafts or an explicit uncertain state. Evidence includes
+  the Build 86/90 Body/Progress tests, Build 95/98 nested UI checks and B98-14/16/20.
+- **Settings, devices, alarm and notifications:** units change presentation, not stored loads;
+  Forget removes both authoritative identity and its recovery mirror. An alarm distinguishes
+  sent, confirmed and unconfirmed; a past time is labelled past. Notification Off/reset requires
+  native acknowledgement and preserves retry state. Evidence: alarm, notification, signing,
+  migration and B98-03–06/13/14/19 controls. Actual buzz/notification delivery needs the phone.
+- **Data and recovery:** database/media/encrypted formats state restore scope separately from
+  analysis exports. Imports preflight identities/values/files, publish committed partial results,
+  and retain session/calculation provenance. Sharing reports cancel/unconfirmed delivery honestly
+  and cleans temporary copies; valid backups distinguish bookkeeping warnings from failed files.
+  Reset reports partial failure and remains retryable. Evidence includes import/data-safety,
+  paged import/export, media/crypto/automatic backup, CSV/analysis and B98-01–06/08/15 controls.
+- **BLE, calculation and native boundaries:** the historical ledger/cursor commits before the
+  verbatim ACK token. Reconnect/background ownership, expiry and incomplete-day retention are
+  separate from UI refresh. Protocol and analytics own independent cloud suites, alongside the
+  app's ACK/migration/retention/sync tests. No scientific coefficient, dependency or BLE ordering
+  is changed in this review. Native compilation proves build compatibility, not radio delivery.
+
+Manual journal/custom-field and appearance-change paths are retained dormant code, not active
+personal navigation: the sole production RoughNightCard uses `ask: 'never'`, and the fixed-theme
+Settings view has no appearance row. Gallery-only controls are not counted as normal app flows.
+Their retained source is not described as phone-exercised. Private-capture and absent-golden
+skips remain explicit; no personal data is uploaded to close them.
 
 ## Boundaries
 

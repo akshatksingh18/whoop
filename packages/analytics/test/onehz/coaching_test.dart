@@ -11,7 +11,7 @@ import 'package:openstrap_analytics/src/onehz/human/coaching.dart';
 
 void main() {
   group('sleepNeed', () {
-    test('21 strain adds the full 45-min bonus', () {
+    test('strain does not add an arbitrary sleep bonus', () {
       final m = sleepNeed(
         baselineNeedSec: 28800, // 8h
         sleepDebtSec: 0,
@@ -21,19 +21,19 @@ void main() {
       expect(m.present, isTrue);
       expect(m.tier, Tier.estimate);
       expect(m.confidence, closeTo(0.6, 1e-9));
-      expect(m.value!.needSec, closeTo(28800 + 2700, 1));
+      expect(m.value!.needSec, closeTo(28800, 1));
     });
 
-    test('mid case: baseline + debt + partial strain bonus − nap credit', () {
-      // strain 10.5 → bonus = (10.5/21)*2700 = 1350 s.
-      // 28800 + 3600 + 1350 − 1800 = 31950, inside the [6h,11h] band.
+    test('mid case: baseline + quarter of debt − nap credit', () {
+      // Build 90's approved contract: 28800 + 3600/4 − 1800 = 27900.
+      // Strain remains a compatibility input and adds no minutes.
       final m = sleepNeed(
         baselineNeedSec: 28800,
         sleepDebtSec: 3600,
         dayStrain: 10.5,
         napCreditSec: 1800,
       );
-      expect(m.value!.needSec, closeTo(31950, 1e-6));
+      expect(m.value!.needSec, closeTo(27900, 1e-6));
     });
 
     test('nap credit is subtracted', () {

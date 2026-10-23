@@ -2,7 +2,7 @@
 
 ## Current repository state
 
-This folder is one Git repository. Each build is prepared on its own branch (`build-98` currently) and
+This folder is one Git repository. Each build is prepared on its own branch (`build-99` currently) and
 `main` is fast-forwarded to it on release. It preserves the OpenStrap histories and contains:
 
 - edge base `daf6011d3aa0312e22b991713b7af9e5c4433b32`
@@ -81,7 +81,7 @@ and the phone matrix remain open. Use the exact existing app identity; delivery 
 recovery promotion.
 
 An additional comprehensive review is active on `build-99` (`build-98-audit.md`, `todo.md` 3n).
-Its first seventeen persistence/date/timing/barcode/editor repairs have targeted synthetic checks, with
+Its twenty persistence/date/timing/barcode/editor/GPS/alarm repair families have targeted synthetic checks, with
 algorithm 99 reserved for recorded-day and lifting-window corrections. No Build 99 release/IPA or
 new full cloud result is claimed; the Build 98 artifact above remains the one-slot candidate.
 Successor source identity is `0.9.66+99`, algorithm 99/schema 50, pending complete verification.

@@ -606,63 +606,86 @@ void main() {
     },
   );
 
-  testWidgets(
-    'quick-add editing preserves identity, time, group and omitted fields; fibre can be set',
-    (t) async {
-      final app = AppState.forTesting();
-      addTearDown(app.dispose);
-      final day = shiftDay(todayLabel(), -2);
-      final original = _entry(
-        'editable shake',
-        day,
-        second: 17,
-        protein: 30.25,
-      ).inGroup('After training');
-      await t.runAsync(() => NutritionDb.put(db, original));
-      await t.pumpWidget(
-        _app(
-          app,
-          Builder(
-            builder: (c) => TextButton(
-              onPressed: () => QuickAddSheet.show(
-                c,
-                date: day,
-                meal: original.meal,
-                from: original,
-                editing: true,
+  for (final (timed, scale) in [(true, 1.0), (false, 1.0), (false, 3.1)]) {
+    testWidgets(
+      'quick-add editing preserves identity, ${timed ? 'recorded' : 'missing'} time at ${scale}x, group and omitted fields; fibre can be set',
+      (t) async {
+        t.view.physicalSize = const Size(390, 844);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        final app = AppState.forTesting();
+        addTearDown(app.dispose);
+        final day = shiftDay(todayLabel(), -2);
+        final original =
+            (timed
+                    ? _entry('editable shake', day, second: 17, protein: 30.25)
+                    : FoodEntry(
+                        id: 'synthetic-untimed',
+                        date: day,
+                        meal: 'snack',
+                        label: 'editable shake',
+                        kcal: 200,
+                        proteinG: 30.25,
+                      ))
+                .inGroup('After training');
+        await t.runAsync(() => NutritionDb.put(db, original));
+        await t.pumpWidget(
+          _app(
+            app,
+            Builder(
+              builder: (c) => TextButton(
+                onPressed: () => QuickAddSheet.show(
+                  c,
+                  date: day,
+                  meal: original.meal,
+                  from: original,
+                  editing: true,
+                ),
+                child: const Text('Edit'),
               ),
-              child: const Text('Edit'),
             ),
+            scale: scale,
           ),
-        ),
-      );
-      await t.tap(find.text('Edit'));
-      await t.pumpAndSettle();
-      await t.enterText(_field('Calories (kcal)'), '600');
-      // Every macro is on the sheet; no dropdown to open first.
-      expect(find.text('Other macros (optional)'), findsNothing);
-      await t.ensureVisible(_field('Fibre (g)'));
-      await t.enterText(_field('Fibre (g)'), '4.5');
-      await t.enterText(_field('Fat (g)'), '0');
-      await t.ensureVisible(find.text('Save changes'));
-      await t.tap(find.text('Save changes'));
-      await _until(t, () => find.byType(QuickAddSheet).evaluate().isEmpty);
-      final entries = (await t.runAsync(
-        () => NutritionDb.entriesForDay(db, day),
-      ))!;
-      expect(entries, hasLength(1));
-      final edited = entries.single;
-      expect(edited.id, original.id);
-      expect(edited.atTs, original.atTs);
-      expect(edited.group, original.group);
-      expect(edited.kcal, 600);
-      expect(edited.proteinG, 30.25);
-      expect(edited.fibreG, 4.5);
-      expect(edited.fatG, 0);
-      expect(edited.carbsG, isNull);
-      await _unmount(t);
-    },
-  );
+        );
+        await t.tap(find.text('Edit'));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull);
+        if (!timed)
+          expect(
+            find.text(scale > 2 ? 'No time' : 'Time not recorded'),
+            findsOneWidget,
+          );
+        await t.enterText(_field('Calories (kcal)'), '600');
+        // Every macro is on the sheet; no dropdown to open first.
+        expect(find.text('Other macros (optional)'), findsNothing);
+        await t.ensureVisible(_field('Fibre (g)'));
+        await t.enterText(_field('Fibre (g)'), '4.5');
+        await t.enterText(_field('Fat (g)'), '0');
+        FocusManager.instance.primaryFocus?.unfocus();
+        t.testTextInput.hide();
+        await t.pumpAndSettle();
+        final save = find.widgetWithText(BigButton, 'Save changes');
+        await t.ensureVisible(save);
+        await t.pumpAndSettle();
+        await t.tap(save);
+        await _until(t, () => find.byType(QuickAddSheet).evaluate().isEmpty);
+        final entries = (await t.runAsync(
+          () => NutritionDb.entriesForDay(db, day),
+        ))!;
+        expect(entries, hasLength(1));
+        final edited = entries.single;
+        expect(edited.id, original.id);
+        expect(edited.atTs, original.atTs);
+        expect(edited.group, original.group);
+        expect(edited.kcal, 600);
+        expect(edited.proteinG, 30.25);
+        expect(edited.fibreG, 4.5);
+        expect(edited.fatG, 0);
+        expect(edited.carbsG, isNull);
+        await _unmount(t);
+      },
+    );
+  }
 
   testWidgets(
     'meal entry offers edit, Undo works and deletion notice expires',

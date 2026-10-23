@@ -442,6 +442,21 @@ void main() {
       expect(r.outcome, OffOutcome.refused);
     });
 
+    test('a refused grant stays closed for every lookup entry point', () async {
+      final original = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance = _RefusingStore();
+      SharedPreferences.resetStatic();
+      try {
+        await Prefs.ensureLoaded();
+        expect(await setOffLookupAllowed(true), isFalse);
+        expect(offLookupAllowed, isFalse);
+      } finally {
+        SharedPreferencesStorePlatform.instance = original;
+        SharedPreferences.resetStatic();
+        await Prefs.ensureLoaded();
+      }
+    });
+
     test('a revocation that storage refused does not report as saved',
         () async {
       // SharedPreferences updates its cache before the platform answers and

@@ -100,7 +100,7 @@ class _MoreSettingsState extends State<MoreSettings> {
     final messenger = ScaffoldMessenger.of(c);
     final saved = await setOffLookupAllowed(want);
     if (!mounted) return;
-    setState(() => _barcode = want);
+    setState(() => _barcode = offLookupAllowed);
     if (!saved) {
       final l = AppLocalizations.of(context);
       messenger.showSnackBar(

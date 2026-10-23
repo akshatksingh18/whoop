@@ -76,6 +76,113 @@ void main() {
   });
 
   test(
+    'an unchanged Food clock retains the instant after a westward flight',
+    () {
+      final now = travelNow();
+      final clock = DayClock.localAt(now.millisecondsSinceEpoch ~/ 1000);
+      final resolved = foodTimeOnDate(
+        todayLabel(now),
+        clock.hour,
+        clock.minute,
+        original: now,
+      );
+      expect(resolved!.millisecondsSinceEpoch, now.millisecondsSinceEpoch);
+      expect(dayLabelAt(resolved), todayLabel(now));
+      final edited = foodTimeOnDate('2026-01-02', 19, 0, original: now)!;
+      expect(dayLabelAt(edited), '2026-01-02');
+      expect(DayClock.localAt(edited.millisecondsSinceEpoch ~/ 1000).hour, 19);
+    },
+  );
+
+  test('a clock time absent from a short arrival day stays unrecorded', () {
+    final start = DateTime.utc(2026, 1, 2, 17).millisecondsSinceEpoch ~/ 1000;
+    final end = DateTime.utc(2026, 1, 3).millisecondsSinceEpoch ~/ 1000;
+    DayClock.install(
+      [
+        DayZone(
+          date: '2026-01-02',
+          zoneId: 'Etc/UTC',
+          startSec: start,
+          endSec: end,
+          startOffsetSec: 0,
+          endOffsetSec: 0,
+        ),
+      ],
+      [ZoneChange(start, 'Etc/UTC')],
+    );
+    final original = DateTime.utc(2026, 1, 3, 12);
+    expect(foodTimeOnDate('2026-01-02', 8, 0, original: original), isNull);
+    expect(
+      foodTimeOnDate(
+        '2026-01-02',
+        19,
+        0,
+        original: original,
+      )!.millisecondsSinceEpoch,
+      DateTime.utc(2026, 1, 2, 19).millisecondsSinceEpoch,
+    );
+    final entry = FoodEntry(
+      id: 'synthetic-copy',
+      date: '2026-01-03',
+      meal: 'breakfast',
+      label: 'Synthetic',
+      atTs: DateTime.utc(2026, 1, 3, 8).millisecondsSinceEpoch ~/ 1000,
+    );
+    expect(
+      entry.copyTo('2026-01-02', 'breakfast', newId: 'synthetic-moved').atTs,
+      isNull,
+    );
+  });
+
+  test(
+    'repeated DST clocks preserve the nearby occurrence and skipped clocks abstain',
+    () {
+      void install(String date) {
+        final start = dayZoneCalendarStart(date, 'America/New_York')!;
+        DayClock.install(
+          buildDayZones(
+            fromSec: start,
+            throughSec: start + 2 * 86400,
+            changes: [ZoneChange(start, 'America/New_York')],
+          ),
+          [ZoneChange(start, 'America/New_York')],
+        );
+      }
+
+      install('2026-11-01');
+      final secondOccurrence = DateTime.utc(2026, 11, 1, 6, 30);
+      expect(
+        foodTimeOnDate(
+          '2026-11-01',
+          1,
+          30,
+          original: secondOccurrence,
+        )!.millisecondsSinceEpoch,
+        secondOccurrence.millisecondsSinceEpoch,
+      );
+      expect(
+        foodTimeOnDate(
+          '2026-11-01',
+          1,
+          45,
+          original: secondOccurrence,
+        )!.millisecondsSinceEpoch,
+        DateTime.utc(2026, 11, 1, 6, 45).millisecondsSinceEpoch,
+      );
+      install('2026-03-08');
+      expect(
+        foodTimeOnDate(
+          '2026-03-08',
+          2,
+          30,
+          original: DateTime.utc(2026, 3, 8, 12),
+        ),
+        isNull,
+      );
+    },
+  );
+
+  test(
     'startup without a profile cannot erase restored dated anchors',
     () async {
       final raw = jsonEncode({

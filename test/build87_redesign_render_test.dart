@@ -1754,6 +1754,10 @@ void main() {
                 'The first meal must be visible above the tab bar at ordinary '
                 'phone text, at $hour:00.',
           );
+          // Finish readers started by the screen before leaving this test's
+          // fixed-clock zone, so they cannot strand the next case's queue.
+          await t.pumpWidget(const SizedBox.shrink());
+          await _settle(t);
         },
       );
     });

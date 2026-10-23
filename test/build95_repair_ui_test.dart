@@ -51,6 +51,7 @@ void main() {
     await Prefs.ensureLoaded();
     await LocalDb.wipeAll();
     LiveDraft.clear();
+    await LiveDraft.retrySave();
     app = AppState.forTesting()
       ..user = {
         'kcal_target': 2300.5,
@@ -62,7 +63,6 @@ void main() {
   });
   tearDown(() {
     app.dispose();
-    LiveDraft.clear();
   });
   tearDownAll(() async {
     await LocalDb.close();
@@ -92,6 +92,18 @@ void main() {
     );
     await t.tap(find.text('Open targets'));
     await t.pumpAndSettle();
+  }
+
+  Future<void> finishDraft(WidgetTester t) async {
+    LiveDraft.clear();
+    var saved = false;
+    final write = LiveDraft.retrySave().then((_) => saved = true);
+    for (var i = 0; i < 100 && !saved; i++) {
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await t.pump();
+    }
+    expect(saved, isTrue, reason: 'Finish draft writes inside their widget clock');
+    await write;
   }
 
   testWidgets('regression: unchanged decimal targets retain their precision', (
@@ -322,6 +334,7 @@ void main() {
       final result = t.widget<LiveShell>(find.byType(LiveShell)).result(60);
       expect(result.poses, isEmpty);
       await t.pumpWidget(const SizedBox.shrink());
+      await finishDraft(t);
     },
   );
 
@@ -346,6 +359,7 @@ void main() {
       expect(after.rounds, hasLength(1));
       expect(find.text('ROUND 2'), findsOneWidget);
       await t.pumpWidget(const SizedBox.shrink());
+      await finishDraft(t);
     },
   );
 

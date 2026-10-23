@@ -80,8 +80,13 @@ bool get offLookupAllowed =>
 /// must never do. In-session it is already fail-closed (the cache is off, so
 /// nothing goes out); what the caller has to do with a `false` here is TELL
 /// the person, because it will not survive a restart.
-Future<bool> setOffLookupAllowed(bool on) =>
-    Prefs.setBoolAcked(kOffConsentKey, on);
+Future<bool> setOffLookupAllowed(bool on) async {
+  final saved = await Prefs.setBoolAcked(kOffConsentKey, on);
+  // SharedPreferences changes its cache before acknowledging storage. A
+  // refused grant must stay closed for Settings as well as the scan sheet.
+  if (on && !saved) await Prefs.setBoolAcked(kOffConsentKey, false);
+  return saved;
+}
 
 // ══════════════════ RESULT ══════════════════
 

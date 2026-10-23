@@ -226,7 +226,7 @@ class AlarmScreenView extends StatelessWidget {
     final days = DateTime.utc(d.year, d.month, d.day)
         .difference(DateTime.utc(now.year, now.month, now.day))
         .inDays;
-    if (days < 0) {
+    if (!d.isAfter(now)) {
       return l?.alarmInThePast ??
           'In the past — it has already fired or been missed';
     }

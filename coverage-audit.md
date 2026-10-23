@@ -76,14 +76,41 @@ affected paths again. No exclusions or no-op calls may be added just to improve 
   clocks are refused without altering the form. This changes explicit edits, not stored history
   or analytics formulas; algorithm 99 remains appropriate.
 
-Nine added Dart files pass **35 targeted cases** for background/diagnostic,
-inbox/replay/reset/commit-retry, linked Lift, disposed editors, onboarding and recorded-zone
-workout corrections. The existing manual-workout file passes eleven controls as well. Five
-of the new cases exercise BG-task dispatch:
-empty refresh/processing, collision, expiration and a failed foreground pull through the actual
-registered handler; they do not emulate iOS scheduling. No new full coverage result is claimed. Four Python
-inventory checks pass. Fixture/compiler failures are not counted as app findings. Logs stay
-in ignored `build/coverage-audit/`.
+- **COV-09 — expiry during transfer permits a fresh calculation.** An expired BG wake can
+  return from transfer and create an engine with the new cancellation generation. The wake
+  now retains its starting generation and checks it after transfer/profile loading and before
+  a rescan. A held-transfer/expiry control confirms that no calculation starts afterward.
+- **COV-10 — a storage read that never answers leaves startup spinning.** Initialization now
+  shares the existing six-second startup bound and presents Retry. A retry joins the same
+  pending initialization instead of creating a competing one; late success can recover the
+  route. This bounds the UI wait, not the native operation itself. The held-read control and
+  existing startup/quarantine controls pass.
+- **COV-11 — a Zones read failure masquerades as missing measurements.** The deeper
+  Train → Strain → Zones page now shows a retryable read failure rather than empty age/ceiling
+  guidance. Retrying a repaired repository displays the measured values.
+- **COV-12 — enlarged Zones ranges overflow.** Measured range/unit rows now reflow beneath
+  their labels at enlarged text, preserving standard-size composition and the locked palette.
+  Full-scroll controls pass at 1× and 3.1×; cloud captures cover both and the read-failure state.
+- **COV-13 — an optional Lift refresh falsely reports a committed save as unsaved.** An
+  unreadable earlier log reproduces the misleading failure after a new set is durable. The
+  controller now distinguishes save failure from refresh failure, retains a saved warning and
+  still starts the chosen rest timer. A subsequent clean edit clears the warning. Initial
+  history failures remain explicit. Linked split/import cache hydration is best-effort only
+  after commit; ordinary startup hydration remains strict and logs the post-commit failure.
+
+Thirteen added Dart files contain **52 targeted cases** for these contracts, real cold-start
+routing with an optional notification failure, and GPS service/permission/sample boundaries.
+The GPS checks use simulated plugin results, not physical location delivery. Existing manual
+workout (11), startup/quarantine (7) and three legacy failure/cancellation cases also pass.
+Four Python inventory checks and eight iOS contract checks pass. Fixture/compiler failures
+are not counted as app findings. Logs stay in ignored `build/coverage-audit/`.
+
+The first full cloud run, [40015378904](https://github.com/akshatksingh18/whoop/actions/runs/40015378904),
+passed analysis, package suites and the original visual job, but the app suite had three old
+fixtures without an application-support path provider. The stricter Pushups inbox correctly
+surfaced that missing fixture. Those fixtures now supply a synthetic path, retain their
+original assertions and pass all three targeted cases. A clean full rerun is still required;
+coverage from the failed run is preliminary, not successor verification.
 
 ## Limits
 

@@ -1877,6 +1877,10 @@ class AppState extends ChangeNotifier {
   DbRebuild? get dbRebuild => LocalDb.lastRebuild;
 
   bool _retryingInit = false;
+  Future<void>? _initInFlight;
+  // Match main.dart's existing startup bound. A native read can hang without
+  // throwing; retry observes that same pending initialization, never a rival.
+  static const _startupCeiling = Duration(seconds: 6);
 
   /// Run start-up again after [AppRoute.failed]. Every step in [_initSteps] is
   /// idempotent (prefs/DB reads, and `openSession` is guarded by `busy`), so a
@@ -1904,8 +1908,16 @@ class AppState extends ChangeNotifier {
   /// single launch. `main.dart` already wraps every OTHER start-up step exactly
   /// like this.
   Future<void> _init() async {
+    final pending = _initInFlight ?? _initSteps();
+    if (_initInFlight == null) {
+      _initInFlight = pending;
+      void clear() {
+        if (identical(_initInFlight, pending)) _initInFlight = null;
+      }
+      unawaited(pending.then<void>((_) => clear(), onError: (Object e, StackTrace s) => clear()));
+    }
     try {
-      await _initSteps();
+      await pending.timeout(_startupCeiling);
     } catch (e) {
       _log('[init] FAILED: $e');
       // A throw AFTER `initialized` is a late, non-fatal step (the background
@@ -1975,6 +1987,10 @@ class AppState extends ChangeNotifier {
     // Rehydrate/finalize any workout left `status='live'` by a killed previous
     // run (issue: "can't stop workout, only delete"). Best-effort, non-blocking.
     await _reconcileOrphanedLiveWorkout();
+    if (_disposed) return;
+    // A timed-out read may eventually recover. Its one pending initialization
+    // now owns success too; a stale timeout must not keep the error route up.
+    initError = null;
     initialized = true;
     notifyListeners();
     // Register the recurring wall-clock nudges as real OS-scheduled notifications

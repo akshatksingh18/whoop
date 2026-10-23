@@ -105,6 +105,7 @@ class IosBgTask {
     final ran = await HeadlessSyncGate.tryRun<bool>(
       syncOnly ? 'bg_refresh' : 'bg_task',
       () async {
+        final stopGeneration = DeriveStop.generation;
         try {
           // Skip headless BLE if the foreground session already owns the band.
           if (!IosBleRestore.foregroundActive) {
@@ -123,6 +124,12 @@ class IosBgTask {
               _bgLog('[ios-bgtask] foreground pull failed (ignored): $e');
             }
           }
+          // Expiry during transfer is still a stop. A new engine would otherwise
+          // capture the newer generation and start after iOS ended this wake.
+          if (DeriveStop.generation != stopGeneration) {
+            _bgLog('[ios-bgtask] stopped before calculation');
+            return true;
+          }
           // Calculation inside a budget: the light pass (today first) on a
           // refresh, the heavy pass plus baseline rescan on a processing task.
           // A stop (budget or expiration) keeps committed days and leaves the
@@ -139,11 +146,13 @@ class IosBgTask {
           WakeTiming.current?.event('calculation_start');
           try {
             final profile = await _loadProfile();
+            DeriveStop.check(stopGeneration);
             final engine = DerivationEngine(
               log: (l) => _bgLog('[ios-bgtask-derive] $l'),
               background: true,
             );
             await engine.run(profile, heavy: !syncOnly);
+            DeriveStop.check(stopGeneration);
             if (!syncOnly) await engine.rescanRecent(profile);
           } on DeriveCancelled catch (e) {
             _bgLog('[ios-bgtask] calculation stopped: $e');

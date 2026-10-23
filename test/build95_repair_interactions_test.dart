@@ -1,5 +1,6 @@
 // Regression coverage for nested Build 95 interactions. All data is synthetic.
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' show Tristate;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +25,7 @@ import 'package:openstrap_edge/ui2/screens/pushups_screen.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -50,10 +52,22 @@ Widget frame(Widget child, [AppState? app]) {
 Finder press(String label) =>
     find.byWidgetPredicate((w) => w is Pressable && w.semanticLabel == label);
 
+class _Paths extends PathProviderPlatform {
+  _Paths(this.root);
+  final String root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
   setUpAll(() async {
+    final root = Directory('build/coverage-audit/legacy-interactions').absolute
+      ..createSync(recursive: true);
+    PathProviderPlatform.instance = _Paths(root.path);
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     LocalDb.dbName = 'build95_interactions_synthetic.db';

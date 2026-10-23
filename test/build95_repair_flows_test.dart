@@ -50,6 +50,10 @@ class _Paths extends PathProviderPlatform {
   final String root;
   @override
   Future<String?> getTemporaryPath() async => root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
 }
 
 Widget frame(AppState app, Widget child) =>
@@ -117,6 +121,9 @@ void main() {
   }
 
   setUpAll(() async {
+    final root = Directory('build/coverage-audit/legacy-flows').absolute
+      ..createSync(recursive: true);
+    PathProviderPlatform.instance = _Paths(root.path);
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     LocalDb.dbName = 'audit_build95_deep_synthetic.db';

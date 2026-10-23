@@ -119,4 +119,26 @@ void main() {
       BandOwnership.release(lease);
     },
   );
+
+  test('expiration during transfer cannot start a fresh calculation', () async {
+    final entered = Completer<void>(), release = Completer<void>();
+    IosBleRestore.foregroundActive = true;
+    IosBgTask.foregroundPull = () async {
+      entered.complete();
+      await release.future;
+    };
+    await FileLog.write('SYNTHETIC_EXPIRY_BOUNDARY');
+    final run = IosBgTask.handleCall(const MethodCall('run'));
+    await entered.future;
+    await IosBgTask.handleCall(const MethodCall('expire'));
+    release.complete();
+    expect(await run, isTrue);
+    await FileLog.write('barrier');
+    final log = (await File(
+      (await FileLog.path())!,
+    ).readAsString()).split('SYNTHETIC_EXPIRY_BOUNDARY').last;
+    expect(log, isNot(contains('stage=calculation_start')));
+    expect(log, isNot(contains('[derive]')));
+    expect(HeadlessSyncGate.busy, isFalse);
+  });
 }

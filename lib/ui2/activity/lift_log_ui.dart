@@ -161,18 +161,23 @@ class LiftLogController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> _refreshLast() async {
+  Future<void> _refreshLast({bool committed = false}) async {
     final w = workout;
     if (w == null) return;
-    for (final e in w.exercises) {
-      final k = _lastKey(e);
-      if (last.containsKey(k)) continue;
-      last[k] = await LiftLogDb.lastPerformance(
-        e.name,
-        e.loadMode,
-        note: e.equipmentNote,
-        excludingId: w.id,
-      );
+    try {
+      for (final e in w.exercises) {
+        final k = _lastKey(e);
+        if (last.containsKey(k)) continue;
+        last[k] = await LiftLogDb.lastPerformance(
+          e.name,
+          e.loadMode,
+          note: e.equipmentNote,
+          excludingId: w.id,
+        );
+      }
+    } catch (_) {
+      if (!committed) rethrow;
+      message = 'Saved. Earlier sets could not refresh.';
     }
   }
 
@@ -220,15 +225,15 @@ class LiftLogController extends ChangeNotifier {
     if (from != null) w.syncWith(from);
     await LiftLogDb.save(w);
     workout = w;
-    await _refreshLast();
+    await _refreshLast(committed: true);
     await LiftReminders.update(w);
   });
 
   Future<void> _serial(Future<void> Function() body) {
     final run = _tail.then((_) async {
       try {
-        await body();
         message = null;
+        await body();
       } on LiftLogError catch (e) {
         message = e.message;
       } catch (e) {
@@ -241,7 +246,11 @@ class LiftLogController extends ChangeNotifier {
   }
 
   /// Apply [f] to a copy, save it, then show it.
-  Future<void> mutate(void Function(LiftWorkout w) f, {bool activity = true}) =>
+  Future<void> mutate(
+    void Function(LiftWorkout w) f, {
+    bool activity = true,
+    VoidCallback? onCommitted,
+  }) =>
       _serial(() async {
         final cur = workout;
         if (cur == null) return;
@@ -249,7 +258,8 @@ class LiftLogController extends ChangeNotifier {
         f(next);
         await LiftLogDb.save(next);
         workout = next;
-        await _refreshLast();
+        onCommitted?.call();
+        await _refreshLast(committed: true);
         if (activity) await LiftReminders.update(next);
       });
 
@@ -258,10 +268,12 @@ class LiftLogController extends ChangeNotifier {
     required int reps,
     required double load,
   }) async {
+    var committed = false;
     await mutate(
       (w) => w.addSet(exerciseId, reps: reps, load: load, at: DateTime.now()),
+      onCommitted: () => committed = true,
     );
-    if (message != null) return;
+    if (!committed) return;
     final e = workout?.exercises.where((x) => x.id == exerciseId).firstOrNull;
     if (e == null) return;
     try {
@@ -286,7 +298,7 @@ class LiftLogController extends ChangeNotifier {
     splits = checked;
     if (w != null && s != null) {
       workout = synced;
-      await _refreshLast();
+      await _refreshLast(committed: true);
     }
   });
 
@@ -344,7 +356,7 @@ class LiftLogController extends ChangeNotifier {
           await LiftLogDb.save(next);
         }
         workout = next;
-        await _refreshLast();
+        await _refreshLast(committed: true);
         await LiftReminders.update(next);
       });
 

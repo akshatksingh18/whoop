@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'db.dart';
 import '../state/prefs.dart';
+import '../sync/file_log.dart';
 
 class CalculationStore {
   static const prefix = 'calculation:';
@@ -130,13 +131,21 @@ class CalculationStore {
     await Prefs.saveValues({for (final key in keys) key: null});
   }
 
-  static Future<void> hydrate() => _serial(() async {
-    final rows = await (await LocalDb.instance).query(
-      'baselines',
-      columns: ['key', 'payload_json'],
-      where: 'key LIKE ?',
-      whereArgs: ['$prefix%'],
-    );
+  static Future<void> hydrate({bool afterCommit = false}) => _serial(() async {
+    List<Map<String, Object?>> rows;
+    try {
+      rows = await (await LocalDb.instance).query(
+        'baselines',
+        columns: ['key', 'payload_json'],
+        where: 'key LIKE ?',
+        whereArgs: ['$prefix%'],
+      );
+    } catch (e) {
+      if (!afterCommit) rethrow;
+      // A failed optional cache refresh cannot undo the caller's durable write.
+      FileLog.write('calculation cache refresh after commit: $e');
+      return;
+    }
     if (rows.isEmpty) {
       return; // Legacy database-only restores have no preference cache to populate.
     }

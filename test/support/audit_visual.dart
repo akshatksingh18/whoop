@@ -25,7 +25,11 @@ Future<void> loadAuditFonts() async {
   await icons.load();
 }
 
-Future<void> captureAuditScroll(WidgetTester t, String name) async {
+Future<void> captureAuditScroll(
+  WidgetTester t,
+  String name, {
+  String prefix = 'build99',
+}) async {
   if (!const bool.fromEnvironment('UI_CAPTURE')) return;
   final pos = t.state<ScrollableState>(find.byType(Scrollable).last).position;
   pos.jumpTo(0);
@@ -40,7 +44,7 @@ Future<void> captureAuditScroll(WidgetTester t, String name) async {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
       final dir = await Directory('build/ui_capture').create(recursive: true);
       await File(
-        '${dir.path}/build99_${name}_$page.png',
+        '${dir.path}/${prefix}_${name}_$page.png',
       ).writeAsBytes(bytes!.buffer.asUint8List());
       image.dispose();
     });

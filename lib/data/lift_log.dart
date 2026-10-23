@@ -993,7 +993,7 @@ class LiftLogDb {
       await CalculationStore.writeIn(tx, splitsKey, json);
       await save(workout, database: tx);
     });
-    await CalculationStore.hydrate();
+    await CalculationStore.hydrate(afterCommit: true);
   }
 
   /// One row per set, with its load meaning so `42.5 lb/side` is never read
@@ -1294,7 +1294,7 @@ Future<int> applyLiftImport(
       );
     }
   });
-  if (replaceSplits) await CalculationStore.hydrate();
+  if (replaceSplits) await CalculationStore.hydrate(afterCommit: true);
   return added;
 }
 

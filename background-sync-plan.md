@@ -47,6 +47,10 @@ the restoration-expiry and gate-ceiling paths that omitted the registered headle
 stop. Synthetic callbacks verify the request and late-lease protection; native disconnect,
 expiration timing and physical delivery remain phone gates. Cooperative stop is not cancellation
 of an arbitrary unresolved future, and the production gate ceiling/ACK protocol are unchanged.
+An expired transfer also retains its original cancellation generation so a new calculation
+cannot start afterward. Startup presents Retry after its existing six-second ceiling, sharing
+one pending initialization across retries instead of overlapping it. Synthetic controls pass;
+these bounds do not cancel an arbitrary unresolved native read.
 Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation

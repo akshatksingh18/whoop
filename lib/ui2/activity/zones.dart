@@ -164,6 +164,7 @@ class ZonesDetail extends StatefulWidget {
 class _ZonesDetailState extends State<ZonesDetail> {
   ZonesData? _d;
   bool _loading = true;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -177,16 +178,18 @@ class _ZonesDetailState extends State<ZonesDetail> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
+    setState(() => (_loading = true, _failed = false));
     final repo = repoOf(context);
     if (repo == null) {
-      if (mounted) setState(() => _loading = false);
+      setState(() => (_loading = false, _failed = true));
       return;
     }
     try {
       final d = await ZonesData.load(repo);
       if (mounted) setState(() => (_d = d, _loading = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => (_loading = false, _failed = true));
     }
   }
 
@@ -199,10 +202,18 @@ class _ZonesDetailState extends State<ZonesDetail> {
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
+      ] else if (_failed) ...[
+        StatusCard(
+          'Could not read heart-rate zones',
+          'Your saved data could not be read. Try again before drawing conclusions about missing measurements.',
+          fix: 'Try again',
+          onFix: _load,
+          icon: LucideIcons.refreshCw,
+        ),
       ] else ...[
         _ceiling(p, l, d),
         Section(l?.activityZonesYourZonesSection ?? 'Your zones',
-            _zones(p, l, d)),
+            _zones(p, l, d, stacked: bigText(c))),
         ..._distribution(p, l, d),
       ],
     ]);
@@ -287,7 +298,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
   }
 
   // ── the edges, and the two numbers they were built from ────────────────────
-  Widget _zones(P p, AppLocalizations? l, ZonesData d) {
+  Widget _zones(P p, AppLocalizations? l, ZonesData d, {required bool stacked}) {
     if (d.zones.isEmpty) {
       // THE REPOSITORY'S REASON, or none. This card used to name one — no age
       // — and offer "Add your age in Profile" as the fix, on a screen whose own
@@ -333,15 +344,25 @@ class _ZonesDetailState extends State<ZonesDetail> {
                         'Z${z.zone} · ${z.name}',
                         style: F.body.copyWith(color: p.ink),
                       ),
+                      if (stacked) Wrap(
+                        spacing: S.x2,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi}',
+                              softWrap: false, style: F.n17.copyWith(color: p.ink2)),
+                          Text(l?.activityZonesBpmUnit ?? 'bpm',
+                              style: F.cap.copyWith(color: p.ink3)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-                Text(
+                if (!stacked) Text(
                   z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi}',
                   style: F.n17.copyWith(color: p.ink2),
                 ),
-                const SizedBox(width: S.x2),
-                Text(l?.activityZonesBpmUnit ?? 'bpm',
+                if (!stacked) const SizedBox(width: S.x2),
+                if (!stacked) Text(l?.activityZonesBpmUnit ?? 'bpm',
                     style: F.cap.copyWith(color: p.ink3)),
               ],
             ),

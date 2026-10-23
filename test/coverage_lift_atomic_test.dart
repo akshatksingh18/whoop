@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/calculation_store.dart';
 import 'package:openstrap_edge/data/lift_log.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/lift_log_ui.dart';
@@ -57,6 +58,25 @@ void main() {
   });
   tearDownAll(LocalDb.close);
 
+  test(
+    'a post-commit cache read failure preserves the saved outcome',
+    () async {
+      await db.execute('ALTER TABLE baselines RENAME TO synthetic_baselines');
+      try {
+        await expectLater(
+          CalculationStore.hydrate(),
+          throwsA(isA<DatabaseException>()),
+        );
+        await CalculationStore.hydrate(afterCommit: true);
+        expect(await LiftLogDb.forSession('synthetic-session'), isNotNull);
+      } finally {
+        await db.execute('ALTER TABLE synthetic_baselines RENAME TO baselines');
+      }
+      await CalculationStore.hydrate();
+      expect((await LiftLogDb.splits()).single.id, split.id);
+    },
+  );
+
   test('adding an exercise cannot partially change its split', () async {
     await controller.addExercise('Synthetic row', LiftLoadMode.total, '');
     expect(controller.message, isNotNull);
@@ -89,6 +109,60 @@ void main() {
         'Synthetic',
       );
       expect(controller.workout!.splitName, 'Synthetic');
+    },
+  );
+  test(
+    'a failed history refresh cannot report a committed set as unsaved',
+    () async {
+      await db.execute('DROP TRIGGER synthetic_lift_refusal');
+      await RestTimer.setDefault(60);
+      await db.insert('lift_log', {
+        'id': 'synthetic-unreadable-history',
+        'started_at': 1,
+        'ended_at': 2,
+        'origin': 'whoop',
+        'json': '{unreadable',
+        'updated_at': 1,
+      });
+      await controller.logSet(
+        controller.workout!.exercises.single.id,
+        reps: 8,
+        load: 10,
+      );
+      expect((await LiftLogDb.forSession('synthetic-session'))!.setCount, 1);
+      expect(controller.message, startsWith('Saved.'));
+      expect(controller.message, isNot(contains('not saved')));
+      expect(await RestTimer.deadline(), isNotNull);
+      await db.delete(
+        'lift_log',
+        where: 'id=?',
+        whereArgs: ['synthetic-unreadable-history'],
+      );
+      await controller.logSet(
+        controller.workout!.exercises.single.id,
+        reps: 9,
+        load: 10,
+      );
+      expect((await LiftLogDb.forSession('synthetic-session'))!.setCount, 2);
+      expect(controller.message, isNull);
+      await RestTimer.skip();
+    },
+  );
+  test(
+    'an unreadable initial history remains an explicit read failure',
+    () async {
+      await db.execute('DROP TRIGGER synthetic_lift_refusal');
+      await db.insert('lift_log', {
+        'id': 'synthetic-unreadable-history',
+        'started_at': 1,
+        'ended_at': 2,
+        'origin': 'whoop',
+        'json': '{unreadable',
+        'updated_at': 1,
+      });
+      await controller.load();
+      expect(controller.message, startsWith('Your sets could not be read:'));
+      expect((await LiftLogDb.forSession('synthetic-session'))!.setCount, 0);
     },
   );
 }

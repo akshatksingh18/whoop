@@ -3750,8 +3750,7 @@ class AppState extends ChangeNotifier {
   Future<bool> buzzBand() async {
     if (!isConnected) return false;
     try {
-      await engine.buzz();
-      return true;
+      return await engine.buzz();
     } catch (_) {
       return false;
     }

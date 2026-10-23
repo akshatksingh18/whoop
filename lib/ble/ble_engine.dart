@@ -7130,14 +7130,14 @@ class BleEngine {
     final c = (_session?.entry ?? kWhoopGen4).commands;
     return _send(c.hello, c.helloBody);
   }
-  Future<void> buzz() => buzzPattern(hapticShortPulse);
+  Future<bool> buzz() => buzzPattern(hapticShortPulse);
 
   /// Play a haptic buzz. gen5 ("Maverick") has a DIFFERENT buzz opcode and
   /// payload shape than gen4 (`Cmd.runHapticPatternMaverick`, 12-byte body —
   /// see `cmdBuzzGen5Maverick` in protocol/commands.dart) — [pattern] is
   /// honoured only on gen4; a gen5 link always plays the strap's fixed
   /// `[47, 152]` waveform pair (the only Maverick buzz byte-verified so far).
-  Future<void> buzzPattern(int pattern) {
+  Future<bool> buzzPattern(int pattern) {
     if (_session?.band.isGen5 ?? false) {
       return _send(
         Cmd.runHapticPatternMaverick,

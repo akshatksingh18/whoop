@@ -34,45 +34,41 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 97 Candidate
+## Build 98 candidate
 
-Source `bde5818bbaf87588e1f31cdd3823ee68d43f6538`, version `0.9.64+97`, algorithm 97,
-schema 50, is the released app source, integrated from `build-97` into `main`. All seven
-B96-01–07 repairs and the selected Body/notification/visual-check refinements are included;
-`build-96-audit.md` owns their contracts and coverage limits. Twenty-six focused checks plus
-seven existing notification checks pass locally. Dependencies, scientific coefficients, BLE ACK
-ordering, signing identity and capabilities are unchanged. Outgoing code/docs/fixtures and the
-artifact were privacy-reviewed; only synthetic data appears in the new tests/captures.
+Build 98, version `0.9.65+98`, algorithm 98/schema 50, is prepared on `build-98`;
+the final source/hash is pending the haptic transport-result build. All eighteen B97-01–18 repairs are implemented;
+`build-97-audit.md` owns their contracts. The 49 added synthetic regression cases and eight iOS
+contract checks pass locally. Full Linux/visual run `39885147300` has passed analysis; its
+complete suite finished with seven failures (3,465 passed/429 skipped); its 137 visual checks
+and 570 captures pass. All seven failing cases plus an explicit HR-only-run check pass locally
+after corrections; the full successor run and rebuilt IPA are pending. No dependency, scientific coefficient,
+BLE ACK ordering, signing identity or capability changed.
 
-The subsequent eighteen-finding `build-97-audit.md` has source repairs in Build 98
-(`0.9.65+98`, algorithm 98/schema 50) on `build-98`, with synthetic desired-behavior regressions.
-Full successor analysis/tests/visuals, native build and downloaded artifact validation are pending.
-Build 97 remains the sole cached testing binary until replacement validation; accepted Build 70
-and the last reported Build 91 installation are unchanged.
+Superseded staging native run `39885149815` passes at source `39aa402e`. The numeric-only
+import resource correction requires a new source build before delivery. The downloaded
+`whoop-personal-39aa402ec920-unsigned.ipa` is 15,481,907 bytes, SHA-256
+`4475bcea587e46e199d6117311bbe41ce3a56862305e3aeb2c5e5f4f526a0677`. Source/version/manifest,
+checksum, complete ZIP CRC, `personal_ios.py validate` and compiled Runner/AOT framework checks
+pass. The payload has one app and no extension, Watch app, provisioning profile, database or
+debug kernel. These are artifact checks, not installation or physical-device evidence.
 
-Linux CI `39815813645` passes 3,426 tests (429 intentional skips), no analysis errors/warnings,
-182 informational lints and eight personal-iOS contract checks. Its parallel visual-smoke job
-passes 131 checks and retains 550 synthetic captures, including full-scroll positions. The
-inspectable local review is `build/release97/final/visual/review.html` in the release worktree;
-these use a font substitute and do not establish native typography or physical gestures.
-The prior run `39812219484` passed 3,424 tests but failed one retained-copy assertion. The
-accurate retention phrase and lone-tape readout correction are included in the final source.
-GitHub reported degraded Actions performance during runner allocation; final jobs passed.
+Superseded staging binaries are kept only under ignored `build/release98/`; neither is a
+delivered candidate. Source `117679df` also built successfully in native run `39887717105`:
+15,481,700 bytes, SHA-256 `9f831241fb363e27745183d1cd5f534dacd0b7b296939540039dcc8149e6a75c`.
+It passed payload checks, but predates the final haptic-result correction. A new full verification
+run and native artifact are required before delivery. The sole testing cache is still
+`../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`. Its previous fingerprint remains
+`348a7b8ad7e5fb887444bd074abf5a9bc2b22eff7926d6c3658dfe2c02b88c7c` (15,463,593 bytes),
+source `bde5818b`, full/visual run `39815813645`, native run `39815817300`. It retains the seven
+B96 repairs and earlier 29 repairs, but has the eighteen faults now repaired by Build 98.
 
-Personal macOS run `39815817300` passes at the same source. Downloaded
-`whoop-personal-bde5818bbaf8-unsigned.ipa` (15,463,593 bytes), SHA-256
-`348a7b8ad7e5fb887444bd074abf5a9bc2b22eff7926d6c3658dfe2c02b88c7c`, matches its source/version
-manifest and checksum. Full ZIP CRC, `personal_ios.py validate`, compiled Runner/AOT frameworks
-and the exact capability contract pass: one Runner.app, no extension, Watch app, provisioning
-profile, database or debug kernel. Later release-record changes are documentation only; the
-source-identical binary remains pinned to `bde5818b`.
-
-It is the sole testing folder `../final-ipas/whoop/testing/WHOOP-0.9.64-build97-bde5818b`,
-with checksum, manifest, validation and build-info. Build 96's identified superseded folder went
-to the Windows Recycle Bin. Accepted Build 70 recovery is unchanged (SHA-256
+Build 70 accepted recovery remains unchanged (SHA-256
 `0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 remains the last
-reported installation. Install over the existing app with its exact identity; current-version
-signing enrollment and the device matrix remain open. Delivery is not phone acceptance.
+reported installation. Current-version signing enrollment, install-over-install data continuity
+and the full phone matrix remain open. Use the exact existing app identity; delivery alone does
+not authorize recovery promotion.
+
 
 ## Build 96 artifact (superseded)
 

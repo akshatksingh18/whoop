@@ -23,7 +23,7 @@ algorithm version or signing capability was removed/changed. Full Linux/visual c
 compilation and downloaded IPA validation pass; `setup.md` owns source/hash/workflow evidence.
 All eighteen subsequent `build-97-audit.md` findings are repaired in Build 98 source
 (`0.9.65+98`, algorithm 98, schema 50) on `build-98`. Targeted synthetic regressions pass;
-full cloud/visual/native checks and replacement IPA validation are pending. Build 97 remains the
+full cloud tests/visuals are pending; native compilation and downloaded IPA validation pass. Build 97 remains the
 cached testing binary until those gates pass. No calorie/recovery coefficient or feature changed.
 Build 96's superseded candidate went to the Recycle Bin. Build 91 remains the last reported
 installation and Build 70 remains accepted recovery. Current-version installation, signing

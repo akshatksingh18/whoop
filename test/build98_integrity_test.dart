@@ -13,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/body_log.dart';
+import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' show BandProfile;
 import 'package:openstrap_edge/data/calculation_store.dart';
 import 'package:openstrap_edge/ui2/profile/data.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
@@ -656,6 +658,35 @@ void main() {
       }
     },
   );
+
+  for (final gen5 in [false, true]) {
+    test(
+      'buzz command keeps transport failure and success for gen5=$gen5',
+      () async {
+        final engine = BleEngine(onRecord: (_, _) async {}, onState: (_) {});
+        var succeeds = false;
+        var throwsOnWrite = false;
+        engine.debugInstallFakeLink(
+          band: gen5 ? BandProfile.gen5 : BandProfile.gen4,
+          onWrite: (_) async {
+            if (throwsOnWrite) throw StateError('Synthetic transport refusal');
+            return succeeds;
+          },
+        );
+        final app = AppState.forTesting(engine: engine);
+        app.device.connection = 'connected';
+        try {
+          expect(await app.buzzBand(), false);
+          succeeds = true;
+          expect(await app.buzzBand(), true);
+          throwsOnWrite = true;
+          expect(await app.buzzBand(), false);
+        } finally {
+          app.dispose();
+        }
+      },
+    );
+  }
 
   test(
     'Find my band does not claim a command was sent while disconnected',

@@ -2,8 +2,9 @@
 
 **Status:** All eighteen findings have source repairs on `build-98`, version `0.9.65+98`,
 algorithm 98 and schema 50. Desired-behavior regressions replace the diagnostic assumptions;
-focused data/editor checks and normal/3.1x nested interactions pass. Full cloud analysis/tests,
-whole-page captures, native compilation and a replacement IPA remain release gates. Build 97 is
+focused data/editor checks and normal/3.1x nested interactions pass. The first full run passes
+137 visual checks/570 captures, with seven older-suite failures. Those seven and an added
+HR-only-run case pass targeted corrections; full rerun and rebuilt native artifact remain gates. Build 97 is
 still the cached testing binary until that successor is validated. Build 70 recovery is unchanged;
 no Build 98 installation or hardware acceptance is claimed.
 
@@ -14,7 +15,8 @@ no Build 98 installation or hardware acceptance is claimed.
   rollback cleanup. The Data screen explicitly reports missing photo files, even with no new rows.
 - B97-05: serialized, acknowledged preference writes retain the prior choice on failure; Units,
   Notifications, Trends pins, Food reminder, rest timer and phone steps use the same helper.
-  Find my band reports command-write success/failure, never physical delivery.
+  Find my band carries the transport write result through both haptic methods and AppState;
+  rejected/thrown writes and successful writes are covered for gen4/gen5. It never claims physical delivery.
 - B97-06–08: private Lift/Run sessions stay in direct history and out of result summaries. Daily
   measured movement remains an input to maintenance. Food times, copied/regrouped entries,
   Progress/Train/milestone/export membership and session profile/run attribution use stored zones.

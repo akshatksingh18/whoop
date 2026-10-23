@@ -20,8 +20,8 @@ regressions. Imports validate identities/counts/times and commit history/configu
 Body projection and partial restore readers reconcile; settings acknowledge refusal; private
 summaries and recorded-day consumers follow their contracts. Home events are receipt-protected,
 live checkpoint failures are retryable, editors retain drafts and enlarged action labels remain
-visible. `build-97-audit.md` owns the individual contracts. Full cloud/visual/native checks and
-replacement IPA validation are pending in `todo.md` 3m; these are not device-acceptance claims.
+visible. `build-97-audit.md` owns the individual contracts. Full cloud tests/visuals are pending; native compilation and
+downloaded IPA validation pass in `todo.md` 3m; these are not device-acceptance claims.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

@@ -1,5 +1,6 @@
 // Calculation anchors belong to the lossless database backup. Preferences are
 // a synchronous cache for live timing; settings and secrets are not copied.
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'db.dart';
@@ -12,11 +13,20 @@ class CalculationStore {
   // cannot land after deletion and migrate the removed value back on restart.
   // ponytail: one queue per isolate; split by key only if profiling shows
   // contention beyond the database's existing serialized work.
-  static Future<void> _tail = Future.value();
-  static Future<T> _serial<T>(Future<T> Function() action) {
-    final next = _tail.then((_) => action());
-    _tail = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return next;
+  static Future<void>? _tail;
+  static Future<T> _serial<T>(Future<T> Function() action) async {
+    final previous = _tail;
+    final done = Completer<void>();
+    _tail = done.future;
+    try {
+      if (previous != null) await previous;
+      return await action();
+    } finally {
+      // Release before the caller resumes, without retaining an idle future
+      // created in a different scheduler zone (notably Flutter test clocks).
+      if (identical(_tail, done.future)) _tail = null;
+      done.complete();
+    }
   }
 
   /// Commit configuration with the history it belongs to; refresh preference

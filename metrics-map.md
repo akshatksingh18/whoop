@@ -547,6 +547,9 @@ an additional statistical confidence claim.
   ± in the selected speed units (including large uncertainty), explicitly for the latest
   GPS fix rather than the smoothed speed's error. Existing time-based smoothing, stationary
   and stale-time rules remain; outdoor validation is still required.
+- Route input rejects non-finite/out-of-range coordinates and non-finite/negative reported
+  accuracy before changing its anchor, freshness, speed or distance. A missing accuracy stays
+  optional; the existing accuracy ceiling, movement floor and gap rules are unchanged.
 - Live cadence is measured steps/minute: fresh phone data first, then accepted recent wrist
   cadence; zero is measured stillness, absent/stale is unavailable. It does not change calorie
   coefficients or impose a universal target. Session pause stops its cadence feed. Optional

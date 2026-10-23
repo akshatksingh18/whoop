@@ -528,7 +528,7 @@ other worktrees remain untouched.
   and ACK ordering. Local readability fixes are approved; major page replacements retain the
   before/after review gate. Confirm findings with runnable synthetic evidence, batch coherent
   repairs and run appropriate targeted/cloud/native checks before replacing the testing IPA.
-  Seventeen families B98-01–17 have source repairs: authoritative profile rollback,
+  Eighteen families B98-01–18 have source repairs: authoritative profile rollback,
   ordered/acknowledged calculation removal, backup Off, paired-identity removal, Home setup/stop,
   partial reset/keychain failure reporting, recorded travel days, restored profile anchors,
   active-window lifting deduplication, and barcode input/opt-in/scrolling. Algorithm 99 versions
@@ -542,6 +542,10 @@ other worktrees remain untouched.
   wake-window targets use recorded wall times across DST.
   The app command does not discover the 55 protocol/analytics package test files; independent
   pinned Linux jobs now cover those suites and must pass before release (B98-V1).
+  Invalid GPS coordinates/accuracy are rejected before route state changes. The first cloud
+  attempt stalled in persistence queues under widget clocks; those queues now release while
+  idle, and the affected Today/history controls pass targeted reruns. Its incomplete result is
+  not a release pass; full cloud verification remains required.
   No Build 99 artifact or full verification is claimed yet.
 - [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

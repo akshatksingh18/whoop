@@ -9,6 +9,7 @@
 // If a screen is somehow built before [ensureLoaded] completes, reads fall back
 // to the provided default — never throws, never blocks.
 
+import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Prefs {
@@ -16,12 +17,22 @@ class Prefs {
 
   /// User-facing settings must acknowledge persistence. Restore earlier keys
   /// on a partial failure and reload the optimistic plugin cache before retry.
-  static Future<void> _settingsTail = Future.value();
-  static Future<void> saveValues(Map<String, Object?> values) {
-    final next = _settingsTail.then((_) => _saveValues(values));
-    _settingsTail = next.catchError((Object _) {});
-    return next;
+  static Future<void>? _settingsTail;
+  static Future<void> _ordered(Future<void> Function() action) async {
+    final previous = _settingsTail;
+    final done = Completer<void>();
+    _settingsTail = done.future;
+    try {
+      if (previous != null) await previous;
+      await action();
+    } finally {
+      if (identical(_settingsTail, done.future)) _settingsTail = null;
+      done.complete();
+    }
   }
+
+  static Future<void> saveValues(Map<String, Object?> values) =>
+      _ordered(() => _saveValues(values));
 
   static Future<void> _saveValues(Map<String, Object?> values) async {
     final p = await SharedPreferences.getInstance();
@@ -55,24 +66,20 @@ class Prefs {
 
   /// Reset joins the same write queue, so an earlier setting cannot land
   /// after clearing. A failure reloads the actual store before reporting it.
-  static Future<void> clearAll() {
-    final next = _settingsTail.then((_) async {
-      final p = await SharedPreferences.getInstance();
+  static Future<void> clearAll() => _ordered(() async {
+    final p = await SharedPreferences.getInstance();
+    try {
+      if (!await p.clear())
+        throw StateError(
+          'Reset did not finish clearing settings. Please retry.',
+        );
+    } catch (_) {
       try {
-        if (!await p.clear())
-          throw StateError(
-            'Reset did not finish clearing settings. Please retry.',
-          );
-      } catch (_) {
-        try {
-          await p.reload();
-        } catch (_) {}
-        rethrow;
-      }
-    });
-    _settingsTail = next.catchError((Object _) {});
-    return next;
-  }
+        await p.reload();
+      } catch (_) {}
+      rethrow;
+    }
+  });
 
   static SharedPreferences? _sp;
 

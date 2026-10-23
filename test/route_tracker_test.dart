@@ -27,6 +27,37 @@ GpsSample _fix(
 );
 
 void main() {
+  test('invalid coordinates and accuracy cannot become a route anchor', () async {
+    final ctrl = StreamController<GpsSample>();
+    final saved = <RoutePoint>[];
+    final tracker = RouteTracker(sink: (points) async => saved.addAll(points));
+    tracker.start(ctrl.stream);
+    try {
+      for (final sample in [
+        const GpsSample(lat: double.infinity, lng: 0, tsMs: 0),
+        const GpsSample(lat: 0, lng: double.negativeInfinity, tsMs: 0),
+        const GpsSample(lat: 90.01, lng: 0, tsMs: 0),
+        const GpsSample(lat: 0, lng: -180.01, tsMs: 0),
+        const GpsSample(lat: 0, lng: 0, accuracy: double.nan, tsMs: 0),
+        const GpsSample(lat: 0, lng: 0, accuracy: -1, tsMs: 0),
+      ]) {
+        ctrl.add(sample);
+      }
+      ctrl.add(_fix(0));
+      ctrl.add(_fix(1));
+      await pumpEventQueue();
+      expect(tracker.pointCount, 2);
+      expect(tracker.distanceMeters.value, closeTo(20, 2));
+      expect(tracker.current.value!.latitude, 0);
+      await tracker.flush();
+      expect(saved.length, 2);
+      expect(saved.every((p) => p.lat.isFinite && p.lng.isFinite), isTrue);
+    } finally {
+      await tracker.stop();
+      await ctrl.close();
+    }
+  });
+
   test(
     'refresh waits for an in-flight route batch and persists its tail',
     () async {

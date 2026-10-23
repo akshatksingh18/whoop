@@ -16,8 +16,12 @@ permissions:
   contents: read
 
 jobs:
+  package-suites:
+    uses: ./.github/workflows/package-tests.yml
+
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:

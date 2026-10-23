@@ -28,7 +28,7 @@ matrix remain open; software checks are not universal flow or hardware proof. Ea
 notes are in `build-history.md`.
 
 The additional comprehensive review and authorized repairs continue on `build-99`, tracked in
-`build-98-audit.md` and `todo.md` 3n. Seventeen deeper persistence/date/timing/barcode/editor families have source repairs
+`build-98-audit.md` and `todo.md` 3n. Eighteen deeper persistence/date/timing/barcode/editor/GPS families have source repairs
 and targeted synthetic evidence; the remaining review and successor release gates are open.
 Build 98 remains the cached binary until a fully validated successor is delivered.
 
@@ -973,8 +973,9 @@ visual bugs — check whether removed wrapper widgets were load-bearing.
 **CI does run on PRs.** `.github/workflows/test.yml` runs `flutter analyze` +
 `flutter test` on every pull request and on push to `main`.
 `.github/workflows/package-tests.yml` separately runs the protocol and analytics packages' own
-test directories; the root Flutter command does not discover them. Both workflows support manual
-dispatch. `.github/workflows/personal-ios.yml` (the iPhone build) runs only when dispatched.
+test directories through a reusable job called by `test.yml`; the root Flutter command does not
+discover them. The caller supports manual dispatch. `.github/workflows/personal-ios.yml` (the
+iPhone build) runs only when dispatched.
 `test/` includes `support/` and other subdirectories alongside the top-level test files;
 there is no current `test/adapters` directory. Several regression tests are named for the bug they pin
 (`readiness_flash_test`, `readiness_freeze_test`, `readiness_saturation_test`,

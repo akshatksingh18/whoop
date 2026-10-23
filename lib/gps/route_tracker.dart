@@ -291,8 +291,13 @@ class RouteTracker {
 
   void _onSample(GpsSample s) {
     if (_stopped || paused) return;
-    if (s.accuracy != null && s.accuracy! > maxAccuracyM) return;
-    if (s.lat.isNaN || s.lng.isNaN) return;
+    if (!s.lat.isFinite ||
+        !s.lng.isFinite ||
+        s.lat.abs() > 90 ||
+        s.lng.abs() > 180) return;
+    final accuracy = s.accuracy;
+    if (accuracy != null &&
+        (!accuracy.isFinite || accuracy < 0 || accuracy > maxAccuracyM)) return;
     if (error.value != null) error.value = null; // fixes flowing again
     _lastFixAt = clock.now();
     if (stalled.value) stalled.value = false;

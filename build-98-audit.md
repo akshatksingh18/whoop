@@ -177,6 +177,22 @@ controls pass as well. This makes 35 distinct added checks; repeat executions ar
   successor release gate. The historical `test/adapters` documentation reference was stale;
   that directory is absent and is not a claimed coverage area.
 
+The first successor cloud run exposed scheduler stalls in the new persistence queues, not a
+passing release. Queues now start immediately while idle and release their gate before returning
+to the caller, instead of retaining an idle future from a widget-test clock. The four failing
+Today/history controls pass in a targeted rerun; broader verification is still required. The
+stalled run `39963880718` was cancelled, its partial logs retained locally, and the root test job
+now has a 30-minute ceiling. No coverage artifact was produced by that incomplete run. Package
+checks are reusable jobs called by the existing dispatchable workflow, so they can run on the
+repair branch before any default-branch integration.
+
+- **B98-18, P2 — invalid GPS positions can become route anchors.** The tracker rejects NaN
+  coordinates but accepts infinite/out-of-range coordinates and invalid accuracy. A synthetic
+  stream previously retained four points when only two valid points were sent. Reject non-finite
+  or out-of-range latitude/longitude and non-finite/negative accuracy before updating the route,
+  freshness or speed. The regression retains valid fixes and their distance. Existing accuracy,
+  movement, gap and speed thresholds are unchanged; this is input validation, not calibration.
+
 Additional review queues, not yet closed: historical journal/custom-field drafts
 (first establish personal-build reachability); short arrival-day wall-clock choices; all remaining
 activity/metric/data/lifecycle consumers. Scientific coefficients remain unchanged.

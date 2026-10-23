@@ -222,6 +222,10 @@ repair branch before any default-branch integration.
   callback must not re-enter CalculationStore. Two controls cover ordinary/generic anchors and
   legacy preference-only anchors during full AppState reset; all 16 durability cases pass.
   Failed cleanup still reports partial reset and permits retry; ACK ordering is unchanged.
+The stopped-session/split-editor fixture also finishes its acknowledged draft cleanup while
+its widget clock can still advance. This removes the later setup stall without weakening the
+failed-save or retry assertions; all nine interactions pass. This verification-only correction
+does not change the app/package/assets/iOS source built at `e52d571a`.
 
 B98-11 also covers Settings: a refused grant previously left the optimistic preference cache
 enabled even though the scanner's own error path closed it. Fail closed in the shared setter,

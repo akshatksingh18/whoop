@@ -68,6 +68,7 @@ void main() {
     await Prefs.ensureLoaded();
     await LocalDb.wipeAll();
     LiveDraft.clear();
+    await LiveDraft.retrySave();
     WorkoutClock.current = null;
   });
   tearDownAll(() async {
@@ -209,6 +210,10 @@ void main() {
       await t.pumpWidget(const SizedBox.shrink());
       WorkoutClock.current = null;
       LiveDraft.clear();
+      var cleared = false;
+      final clear = LiveDraft.retrySave().then((_) => cleared = true);
+      await until(t, () => cleared);
+      await clear;
     },
   );
   testWidgets(

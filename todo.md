@@ -540,7 +540,9 @@ other worktrees remain untouched.
   flows are under review; successor identity is `0.9.66+99`/algorithm 99/schema 50;
   the secondary Trends grid now exposes read failure/retry and retains enlarged labels, and
   wake-window targets use recorded wall times across DST.
-  no Build 99 artifact or full verification is claimed yet.
+  The app command does not discover the 55 protocol/analytics package test files; independent
+  pinned Linux jobs now cover those suites and must pass before release (B98-V1).
+  No Build 99 artifact or full verification is claimed yet.
 - [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

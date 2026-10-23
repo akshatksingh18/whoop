@@ -169,6 +169,14 @@ Five additional secondary-flow checks pass: DST wake target, grid failure propag
 What changed Retry and complete month-grid labels at normal/3.1x text. Seven existing wake/grid
 controls pass as well. This makes 35 distinct added checks; repeat executions are not extra tests.
 
+- **B98-V1, verification gap — package suites were outside the app test command.** The root
+  Flutter run does not discover the 55 test files under `packages/protocol/test` and
+  `packages/analytics/test`. Existing app tests cover some library behavior, but their pass count
+  is not evidence that those complete suites ran. Separate pinned, read-only Linux matrix jobs
+  now run both package suites without changing dependencies. Their results are an additional
+  successor release gate. The historical `test/adapters` documentation reference was stale;
+  that directory is absent and is not a claimed coverage area.
+
 Additional review queues, not yet closed: historical journal/custom-field drafts
 (first establish personal-build reachability); short arrival-day wall-clock choices; all remaining
 activity/metric/data/lifecycle consumers. Scientific coefficients remain unchanged.

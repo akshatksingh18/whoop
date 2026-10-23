@@ -57,7 +57,7 @@ Build 98 remains the cached binary until a fully validated successor is delivere
   source, with the source audit and decisions in `todo.md`. Read before changing Lift Log for it.
 - `build-history.md` — the build-by-build notes this file carried through Build 94, moved out
   verbatim; history only, not current guidance.
-- `.github/workflows/test.yml` and `tool/ui_smoke_gallery.py` — full Linux checks plus the synthetic full-scroll visual-smoke job and its local image index; captures are test fixtures, not phone evidence.
+- `.github/workflows/test.yml`, `.github/workflows/package-tests.yml` and `tool/ui_smoke_gallery.py` — full app and independent protocol/analytics suites, instrumented app coverage, synthetic full-scroll visual checks and their local image index; captures are fixtures, not phone evidence.
 - `todo.md` — Build 98 repairs/release (3m), Build 97 repairs (3l), Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
@@ -972,10 +972,11 @@ visual bugs — check whether removed wrapper widgets were load-bearing.
 
 **CI does run on PRs.** `.github/workflows/test.yml` runs `flutter analyze` +
 `flutter test` on every pull request and on push to `main`.
-`.github/workflows/personal-ios.yml` (the iPhone build) runs only when dispatched. `test/` is large
-and not flat
-(it has `adapters/`, `support/`, and other subdirectories alongside the
-top-level test files). Several regression tests are named for the bug they pin
+`.github/workflows/package-tests.yml` separately runs the protocol and analytics packages' own
+test directories; the root Flutter command does not discover them. Both workflows support manual
+dispatch. `.github/workflows/personal-ios.yml` (the iPhone build) runs only when dispatched.
+`test/` includes `support/` and other subdirectories alongside the top-level test files;
+there is no current `test/adapters` directory. Several regression tests are named for the bug they pin
 (`readiness_flash_test`, `readiness_freeze_test`, `readiness_saturation_test`,
 `readiness_baseline_pollution_test`). A behavior change with no accompanying
 test is a real finding — CI passing doesn't mean the right test exists.

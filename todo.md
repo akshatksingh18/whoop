@@ -506,6 +506,16 @@ other worktrees remain untouched.
   `build-96-audit.md` owns scope/limits and `setup.md` owns source/hash/workflow evidence.
   A+B, all features, scientific coefficients, algorithm 97 and schema 50 remain. Optional Body
   deletion Undo is deferred for its profile/photo recovery contract; pixel and phone gaps remain.
+- [ ] 3m. Build 98 (`0.9.65+98`, algorithm 98, schema 50) implements all eighteen
+  B97-01–18 repairs from `build-97-audit.md`: canonical/imported Body history, complete nested
+  validation, atomic and replay-safe module/config imports, partial-restore reporting/refresh,
+  acknowledged settings/buzz actions, private aggregates, recorded-zone dates, replayable Home
+  events, visible/retryable pause/draft persistence, retained editor drafts and large-text actions.
+  `test/build98_integrity_test.dart`, `build98_boundary_test.dart` and `build98_nested_render_test.dart`
+  assert the desired behavior using synthetic data. All 44 targeted checks pass (22 deep-flow,
+  18 boundary and four normal/3.1x full-scroll interactions). Eight iOS contract checks pass. Full GitHub analysis/suite/whole-page visuals, native build and
+  downloaded IPA validation are pending. No successor binary is delivered yet. No feature,
+  dependency, schema or scientific coefficient changed; algorithm 98 versions date attribution.
 - [ ] 4. Akshat's phone acceptance: recheck the repaired B96-01–07 flows, then the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.
 
@@ -568,13 +578,12 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: Validated Build 97 app source `bde5818b` is integrated from `build-97` to `main`.
-  All seven B96 faults and the selected enhancements are implemented; full cloud/visual/native
-  checks and IPA validation pass. The earlier 29 repairs (`c52cedbd`, `88209956`) are retained.
-  Akshat approved the full-page checks and assigned Codex the entire integration and release.
-  `build-96-audit.md` owns the new checklist; `build-95-repairs.md` retains the earlier evidence. Full cloud checks and the new
-  validated IPA pass; `setup.md` owns source/hash/workflow records. Existing other checkouts
-  remain untouched. Phone acceptance remains open.
+- Codex: All eighteen B97 findings have source repairs on `build-98`, with desired-behavior
+  synthetic regression files and expanded real import/editor interactions. Build 98 is `0.9.65+98`,
+  algorithm 98/schema 50. All 44 targeted checks pass; full cloud/visual/native release
+  verification is pending (3m). Build 97 remains cached until a validated replacement.
+  `build-97-audit.md` owns repair coverage; `setup.md` owns workflow/artifact evidence. No work is
+  waiting on Claude, and existing other checkouts remain untouched. Phone acceptance stays open.
   Independent calorie/recovery review is complete in
   `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.
   Both reproduced calorie issues were approved and fixed in Build 90 (algorithm 96): stored

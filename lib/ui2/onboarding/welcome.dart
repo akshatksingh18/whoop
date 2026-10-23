@@ -417,6 +417,8 @@ Future<ImportOutcome> runImport(
   String nameOf(String path) => path.split(RegExp(r'[\\/]')).last;
   try {
     for (final p in db) {
+      var counted = false;
+      var attempted = false;
       try {
         if (await Directory('$p.photos').exists()) {
           await validateMediaPhotoFiles(
@@ -424,10 +426,13 @@ Future<ImportOutcome> runImport(
             await mediaSnapshotPhotoNames(p),
           );
         }
+        attempted = true;
         days += await app.importEdgeBackup(p);
         records += app.lastImportRecords;
+        counted = true;
         await _commitRestorePhotos(p);
       } catch (e) {
+        if (attempted && !counted) records += app.lastImportRecords;
         firstError ??= e;
         failed.add(decrypted.contains(p) ? 'the encrypted backup' : nameOf(p));
         continue;

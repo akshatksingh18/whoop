@@ -98,6 +98,7 @@ jobs:
           flutter test --concurrency=1 --dart-define=UI_CAPTURE=true
           test/build87_redesign_render_test.dart
           test/build95_repair_render_test.dart
+          test/build98_nested_render_test.dart
           --reporter=expanded
       - name: Build local image index
         if: always()

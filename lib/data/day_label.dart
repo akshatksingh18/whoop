@@ -14,6 +14,16 @@
 import 'day_zone_rules.dart';
 export 'day_zone_rules.dart';
 
+bool isDayLabel(String value) {
+  final d = DateTime.tryParse(value);
+  return RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value) &&
+      d != null &&
+      dayLabelOf(d) == value;
+}
+
+String dayLabelAt(DateTime instant) =>
+    dayLabelAtSec(instant.millisecondsSinceEpoch ~/ 1000);
+
 /// An absolute instant uses its persisted travel-day assignment when available.
 String dayLabelAtSec(int second) =>
     DayClock.at(second)?.date ??

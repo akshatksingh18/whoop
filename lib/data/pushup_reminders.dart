@@ -520,9 +520,12 @@ class Pushups {
           today: dayLabelOf(DateTime.now()),
         );
         if (s == null) continue;
+        if (s.receipts.contains(e.receipt)) continue;
+        s.receipts.add(e.receipt);
         if (what == 'pause') {
           s.log(
             PushupEvent(
+              id: e.receipt,
               at: e.at,
               kind: PushupEventKind.pause,
               source: kHomeAwayReason,
@@ -535,6 +538,7 @@ class Pushups {
           final now = DateTime.now();
           s.log(
             PushupEvent(
+              id: e.receipt,
               at: now,
               kind: PushupEventKind.resume,
               source: kHomeAwayReason,
@@ -545,7 +549,9 @@ class Pushups {
           s.anchor = now.add(Duration(minutes: s.interval));
         }
       }
+      if (s != null) await _commit(s);
       await HomeRegion.saveAutomation(auto);
+      await HomeRegion.acknowledge(events.map((e) => e.receipt));
     }
     // A day still open after its own midnight ends at that midnight.
     final now = DateTime.now();

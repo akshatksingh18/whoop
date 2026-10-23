@@ -198,26 +198,28 @@ class _DataScreenState extends State<DataScreen> {
     if (path == null) return ('', false);
     final plan = await planLiftImport(await File(path).readAsString());
     if (!mounted) return ('', false);
-    if (plan.add.isEmpty) {
+    if (plan.add.isEmpty && plan.splits == null) {
       return (
         'Nothing new: ${plan.unchanged} already here'
             '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and were left alone'}.',
         false,
       );
     }
-    final sets = plan.add.fold<int>(0, (n, w) => n + w.setCount);
-    final ok = await confirmRemove(
-      context,
-      title: 'Import ${plan.add.length} workouts?',
-      body:
-          '$sets sets from ${_stamp(plan.add.last.startedAt)} to '
-          '${_stamp(plan.add.first.startedAt)}. ${plan.unchanged} already here'
-          '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and stay as they are'}. '
-          'They join your lift history for last-time and records only.',
-      remove: 'Import',
-      keep: 'Cancel',
-    );
-    if (!ok) return ('', false);
+    if (plan.add.isNotEmpty) {
+      final sets = plan.add.fold<int>(0, (n, w) => n + w.setCount);
+      final ok = await confirmRemove(
+        context,
+        title: 'Import ${plan.add.length} workouts?',
+        body:
+            '$sets sets from ${_stamp(plan.add.last.startedAt)} to '
+            '${_stamp(plan.add.first.startedAt)}. ${plan.unchanged} already here'
+            '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and stay as they are'}. '
+            'They join your lift history for last-time and records only.',
+        remove: 'Import',
+        keep: 'Cancel',
+      );
+      if (!ok || !mounted) return ('', false);
+    }
     var useSplits = false;
     if (plan.splits != null && mounted) {
       useSplits = await confirmRemove(
@@ -255,7 +257,8 @@ class _DataScreenState extends State<DataScreen> {
     if (n > 0 || links.isNotEmpty) app.publishSessionChange();
     return (
       '$n workouts imported'
-          '${links.isEmpty ? '' : ', ${links.length} linked to WHOOP sessions'}.',
+          '${links.isEmpty ? '' : ', ${links.length} linked to WHOOP sessions'}.'
+          '${useSplits ? ' Splits saved.' : ''}',
       false,
     );
   }
@@ -286,6 +289,12 @@ class _DataScreenState extends State<DataScreen> {
     );
     if (!mounted) return ('', false);
     if (plan.isEmpty) {
+      if (plan.missingPhotoFiles.isNotEmpty) {
+        return (
+          'No records imported. ${plan.missingPhotoFiles.length} photo files were not selected. Select the manifest and its photo files together, then try again.',
+          true,
+        );
+      }
       return (
         'Nothing new: ${plan.alreadyHere} already here'
             '${plan.sameDayConflicts.isEmpty ? '' : ', ${plan.sameDayConflicts.length} days hold a different weight and were left alone'}.',
@@ -470,26 +479,21 @@ class _DataScreenState extends State<DataScreen> {
     if (path == null) return ('', false);
     final plan = await planPushupImport(await File(path).readAsString());
     if (!mounted) return ('', false);
-    if (plan.add.isEmpty) {
-      return (
-        'Nothing new: ${plan.unchanged} days already here'
-            '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and were left alone'}.',
-        false,
+    if (plan.add.isNotEmpty) {
+      final sets = plan.add.fold<int>(0, (n, s) => n + s.count);
+      final ok = await confirmRemove(
+        context,
+        title: 'Import ${plan.add.length} Pushups days?',
+        body:
+            '$sets sets from ${plan.add.last.day} to ${plan.add.first.day}. '
+            '${plan.unchanged} already here'
+            '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and stay as they are'}. '
+            'No reminders are started; AkshatOS keeps its own copy.',
+        remove: 'Import',
+        keep: 'Cancel',
       );
+      if (!ok || !mounted) return ('', false);
     }
-    final sets = plan.add.fold<int>(0, (n, s) => n + s.count);
-    final ok = await confirmRemove(
-      context,
-      title: 'Import ${plan.add.length} Pushups days?',
-      body:
-          '$sets sets from ${plan.add.last.day} to ${plan.add.first.day}. '
-          '${plan.unchanged} already here'
-          '${plan.conflicts.isEmpty ? '' : ', ${plan.conflicts.length} differ and stay as they are'}. '
-          'No reminders are started; AkshatOS keeps its own copy.',
-      remove: 'Import',
-      keep: 'Cancel',
-    );
-    if (!ok || !mounted) return ('', false);
     final useSettings = await confirmRemove(
       context,
       title: 'Use its settings too?',
@@ -499,8 +503,12 @@ class _DataScreenState extends State<DataScreen> {
       remove: 'Use them',
       keep: 'Keep mine',
     );
+    if (!mounted) return ('', false);
     final n = await applyPushupImport(plan, useSettings: useSettings);
-    return ('$n Pushups days imported.', false);
+    return (
+      '$n Pushups days imported.${useSettings ? ' Settings saved.' : ''}${plan.conflicts.isEmpty ? '' : ' ${plan.conflicts.length} different days were left alone.'}',
+      false,
+    );
   }
 
   Future<_Note> _exportPushups() async {

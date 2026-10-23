@@ -10,12 +10,13 @@
 //
 // Native side: `HomeRegionBridge` in ios/Runner/AppDelegate.swift. It is
 // created at launch so a region event that relaunches the app is delivered,
-// and it keeps events in a small durable inbox until Dart drains them.
+// and it keeps events in a small durable inbox until Dart acknowledges them.
 
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../state/prefs.dart';
 
 import 'pushups.dart' show HomeAutomation, HomePresence;
 
@@ -196,14 +197,12 @@ class HomeRegion {
   }
 
   static Future<void> saveAutomation(HomeAutomation a) async {
-    await (await SharedPreferences.getInstance()).setString(
-      _stateKey,
-      jsonEncode(a.toJson()),
-    );
+    await Prefs.saveValues({_stateKey: jsonEncode(a.toJson())});
   }
 
-  /// Boundary events the bridge has kept since the last drain, oldest first.
-  static Future<List<({HomePresence presence, DateTime at})>> drain() async {
+  /// Peek pending boundary events, oldest first. Reading never consumes them.
+  static Future<List<({HomePresence presence, DateTime at, String receipt})>>
+  drain() async {
     try {
       final list =
           await _channel.invokeListMethod<Object?>('drain') ?? const [];
@@ -211,6 +210,7 @@ class HomeRegion {
         for (final e in list)
           if (e is Map && e['at'] is num)
             (
+              receipt: 'home:${e['id'] ?? '${e['kind']}:${e['at']}'}',
               presence: switch (e['kind']) {
                 'enter' || 'inside' => HomePresence.inside,
                 'exit' || 'outside' => HomePresence.outside,
@@ -224,5 +224,14 @@ class HomeRegion {
     } catch (_) {
       return const [];
     }
+  }
+
+  /// Native keeps events until both the session receipt and automation state
+  /// are durable. Failed acknowledgement is safe: the receipt makes replay inert.
+  static Future<void> acknowledge(Iterable<String> receipts) async {
+    await _channel.invokeMethod<void>(
+      'ack',
+      receipts.map((s) => s.substring(5)).toList(),
+    );
   }
 }

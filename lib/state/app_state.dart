@@ -394,11 +394,26 @@ class AppState extends ChangeNotifier {
     // do not add it back here. Its inflate checks the gzip trailer, so a
     // truncated backup fails loudly; `gzip.decoder` returns partial output
     // without raising and would restore short while reporting success.
-    final counts = await LocalDb.importFromDbFile(path);
+    final Map<String, int> counts;
+    try {
+      counts = await LocalDb.importFromDbFile(path);
+    } on DbImportException catch (e) {
+      lastImportRecords = e.records;
+      if (e.records > 0) {
+        publishSessionChange();
+        NutritionDb.changed();
+        importRollupError =
+            'Restore stopped after committed rows. Retry the backup, then rebuild if needed.';
+        bumpInsights();
+        notifyListeners();
+      }
+      rethrow;
+    }
     lastImportRecords = counts.entries
         .where((e) => !e.key.startsWith('_'))
         .fold(0, (a, e) => a + e.value);
     publishSessionChange(); // committed restore, even if rollup rebuilding fails
+    NutritionDb.changed();
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await _derive.finalizeImport(_profile);
@@ -445,8 +460,7 @@ class AppState extends ChangeNotifier {
     // enabled — rows that then keep overriding the band, since `disablePhone
     // Steps` is the only thing that clears them and the user never sees the
     // toggle on to turn it off.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kPhoneSteps, ok);
+    await Prefs.saveValues({_kPhoneSteps: ok});
     phoneStepsEnabled = ok;
     _startCadence();
     notifyListeners();
@@ -497,8 +511,7 @@ class AppState extends ChangeNotifier {
   /// them from, which is the same limit every other version bump has.
   Future<void> disablePhoneSteps() async {
     // Persist first, for the reason in [requestPhoneSteps].
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kPhoneSteps, false);
+    await Prefs.saveValues({_kPhoneSteps: false});
     phoneStepsEnabled = false;
     _startCadence();
     phoneStepsLastSyncedDays = null;
@@ -3734,12 +3747,13 @@ class AppState extends ChangeNotifier {
   /// Pulse the strap so it can be heard/felt during a find-my-strap hunt.
   /// Unlike [testAlarmBuzz] this NEVER throws — the hunt screen fires it on a
   /// timer and a momentary disconnect must not surface as an error dialog.
-  Future<void> buzzBand() async {
-    if (!isConnected) return;
+  Future<bool> buzzBand() async {
+    if (!isConnected) return false;
     try {
       await engine.buzz();
+      return true;
     } catch (_) {
-      // Best-effort by design: the next tick will try again.
+      return false;
     }
   }
 
@@ -3848,6 +3862,7 @@ class AppState extends ChangeNotifier {
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
     _deriveScheduler.setBackground(false);
+    unawaited(WorkoutClock.retryPending());
     if (_overrideRederivePending) {
       _overrideRederivePending = false;
       unawaited(_reanalyzeForOverride());

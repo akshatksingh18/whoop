@@ -9,6 +9,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'prefs.dart';
 
 /// A whole system at once — for seeding a controller (tests, start-up
 /// fallback). The preferences themselves are per measure.
@@ -99,28 +100,22 @@ class UnitsController extends ChangeNotifier {
 
   Future<void> setWeightUnit(String unit) async {
     final lb = unit == 'lb';
-    if (_lb == lb) return;
+    await Prefs.saveValues({kWeightPref: lb ? 'lb' : 'kg'});
     _lb = lb;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kWeightPref, weightUnit);
   }
 
   Future<void> setDistanceUnit(String unit) async {
     final miles = unit == 'mi';
-    if (_miles == miles) return;
+    await Prefs.saveValues({kDistancePref: miles ? 'mi' : 'km'});
     _miles = miles;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kDistancePref, distanceUnit);
   }
 
   Future<void> setHeightUnit(HeightUnit unit) async {
-    if (_height == unit) return;
+    await Prefs.saveValues({kHeightPref: unit.name});
     _height = unit;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kHeightPref, unit.name);
   }
 
   // ── display (input is always metric, as stored) ────────────────────────────

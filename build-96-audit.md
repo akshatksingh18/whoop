@@ -6,6 +6,8 @@
 550 synthetic captures. Native run `39815817300` and downloaded IPA validation pass. It replaces
 Build 96 in the testing cache. Installation and physical iPhone acceptance remain unreported;
 `setup.md` owns exact source/hash/workflow evidence.
+The successor audit `build-97-audit.md` finds eighteen additional faults in the unchanged Build 97
+source. These original seven remain repaired. The eighteen have Build 98 source repairs; successor verification is tracked in `todo.md` 3m.
 
 ## Repair contract and verification
 
@@ -170,6 +172,8 @@ Flutter captures with a font substitute, not new native-iPhone screenshots.
 ## Flow families reviewed
 
 This is an evidence map, not a claim that every possible click sequence was executed.
+It describes the earlier review's conclusions. `build-97-audit.md` supersedes its clean-path
+conclusions where newer failure/travel/private-input probes found additional faults.
 
 | Family | Paths traced | Current conclusion |
 |---|---|---|
@@ -233,5 +237,6 @@ tooling drift, not an app-flow failure; its `init` refresh can wait and is not p
 
 The authorized repair bundle is implemented above. Full cloud checks, synthetic visual
 artifacts, native compilation and downloaded IPA validation pass at the same source. The
-remaining acceptance gate is the real-device matrix. The original diagnostic harness remains
+successor audit's eighteen findings have Build 98 source repairs and require successor verification in addition to the real-device
+matrix. The original diagnostic harness remains
 reproduction evidence; native phone gestures, OS delivery and background behavior remain separate gates.

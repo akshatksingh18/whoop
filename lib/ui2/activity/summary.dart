@@ -956,7 +956,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final repo = repoOf(context);
     if (v == null || !v.isRun || repo == null) return;
     try {
-      final all = await loadRuns(repo);
+      final all = await loadRuns(repo, includePrivate: false);
       if (!mounted) return;
       setState(
         () => _earlier = [

@@ -145,7 +145,7 @@ class ProgressData {
       ...photos.map((x) => x.date),
       ...food.map((x) => x.date),
       ...sessions.map((x) => x.date),
-      ...lifts.map((x) => dayLabelOf(x.startedAt)),
+      ...lifts.map((x) => dayLabelAt(x.startedAt)),
       ...steps.map((x) => x.date),
       ...sleepMin.map((x) => x.date),
       ...recovery.map((x) => x.date),
@@ -194,11 +194,7 @@ class ProgressData {
     final user = c.read<AppState>().user ?? const {};
     final db = await LocalDb.instance;
     List<DatedValue> chart(Map<String, dynamic>? m) => [
-      for (final p in pointsOf(m))
-        (
-          date: dayLabelOf(DateTime.fromMillisecondsSinceEpoch(p.t * 1000)),
-          value: p.v,
-        ),
+      for (final p in pointsOf(m)) (date: dayLabelAtSec(p.t), value: p.v),
     ];
     final errors = <String>[];
     Future<T> read<T>(String label, Future<T> future, T fallback) async {
@@ -265,7 +261,7 @@ class ProgressData {
       ),
       lifts: await read(
         'Lifts',
-        LiftLogDb.finished(),
+        LiftLogDb.finished(includePrivate: false),
         previous?.lifts ?? <LiftWorkout>[],
       ),
       food: errors.contains('Food') && previous != null
@@ -292,11 +288,7 @@ class ProgressData {
                     r['private'] != 1 &&
                     r['end_ts_fabricated'] != 1)
                   (
-                    date: dayLabelOf(
-                      DateTime.fromMillisecondsSinceEpoch(
-                        (r['start_ts'] as num).toInt() * 1000,
-                      ),
-                    ),
+                    date: dayLabelAtSec((r['start_ts'] as num).toInt()),
                     type: (r['type'] as String?) ?? '',
                   ),
             ],

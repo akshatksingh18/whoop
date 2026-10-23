@@ -8,6 +8,7 @@
 // recovery + reminders stay silent during the quiet window.
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../state/prefs.dart';
 
 import 'notification_event.dart';
 import 'tap_router.dart';
@@ -115,27 +116,28 @@ class NotificationPrefs {
       quietEndMin: p.getInt(_kQuietEnd) ?? 7 * 60,
       criticalOverridesQuiet: p.getBool(_kCriticalOverride) ?? true,
       autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
-      batteryAlertPct: ((p.getInt(_kBatteryPct) ?? batteryPctDefault)
-              .clamp(batteryPctMin, batteryPctMax))
-          .toInt(),
+      batteryAlertPct: ((p.getInt(_kBatteryPct) ?? batteryPctDefault).clamp(
+        batteryPctMin,
+        batteryPctMax,
+      )).toInt(),
       mutedFindings: {...?p.getStringList(_kMutedFindings)},
     );
   }
 
   Future<void> save() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setBool(_kHealth, healthEnabled);
-    await p.setBool(_kRecovery, recoveryEnabled);
-    await p.setBool(_kReminders, remindersEnabled);
-    await p.setBool(_kDevice, deviceEnabled);
-    await p.setBool(_kQuietEnabled, quietEnabled);
-    await p.setInt(_kQuietStart, quietStartMin);
-    await p.setInt(_kQuietEnd, quietEndMin);
-    await p.setBool(_kCriticalOverride, criticalOverridesQuiet);
-    await p.setBool(_kAutoDetect, autoDetectEnabled);
-    await p.setInt(
-        _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax).toInt());
-    await p.setStringList(_kMutedFindings, mutedFindings.toList()..sort());
+    await Prefs.saveValues({
+      _kHealth: healthEnabled,
+      _kRecovery: recoveryEnabled,
+      _kReminders: remindersEnabled,
+      _kDevice: deviceEnabled,
+      _kQuietEnabled: quietEnabled,
+      _kQuietStart: quietStartMin,
+      _kQuietEnd: quietEndMin,
+      _kCriticalOverride: criticalOverridesQuiet,
+      _kAutoDetect: autoDetectEnabled,
+      _kBatteryPct: batteryAlertPct.clamp(batteryPctMin, batteryPctMax).toInt(),
+      _kMutedFindings: mutedFindings.toList()..sort(),
+    });
   }
 
   NotificationPrefs copyWith({
@@ -150,28 +152,27 @@ class NotificationPrefs {
     bool? autoDetectEnabled,
     int? batteryAlertPct,
     Set<String>? mutedFindings,
-  }) =>
-      NotificationPrefs(
-        healthEnabled: healthEnabled ?? this.healthEnabled,
-        recoveryEnabled: recoveryEnabled ?? this.recoveryEnabled,
-        remindersEnabled: remindersEnabled ?? this.remindersEnabled,
-        deviceEnabled: deviceEnabled ?? this.deviceEnabled,
-        quietEnabled: quietEnabled ?? this.quietEnabled,
-        quietStartMin: quietStartMin ?? this.quietStartMin,
-        quietEndMin: quietEndMin ?? this.quietEndMin,
-        criticalOverridesQuiet:
-            criticalOverridesQuiet ?? this.criticalOverridesQuiet,
-        autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
-        batteryAlertPct: batteryAlertPct ?? this.batteryAlertPct,
-        mutedFindings: mutedFindings ?? this.mutedFindings,
-      );
+  }) => NotificationPrefs(
+    healthEnabled: healthEnabled ?? this.healthEnabled,
+    recoveryEnabled: recoveryEnabled ?? this.recoveryEnabled,
+    remindersEnabled: remindersEnabled ?? this.remindersEnabled,
+    deviceEnabled: deviceEnabled ?? this.deviceEnabled,
+    quietEnabled: quietEnabled ?? this.quietEnabled,
+    quietStartMin: quietStartMin ?? this.quietStartMin,
+    quietEndMin: quietEndMin ?? this.quietEndMin,
+    criticalOverridesQuiet:
+        criticalOverridesQuiet ?? this.criticalOverridesQuiet,
+    autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
+    batteryAlertPct: batteryAlertPct ?? this.batteryAlertPct,
+    mutedFindings: mutedFindings ?? this.mutedFindings,
+  );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {
-        NotifCategory.health => healthEnabled,
-        NotifCategory.recovery => recoveryEnabled,
-        NotifCategory.reminders => remindersEnabled,
-        NotifCategory.device => deviceEnabled,
-      };
+    NotifCategory.health => healthEnabled,
+    NotifCategory.recovery => recoveryEnabled,
+    NotifCategory.reminders => remindersEnabled,
+    NotifCategory.device => deviceEnabled,
+  };
 
   /// True if [minuteOfDay] falls inside the quiet window (inclusive start,
   /// exclusive end), handling the midnight-wrap case.

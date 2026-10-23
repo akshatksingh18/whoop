@@ -4,6 +4,7 @@
 // way the automatic rule (`dayLogState`) still decides an unmarked day.
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../state/prefs.dart';
 
 import '../notify/notification_event.dart';
 import '../notify/notification_service.dart';
@@ -30,7 +31,7 @@ class FoodDayReminder {
   }
 
   static Future<void> setEnabled(bool on) async {
-    await (await SharedPreferences.getInstance()).setBool(_kOn, on);
+    await Prefs.saveValues({_kOn: on});
     await arm();
   }
 
@@ -51,7 +52,8 @@ class FoodDayReminder {
       id: NotificationService.idFoodDayReminder,
       category: NotifCategory.reminders,
       title: "Is today's food complete?",
-      body: 'Mark it complete, or leave it — a day with half your goal or '
+      body:
+          'Mark it complete, or leave it — a day with half your goal or '
           'more counts on its own.',
       hour: t.hour,
       minute: t.minute,

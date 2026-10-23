@@ -14,6 +14,15 @@ clock before final writes. Cold retry replays it, even beyond the live-resume ag
 privacy/RPE retain their current stored values. Local and full cloud regressions preserve end/profile/trace and
 measured summary fields across restart. No native background behavior is claimed by these tests.
 
+Build 98 repairs `build-97-audit.md` B97-09/17/18. Home-region reads retain the native inbox;
+Dart persists session receipts and automation before acknowledging event IDs. Failed session or
+preference writes replay without duplicate transitions. Pause/draft save failures expose retry,
+including on foreground return, and retain their original instants. Partial paged restores report
+committed rows, reconcile derived projections/cache and publish refresh revisions even on failure.
+Synthetic failure/replay tests support these contracts; full successor checks are pending in
+`todo.md` 3m. Real region delivery, termination and background scheduling remain phone gates.
+BLE commit-before-ACK remains unchanged; algorithm 98 only changes recorded-zone attribution.
+
 The following background contract originated in Build 86 and retains subsequent repairs.
 Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task

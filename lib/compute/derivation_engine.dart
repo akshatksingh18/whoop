@@ -1675,7 +1675,10 @@ import 'substrate.dart';
 //   a workout still running (no end yet) as saved up to the data edge, so a
 //   derive during a live walk no longer files that walk as an unlogged
 //   effort; stored `workout_suggestions` change for days with a live session.
-const int kAlgoVersion = 97;
+// v98: session energy/profile and legacy run-day attribution use the stored
+// day-zone timeline rather than the current phone zone. No energy or recovery
+// coefficient changes. Recompute retained inputs under their recorded days.
+const int kAlgoVersion = 98;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -2584,7 +2587,6 @@ class DerivationEngine {
         ..['active_days'] = const <String>[]
         ..['finished_at'] = finishedAt
         ..['duration_ms'] = finishedAt - startedAt;
-
     }
   }
 
@@ -4917,12 +4919,7 @@ class DerivationEngine {
       final start = (r['start_ts'] as num?)?.toInt();
       final type = r['type']?.toString();
       if (start == null || type == null || type.isEmpty) continue;
-      out
-          .putIfAbsent(
-            dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000)),
-            () => <String>[],
-          )
-          .add(type);
+      out.putIfAbsent(dayLabelAtSec(start), () => <String>[]).add(type);
     }
     return out;
   }
@@ -6881,8 +6878,12 @@ class DerivationEngine {
           brpm = seam(nn, nnt);
         } else {
           final clock = ana.rrBeatClock(nn, rrTsMs: nnt);
-          final est = ana.rsaRespRate(nn, clock.timesMs, artifactFraction: 0.15,
-              gapBefore: clock.reanchorBefore);
+          final est = ana.rsaRespRate(
+            nn,
+            clock.timesMs,
+            artifactFraction: 0.15,
+            gapBefore: clock.reanchorBefore,
+          );
           brpm = est.present ? est.value!.brpm : null;
         }
         // Advance the cadence cursor on every ATTEMPT, not just on a successful
@@ -7730,11 +7731,16 @@ class DerivationEngine {
     );
 
     bundlePatch['day_zone'] = DayClock.forDate(inp.date)?.toRow();
-    bundlePatch['sleep_spans_zone_change'] = DayClock.spansZoneChange(onset, offset);
+    bundlePatch['sleep_spans_zone_change'] = DayClock.spansZoneChange(
+      onset,
+      offset,
+    );
     bundlePatch['sleep_onset_local_min'] = onset > 0
-        ? DayClock.localAt(onset).hour * 60 + DayClock.localAt(onset).minute : null;
+        ? DayClock.localAt(onset).hour * 60 + DayClock.localAt(onset).minute
+        : null;
     bundlePatch['sleep_wake_local_min'] = offset > 0
-        ? DayClock.localAt(offset).hour * 60 + DayClock.localAt(offset).minute : null;
+        ? DayClock.localAt(offset).hour * 60 + DayClock.localAt(offset).minute
+        : null;
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
     seriesPatch['hrv_day'] = dayHrvCurve(daySub);
     seriesPatch['resp_day'] = dayRespCurve(daySub);

@@ -123,6 +123,19 @@ class _MoreSettingsState extends State<MoreSettings> {
     });
   }
 
+  Future<void> _setting(Future<dynamic> Function() write) async {
+    try {
+      await write();
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('Could not save that setting. Try again.'),
+          ),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
@@ -145,18 +158,24 @@ class _MoreSettingsState extends State<MoreSettings> {
       onAlarm: () => goto(c, const AlarmScreen()),
       onNotifications: () => goto(c, const NotificationSettings()),
       onData: () => goto(c, const DataScreen()),
-      onCycleWeight: () => units.setWeightUnit(units.isLb ? 'kg' : 'lb'),
-      onCycleDistance: () => units.setDistanceUnit(units.isMiles ? 'km' : 'mi'),
-      onCycleHeight: () => units.setHeightUnit(
-        units.heightUnit == HeightUnit.ftIn ? HeightUnit.cm : HeightUnit.ftIn,
+      onCycleWeight: () =>
+          _setting(() => units.setWeightUnit(units.isLb ? 'kg' : 'lb')),
+      onCycleDistance: () =>
+          _setting(() => units.setDistanceUnit(units.isMiles ? 'km' : 'mi')),
+      onCycleHeight: () => _setting(
+        () => units.setHeightUnit(
+          units.heightUnit == HeightUnit.ftIn ? HeightUnit.cm : HeightUnit.ftIn,
+        ),
       ),
       onCycleAppearance: () => theme.setChoice(
         AppThemeChoice.values[(theme.choice.index + 1) %
             AppThemeChoice.values.length],
       ),
-      onTogglePhoneSteps: () => app.phoneStepsEnabled
-          ? app.disablePhoneSteps()
-          : app.requestPhoneSteps(),
+      onTogglePhoneSteps: () => _setting(
+        () => app.phoneStepsEnabled
+            ? app.disablePhoneSteps()
+            : app.requestPhoneSteps(),
+      ),
       onToggleBarcodeLookup: () => _toggleBarcode(c),
       onReset: () => _confirmReset(c, app),
     );
@@ -593,7 +612,7 @@ class _NotificationSettingsState extends State<NotificationSettings>
     } catch (_) {
       // Build 92: a switch that did not save goes back, and says so.
       if (!mounted) return;
-      setState(() => _prefs = before);
+      if (identical(_prefs, next)) setState(() => _prefs = before);
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text('Could not save that setting. Try again.'),

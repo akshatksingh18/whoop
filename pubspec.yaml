@@ -4,7 +4,7 @@ publish_to: 'none'
 # Keep the RunnerTests MARKETING_VERSION/CURRENT_PROJECT_VERSION in
 # ios/Runner.xcodeproj/project.pbxproj aligned; Runner uses Flutter's values.
 # See guides/IOS_INSTALLATION.md, "Version alignment".
-version: 0.9.64+97
+version: 0.9.65+98
 
 environment:
   sdk: ^3.11.4

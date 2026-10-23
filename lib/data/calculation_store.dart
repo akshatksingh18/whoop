@@ -1,29 +1,52 @@
 // Calculation anchors belong to the lossless database backup. Preferences are
 // a synchronous cache for live timing; settings and secrets are not copied.
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 import 'db.dart';
 
 class CalculationStore {
   static const prefix = 'calculation:';
+
+  /// Commit configuration with the history it belongs to; refresh preference
+  /// mirrors only after the encompassing transaction has committed.
+  static Future<void> writeIn(
+    DatabaseExecutor db,
+    String key,
+    String value,
+  ) async {
+    await db.insert('baselines', {
+      'key': '$prefix$key',
+      'payload_json': value,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
   static Future<String?> read(String key) async {
     final row = await LocalDb.baseline('$prefix$key');
-    final p = await SharedPreferences.getInstance();
-    final value = row?['payload_json'] as String? ?? p.getString(key);
-    if (row == null && value != null) {
+    String? cached;
+    SharedPreferences? p;
+    try {
+      p = await SharedPreferences.getInstance();
+      cached = p.getString(key);
+    } catch (_) {}
+    final value = row?['payload_json'] as String? ?? cached;
+    if (row == null && value != null)
       await LocalDb.putBaseline('$prefix$key', value);
-    }
-    if (value != null && p.getString(key) != value) {
-      await p.setString(key, value);
+    if (value != null && p != null && cached != value) {
+      try {
+        await p.setString(key, value);
+      } catch (_) {}
     }
     return value;
   }
 
   static Future<void> write(String key, String value) async {
     await LocalDb.putBaseline('$prefix$key', value);
-    final p = await SharedPreferences.getInstance();
-    if (!await p.setString(key, value)) {
-      throw StateError('Calculation cache did not save');
-    }
+    // The committed database is authoritative. A failed cache mirror must not
+    // report a rolled-back history/configuration write or invite duplicates.
+    try {
+      await (await SharedPreferences.getInstance()).setString(key, value);
+    } catch (_) {}
   }
 
   static Future<void> remove(String key) async {
@@ -66,12 +89,16 @@ class CalculationStore {
     if (rows.isEmpty) {
       return; // Legacy database-only restores have no preference cache to populate.
     }
-    final p = await SharedPreferences.getInstance();
-    for (final row in rows) {
-      await p.setString(
-        (row['key'] as String).substring(prefix.length),
-        row['payload_json'] as String,
-      );
+    try {
+      final p = await SharedPreferences.getInstance();
+      for (final row in rows) {
+        await p.setString(
+          (row['key'] as String).substring(prefix.length),
+          row['payload_json'] as String,
+        );
+      }
+    } catch (_) {
+      /* Rebuilt from the database on the next open/read. */
     }
   }
 }

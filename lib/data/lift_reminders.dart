@@ -3,6 +3,7 @@
 // motion, so the reduced-motion Duration rule does not apply to them.
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../state/prefs.dart';
 
 import '../notify/notification_event.dart';
 import '../notify/notification_service.dart';
@@ -45,7 +46,11 @@ class LiftReminders {
     await NotificationService.instance.cancel(
       NotificationService.idLiftInactivity,
     );
-    await RestTimer.skip();
+    // The finished workout is already durable. A failed auxiliary deadline
+    // cache must not make that save look unsuccessful; skip still cancels iOS.
+    try {
+      await RestTimer.skip();
+    } catch (_) {}
   }
 }
 
@@ -73,7 +78,7 @@ class RestTimer {
       (await _p())?.getInt(_defaultKey) ?? 0;
 
   static Future<void> setDefault(int sec) async =>
-      (await _p())?.setInt(_defaultKey, sec);
+      Prefs.saveValues({_defaultKey: sec});
 
   static Future<int> forExercise(String name) async {
     final p = await _p();
@@ -92,7 +97,7 @@ class RestTimer {
   static Future<void> start(int sec, {String? sessionId}) async {
     if (sec <= 0) return;
     final d = DateTime.now().add(Duration(seconds: sec));
-    await (await _p())?.setInt(_deadlineKey, d.millisecondsSinceEpoch);
+    await Prefs.saveValues({_deadlineKey: d.millisecondsSinceEpoch});
     await NotificationService.instance.scheduleOnce(
       id: NotificationService.idRestTimer,
       category: NotifCategory.reminders,
@@ -113,8 +118,12 @@ class RestTimer {
   }
 
   static Future<void> skip() async {
-    await (await _p())?.remove(_deadlineKey);
-    await NotificationService.instance.cancel(NotificationService.idRestTimer);
+    try {
+      await Prefs.saveValues({_deadlineKey: null});
+    } finally {
+      await NotificationService.instance.cancel(
+        NotificationService.idRestTimer,
+      );
+    }
   }
 }
-

@@ -301,7 +301,7 @@ class LiveDraft {
   static void clear() {
     _loaded = true;
     _current = null;
-    Prefs.setString(_key, '');
+    _save();
   }
 
   /// Wall-clock seconds this session has been running, pauses removed.
@@ -335,21 +335,38 @@ class LiveDraft {
     _save();
   }
 
+  static final saveError = ValueNotifier<String?>(null);
+  static String? _pendingSave;
+  static Future<void> retrySave() async {
+    final value = _pendingSave;
+    if (value == null) return;
+    try {
+      await Prefs.saveValues({_key: value});
+      if (_pendingSave == value) {
+        _pendingSave = null;
+        saveError.value = null;
+      }
+    } catch (_) {
+      if (_pendingSave == value)
+        saveError.value =
+            'Workout entries have not saved. Keep WHOOP open and retry.';
+    }
+  }
+
   static void _save() {
     final d = _current;
-    if (d == null) return Prefs.setString(_key, '');
-    Prefs.setString(
-      _key,
-      jsonEncode({
-        'a': d.activityKey,
-        'private': d.private,
-        'weight': d.weightKg,
-        'start': d.startedAt.millisecondsSinceEpoch,
-        'paused_sec': d.pausedSec,
-        'paused_at': d.pausedAt?.millisecondsSinceEpoch,
-        'data': d.data,
-      }),
-    );
+    _pendingSave = d == null
+        ? ''
+        : jsonEncode({
+            'a': d.activityKey,
+            'private': d.private,
+            'weight': d.weightKg,
+            'start': d.startedAt.millisecondsSinceEpoch,
+            'paused_sec': d.pausedSec,
+            'paused_at': d.pausedAt?.millisecondsSinceEpoch,
+            'data': d.data,
+          });
+    unawaited(retrySave());
   }
 
   static LiveDraft? _decode(String raw) {
@@ -487,7 +504,7 @@ class LiveShell extends StatefulWidget {
   State<LiveShell> createState() => LiveShellState();
 }
 
-class LiveShellState extends State<LiveShell> {
+class LiveShellState extends State<LiveShell> with WidgetsBindingObserver {
   /// Seeded from the draft, so reopening a minimised session — or relaunching
   /// after a kill — carries on from where the session actually is rather than
   /// from zero.
@@ -506,6 +523,8 @@ class LiveShellState extends State<LiveShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(LiveDraft.retrySave());
     // The session clock is real time, not motion: it runs whether or not the
     // platform wants animation, and it stops in dispose so nothing outlives
     // the screen. With a draft it is READ from wall time rather than counted
@@ -523,7 +542,16 @@ class LiveShellState extends State<LiveShell> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(LiveDraft.retrySave());
+      unawaited(WorkoutClock.retryPending());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _t?.cancel();
     clock.dispose();
     super.dispose();
@@ -705,6 +733,29 @@ class LiveShellState extends State<LiveShell> {
                   ),
                 ),
               ),
+            ),
+            ListenableBuilder(
+              listenable: Listenable.merge([
+                WorkoutClock.saveError,
+                LiveDraft.saveError,
+              ]),
+              builder: (c, _) {
+                final error =
+                    WorkoutClock.saveError.value ?? LiveDraft.saveError.value;
+                if (error == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.all(S.x4),
+                  child: StatusCard(
+                    'Workout changes not saved',
+                    error,
+                    fix: 'Retry save',
+                    onFix: () async {
+                      await WorkoutClock.retryPending();
+                      await LiveDraft.retrySave();
+                    },
+                  ),
+                );
+              },
             ),
             if (widget.footer != null)
               Padding(

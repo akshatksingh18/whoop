@@ -2606,7 +2606,6 @@ class BigButton extends StatelessWidget {
                 label,
                 style: F.head.copyWith(color: ink),
                 textAlign: TextAlign.center,
-                maxLines: 2,
               ),
             ),
           ],

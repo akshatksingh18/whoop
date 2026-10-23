@@ -288,7 +288,7 @@ String buildAnalysisMarkdown({
   } else {
     for (final w in lifts) {
       b.writeln(
-        '### ${dayLabelOf(w.startedAt)}${w.splitName == null ? '' : ' — ${w.splitName}'}',
+        '### ${dayLabelAt(w.startedAt)}${w.splitName == null ? '' : ' — ${w.splitName}'}',
       );
       for (final ex in w.exercises) {
         if (ex.sets.isEmpty) continue;
@@ -428,16 +428,12 @@ Future<String> writeAnalysisExport({
       ? [
           ...weights.map((w) => w.date),
           ...measures.map((m) => m.date),
-          ...lifts.map((l) => dayLabelOf(l.startedAt)),
+          ...lifts.map((l) => dayLabelAt(l.startedAt)),
           ...foodsAll.keys,
           for (final s in series.values) ...s.keys,
           for (final s in allSessions)
             if (s['start_ts'] is num)
-              dayLabelOf(
-                DateTime.fromMillisecondsSinceEpoch(
-                  (s['start_ts'] as num).toInt() * 1000,
-                ),
-              ),
+              dayLabelAtSec((s['start_ts'] as num).toInt()),
         ].fold<String>(today, (a, d) => d.compareTo(a) < 0 ? d : a)
       : shiftLabel(today, -(range.days! - 1));
   final marks = await NutritionDb.dayMarks(db, from);
@@ -527,7 +523,7 @@ Future<String> writeAnalysisExport({
     weightReadings: readings,
     lifts: [
       for (final l in lifts)
-        if (dayLabelOf(l.startedAt).compareTo(from) >= 0) l,
+        if (dayLabelAt(l.startedAt).compareTo(from) >= 0) l,
     ],
     measures: [
       for (final m in measures)

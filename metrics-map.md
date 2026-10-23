@@ -10,6 +10,12 @@ Full cloud analysis/tests, synthetic visual checks, native compilation and downl
 validation pass. `setup.md` owns evidence; `todo.md` owns phone gates. Build 70 remains recovery.
 No scientific coefficient or headline formula changes.
 
+Build 98 implements the eighteen `build-97-audit.md` consumer/storage repairs: first-reading
+weights after merge, validated/replay-safe module imports, private Lift/Run presentation filters,
+recorded-zone Food/workout dates, partial-restore refresh and visible live checkpoint failures.
+Algorithm 98 versions session profile/run/day attribution; scientific formulas are unchanged.
+`todo.md` 3m distinguishes focused regressions from pending full release/device verification.
+
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is
 labelled as such only at supported measured speeds. These audit repairs do not tune a coefficient,

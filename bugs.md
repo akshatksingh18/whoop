@@ -15,6 +15,14 @@ hiding lone tape readings, and notification provenance distinguishes submission/
 Build 70 accepted recovery is unchanged. Physical background/restoration, native permission,
 gesture, delivery and current-version signing gates remain open in `todo.md`.
 
+**Build 98 repair state:** all eighteen B97-01–18 findings have source fixes and synthetic
+regressions. Imports validate identities/counts/times and commit history/configuration together;
+Body projection and partial restore readers reconcile; settings acknowledge refusal; private
+summaries and recorded-day consumers follow their contracts. Home events are receipt-protected,
+live checkpoint failures are retryable, editors retain drafts and enlarged action labels remain
+visible. `build-97-audit.md` owns the individual contracts. Full cloud/visual/native checks and
+replacement IPA validation are pending in `todo.md` 3m; these are not device-acceptance claims.
+
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does
 nothing for pairing). Once connected, live data works fine.

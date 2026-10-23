@@ -239,6 +239,7 @@ class GramsSheet extends StatefulWidget {
     this.date,
     this.excludeId,
     this.zeroRemoves = false,
+    this.onSave,
   });
 
   final Map<String, Object?> def;
@@ -247,6 +248,7 @@ class GramsSheet extends StatefulWidget {
   /// Editing a logged entry: 0 is allowed and the button becomes Remove,
   /// returning a zero portion for the caller to delete (Akshat).
   final bool zeroRemoves;
+  final Future<void> Function(Portion)? onSave;
 
   /// The day this amount is logged into (Build 90): shows what is left of
   /// that day's goals after it. Null (a saved meal being built) shows nothing.
@@ -269,6 +271,7 @@ class GramsSheet extends StatefulWidget {
     String? date,
     String? excludeId,
     bool zeroRemoves = false,
+    Future<void> Function(Portion)? onSave,
   }) => _sheet<Portion>(
     c,
     (_) => GramsSheet(
@@ -279,6 +282,7 @@ class GramsSheet extends StatefulWidget {
       date: date,
       excludeId: excludeId,
       zeroRemoves: zeroRemoves,
+      onSave: onSave,
     ),
   );
 
@@ -311,6 +315,26 @@ class _GramsSheetState extends State<GramsSheet> {
   );
 
   NutritionDay? _day;
+  bool _saving = false;
+  String? _saveError;
+  Future<void> _submit(Portion portion) async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    try {
+      await widget.onSave?.call(portion);
+      if (mounted) Navigator.of(context).pop(portion);
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _saveError =
+              'Could not save this portion. Your values are here; try again.';
+        });
+    }
+  }
 
   @override
   void initState() {
@@ -416,16 +440,22 @@ class _GramsSheetState extends State<GramsSheet> {
         ),
       ],
       const SizedBox(height: S.x5),
+      if (_saveError != null)
+        Text(_saveError!, style: F.cap.copyWith(color: p.on(C.red))),
       BigButton(
-        removing ? 'Remove' : widget.action,
+        _saving
+            ? 'Saving…'
+            : removing
+            ? 'Remove'
+            : widget.action,
         color: removing ? C.red : C.domFood,
-        onTap: removing
-            ? () => Navigator.of(c).pop((amount: 0.0, unit: _unit.value, base: 0.0))
+        onTap: _saving
+            ? null
+            : removing
+            ? () => _submit((amount: 0.0, unit: _unit.value, base: 0.0))
             : grams == null || grams <= 0 || base == null
             ? null
-            : () => Navigator.of(
-                c,
-              ).pop((amount: grams, unit: _unit.value, base: base)),
+            : () => _submit((amount: grams, unit: _unit.value, base: base)),
       ),
     ]);
   }

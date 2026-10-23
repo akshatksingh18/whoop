@@ -502,8 +502,13 @@ class PushupDb {
     );
   }
 
-  static Future<void> save(PushupSession s, {String origin = 'whoop'}) async {
-    final db = await LocalDb.instance;
+  static Future<void> save(
+    PushupSession s, {
+    String origin = 'whoop',
+    DatabaseExecutor? database,
+    bool notify = true,
+  }) async {
+    final db = database ?? await LocalDb.instance;
     await db.insert('pushup_session', {
       'id': s.id,
       'day': s.day,
@@ -512,7 +517,7 @@ class PushupDb {
       'json': jsonEncode(s.toJson()),
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    changes.value++;
+    if (notify) changes.value++;
   }
 
   static Future<List<PushupSession>> all() async {
@@ -596,6 +601,11 @@ Future<PushupImportPlan> planPushupImport(String json) async {
     throw const FormatException('This is not a Pushup Reminder backup.');
   }
   final settings = m['settings'];
+  for (final key in ['interval', 'goal']) {
+    final n = settings is Map ? settings[key] : null;
+    if (n is! num || !n.isFinite || n != n.roundToDouble())
+      throw const FormatException('The backup has invalid Pushup settings.');
+  }
   final interval = (settings is Map ? settings['interval'] as num? : null)
       ?.toInt();
   final goal = (settings is Map ? settings['goal'] as num? : null)?.toInt();
@@ -610,6 +620,13 @@ Future<PushupImportPlan> planPushupImport(String json) async {
   final sessions = <PushupSession>[];
   try {
     for (final raw in m['sessions'] as List) {
+      if (raw is! Map) throw const FormatException('Invalid Pushup day');
+      for (final key in ['interval', 'goal']) {
+        final n = raw[key];
+        if (key == 'goal' && n == null) continue;
+        if (n is! num || !n.isFinite || n != n.roundToDouble())
+          throw const FormatException('Invalid Pushup day settings');
+      }
       sessions.add(PushupSession.fromJson(raw as Map));
     }
   } catch (_) {
@@ -619,7 +636,8 @@ Future<PushupImportPlan> planPushupImport(String json) async {
     throw const FormatException('The backup repeats a day.');
   }
   for (final s in sessions) {
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s.day) ||
+    if (!isDayLabel(s.day) ||
+        s.id.trim().isEmpty ||
         s.interval < 1 ||
         s.interval > 180) {
       throw const FormatException(
@@ -629,6 +647,20 @@ Future<PushupImportPlan> planPushupImport(String json) async {
     if (s.isActive) {
       throw const FormatException(
         'The backup has a day still open. End it in AkshatOS, back up again, then import.',
+      );
+    }
+    if (s.ended == null ||
+        s.ended!.isBefore(s.started) ||
+        (s.goal != null && (s.goal! < 0 || s.goal! > 100)) ||
+        s.events.any(
+          (e) =>
+              e.id.trim().isEmpty ||
+              e.at.isBefore(s.started) ||
+              e.at.isAfter(s.ended!),
+        ) ||
+        s.events.map((e) => e.id).toSet().length != s.events.length) {
+      throw const FormatException(
+        'The backup has inconsistent Pushup events or day times. Nothing was imported.',
       );
     }
   }
@@ -656,14 +688,33 @@ Future<int> applyPushupImport(
   PushupImportPlan plan, {
   bool useSettings = false,
 }) async {
-  for (final s in plan.add) {
-    await PushupDb.save(s, origin: 'akshatos');
-  }
-  if (useSettings) {
-    await PushupDb.setInterval(plan.interval);
-    await PushupDb.setGoal(plan.goal);
-  }
-  return plan.add.length;
+  final db = await LocalDb.instance;
+  var added = 0;
+  await db.transaction((tx) async {
+    for (final s in plan.add) {
+      if ((await tx.query(
+        'pushup_session',
+        columns: ['id'],
+        where: 'id=?',
+        whereArgs: [s.id],
+        limit: 1,
+      )).isNotEmpty)
+        continue;
+      await PushupDb.save(s, origin: 'akshatos', database: tx, notify: false);
+      added++;
+    }
+    if (useSettings) {
+      await CalculationStore.writeIn(
+        tx,
+        PushupDb.intervalKey,
+        '${plan.interval}',
+      );
+      await CalculationStore.writeIn(tx, PushupDb.goalKey, '${plan.goal}');
+    }
+  });
+  if (useSettings) await CalculationStore.hydrate();
+  if (added > 0 || useSettings) PushupDb.changes.value++;
+  return added;
 }
 
 /// Finished days and settings in AkshatOS's own backup shape (version 1).

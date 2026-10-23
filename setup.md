@@ -2,7 +2,7 @@
 
 ## Current repository state
 
-This folder is one Git repository. Each build is prepared on its own branch (`build-96` now) and
+This folder is one Git repository. Each build is prepared on its own branch (`build-98` currently) and
 `main` is fast-forwarded to it on release. It preserves the OpenStrap histories and contains:
 
 - edge base `daf6011d3aa0312e22b991713b7af9e5c4433b32`
@@ -43,6 +43,12 @@ B96-01–07 repairs and the selected Body/notification/visual-check refinements 
 seven existing notification checks pass locally. Dependencies, scientific coefficients, BLE ACK
 ordering, signing identity and capabilities are unchanged. Outgoing code/docs/fixtures and the
 artifact were privacy-reviewed; only synthetic data appears in the new tests/captures.
+
+The subsequent eighteen-finding `build-97-audit.md` has source repairs in Build 98
+(`0.9.65+98`, algorithm 98/schema 50) on `build-98`, with synthetic desired-behavior regressions.
+Full successor analysis/tests/visuals, native build and downloaded artifact validation are pending.
+Build 97 remains the sole cached testing binary until replacement validation; accepted Build 70
+and the last reported Build 91 installation are unchanged.
 
 Linux CI `39815813645` passes 3,426 tests (429 intentional skips), no analysis errors/warnings,
 182 informational lints and eight personal-iOS contract checks. Its parallel visual-smoke job

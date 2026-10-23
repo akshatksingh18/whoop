@@ -165,7 +165,7 @@ class DayUpkeep {
     final dayRuns = owned
         .where(
           (r) => r.byDay.isEmpty
-              ? dayLabelOf(r.start) == date
+              ? dayLabelAt(r.start) == date
               : r.byDay.containsKey(date),
         )
         .toList();

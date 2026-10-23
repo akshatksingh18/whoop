@@ -436,14 +436,21 @@ Future<bool> editDiaryEntry(
         date: e.date,
         excludeId: e.id,
         zeroRemoves: true,
+        onSave: (portion) async {
+          if (portion.amount == 0) {
+            if (!await deleteDiaryEntry(c, e, confirm: false))
+              throw StateError('Entry was not removed');
+          } else {
+            await NutritionDb.put(db, e.atQuantity(portion.amount));
+          }
+        },
       );
       if (portion == null) return false;
       // Set to 0 and Remove pressed: the entry goes, with Undo.
       if (portion.amount == 0) {
         if (!c.mounted) return false;
-        return deleteDiaryEntry(c, e, confirm: false);
+        return true;
       }
-      await NutritionDb.put(db, e.atQuantity(portion.amount));
     } else {
       final portion = await GramsSheet.show(
         c,
@@ -454,21 +461,28 @@ Future<bool> editDiaryEntry(
         date: e.date,
         excludeId: e.id,
         zeroRemoves: true,
+        onSave: (portion) async {
+          if (portion.amount == 0) {
+            if (!await deleteDiaryEntry(c, e, confirm: false))
+              throw StateError('Entry was not removed');
+          } else {
+            await NutritionDb.put(
+              db,
+              e.scaledPortion(
+                portion.base / at.base,
+                newQuantity: portion.amount,
+                newUnit: portion.unit,
+              ),
+            );
+          }
+        },
       );
       if (portion == null) return false;
       // Set to 0 and Remove pressed: the entry goes, with Undo.
       if (portion.amount == 0) {
         if (!c.mounted) return false;
-        return deleteDiaryEntry(c, e, confirm: false);
+        return true;
       }
-      await NutritionDb.put(
-        db,
-        e.scaledPortion(
-          portion.base / at.base,
-          newQuantity: portion.amount,
-          newUnit: portion.unit,
-        ),
-      );
     }
     return true;
   } catch (_) {
@@ -2065,11 +2079,8 @@ class _FoodDetailSheetState extends State<FoodDetailSheet> {
   }
 
   int get _ts {
-    final d = DateTime.parse(widget.date);
-    return DateTime(
-          d.year,
-          d.month,
-          d.day,
+    return DayClock.onDate(
+          widget.date,
           _time.hour,
           _time.minute,
         ).millisecondsSinceEpoch ~/
@@ -2520,7 +2531,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       : widget.group;
   late TimeOfDay _time = TimeOfDay.fromDateTime(
     widget.editing && widget.from?.atTs != null
-        ? DateTime.fromMillisecondsSinceEpoch(widget.from!.atTs! * 1000)
+        ? DayClock.localAt(widget.from!.atTs!)
         : foodEntryTime(widget.date, widget.meal),
   );
 
@@ -2582,14 +2593,13 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
       _saving = true;
       _error = null;
     });
-    final d = DateTime.parse(widget.date);
     final original = widget.editing ? widget.from : null;
     final previousTime = original?.atTs == null
         ? null
-        : DateTime.fromMillisecondsSinceEpoch(original!.atTs! * 1000);
+        : DayClock.localAt(original!.atTs!);
     final keepTime =
         previousTime != null &&
-        dayLabelOf(previousTime) == widget.date &&
+        dayLabelAt(previousTime) == widget.date &&
         previousTime.hour == _time.hour &&
         previousTime.minute == _time.minute;
     try {
@@ -2625,10 +2635,8 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         label: name.isEmpty ? 'Quick add' : name,
         atTs: keepTime
             ? original!.atTs
-            : DateTime(
-                    d.year,
-                    d.month,
-                    d.day,
+            : DayClock.onDate(
+                    widget.date,
                     _time.hour,
                     _time.minute,
                   ).millisecondsSinceEpoch ~/

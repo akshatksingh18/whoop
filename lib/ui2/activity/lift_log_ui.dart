@@ -264,10 +264,14 @@ class LiftLogController extends ChangeNotifier {
     if (message != null) return;
     final e = workout?.exercises.where((x) => x.id == exerciseId).firstOrNull;
     if (e == null) return;
-    await RestTimer.start(
-      await RestTimer.forExercise(e.name),
-      sessionId: sessionId,
-    );
+    try {
+      await RestTimer.start(
+        await RestTimer.forExercise(e.name),
+        sessionId: sessionId,
+      );
+    } catch (_) {
+      message = 'Set saved. The rest timer could not start; try it again.';
+    }
     _notify();
   }
 
@@ -795,8 +799,13 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           Pressable(
             semanticLabel: 'Add 30 seconds',
             onTap: () async {
-              await RestTimer.addSeconds(30, sessionId: widget.sessionId);
-              await _readRest();
+              try {
+                await RestTimer.addSeconds(30, sessionId: widget.sessionId);
+                await _readRest();
+              } catch (_) {
+                if (mounted)
+                  _say('Could not extend the rest timer. Try again.');
+              }
             },
             child: Text('+30 s', style: F.cap.copyWith(color: p.ink2)),
           ),
@@ -804,8 +813,15 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           Pressable(
             semanticLabel: 'Skip rest',
             onTap: () async {
-              await RestTimer.skip();
-              await _readRest();
+              try {
+                await RestTimer.skip();
+                await _readRest();
+              } catch (_) {
+                if (mounted)
+                  _say(
+                    'The alert was cancelled, but the timer state could not save. Try Skip again.',
+                  );
+              }
             },
             child: Text('Skip', style: F.cap.copyWith(color: p.ink2)),
           ),
@@ -1387,7 +1403,20 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           ),
       ],
     );
-    if (r != null) await RestTimer.setDefault(r);
+    if (r != null) {
+      try {
+        await RestTimer.setDefault(r);
+      } catch (_) {
+        if (mounted)
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not save the rest timer setting. Try again.',
+              ),
+            ),
+          );
+      }
+    }
   }
 }
 
@@ -1562,101 +1591,18 @@ class _LiftSummaryCardState extends State<LiftSummaryCard> {
     BuildContext c,
     LiftWorkout w,
     LiftExercise e,
-    LiftSet s,
+    LiftSet set,
   ) async {
-    final bodyweight = e.loadMode == LiftLoadMode.addedWeight;
-    final load = TextEditingController(
-      text: bodyweight && s.load == 0 ? '' : liftWeightText(s.load),
-    );
-    final reps = TextEditingController(text: '${s.reps}');
-    final r = await _sheet<String>(
+    final saved = await _sheet<bool>(
       c,
-      (sc) => [
-        Text('Fix set', style: F.head.copyWith(color: P.of(sc).ink)),
-        const SizedBox(height: S.x1),
-        Text(
-          '${e.name} · logged ${_hm(s.completedAt)}. Only the weight and reps '
-          'change.',
-          style: F.cap.copyWith(color: P.of(sc).ink3),
-        ),
-        const SizedBox(height: S.x4),
-        OsTextField(
-          controller: load,
-          label: bodyweight
-              ? 'lb added · blank for bodyweight'
-              : e.loadMode.shortUnit,
-          keyboard: const TextInputType.numberWithOptions(decimal: true),
-        ),
-        const SizedBox(height: S.x3),
-        OsTextField(
-          controller: reps,
-          label: 'Reps',
-          keyboard: TextInputType.number,
-        ),
-        const SizedBox(height: S.x4),
-        BigButton(
-          'Save',
-          color: C.purple,
-          onTap: () => Navigator.of(sc).pop('save'),
-        ),
-        const SizedBox(height: S.x2),
-        BigButton(
-          'Delete set',
-          icon: LucideIcons.trash2,
-          color: C.red,
-          soft: true,
-          onTap: () => Navigator.of(sc).pop('delete'),
-        ),
-      ],
+      (_) => [_FinishedSetEditor(workout: w, exercise: e, set: set)],
     );
-    if (r == null || !c.mounted) return;
-    final next = w.copy();
+    if (saved != true || !mounted) return;
     try {
-      if (r == 'save') {
-        final text = load.text.trim().replaceAll(',', '.');
-        final l = text.isEmpty && bodyweight ? 0.0 : double.tryParse(text);
-        final n = int.tryParse(reps.text.trim());
-        if (l == null || n == null) {
-          _note(c, 'Enter the weight and the reps.');
-          return;
-        }
-        next.correctFinishedSet(e.id, s.id, reps: n, load: l);
-      } else {
-        final ok = await confirmRemove(
-          c,
-          title: 'Delete this set?',
-          body:
-              '${e.name}: ${e.setText(s)}. Progress comparisons update; the '
-              "workout's time, heart rate and calories do not change.",
-          remove: 'Delete',
-          keep: 'Keep it',
-        );
-        if (!ok) return;
-        next.deleteFinishedSet(e.id, s.id);
-      }
-      if (next.setCount == 0) {
-        await LiftLogDb.delete(next.id);
-      } else {
-        await LiftLogDb.save(next);
-      }
-    } on LiftLogError catch (err) {
-      if (c.mounted) _note(c, err.message);
-      return;
-    } catch (_) {
-      if (c.mounted) _note(c, 'That was not saved. Please try again.');
-      return;
-    }
-    try {
-      if (c.mounted) c.read<AppState>().bumpInsights();
-    } catch (_) {
-      /* no app state above this card (tests, gallery) */
-    }
+      c.read<AppState>().bumpInsights();
+    } catch (_) {}
     await _load();
   }
-
-  void _note(BuildContext c, String t) => ScaffoldMessenger.maybeOf(c)
-    ?..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(t), duration: Motion.notice));
 
   @override
   Widget build(BuildContext c) {
@@ -2130,4 +2076,130 @@ class _SplitEditorState extends State<_SplitEditor> {
       ),
     );
   }
+}
+
+class _FinishedSetEditor extends StatefulWidget {
+  const _FinishedSetEditor({
+    required this.workout,
+    required this.exercise,
+    required this.set,
+  });
+  final LiftWorkout workout;
+  final LiftExercise exercise;
+  final LiftSet set;
+  @override
+  State<_FinishedSetEditor> createState() => _FinishedSetEditorState();
+}
+
+class _FinishedSetEditorState extends State<_FinishedSetEditor> {
+  late final _load = TextEditingController(
+    text:
+        widget.exercise.loadMode == LiftLoadMode.addedWeight &&
+            widget.set.load == 0
+        ? ''
+        : liftWeightText(widget.set.load),
+  );
+  late final _reps = TextEditingController(text: '${widget.set.reps}');
+  bool _saving = false;
+  String? _error;
+  @override
+  void dispose() {
+    _load.dispose();
+    _reps.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save({bool remove = false}) async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final next = widget.workout.copy(), e = widget.exercise, s = widget.set;
+      if (remove) {
+        final ok = await confirmRemove(
+          context,
+          title: 'Delete this set?',
+          body:
+              '${e.name}: ${e.setText(s)}. Progress updates; workout time, heart rate and calories stay unchanged.',
+          remove: 'Delete',
+          keep: 'Keep it',
+        );
+        if (!mounted) return;
+        if (!ok) {
+          setState(() => _saving = false);
+          return;
+        }
+        next.deleteFinishedSet(e.id, s.id);
+      } else {
+        final text = _load.text.trim().replaceAll(',', '.');
+        final load = text.isEmpty && e.loadMode == LiftLoadMode.addedWeight
+            ? 0.0
+            : double.tryParse(text);
+        final reps = int.tryParse(_reps.text.trim());
+        if (load == null || reps == null)
+          throw const LiftLogError('Enter a valid weight and repetitions.');
+        next.correctFinishedSet(e.id, s.id, reps: reps, load: load);
+      }
+      if (next.setCount == 0) {
+        await LiftLogDb.delete(next.id);
+      } else {
+        await LiftLogDb.save(next);
+      }
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = e is LiftLogError
+              ? e.message
+              : 'That was not saved. Your values are here; try again.';
+        });
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text('Fix set', style: F.head.copyWith(color: P.of(c).ink)),
+      const SizedBox(height: S.x1),
+      Text(
+        '${widget.exercise.name} · logged ${_hm(widget.set.completedAt)}. Only the weight and repetitions change.',
+        style: F.cap.copyWith(color: P.of(c).ink3),
+      ),
+      const SizedBox(height: S.x4),
+      OsTextField(
+        controller: _load,
+        label: widget.exercise.loadMode == LiftLoadMode.addedWeight
+            ? 'lb added · blank for bodyweight'
+            : widget.exercise.loadMode.shortUnit,
+        keyboard: const TextInputType.numberWithOptions(decimal: true),
+      ),
+      const SizedBox(height: S.x3),
+      OsTextField(
+        controller: _reps,
+        label: 'Reps',
+        keyboard: TextInputType.number,
+      ),
+      if (_error != null)
+        Text(_error!, style: F.cap.copyWith(color: P.of(c).on(C.red))),
+      const SizedBox(height: S.x4),
+      BigButton(
+        _saving ? 'Saving…' : 'Save',
+        color: C.purple,
+        onTap: _saving ? null : () => _save(),
+      ),
+      const SizedBox(height: S.x2),
+      BigButton(
+        'Delete set',
+        icon: LucideIcons.trash2,
+        color: C.red,
+        soft: true,
+        onTap: _saving ? null : () => _save(remove: true),
+      ),
+    ],
+  );
 }

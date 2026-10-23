@@ -105,7 +105,24 @@ LocalRepository? _cacheRepo;
 
 /// Every run (oldest first), with its distance from GPS or the phone's motion
 /// data when it has one.
-Future<List<RunSummary>> loadRuns(LocalRepository repo) {
+Future<List<RunSummary>> loadRuns(
+  LocalRepository repo, {
+  bool includePrivate = true,
+}) async {
+  final runs = await _loadCachedRuns(repo);
+  if (includePrivate) return runs;
+  final privateIds = {
+    for (final r in await (await LocalDb.instance).query(
+      'sessions',
+      columns: ['id'],
+      where: 'private=1',
+    ))
+      r['id'] as String,
+  };
+  return runs.where((r) => !privateIds.contains(r.id)).toList();
+}
+
+Future<List<RunSummary>> _loadCachedRuns(LocalRepository repo) {
   if (!identical(_cacheRepo, repo)) {
     runsChanged();
     _cacheRepo = repo;
@@ -119,7 +136,7 @@ Future<List<RunSummary>> loadRuns(LocalRepository repo) {
   final generation = _generation;
   final job = _loadRuns(repo).then<List<RunSummary>>((v) {
     if (generation != _generation) {
-      return identical(_cacheRepo, repo) ? loadRuns(repo) : v;
+      return identical(_cacheRepo, repo) ? _loadCachedRuns(repo) : v;
     }
     _recent = (DateTime.now(), v);
     return v;

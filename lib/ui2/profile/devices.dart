@@ -660,9 +660,9 @@ class _DeviceDetailState extends State<DeviceDetail>
       onFind: app != null && app.isConnected
           ? () async {
               final messenger = ScaffoldMessenger.maybeOf(c);
-              await app.buzzBand();
+              final sent = await app.buzzBand();
               messenger?.showSnackBar(
-                const SnackBar(content: Text('Buzz sent to the band.')),
+                SnackBar(content: Text(sent ? 'Buzz command sent to the band.' : 'Could not send the buzz. Reconnect your band and try again.')),
               );
             }
           : null,

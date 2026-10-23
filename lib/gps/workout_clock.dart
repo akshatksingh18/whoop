@@ -1,6 +1,7 @@
 // Session timing/profile shared by sensors, UI and historical calculations.
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../data/calculation_store.dart';
 import '../data/day_label.dart';
 import '../compute/profile.dart';
@@ -33,6 +34,15 @@ class WorkoutClock {
 
   void Function(bool)? onPauseChanged;
   static WorkoutClock? current;
+  static final saveError = ValueNotifier<String?>(null);
+  static bool _needsRetry = false;
+  static Future<void> retryPending() async {
+    if (!_needsRetry || current == null) return;
+    try {
+      await current!.persist();
+    } catch (_) {}
+  }
+
   WorkoutClock(
     this.id,
     this.start, {
@@ -195,7 +205,16 @@ class WorkoutClock {
     final value = jsonEncode(toJson());
     final prior = _writes[id] ?? Future<void>.value();
     final next = prior.catchError((Object _) {}).then((_) async {
-      await CalculationStore.write('workout.clock.$id', value);
+      try {
+        await CalculationStore.write('workout.clock.$id', value);
+        _needsRetry = false;
+        saveError.value = null;
+      } catch (_) {
+        _needsRetry = true;
+        saveError.value =
+            'Workout timing has not saved. Keep WHOOP open and retry before closing it.';
+        rethrow;
+      }
     });
     _writes[id] = next;
     return next.whenComplete(() {

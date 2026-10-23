@@ -338,6 +338,22 @@ class BodyLogDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Rebuild the projection after a database merge using the same first-reading
+  /// order as individual writes. The indexed anti-join stays inside SQLite.
+  static Future<void> rebuildDailyWeights(DatabaseExecutor db) async {
+    await db.delete(
+      'body_weight',
+      where:
+          'NOT EXISTS (SELECT 1 FROM body_weight_reading r WHERE r.date=body_weight.date)',
+    );
+    await db.rawInsert('''INSERT OR REPLACE INTO body_weight
+      (date,kg,at_ts,unit,entered,source,origin_id,history_only)
+      SELECT r.date,r.kg,r.at_ts,r.unit,r.entered,r.source,r.origin_id,r.history_only
+      FROM body_weight_reading r WHERE NOT EXISTS
+      (SELECT 1 FROM body_weight_reading f WHERE f.date=r.date
+       AND (f.at_ts<r.at_ts OR (f.at_ts=r.at_ts AND f.id<r.id)))''');
+  }
+
   /// Save a weigh-in for [date] as entered. Today's is a calculation input;
   /// any other day is history only (Akshat's decision: past calorie numbers
   /// never move). Every reading is kept; the day's weight is its first.
@@ -353,18 +369,19 @@ class BodyLogDb {
     bool? historyOnly,
     DateTime? at,
     bool correctFirst = false,
+    DatabaseExecutor? database,
+    bool notify = true,
   }) async {
     _checkDay(date);
     final kg = checkWeight(value, unit);
     final now = DateTime.now();
-    final d = DateTime.parse(date);
     final when =
         at ??
         (date == todayLabel()
             ? now
-            : DateTime(d.year, d.month, d.day, now.hour, now.minute));
-    final db = await LocalDb.instance;
-    await db.transaction((tx) async {
+            : DayClock.onDate(date, now.hour, now.minute));
+    final db = database ?? await LocalDb.instance;
+    Future<void> write(DatabaseExecutor tx) async {
       final row = {
         'date': date,
         'kg': kg,
@@ -395,10 +412,16 @@ class BodyLogDb {
       if (first.isNotEmpty) {
         await tx.update(
           'body_weight_reading',
-          row,
+          {
+            ...row,
+            if (!correctFirst && at != null)
+              'at_ts': when.millisecondsSinceEpoch ~/ 1000,
+          },
           where: 'id = ?',
           whereArgs: [first.single['id']],
         );
+        final previousDate = first.single['date'] as String;
+        if (previousDate != date) await _refreshDay(tx, previousDate);
       } else {
         await tx.insert('body_weight_reading', {
           'id': newLiftId(),
@@ -408,8 +431,14 @@ class BodyLogDb {
         });
       }
       await _refreshDay(tx, date);
-    });
-    NutritionDb.changed();
+    }
+
+    if (db is Database) {
+      await db.transaction(write);
+    } else {
+      await write(db);
+    }
+    if (notify) NutritionDb.changed();
   }
 
   /// Delete every reading of [date] (the day's weight goes with them).
@@ -528,7 +557,7 @@ class BodyLogDb {
   }
 
   /// Checked like Body: 5–80 in, rounded to 0.01 in, at least one site.
-  static Future<void> putMeasure(BodyMeasure m) async {
+  static Map<String, double> checkedMeasurements(BodyMeasure m) {
     _checkDay(m.date);
     final clean = <String, double>{};
     for (final e in m.inches.entries) {
@@ -541,7 +570,16 @@ class BodyLogDb {
     }
     if (clean.isEmpty)
       throw const BodyLogError('Enter at least one measurement.');
-    final db = await LocalDb.instance;
+    return clean;
+  }
+
+  static Future<void> putMeasure(
+    BodyMeasure m, {
+    DatabaseExecutor? database,
+    bool notify = true,
+  }) async {
+    final clean = checkedMeasurements(m);
+    final db = database ?? await LocalDb.instance;
     await db.insert('body_measure', {
       'id': m.id,
       'date': m.date,
@@ -550,7 +588,7 @@ class BodyLogDb {
       'source': m.source,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    NutritionDb.changed();
+    if (notify) NutritionDb.changed();
   }
 
   static Future<void> deleteMeasure(String id) async {
@@ -643,6 +681,8 @@ class BodyLogDb {
     required String pose,
     String source = 'whoop',
     String? id,
+    DatabaseExecutor? database,
+    bool notify = true,
   }) async {
     _checkDay(date);
     final ph = BodyPhoto(
@@ -653,7 +693,7 @@ class BodyLogDb {
       source: source,
     );
     final f = await photoFile(ph);
-    final db = await LocalDb.instance;
+    final db = database ?? await LocalDb.instance;
     if ((await db.query(
       'body_photo',
       columns: ['id'],
@@ -681,7 +721,7 @@ class BodyLogDb {
       } catch (_) {}
       rethrow;
     }
-    NutritionDb.changed();
+    if (notify) NutritionDb.changed();
     return ph;
   }
 
@@ -831,6 +871,16 @@ Future<BodyImportPlan> planBodyImport(
   final conflicts = <({String date, String here, String there})>[];
   var already = 0;
   final seenDays = <String>{};
+  final seenOrigins = <String>{};
+  final db = await LocalDb.instance;
+  final originsHere = {
+    for (final r in await db.query(
+      'body_weight_reading',
+      columns: ['origin_id', 'date'],
+      where: 'origin_id IS NOT NULL',
+    ))
+      r['origin_id'] as String: r['date'] as String,
+  };
   for (final raw in (m['weights'] as List? ?? const [])) {
     final w = raw as Map;
     final day = generated ? w['date'] : w['day'];
@@ -841,6 +891,16 @@ Future<BodyImportPlan> planBodyImport(
     final value = ((generated ? w['value'] : w['pounds']) as num).toDouble();
     final kg = BodyLogDb.checkWeight(value, unit);
     final origin = (w['id'] as String?) ?? '$source:$day';
+    if (origin.trim().isEmpty || !seenOrigins.add(origin)) {
+      throw const FormatException(
+        'Weight record IDs must be nonempty and unique. Nothing was imported.',
+      );
+    }
+    if (originsHere[origin] != null && originsHere[origin] != day) {
+      throw const FormatException(
+        'A weight ID already belongs to another date. Nothing was imported.',
+      );
+    }
     final existing = here[day];
     if (existing == null) {
       weights.add((date: day, value: value, unit: unit, originId: origin));
@@ -856,13 +916,15 @@ Future<BodyImportPlan> planBodyImport(
   }
   final existingMeasures = {for (final x in await BodyLogDb.measures()) x.id};
   final measures = <BodyMeasure>[];
+  final incomingMeasures = <String>{};
   for (final raw in (m['measurements'] as List? ?? const [])) {
     final x = raw as Map;
     if (!_validDay(x['day'])) throw FormatException('Bad date ${x['day']}');
     final id = x['id'] as String;
-    if (existingMeasures.contains(id)) {
-      already++;
-      continue;
+    if (id.trim().isEmpty || !incomingMeasures.add(id)) {
+      throw const FormatException(
+        'Measurement record IDs must be nonempty and unique. Nothing was imported.',
+      );
     }
     final inches = {
       for (final e in (x['inches'] as Map).entries)
@@ -872,15 +934,19 @@ Future<BodyImportPlan> planBodyImport(
       if (!v.isFinite || v < 5 || v > 80)
         throw FormatException('Measurement out of range on ${x['day']}');
     }
-    measures.add(
-      BodyMeasure(
-        id: id,
-        date: x['day'] as String,
-        recordedAt: _appleDate(x['recordedAt']),
-        inches: inches,
-        source: source,
-      ),
+    final measure = BodyMeasure(
+      id: id,
+      date: x['day'] as String,
+      recordedAt: _appleDate(x['recordedAt']),
+      inches: inches,
+      source: source,
     );
+    BodyLogDb.checkedMeasurements(measure);
+    if (existingMeasures.contains(id)) {
+      already++;
+    } else {
+      measures.add(measure);
+    }
   }
   final existingPhotos = {for (final x in await BodyLogDb.photos()) x.id};
   final photos = <({BodyPhoto photo, String path})>[];
@@ -950,39 +1016,107 @@ Future<int> applyBodyImport(
   bool applyWeekday = false,
 }) async {
   var n = 0;
-  for (final w in plan.weights) {
-    await BodyLogDb.putWeight(
-      w.date,
-      w.value,
-      w.unit,
-      source: plan.source,
-      originId: w.originId,
-      historyOnly: true,
-      at: DateTime.parse(w.date),
-    );
-    n++;
+  final db = await LocalDb.instance;
+  // Decode before publishing any row. Files created in the transaction are
+  // owned by this attempt and removed if the database rolls it back.
+  final staging = await (await getTemporaryDirectory()).createTemp(
+    'body_import_',
+  );
+  final encoded = <({BodyPhoto photo, File file})>[];
+  final created = <BodyPhoto>[];
+  try {
+    for (final (i, ph) in plan.photos.indexed) {
+      final file = File(p.join(staging.path, '$i.jpg'));
+      await file.writeAsBytes(await encode(ph.path), flush: true);
+      encoded.add((photo: ph.photo, file: file));
+    }
+    await db.transaction((tx) async {
+      for (final w in plan.weights) {
+        final present = await tx.query(
+          'body_weight_reading',
+          columns: ['id'],
+          where: 'date=? OR origin_id=?',
+          whereArgs: [w.date, w.originId],
+          limit: 1,
+        );
+        if (present.isNotEmpty) continue;
+        await BodyLogDb.putWeight(
+          w.date,
+          w.value,
+          w.unit,
+          source: plan.source,
+          originId: w.originId,
+          historyOnly: true,
+          at: DayClock.onDate(w.date, 0, 0),
+          database: tx,
+          notify: false,
+        );
+        n++;
+      }
+      for (final m in plan.measures) {
+        if ((await tx.query(
+          'body_measure',
+          columns: ['id'],
+          where: 'id=?',
+          whereArgs: [m.id],
+          limit: 1,
+        )).isNotEmpty)
+          continue;
+        await BodyLogDb.putMeasure(m, database: tx, notify: false);
+        n++;
+      }
+      for (final ph in encoded) {
+        if ((await tx.query(
+          'body_photo',
+          columns: ['id'],
+          where: 'id=?',
+          whereArgs: [ph.photo.id],
+          limit: 1,
+        )).isNotEmpty)
+          continue;
+        final added = await BodyLogDb.addPhoto(
+          await ph.file.readAsBytes(),
+          date: ph.photo.date,
+          pose: ph.photo.pose,
+          source: plan.source,
+          id: ph.photo.id,
+          database: tx,
+          notify: false,
+        );
+        created.add(added);
+        n++;
+      }
+      if (applyWeekday && plan.measureWeekday != null) {
+        await CalculationStore.writeIn(
+          tx,
+          BodyLogDb.weekdayKey,
+          '${plan.measureWeekday!}',
+        );
+      }
+      final base = plan.baselineDate;
+      if (base != null &&
+          (await tx.query(
+            'baselines',
+            columns: ['key'],
+            where: 'key=?',
+            whereArgs: ['${CalculationStore.prefix}$progressBaselineKey'],
+          )).isEmpty) {
+        await CalculationStore.writeIn(tx, progressBaselineKey, base);
+      }
+    });
+  } catch (_) {
+    for (final ph in created) {
+      try {
+        await (await BodyLogDb.photoFile(ph)).delete();
+      } catch (_) {}
+    }
+    rethrow;
+  } finally {
+    try {
+      await staging.delete(recursive: true);
+    } catch (_) {}
   }
-  for (final m in plan.measures) {
-    await BodyLogDb.putMeasure(m);
-    n++;
-  }
-  for (final ph in plan.photos) {
-    await BodyLogDb.addPhoto(
-      await encode(ph.path),
-      date: ph.photo.date,
-      pose: ph.photo.pose,
-      source: plan.source,
-      id: ph.photo.id,
-    );
-    n++;
-  }
-  if (applyWeekday && plan.measureWeekday != null) {
-    await BodyLogDb.setMeasureWeekday(plan.measureWeekday!);
-  }
-  final base = plan.baselineDate;
-  if (base != null &&
-      await CalculationStore.read(progressBaselineKey) == null) {
-    await CalculationStore.write(progressBaselineKey, base);
-  }
+  await CalculationStore.hydrate();
+  if (n > 0) NutritionDb.changed();
   return n;
 }

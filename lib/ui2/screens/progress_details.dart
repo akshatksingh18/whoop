@@ -1118,8 +1118,8 @@ class _ProgressDetailState extends State<_ProgressDetail>
   }) {
     final lifts = [
       for (final w in d.lifts)
-        if (dayLabelOf(w.startedAt).compareTo(from) >= 0 &&
-            dayLabelOf(w.startedAt).compareTo(today) <= 0)
+        if (dayLabelAt(w.startedAt).compareTo(from) >= 0 &&
+            dayLabelAt(w.startedAt).compareTo(today) <= 0)
           w,
     ];
     // Build 89: the page's own comparison, not a split of its own — the

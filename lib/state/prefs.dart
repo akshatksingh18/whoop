@@ -14,6 +14,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 class Prefs {
   Prefs._();
 
+  /// User-facing settings must acknowledge persistence. Restore earlier keys
+  /// on a partial failure and reload the optimistic plugin cache before retry.
+  static Future<void> _settingsTail = Future.value();
+  static Future<void> saveValues(Map<String, Object?> values) {
+    final next = _settingsTail.then((_) => _saveValues(values));
+    _settingsTail = next.catchError((Object _) {});
+    return next;
+  }
+
+  static Future<void> _saveValues(Map<String, Object?> values) async {
+    final p = await SharedPreferences.getInstance();
+    final before = {for (final key in values.keys) key: p.get(key)};
+    Future<bool> put(String key, Object? value) => switch (value) {
+      null => p.remove(key),
+      bool v => p.setBool(key, v),
+      int v => p.setInt(key, v),
+      double v => p.setDouble(key, v),
+      String v => p.setString(key, v),
+      List<String> v => p.setStringList(key, v),
+      _ => throw ArgumentError('Unsupported preference'),
+    };
+    try {
+      for (final e in values.entries) {
+        if (!await put(e.key, e.value))
+          throw StateError('The setting could not be saved. Try again.');
+      }
+    } catch (_) {
+      for (final e in before.entries) {
+        try {
+          await put(e.key, e.value);
+        } catch (_) {}
+      }
+      try {
+        await p.reload();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
   static SharedPreferences? _sp;
 
   /// Load + cache the SharedPreferences instance. Call once before runApp.
@@ -90,5 +129,4 @@ class Prefs {
   /// tool for us, not a feature, so it has no switch in the normal settings
   /// list and nothing reads it except the surfaces it reveals.
   static const String devMode = 'dev.mode';
-
 }

@@ -50,6 +50,19 @@ typedef DbRebuild = ({
   Map<String, int> salvaged,
 });
 
+class DbImportException implements Exception {
+  DbImportException(this.cause, Map<String, int> counts)
+    : counts = Map.unmodifiable(counts);
+  final Object cause;
+  final Map<String, int> counts;
+  int get records => counts.entries
+      .where((e) => !e.key.startsWith('_'))
+      .fold(0, (a, e) => a + e.value);
+  @override
+  String toString() =>
+      '$records rows committed before restore stopped. Retry the same backup to continue. $cause';
+}
+
 // ── SUBSTRATE ADMISSION — the one predicate that decides what may become a
 //    number ───────────────────────────────────────────────────────────────────
 //
@@ -7283,6 +7296,8 @@ class LocalDb {
     }
 
     final counts = <String, int>{};
+    final sourceReadingDates = <String>{};
+    Object? mergeError;
     // DISTINCT DAYS ACTUALLY WRITTEN — the number the caller reports as
     // "N days imported".
     //
@@ -7312,6 +7327,17 @@ class LocalDb {
       /* no day_result yet: nothing to protect */
     }
     try {
+      if ((await src.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='body_weight_reading'",
+      )).isNotEmpty) {
+        sourceReadingDates.addAll([
+          for (final r in await src.rawQuery(
+            'SELECT DISTINCT date FROM body_weight_reading',
+          ))
+            r['date'] as String,
+        ]);
+      }
+
       for (final t in (only ?? tables)) {
         try {
           // PAGED SOURCE READ — never `SELECT *` a whole table.
@@ -7412,6 +7438,11 @@ class LocalDb {
                     if (cols.contains(e.key)) e.key: e.value,
                 };
                 if (row.isEmpty) continue;
+                // A modern backup's daily row is only a projection. Merge its
+                // timed readings, then rebuild once using the shared rule.
+                if (t == 'body_weight' &&
+                    sourceReadingDates.contains(row['date']))
+                  continue;
                 if (t == 'decoded_onehz') {
                   // A pre-v46 export still carries the retired columns as
                   // VALUES (the disproven on_wrist/hr_valid reads and the
@@ -7542,6 +7573,7 @@ class LocalDb {
               }
               await flush();
             });
+            counts[t] = copied; // only fully committed pages contribute
             // Advance past the last row this page actually delivered. Read the
             // cursor BEFORE dropping the page, and stop on a short page rather
             // than issuing one more query to discover the end.
@@ -7556,34 +7588,45 @@ class LocalDb {
           // the worst available outcome there, whereas a rebuild has no better
           // file to fall back to.
           if (!tolerant) rethrow;
-          counts[t] = 0;
+          counts.putIfAbsent(t, () => 0);
         }
       }
+    } catch (e) {
+      mergeError = e;
     } finally {
       await src.close();
     }
     // Old exports have only the daily weight table. Preserve those readings
     // when restoring into an already-migrated install; modern per-reading IDs
     // and existing days win rather than acquiring an extra aggregate reading.
-    if ((counts['body_weight'] ?? 0) > 0 &&
-        !counts.containsKey('body_weight_reading')) {
-      await _seedLegacyWeightReadings(db);
+    try {
+      if ((counts['body_weight'] ?? 0) > 0) {
+        await _seedLegacyWeightReadings(db);
+      }
+      if ((counts['body_weight'] ?? 0) > 0 ||
+          (counts['body_weight_reading'] ?? 0) > 0) {
+        await db.transaction(BodyLogDb.rebuildDailyWeights);
+      }
+      // An import writes day_result rows with a raw batch.insert, deliberately
+      // bypassing putDayResult (and therefore the curve-encode seam), so the rows
+      // arrive in whatever shape the source device stored — legacy, if it was on
+      // an older build. The re-encode walk is forward-only and latches `done`, so
+      // once it has finished those rows would never be looked at again and the
+      // growth this walk exists to remove would come straight back with the
+      // import. Rewind it.
+      if ((counts['day_result'] ?? 0) > 0) {
+        await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
+      }
+      // Last, so it can never be mistaken for a table row count by anything that
+      // walks this map in order.
+      if (importedDays != null && mergeError == null)
+        counts['_days'] = importedDays.length;
+      await CalculationStore.hydrate();
+      await DayZoneStore.hydrate(db);
+    } catch (e) {
+      mergeError ??= e;
     }
-    // An import writes day_result rows with a raw batch.insert, deliberately
-    // bypassing putDayResult (and therefore the curve-encode seam), so the rows
-    // arrive in whatever shape the source device stored — legacy, if it was on
-    // an older build. The re-encode walk is forward-only and latches `done`, so
-    // once it has finished those rows would never be looked at again and the
-    // growth this walk exists to remove would come straight back with the
-    // import. Rewind it.
-    if ((counts['day_result'] ?? 0) > 0) {
-      await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
-    }
-    // Last, so it can never be mistaken for a table row count by anything that
-    // walks this map in order.
-    if (importedDays != null) counts['_days'] = importedDays.length;
-    await CalculationStore.hydrate();
-    await DayZoneStore.hydrate(db);
+    if (mergeError != null) throw DbImportException(mergeError, counts);
     return counts;
   }
 

@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../state/prefs.dart';
 
 import '../../compute/findings.dart';
 import '../../data/day_label.dart';
@@ -215,10 +216,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   }
 
   Future<void> _savePins(List<String> v) async {
-    setState(() => _pinned = v);
     try {
-      await (await SharedPreferences.getInstance()).setStringList(_pinKey, v);
-    } catch (_) {}
+      await Prefs.saveValues({_pinKey: v});
+      if (mounted) setState(() => _pinned = v);
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('Favourites were not saved. Try again.'),
+          ),
+        );
+    }
   }
 
   Future<void> _editPins(BuildContext c, List<_Row> shown) async {
@@ -363,9 +371,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final win = _windows[_range];
     final rows = [
       for (final r in _rows)
-        if ((r.key != 'resp_rate' || d.breathingShown) &&
-            true)
-          r,
+        if ((r.key != 'resp_rate' || d.breathingShown) && true) r,
     ];
 
     final pinControl = _d == null
@@ -534,11 +540,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                         color: p.card2,
                         borderRadius: R.rMd,
                       ),
-                      child: Icon(
-                        LucideIcons.history,
-                        size: 20,
-                        color: p.ink2,
-                      ),
+                      child: Icon(LucideIcons.history, size: 20, color: p.ink2),
                     ),
                     const SizedBox(width: S.x3),
                     Expanded(

@@ -884,11 +884,14 @@ class LiftLogDb {
   }
 
   /// Every finished log, newest first.
-  static Future<List<LiftWorkout>> finished() async {
+  static Future<List<LiftWorkout>> finished({
+    bool includePrivate = true,
+  }) async {
     final db = await LocalDb.instance;
     final rows = await db.query(
       'lift_log',
-      where: 'ended_at IS NOT NULL',
+      where:
+          'ended_at IS NOT NULL${includePrivate ? '' : ' AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id=lift_log.session_id AND s.private=1)'}',
       orderBy: 'started_at DESC',
     );
     return [for (final r in rows) _of(r)];
@@ -1083,15 +1086,22 @@ Future<LiftImportPlan> planLiftImport(String json) async {
       if (mode == null)
         throw FormatException('Unknown load mode ${ex['loadMode']}');
       final sets = <LiftSet>[];
+      final setIds = <String>{};
       for (final s in (ex['sets'] as List? ?? const [])) {
         final st = s as Map;
-        final reps = (st['reps'] as num).toInt();
+        final rawReps = st['reps'] as num;
+        if (!rawReps.isFinite || rawReps != rawReps.roundToDouble())
+          throw LiftLogError.invalidReps;
+        final reps = rawReps.toInt();
+        final setId = st['id'] as String;
+        if (setId.trim().isEmpty || !setIds.add(setId))
+          throw LiftLogError.duplicate;
         final load = (st['load'] as num).toDouble();
         if (reps <= 0) throw LiftLogError.invalidReps;
         if (!load.isFinite || load < 0) throw LiftLogError.invalidLoad;
         sets.add(
           LiftSet(
-            id: st['id'] as String,
+            id: setId,
             reps: reps,
             load: load,
             completedAt: _appleDate(st['completedAt']),
@@ -1115,6 +1125,19 @@ Future<LiftImportPlan> planLiftImport(String json) async {
     final ended = _appleDate(w['endedAt']);
     if (ended.isBefore(started))
       throw const FormatException('A workout ends before it starts.');
+    if ((w['id'] as String).trim().isEmpty ||
+        exercises.any((e) => e.id.trim().isEmpty) ||
+        exercises.map((e) => e.id).toSet().length != exercises.length)
+      throw LiftLogError.duplicate;
+    if (exercises.any(
+      (e) => e.sets.any(
+        (s) => s.completedAt.isBefore(started) || s.completedAt.isAfter(ended),
+      ),
+    )) {
+      throw const FormatException(
+        'A set is outside its workout times. Nothing was imported.',
+      );
+    }
     workouts.add(
       LiftWorkout(
         id: w['id'] as String,
@@ -1133,6 +1156,12 @@ Future<LiftImportPlan> planLiftImport(String json) async {
   }
   List<LiftSplit>? splits;
   if (m['splits'] is List) {
+    for (final raw in m['splits'] as List) {
+      for (final e in (raw as Map)['exercises'] as List? ?? const []) {
+        if (LiftLoadMode.parse((e as Map)['loadMode']) == null)
+          throw const FormatException('A split has an unknown load meaning.');
+      }
+    }
     splits = LiftSplit.validatedList([
       for (final s in m['splits'] as List) LiftSplit.fromJson(s as Map),
     ]);
@@ -1154,7 +1183,7 @@ Future<LiftImportPlan> planLiftImport(String json) async {
     }
     final here = jsonDecode(rows.first['json'] as String) as Map;
     final there = w.toJson();
-    if (jsonEncode(here['exercises']) == jsonEncode(there['exercises'])) {
+    if (jsonEncode(LiftWorkout.fromJson(here).toJson()) == jsonEncode(there)) {
       unchanged++;
     } else {
       conflicts.add(w.id);
@@ -1225,8 +1254,17 @@ Future<int> applyLiftImport(
 }) async {
   final db = await LocalDb.instance;
   final now = DateTime.now().millisecondsSinceEpoch;
+  var added = 0;
   await db.transaction((tx) async {
     for (final w in plan.add) {
+      if ((await tx.query(
+        'lift_log',
+        columns: ['id'],
+        where: 'id=?',
+        whereArgs: [w.id],
+        limit: 1,
+      )).isNotEmpty)
+        continue;
       await tx.insert('lift_log', {
         'id': w.id,
         // Linked only where the user accepted the proposed match.
@@ -1237,12 +1275,19 @@ Future<int> applyLiftImport(
         'json': jsonEncode(w.toJson()),
         'updated_at': now,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      added++;
+    }
+    if (replaceSplits && plan.splits != null) {
+      final splits = LiftSplit.validatedList(plan.splits!);
+      await CalculationStore.writeIn(
+        tx,
+        LiftLogDb.splitsKey,
+        jsonEncode([for (final s in splits) s.toJson()]),
+      );
     }
   });
-  if (replaceSplits && plan.splits != null) {
-    await LiftLogDb.saveSplits(plan.splits!);
-  }
-  return plan.add.length;
+  if (replaceSplits) await CalculationStore.hydrate();
+  return added;
 }
 
 /// Every finished workout and the splits, in AkshatOS Lift Log's own backup

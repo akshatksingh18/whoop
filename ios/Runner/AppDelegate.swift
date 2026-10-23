@@ -265,9 +265,15 @@ final class HomeRegionBridge: NSObject, CLLocationManagerDelegate {
       UserDefaults.standard.removeObject(forKey: HomeRegionBridge.inboxKey)
       result(nil)
     case "drain":
-      let list = UserDefaults.standard.array(forKey: HomeRegionBridge.inboxKey) ?? []
-      UserDefaults.standard.removeObject(forKey: HomeRegionBridge.inboxKey)
+      var list = UserDefaults.standard.array(forKey: HomeRegionBridge.inboxKey) as? [[String: Any]] ?? []
+      for i in list.indices where list[i]["id"] == nil { list[i]["id"] = UUID().uuidString }
+      UserDefaults.standard.set(list, forKey: HomeRegionBridge.inboxKey)
       result(list)
+    case "ack":
+      let ids = Set(call.arguments as? [String] ?? [])
+      let list = UserDefaults.standard.array(forKey: HomeRegionBridge.inboxKey) as? [[String: Any]] ?? []
+      UserDefaults.standard.set(list.filter { !ids.contains($0["id"] as? String ?? "") }, forKey: HomeRegionBridge.inboxKey)
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }

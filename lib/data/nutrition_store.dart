@@ -288,15 +288,15 @@ const kMeals = <String>['breakfast', 'lunch', 'dinner', 'snack'];
 /// A chosen diary day keeps its own local date. Historical entries default to
 /// the meal's clock time; the amount/edit forms let the user adjust it.
 DateTime foodEntryTime(String date, String meal, {DateTime? now}) {
-  final clock = now ?? DateTime.now();
-  final d = DateTime.parse(date);
-  final usual = DateTime(d.year, d.month, d.day, switch (meal) {
+  final instant = now ?? DateTime.now();
+  final clock = DayClock.localAt(instant.millisecondsSinceEpoch ~/ 1000);
+  final usual = DayClock.onDate(date, switch (meal) {
     'breakfast' => 8,
     'lunch' => 13,
     'dinner' => 19,
     _ => 16,
-  });
-  if (date != dayLabelOf(clock)) return usual;
+  }, 0);
+  if (date != dayLabelAtSec(clock.millisecondsSinceEpoch ~/ 1000)) return usual;
   // Today: the clock while it is that meal's time (snacks any time), and
   // otherwise the meal's usual hour, so dinner logged at 10 AM is not
   // stamped 10 AM. The time stays editable on the portion screen.
@@ -420,20 +420,11 @@ class FoodEntry {
     String? newGroup,
   }) {
     int? ts = atTs;
-    if (ts != null) {
-      final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-      final d = DateTime.tryParse(newDate);
-      if (d != null) {
-        ts =
-            DateTime(
-              d.year,
-              d.month,
-              d.day,
-              t.hour,
-              t.minute,
-            ).millisecondsSinceEpoch ~/
-            1000;
-      }
+    if (ts != null && newDate != date) {
+      final t = DayClock.localAt(ts);
+      ts =
+          DayClock.onDate(newDate, t.hour, t.minute).millisecondsSinceEpoch ~/
+          1000;
     }
     return FoodEntry(
       id: newId,
@@ -1993,7 +1984,9 @@ class MyFoods {
         final own = conversionDef(e, def);
         final sameBase = own == null || foodUnit(own) == foodUnit(def);
         final base =
-            (sameBase && own != null ? toBase(own, e.quantity!, e.unit) : null) ??
+            (sameBase && own != null
+                ? toBase(own, e.quantity!, e.unit)
+                : null) ??
             toBase(def, e.quantity!, e.unit);
         final per = unitInBase(def, unit);
         if (base != null && per != null && per > 0) amount = base / per;

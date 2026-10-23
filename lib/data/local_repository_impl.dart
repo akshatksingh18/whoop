@@ -3139,7 +3139,7 @@ class LocalRepositoryImpl extends LocalRepository {
       final profile =
           clock.profile ??
           await ProfileHistory.on(
-            dayLabelOf(clock.start),
+            dayLabelAt(clock.start),
             Profile.fromMap(getProfileMap()),
           );
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];

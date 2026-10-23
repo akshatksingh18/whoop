@@ -13,7 +13,7 @@ import '../../data/db.dart';
 import '../../gps/gps_source.dart';
 import '../../gps/route_models.dart';
 import '../../compute/streak.dart';
-import '../../data/day_label.dart' show dayLabelOf, todayLabel;
+import '../../data/day_label.dart' show dayLabelOf, dayLabelAt, todayLabel;
 import '../../gps/motion_window.dart';
 import '../../gps/workout_measurements.dart';
 import '../../gps/workout_clock.dart';
@@ -458,14 +458,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                     // section never grows with the month.
                     for (var i = 0; i < d.workouts.length.clamp(0, 5); i++) ...[
                       if (i == 0 ||
-                          dayLabelOf(d.workouts[i].start) !=
-                              dayLabelOf(d.workouts[i - 1].start))
+                          dayLabelAt(d.workouts[i].start) !=
+                              dayLabelAt(d.workouts[i - 1].start))
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: S.x2),
                           child: Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              dayNavLabel(dayLabelOf(d.workouts[i].start)),
+                              dayNavLabel(dayLabelAt(d.workouts[i].start)),
                               style: F.over.copyWith(color: p.ink3),
                             ),
                           ),
@@ -537,19 +537,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final u = unitsOf(c);
     final unit = u?.distanceUnit ?? 'km';
     final unitMeters = u?.distanceUnitMeters ?? 1000;
-    final now = DateTime.now();
+    final now = DateTime.parse(todayLabel());
     final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
     final weeks = List<double?>.filled(8, null);
     for (final r in runs) {
       final w =
-          (monday
+          (DateTime.utc(monday.year, monday.month, monday.day)
                       .difference(
-                        DateTime(r.start.year, r.start.month, r.start.day),
+                        DateTime.parse("${dayLabelAt(r.start)}T00:00:00Z"),
                       )
                       .inDays /
                   7)
               .ceil();
-      final slot = r.start.isBefore(monday) ? 7 - w : 7;
+      final slot = dayLabelAt(r.start).compareTo(dayLabelOf(monday)) < 0
+          ? 7 - w
+          : 7;
       if (slot >= 0 && slot < 8) {
         weeks[slot] = (weeks[slot] ?? 0) + r.meters / unitMeters;
       }
@@ -713,7 +715,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         dayLabelOf(DateTime(end.year, end.month, end.day - (6 - i)));
     final km = List<double?>.filled(7, null);
     for (final r in d.runs) {
-      final i = List.generate(7, labelOf).indexOf(dayLabelOf(r.start));
+      final i = List.generate(7, labelOf).indexOf(dayLabelAt(r.start));
       if (i >= 0) km[i] = (km[i] ?? 0) + r.meters / unitMeters;
     }
     final weekKm = km.whereType<double>().fold<double>(0, (a, b) => a + b);
@@ -2147,8 +2149,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
   // `metric_series` only gains a row on a day that derives — so after a sync
   // gap the letters named days the data did not come from, and the bar drawn
   // as "today" could be a week old.
-  final now = DateTime.now();
-  final end = DateTime(now.year, now.month, now.day);
+  final end = DateTime.parse(todayLabel());
   var strain7 = List<double?>.filled(7, null);
   try {
     strain7 = lastSevenDays((await repo.getChart('strain'))['points'], end);
@@ -2163,7 +2164,8 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
   final weekStart = DateTime(end.year, end.month, end.day - (end.weekday - 1));
   final thisWeek = [
     for (final w in past)
-      if (!w.start.isBefore(weekStart) &&
+      if (dayLabelAt(w.start).compareTo(dayLabelOf(weekStart)) >= 0 &&
+          dayLabelAt(w.start).compareTo(todayLabel()) <= 0 &&
           !w.live &&
           !w.private &&
           !w.endUnknown)
@@ -2200,13 +2202,15 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     weekEnd: end,
     runs: await () async {
       try {
-        return await loadRuns(repo);
+        return await loadRuns(repo, includePrivate: false);
       } catch (_) {
         return const <RunSummary>[];
       }
     }(),
     workouts: past,
-    weekDays: {for (final w in thisWeek) w.start.weekday - 1},
+    weekDays: {
+      for (final w in thisWeek) DateTime.parse(dayLabelAt(w.start)).weekday - 1,
+    },
     weekCount: thisWeek.length,
     weekLoad: weekLoad,
     workoutsTracked: tracked,

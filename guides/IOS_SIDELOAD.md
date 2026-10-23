@@ -8,6 +8,9 @@ acceptance. No later candidate has been reported installed or accepted. Earlier 
 and recovery proof applies to those earlier builds, not as current-version enrollment evidence.
 SideStore laptop setup is reported; app handover/on-phone renewal remain unconfirmed. No refresh
 ownership or installed identity change is inferred from that report.
+`../build-97-audit.md` owns eighteen findings repaired in Build 98 source (`0.9.65+98`,
+algorithm 98/schema 50). Its full cloud/visual/native and artifact-validation gates are pending;
+Build 97 stays cached until a successor is validated. Phone/signing acceptance remains separate.
 
 Build `0.9.37`/`70` remains the accepted recovery build: its phone check and completed
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`

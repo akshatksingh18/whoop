@@ -8,6 +8,9 @@ installed; Build 97 is not yet installed or phone-accepted. Build `0.9.37`/`70` 
 recovery in `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact
 artifact evidence and `../todo.md` owns phone checks. This state changes on installation and
 completion of the device/signing gates, not on compilation alone.
+`../build-97-audit.md` owns eighteen findings repaired in Build 98 source (`0.9.65+98`,
+algorithm 98/schema 50). Its full cloud/visual/native and artifact-validation gates are pending;
+Build 97 stays cached until a successor is validated. Phone/signing acceptance remains separate.
 
 The app reads the iPhone's own pedometer when **This phone → Steps** is on and does not use Apple
 Health. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID manual refresh

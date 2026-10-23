@@ -491,7 +491,7 @@ String recompCheckDate({
     final liftOk =
         !DateTime.parse(w.before.to).isBefore(now) ||
         lifts.any((x) {
-          final d = dayLabelOf(x.startedAt);
+          final d = dayLabelAt(x.startedAt);
           return d.compareTo(w.before.from) >= 0 &&
               d.compareTo(w.before.to) <= 0 &&
               x.exercises.any((e) => e.sets.isNotEmpty);
@@ -613,7 +613,7 @@ List<GoalNeed> goalNeeds(
   ).where((x) => x.change != SetVerdict.incomparable).isNotEmpty;
   final names = <String>[];
   for (final x in lifts) {
-    final d = dayLabelOf(x.startedAt);
+    final d = dayLabelAt(x.startedAt);
     if (d.compareTo(w.before.from) < 0 || d.compareTo(w.before.to) > 0)
       continue;
     for (final e in x.exercises) {

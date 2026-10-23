@@ -409,7 +409,7 @@ List<LiftComparison> liftComparisons(
     final ex = <String, LiftExercise>{};
     final sets = <String, List<LiftSet>>{};
     for (final x in finished) {
-      final d = dayLabelOf(x.startedAt);
+      final d = dayLabelAt(x.startedAt);
       if (d.compareTo(w.from) < 0 || d.compareTo(w.to) > 0) continue;
       for (final e in x.exercises) {
         if (e.sets.isEmpty) continue;

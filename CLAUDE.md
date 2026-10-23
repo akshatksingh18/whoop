@@ -21,12 +21,17 @@ remain fetch-only named upstreams.
 and continuous synthetic visual checks. No feature, scientific coefficient, dependency, schema,
 algorithm version or signing capability was removed/changed. Full Linux/visual checks, native
 compilation and downloaded IPA validation pass; `setup.md` owns source/hash/workflow evidence.
+All eighteen subsequent `build-97-audit.md` findings are repaired in Build 98 source
+(`0.9.65+98`, algorithm 98, schema 50) on `build-98`. Targeted synthetic regressions pass;
+full cloud/visual/native checks and replacement IPA validation are pending. Build 97 remains the
+cached testing binary until those gates pass. No calorie/recovery coefficient or feature changed.
 Build 96's superseded candidate went to the Recycle Bin. Build 91 remains the last reported
 installation and Build 70 remains accepted recovery. Current-version installation, signing
 enrollment and the physical-device matrix remain open; software checks are not universal
 flow or hardware proof. Earlier build notes are in `build-history.md`.
 
 ## Files
+- `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.
 - `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.
 - `build-95-repairs.md` — approved 29-finding repair scope, current implementation/check status and integration/device gates; read before continuing the repair branch.
 - `build-90-audit.md` — current Build 89 all-tab visual/source audit, targeted synthetic evidence,

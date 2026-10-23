@@ -87,7 +87,7 @@ List<String> liftMilestones(
   final best = <String, ({LiftSet set, String date})>{};
   final out = <String>[];
   for (final w in sessions) {
-    final date = dayLabelOf(w.startedAt);
+    final date = dayLabelAt(w.startedAt);
     for (final e in w.exercises) {
       if (e.sets.isEmpty) continue;
       final k =

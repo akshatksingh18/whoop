@@ -65,6 +65,20 @@ Future<void> _seedHr(int start, int seconds, int hr,
   await LocalDb.commitSyncBatch(raws, samples, deviceFamily: deviceFamily);
 }
 
+// Synthetic measured motion, separate from HR: a run's energy requires distance.
+Future<void> _seedRoute(String id, int start) async {
+  await LocalDb.appendRoutePoints(id, [
+    for (var i = 0; i <= 60; i++)
+      RoutePoint(
+        seq: i,
+        tsMs: (start + i * 60) * 1000,
+        lat: 1 + i * .0015,
+        lng: 2,
+        accuracy: 5,
+      ).toRow(id),
+  ]);
+}
+
 void main() {
   // A fixed, comfortably-past window so nothing here depends on wall clock
   // beyond "this is in the past", which it always is.
@@ -101,12 +115,13 @@ void main() {
       expect(res['unscored'], isFalse);
       expect(res['hr_samples'], greaterThan(0));
 
+      await _seedRoute(res['workout_id'] as String, sessionStart);
       final w = await repo.getWorkout(res['workout_id'] as String);
       expect(w['status'], 'done');
       expect(w['source'], 'manual');
       expect(w['type'], 'run');
       expect(w['duration_min'], 60);
-      // Scored from real HR — not inferred from the duration.
+      // Strain uses HR; run calories use measured distance, never duration alone.
       expect(w['strain'], isNotNull);
       expect(w['calories'], isNotNull);
       expect(w['avg_hr'], 150);
@@ -137,12 +152,30 @@ void main() {
         endTs: unstampedStart + 3600,
         type: 'run',
       );
+      await _seedRoute(res['workout_id'] as String, unstampedStart);
       final w = await repo.getWorkout(res['workout_id'] as String);
       expect(w['avg_hr'], 150);
       expect(w['strain'], isNotNull);
       expect(w['calories'], isNotNull);
       expect((w['zone_bands'] as List?) ?? const [], isNotEmpty);
       expect((w['zone_min'] as List?) ?? const [], isNotEmpty);
+    },
+  );
+
+  test(
+    'an HR-only run has strain but cannot fabricate distance-based calories',
+    () async {
+      const begin = 1700200000;
+      await _seedHr(begin, 1800, 150);
+      final result = await repo.logManualWorkout(
+        startTs: begin,
+        endTs: begin + 1800,
+        type: 'running',
+      );
+      final workout = await repo.getWorkout(result['workout_id'] as String);
+      expect(workout['avg_hr'], 150);
+      expect(workout['strain'], isNotNull);
+      expect(workout['calories'], isNull);
     },
   );
 

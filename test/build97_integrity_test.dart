@@ -198,10 +198,8 @@ void main() {
     );
     await applyBodyImport(plan, encode: (_) async => [1, 2, 3]);
     final file = await BodyLogDb.photoFile((await BodyLogDb.photos()).single);
-    await expectLater(
-      applyBodyImport(plan, encode: (_) async => [9, 9]),
-      throwsA(anything),
-    );
+    expect(await applyBodyImport(plan, encode: (_) async => [9, 9]), 0);
+    // A replay is skipped and reports no added photo, preserving the winner.
     expect(await file.readAsBytes(), [1, 2, 3]);
     // An orphan file also belongs to its current owner, not this attempted save.
     final orphan = File(p.join(file.parent.path, 'orphan.jpg'));

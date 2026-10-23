@@ -350,13 +350,19 @@ void main() {
     test('an unfinished session survives being killed', () async {
       SharedPreferences.setMockInitialValues(const {});
       await Prefs.ensureLoaded();
-      addTearDown(LiveDraft.clear);
+      addTearDown(() async {
+        LiveDraft.clear();
+        await LiveDraft.retrySave();
+      });
 
       final d = LiveDraft.begin(activityByName('swimming')!, weightKg: 72.4);
       d.put('lap_at', const [30, 65]);
       d.setPaused(true);
 
-      // The process dies. Everything in memory goes with it.
+      // Simulate a cold process only after persistence has acknowledged.
+      await LiveDraft.retrySave();
+      SharedPreferences.resetStatic();
+      await Prefs.ensureLoaded();
       LiveDraft.debugForget();
 
       final back = LiveDraft.current;
@@ -367,6 +373,9 @@ void main() {
       expect(back.pausedAt, isNotNull, reason: 'it was paused, and still is');
 
       LiveDraft.clear();
+      await LiveDraft.retrySave();
+      SharedPreferences.resetStatic();
+      await Prefs.ensureLoaded();
       LiveDraft.debugForget();
       expect(LiveDraft.current, isNull);
     });
@@ -440,7 +449,6 @@ void main() {
         sessionId: 's1',
       );
       expect(namesOf(never), isNot(contains('Your rating')));
-
     });
   });
 
@@ -464,17 +472,14 @@ void main() {
       for (final s in sessionStats(r, null)) s.$1,
     ];
 
-    test(
-      'a walk that counted them prints them',
-      () {
-        final walk = session('Walking', steps: 8412);
-        expect(screenNames(walk), contains('Steps'));
-        // Grouped, and bare: the label already says what they are.
-        expect([
-          for (final s in sessionStats(walk, null)) s.$2,
-        ], contains('8,412'));
-      },
-    );
+    test('a walk that counted them prints them', () {
+      final walk = session('Walking', steps: 8412);
+      expect(screenNames(walk), contains('Steps'));
+      // Grouped, and bare: the label already says what they are.
+      expect([
+        for (final s in sessionStats(walk, null)) s.$2,
+      ], contains('8,412'));
+    });
 
     test('a walk with nothing measured is dropped, never zeroed', () {
       // Issue #183: the raw stream is routinely absent during a perfectly good
@@ -1159,9 +1164,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('finishing hands the session to the app', (
-      tester,
-    ) async {
+    testWidgets('finishing hands the session to the app', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);

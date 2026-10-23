@@ -77,6 +77,7 @@ void main() {
       'food_entry',
       'meal_template',
       'body_weight',
+      'body_weight_reading',
       'workout_route',
     ])
       await db.delete(t);

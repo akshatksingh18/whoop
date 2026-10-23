@@ -1019,14 +1019,17 @@ Future<int> applyBodyImport(
   final db = await LocalDb.instance;
   // Decode before publishing any row. Files created in the transaction are
   // owned by this attempt and removed if the database rolls it back.
-  final staging = await (await getTemporaryDirectory()).createTemp(
-    'body_import_',
-  );
+  Directory? staging;
   final encoded = <({BodyPhoto photo, File file})>[];
   final created = <BodyPhoto>[];
   try {
+    if (plan.photos.isNotEmpty) {
+      staging = await (await getTemporaryDirectory()).createTemp(
+        'body_import_',
+      );
+    }
     for (final (i, ph) in plan.photos.indexed) {
-      final file = File(p.join(staging.path, '$i.jpg'));
+      final file = File(p.join(staging!.path, '$i.jpg'));
       await file.writeAsBytes(await encode(ph.path), flush: true);
       encoded.add((photo: ph.photo, file: file));
     }
@@ -1113,7 +1116,7 @@ Future<int> applyBodyImport(
     rethrow;
   } finally {
     try {
-      await staging.delete(recursive: true);
+      await staging?.delete(recursive: true);
     } catch (_) {}
   }
   await CalculationStore.hydrate();

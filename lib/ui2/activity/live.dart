@@ -728,34 +728,37 @@ class LiveShellState extends State<LiveShell> with WidgetsBindingObserver {
                         : widget.body(bc, clock.value),
                     builder: (bc2, e, child) => ListView(
                       padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x4),
-                      children: [child ?? widget.body(bc2, e)],
+                      children: [
+                        ListenableBuilder(
+                          listenable: Listenable.merge([
+                            WorkoutClock.saveError,
+                            LiveDraft.saveError,
+                          ]),
+                          builder: (c, _) {
+                            final error =
+                                WorkoutClock.saveError.value ??
+                                LiveDraft.saveError.value;
+                            if (error == null) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.all(S.x4),
+                              child: StatusCard(
+                                'Workout changes not saved',
+                                error,
+                                fix: 'Retry save',
+                                onFix: () async {
+                                  await WorkoutClock.retryPending();
+                                  await LiveDraft.retrySave();
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                        child ?? widget.body(bc2, e),
+                      ],
                     ),
                   ),
                 ),
               ),
-            ),
-            ListenableBuilder(
-              listenable: Listenable.merge([
-                WorkoutClock.saveError,
-                LiveDraft.saveError,
-              ]),
-              builder: (c, _) {
-                final error =
-                    WorkoutClock.saveError.value ?? LiveDraft.saveError.value;
-                if (error == null) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.all(S.x4),
-                  child: StatusCard(
-                    'Workout changes not saved',
-                    error,
-                    fix: 'Retry save',
-                    onFix: () async {
-                      await WorkoutClock.retryPending();
-                      await LiveDraft.retrySave();
-                    },
-                  ),
-                );
-              },
             ),
             if (widget.footer != null)
               Padding(

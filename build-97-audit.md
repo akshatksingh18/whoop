@@ -21,7 +21,7 @@ no Build 98 installation or hardware acceptance is claimed.
   Algorithm 98 versions the changed date attribution; no scientific coefficient changed.
 - B97-09/18: native Home events are peeked and acknowledged after durable session receipts and
   automation state. Failed/replayed writes preserve one transition. Live clock and draft save
-  failures remain visible, with explicit retry and foreground retry of their original values.
+  failures remain visible in the scrollable live view, with explicit retry and foreground retry of their original values.
 - B97-10/11: finished-set and diary-portion editors retain drafts until successful validation and
   writes. Primary action labels can grow beyond two lines; full-scroll Copy a day tests inspect
   `didExceedMaxLines`, not just overflow exceptions.

@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/data/lift_log.dart';
+import 'package:openstrap_edge/gps/workout_clock.dart';
+import 'package:openstrap_edge/ui2/activity/live.dart';
+import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/data/progress_review.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -68,6 +71,41 @@ void main() {
     await icons.load();
   });
   for (final scale in [1.0, 3.1]) {
+    testWidgets('live checkpoint failure remains readable at ${scale}x', (
+      t,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await Prefs.ensureLoaded();
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final app = AppState.forTesting();
+      final units = UnitsController.withUnits();
+      addTearDown(app.dispose);
+      addTearDown(units.dispose);
+      WorkoutClock.saveError.value =
+          'Workout timing has not saved. Keep WHOOP open and retry before closing it.';
+      addTearDown(() => WorkoutClock.saveError.value = null);
+      await t.pumpWidget(
+        frame(
+          app,
+          LiveShell(
+            storedActivity('swimming'),
+            body: (_, _) => const Text('Synthetic live body'),
+            result: (_) => throw StateError('Not submitted'),
+          ),
+          scale,
+          units,
+        ),
+      );
+      await settle(t);
+      expect(t.takeException(), isNull);
+      expect(find.text('Workout changes not saved'), findsOneWidget);
+      await scrollAll(t, 'live_save_failure_${scale}x');
+      expect(find.text('Retry save'), findsOneWidget);
+      await t.pumpWidget(const SizedBox());
+    });
+
     testWidgets('populated Strength full scroll at ${scale}x', (t) async {
       SharedPreferences.setMockInitialValues({});
       await Prefs.ensureLoaded();

@@ -512,8 +512,8 @@ other worktrees remain untouched.
   acknowledged settings/buzz actions, private aggregates, recorded-zone dates, replayable Home
   events, visible/retryable pause/draft persistence, retained editor drafts and large-text actions.
   `test/build98_integrity_test.dart`, `build98_boundary_test.dart` and `build98_nested_render_test.dart`
-  assert the desired behavior using synthetic data. All 44 targeted checks pass (22 deep-flow,
-  18 boundary and four normal/3.1x full-scroll interactions). Eight iOS contract checks pass. Full GitHub analysis/suite/whole-page visuals, native build and
+  assert the desired behavior using synthetic data. All 46 targeted checks pass (22 deep-flow,
+  18 boundary and six normal/3.1x full-scroll interactions). Eight iOS contract checks pass. Full GitHub analysis/suite/whole-page visuals, native build and
   downloaded IPA validation are pending. No successor binary is delivered yet. No feature,
   dependency, schema or scientific coefficient changed; algorithm 98 versions date attribution.
 - [ ] 4. Akshat's phone acceptance: recheck the repaired B96-01–07 flows, then the still-open Build 89 checks below, every Build 90
@@ -580,7 +580,7 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
     while asleep.
 - Codex: All eighteen B97 findings have source repairs on `build-98`, with desired-behavior
   synthetic regression files and expanded real import/editor interactions. Build 98 is `0.9.65+98`,
-  algorithm 98/schema 50. All 44 targeted checks pass; full cloud/visual/native release
+  algorithm 98/schema 50. All 46 targeted checks pass; full cloud/visual/native release
   verification is pending (3m). Build 97 remains cached until a validated replacement.
   `build-97-audit.md` owns repair coverage; `setup.md` owns workflow/artifact evidence. No work is
   waiting on Claude, and existing other checkouts remain untouched. Phone acceptance stays open.

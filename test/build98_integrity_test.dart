@@ -53,6 +53,7 @@ class _RefusingStore extends SharedPreferencesStorePlatform {
   final values = <String, Object>{};
   int writes = 0;
   bool refuse = true;
+  int? throwAtWrite;
   @override
   Future<Map<String, Object>> getAll() async => Map.of(values);
   @override
@@ -70,6 +71,8 @@ class _RefusingStore extends SharedPreferencesStorePlatform {
   @override
   Future<bool> setValue(String type, String key, Object value) async {
     writes++;
+    if (writes == throwAtWrite)
+      throw StateError('Synthetic preference refusal');
     if (refuse) return false;
     values[key] = value;
     return true;
@@ -653,6 +656,93 @@ void main() {
         expect((await HomeRegion.automation()).presence, HomePresence.outside);
       } finally {
         messenger.setMockMethodCallHandler(channel, null);
+        SharedPreferencesStorePlatform.instance = original;
+        SharedPreferences.resetStatic();
+      }
+    },
+  );
+
+  test(
+    'thrown preference write retains units and supports a durable retry',
+    () async {
+      final original = SharedPreferencesStorePlatform.instance;
+      final store = _RefusingStore()
+        ..refuse = false
+        ..throwAtWrite = 1;
+      SharedPreferencesStorePlatform.instance = store;
+      SharedPreferences.resetStatic();
+      final units = UnitsController.withUnits();
+      try {
+        await expectLater(units.setWeightUnit('lb'), throwsStateError);
+        expect(units.weightUnit, 'kg');
+        await units.setWeightUnit('lb');
+        SharedPreferences.resetStatic();
+        final restored = await UnitsController.bootstrap();
+        expect(restored.weightUnit, 'lb');
+        restored.dispose();
+      } finally {
+        units.dispose();
+        SharedPreferencesStorePlatform.instance = original;
+        SharedPreferences.resetStatic();
+      }
+    },
+  );
+
+  test(
+    'rapid unit changes persist in request order across a cold reload',
+    () async {
+      final original = SharedPreferencesStorePlatform.instance;
+      final store = _RefusingStore()..refuse = false;
+      SharedPreferencesStorePlatform.instance = store;
+      SharedPreferences.resetStatic();
+      final units = UnitsController.withUnits();
+      try {
+        await Future.wait([
+          units.setWeightUnit('lb'),
+          units.setWeightUnit('kg'),
+          units.setDistanceUnit('mi'),
+        ]);
+        expect(units.weightUnit, 'kg');
+        expect(units.distanceUnit, 'mi');
+        SharedPreferences.resetStatic();
+        final restored = await UnitsController.bootstrap();
+        expect(restored.weightUnit, 'kg');
+        expect(restored.distanceUnit, 'mi');
+        restored.dispose();
+      } finally {
+        units.dispose();
+        SharedPreferencesStorePlatform.instance = original;
+        SharedPreferences.resetStatic();
+      }
+    },
+  );
+
+  test(
+    'partial notification preference failure restores all earlier keys',
+    () async {
+      final original = SharedPreferencesStorePlatform.instance;
+      final store = _RefusingStore()..refuse = false;
+      SharedPreferencesStorePlatform.instance = store;
+      SharedPreferences.resetStatic();
+      try {
+        await const NotificationPrefs().save();
+        store.throwAtWrite = store.writes + 3;
+        await expectLater(
+          const NotificationPrefs(
+            healthEnabled: false,
+            recoveryEnabled: false,
+            deviceEnabled: false,
+            quietEnabled: false,
+          ).save(),
+          throwsStateError,
+        );
+        SharedPreferences.resetStatic();
+        final restored = await NotificationPrefs.load();
+        expect(restored.healthEnabled, true);
+        expect(restored.recoveryEnabled, true);
+        expect(restored.deviceEnabled, true);
+        expect(restored.quietEnabled, true);
+      } finally {
         SharedPreferencesStorePlatform.instance = original;
         SharedPreferences.resetStatic();
       }

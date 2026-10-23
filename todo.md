@@ -512,13 +512,16 @@ other worktrees remain untouched.
   acknowledged settings/buzz actions, private aggregates, recorded-zone dates, replayable Home
   events, visible/retryable pause/draft persistence, retained editor drafts and large-text actions.
   `test/build98_integrity_test.dart`, `build98_boundary_test.dart` and `build98_nested_render_test.dart`
-  assert the desired behavior using synthetic data. All 48 new-file checks pass (24 deep-flow,
-  18 boundary and six normal/3.1x full-scroll interactions). The seven first full-suite failures
+  assert the desired behavior using synthetic data. All 51 new-file checks pass (27 deep-flow,
+  18 boundary and six normal/3.1x full-scroll interactions), plus the added HR-only-run case.
+  Settings coverage includes thrown-write retry, rapid ordered changes and partial multi-key rollback.
+  The seven first full-suite failures
   and one additional HR-only-run check pass after fixture/async-ack corrections and lazy numeric
   import staging. Both generations also retain the haptic transport result through AppState.
   Eight iOS contract checks pass. First cloud run `39885147300` passes analysis and 137 visual checks/570 captures, but fails
-  seven older regressions. Their corrections pass locally. The full rerun and successor native
-  build/IPA validation remain pending. No successor binary is delivered yet. No feature,
+  seven older regressions. Their corrections pass locally. Final native run `39942864975`
+  passes at app source `7c13f1a6`; downloaded IPA validation and the full rerun including the
+  expanded settings matrix remain pending. No successor binary is delivered yet. No feature,
   dependency, schema or scientific coefficient changed; algorithm 98 versions date attribution.
 - [ ] 4. Akshat's phone acceptance: recheck the repaired B96-01–07 flows, then the still-open Build 89 checks below, every Build 90
   change, and the device/operational matrix in `build-90-audit.md`.

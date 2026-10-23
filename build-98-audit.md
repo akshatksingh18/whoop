@@ -155,6 +155,9 @@ one test-clock zone. This avoids a Windows FFI fixture-order stall; isolated rea
 passes. Initial fixture mistakes/stalled batches are not counted as app passes. Full-scroll
 captures of the disclosure and reminder error states were inspected with substitute fonts.
 The cloud visual job now includes these states; its successor result is still pending.
+The full test job also retains instrumented Dart line coverage. This measures exercised lines
+in imported Dart libraries; generated/unimported code and native iOS behavior must be identified
+separately and cannot be certified from a green test count.
 
 Additional review queues, not yet closed: historical journal/custom-field drafts
 (first establish personal-build reachability); short arrival-day wall-clock choices; all remaining

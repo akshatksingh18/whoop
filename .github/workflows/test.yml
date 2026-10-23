@@ -76,7 +76,15 @@ jobs:
       # beside the repo rather than committed to it, so the two derivation-replay
       # tests SKIP here and run locally.
       - name: Test
-        run: flutter test --concurrency=1 --reporter=expanded
+        run: flutter test --concurrency=1 --coverage --reporter=expanded
+      - name: Keep instrumented Dart line coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dart-line-coverage-${{ github.sha }}
+          path: coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
 
   synthetic-pages:
     runs-on: ubuntu-latest

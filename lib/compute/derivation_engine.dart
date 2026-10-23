@@ -1678,7 +1678,11 @@ import 'substrate.dart';
 // v98: session energy/profile and legacy run-day attribution use the stored
 // day-zone timeline rather than the current phone zone. No energy or recovery
 // coefficient changes. Recompute retained inputs under their recorded days.
-const int kAlgoVersion = 98;
+// v99: profile edits and activity/step streaks use recorded travel days;
+// empty startup profiles preserve restored anchors, and lifting energy unions
+// active windows without dropping pauses or captured session profiles.
+// Scientific coefficients and recovery scoring remain unchanged.
+const int kAlgoVersion = 99;
 
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.

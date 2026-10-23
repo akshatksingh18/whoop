@@ -83,10 +83,41 @@ these runs). Full cloud/native and new UI-state checks remain pending. Build 98 
 The shared repair orders cache reads/writes/removal, snapshots profile history from SQLite,
 acknowledges backup Off/forget/Home persistence, preserves Home stop errors and reports partial
 reset, including verified keychain cleanup. The affected screens retain a visible retry path.
-No scientific coefficient, analytics version, schema, dependency or capability changed so far.
+No scientific coefficient, schema, dependency or capability changes. Algorithm 99 versions the
+additional recorded-day and lifting-window corrections below.
 
-Additional review queues, not confirmed findings: barcode numeric-input/disclosure/large-text
-sheet contracts; run voice and Body reminder persistence; historical journal/custom-field drafts
+- **B98-07, P2 — travel days diverge across Food, streaks and Today.** Food windows/months,
+  profile edits, step qualification and activity-window splitting still use the operating system's
+  calendar in some paths. During a westward held day they omit/file the current evidence under
+  yesterday, and Today's graph starts at the wrong midnight. Use the existing stored-day helpers
+  for instants; retain calendar-only arithmetic for already chosen labels. Synthetic Tokyo to
+  Honolulu tests reproduce missing Food/current step awards and verify the repaired date paths.
+- **B98-08, P1 — empty startup profile overwrites restored calculation anchors.** A database
+  restore without local profile preferences passes an empty map to `ProfileHistory.record`,
+  replacing the current dated anchor with `{}`. An absent startup profile is not an edit;
+  preserve the restored history. Explicit populated edits/cleared fields still record normally.
+- **B98-09, P2 — lifting deduplication drops active time and session anchors.** Trimming a
+  later session's start to an earlier elapsed end loses exercise occurring during a pause and
+  prevents its clock/profile from matching. Union active windows with original starts and
+  captured profiles; a missing current weight must not hide valid historical session anchors.
+  Tests cover pause-only overlap, real overlap and different captured weights. No MET changes.
+- **B98-10, P2 — arbitrary barcode text changes the request path/query.** Reject non-ASCII
+  numeric identifiers before HTTP construction. Six synthetic malformed inputs previously
+  reached the mocked service; valid numeric barcodes continue through the same endpoint.
+- **B98-11, P2 — first-use barcode disclosure is bypassed.** Source defaults a fresh install
+  to allowed despite the canonical opt-in contract. Default to off, retain explicit choices and
+  require an acknowledged grant before camera/lookup. A refused grant stays closed and says why.
+- **B98-12, P2 — barcode disclosure actions overflow.** The non-scrolling half-height sheet
+  overflows at normal and accessibility text sizes. Give the existing content a full-height
+  scrollable sheet; both Allow and Not now remain reachable without camera or network access.
+
+Seven recorded-day/restore/lifting tests pass; four new barcode tests plus the existing nutrient
+and consent suite pass (37 combined). Before-fix logs reproduce the failures. The running
+coefficient's comment now accurately calls 0.85 a budgeting calibration, above the cited 0.81
+mean and not a guaranteed personal minimum; the coefficient itself is unchanged.
+
+Additional review queues, not yet closed: run voice and Body reminder persistence/native
+cancellation; backup status persistence; historical journal/custom-field drafts
 (first establish personal-build reachability); short arrival-day wall-clock choices; all remaining
 activity/metric/data/lifecycle consumers. Scientific coefficients remain unchanged.
 

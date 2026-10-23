@@ -62,27 +62,13 @@ const _userAgent =
 
 /// Whether openfoodfacts.org may be asked about a barcode.
 ///
-/// Default ON — with the update check, and unlike every path that would send
-/// something ABOUT YOU (crash reports, health contribution), which stay off
-/// until asked. The line between them is what leaves: this sends a number
-/// printed on a packet by its manufacturer, and a scanner that refuses to scan
-/// until you have found a settings toggle is a scanner nobody uses.
-///
-/// Still persisted and still revocable from Settings › Privacy, and the food
-/// log is entirely usable with it off: typing the numbers off the pack was
-/// always the fallback and still is.
-///
-/// Default-on and fail-closed are not in tension, because they answer two
-/// different questions. `Prefs.getBool`'s fallback covers BOTH "loaded, no key
-/// yet" (a fresh install — default on, deliberately) and "prefs never loaded"
-/// (we cannot see the answer). Reading the second as the first sends the
-/// barcode of someone who explicitly opted out, which is the one thing a
-/// revocable consent must never do. So storage has to be there before the
-/// default counts.
+/// Default off until the first-use disclosure is accepted. Existing explicit
+/// choices remain intact, and Settings can revoke access at any time. Storage
+/// must be loaded before a choice counts; unavailable storage fails closed.
 const kOffConsentKey = 'nutrition.barcode_lookup';
 
 bool get offLookupAllowed =>
-    Prefs.loaded && Prefs.getBool(kOffConsentKey, true);
+    Prefs.loaded && Prefs.getBool(kOffConsentKey, false);
 
 /// Record the choice, and say whether it was actually RECORDED.
 ///
@@ -467,7 +453,7 @@ Future<OffResult> fetchOffProduct(String barcode,
     {http.Client? client}) async {
   if (!offLookupAllowed) return const OffResult(OffOutcome.refused);
   final code = barcode.trim();
-  if (code.isEmpty || code.length > 20) {
+  if (!RegExp(r'^[0-9]{1,20}$').hasMatch(code)) {
     return const OffResult(OffOutcome.notFound);
   }
   final owned = client == null;

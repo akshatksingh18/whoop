@@ -528,10 +528,12 @@ other worktrees remain untouched.
   and ACK ordering. Local readability fixes are approved; major page replacements retain the
   before/after review gate. Confirm findings with runnable synthetic evidence, batch coherent
   repairs and run appropriate targeted/cloud/native checks before replacing the testing IPA.
-  Six persistence families B98-01–06 have source repairs: authoritative profile rollback,
+  Twelve families B98-01–12 have source repairs: authoritative profile rollback,
   ordered/acknowledged calculation removal, backup Off, paired-identity removal, Home setup/stop,
-  and partial reset/keychain failure reporting. Nine new tests and five existing settings/cache
-  cases pass targeted checks. Other source/UI/date/metric flow families are still under review;
+  partial reset/keychain failure reporting, recorded travel days, restored profile anchors,
+  active-window lifting deduplication, and barcode input/opt-in/scrolling. Algorithm 99 versions
+  date/timing corrections without coefficient changes. Twenty new cases and existing settings/
+  nutrient/consent cases pass targeted checks. Other source/UI/metric flows are under review;
   no Build 99 artifact or full verification is claimed yet.
 - [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

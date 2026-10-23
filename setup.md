@@ -81,7 +81,8 @@ and the phone matrix remain open. Use the exact existing app identity; delivery 
 recovery promotion.
 
 An additional comprehensive review is active on `build-99` (`build-98-audit.md`, `todo.md` 3n).
-Its first six persistence repairs pass targeted synthetic checks. No Build 99 release/IPA or
+Its first twelve persistence/date/timing/barcode repairs pass targeted synthetic checks, with
+algorithm 99 reserved for recorded-day and lifting-window corrections. No Build 99 release/IPA or
 new full cloud result is claimed; the Build 98 artifact above remains the one-slot candidate.
 
 

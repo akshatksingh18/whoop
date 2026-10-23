@@ -22,9 +22,12 @@ class ProfileHistory {
     Map<String, dynamic> after, {
     DateTime? now,
   }) async {
+    // Startup after a database restore may have no local profile yet. That is
+    // not an edit and must not overwrite restored calculation anchors.
+    if (after.isEmpty) return;
     final h = decode(await CalculationStore.read(key));
     h.putIfAbsent('baseline', () => Profile.fromMap(before ?? after).toMap());
-    final day = dayLabelOf(now ?? DateTime.now());
+    final day = todayLabel(now);
     h[day] = Profile.fromMap(after).toMap();
     if (before?['weight_kg'] != after['weight_kg']) {
       final weights = Map<String, dynamic>.from(

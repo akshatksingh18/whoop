@@ -313,7 +313,7 @@ class StepGoals {
     final earned = Map<String, dynamic>.from(h['earned'] as Map);
     final out = <String>{};
     var d = DateTime.parse(h['from'] as String);
-    final last = DateTime(now.year, now.month, now.day);
+    final last = DateTime.parse(todayLabel(now));
     while (!d.isAfter(last)) {
       final date = dayLabelOf(d);
       final resolved = await LocalDb.resolvedStepsForDay(date);
@@ -347,9 +347,9 @@ class StepGoals {
   });
 }
 
-Future<MoveStreak?> loadMoveStreak() async {
+Future<MoveStreak?> loadMoveStreak({DateTime? at}) async {
   try {
-    final now = DateTime.now();
+    final now = at ?? DateTime.now();
     final rows = await LocalDb.sessionsInRange(
       0,
       now.millisecondsSinceEpoch ~/ 1000,
@@ -374,7 +374,7 @@ Future<MoveStreak?> loadMoveStreak() async {
       final legacyMinutes = (r['duration_min'] as num?)?.toInt();
       if (te == null || te <= ts || r['end_ts_fabricated'] == 1) {
         if (legacyMinutes != null && legacyMinutes > 0) {
-          final date = dayLabelOf(
+          final date = dayLabelAt(
             DateTime.fromMillisecondsSinceEpoch(ts * 1000),
           );
           seconds[date] = (seconds[date] ?? 0) + legacyMinutes * 60;
@@ -395,9 +395,11 @@ Future<MoveStreak?> loadMoveStreak() async {
       for (final w in unique.windows()) {
         var cursor = w.start;
         while (cursor.isBefore(w.end)) {
-          final midnight = DateTime(cursor.year, cursor.month, cursor.day + 1);
+          final date = dayLabelAt(cursor);
+          final midnight = DateTime.fromMillisecondsSinceEpoch(
+            localDayEndSec(date)! * 1000,
+          );
           final stop = midnight.isBefore(w.end) ? midnight : w.end;
-          final date = dayLabelOf(cursor);
           seconds[date] =
               (seconds[date] ?? 0) + stop.difference(cursor).inSeconds;
           mark(date);
@@ -413,6 +415,7 @@ Future<MoveStreak?> loadMoveStreak() async {
     } catch (_) {}
     final steps = await StepGoals.qualifying(
       initial: (profile?['step_goal'] as num?)?.toInt(),
+      at: now,
     );
     final moves = [
       for (final d in seconds.keys)
@@ -424,7 +427,7 @@ Future<MoveStreak?> loadMoveStreak() async {
     ];
     return moveStreak(
       moves,
-      now,
+      DateTime.parse(todayLabel(now)),
       stepDays: steps,
       protectedDays: await StreakProtection.read(),
     );

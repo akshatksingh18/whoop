@@ -20,6 +20,11 @@ The active successor review is `build-98-audit.md`. Its first source repairs kee
 rollback on authoritative database history and order calculation cache reads/removal so a
 failed deletion cannot resurrect a removed anchor. Failed settings and partial reset have
 explicit retry outcomes. These do not tune metric formulas and are not yet in the cached IPA.
+Algorithm 99 additionally uses recorded travel days for profile edits, Food windows, activity/
+step streaks and Today's chart origin; absent startup profiles preserve restored anchors.
+The separate lifting line unions active windows and retains captured weights through overlaps.
+Barcode lookup requires first-use consent and numeric identifiers; its disclosure scrolls at
+accessibility sizes. Scientific coefficients stay unchanged; these are source-only pending release.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is

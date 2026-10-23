@@ -261,8 +261,7 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   Profile profile,
 ) async {
   final day = DateTime.tryParse(date);
-  final kg = profile.weightKg;
-  if (day == null || kg == null) return null;
+  if (day == null) return null;
   final from = DateTime.fromMillisecondsSinceEpoch(
     (localDayStartSec(date) ?? 0) * 1000,
   );
@@ -280,7 +279,7 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   var counted = 0;
   var approximate = false;
   // B88-06: overlapping lift sessions are one stretch of lifting, priced once.
-  DateTime? coveredUntil;
+  final occupied = <ActiveWindow>[];
   rows.sort(
     (a, b) =>
         ((a['start_ts'] as num?) ?? 0).compareTo((b['start_ts'] as num?) ?? 0),
@@ -295,7 +294,7 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
       approximate = true;
       continue;
     }
-    var start = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
+    final start = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
     final endTs = (r['end_ts'] as num?)?.toInt();
     final end = endTs == null
         ? DateTime.now()
@@ -306,12 +305,20 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
       approximate = true;
       continue;
     }
-    if (coveredUntil != null && start.isBefore(coveredUntil)) {
-      start = coveredUntil;
-    }
     if (!end.isAfter(start)) continue;
-    coveredUntil = end;
-    final clock = WorkoutClock.read(id, start, end: end);
+    final saved = WorkoutClock.read(id, start, end: end);
+    // Deduplicate active windows, not elapsed bounds: another workout may
+    // occur during this one's pause. Keep the original start so its captured
+    // profile and timing metadata still match the stored clock.
+    final clock = WorkoutClock(
+      id,
+      start,
+      end: end,
+      profile: saved.profile,
+      pauses: [...saved.pauses, ...occupied],
+      pausedAt: saved.pausedAt,
+    );
+    occupied.addAll(saved.windows());
     final minutes = clock.activeDuration(end).inSeconds / 60;
     final at = await sessionProfile(id, start, profile, end: end);
     final net = sessionActiveKcal(

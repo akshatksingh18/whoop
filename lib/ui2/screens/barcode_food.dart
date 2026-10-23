@@ -29,7 +29,20 @@ Future<OffResult?> scanFoodProduct(
   if (!offLookupAllowed) {
     final agreed = await _askLookupConsent(c);
     if (agreed != true || !c.mounted) return null;
-    await setOffLookupAllowed(true);
+    if (!await setOffLookupAllowed(true)) {
+      // Keep the optimistic cache closed too after a refused grant.
+      await setOffLookupAllowed(false);
+      if (c.mounted) {
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Barcode permission could not be saved. Try again, or enter the food manually.',
+            ),
+          ),
+        );
+      }
+      return null;
+    }
     if (!c.mounted) return null;
   }
   final code = await scanBarcode(c, onManual: onManual);
@@ -62,6 +75,8 @@ Future<OffResult> lookupBarcodeFood(
 /// whole claim is that nothing does unless you said so.
 Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
   context: c,
+  isScrollControlled: true,
+  useSafeArea: true,
   sheetAnimationStyle: sheetMotion(c),
   backgroundColor: P.of(c).card,
   shape: const RoundedRectangleBorder(
@@ -70,7 +85,7 @@ Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
   builder: (s) {
     final p = P.of(s);
     final l = AppLocalizations.of(s);
-    return SafeArea(
+    return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(S.x5, S.x5, S.x5, S.x6),
         child: Column(

@@ -147,9 +147,10 @@ double? bmrMifflin(Profile p) {
 ///
 /// 0.17 from Build 90 (Akshat's decision; 0.143 before): 0.85 kcal/kg/km, a
 /// conservative budgeting calibration, not a measured personal constant. It
-/// stays below the measured level-running means (Minetti 2002 ≈ 0.81 net in
-/// elite runners is the lowest found; Margaria ≈ 1.0) while 0.143 sat about
-/// 12% under even that (`build-90-research.md` K, Codex's independent review).
+/// is below the conventional ≈ 1.0 reference, but above Minetti 2002's ≈ 0.81
+/// net in elite runners. It is not a guaranteed personal minimum. The former
+/// 0.143 sat about 12% under that lower reported mean (`build-90-research.md`
+/// K, Codex's independent review).
 const double kRunO2PerMeter = 0.17;
 
 /// Net oxygen cost of walking, ml/kg per metre (ACSM walking equation). Used

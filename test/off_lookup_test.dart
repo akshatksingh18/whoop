@@ -417,25 +417,20 @@ void main() {
     // and never reloads, so the unloaded case has to be read before anything
     // mocks a store in.
     test('storage we cannot read is a refusal, not the default', () async {
-      // Nothing has loaded Prefs. The default is ON, but an unreadable store
-      // is not evidence of a fresh install — it is equally the phone of
-      // somebody who turned this OFF, and their barcode must not go out on a
-      // guess.
+      // Neither an unreadable store nor a fresh install grants access.
       expect(Prefs.loaded, isFalse);
       expect(offLookupAllowed, isFalse);
       final r = await fetchOffProduct('8901719101090');
       expect(r.outcome, OffOutcome.refused);
     });
 
-    test('a fresh install may look up', () async {
+    test('a fresh install waits for explicit consent', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       SharedPreferences.setMockInitialValues(const {});
       await Prefs.ensureLoaded();
-      // Loaded, and the key has never been written: THIS is the fresh install,
-      // and it is on. What leaves is the barcode, never anything about the
-      // person holding it.
+      // Loading storage does not stand in for the first-use disclosure.
       expect(Prefs.loaded, isTrue);
-      expect(offLookupAllowed, isTrue);
+      expect(offLookupAllowed, isFalse);
     });
 
     test('a lookup refuses before any request once it is turned off', () async {

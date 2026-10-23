@@ -35,7 +35,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../compute/profile.dart' show Profile, stepCalories;
-import '../../data/day_label.dart' show todayLabel;
+import '../../data/day_label.dart' show todayLabel, localDayStartSec;
 import '../../data/day_zone_rules.dart' show DayClock;
 import '../../data/db.dart' show DbRebuild, LocalDb;
 import '../../data/nutrition_store.dart' show NutritionDb;
@@ -1430,17 +1430,13 @@ class HomeData {
     try {
       final points = (await repo.getChart('hr'))['points'];
       graph = dayGraph({
-        'date': todayLabel(),
-        'day_start':
-            DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/
-            1000,
+        'date': todayLabel(now),
+        'day_start': localDayStartSec(todayLabel(now)),
         'hr': points,
       });
     } catch (_) {
       graphFailed = true;
-      if (previous?.graph.dayStartSec ==
-          DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/
-              1000) {
+      if (previous?.graph.dayStartSec == localDayStartSec(todayLabel(now))) {
         graph = previous!.graph;
       }
     }

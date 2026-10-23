@@ -1161,11 +1161,12 @@ class NutritionDb {
     Database db, {
     DateTime? now,
   }) async {
-    final current = dayLabelOf(now ?? DateTime.now()).substring(0, 7);
+    final today = todayLabel(now);
+    final current = today.substring(0, 7);
     final rows = await db.rawQuery(
       'SELECT DISTINCT substr(date, 1, 7) AS month FROM food_entry '
       'WHERE date <= ? ORDER BY month DESC',
-      [dayLabelOf(now ?? DateTime.now())],
+      [today],
     );
     return {current, for (final r in rows) r['month'] as String}.toList()
       ..sort((a, b) => b.compareTo(a));
@@ -1179,7 +1180,7 @@ class NutritionDb {
   }) async {
     final start = DateTime.parse('$month-01');
     final next = DateTime(start.year, start.month + 1);
-    final today = dayLabelOf(now ?? DateTime.now());
+    final today = todayLabel(now);
     await freezeCounting(db, today: today);
     final rows = await db.rawQuery(
       'SELECT $_countColumns FROM $_countJoin '
@@ -1366,8 +1367,8 @@ class NutritionDb {
     int days = 7,
     DateTime? now,
   }) async {
-    final end = now ?? DateTime.now();
-    final today = dayLabelOf(end);
+    final today = todayLabel(now);
+    final end = DateTime.parse(today);
     final labels = [
       for (var i = days - 1; i >= 0; i--)
         dayLabelOf(DateTime(end.year, end.month, end.day - i)),

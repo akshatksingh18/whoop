@@ -8,6 +8,8 @@
 // somewhere of their own.
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
+import 'dart:io' show Platform;
 
 class BackupPassphrase {
   BackupPassphrase._();
@@ -47,6 +49,14 @@ class BackupPassphrase {
   static Future<void> clear() async {
     try {
       await _storage.delete(key: _key);
-    } catch (_) {}
+      if (await _storage.read(key: _key) != null) {
+        throw StateError(
+          'The backup passphrase could not be deleted. Retry reset.',
+        );
+      }
+    } on MissingPluginException {
+      // Unsupported test hosts have no keychain; iPhone must acknowledge it.
+      if (Platform.isIOS) rethrow;
+    }
   }
 }

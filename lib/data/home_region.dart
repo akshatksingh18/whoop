@@ -156,18 +156,25 @@ class HomeRegion {
   /// Save Home and start watching it. Presence starts unknown; the system's
   /// first state report fills it in.
   static Future<void> setHome(HomeBoundary b) async {
-    if (b.lat < -90 || b.lat > 90 || b.lon < -180 || b.lon > 180) {
+    if (!b.lat.isFinite ||
+        !b.lon.isFinite ||
+        b.lat < -90 ||
+        b.lat > 90 ||
+        b.lon < -180 ||
+        b.lon > 180) {
       throw ArgumentError('Choose a valid Home location.');
     }
-    if (b.radius < minRadius || b.radius > maxRadius) {
+    if (!b.radius.isFinite || b.radius < minRadius || b.radius > maxRadius) {
       throw ArgumentError('The radius is 50 m to 1 km.');
     }
-    final p = await SharedPreferences.getInstance();
-    await p.setString(
-      _boundaryKey,
-      jsonEncode({'lat': b.lat, 'lon': b.lon, 'radius': b.radius}),
-    );
-    await p.setString(_stateKey, jsonEncode(HomeAutomation().toJson()));
+    await Prefs.saveValues({
+      _boundaryKey: jsonEncode({
+        'lat': b.lat,
+        'lon': b.lon,
+        'radius': b.radius,
+      }),
+      _stateKey: jsonEncode(HomeAutomation().toJson()),
+    });
     await _channel.invokeMethod('monitor', {
       'lat': b.lat,
       'lon': b.lon,
@@ -179,10 +186,12 @@ class HomeRegion {
   static Future<void> clear() async {
     try {
       await _channel.invokeMethod('stop');
-    } catch (_) {}
-    final p = await SharedPreferences.getInstance();
-    await p.remove(_boundaryKey);
-    await p.remove(_stateKey);
+    } on MissingPluginException {
+      // A test/unsupported host without a configured Home has no native watch.
+      // A known Home must retain its state and report that stop was unavailable.
+      if (await boundary() != null) rethrow;
+    }
+    await Prefs.saveValues({_boundaryKey: null, _stateKey: null});
   }
 
   static Future<HomeAutomation> automation() async {

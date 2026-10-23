@@ -1064,8 +1064,16 @@ class _HomeSetupScreenState extends State<HomeSetupScreen>
               remove: 'Turn off',
             );
             if (!ok) return;
-            await HomeRegion.clear();
-            await _load();
+            try {
+              await HomeRegion.clear();
+              await _load();
+            } catch (_) {
+              if (mounted)
+                setState(
+                  () => _error =
+                      'Home could not be turned off completely. Its settings are kept so you can retry.',
+                );
+            }
           },
           child: Text(
             'Turn off and delete Home',

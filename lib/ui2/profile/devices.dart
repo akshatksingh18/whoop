@@ -779,7 +779,18 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
     ),
   );
   if (ok != true) return;
-  await app.unpair();
+  try {
+    await app.unpair();
+  } catch (_) {
+    if (c.mounted) {
+      ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+        const SnackBar(content: Text(
+          'The band disconnected, but forgetting it did not finish. Try again.',
+        )),
+      );
+    }
+    return;
+  }
   if (c.mounted) backToRoot(c);
 }
 

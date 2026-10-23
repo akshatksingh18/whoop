@@ -27,6 +27,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
+import '../state/prefs.dart';
 
 /// The `SourceTier` a wrist band sits on (the enum name in
 /// `ui2/profile/devices.dart` — measurement quality, which is the only thing
@@ -149,8 +150,7 @@ class PairedDevice {
     String remoteId,
     String? serial, {
     String? generation,
-  }) =>
-      _serialized(() => _save(remoteId, serial, generation: generation));
+  }) => _serialized(() => _save(remoteId, serial, generation: generation));
 
   static Future<void> _save(
     String remoteId,
@@ -187,8 +187,8 @@ class PairedDevice {
       // loud that the old family no longer applies.
       clearAdapterId: !sameDevice,
     );
-    // Re-checked between the two copies as well: `clear()` empties the table
-    // and the mirror in that order, so a forget landing inside this window
+    // Re-checked between the two copies as well: `clear()` removes both,
+    // so a forget landing inside this window
     // would otherwise leave the mirror pointing at a band the table no longer
     // has — and `load()` heals FROM the mirror.
     if (epoch != _forgetEpoch) return;
@@ -215,11 +215,14 @@ class PairedDevice {
     // see the bump and writes normally — which is what "the user re-paired"
     // means. Only a save already running ahead of it is refused.
     _forgetEpoch++;
+    // Remove the recovery mirror first. A refused deletion must not let load()
+    // silently heal the forgotten identity back into an emptied device table.
+    await Prefs.saveValues({
+      _kRemoteId: null,
+      _kSerial: null,
+      _kGeneration: null,
+    });
     await LocalDb.deleteDevice();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kRemoteId);
-    await prefs.remove(_kSerial);
-    await prefs.remove(_kGeneration);
   }
 }
 

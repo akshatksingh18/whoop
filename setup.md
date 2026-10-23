@@ -80,6 +80,10 @@ reported installation. Current-version signing enrollment, install-over-install 
 and the phone matrix remain open. Use the exact existing app identity; delivery does not authorize
 recovery promotion.
 
+An additional comprehensive review is active on `build-99` (`build-98-audit.md`, `todo.md` 3n).
+Its first six persistence repairs pass targeted synthetic checks. No Build 99 release/IPA or
+new full cloud result is claimed; the Build 98 artifact above remains the one-slot candidate.
+
 
 ## Build 96 artifact (superseded)
 

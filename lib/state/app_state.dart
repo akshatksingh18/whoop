@@ -758,8 +758,11 @@ class AppState extends ChangeNotifier {
     }
     await NutritionDb.freezeCounting(await LocalDb.instance, goalKnown: true);
     final prefs = await SharedPreferences.getInstance();
-    final keys = [_kProfile, ProfileHistory.key, StepGoals.key];
-    final previous = {for (final key in keys) key: prefs.getString(key)};
+    final previous = {
+      ProfileHistory.key: await CalculationStore.read(ProfileHistory.key),
+      StepGoals.key: await CalculationStore.read(StepGoals.key),
+      _kProfile: prefs.getString(_kProfile),
+    };
     try {
       if (fields.containsKey('step_goal')) {
         final raw = next['step_goal'];
@@ -780,14 +783,10 @@ class AppState extends ChangeNotifier {
         throw StateError('Profile could not save');
       }
     } catch (_) {
-      for (final key in keys) {
-        final old = previous[key];
+      for (final entry in previous.entries) {
+        final key = entry.key, old = entry.value;
         if (key == _kProfile) {
-          if (old == null) {
-            await prefs.remove(key);
-          } else {
-            await prefs.setString(key, old);
-          }
+          await Prefs.saveValues({key: old});
         } else {
           if (old == null) {
             await CalculationStore.remove(key);
@@ -849,7 +848,7 @@ class AppState extends ChangeNotifier {
   /// than waiting for the interval — otherwise nothing visible happens and the
   /// setting looks broken.
   Future<void> setBackupCadence(BackupCadence cadence) async {
-    Prefs.setString(Prefs.backupCadence, cadence.name);
+    await Prefs.saveValues({Prefs.backupCadence: cadence.name});
     notifyListeners();
     if (cadence != BackupCadence.off) await runBackupNow();
   }
@@ -919,9 +918,7 @@ class AppState extends ChangeNotifier {
   /// This is the PROFILE half only. "Reset all data" is [resetAllData], which
   /// calls this last; do not use this one for a destructive user action.
   Future<void> signOut() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kProfile);
-    await prefs.remove(_kOnboard);
+    await Prefs.saveValues({_kProfile: null, _kOnboard: null});
     _onboardChoice = null;
     user = null;
     autoCountKcalGoal = null;
@@ -1016,12 +1013,7 @@ class AppState extends ChangeNotifier {
     // fresh install has no preferences. The install id regenerates on the next
     // launch, which is the point: the old anonymous id must not follow the
     // user through a "delete everything".
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
-    } catch (e) {
-      _log('[reset] prefs clear failed: $e');
-    }
+    await Prefs.clearAll();
     _savedAlarm = null;
 
     // 5 · the in-memory mirrors of what we just deleted. These are plain

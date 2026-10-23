@@ -24,6 +24,12 @@ and downloaded IPA checks pass; `todo.md` 3m tracks the completed software relea
 delivery, termination and background scheduling remain phone gates.
 BLE commit-before-ACK remains unchanged; algorithm 98 only changes recorded-zone attribution.
 
+The active `build-99` review (`build-98-audit.md`) adds source repairs for acknowledged Home
+configuration/native stop, cache-removal ordering and reset preference/keychain cleanup. A
+failed cleanup remains retryable and cannot report complete deletion. Targeted synthetic checks
+pass; the successor's full/native and real Home-delivery checks remain open. The band history
+drain and ACK protocol are untouched.
+
 The following background contract originated in Build 86 and retains subsequent repairs.
 Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task

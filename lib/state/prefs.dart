@@ -53,6 +53,27 @@ class Prefs {
     }
   }
 
+  /// Reset joins the same write queue, so an earlier setting cannot land
+  /// after clearing. A failure reloads the actual store before reporting it.
+  static Future<void> clearAll() {
+    final next = _settingsTail.then((_) async {
+      final p = await SharedPreferences.getInstance();
+      try {
+        if (!await p.clear())
+          throw StateError(
+            'Reset did not finish clearing settings. Please retry.',
+          );
+      } catch (_) {
+        try {
+          await p.reload();
+        } catch (_) {}
+        rethrow;
+      }
+    });
+    _settingsTail = next.catchError((Object _) {});
+    return next;
+  }
+
   static SharedPreferences? _sp;
 
   /// Load + cache the SharedPreferences instance. Call once before runApp.

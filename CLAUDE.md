@@ -27,7 +27,13 @@ accepted recovery. Current-version installation, signing enrollment and the phys
 matrix remain open; software checks are not universal flow or hardware proof. Earlier build
 notes are in `build-history.md`.
 
+The additional comprehensive review and authorized repairs continue on `build-99`, tracked in
+`build-98-audit.md` and `todo.md` 3n. Six deeper persistence-failure families have source repairs
+and targeted synthetic evidence; the remaining review and successor release gates are open.
+Build 98 remains the cached binary until a fully validated successor is delivered.
+
 ## Files
+- `build-98-audit.md` — active comprehensive source/flow review of Build 98, accepted repair scope, coverage evidence and remaining physical limits; read before continuing `build-99`.
 - `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.
 - `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.
 - `build-95-repairs.md` — approved 29-finding repair scope, current implementation/check status and integration/device gates; read before continuing the repair branch.

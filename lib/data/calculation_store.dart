@@ -3,9 +3,21 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'db.dart';
+import '../state/prefs.dart';
 
 class CalculationStore {
   static const prefix = 'calculation:';
+
+  // A read may repair its cache: order it with removal so an older mirror
+  // cannot land after deletion and migrate the removed value back on restart.
+  // ponytail: one queue per isolate; split by key only if profiling shows
+  // contention beyond the database's existing serialized work.
+  static Future<void> _tail = Future.value();
+  static Future<T> _serial<T>(Future<T> Function() action) {
+    final next = _tail.then((_) => action());
+    _tail = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
 
   /// Commit configuration with the history it belongs to; refresh preference
   /// mirrors only after the encompassing transaction has committed.
@@ -21,7 +33,8 @@ class CalculationStore {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  static Future<String?> read(String key) async {
+  static Future<String?> read(String key) => _serial(() => _read(key));
+  static Future<String?> _read(String key) async {
     final row = await LocalDb.baseline('$prefix$key');
     String? cached;
     SharedPreferences? p;
@@ -40,7 +53,9 @@ class CalculationStore {
     return value;
   }
 
-  static Future<void> write(String key, String value) async {
+  static Future<void> write(String key, String value) =>
+      _serial(() => _write(key, value));
+  static Future<void> _write(String key, String value) async {
     await LocalDb.putBaseline('$prefix$key', value);
     // The committed database is authoritative. A failed cache mirror must not
     // report a rolled-back history/configuration write or invite duplicates.
@@ -49,37 +64,37 @@ class CalculationStore {
     } catch (_) {}
   }
 
-  static Future<void> remove(String key) async {
+  static Future<void> remove(String key) => _serial(() async {
+    // A refused cache deletion leaves the authoritative value available for
+    // retry. Dropping the row first would allow read() to resurrect the cache.
+    await Prefs.saveValues({key: null});
     await (await LocalDb.instance).delete(
       'baselines',
       where: 'key = ?',
       whereArgs: ['$prefix$key'],
     );
-    await (await SharedPreferences.getInstance()).remove(key);
-  }
+  });
 
-  static Future<void> clearCache() async {
+  static Future<void> clearCache() => _serial(() async {
     final p = await SharedPreferences.getInstance();
-    for (final key
-        in p
-            .getKeys()
-            .where(
-              (k) =>
-                  k == 'steps.goal_history' ||
-                  k == 'profile.calculation_history' ||
-                  k == 'streak.protection' ||
-                  k.startsWith('lift.') ||
-                  k.startsWith('workout.clock.') ||
-                  k.startsWith('motion.') ||
-                  k.startsWith('training.review.') ||
-                  k.startsWith('notification.report.'),
-            )
-            .toList()) {
-      await p.remove(key);
-    }
-  }
+    final keys = p
+        .getKeys()
+        .where(
+          (k) =>
+              k == 'steps.goal_history' ||
+              k == 'profile.calculation_history' ||
+              k == 'streak.protection' ||
+              k.startsWith('lift.') ||
+              k.startsWith('workout.clock.') ||
+              k.startsWith('motion.') ||
+              k.startsWith('training.review.') ||
+              k.startsWith('notification.report.'),
+        )
+        .toList();
+    await Prefs.saveValues({for (final key in keys) key: null});
+  });
 
-  static Future<void> hydrate() async {
+  static Future<void> hydrate() => _serial(() async {
     final rows = await (await LocalDb.instance).query(
       'baselines',
       columns: ['key', 'payload_json'],
@@ -100,5 +115,5 @@ class CalculationStore {
     } catch (_) {
       /* Rebuilt from the database on the next open/read. */
     }
-  }
+  });
 }

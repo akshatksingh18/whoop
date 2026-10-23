@@ -521,6 +521,18 @@ other worktrees remain untouched.
   evidence and superseded run outcomes. Build 97's folder went to the Recycle Bin; accepted
   Build 70 is unchanged. No feature, dependency, schema or scientific coefficient changed;
   algorithm 98 versions date attribution. Installation and physical acceptance are unreported.
+- [ ] 3n. Independent comprehensive Build 98 review and authorized repairs on `build-99`.
+  `build-98-audit.md` owns the scope and coverage record: trace visible/deep actions through
+  validation, persistence, refresh and dependent consumers; probe stale/failure/cold/travel/unit
+  cases and full-scroll UI. Preserve features, locked A+B, scientific coefficients, dependencies
+  and ACK ordering. Local readability fixes are approved; major page replacements retain the
+  before/after review gate. Confirm findings with runnable synthetic evidence, batch coherent
+  repairs and run appropriate targeted/cloud/native checks before replacing the testing IPA.
+  Six persistence families B98-01–06 have source repairs: authoritative profile rollback,
+  ordered/acknowledged calculation removal, backup Off, paired-identity removal, Home setup/stop,
+  and partial reset/keychain failure reporting. Nine new tests and five existing settings/cache
+  cases pass targeted checks. Other source/UI/date/metric flow families are still under review;
+  no Build 99 artifact or full verification is claimed yet.
 - [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

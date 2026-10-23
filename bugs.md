@@ -23,6 +23,13 @@ enlarged action labels remain visible. All 52 added synthetic regressions pass w
 checks and native run `39942864975` pass. `build-97-audit.md` owns individual contracts and the
 unexecuted-device limits. These software results do not establish physical acceptance.
 
+The subsequent `build-98-audit.md` review is active on `build-99`. B98-01–06 now have source
+repairs for profile-history rollback, calculation-cache resurrection, refused backup Off,
+forgotten-device recovery mirrors, Home persistence/native stop and partial reset/keychain
+cleanup. Nine new synthetic checks and five existing settings/cache checks pass; remaining
+review, UI-state checks and successor cloud/native verification are still open. These repairs
+are not in the cached Build 98 IPA.
+
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does
 nothing for pairing). Once connected, live data works fine.

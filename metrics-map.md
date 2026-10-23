@@ -16,6 +16,11 @@ and visible live checkpoint failures. Algorithm 98 versions session profile/run/
 scientific formulas are unchanged. `todo.md` 3m distinguishes completed software verification
 from the unexecuted installation, signing and physical-device matrix.
 
+The active successor review is `build-98-audit.md`. Its first source repairs keep profile
+rollback on authoritative database history and order calculation cache reads/removal so a
+failed deletion cannot resurrect a removed anchor. Failed settings and partial reset have
+explicit retry outcomes. These do not tune metric formulas and are not yet in the cached IPA.
+
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is
 labelled as such only at supported measured speeds. These audit repairs do not tune a coefficient,

@@ -215,7 +215,35 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     ),
   );
   if (ok != true) return;
-  await app.resetAllData();
+  while (true) {
+    try {
+      await app.resetAllData();
+      break;
+    } catch (_) {
+      if (!c.mounted) return;
+      final retry = await showDialog<bool>(
+        context: c,
+        builder: (d) => AlertDialog(
+          scrollable: true,
+          title: const Text('Reset did not finish'),
+          content: const Text(
+            'Some data may already be deleted. Settings, the saved backup passphrase or device cleanup did not finish. Retry to complete deletion.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(d).pop(false),
+              child: const Text('Close'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(d).pop(true),
+              child: const Text('Retry reset'),
+            ),
+          ],
+        ),
+      );
+      if (retry != true) return;
+    }
+  }
   // The live screen's draft is UI state AppState cannot reach.
   LiveDraft.clear();
   // "with no copy anywhere else" was false while automatic backup was on:

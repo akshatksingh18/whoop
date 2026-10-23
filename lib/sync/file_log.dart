@@ -41,6 +41,7 @@ class FileLog {
       }
     } catch (_) {
       _file = null;
+      _init = false; // A transient platform/path failure must be retryable.
     }
   }
 

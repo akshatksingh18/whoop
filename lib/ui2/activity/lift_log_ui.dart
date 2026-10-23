@@ -276,13 +276,15 @@ class LiftLogController extends ChangeNotifier {
   }
 
   Future<void> saveSplits(List<LiftSplit> next) => _serial(() async {
-    await LiftLogDb.saveSplits(next);
-    splits = LiftSplit.validatedList(next);
+    final checked = LiftSplit.validatedList(next);
     final w = workout;
-    final s = split;
+    final s = w == null ? null :
+        checked.where((s) => s.id == w.splitId).firstOrNull ??
+        checked.where((s) => s.name == w.splitName).firstOrNull;
+    final synced = w != null && s != null ? (w.copy()..syncWith(s)) : null;
+    await LiftLogDb.saveSplits(checked, workout: synced);
+    splits = checked;
     if (w != null && s != null) {
-      final synced = w.copy()..syncWith(s);
-      await LiftLogDb.save(synced);
       workout = synced;
       await _refreshLast();
     }
@@ -307,6 +309,7 @@ class LiftLogController extends ChangeNotifier {
           (e) => sameLiftName(e.name, name),
         );
         String? link;
+        List<LiftSplit>? nextSplits;
         final s = variationOfOne ? null : split?.copy();
         if (s != null) {
           final existing = s.exercises
@@ -322,8 +325,7 @@ class LiftLogController extends ChangeNotifier {
             );
             s.exercises.add(added);
             final all = [for (final x in splits) x.id == s.id ? s : x];
-            await LiftLogDb.saveSplits(all);
-            splits = LiftSplit.validatedList(all);
+            nextSplits = all;
             link = added.id;
           }
         }
@@ -335,7 +337,12 @@ class LiftLogController extends ChangeNotifier {
           equipmentNote: note,
           splitExerciseId: link,
         );
-        await LiftLogDb.save(next);
+        if (nextSplits != null) {
+          await LiftLogDb.saveSplits(nextSplits, workout: next);
+          splits = LiftSplit.validatedList(nextSplits);
+        } else {
+          await LiftLogDb.save(next);
+        }
         workout = next;
         await _refreshLast();
         await LiftReminders.update(next);
@@ -349,17 +356,22 @@ class LiftLogController extends ChangeNotifier {
         final removed = next.removeExercise(exerciseId);
         final link = removed.splitExerciseId;
         final s = split?.copy();
+        List<LiftSplit>? nextSplits;
         if (link != null && s != null) {
           if (fromSplit) {
             s.exercises.removeWhere((e) => e.id == link);
             final all = [for (final x in splits) x.id == s.id ? s : x];
-            await LiftLogDb.saveSplits(all);
-            splits = LiftSplit.validatedList(all);
+            nextSplits = all;
           } else {
             next.skipped.add(link);
           }
         }
-        await LiftLogDb.save(next);
+        if (nextSplits != null) {
+          await LiftLogDb.saveSplits(nextSplits, workout: next);
+          splits = LiftSplit.validatedList(nextSplits);
+        } else {
+          await LiftLogDb.save(next);
+        }
         workout = next;
         await LiftReminders.update(next);
       });

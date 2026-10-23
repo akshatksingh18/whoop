@@ -21,6 +21,7 @@ import 'dart:ui' show DartPluginRegistrant;
 import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../notify/notification_event.dart' show NotifCategory;
 import '../notify/notification_service.dart';
@@ -76,7 +77,7 @@ class PushupReminders {
 
   // ── mirror and inbox ──
 
-  static Future<void> writeMirror(PushupSession? s) async {
+  static Future<void> writeMirror(PushupSession? s, {bool requireAcknowledgement = false}) async {
     try {
       final f = await _file('pushups_live.json');
       if (s == null || !s.isActive) {
@@ -94,7 +95,9 @@ class PushupReminders {
           'endSec': localDayEndSec(s.day),
         }),
       );
-    } catch (_) {}
+    } catch (_) {
+      if (requireAcknowledgement) rethrow;
+    }
   }
 
   static Future<PushupMirror?> readMirror() async {
@@ -115,37 +118,53 @@ class PushupReminders {
     }
   }
 
-  static Future<List<PushupAction>> readInbox() async {
+  static Future<Directory> _inboxDir() async =>
+      Directory('${(await getApplicationSupportDirectory()).path}/pushups_inbox');
+
+  static Future<List<File>> _inboxFiles() async {
+    final legacy = await _file('pushups_inbox.json');
+    final dir = await _inboxDir();
+    return [
+      if (await legacy.exists()) legacy,
+      if (await dir.exists())
+        for (final f in await dir.list().toList())
+          if (f is File && f.path.endsWith('.json')) f,
+    ];
+  }
+
+  static Future<List<PushupAction>> _readActions(File f) async {
     try {
-      final f = await _file('pushups_inbox.json');
+      final data = jsonDecode(await f.readAsString());
+      return [for (final e in data is List ? data : [data]) PushupAction.fromJson(e as Map)];
+    } on FileSystemException {
+      // A foreground merger can finish deleting a record while status reads it.
       if (!await f.exists()) return const [];
-      return [
-        for (final e in jsonDecode(await f.readAsString()) as List)
-          PushupAction.fromJson(e as Map),
-      ];
-    } catch (_) {
-      return const [];
+      rethrow;
     }
   }
 
+  static Future<List<PushupAction>> readInbox() async {
+    final actions = [for (final f in await _inboxFiles()) ...await _readActions(f)];
+    actions.sort((a, b) => a.at.compareTo(b.at));
+    final seen = <String>{};
+    return [for (final a in actions) if (seen.add(a.id)) a];
+  }
+
   static Future<void> _addToInbox(PushupAction a) async {
-    final f = await _file('pushups_inbox.json');
-    final now = await readInbox();
-    if (now.any((x) => x.id == a.id)) return;
-    await _writeAtomic(
-      f,
-      jsonEncode([
-        for (final x in [...now, a]) x.toJson(),
-      ]),
-    );
+    // One atomic file per delivery: background isolates and the foreground
+    // merger never replace a shared read/modify/write array. Semantic receipt
+    // IDs still deduplicate re-delivery when the action reaches SQLite.
+    final dir = await _inboxDir();
+    await dir.create(recursive: true);
+    final f = File('${dir.path}/${const Uuid().v4()}.json');
+    await _writeAtomic(f, jsonEncode(a.toJson()));
   }
 
   /// Drop merged actions, re-reading first so one added meanwhile stays.
   static Future<void> _clearInbox(Set<String> done) async {
-    try {
-      final f = await _file('pushups_inbox.json');
+    for (final f in await _inboxFiles()) {
       final left = [
-        for (final x in await readInbox())
+        for (final x in await _readActions(f))
           if (!done.contains(x.id)) x,
       ];
       if (left.isEmpty) {
@@ -153,7 +172,15 @@ class PushupReminders {
       } else {
         await _writeAtomic(f, jsonEncode([for (final x in left) x.toJson()]));
       }
-    } catch (_) {}
+    }
+  }
+
+  /// Reset also removes pending actions/staging files, not only session rows.
+  static Future<void> clearInbox() async {
+    final legacy = await _file('pushups_inbox.json');
+    if (await legacy.exists()) await legacy.delete();
+    final dir = await _inboxDir();
+    if (await dir.exists()) await dir.delete(recursive: true);
   }
 
   // ── notification actions ──
@@ -606,10 +633,7 @@ class Pushups {
   /// After "Delete everything": stop the Home watch and every reminder.
   static Future<void> reset() async {
     await HomeRegion.clear();
-    await PushupReminders.writeMirror(null);
-    try {
-      final f = await PushupReminders._file('pushups_inbox.json');
-      if (await f.exists()) await f.delete();
-    } catch (_) {}
+    await PushupReminders.writeMirror(null, requireAcknowledgement: true);
+    await PushupReminders.clearInbox();
   }
 }

@@ -301,8 +301,7 @@ class AppState extends ChangeNotifier {
 
   /// New-user path: record the choice and advance (welcome → pairing → profile).
   Future<void> chooseNewUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kOnboard, 'new');
+    await Prefs.saveValues({_kOnboard: 'new'});
     _onboardChoice = 'new';
     notifyListeners();
   }
@@ -312,8 +311,7 @@ class AppState extends ChangeNotifier {
   /// route then advances past `welcome` to pairing → profile → shell.
   Future<void> completeImportOnboard() async {
     if (_onboardChoice != null) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kOnboard, 'imported');
+    await Prefs.saveValues({_kOnboard: 'imported'});
     _onboardChoice = 'imported';
     notifyListeners();
   }

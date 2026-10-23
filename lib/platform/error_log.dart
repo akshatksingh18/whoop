@@ -18,11 +18,11 @@ void logError(String message, [Object? stack]) {
 void installErrorLog() {
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
-    prior?.call(details);
     logError(
       '${details.library ?? 'flutter'}: ${details.exceptionAsString()}',
       details.stack,
     );
+    prior?.call(details);
   };
   final priorAsync = PlatformDispatcher.instance.onError;
   PlatformDispatcher.instance.onError = (error, stack) {

@@ -739,6 +739,10 @@ what each tab still contains.
 - **Pushups:** completed-set events, separate goal/streak/history and optional Home auto-pause;
   never sensor-measured reps, strain, maintenance calories or general activity-streak credit.
   Always permission is approved for Home only, not a new walking requirement.
+  The uncached Build 100 follow-up publishes each background notification action as its own
+  atomic inbox file, retaining legacy arrays. SQLite receipts deduplicate replay; failed commit
+  or unreadable input retains pending files, and reset clears the owned inbox. This changes
+  delivery durability only; it does not infer reps or change any metric formula.
 
 Built build-74 food-library addition: Food → Foods → My foods exposes Scan beside New.
 Scanning reviews serving/nutrition before Save to My foods, without a meal or diary entry.

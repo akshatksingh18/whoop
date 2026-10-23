@@ -33,6 +33,7 @@ jobs:
         run: |
           python3 -m unittest tool/test_personal_ios.py
           python3 tool/personal_ios.py check
+          python3 -m unittest tool/test_coverage_gaps.py
 
       # PINNED, not `channel: stable`. Two reasons, both found the hard way when
       # this workflow first ran:
@@ -81,12 +82,15 @@ jobs:
       # tests SKIP here and run locally.
       - name: Test
         run: flutter test --concurrency=1 --coverage --reporter=expanded
+      - name: Inventory execution gaps without hiding source
+        if: always() && hashFiles('coverage/lcov.info') != ''
+        run: python3 tool/coverage_gaps.py coverage/lcov.info --output coverage/gaps.json
       - name: Keep instrumented Dart line coverage
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: dart-line-coverage-${{ github.sha }}
-          path: coverage/lcov.info
+          path: coverage/
           if-no-files-found: warn
           retention-days: 14
 

@@ -2,7 +2,7 @@
 
 ## Current repository state
 
-This folder is one Git repository. Each build is prepared on its own branch (`build-99` currently) and
+This folder is one Git repository. Each build is prepared on its own branch (`build-100` currently) and
 `main` is fast-forwarded to it on release. It preserves the OpenStrap histories and contains:
 
 - edge base `daf6011d3aa0312e22b991713b7af9e5c4433b32`
@@ -33,6 +33,13 @@ The app's `pubspec.yaml` uses tracked local paths for both packages, so a checko
 repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
+
+## Coverage-directed preparation
+
+`build-100` reserves `0.9.67+100`, retaining algorithm 99/schema 50 and the existing dependency,
+identity and capability contracts. `coverage-audit.md` owns the baseline, new fault controls,
+source repairs and remaining review/verification. No Build 100 binary or coverage improvement
+is claimed yet; Build 99 below remains the testing IPA and Build 70 remains accepted recovery.
 
 ## Build 99 candidate
 

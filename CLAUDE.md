@@ -27,7 +27,12 @@ Build 70 remains accepted recovery. Current-version installation, signing enroll
 physical-device matrix remain open. Instrumented handwritten Dart line coverage is 75.23%,
 not every-line, every-click or hardware certification. Earlier build notes are in `build-history.md`.
 
+The coverage-directed follow-up is active on `build-100`, reserved as `0.9.67+100`.
+`coverage-audit.md` owns new fault controls, repairs and remaining review. No successor binary,
+full-check result or coverage gain is claimed; the Build 99 cache above remains unchanged.
+
 ## Files
+- `coverage-audit.md` and `tool/coverage_gaps.py` — current coverage-directed follow-up to Build 99, reusable uncovered-range/source-hash inventory, targeted evidence and remaining native/physical limits; read before continuing `build-100`.
 - `build-98-audit.md` — comprehensive Build 98 source/flow review, Build 99 repair contracts, completed software/coverage evidence and remaining physical limits; read before release or acceptance.
 - `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.
 - `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.

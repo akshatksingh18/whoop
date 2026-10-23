@@ -317,71 +317,7 @@ DateTime? foodTimeOnDate(
   int hour,
   int minute, {
   required DateTime original,
-}) {
-  final clock = DayClock.localAt(original.millisecondsSinceEpoch ~/ 1000);
-  if (dayLabelAt(original) == date &&
-      clock.hour == hour &&
-      clock.minute == minute)
-    return original;
-  final day = DayClock.forDate(date);
-  if (day == null) return DayClock.onDate(date, hour, minute);
-  final cuts = [
-    day.startSec,
-    for (final change in DayClock.changes)
-      if (change.atSec > day.startSec && change.atSec < day.endSec)
-        change.atSec,
-    day.endSec,
-  ];
-  final candidates = <int>{};
-  for (var i = 0; i + 1 < cuts.length; i++) {
-    final first = DayClock.localAt(cuts[i]);
-    final last = DayClock.localAt(cuts[i + 1] - 1);
-    for (final calendar in {
-      DateTime.utc(first.year, first.month, first.day),
-      DateTime.utc(last.year, last.month, last.day),
-    }) {
-      // Try the zone's usual resolution and the original offset, preserving
-      // the nearby occurrence when a DST clock hour happens twice.
-      for (final candidate in [
-        DayClock.wallTime(
-          first,
-          calendar.year,
-          calendar.month,
-          calendar.day,
-          hour,
-          minute,
-        ),
-        DateTime.utc(
-          calendar.year,
-          calendar.month,
-          calendar.day,
-          hour,
-          minute,
-        ).subtract(clock.timeZoneOffset),
-      ]) {
-        final second = candidate.millisecondsSinceEpoch ~/ 1000;
-        if (second < cuts[i] || second >= cuts[i + 1]) continue;
-        final local = DayClock.localAt(second);
-        if (local.year == calendar.year &&
-            local.month == calendar.month &&
-            local.day == calendar.day &&
-            local.hour == hour &&
-            local.minute == minute) {
-          candidates.add(second);
-        }
-      }
-    }
-  }
-  if (candidates.isEmpty)
-    return null; // That clock time never occurred on this day.
-  final ordered = candidates.toList()
-    ..sort(
-      (a, b) => (a * 1000 - original.millisecondsSinceEpoch).abs().compareTo(
-        (b * 1000 - original.millisecondsSinceEpoch).abs(),
-      ),
-    );
-  return DayClock.localAt(ordered.first);
-}
+}) => DayClock.resolveTime(date, hour, minute, original: original);
 
 class FoodEntry {
   const FoodEntry({

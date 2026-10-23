@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'build_profile.dart';
+import 'platform/error_log.dart';
 import 'package:provider/provider.dart';
 
 import 'l10n/app_localizations.dart';
@@ -40,6 +41,16 @@ import 'ui2/screens/progress_screen.dart';
 import 'ui2/screens/pushups_screen.dart';
 import 'ui2/ui2.dart';
 
+/// Lifecycle/region delivery is fire-and-forget; unreadable pending actions
+/// stay on disk and are shown as a retry state when Pushups is opened.
+Future<void> reconcilePushupsForWake() async {
+  try {
+    await Pushups.reconcile();
+  } catch (e, stack) {
+    logError('Pushups wake reconciliation failed: $e', stack);
+  }
+}
+
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
   @override
@@ -58,9 +69,9 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       // Pushups: merge Done/Pause taken while closed and apply Home boundary
       // events. Runs on a background relaunch too, which is how leaving Home
       // reaches a closed app.
-      HomeRegion.onEvent = () => unawaited(Pushups.reconcile());
+      HomeRegion.onEvent = () => unawaited(reconcilePushupsForWake());
       HomeRegion.listen();
-      unawaited(Pushups.reconcile());
+      unawaited(reconcilePushupsForWake());
       // A Bluetooth/background-task relaunch draws a first frame too; only a
       // real open starts the foreground session. `resumed` opens it later.
       unawaited(() async {
@@ -108,7 +119,7 @@ class _OpenStrapAppState extends State<OpenStrapApp>
       unawaited(app.refreshSigningStatus());
       // Pushups actions taken from the lock screen, Home events, and a
       // topped-up reminder batch from the saved anchor.
-      unawaited(Pushups.reconcile());
+      unawaited(reconcilePushupsForWake());
       // A run whose route was blocked by a location setting: the user may be
       // back from Settings having fixed it. No-op without a blocked live route.
       if (app.routeLocationIssue != null) unawaited(app.retryRouteTracking());

@@ -34,6 +34,7 @@ import 'package:provider/provider.dart';
 
 import '../../compute/manual_session.dart';
 import '../../data/db.dart';
+import '../../data/day_label.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../l10n/app_localizations.dart';
 import '../../notify/notification_prefs.dart';
@@ -144,6 +145,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _failed = false);
     // The switch, before the table. This screen is reachable by tapping the
     // notification (`kRouteWorkoutSuggestion`), which does not come through
@@ -236,7 +238,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
         ),
       ),
     );
-    if (saved == true) await _afterAction();
+    if (mounted && saved == true) await _afterAction();
   }
 
   void _say(String m) =>
@@ -443,8 +445,8 @@ class _SuggestionCard extends StatelessWidget {
 /// reason someone opens this screen is to check whether the detector clipped
 /// it, and a start time alone cannot show that.
 String windowLabel(int startTs, int endTs, [AppLocalizations? l]) {
-  final s = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
-  final e = DateTime.fromMillisecondsSinceEpoch(endTs * 1000);
+  final s = DayClock.localAt(startTs);
+  final e = DayClock.localAt(endTs);
   return '${dayLabel(s, l: l)} · ${formatMinuteOfDay(s.hour * 60 + s.minute)} – '
       '${formatMinuteOfDay(e.hour * 60 + e.minute)}';
 }
@@ -452,9 +454,10 @@ String windowLabel(int startTs, int endTs, [AppLocalizations? l]) {
 /// Today / Yesterday / "Mon 11 Aug", against the real calendar day rather than
 /// a 24-hour subtraction — the day after a spring-forward is 23 hours long.
 String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
-  final n = now ?? DateTime.now();
+  final n = DateTime.parse(todayLabel(now));
+  final date = DateTime.parse(dayLabelAt(at));
   final today = DateTime.utc(n.year, n.month, n.day);
-  final d = DateTime.utc(at.year, at.month, at.day);
+  final d = DateTime.utc(date.year, date.month, date.day);
   final diff = today.difference(d).inDays;
   if (diff == 0) return l?.logWorkoutToday ?? 'Today';
   if (diff == 1) return l?.logWorkoutYesterday ?? 'Yesterday';
@@ -519,12 +522,12 @@ class _LogWorkoutState extends State<LogWorkout> {
   @override
   void initState() {
     super.initState();
-    final now = widget.now ?? DateTime.now();
+    final now = DayClock.localAt((widget.now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000);
     // An hour, ending on the last whole hour. A form that opens on "now to
     // now" is a form whose first state is invalid.
-    final defaultEnd = DateTime(now.year, now.month, now.day, now.hour);
-    _end = widget.end ?? defaultEnd;
-    _start = widget.start ?? _end.subtract(Motion.tick * 3600);
+    final defaultEnd = DayClock.wallTime(now, now.year, now.month, now.day, now.hour, 0);
+    _end = DayClock.localAt((widget.end ?? defaultEnd).millisecondsSinceEpoch ~/ 1000);
+    _start = DayClock.localAt((widget.start ?? _end.subtract(Motion.tick * 3600)).millisecondsSinceEpoch ~/ 1000);
     _activity = widget.activity ?? quickStart.first;
     if (widget.spans != null) {
       _spans = widget.spans!;
@@ -561,23 +564,22 @@ class _LogWorkoutState extends State<LogWorkout> {
   );
 
   Future<void> _pickDate() async {
-    final now = widget.now ?? DateTime.now();
+    final now = DayClock.localAt((widget.now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000);
     final picked = await showDatePicker(
       context: context,
       initialDate: _start,
       firstDate: DateTime(now.year - 5),
       lastDate: now,
     );
-    if (picked == null) return;
+    if (!mounted || picked == null) return;
     final span = _end.difference(_start);
+    final start = DayClock.resolveTime(dayLabelOf(picked), _start.hour, _start.minute, original: _start);
+    if (start == null) {
+      _clockMissing();
+      return;
+    }
     setState(() {
-      _start = DateTime(
-        picked.year,
-        picked.month,
-        picked.day,
-        _start.hour,
-        _start.minute,
-      );
+      _start = DayClock.localAt(start.millisecondsSinceEpoch ~/ 1000);
       _end = _start.add(span);
     });
   }
@@ -588,48 +590,33 @@ class _LogWorkoutState extends State<LogWorkout> {
       context: context,
       initialTime: TimeOfDay(hour: at.hour, minute: at.minute),
     );
-    if (picked == null) return;
+    if (!mounted || picked == null) return;
+    final date = dayLabelAt(_start);
+    var chosen = DayClock.resolveTime(date, picked.hour, picked.minute, original: at);
+    if (!isStart && chosen != null && !chosen.isAfter(_start)) {
+      final day = DateTime.parse(date);
+      final next = dayLabelOf(DateTime(day.year, day.month, day.day + 1));
+      chosen = DayClock.resolveTime(next, picked.hour, picked.minute, original: at);
+    }
+    if (chosen == null) {
+      _clockMissing();
+      return;
+    }
+    final resolved = DayClock.localAt(chosen.millisecondsSinceEpoch ~/ 1000);
     setState(() {
       if (isStart) {
         final span = _end.difference(_start);
-        _start = DateTime(
-          _start.year,
-          _start.month,
-          _start.day,
-          picked.hour,
-          picked.minute,
-        );
+        _start = resolved;
         _end = _start.add(span);
       } else {
-        var e = DateTime(
-          _start.year,
-          _start.month,
-          _start.day,
-          picked.hour,
-          picked.minute,
-        );
-        // Past midnight. A late run that finishes at 00:20 is an ordinary
-        // session, not an invalid window — the alternative is asking the user
-        // for a second date to express it.
-        //
-        // The NEXT CALENDAR DAY at the picked wall time, built from date
-        // fields — not +24h of absolute Duration, which lands at 23:20 or
-        // 01:20 on the two transition nights a year and saves a window an
-        // hour off the one the user picked. Same trap as `_exportDay`'s
-        // `dayEnd` in health_export.dart.
-        if (!e.isAfter(_start)) {
-          e = DateTime(
-            _start.year,
-            _start.month,
-            _start.day + 1,
-            picked.hour,
-            picked.minute,
-          );
-        }
-        _end = e;
+        _end = resolved;
       }
     });
   }
+
+  void _clockMissing() => ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('That time did not occur on this recorded day. Choose another time.')),
+  );
 
   Future<void> _pickActivity() async {
     final picked = await showModalBottomSheet<Activity>(
@@ -640,7 +627,7 @@ class _LogWorkoutState extends State<LogWorkout> {
       shape: const RoundedRectangleBorder(borderRadius: R.rXl),
       builder: (_) => const _TypeSheet(),
     );
-    if (picked != null) setState(() => _activity = picked);
+    if (mounted && picked != null) setState(() => _activity = picked);
   }
 
   Future<void> _save() async {

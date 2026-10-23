@@ -42,6 +42,11 @@ remaining mirror. This gate is per isolate; capture/derivation shutdown and the 
 and background-delivery matrix remain necessary. No ACK or band command ordering changes.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
+The active coverage follow-up (`coverage-audit.md`, not in the cached Build 99 IPA) also fixes
+the restoration-expiry and gate-ceiling paths that omitted the registered headless transport
+stop. Synthetic callbacks verify the request and late-lease protection; native disconnect,
+expiration timing and physical delivery remain phone gates. Cooperative stop is not cancellation
+of an arbitrary unresolved future, and the production gate ceiling/ACK protocol are unchanged.
 Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation

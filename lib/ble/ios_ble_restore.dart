@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 
 import '../compute/derivation_engine.dart' show DeriveStop;
 import '../sync/background_sync.dart';
+import '../sync/band_ownership.dart';
 import '../sync/headless_gate.dart';
 import '../sync/sync_policy.dart' show RestoreWakeOutcome;
 import '../sync/file_log.dart';
@@ -46,52 +47,57 @@ class IosBleRestore {
   /// readiness if startup never gets that far. Call once at startup.
   static Future<void> init() async {
     if (!Platform.isIOS) return;
-    _ch.setMethodCallHandler((call) async {
-      if (call.method == 'expire') {
-        WakeTiming.expire({'ble_restore'});
-        // The native background assertion is ending: stop calculation now.
-        DeriveStop.request('ble_wake_expired');
+    _ch.setMethodCallHandler(handleCall);
+    _readyFallback = Timer(const Duration(seconds: 15), announceReady);
+  }
+
+  /// The native callback, also exercised with synthetic channel messages.
+  @visibleForTesting
+  static Future<dynamic> handleCall(MethodCall call) async {
+    if (call.method == 'expire') {
+      WakeTiming.expire({'ble_restore'});
+      // The native background assertion is ending: stop calculation now.
+      DeriveStop.request('ble_wake_expired');
+      BandOwnership.requestHeadlessStop('ble_wake_expired');
+      return null;
+    }
+    if (call.method != 'wake') return null;
+    return WakeTiming.run<dynamic>('ble_restore', () async {
+      if (foregroundActive) {
+        await _done();
         return null;
       }
-      if (call.method != 'wake') return null;
-      return WakeTiming.run<dynamic>('ble_restore', () async {
-        if (foregroundActive) {
+      final handler = onWake;
+      if (handler != null) {
+        var outcome = RestoreWakeOutcome.notHandled;
+        try {
+          outcome = await handler();
+        } catch (e) {
+          _bgLog('[ios-restore] live-app wake handler threw: $e');
+        }
+        if (outcome == RestoreWakeOutcome.connected) {
           await _done();
           return null;
         }
-        final handler = onWake;
-        if (handler != null) {
-          var outcome = RestoreWakeOutcome.notHandled;
-          try {
-            outcome = await handler();
-          } catch (e) {
-            _bgLog('[ios-restore] live-app wake handler threw: $e');
-          }
-          if (outcome == RestoreWakeOutcome.connected) {
-            await _done();
-            return null;
-          }
-          // Re-armed: the recovery connect is pending again and the native side
-          // already released its handoff — saying "done" now would cancel it.
-          if (outcome == RestoreWakeOutcome.rearmed) return null;
+        // Re-armed: the recovery connect is pending again and the native side
+        // already released its handoff — saying "done" now would cancel it.
+        if (outcome == RestoreWakeOutcome.rearmed) return null;
+      }
+      // Shared gate with the BGProcessingTask/BGAppRefreshTask entry points
+      // (HeadlessSyncGate): if another headless sync is mid-flight, skip this
+      // wake — matching the old private-_busy semantics (no syncDone signal;
+      // the running entry point completes its own cycle).
+      await HeadlessSyncGate.tryRun<void>('ble_restore_wake', () async {
+        try {
+          await runHeadlessSync(wake: 'ble_restore');
+        } catch (e) {
+          _bgLog('[ios-restore] headless sync threw: $e');
+        } finally {
+          await _done();
         }
-        // Shared gate with the BGProcessingTask/BGAppRefreshTask entry points
-        // (HeadlessSyncGate): if another headless sync is mid-flight, skip this
-        // wake — matching the old private-_busy semantics (no syncDone signal;
-        // the running entry point completes its own cycle).
-        await HeadlessSyncGate.tryRun<void>('ble_restore_wake', () async {
-          try {
-            await runHeadlessSync(wake: 'ble_restore');
-          } catch (e) {
-            _bgLog('[ios-restore] headless sync threw: $e');
-          } finally {
-            await _done();
-          }
-        });
-        return null;
       });
+      return null;
     });
-    _readyFallback = Timer(const Duration(seconds: 15), announceReady);
   }
 
   /// Let native deliver a queued wake. Idempotent.

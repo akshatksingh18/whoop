@@ -262,6 +262,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _busy = false;
   ImportOutcome? _outcome;
 
+  Future<void> _new() async {
+    try {
+      await context.read<AppState>().chooseNewUser();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Setup could not continue. Please try again.')),
+      );
+    }
+  }
+
   Future<void> _import() async {
     final app = context.read<AppState>();
     FilePickerResult? picked;
@@ -282,7 +292,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         .map((f) => f.path)
         .whereType<String>()
         .toList();
-    if (paths.isEmpty) return; // cancelled — not a failure, say nothing
+    if (!mounted || paths.isEmpty) return; // cancellation or a closed screen
 
     setState(() {
       _busy = true;
@@ -299,7 +309,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       // Anything that landed counts as bringing history in — a workouts-only
       // vendor export writes sessions and no days, and the gate used to sit
       // there as though the import had not happened.
-      if (!outcome.nothingLanded) await app.completeImportOnboard();
+      if (!outcome.nothingLanded) {
+        try {
+          await app.completeImportOnboard();
+        } catch (_) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('History is imported. Setup could not continue; tap Set up my band to retry.')),
+          );
+        }
+      }
     } on PassphraseCancelled {
       // Closing the prompt is a decision, not a failure. Say nothing.
     } catch (e) {
@@ -315,7 +333,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Widget build(BuildContext c) => WelcomeView(
     busy: _busy,
     outcome: _outcome,
-    onNew: () => context.read<AppState>().chooseNewUser(),
+    onNew: _new,
     onImport: _import,
   );
 }

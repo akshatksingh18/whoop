@@ -843,8 +843,8 @@ class LiftLogDb {
   );
 
   /// Write the whole workout in one statement; returns once it is durable.
-  static Future<void> save(LiftWorkout w) async {
-    final db = await LocalDb.instance;
+  static Future<void> save(LiftWorkout w, {DatabaseExecutor? database}) async {
+    final db = database ?? await LocalDb.instance;
     await db.insert('lift_log', {
       'id': w.id,
       'session_id': w.sessionId,
@@ -980,12 +980,20 @@ class LiftLogDb {
     }
   }
 
-  static Future<void> saveSplits(List<LiftSplit> splits) async {
+  static Future<void> saveSplits(List<LiftSplit> splits, {LiftWorkout? workout}) async {
     final checked = LiftSplit.validatedList(splits);
-    await CalculationStore.write(
-      splitsKey,
-      jsonEncode([for (final s in checked) s.toJson()]),
-    );
+    final json = jsonEncode([for (final s in checked) s.toJson()]);
+    if (workout == null) {
+      await CalculationStore.write(splitsKey, json);
+      return;
+    }
+    // One user edit may change both its reusable split and today's workout.
+    // Neither half may survive a refused second write.
+    await (await LocalDb.instance).transaction((tx) async {
+      await CalculationStore.writeIn(tx, splitsKey, json);
+      await save(workout, database: tx);
+    });
+    await CalculationStore.hydrate();
   }
 
   /// One row per set, with its load meaning so `42.5 lb/side` is never read

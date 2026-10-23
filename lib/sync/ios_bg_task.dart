@@ -72,21 +72,25 @@ class IosBgTask {
 
   static Future<void> init() async {
     if (!Platform.isIOS) return;
-    _ch.setMethodCallHandler((call) async {
-      if (call.method == 'expire') {
-        WakeTiming.expire({'bg_refresh', 'bg_task'});
-        // iOS is ending the task: stop now rather than run into a kill.
-        DeriveStop.request('ios_bg_task_expired');
-        // B88-05: the headless BLE drain stops too, not only calculation.
-        BandOwnership.requestHeadlessStop('ios_bg_task_expired');
-        return null;
-      }
-      if (call.method != 'run') return null;
-      // BGAppRefreshTask passes {'mode': 'sync'} → LIGHT profile (sync only).
-      final args = call.arguments;
-      final mode = args is Map ? args['mode']?.toString() : null;
-      return _run(syncOnly: mode == 'sync');
-    });
+    _ch.setMethodCallHandler(handleCall);
+  }
+
+  /// The registered native callback; synthetic tests exercise the same dispatch.
+  @visibleForTesting
+  static Future<dynamic> handleCall(MethodCall call) async {
+    if (call.method == 'expire') {
+      WakeTiming.expire({'bg_refresh', 'bg_task'});
+      // iOS is ending the task: stop now rather than run into a kill.
+      DeriveStop.request('ios_bg_task_expired');
+      // B88-05: the headless BLE drain stops too, not only calculation.
+      BandOwnership.requestHeadlessStop('ios_bg_task_expired');
+      return null;
+    }
+    if (call.method != 'run') return null;
+    // BGAppRefreshTask passes {'mode': 'sync'} → LIGHT profile (sync only).
+    final args = call.arguments;
+    final mode = args is Map ? args['mode']?.toString() : null;
+    return _run(syncOnly: mode == 'sync');
   }
 
   static Future<bool> _run({required bool syncOnly}) => WakeTiming.run(
@@ -176,7 +180,6 @@ class IosBgTask {
       return const Profile();
     }
   }
-
 }
 
 /// Background/headless diagnostics reach the shared file log too (B88-05):

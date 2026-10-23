@@ -138,7 +138,13 @@ class HeadlessSyncGate {
       // nothing left alive will ever complete. Force-clearing here mirrors
       // what headless_boot.dart already does explicitly for its own
       // caller-held lease on skip/timeout.
-      BandOwnership.forceReleaseHeadless();
+      try {
+        BandOwnership.requestHeadlessStop('headless_gate_timeout');
+      } catch (e) {
+        debugPrint('[headless-gate] transport stop failed: $e');
+      } finally {
+        BandOwnership.forceReleaseHeadless();
+      }
       return null;
     } finally {
       _running = null;

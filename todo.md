@@ -564,6 +564,11 @@ other worktrees remain untouched.
   `40002250844`, source/version/checksum, ZIP CRC and release/AOT payload validation pass.
   The single testing candidate is `WHOOP-0.9.66-build99-e52d571a`; Build 98's superseded folder
   went to the Recycle Bin, and accepted Build 70 is unchanged. `setup.md` owns fingerprints.
+- [ ] 3o. Coverage-directed follow-up on `build-100` (`coverage-audit.md`): use Build 99's
+  LCOV gaps and prior audit contracts to review unexecuted/unimported sibling and failure paths.
+  Classify every remaining region, add meaningful synthetic checks and repair confirmed faults;
+  keep generated/dormant/native/physical limits explicit. No successor release or percentage
+  improvement is claimed until appropriate targeted/full cloud checks pass. Build 99 stays cached.
 - [ ] 4. Akshat's phone acceptance: recheck B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

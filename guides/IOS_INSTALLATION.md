@@ -1,11 +1,11 @@
 # WHOOP iPhone build
 
 **State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
-Build 98 (`0.9.65+98`, app source `7c13f1a6`, algorithm 98/schema 50) is the validated unsigned
-candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.65-build98-7c13f1a6`. All eighteen
-`../build-97-audit.md` repairs are implemented, retaining earlier repair contracts. Full cloud
+Build 99 (`0.9.66+99`, app source `e52d571a`, algorithm 99/schema 50) is the validated unsigned
+candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.66-build99-e52d571a`. All 22
+`../build-98-audit.md` repairs are implemented, retaining earlier repair contracts. Full cloud
 analysis/tests/visuals, the macOS build and downloaded source/version/checksum/ZIP/payload checks
-pass. Akshat last reported Build 91 installed; Build 98 is not yet installed or phone-accepted.
+pass. Akshat last reported Build 91 installed; Build 99 is not yet installed or phone-accepted.
 Build `0.9.37`/`70` remains accepted recovery in
 `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact artifact
 evidence and `../todo.md` owns phone checks. This state changes on installation and completion
@@ -79,8 +79,8 @@ and the bundle identity never changes.
 ## Acceptance
 
 The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
-Build 98 retains those repairs and implements the eighteen additional `../build-97-audit.md`
-contracts. Full cloud/visual/native checks and replacement IPA validation pass; Builds 96/97
+Build 99 retains those repairs, the eighteen `../build-97-audit.md` contracts and all 22
+`../build-98-audit.md` repairs. Full cloud/visual/native checks and replacement IPA validation pass; Builds 96–98
 are retained only as historical payload evidence.
 
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,

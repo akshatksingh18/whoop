@@ -1,9 +1,10 @@
 # Build 98 comprehensive flow review
 
-**Status:** In progress against released app source `7c13f1a6` and release record `3033e427`.
-The accepted scope includes independent source tracing, synthetic boundary/failure interactions,
-full-scroll visual review and repairs that preserve the locked A+B interface and recorded data.
-Work continues on `build-99`; no successor binary or new verification result is claimed yet.
+**Status:** Source/flow review and all 22 confirmed repair families are complete in the
+validated Build 99 testing candidate. App source `e52d571a` and verification commit `18324f76`
+have identical app/package/assets/iOS/dependency source. Full app/package/visual/coverage run
+`40003142620`, native run `40002250844` and downloaded IPA validation pass. Build 99 replaces
+Build 98 in the single testing slot; installation, signing and physical acceptance remain open.
 
 ## Baseline and scope
 
@@ -14,8 +15,8 @@ finishing them were lazy photo staging for numeric-only Body imports and preserv
 haptic transport result. Seven older-suite regressions were reconciled and an HR-only-run
 absence control was added. `setup.md` owns the exact artifact and source-equivalence record.
 
-The source inventory contains 314 code/configuration files and 203,796 lines, including six
-generated localization files. A static action/navigation scan finds 636 bindings. These are
+The baseline source inventory contains 314 code/configuration files and 203,796 lines, including
+generated localization code. A static action/navigation scan finds 636 bindings. These are
 discovery counts, not passed click tests or a claim that every line has been manually verified.
 Local inventories, probes and captures stay in ignored `build/research-local/`.
 
@@ -44,11 +45,11 @@ Review families:
 
 ## Findings and repair evidence
 
-Seven synthetic failure probes in `test/build99_durability_test.dart` initially fail against
-Build 98, confirming six repair families. The expanded 14-case file passes targeted checks,
-including ordered read/removal and keychain refusal/retry controls. Five existing settings
-and calculation-cache cases also pass in the combined targeted run (14 distinct cases across
-these runs). Full cloud/native and new UI-state checks remain pending. Build 98 stays cached.
+Synthetic failure probes reproduce the confirmed faults before their repairs. All 16 cases in
+`test/build99_durability_test.dart` pass, including refused persistence, keychain/native failure,
+concurrent read/removal and full-reset controls. The complete set of 46 added regression cases
+has passing targeted groups and is included in the successful full suite. Repeated runs
+of a case are not additional tests.
 
 - **B98-01, P1 — profile rollback can erase database-only calculation history.**
   `_updateProfile` snapshots `ProfileHistory.key` and `StepGoals.key` from preferences even
@@ -151,8 +152,8 @@ association lookup bounds use the same recorded calendar, without changing assoc
   metric labels or overflowing at enlarged text sizes; shading/coverage meaning stays unchanged.
 
 The Strength summary also uses singular/plural labels correctly. No metric or detail is hidden.
-Version `0.9.66+99` and matching RunnerTests metadata reserve the successor identity; the actual
-Build 99 binary/release checks remain pending.
+Version `0.9.66+99` and matching RunnerTests metadata identify the successor. Its complete
+software/native and downloaded-payload verification passes.
 
 Focused evidence includes the checks across `build99_durability_test.dart`,
 `build99_recorded_days_test.dart` and `build99_barcode_test.dart`, plus two backup publication/
@@ -161,7 +162,7 @@ ordering cases in `auto_backup_test.dart`. The compound Body widget check exerci
 one test-clock zone. This avoids a Windows FFI fixture-order stall; isolated read retry also
 passes. Initial fixture mistakes/stalled batches are not counted as app passes. Full-scroll
 captures of the disclosure and reminder error states were inspected with substitute fonts.
-The cloud visual job now includes these states; its successor result is still pending.
+The cloud visual job includes these states.
 The full test job also retains instrumented Dart line coverage. This measures exercised lines
 in imported Dart libraries; generated/unimported code and native iOS behavior must be identified
 separately and cannot be certified from a green test count.
@@ -169,24 +170,21 @@ Five additional secondary-flow checks pass: DST wake target, grid failure propag
 What changed Retry and complete month-grid labels at normal/3.1x text. Seven existing wake/grid
 controls pass as well. The expanded review now adds 46 regression cases, including GPS input,
 alarm wording, Food clocks/unknown-time editing at normal/3.1x and refused consent. Their targeted
-groups pass; repeat executions are not extra tests and full successor CI remains required.
+groups and final full CI pass; repeat executions are not extra tests.
 
 - **B98-V1, verification gap — package suites were outside the app test command.** The root
   Flutter run does not discover the 55 test files under `packages/protocol/test` and
   `packages/analytics/test`. Existing app tests cover some library behavior, but their pass count
   is not evidence that those complete suites ran. Separate pinned, read-only Linux matrix jobs
   now run both package suites without changing dependencies. Their results are an additional
-  successor release gate. The historical `test/adapters` documentation reference was stale;
+  release gate, now passed in run `40003142620`. The historical `test/adapters` reference was stale;
   that directory is absent and is not a claimed coverage area.
 
-The first successor cloud run exposed scheduler stalls in the new persistence queues, not a
-passing release. Queues now start immediately while idle and release their gate before returning
-to the caller, instead of retaining an idle future from a widget-test clock. The four failing
-Today/history controls pass in a targeted rerun; broader verification is still required. The
-stalled run `39963880718` was cancelled, its partial logs retained locally, and the root test job
-now has a 30-minute ceiling. No coverage artifact was produced by that incomplete run. Package
-checks are reusable jobs called by the existing dispatchable workflow, so they can run on the
-repair branch before any default-branch integration.
+Persistence queues start immediately while idle and release before returning to the caller,
+without retaining a future from another widget-test clock. The affected Today/history controls
+pass targeted checks. App and visual jobs have 30-minute ceilings; independent package checks
+are reusable jobs called by the dispatchable workflow. Incomplete/superseded runs are not
+release evidence.
 
 - **B98-18, P2 — invalid GPS positions can become route anchors.** The tracker rejects NaN
   coordinates but accepts infinite/out-of-range coordinates and invalid accuracy. A synthetic
@@ -232,21 +230,44 @@ enabled even though the scanner's own error path closed it. Fail closed in the s
 and have Settings display the effective choice. The refused-grant regression fails before the
 fix and the full 34-case nutrient/consent file then passes without network calls.
 
-The first independent analytics run passed 643 cases and skipped six private-capture cases,
-but failed two pre-Build-90 expectations for the removed 45-minute strain bonus. Those two
-assertions now match the approved quarter-gap/no-bonus contract, already checked by the app's
-Build 90 tests; all 37 coaching cases pass targeted checks. The production formula is unchanged.
-The second visual run produced 570 captures and passed 136 cases; its remaining Food case
-captured an unfinished read, not a layout overflow. Fixed-clock and live-draft fixtures now
-unmount/drain their writes in their own test clock. Ten affected existing controls pass locally.
-Incomplete/superseded cloud runs are not successor release evidence.
-The latest staging native build `39997222912` compiled successfully, and run `39997217880`
-passed both complete package suites and all visual steps. Its app job stopped at a redundant
-null-assertion analyzer warning, which is removed. The Sleep-copy and fixture consistency edit
-also requires fresh verification before delivery; no staging binary has replaced the testing IPA.
+The independent analytics suite exposed two pre-Build-90 expectations for the removed 45-minute
+strain bonus. They now match the approved quarter-gap/no-bonus contract, already covered by the
+app's Build 90 checks; production calculations are unchanged. Fixed-clock and live-draft
+fixtures unmount/drain their writes in their own test clock. Earlier incomplete runs and a
+removed redundant-null-assertion analyzer warning are resolved preparation failures, not passes.
 Train's render database now contains the same synthetic sessions as its history repository,
 so week dots/streaks no longer depict an unrelated empty database. Two focused Sleep/Train
 checks pass; the diary still has its approved ring, all four macros and full detail paths.
+
+## Completed verification
+
+- Full run [40003142620](https://github.com/akshatksingh18/whoop/actions/runs/40003142620),
+  verification `18324f76`: **3,524 app tests pass, 429 intentional skips**. Analysis has no
+  errors or warnings and 226 informational lints. All eight personal-iOS contract checks pass.
+- Independent protocol suite: **433 pass, four skip**. Independent analytics suite: **645 pass,
+  six skip**. These are separate suite counts, not a claim of distinct end-user clicks.
+- Visual jobs: **143 checks pass**, producing **589 synthetic captures**, including full-scroll
+  pages, narrow/enlarged layouts and the added disclosure/reminder/grid states. Manrope
+  substitutes for native SF fonts; screenshots are not iPhone gesture or delivery evidence.
+- Native run [40002250844](https://github.com/akshatksingh18/whoop/actions/runs/40002250844)
+  builds app source `e52d571a`. Manifest/checksum, full ZIP CRC, personal payload, compiled
+  Runner and AOT framework checks pass. `setup.md` owns the IPA fingerprint and source mapping.
+- Root LCOV measures **37,579/57,492 lines in 201 imported Dart files (65.36%)**. Excluding seven
+  generated localization files gives **37,534/49,891 handwritten instrumented lines in 194 files
+  (75.23%)**. Neither percentage covers all source or proves the correctness of an executed line.
+  Native iOS and the independent packages are outside this root coverage denominator.
+- Five handwritten app files are absent from LCOV: `lib/main.dart`, `lib/build_profile.dart`,
+  `lib/platform/error_log.dart` and the two export barrels `lib/ui2/ui2.dart` and
+  `lib/ui2/screens/screens.dart`. Entrypoint/native lifecycle and production logging therefore
+  retain source/contract/device limits. Generated localization consistency is separate from
+  reading every translated string on a device. Coverage data stays in ignored
+  `build/release99/coverage/`; it does not certify the static inventory or every branch.
+
+The 429 app skips retain absent golden/private-fixture/opt-in measurement gates. In particular,
+408 absent golden baselines are not pixel comparisons, even though the synthetic capture job
+passes. Earlier stalled/superseded runs are preparation history, not current unresolved CI
+failures or release evidence. Test-fixture cleanup changes after `e52d571a` leave the IPA's app
+source identical to the verified source. No private capture is uploaded to improve a count.
 
 ## Flow coverage and user meaning
 
@@ -304,7 +325,9 @@ denominator must be read alongside it; native delivery and physical gestures rem
   analysis exports. Imports preflight identities/values/files, publish committed partial results,
   and retain session/calculation provenance. Sharing reports cancel/unconfirmed delivery honestly
   and cleans temporary copies; valid backups distinguish bookkeeping warnings from failed files.
-  Reset reports partial failure and remains retryable. Evidence includes import/data-safety,
+  Reset reports partial failure and remains retryable. Its Settings caller separately removes
+  photo and automatic-backup files and checks for leftovers; table deletion alone is not file
+  deletion. Evidence includes import/data-safety,
   paged import/export, media/crypto/automatic backup, CSV/analysis and B98-01–06/08/15 controls.
 - **BLE, calculation and native boundaries:** the historical ledger/cursor commits before the
   verbatim ACK token. Reconnect/background ownership, expiry and incomplete-day retention are
@@ -317,6 +340,30 @@ personal navigation: the sole production RoughNightCard uses `ask: 'never'`, and
 Settings view has no appearance row. Gallery-only controls are not counted as normal app flows.
 Their retained source is not described as phone-exercised. Private-capture and absent-golden
 skips remain explicit; no personal data is uploaded to close them.
+
+## Reading the interface
+
+- **Today: what needs attention now?** Recovery is the lead result. Other rows link to their
+  dated detail; targets underneath a value describe its goal rather than another measurement.
+  The heart chart stops at committed/live evidence and does not fill unsynced time with data.
+- **Trends: what changed over this period?** The picker changes the comparison window. Coverage
+  describes measured days; an average from fewer days is not evidence of an unmeasured day.
+  What changed opens the deeper review instead of putting every explanation in the main list.
+- **Food: what have I eaten, and what remains?** The ring is typed goal minus intake, with no
+  exercise added back. All four macros stay visible; an unlogged nutrient is absent, not zero.
+  Meal headings summarize a meal, item taps expose the saved detail, and copy requires review
+  followed by an explicit log action into the viewed date.
+- **Train: start, resume or review a session.** A stopped session awaiting persistence is a
+  save/retry state, not a new recording. GPS freshness, cadence, zones and active calories have
+  separate meanings; missing inputs cannot become a confident zero or a fabricated trace.
+- **Progress: how did the recent period go, and is the goal ready to judge?** Rolling outcomes
+  and inputs compare like periods. The goal card separately identifies its closed-week evidence
+  requirements and first check; changing an exploration period does not rewrite that check.
+  Body, Strength and context details keep the underlying entries, histories and method notes.
+
+The repairs retain the approved hierarchy, calorie ring and complete detail routes. They improve
+failure/retry visibility, enlarged labels and absence wording without adding another dashboard
+of competing scores or removing recorded information.
 
 ## Boundaries
 

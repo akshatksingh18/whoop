@@ -517,11 +517,11 @@ other worktrees remain untouched.
   Full Linux/visual run `39943912609` at source-equivalent verification commit `86bfc895` passes
   3,478 tests (429 intentional skips), no analysis errors/warnings, and 137 visual checks/570
   captures. Eight iOS contract checks pass. Native run `39942864975` and downloaded IPA checks
-  pass. The sole testing candidate is `WHOOP-0.9.65-build98-7c13f1a6`; `setup.md` owns source/hash
-  evidence and superseded run outcomes. Build 97's folder went to the Recycle Bin; accepted
+  pass. The former testing candidate `WHOOP-0.9.65-build98-7c13f1a6` is superseded by Build 99
+  in 3n; `setup.md` owns source/hash evidence. Build 97's folder went to the Recycle Bin; accepted
   Build 70 is unchanged. No feature, dependency, schema or scientific coefficient changed;
   algorithm 98 versions date attribution. Installation and physical acceptance are unreported.
-- [ ] 3n. Independent comprehensive Build 98 review and authorized repairs on `build-99`.
+- [x] 3n. Independent comprehensive Build 98 review and authorized Build 99 repairs/release.
   `build-98-audit.md` owns the scope and coverage record: trace visible/deep actions through
   validation, persistence, refresh and dependent consumers; probe stale/failure/cold/travel/unit
   cases and full-scroll UI. Preserve features, locked A+B, scientific coefficients, dependencies
@@ -537,28 +537,34 @@ other worktrees remain untouched.
   native reminder/reset cancellation, backup metadata/ordering and Body read/camera lifecycle.
   Forty-six added checks have passing targeted groups, including full-scroll failure states
   with substitute fonts and Food editing at normal/3.1x.
-  Other source/UI/metric
-  flows are under review; successor identity is `0.9.66+99`/algorithm 99/schema 50;
+  The source/flow review is complete; candidate identity is `0.9.66+99`/algorithm 99/schema 50;
   the secondary Trends grid now exposes read failure/retry and retains enlarged labels, and
   wake-window targets use recorded wall times across DST.
   The app command does not discover the 55 protocol/analytics package test files; independent
-  pinned Linux jobs now cover those suites and must pass before release (B98-V1).
+  pinned Linux jobs now cover those suites and pass the release gate (B98-V1).
   Invalid GPS coordinates/accuracy are rejected before route state changes. The first cloud
   attempt stalled in persistence queues under widget clocks; those queues now release while
   idle, and the affected Today/history controls pass targeted reruns. Its incomplete result is
-  not a release pass; full cloud verification remains required.
+  not a release pass; the final full cloud run below supersedes it.
   Past-today alarm wording and Food's unknown/travel/DST timestamps are repaired. Refused
   barcode grants now fail closed through Settings as well as the scanner. The independent
   analytics suite exposed two old assertions for Build 90's removed sleep bonus; only those
   expectations changed, with the approved production calculation retained.
   Sleep no longer invents a reason for a missing timeline; saved stage totals stay visible.
-  Staging native/package/visual checks pass, but a redundant null assertion blocked app analysis
-  and is removed. Fresh complete checks of the final source are still required before delivery.
+  A redundant null assertion that blocked preparation analysis is removed. Final complete
+  cloud/native checks pass.
   A further concurrency control reproduced anchor resurrection during reset. Deletion and
   native/preference completion now share the calculation-reader gate; generic and legacy
-  mirror controls pass with all 16 durability cases. The earlier staging binary is held.
-  No Build 99 artifact or full verification is claimed yet.
-- [ ] 4. Akshat's phone acceptance: recheck B97-01–18 and B96-01–07 repaired flows, then the
+  mirror controls pass with all 16 durability cases. Earlier staging binaries were never delivered.
+  Final app source `e52d571a` is source-equivalent to verification `18324f76`. Full run
+  `40003142620`: 3,524 app tests pass/429 intentional skips, no analysis errors or warnings,
+  independent protocol 433 pass/four skip and analytics 645 pass/six skip. All eight iOS
+  contract checks and 143 visual checks pass; 589 synthetic captures are retained. Instrumented
+  handwritten root Dart coverage is 75.23%; it is not every-line or phone proof. Native
+  `40002250844`, source/version/checksum, ZIP CRC and release/AOT payload validation pass.
+  The single testing candidate is `WHOOP-0.9.66-build99-e52d571a`; Build 98's superseded folder
+  went to the Recycle Bin, and accepted Build 70 is unchanged. `setup.md` owns fingerprints.
+- [ ] 4. Akshat's phone acceptance: recheck B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.
 
@@ -621,11 +627,11 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: All eighteen B97 findings have source repairs on `build-98`, with desired-behavior
-  synthetic regression files and expanded real import/editor interactions. Build 98 is `0.9.65+98`,
-  algorithm 98/schema 50. All 52 added regression cases and full cloud/visual/native release
-  verification pass (3m). Build 98 replaces Build 97 in the one-slot testing cache.
-  `build-97-audit.md` owns repair coverage; `setup.md` owns workflow/artifact evidence. No work is
+- Codex: All 22 B98 finding families are repaired in Build 99 (`0.9.66+99`, app source
+  `e52d571a`, algorithm 99/schema 50), retaining the eighteen B97 and earlier repairs.
+  All 46 added regression cases and full app/package/visual/native verification pass (3n).
+  Build 99 replaces Build 98 in the single testing slot. `build-98-audit.md` owns scope,
+  coverage and limits; `setup.md` owns workflow/artifact evidence. No work is
   waiting on Claude, and existing other checkouts remain untouched. Phone acceptance stays open.
   Independent calorie/recovery review is complete in
   `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.

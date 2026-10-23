@@ -1,8 +1,9 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 98 (`7c13f1a6`) is the validated testing candidate; Build 91 is the last reported
+**Status:** Build 99 (`e52d571a`) is the validated testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence; full cloud checks and IPA validation pass. The repairs in `build-95-repairs.md`, retained in Build 98,
+release/device evidence; full app/package/visual run `40003142620`, native `40002250844` and IPA
+validation pass. The repairs in `build-95-repairs.md`, retained in Build 99,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
@@ -24,10 +25,10 @@ and downloaded IPA checks pass; `todo.md` 3m tracks the completed software relea
 delivery, termination and background scheduling remain phone gates.
 BLE commit-before-ACK remains unchanged; algorithm 98 only changes recorded-zone attribution.
 
-The active `build-99` review (`build-98-audit.md`) adds source repairs for acknowledged Home
+The completed Build 99 review (`build-98-audit.md`) adds repairs for acknowledged Home
 configuration/native stop, cache-removal ordering and reset preference/keychain cleanup. A
 failed cleanup remains retryable and cannot report complete deletion. Targeted synthetic checks
-pass; the successor's full/native and real Home-delivery checks remain open. The band history
+and full cloud/native checks pass; real Home-delivery checks remain open. The band history
 drain and ACK protocol are untouched.
 The successor also waits for iPhone notification cancellation during reset and retains reminder
 plans when cancellation fails. Its Pushups background mirror includes recorded day bounds, so

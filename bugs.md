@@ -5,9 +5,9 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Build 91 is the last reported installation. Build 98 (`7c13f1a6`,
-`0.9.65+98`, algorithm 98/schema 50) is the validated testing candidate. All eighteen
-B97-01–18, seven B96-01–07 and 29 earlier repair contracts are retained. Full Linux/visual
+**Current verification:** Build 91 is the last reported installation. Build 99 (`e52d571a`,
+`0.9.66+99`, algorithm 99/schema 50) is the validated testing candidate. All 22 B98-01–22,
+eighteen B97, seven B96 and 29 earlier repair contracts are retained. Full app/package/visual
 checks, the macOS build and downloaded IPA validation pass; `setup.md` owns source/hash/workflow
 evidence. The calm A+B presentation remains; no feature or scientific coefficient changed.
 Build 70 recovery is unchanged. Physical background/restoration, native permissions, gestures,
@@ -23,19 +23,20 @@ enlarged action labels remain visible. All 52 added synthetic regressions pass w
 checks and native run `39942864975` pass. `build-97-audit.md` owns individual contracts and the
 unexecuted-device limits. These software results do not establish physical acceptance.
 
-The subsequent `build-98-audit.md` review is active on `build-99`. B98-01–22 now have source
+The subsequent `build-98-audit.md` review is complete in Build 99. B98-01–22 have verified
 repairs for profile-history rollback, calculation-cache resurrection, refused backup Off,
 forgotten-device recovery mirrors, Home persistence/native stop and partial reset/keychain
 cleanup, recorded travel-day consistency, restored profile anchors, active lifting windows and
 barcode input/opt-in/scrolling. Forty-six added checks have passing targeted groups, alongside
 existing settings/cache/nutrient/consent checks. Run voice, reminder/reset cancellation, backup metadata/ordering and
 Body read/camera lifecycle, invalid GPS input, elapsed-alarm wording and Food timestamp
-preservation and honest unavailable-timeline wording also have source repairs and targeted checks; remaining
-review, UI-state checks and successor cloud/native verification are still open. These repairs
-are not in the cached Build 98 IPA.
+preservation and honest unavailable-timeline wording are in the cached Build 99 IPA. Full run
+`40003142620` passes 3,524 app tests (429 intentional skips), independent protocol/analytics
+suites and 143 visual checks/589 captures; native `40002250844` and local payload checks pass.
+Instrumented handwritten root Dart coverage is 75.23%, not every-line or hardware verification.
 Reset also holds deletion/mirror cleanup against concurrent self-healing calculation reads,
 including legacy preference-only anchors; two concurrency controls and all 16 durability cases
-pass. Earlier staging Build 99 IPAs remain undelivered because they lack this B98-22 repair.
+pass. The delivered testing source includes B98-22. Earlier staging IPAs were never delivered.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

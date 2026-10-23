@@ -34,7 +34,58 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 98 candidate
+## Build 99 candidate
+
+Build 99, version `0.9.66+99`, algorithm 99/schema 50, is the validated testing release from
+`build-99`. App source is `e52d571aadd44a96230a338b1bf6c87ecb2ea68e`; all 22 B98-01–22
+repair families in `build-98-audit.md` are implemented, retaining the earlier repair contracts
+and approved A+B interface. Forty-six added regression cases pass within the complete suite.
+
+Full Linux/visual run [40003142620](https://github.com/akshatksingh18/whoop/actions/runs/40003142620)
+passes at verification `18324f7645499df9dca2be41c300e0725a26c910`: **3,524 app tests pass,
+429 intentional skips**, no analysis errors/warnings and 226 informational lints. All eight
+iOS contract checks pass. Independent protocol tests pass 433/skip four; analytics pass
+645/skip six. Visual jobs pass 143 checks and produce 589 full-scroll synthetic captures.
+Of the app skips, 408 require absent golden baselines; captures do not make them pixel tests.
+
+Root LCOV records 37,579/57,492 lines (65.36%) in 201 imported Dart files. Excluding seven
+generated localization files, 37,534/49,891 handwritten instrumented lines pass through the
+tests (75.23%, 194 files). Five handwritten app files are unimported, including the production
+entrypoint and error logger; native iOS and the independent packages are outside this coverage
+denominator. `build-98-audit.md` names those files and physical limits. A hit line is not a
+correctness proof, and neither a green suite nor static action counts certify every click.
+
+Personal macOS run [40002250844](https://github.com/akshatksingh18/whoop/actions/runs/40002250844)
+passes at app source `e52d571a`. Downloaded `whoop-personal-e52d571aadd4-unsigned.ipa` is
+15,492,262 bytes, SHA-256
+`30ede1983eba63f04fc1ad6b88be4800ce98d1845188edd257c94436299bc470`. Source/version/manifest,
+checksum, full ZIP CRC, `personal_ios.py validate` and compiled Runner/AOT framework checks
+pass. The payload contains one app and no extension, Watch app, provisioning profile,
+database or debug kernel. The later `18324f76` commit changes fixture cleanup/documentation
+only; a Git diff confirms identical app/package/assets/iOS/dependency source. The release record
+also changes documentation only; its commit uses `[skip ci]` because the identical implementation
+already passed the full dispatch, and no second native build or duplicate full suite is needed.
+
+The single testing folder is
+`../final-ipas/whoop/testing/WHOOP-0.9.66-build99-e52d571a`, containing the IPA, checksum,
+manifest, validation and build-info. Build 98's superseded folder went to the Windows Recycle
+Bin; its fingerprint and reproducible runs are retained below. Earlier preparation runs
+`39963880718`, `39993163845`, `39997217880`, `39998881999` and `40002246646` were incomplete,
+failed or superseded, not release passes. Queue scheduling, fixture cleanup, obsolete coaching
+expectations and the redundant analyzer assertion are reconciled in the final green run.
+Earlier staging binaries were never placed in the testing slot or delivered.
+
+Scientific coefficients, dependencies, schema, BLE commit-before-ACK, identity and capability
+contract are unchanged. Algorithm 99 versions recorded-day/timing and active lifting-window
+corrections. Outgoing source, synthetic fixtures and technical documentation were privacy-reviewed;
+no private records, photos, routes, captures, exports or secrets were published. `main` is
+fast-forwarded to the release record and `local-backup` mirrors it. Build 70 recovery remains
+unchanged (SHA-256 `0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`).
+Build 91 is the last reported installation. Build 99 signing, installation, current-version
+enrollment, data-preserving upgrade and the physical matrix remain open; delivery is not
+phone acceptance or recovery promotion. Preserve the exact existing signed identity.
+
+## Build 98 artifact (superseded)
 
 Build 98, version `0.9.65+98`, algorithm 98/schema 50, is released from `build-98` to `main`.
 App source is `7c13f1a657c7a1ac5c7aeee0c702fb030074865d`; all eighteen B97-01–18 repairs are
@@ -54,9 +105,9 @@ debug kernel. The later `86bfc895` commit changes tests/documentation only; a Gi
 identical app/package/assets/iOS/dependency source. Final release-record edits likewise change
 no app source and require no new binary. These are artifact checks, not phone evidence.
 
-The single testing folder is
-`../final-ipas/whoop/testing/WHOOP-0.9.65-build98-7c13f1a6`, containing the IPA, checksum,
-manifest, validation and build-info. Build 97's superseded testing folder went to the Windows
+The former testing folder
+`../final-ipas/whoop/testing/WHOOP-0.9.65-build98-7c13f1a6` went to the Windows Recycle Bin
+after validated Build 99 replaced it. Build 97's superseded testing folder also went to the Windows
 Recycle Bin. Its reproducible fingerprint is source `bde5818b`, full/visual run `39815813645`,
 native run `39815817300`, 15,463,593 bytes, SHA-256
 `348a7b8ad7e5fb887444bd074abf5a9bc2b22eff7926d6c3658dfe2c02b88c7c`.
@@ -80,11 +131,8 @@ reported installation. Current-version signing enrollment, install-over-install 
 and the phone matrix remain open. Use the exact existing app identity; delivery does not authorize
 recovery promotion.
 
-An additional comprehensive review is active on `build-99` (`build-98-audit.md`, `todo.md` 3n).
-Its twenty-two persistence/date/timing/barcode/editor/GPS/alarm/copy repair families have targeted checks, with
-algorithm 99 reserved for recorded-day and lifting-window corrections. No Build 99 release/IPA or
-new full cloud result is claimed; the Build 98 artifact above remains the one-slot candidate.
-Successor source identity is `0.9.66+99`, algorithm 99/schema 50, pending complete verification.
+The subsequent `build-98-audit.md` review and its 22 repairs are complete in the validated
+Build 99 candidate above. Build 98 remains historical artifact evidence, not the current cache.
 
 
 ## Build 96 artifact (superseded)

@@ -3,9 +3,9 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 98 (`7c13f1a6`, `0.9.65+98`) is the single validated testing candidate;
+**Status:** Build 99 (`e52d571a`, `0.9.66+99`) is the single validated testing candidate;
 Build 91 remains the last reported installation. The A framework and B calorie-ring/macros are
-retained. All eighteen faults in `build-97-audit.md`, seven in `build-96-audit.md` and the
+retained. All 22 faults in `build-98-audit.md`, eighteen in `build-97-audit.md`, seven in `build-96-audit.md` and the
 29 earlier repairs are implemented. Full cloud analysis/tests, synthetic visual checks, native
 compilation and downloaded IPA validation pass. `setup.md` owns evidence; `todo.md` owns phone
 gates. Build 70 remains recovery. No scientific coefficient or headline formula changes.
@@ -13,18 +13,18 @@ gates. Build 70 remains recovery. No scientific coefficient or headline formula 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh
 and visible live checkpoint failures. Algorithm 98 versions session profile/run/day attribution;
-scientific formulas are unchanged. `todo.md` 3m distinguishes completed software verification
+scientific formulas are unchanged. `todo.md` 3n distinguishes current completed software verification
 from the unexecuted installation, signing and physical-device matrix.
 
-The active successor review is `build-98-audit.md`. Its first source repairs keep profile
+The completed Build 99 review is `build-98-audit.md`. Its repairs keep profile
 rollback on authoritative database history and order calculation cache reads/removal so a
 failed deletion cannot resurrect a removed anchor. Failed settings and partial reset have
-explicit retry outcomes. These do not tune metric formulas and are not yet in the cached IPA.
+explicit retry outcomes. These do not tune metric formulas and are in the cached IPA.
 Algorithm 99 additionally uses recorded travel days for profile edits, Food windows, activity/
 step streaks and Today's chart origin; absent startup profiles preserve restored anchors.
 The separate lifting line unions active windows and retains captured weights through overlaps.
 Barcode lookup requires first-use consent and numeric identifiers; its disclosure scrolls at
-accessibility sizes. Scientific coefficients stay unchanged; these are source-only pending release.
+accessibility sizes. Scientific coefficients stay unchanged; full cloud/native and IPA checks pass.
 Shared chart positions, weekly metric means, Sleep signal windows and Pushups/background actions
 use those same recorded days. Voice and reminder changes acknowledge persistence/native outcomes;
 Body retains drafts through a failed history read. Backup bookkeeping warnings remain separate

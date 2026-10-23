@@ -115,9 +115,9 @@ GridRow gridRow(String key, List<ChartPoint> points) {
 Future<List<GridRow>> loadGridRows(LocalRepository repo) async {
   final out = <GridRow>[];
   for (final key in kGridMetrics) {
-    try {
-      out.add(gridRow(key, pointsOf(await repo.getChart(specOf(key).chartKey))));
-    } catch (_) {/* a series we cannot read is a row we do not draw */}
+    // Let the owning page show its retry state. A failed read must not make
+    // the metric silently disappear or look like absent history.
+    out.add(gridRow(key, pointsOf(await repo.getChart(specOf(key).chartKey))));
   }
   return out;
 }
@@ -147,17 +147,15 @@ class MonthGrid extends StatelessWidget {
                 for (final r in shaded) ...[
                   Padding(
                     padding: const EdgeInsets.only(bottom: S.x1),
-                    child: Row(
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      spacing: S.x2,
+                      runSpacing: S.x1,
                       children: [
-                        Expanded(
-                          child: Text(
-                            r.spec.title,
-                            style: F.over.copyWith(color: p.ink2),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        Text(
+                          r.spec.title,
+                          style: F.over.copyWith(color: p.ink2),
                         ),
-                        const SizedBox(width: S.x2),
                         // Coverage, never a run. "23 of 30" costs a missed day
                         // one day; a streak costs it everything.
                         Text(
@@ -186,13 +184,15 @@ class MonthGrid extends StatelessWidget {
                   ),
                   const SizedBox(height: S.x4),
                 ],
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: S.x2,
+                  runSpacing: S.x1,
                   children: [
                     Text(
                         l?.monthGridDaysAgo(kGridDays - 1) ??
                             '${kGridDays - 1} days ago',
                         style: F.over.copyWith(color: p.ink3)),
-                    const Spacer(),
                     Text(l?.monthGridToday ?? 'Today',
                         style: F.over.copyWith(color: p.ink3)),
                   ],

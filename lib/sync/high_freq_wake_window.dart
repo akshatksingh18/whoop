@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../data/db.dart';
+import '../data/day_label.dart';
 
 class HighFreqWakePlan {
   final bool shouldEnable;
@@ -45,15 +46,24 @@ class HighFreqWakeWindow {
     }
     wakeMinutes.sort();
     final habitualWakeMinute = wakeMinutes[wakeMinutes.length ~/ 2];
-    final todayTarget = DateTime(
-      now.year,
-      now.month,
-      now.day,
+    final local = DayClock.localAt(now.millisecondsSinceEpoch ~/ 1000);
+    final todayTarget = DayClock.wallTime(
+      local,
+      local.year,
+      local.month,
+      local.day,
       habitualWakeMinute ~/ 60,
       habitualWakeMinute % 60,
     );
     final targetWake = now.isAfter(todayTarget)
-        ? todayTarget.add(const Duration(days: 1))
+        ? DayClock.wallTime(
+            local,
+            local.year,
+            local.month,
+            local.day + 1,
+            habitualWakeMinute ~/ 60,
+            habitualWakeMinute % 60,
+          )
         : todayTarget;
     final windowStart = targetWake.subtract(lease);
     return HighFreqWakePlan(
@@ -75,7 +85,7 @@ class HighFreqWakeWindow {
         (winValue['offset_ms'] as num?)?.toInt() ??
         (sleepWindowValue['offset_ms'] as num?)?.toInt();
     if (offsetMs == null || offsetMs <= 0) return null;
-    final dt = DateTime.fromMillisecondsSinceEpoch(offsetMs);
+    final dt = DayClock.localAt(offsetMs ~/ 1000);
     return dt.hour * 60 + dt.minute;
   }
 

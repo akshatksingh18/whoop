@@ -227,7 +227,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
           scrollable: true,
           title: const Text('Reset did not finish'),
           content: const Text(
-            'Some data may already be deleted. Settings, the saved backup passphrase or device cleanup did not finish. Retry to complete deletion.',
+            'Some data may already be deleted. Settings, reminders, the saved backup passphrase or device cleanup did not finish. Retry to complete deletion.',
           ),
           actions: [
             TextButton(

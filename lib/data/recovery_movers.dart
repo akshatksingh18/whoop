@@ -168,7 +168,8 @@ Future<List<Map<String, dynamic>>> loadRecoveryMovers(
 }) async {
   if (!kMoverOutcomes.containsKey(outcomeKey)) return const [];
   final now = DateTime.now();
-  final fromDay = DateTime(now.year, now.month, now.day - days);
+  final today = DateTime.parse(todayLabel(now));
+  final fromDay = DateTime(today.year, today.month, today.day - days);
   final from = dayLabelOf(fromDay);
   final outcome = _byDate(
     await LocalDb.metricSeries(outcomeKey, measuredOnly: true),
@@ -178,7 +179,7 @@ Future<List<Map<String, dynamic>>> loadRecoveryMovers(
   final db = await LocalDb.instance;
   final food = await NutritionDb.entriesSince(db, _prev(from));
   final sessions = await LocalDb.sessionsInRange(
-    fromDay.subtract(const Duration(days: 1)).millisecondsSinceEpoch ~/ 1000,
+    localDayStartSec(_prev(from))!,
     now.millisecondsSinceEpoch ~/ 1000,
   );
   double? target(String k) => (profile[k] as num?)?.toDouble();

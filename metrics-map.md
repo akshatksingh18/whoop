@@ -29,6 +29,8 @@ Shared chart positions, weekly metric means, Sleep signal windows and Pushups/ba
 use those same recorded days. Voice and reminder changes acknowledge persistence/native outcomes;
 Body retains drafts through a failed history read. Backup bookkeeping warnings remain separate
 from the existence of a valid encrypted file. Strength summary copy pluralizes its real counts.
+What changed shows a read/retry state if a month-grid metric cannot load, rather than silently
+omitting it. Grid labels/axes wrap at large text; no shading or coverage rule changes.
 
 Budget coefficients remain as approved: running uses 0.17 mL/kg/m, walking retains its step
 floor, and exercise energy remains active-only and separate from resting maintenance. ACSM is

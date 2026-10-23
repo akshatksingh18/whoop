@@ -122,6 +122,9 @@ Pushups' background mirror carries actual day bounds, so it can validate a Done 
 opening SQLite. Calendar-only goal-window arithmetic and elapsed-time GPS/retention limits keep
 their original meanings. Three added travel controls exercise dense charts, Pushups status/
 actions and the unhydrated background mirror.
+Wake-window planning reads each night's stored-zone wall time and constructs the next target
+by calendar date across DST; the 90-minute lease and three-sample rule stay unchanged. Recovery
+association lookup bounds use the same recorded calendar, without changing association thresholds.
 
 - **B98-13, P2 — run voice Off does not acknowledge storage.** The live switch flips before
   an unchecked preference write. Persist before changing the selection, retain the old choice
@@ -142,6 +145,10 @@ actions and the unhydrated background mirror.
   Catch day-read failures, keep typed fields, block blind saving and offer Retry loading. Capture
   the intended photo date, prevent concurrent photo/date/save actions and guard late callbacks.
   Synthetic widget tests exercise a missing-table/read retry and a delayed camera refusal.
+- **B98-17, P2 — What changed can silently drop a failed month-grid metric.** Its per-row
+  catch hides the failed metric, potentially implying a complete review. Propagate the failure
+  to the page's existing visible Retry state. The grid header/axis also wrap without truncating
+  metric labels or overflowing at enlarged text sizes; shading/coverage meaning stays unchanged.
 
 The Strength summary also uses singular/plural labels correctly. No metric or detail is hidden.
 Version `0.9.66+99` and matching RunnerTests metadata reserve the successor identity; the actual
@@ -158,6 +165,9 @@ The cloud visual job now includes these states; its successor result is still pe
 The full test job also retains instrumented Dart line coverage. This measures exercised lines
 in imported Dart libraries; generated/unimported code and native iOS behavior must be identified
 separately and cannot be certified from a green test count.
+Five additional secondary-flow checks pass: DST wake target, grid failure propagation, actual
+What changed Retry and complete month-grid labels at normal/3.1x text. Seven existing wake/grid
+controls pass as well. This makes 35 distinct added checks; repeat executions are not extra tests.
 
 Additional review queues, not yet closed: historical journal/custom-field drafts
 (first establish personal-build reachability); short arrival-day wall-clock choices; all remaining

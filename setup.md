@@ -81,7 +81,7 @@ and the phone matrix remain open. Use the exact existing app identity; delivery 
 recovery promotion.
 
 An additional comprehensive review is active on `build-99` (`build-98-audit.md`, `todo.md` 3n).
-Its first sixteen persistence/date/timing/barcode/editor repairs have targeted synthetic checks, with
+Its first seventeen persistence/date/timing/barcode/editor repairs have targeted synthetic checks, with
 algorithm 99 reserved for recorded-day and lifting-window corrections. No Build 99 release/IPA or
 new full cloud result is claimed; the Build 98 artifact above remains the one-slot candidate.
 Successor source identity is `0.9.66+99`, algorithm 99/schema 50, pending complete verification.

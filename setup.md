@@ -38,9 +38,15 @@ reviewed source revisions and must move with any deliberate package update.
 
 Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18/19 from `coverage-audit.md`:
 calculation cancellation survives entry/compute/status boundaries, and refused live-HR
-transport leaves the stream unarmed for retry. Six new targeted packs pass 84 synthetic cases.
-Full cloud regression/coverage and native/artifact verification are pending; this is not yet
-the testing candidate. The validated Build 101 folder below remains unchanged.
+transport leaves the stream unarmed for retry. Six packs add 84 synthetic cases; full run
+[40114050675](https://github.com/akshatksingh18/whoop/actions/runs/40114050675) at `7830c577`
+passes 3,769 app tests/429 skips, zero analysis errors/warnings (251 infos), both package suites,
+13 Python controls and 152 visual checks. Handwritten execution is 40,023/50,091 (79.90%),
+with 10,068 lines unexecuted; raw root execution is 40,074/57,692 (69.46%).
+The subsequent approved COV-20 correction saves the original Recovery explanation/HRV context
+with the morning score and labels legacy absences honestly. It needs its own full cloud run,
+then native/artifact verification. Build 102 is not yet the testing candidate; the validated
+Build 101 folder below remains unchanged.
 
 ## Build 101 candidate
 

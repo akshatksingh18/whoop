@@ -1,9 +1,7 @@
 // READINESS — the one composite, taken apart.
 //
-// Two producers meet on this screen and the copy says so rather than blending
-// them: the headline number is the weighted composite, and the breakdown is a
-// parallel percentile view of the same four inputs. Presenting the second as
-// if it decomposed the first would be a small lie that is very hard to catch.
+// Driver points explain the headline composite. A pinned morning score reads
+// its original evidence; later calculations must not rewrite that explanation.
 
 import 'dart:convert' show jsonDecode;
 import 'dart:math' as math;
@@ -39,6 +37,8 @@ class ReadinessData {
   final Metric readiness;
   final List<Map<String, dynamic>> breakdown;
   final int inputsUsed;
+  final bool originalExplanationMissing;
+  final bool savedMorningExplanation;
 
   /// `readiness_absent_diag` off the stored bundle — per input `{value,
   /// baseline_n}` plus the composite's own `note`. Produced on
@@ -80,6 +80,8 @@ class ReadinessData {
     this.hrv,
     this.breakdown = const [],
     this.inputsUsed = 0,
+    this.originalExplanationMissing = false,
+    this.savedMorningExplanation = false,
     this.heldOverNight,
     this.series = const [],
     this.absentDiag,
@@ -123,14 +125,18 @@ class ReadinessData {
   /// calculation that did not produce the number. Inputs the composite did not
   /// use are listed as unused so their absence stays visible.
   static Future<List<Map<String, dynamic>>> _compositeBreakdown(
-    String? day,
-  ) async {
+    String? day, {
+    Map<String, dynamic>? original,
+  }) async {
     if (day == null) return const [];
-    final payload = (await LocalDb.dayResult(day))?['payload_json'];
-    if (payload is! String) return const [];
-    final b = jsonDecode(payload);
-    final clin = b is Map ? b['clinical'] : null;
-    final comp = clin is Map ? clin['readiness_composite'] : null;
+    Map? comp = original?['composite'] as Map?;
+    if (original == null) {
+      final payload = (await LocalDb.dayResult(day))?['payload_json'];
+      if (payload is! String) return const [];
+      final b = jsonDecode(payload);
+      final clin = b is Map ? b['clinical'] : null;
+      comp = clin is Map ? clin['readiness_composite'] as Map? : null;
+    }
     final drivers = comp is Map ? comp['drivers'] : null;
     const keyOf = {'HRV': 'hrv', 'RHR': 'rhr', 'RR': 'resp', 'sleep': 'sleep'};
     final byLabel = <String, Map>{
@@ -153,7 +159,10 @@ class ReadinessData {
     // score compared it with. Missing pieces leave the older plain row.
     final scored = [
       for (final r in rows)
-        if (r['used'] == true && r['weighted_contribution'] is num) r,
+        if (r['used'] == true &&
+            r['weighted_contribution'] is num &&
+            (r['weighted_contribution'] as num).isFinite)
+          r,
     ];
     final pts = recoveryPoints([
       for (final r in scored) (r['weighted_contribution'] as num).toDouble(),
@@ -163,27 +172,77 @@ class ReadinessData {
     }
     for (final r in rows) {
       final key = r['label'] as String;
-      final series = await _series(_seriesKey[key]!);
-      final today = series.where((s) => s.date == day).toList();
-      if (today.isEmpty) continue;
-      final v = today.last.value;
-      final scale = recoveryScale(recoveryBaseline(series, day));
+      double v;
+      List<double> baseline;
+      if (original != null) {
+        final value = (original['values'] as Map)[key];
+        if (value is! num || !value.isFinite) continue;
+        v = value.toDouble();
+        final saved = (original['baselines'] as Map)[key];
+        baseline = [
+          for (final n in saved is List ? saved : const [])
+            if (n is num && n.isFinite) n.toDouble(),
+        ];
+      } else {
+        final series = await _series(_seriesKey[key]!);
+        final today = series.where((s) => s.date == day).toList();
+        if (today.isEmpty) continue;
+        v = today.last.value;
+        baseline = recoveryBaseline(series, day);
+      }
+      final scale = recoveryScale(baseline);
       if (scale == null) continue;
       final usual = usualRange(scale);
       r['value_text'] = _valueText(key, v);
-      r['usual_text'] =
-          'usual ${_rangeText(key, usual.lo, usual.hi)}';
+      r['usual_text'] = 'usual ${_rangeText(key, usual.lo, usual.hi)}';
       r['word'] = usualWord((v - scale.centre) / scale.spread);
     }
     return rows;
   }
 
-  static const _seriesKey = {
-    'hrv': 'ln_rmssd_v2',
-    'rhr': 'rhr',
-    'sleep': 'tst_min',
-    'resp': 'resp_rate',
-  };
+  static const _seriesKey = kRecoveryInputSeries;
+
+  static Future<
+    ({
+      List<Map<String, dynamic>> rows,
+      bool missing,
+      Map<String, dynamic>? original,
+    })
+  >
+  _breakdownFor(String? day, Metric readiness) async {
+    final pin = await LocalDb.frozenHeadline();
+    if (day == null ||
+        readiness.value == null ||
+        pin == null ||
+        pin.day != day ||
+        pin.value != readiness.value!.round()) {
+      return (
+        rows: await _compositeBreakdown(day),
+        missing: false,
+        original: null,
+      );
+    }
+    final original = await LocalDb.frozenHeadlineExplanation(day, pin.value);
+    if (original == null)
+      return (
+        rows: const <Map<String, dynamic>>[],
+        missing: true,
+        original: null,
+      );
+    final rows = await _compositeBreakdown(day, original: original);
+    final points = rows.where((r) => r['points'] is int).toList();
+    // A malformed/unsupported snapshot must not explain a different score.
+    if (points.isEmpty ||
+        50 + points.fold<int>(0, (sum, r) => sum + (r['points'] as int)) !=
+            pin.value) {
+      return (
+        rows: const <Map<String, dynamic>>[],
+        missing: true,
+        original: null,
+      );
+    }
+    return (rows: rows, missing: false, original: original);
+  }
 
   static Future<List<DatedValue>> _series(String key) async => [
     for (final r in await LocalDb.metricSeries(key, measuredOnly: true))
@@ -215,8 +274,32 @@ class ReadinessData {
       '${_num(key, lo)}–${_num(key, hi)}';
 
   /// The recent-HRV card for [day], on the score's own series and window.
-  static Future<RecentHrvView?> _recentHrv(String? day) async =>
-      day == null ? null : loadRecentHrv(day);
+  static Future<RecentHrvView?> _recentHrv(
+    String? day, {
+    Map<String, dynamic>? original,
+  }) async {
+    if (day == null) return null;
+    if (original == null) return loadRecentHrv(day);
+    final saved = original['hrv_series'];
+    if (saved is! List) return null;
+    final series = <DatedValue>[
+      for (final s in saved)
+        if (s is Map &&
+            s['date'] is String &&
+            s['value'] is num &&
+            (s['value'] as num).isFinite)
+          (date: s['date'] as String, value: (s['value'] as num).toDouble()),
+    ]..sort((a, b) => a.date.compareTo(b.date));
+    return recentHrv(series, day);
+  }
+
+  static String? _savedNote(Map<String, dynamic> original, String input) {
+    if ((original['values'] as Map)[input] is num) return null;
+    final note = original[input == 'hrv' ? 'hrv_note' : 'breathing_note'];
+    return input == 'hrv'
+        ? hrvWhy(note?.toString())
+        : breathingWhy(note?.toString() ?? '');
+  }
 
   static Future<ReadinessData> load(LocalRepository repo, {String? day}) async {
     final today = await repo.getToday();
@@ -227,16 +310,25 @@ class ReadinessData {
       final readiness = matches.isEmpty
           ? Metric.empty
           : Metric.parse(matches.last.v);
-      final bd = await _compositeBreakdown(day);
+      final explanation = await _breakdownFor(day, readiness);
+      final bd = explanation.rows;
       return ReadinessData(
         readiness: readiness,
-        hrv: readiness.value == null ? null : await _recentHrv(day),
+        hrv: readiness.value == null
+            ? null
+            : await _recentHrv(day, original: explanation.original),
         breakdown: bd,
         inputsUsed: bd.where((r) => r['used'] == true).length,
+        originalExplanationMissing: explanation.missing,
+        savedMorningExplanation: explanation.original != null,
         series: denseDays(pointsOf(chart), 90),
         absentDiag: await _absentDiag(day),
-        breathingNote: await _breathingNote(day),
-        hrvNote: await hrvMissingReason(day),
+        breathingNote: explanation.original == null
+            ? await _breathingNote(day)
+            : _savedNote(explanation.original!, 'resp'),
+        hrvNote: explanation.original == null
+            ? await hrvMissingReason(day)
+            : _savedNote(explanation.original!, 'hrv'),
       );
     }
 
@@ -244,19 +336,22 @@ class ReadinessData {
     final status = today['status'] as Map?;
     final night = (status?['overnight_day'] ?? status?['today_day'])
         ?.toString();
-    final bd = await _compositeBreakdown(night);
-
     final readiness = overnightMetric(
       today,
       daily is Map ? daily['readiness'] : null,
     );
+    final evidenceDay = readiness.value == null ? currentDay : night;
+    final explanation = await _breakdownFor(evidenceDay, readiness);
+    final bd = explanation.rows;
 
     return ReadinessData(
       readiness: readiness,
-      hrv: await _recentHrv(night),
+      hrv: await _recentHrv(night, original: explanation.original),
       // The composite's OWN contributions (B88-11), not the glass box.
       breakdown: bd,
       inputsUsed: bd.where((r) => r['used'] == true).length,
+      originalExplanationMissing: explanation.missing,
+      savedMorningExplanation: explanation.original != null,
       heldOverNight: heldOverNightOf(today),
       series: denseDays(pointsOf(chart), 90),
       // Only read when there is nothing to explain away — a scored day has no
@@ -272,12 +367,14 @@ class ReadinessData {
           : await _absentDiag(
               (today['status'] as Map?)?['today_day']?.toString(),
             ),
-      breathingNote: await _breathingNote(
-        (today['status'] as Map?)?['today_day']?.toString(),
-      ),
-      hrvNote: await hrvMissingReason(
-        (status?['overnight_day'] ?? status?['today_day'])?.toString(),
-      ),
+      breathingNote: explanation.original != null
+          ? _savedNote(explanation.original!, 'resp')
+          : await _breathingNote(
+              (today['status'] as Map?)?['today_day']?.toString(),
+            ),
+      hrvNote: explanation.original != null
+          ? _savedNote(explanation.original!, 'hrv')
+          : await hrvMissingReason(evidenceDay),
     );
   }
 }
@@ -541,7 +638,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
             // The hero already gave last night's HRV when it led the score.
             RecentHrvCard(
               d.hrv!,
-              sharedWith: 'the HRV page',
+              sharedWith: d.savedMorningExplanation
+                  ? 'the saved morning score'
+                  : 'the HRV page',
               nightShown: _topMover(d)?['label'] == 'hrv',
             ),
           ],
@@ -592,10 +691,16 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
             Section(
               l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
               StatusCard(
-                l?.readinessDetailNoBreakdownTitle ?? 'No breakdown yet',
-                l?.readinessDetailNoBreakdownBody ??
-                    'Ranking each input against your own history takes about two '
-                        'weeks of nights.',
+                d.originalExplanationMissing
+                    ? l?.readinessDetailOriginalUnavailableTitle ??
+                          'Morning breakdown unavailable'
+                    : l?.readinessDetailNoBreakdownTitle ?? 'No breakdown yet',
+                d.originalExplanationMissing
+                    ? l?.readinessDetailOriginalUnavailableBody ??
+                          'This morning’s score is kept for the day. Its original input breakdown isn’t available, so it cannot be reconstructed. New morning scores keep their explanation.'
+                    : l?.readinessDetailNoBreakdownBody ??
+                          'Ranking each input against your own history takes about two '
+                              'weeks of nights.',
                 icon: LucideIcons.listTree,
               ),
             ),
@@ -773,11 +878,14 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       d.breakdown.any((r) => r['points'] is int);
 
   /// The inputs that moved the score 3 points or more, biggest first.
-  static List<Map> _movers(ReadinessData d) => [
-    for (final r in d.breakdown)
-      if (r['points'] is int && (r['points'] as int).abs() >= 3) r,
-  ]..sort((a, b) =>
-      (b['points'] as int).abs().compareTo((a['points'] as int).abs()));
+  static List<Map> _movers(ReadinessData d) =>
+      [
+        for (final r in d.breakdown)
+          if (r['points'] is int && (r['points'] as int).abs() >= 3) r,
+      ]..sort(
+        (a, b) =>
+            (b['points'] as int).abs().compareTo((a['points'] as int).abs()),
+      );
 
   static Map? _topMover(ReadinessData d) => _movers(d).firstOrNull;
 
@@ -804,7 +912,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     final head = movers.length == 1
         ? 'Mostly ${name(top)}'
         : 'Mostly ${name(top)}, then ${lower(name(movers[1]))}';
-    final rest = movers.length == 1 ? ' Everything else was close to usual.' : '';
+    final rest = movers.length == 1
+        ? ' Everything else was close to usual.'
+        : '';
     if (word == null) return '$head.$rest';
     final value = top['value_text'] as String?;
     final range = (top['usual_text'] as String?)?.replaceFirst('usual ', '');
@@ -877,7 +987,13 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
       'sleep' => 'sleep',
       _ => null,
     };
-    final signed = pts == null ? '' : (pts > 0 ? '+$pts' : pts < 0 ? '−${-pts}' : '0');
+    final signed = pts == null
+        ? ''
+        : (pts > 0
+              ? '+$pts'
+              : pts < 0
+              ? '−${-pts}'
+              : '0');
     return Pressable(
       onTap: metric == null
           ? null

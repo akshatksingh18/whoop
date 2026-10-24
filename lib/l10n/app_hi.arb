@@ -265,6 +265,8 @@
   "readinessDetailWhatWasMissing": "क्या गायब था",
   "readinessDetailWhatWentIntoIt": "इसमें क्या शामिल हुआ",
   "readinessDetailNoBreakdownTitle": "अभी कोई विवरण उपलब्ध नहीं है",
+  "readinessDetailOriginalUnavailableTitle": "सुबह का विवरण उपलब्ध नहीं है",
+  "readinessDetailOriginalUnavailableBody": "आज सुबह का स्कोर पूरे दिन बना रहता है। उसके मूल इनपुट उपलब्ध नहीं हैं, इसलिए उन्हें दोबारा नहीं बनाया जा सकता। नए सुबह के स्कोर अपना विवरण सहेजकर रखेंगे।",
   "readinessDetailNoBreakdownBody": "हर इनपुट की तुलना आपके अपने इतिहास से करने में लगभग दो सप्ताह की रातें लगती हैं।",
   "readinessDetailHistoryTitle": "इतिहास",
   "readinessDetailLastNDays": "{n, plural, one{पिछला {n} दिन} other{पिछले {n} दिन}}",

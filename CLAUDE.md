@@ -33,9 +33,12 @@ results after disposal (COV-17). All 3,685 app cases, package suites, 152 visual
 13 Python controls, native compilation and downloaded-artifact validation pass. `coverage-audit.md`
 owns exact gaps and test-substitute limits. The treadmill incline proposal remains unimplemented.
 
-The remaining 10,832-line continuation is active under `todo.md` 3r. Two additional unreleased
-repairs (COV-18/19) have targeted stop/resume and transport evidence in `coverage-audit.md`;
-full cloud verification and final coverage are pending. The Build 101 testing IPA is unchanged.
+The remaining-line continuation is active under `todo.md` 3r. COV-18/19 and 84 additional
+synthetic cases pass full run `40114050675` at `7830c577`: 3,769 app tests and 79.90%
+handwritten execution, with 10,068 lines still unexecuted. The approved COV-20 correction keeps
+Recovery's original explanation/HRV comparison with its pinned morning score; that later source
+needs a fresh full cloud run. `coverage-audit.md` owns exact evidence. Build 102 is in preparation;
+the validated Build 101 testing IPA is unchanged. No score formula or scientific coefficient changes.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.

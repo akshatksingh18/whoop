@@ -265,6 +265,8 @@
   "readinessDetailWhatWasMissing": "Qué faltaba",
   "readinessDetailWhatWentIntoIt": "Qué se tuvo en cuenta",
   "readinessDetailNoBreakdownTitle": "Aún no hay desglose",
+  "readinessDetailOriginalUnavailableTitle": "Desglose matutino no disponible",
+  "readinessDetailOriginalUnavailableBody": "La puntuación de esta mañana se mantiene durante el día. Sus datos originales no están disponibles y no se pueden reconstruir. Las nuevas puntuaciones matutinas guardan su explicación.",
   "readinessDetailNoBreakdownBody": "Clasificar cada entrada frente a tu propio historial requiere unas dos semanas de noches.",
   "readinessDetailHistoryTitle": "Historial",
   "readinessDetailLastNDays": "{n, plural, one{Último {n} día} other{Últimos {n} días}}",

@@ -127,6 +127,8 @@ jobs:
         # Include the deeper drill-down's read/retry and large-text repair.
         # Captures contain synthetic values only.
         run: flutter test --concurrency=1 --dart-define=UI_CAPTURE=true test/coverage_zones_test.dart test/coverage_settings_failure_test.dart --reporter=expanded
+      - name: Render saved and legacy morning Recovery explanations
+        run: flutter test --concurrency=1 --dart-define=UI_CAPTURE=true test/coverage_recovery_explanation_test.dart --reporter=expanded
       - name: Build local image index
         if: always()
         run: python3 tool/ui_smoke_gallery.py build/ui_capture

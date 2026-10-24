@@ -265,6 +265,8 @@
   "readinessDetailWhatWasMissing": "Was gefehlt hat",
   "readinessDetailWhatWentIntoIt": "Was eingeflossen ist",
   "readinessDetailNoBreakdownTitle": "Noch keine Aufschlüsselung",
+  "readinessDetailOriginalUnavailableTitle": "Morgendliche Aufschlüsselung nicht verfügbar",
+  "readinessDetailOriginalUnavailableBody": "Dein morgendlicher Wert bleibt für den Tag erhalten. Die ursprünglichen Eingaben sind nicht verfügbar und lassen sich nicht rekonstruieren. Neue morgendliche Werte speichern ihre Erklärung.",
   "readinessDetailNoBreakdownBody": "Das Einordnen jeder Eingabe anhand deiner eigenen Historie dauert etwa zwei Wochen an Nächten.",
   "readinessDetailHistoryTitle": "Verlauf",
   "readinessDetailLastNDays": "{n, plural, one{Letzter {n} Tag} other{Letzte {n} Tage}}",

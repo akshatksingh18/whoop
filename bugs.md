@@ -17,8 +17,12 @@ physical/background/permission/gesture delivery, installation and signing gates 
 The remaining-execution continuation has two unreleased repairs in `coverage-audit.md`:
 COV-18 carries the original stop generation through selected/imported calculation and both
 compute stages; COV-19 keeps live HR unarmed/retryable after a refused transport write. Their
-synthetic stop/resume and transport controls pass locally. Full cloud checks and a replacement
-binary are not yet complete; the validated Build 101 cache remains unchanged.
+synthetic stop/resume and transport controls pass in full run `40114050675` at `7830c577`
+(3,769 app cases, 79.90% handwritten execution, 10,068 lines unexecuted). The validated Build 101
+cache remains unchanged. COV-20's approved correction archives Recovery's matching original
+explanation and dated HRV context atomically with the morning score. Older or invalid snapshots
+retain score/history with explicit unavailable-original wording. Its synthetic regression checks
+are separate from the earlier full run; fresh cloud/native/artifact gates remain before release.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

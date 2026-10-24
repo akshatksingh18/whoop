@@ -54,6 +54,7 @@ import 'input_reuse.dart';
 import 'step_cadence.dart';
 import 'manual_session.dart' show kCaloriesBasisActive;
 import 'profile.dart';
+import 'readiness_explain.dart' show recoveryExplanationSnapshot;
 import 'substrate.dart';
 
 /// Analytics/bundle version — bump to force a recompute of non-finalized days.
@@ -4480,7 +4481,14 @@ class DerivationEngine {
       'derived ${day.date} v$kAlgoVersion '
       '(sleep=${day.sleepOffsetSec > day.sleepOnsetSec}, final=$finalized)',
     );
-    await _maybeFreezeHeadlineReadiness(day, dataNowSec, sc('readiness'));
+    await _maybeFreezeHeadlineReadiness(
+      day,
+      dataNowSec,
+      sc('readiness'),
+      bundle: bundle,
+      historyInputs: withHistory,
+      history: history,
+    );
   }
 
   /// Pin today's morning readiness headline once its overnight is genuinely
@@ -4490,8 +4498,11 @@ class DerivationEngine {
   Future<void> _maybeFreezeHeadlineReadiness(
     PreparedDerivationDay day,
     int dataNowSec,
-    double? readiness,
-  ) async {
+    double? readiness, {
+    required Map<String, dynamic> bundle,
+    required Map<String, dynamic> historyInputs,
+    required _BaselineHistoryCache history,
+  }) async {
     // Only today's headline is pinned. Historical/backfill + imported days never
     // reach the Today hero, and imports are immutable snapshots anyway.
     if (day.date != todayLabel()) return;
@@ -4513,7 +4524,16 @@ class DerivationEngine {
         current.value == next.value) {
       return;
     }
-    await LocalDb.setFrozenHeadline(next.day, next.value);
+    await LocalDb.setFrozenHeadline(
+      next.day,
+      next.value,
+      explanation: recoveryExplanationSnapshot(
+        bundle,
+        historyInputs,
+        day: day.date,
+        hrvHistory: history._series['ln_rmssd_v2'] ?? const [],
+      ),
+    );
     _log('froze headline readiness ${next.value} for ${next.day}');
   }
 

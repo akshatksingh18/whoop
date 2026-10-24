@@ -265,6 +265,8 @@
   "readinessDetailWhatWasMissing": "缺少了什么",
   "readinessDetailWhatWentIntoIt": "计算依据",
   "readinessDetailNoBreakdownTitle": "暂无详细拆解",
+  "readinessDetailOriginalUnavailableTitle": "早晨评分明细不可用",
+  "readinessDetailOriginalUnavailableBody": "今天早晨的评分会保留一整天。其原始输入明细不可用，因此无法重建。新的早晨评分会保留相应的解释。",
   "readinessDetailNoBreakdownBody": "将每项输入与你自己的历史数据进行排名比较，大约需要两周的夜间数据。",
   "readinessDetailHistoryTitle": "历史记录",
   "readinessDetailLastNDays": "{n, plural, other{最近 {n} 天}}",

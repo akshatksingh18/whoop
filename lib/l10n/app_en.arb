@@ -1273,6 +1273,8 @@
     "description": "Section header for the readiness input breakdown (scored or empty-state)."
   },
   "readinessDetailNoBreakdownTitle": "No breakdown yet",
+  "readinessDetailOriginalUnavailableTitle": "Morning breakdown unavailable",
+  "readinessDetailOriginalUnavailableBody": "This morning’s score is kept for the day. Its original input breakdown isn’t available, so it cannot be reconstructed. New morning scores keep their explanation.",
   "@readinessDetailNoBreakdownTitle": {
     "description": "Status card title when readiness scored but no breakdown exists yet."
   },

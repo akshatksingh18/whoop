@@ -25,10 +25,16 @@ blocked. Constants/barrel exports remain the same three unimported files.
 
 ## Remaining execution work
 
-The requested continuation is active over all 10,832 Build 101 missed lines, using
-`build/coverage-audit/build101-final.json`. Track dispositions and source contexts under ignored
-`build/coverage-remainder/`. No coverage improvement or new binary is claimed before new
-checks complete. Preserve the full denominator, previous contracts and physical-device limits.
+The requested continuation began with all 10,832 Build 101 missed lines. Full run
+`40114050675` at `7830c577` passes **3,769 app tests/429 intentional skips**, zero analysis
+errors/warnings and 251 infos, both independent package suites, 13 Python controls and all
+152 visual checks. Handwritten execution is **40,023/50,091 (79.90%)**: 797 more executed
+lines and 33 more instrumented, leaving **10,068 unexecuted** (764 fewer). Raw root LCOV is
+40,074/57,692 (69.46%) across the same 203 imported files; the handwritten view excludes the
+same seven generated files. The same three constant/barrel files remain unimported. No
+exclusions, skip rules or denominator filters changed. The exact next inventory is ignored
+`build/coverage-remainder/cloud7830/gaps.json`; source contexts/dispositions stay under
+`build/coverage-remainder/`. Execution counts are not manual review or branch/hardware proof.
 
 The six additional packs pass **84 synthetic cases**: AppState commands/device callbacks (31),
 stored metric readers (13), derivation stop/resume/status (14), live transport (7), workout
@@ -36,8 +42,10 @@ history actions (8) and Food label boundaries (11). They use real synthetic SQLi
 radio, permission and platform boundaries are substitutes. History filters, destructive-action
 confirmation/refusal, stored-summary navigation and the Food serving/provenance/retry outcomes
 are asserted. Material calendar fonts are substituted explicitly; the history fixture uses
-in-process SQLite to avoid simulated-clock/FFI-isolate teardown races. Full cloud regression
-and final coverage for prepared Build 102 (`0.9.69+102`) remain pending. Build 101 is still cached.
+in-process SQLite to avoid simulated-clock/FFI-isolate teardown races. This batch is verified in
+the full cloud run above. Build 102 (`0.9.69+102`) remains in preparation: the subsequent COV-20
+correction needs its own clean full run, native build and artifact verification. Build 101 is
+still the validated cached candidate.
 
 **COV-18 — calculation entry points can revive stopped work.** Selected-day recalculation and
 raw import captured a new cancellation generation after an asynchronous read, so a stop that
@@ -59,6 +67,27 @@ only after that write succeeds; refusal leaves the stream unarmed for retry and 
 without introducing a new thrown error into fire-and-forget callers. Seven transport-substitute
 controls cover refusal, exception, successful retry, disabling/clearing and a fresh connection.
 This proves Dart command/state behavior, not physical radio delivery or a received live sample.
+
+**COV-20 — Recovery can explain a different score from the pinned headline.**
+A real-store synthetic counterexample pins a morning score, then serves a later day's composite
+with different driver contributions. `ReadinessData.load` reads the pinned number through
+`getToday`, but `_compositeBreakdown` reads the overwritten day bundle and current baseline
+series. Its points therefore add to the later calculation, despite the caption saying they add
+to the shown score. The reproducer is ignored `build/coverage-remainder/recovery_probe_test.dart`.
+Akshat approved the full-page correction preview. The first completed morning pin now archives
+its existing composite, input values, comparison histories, missing-input notes and dated HRV
+series in the same cursor write as the score. Later calculations still update normal metrics;
+Recovery's points, usual ranges and recent-HRV card read the saved morning evidence, explicitly
+captioned as the saved morning score. This archival copy changes no score/formula, algorithm
+output or schema, so algorithm 99/schema 50 remain. The cursor already participates in whole-DB
+export, restore, salvage and wipe. Legacy or malformed pins retain their score/history with
+"Morning breakdown unavailable"; they never reconstruct the original from later inputs.
+The approved kraft/cream composition is retained. All **18 new controls** and 15 existing
+freeze/explanation controls pass locally. Synthetic controls cover later recalculation,
+dated-history gaps, held-over unscored days, restart, next-day replacement, malformed snapshots,
+database export/wipe/restore and the saved/legacy states at 1x, 2x and 3.1x text. Full cloud
+verification of this later correction remains pending. The six saved/legacy enlarged-text
+states are included in the cloud visual job, with full-scroll synthetic captures and substituted fonts.
 
 ## Build 100 baseline
 

@@ -20,6 +20,11 @@ period average. Recovery explains its measured inputs without changing its score
 palette and metric-family colours stay locked. Titles clamp to Apple's Large Title scaling;
 supporting labels and actions respect Dynamic Type. `todo.md` retains phone acceptance gates.
 
+The approved COV-20 correction preserves this Recovery layout: a pinned morning score uses
+its original driver points, comparison ranges and dated HRV context, captioned as the saved
+morning score. Older pins without original evidence keep their score/history and show
+"Morning breakdown unavailable". Do not reconstruct their explanation from a later sync.
+
 The approved Build 95 repairs keep this composition: Body comparisons stack labels and intact
 values when text or width requires it, Notifications gives Mark all read its own full-width row,
 and enlarged notifications place time/unread context above the message. Save failures retain the

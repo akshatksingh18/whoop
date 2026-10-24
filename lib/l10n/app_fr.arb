@@ -265,6 +265,8 @@
   "readinessDetailWhatWasMissing": "Ce qui manquait",
   "readinessDetailWhatWentIntoIt": "Ce qui a été pris en compte",
   "readinessDetailNoBreakdownTitle": "Pas encore de détail",
+  "readinessDetailOriginalUnavailableTitle": "Détail du matin indisponible",
+  "readinessDetailOriginalUnavailableBody": "Le score de ce matin est conservé pour la journée. Ses données d’origine ne sont pas disponibles et ne peuvent pas être reconstituées. Les nouveaux scores du matin conservent leur explication.",
   "readinessDetailNoBreakdownBody": "Classer chaque entrée par rapport à votre propre historique nécessite environ deux semaines de nuits.",
   "readinessDetailHistoryTitle": "Historique",
   "readinessDetailLastNDays": "{n, plural, one{Dernier {n} jour} other{Derniers {n} jours}}",

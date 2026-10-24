@@ -12,8 +12,11 @@ Algorithm 99/schema 50 and scientific coefficients/headline formulas are unchang
 
 The remaining execution work prepares Build 102 with COV-18/19: stopped calculation cannot
 revive itself between stages or stamp a new rollup status, and a refused live-HR command leaves
-the stream unarmed for retry. Targeted synthetic controls pass; full cloud coverage/native
-checks remain pending. No valid-input metric definition or scientific coefficient changes.
+the stream unarmed for retry. Full run `40114050675` passes at `7830c577`; the later COV-20
+correction saves Recovery's original composite, values, comparisons, notes and dated HRV with
+the pinned morning score. Recovery reads that paired evidence while normal metrics keep updating;
+legacy pins say the original breakdown is unavailable. COV-20's fresh full cloud/native gates
+remain pending. No valid-input metric definition or scientific coefficient changes.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh
@@ -260,7 +263,7 @@ local destinations and acceptance gates are documented in `build-87-ui-plan.md`.
 
 | Metric | Today | Trends row | Detail screen |
 |---|---|---|---|
-| Recovery | numeric score/verdict, HRV and resting HR | yes | Recovery (Build 90): a lead sentence naming the biggest mover; per input, last night against the score's own usual range (28 measured nights within 60 days), a plain word and the points it moved the score from a typical night (they add up to the score); a missing input says "Unavailable, not counted"; Recent HRV card (14 nights, usual band, 7-night average, shared with the HRV page); history |
+| Recovery | numeric score/verdict, HRV and resting HR | yes | A lead sentence names the biggest mover; each input has its value/usual range (28 measured nights within 60 days), words and points from 50. COV-20 preserves this original evidence, notes and dated recent-HRV chart with the morning pin; later syncs do not change its explanation. Its card names the saved morning score; normal HRV pages still read latest metrics. Legacy pins keep score/history with explicit unavailable-original wording. Missing inputs stay uncounted; history remains |
 | Sleep | card with a bar against sleep need | yes | Sleep: chart, stages, against your usual, overnight signals, naps |
 | Strain | card with a bar and today's target | yes | Day strain: any day (arrows), draggable curve, zones, three-line method |
 | Heart rate, all day | live bpm, then the day's line and range | — | Scrubbable minute-by-minute chart (stops at the current time) |

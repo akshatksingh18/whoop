@@ -22,6 +22,71 @@ const int kRecoveryBaselineMinNights = 14;
 
 typedef DatedValue = ({String date, double value});
 
+/// The series behind Recovery's four displayed inputs, shared by the saved
+/// morning explanation and its reader. HRV is stored in natural-log units.
+const kRecoveryInputSeries = <String, String>{
+  'hrv': 'ln_rmssd_v2',
+  'rhr': 'rhr',
+  'sleep': 'tst_min',
+  'resp': 'resp_rate',
+};
+
+/// Archive the inputs already used for this calculation; do not calculate a
+/// new score or reconstruct an older morning from a later day's baseline.
+Map<String, dynamic>? recoveryExplanationSnapshot(
+  Map<String, dynamic> bundle,
+  Map<String, dynamic> historyInputs, {
+  required String day,
+  List<DatedValue> hrvHistory = const [],
+}) {
+  final clinical = bundle['clinical'];
+  final composite = clinical is Map ? clinical['readiness_composite'] : null;
+  final scalars = bundle['scalars'];
+  if (composite is! Map || scalars is! Map) return null;
+  final d = DateTime.parse(day);
+  final from = _label(
+    DateTime(d.year, d.month, d.day - kRecoveryBaselineMaxAgeDays),
+  );
+  final hrvSource = clinical is Map ? clinical['rmssd_sleep_session'] : null;
+  final respiration = bundle['respiration'];
+  final rsa = respiration is Map ? respiration['rsa'] : null;
+  const histories = {
+    'hrv': 'ln_rmssd_history',
+    'rhr': 'rhr_history',
+    'sleep': 'tst_history',
+    'resp': 'resp_history',
+  };
+  return {
+    'format': 1,
+    'composite': Map<String, dynamic>.from(composite),
+    'values': {
+      for (final e in kRecoveryInputSeries.entries)
+        if (scalars[e.value] case final num value when value.isFinite)
+          e.key: value,
+    },
+    'baselines': {
+      for (final e in histories.entries)
+        e.key: [
+          for (final v in (historyInputs[e.value] as List?) ?? const [])
+            if (v is num && v.isFinite) v.toDouble(),
+        ],
+    },
+    // Preserve real dates, including gaps. A values-only baseline cannot
+    // reconstruct the recent-night chart after a later sync changes history.
+    'hrv_series': [
+      for (final s in hrvHistory)
+        if (s.date.compareTo(day) < 0 &&
+            s.date.compareTo(from) >= 0 &&
+            s.value.isFinite)
+          {'date': s.date, 'value': s.value},
+      if (scalars['ln_rmssd_v2'] case final num value when value.isFinite)
+        {'date': day, 'value': value},
+    ],
+    'hrv_note': hrvSource is Map ? hrvSource['note'] : null,
+    'breathing_note': rsa is Map ? rsa['note'] : null,
+  };
+}
+
 String _label(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-'
     '${d.month.toString().padLeft(2, '0')}-'

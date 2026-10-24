@@ -2591,10 +2591,34 @@ class LocalDb {
 
   /// Pin [value] as the frozen readiness headline for [day] (overwrites any
   /// prior pin — first-complete-settle-per-day is enforced by the caller).
-  static Future<void> setFrozenHeadline(String day, int value) => setCursor(
+  static Future<void> setFrozenHeadline(
+    String day,
+    int value, {
+    Map<String, dynamic>? explanation,
+  }) => setCursor(
     kFrozenHeadlineCursor,
-    jsonEncode({'day': day, 'value': value}),
+    jsonEncode({'day': day, 'value': value, 'explanation': ?explanation}),
   );
+
+  /// Optional original evidence, committed in the same cursor as the score.
+  /// Older pins have none; they must not borrow a later calculation's inputs.
+  static Future<Map<String, dynamic>?> frozenHeadlineExplanation(
+    String day,
+    int value,
+  ) async {
+    try {
+      final raw = await getCursor(kFrozenHeadlineCursor);
+      final pin = raw == null ? null : jsonDecode(raw);
+      if (pin is! Map || pin['day'] != day ||
+          (pin['value'] as num?)?.round() != value) return null;
+      final e = pin['explanation'];
+      if (e is! Map || e['format'] != 1 || e['composite'] is! Map ||
+          e['values'] is! Map || e['baselines'] is! Map) return null;
+      return e.cast<String, dynamic>();
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Persist a sync batch atomically: the raw records, their samples, AND the
   /// continuation cursor in ONE transaction. This is the durable half of the

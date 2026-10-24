@@ -604,10 +604,15 @@ other worktrees remain untouched.
   `setup.md` owns fingerprints. Installation/signing/native-device acceptance remains open.
 - [ ] 3r. Continue the full remaining Build 101 execution inventory (10,832 lines), beginning
   with AppState/BLE/derivation/Train and continuing through every missed-file group.
-  COV-18 (stopped work revived) and COV-19
-  (refused live command marked enabled) have source repairs and 84 passing targeted controls
-  across six new packs, including history actions and Food editors. Build 102 (`0.9.69+102`)
-  is prepared; full cloud regression/coverage and a replacement binary remain pending.
+  COV-18 (stopped work revived) and COV-19 (refused live command marked enabled) pass full
+  run `40114050675` at `7830c577`, including all 84 added controls: 3,769 app tests/429 skips,
+  packages/visuals/Python controls and zero analysis errors/warnings. Handwritten execution is
+  40,023/50,091 (79.90%), with 10,068 still unexecuted. Build 102 (`0.9.69+102`) is prepared.
+  Akshat approved COV-20's full-page preview: archive the matching original Recovery explanation,
+  notes and dated HRV context with the morning score; older pins retain score/history with
+  explicit missing-original wording. All 18 new and 15 existing targeted Recovery controls pass;
+  the six saved/legacy text-scale states also render from production widgets. This later repair
+  requires a fresh full cloud run, then native/artifact verification before a replacement binary.
   Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
   remainder with source evidence instead of padding the percentage. Keep native delivery and

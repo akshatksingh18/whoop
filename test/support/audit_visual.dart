@@ -29,9 +29,12 @@ Future<void> captureAuditScroll(
   WidgetTester t,
   String name, {
   String prefix = 'build99',
+  Finder? scrollable,
 }) async {
   if (!const bool.fromEnvironment('UI_CAPTURE')) return;
-  final pos = t.state<ScrollableState>(find.byType(Scrollable).last).position;
+  final pos = t
+      .state<ScrollableState>(scrollable ?? find.byType(Scrollable).last)
+      .position;
   pos.jumpTo(0);
   await t.pumpAndSettle();
   for (var page = 0; page < 60; page++) {
@@ -39,6 +42,10 @@ Future<void> captureAuditScroll(
     final boundary = t.renderObject<RenderRepaintBoundary>(
       find.byKey(auditCaptureKey),
     );
+    // A previous ensureVisible can leave a retained layer after jumpTo(0).
+    // Paint the requested viewport before reading its pixels.
+    boundary.markNeedsPaint();
+    await t.pump();
     await t.runAsync(() async {
       final image = await boundary.toImage(pixelRatio: 1.5);
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);

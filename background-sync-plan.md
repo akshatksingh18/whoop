@@ -44,9 +44,9 @@ and background-delivery matrix remain necessary. No ACK or band command ordering
 The unreleased remaining-execution continuation fixes COV-18/19 in `coverage-audit.md`:
 selected recalculation/raw import retain their original stop generation through both compute
 stages, and refused realtime-HR writes leave the stream unarmed for retry. Targeted synthetic
-stop/resume and transport controls pass in full run `40114050675`. COV-20 additionally archives
+stop/resume and transport controls pass in full run `40120011370`. COV-20 additionally archives
 the morning Recovery explanation in the same cursor write as its pin, without changing the
-score or transfer/ACK behavior. Its fresh full cloud check and physical delivery remain open.
+score or transfer/ACK behavior. Its full cloud check passes; physical delivery remains open.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
 The completed coverage follow-up (`coverage-audit.md`, cached in Build 100) also fixes

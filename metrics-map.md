@@ -12,11 +12,11 @@ Algorithm 99/schema 50 and scientific coefficients/headline formulas are unchang
 
 The remaining execution work prepares Build 102 with COV-18/19: stopped calculation cannot
 revive itself between stages or stamp a new rollup status, and a refused live-HR command leaves
-the stream unarmed for retry. Full run `40114050675` passes at `7830c577`; the later COV-20
+the stream unarmed for retry. Full run `40120011370` verifies COV-18–24 at `27724aa8`. COV-20's
 correction saves Recovery's original composite, values, comparisons, notes and dated HRV with
 the pinned morning score. Recovery reads that paired evidence while normal metrics keep updating;
-legacy pins say the original breakdown is unavailable. COV-20's fresh full cloud/native gates
-remain pending. No valid-input metric definition or scientific coefficient changes.
+legacy pins say the original breakdown is unavailable. Native/artifact gates remain before
+replacement. No valid-input metric definition or scientific coefficient changes.
 COV-21/22 preserve historical Journal notes/tags and unsaved drafts when adding a custom field.
 Selected-day reads do not inherit the recent-list limit; rough-night tags merge atomically with
 the current note. The recent list and numerical/correlation definitions retain their meaning.
@@ -24,6 +24,8 @@ COV-23 fixes typed live-match score decrements above 100; manual scores, closed/
 drafts and summary transfer keep their existing meaning. No physiological metric changes.
 COV-24 keeps all backup/restore passphrase content reachable at enlarged text with built-in
 dialog scrolling. Input rules, exact passphrase bytes, cancellation and encrypted format stay unchanged.
+COV-25/26 preserve full messages and both choices in shared confirmations and Reset at enlarged
+text. These later presentation corrections need their combined full cloud/native checks.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

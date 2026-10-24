@@ -29,6 +29,11 @@ The approved COV-24 backup/restore correction keeps the existing passphrase dial
 using built-in scrolling for its title/content at large text. Its actions stay available;
 fields, validation, cancellation and the backup format retain their existing meaning.
 
+The approved COV-25/26 corrections keep confirmation messages and actions reachable at enlarged
+text. The shared confirmation sheet grows within the viewport and scrolls when necessary;
+Reset's existing dialog uses built-in scrolling so no deletion-disclosure lines are clipped.
+Colours, wording, action labels and Confirm/Keep/Cancel behavior remain unchanged.
+
 The approved Build 95 repairs keep this composition: Body comparisons stack labels and intact
 values when text or width requires it, Notifications gives Mark all read its own full-width row,
 and enlarged notifications place time/unread context above the message. Save failures retain the

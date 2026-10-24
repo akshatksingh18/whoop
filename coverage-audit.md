@@ -26,15 +26,16 @@ blocked. Constants/barrel exports remain the same three unimported files.
 ## Remaining execution work
 
 The requested continuation began with all 10,832 Build 101 missed lines. Full run
-`40114050675` at `7830c577` passes **3,769 app tests/429 intentional skips**, zero analysis
-errors/warnings and 251 infos, both independent package suites, 13 Python controls and all
-152 visual checks. Handwritten execution is **40,023/50,091 (79.90%)**: 797 more executed
-lines and 33 more instrumented, leaving **10,068 unexecuted** (764 fewer). Raw root LCOV is
-40,074/57,692 (69.46%) across the same 203 imported files; the handwritten view excludes the
-same seven generated files. The same three constant/barrel files remain unimported. No
-exclusions, skip rules or denominator filters changed. The exact next inventory is ignored
-`build/coverage-remainder/cloud7830/gaps.json`; source contexts/dispositions stay under
-`build/coverage-remainder/`. Execution counts are not manual review or branch/hardware proof.
+`40120011370` at `27724aa8` verifies COV-18–24 and all **148 added cases**:
+**3,833 app tests/429 intentional skips**, zero analysis errors/warnings and 255 infos,
+both independent package suites, 13 Python controls and 180 visual checks. Handwritten
+execution is **40,717/50,205 (81.10%)**: 1,491 more executed lines and 147 more instrumented
+than Build 101, leaving **9,488 unexecuted** (1,344 fewer). Raw root LCOV is 40,768/57,818
+(70.51%) across the same 203 imported files; the handwritten view excludes the same seven
+generated files. The same three constant/barrel files remain unimported. No exclusions,
+skip rules or denominator filters changed. The exact next inventory is ignored
+`build/coverage-remainder/cloud27724/gaps.json`; contexts/dispositions stay under
+`build/coverage-remainder/`. These are execution counts, not manual review or branch/hardware proof.
 
 The six additional packs pass **84 synthetic cases**: AppState commands/device callbacks (31),
 stored metric readers (13), derivation stop/resume/status (14), live transport (7), workout
@@ -43,9 +44,10 @@ radio, permission and platform boundaries are substitutes. History filters, dest
 confirmation/refusal, stored-summary navigation and the Food serving/provenance/retry outcomes
 are asserted. Material calendar fonts are substituted explicitly; the history fixture uses
 in-process SQLite to avoid simulated-clock/FFI-isolate teardown races. This batch is verified in
-the full cloud run above. Build 102 (`0.9.69+102`) remains in preparation: the subsequent COV-20
-correction needs its own clean full run, native build and artifact verification. Build 101 is
-still the validated cached candidate.
+the full cloud run above, along with the later Recovery/Journal/match/goal/backup controls.
+Build 102 (`0.9.69+102`) remains in preparation: the newest COV-25/26 confirmation fixes need
+their combined clean full run, then native build/artifact verification. Build 101 is still
+the validated cached candidate.
 
 **COV-18 — calculation entry points can revive stopped work.** Selected-day recalculation and
 raw import captured a new cancellation generation after an asynchronous read, so a stop that
@@ -86,7 +88,7 @@ The approved kraft/cream composition is retained. All **18 new controls** and 15
 freeze/explanation controls pass locally. Synthetic controls cover later recalculation,
 dated-history gaps, held-over unscored days, restart, next-day replacement, malformed snapshots,
 database export/wipe/restore and the saved/legacy states at 1x, 2x and 3.1x text. Full cloud
-verification of this later correction remains pending. The six saved/legacy enlarged-text
+verification is included in checkpoint `40120011370`. The six saved/legacy enlarged-text
 states are included in the cloud visual job, with full-scroll synthetic captures and substituted fonts.
 
 **COV-21 — older Journal entries disappear from an editor or lose their note/tags.**
@@ -107,7 +109,8 @@ baselines remain intact. A full modal/create/edit/Save round trip verifies the o
 rating, tags and new field value reach storage together. Thirteen new synthetic controls pass
 for COV-21/22, including older-day conflict refresh, concurrent tag additions, refused definition
 write/retry, time-picker cancellation and custom-field validation/kind changes. Seventeen existing
-save/conflict and neighboring controls also pass locally. New full cloud verification is pending.
+save/conflict and neighboring controls also pass. Full cloud verification is included in
+checkpoint `40120011370`.
 
 **COV-23 — one match-score decrement can remove many points above 100.**
 The live match screen allows point increments above 100, but its decrement clamped the result
@@ -119,8 +122,8 @@ restart, Finish cancellation and transfer of closed/partial sets into the summar
 
 Fourteen additional goal-picker controls pass for all phases, all fat-loss paces and training
 ages, measured/absent holding weights, failed-save retry, Back/Keep editing/Discard and full
-navigation at 2x/3.1x text. They found no new goal-calculation defect. These 23 cases are the next
-targeted pack, pending a fresh combined cloud run; they are not a new execution percentage.
+navigation at 2x/3.1x text. They found no new goal-calculation defect. These 23 cases are included
+in full checkpoint `40120011370`; they have no separate execution-percentage claim.
 
 **COV-24 — backup passphrase dialogs overflow at enlarged text.**
 With readable substitute fonts, both creating and opening a backup overflow at 3.1x text.
@@ -135,11 +138,29 @@ or real backup data runs in these UI checks. The four full-scroll pressure state
 visual job. The common render helper now supplies readable fonts for Material's Roboto family,
 as well as the existing app families, preventing false block-font reports.
 
-The continuation now adds **148 targeted cases** over the Build 101 baseline, with seven repair
-families COV-18–24. The combined latest source still needs its clean full cloud result and
-coverage artifact; 79.90%/10,068 is the last verified whole-suite measurement at `7830c577`,
-not the newer candidate's coverage. The remaining inventory is still active and is not all
-hardware blocked. Build 101 stays the validated cached candidate until replacement release gates pass.
+All 148 cases and seven repair families COV-18–24 are verified by the full checkpoint above.
+The remaining inventory is still active and is not all hardware blocked. Build 101 stays the
+validated cached candidate until replacement release gates pass.
+
+**COV-25 — shared confirmations clip messages/actions at enlarged text.**
+The shared sheet's height ceiling and non-scrollable column overflow for Finish/Delete/Discard
+at 3.1x, and for a longer import-link message at 2x. Ten failing matrix controls reproduce it.
+Akshat approved the full modal preview; the same sheet can now grow to its available height
+and scroll. Messages, colours, labels and true/false choices remain. All 24 matrix controls
+pass across four actual caller messages, three text sizes and both choices, checking that the
+message's final rendered line is reachable as well as the selected action. Full-scroll captures
+are included; layout exceptions alone are not the visibility check.
+
+**COV-26 — Reset silently clips the deletion disclosure.**
+The initial reset AlertDialog constrains its Text without a scrolling viewport: at 2x/3.1x its
+last lines are outside the text box, despite no RenderFlex exception and the full string being
+present in the widget tree. Rendered selection-box geometry reproduces the missing disclosure.
+Akshat approved every scroll view of the full reset preview. The existing dialog now uses
+built-in scrolling; wording, Keep my data, Delete everything and actual reset behavior remain.
+Three real Settings-entry controls verify full-text geometry/reachability and cancellation;
+the destructive callback is substituted and must stay uncalled. The continuation now totals
+175 targeted cases. COV-25/26 need their own fresh combined full cloud result and native/artifact
+gates. 81.10%/9,488 is the verified `27724aa8` checkpoint, not a claim about these later changes.
 
 ## Build 100 baseline
 

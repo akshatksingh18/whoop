@@ -604,31 +604,21 @@ other worktrees remain untouched.
   `setup.md` owns fingerprints. Installation/signing/native-device acceptance remains open.
 - [ ] 3r. Continue the full remaining Build 101 execution inventory (10,832 lines), beginning
   with AppState/BLE/derivation/Train and continuing through every missed-file group.
-  COV-18 (stopped work revived) and COV-19 (refused live command marked enabled) pass full
-  run `40114050675` at `7830c577`, including all 84 added controls: 3,769 app tests/429 skips,
-  packages/visuals/Python controls and zero analysis errors/warnings. Handwritten execution is
-  40,023/50,091 (79.90%), with 10,068 still unexecuted. Build 102 (`0.9.69+102`) is prepared.
-  Akshat approved COV-20's full-page preview: archive the matching original Recovery explanation,
-  notes and dated HRV context with the morning score; older pins retain score/history with
-  explicit missing-original wording. All 18 new and 15 existing targeted Recovery controls pass;
-  the six saved/legacy text-scale states also render from production widgets. This later repair
-  requires a fresh full cloud run, then native/artifact verification before a replacement binary.
-  COV-21/22 additionally repair historical Journal reads/tag merging and custom-field draft loss.
-  Thirteen new controls pass, including a complete draft-to-Save round trip; seventeen existing
-  neighboring controls pass. Include these source changes in the next clean full run.
-  COV-23 additionally corrects one-point decrements above 100 in live match scores. Nine match
-  and fourteen goal-picker controls pass locally. Include the complete candidate in fresh
-  app/package/visual/coverage checks; do not replace the cached IPA before release gates pass.
-  COV-24's full backup/restore-dialog preview is approved; the existing prompt now scrolls at
-  large text with all wording/rules/format retained. Ten synthetic prompt controls pass. The
-  continuation totals 148 new targeted cases. Fresh combined cloud/native/artifact gates and
-  the rest of the missed-line inventory remain open; do not call this an every-line certification.
+  Full run `40120011370` at `27724aa8` verifies COV-18–24 and all 148 added controls:
+  3,833 app tests/429 skips, packages, 13 Python controls, 180 visual checks and zero analysis
+  errors/warnings. Handwritten execution is 40,717/50,205 (81.10%), with 9,488 still unexecuted.
+  Build 102 (`0.9.69+102`, algorithm 99/schema 50) is prepared; the cached IPA remains Build 101.
+  The latest approved COV-25/26 fixes keep complete shared confirmations and Reset's disclosure
+  reachable at enlarged text. Twenty-seven further controls bring the continuation to 175;
+  their fresh combined cloud/native/artifact gates remain. `coverage-audit.md` owns contracts,
+  exact source inventories and scope limits. No every-line or every-click certification.
   Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
   remainder with source evidence instead of padding the percentage. Keep native delivery and
   phone acceptance distinct. Full regression/coverage runs remain on GitHub; Build 101 stays
   the validated cached candidate until any replacement passes all release gates.
-- [ ] 4. Akshat's phone acceptance: check COV-01–17 in `coverage-audit.md`, then recheck
+- [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–26 when
+  included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

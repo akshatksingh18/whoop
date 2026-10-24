@@ -2195,34 +2195,37 @@ Future<bool> confirmRemove(
   final ok = await showModalBottomSheet<bool>(
     context: c,
     sheetAnimationStyle: sheetMotion(c),
+    isScrollControlled: true,
     backgroundColor: P.of(c).card,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
     ),
     builder: (s) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(S.x5),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(title, style: F.head.copyWith(color: P.of(s).ink)),
-            const SizedBox(height: S.x2),
-            Text(body, style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5)),
-            const SizedBox(height: S.x5),
-            BigButton(
-              remove,
-              icon: LucideIcons.trash2,
-              color: C.red,
-              onTap: () => Navigator.of(s).pop(true),
-            ),
-            const SizedBox(height: S.x3),
-            BigButton(
-              keep,
-              soft: true,
-              onTap: () => Navigator.of(s).pop(false),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x2),
+              Text(body, style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5)),
+              const SizedBox(height: S.x5),
+              BigButton(
+                remove,
+                icon: LucideIcons.trash2,
+                color: C.red,
+                onTap: () => Navigator.of(s).pop(true),
+              ),
+              const SizedBox(height: S.x3),
+              BigButton(
+                keep,
+                soft: true,
+                onTap: () => Navigator.of(s).pop(false),
+              ),
+            ],
+          ),
         ),
       ),
     ),

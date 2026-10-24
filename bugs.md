@@ -14,26 +14,15 @@ fingerprints. Handwritten Dart execution is 78.36%, with 10,832 instrumented lin
 The calm A+B interface and all scientific coefficients remain. Build 70 recovery is unchanged;
 physical/background/permission/gesture delivery, installation and signing gates remain open.
 
-The remaining-execution continuation has unreleased repairs in `coverage-audit.md`:
-COV-18 carries the original stop generation through selected/imported calculation and both
-compute stages; COV-19 keeps live HR unarmed/retryable after a refused transport write. Their
-synthetic stop/resume and transport controls pass in full run `40114050675` at `7830c577`
-(3,769 app cases, 79.90% handwritten execution, 10,068 lines unexecuted). The validated Build 101
-cache remains unchanged. COV-20's approved correction archives Recovery's matching original
-explanation and dated HRV context atomically with the morning score. Older or invalid snapshots
-retain score/history with explicit unavailable-original wording. Its synthetic regression checks
-are separate from the earlier full run; fresh cloud/native/artifact gates remain before release.
-COV-21 restores exact historical Journal reads and atomic rough-night tag additions; COV-22
-keeps unsaved Journal edits while a custom field is created. Thirteen new synthetic controls
-and seventeen existing neighboring controls pass locally. Full cloud verification is pending;
-these repairs retain the existing page composition and metric definitions.
-COV-23 corrects a live-match decrement that jumped larger scores to 99. Nine match and fourteen
-goal-picker controls pass locally, including restart, Finish/Cancel, failed-save retry and
-large-text goal navigation. The combined source still needs full cloud verification.
-COV-24's approved correction makes the existing backup passphrase dialog scrollable at enlarged
-text. Ten prompt controls pass, with unchanged passphrase rules and backup format. The shared
-visual helper also uses readable substitute Material fonts. The combined COV-18–24 candidate
-awaits full app/package/visual/coverage and native/artifact gates; the remaining audit stays active.
+The remaining-execution continuation is in `coverage-audit.md`. Full checkpoint `40120011370`
+at `27724aa8` verifies COV-18–24 and all 148 new controls: 3,833 app cases/429 skips, both
+packages, 13 Python controls, 180 visual checks and zero analysis errors/warnings. Handwritten
+execution is 81.10%, with 9,488 lines unexecuted. These repairs cover cancellation, refused live
+arming, matching original Recovery explanations, historical Journal/draft preservation, typed
+match decrements and enlarged backup prompts. The newer approved COV-25/26 fixes keep full
+shared confirmations and Reset's deletion disclosure reachable, with 27 further controls.
+Their combined cloud/native/artifact gates remain; the validated Build 101 cache is unchanged.
+The remaining audit is active, and these software checks are not physical-device acceptance.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

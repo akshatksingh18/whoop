@@ -36,26 +36,17 @@ reviewed source revisions and must move with any deliberate package update.
 
 ## Build 102 preparation
 
-Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18/19 from `coverage-audit.md`:
-calculation cancellation survives entry/compute/status boundaries, and refused live-HR
-transport leaves the stream unarmed for retry. Six packs add 84 synthetic cases; full run
-[40114050675](https://github.com/akshatksingh18/whoop/actions/runs/40114050675) at `7830c577`
-passes 3,769 app tests/429 skips, zero analysis errors/warnings (251 infos), both package suites,
-13 Python controls and 152 visual checks. Handwritten execution is 40,023/50,091 (79.90%),
-with 10,068 lines unexecuted; raw root execution is 40,074/57,692 (69.46%).
-The subsequent approved COV-20 correction saves the original Recovery explanation/HRV context
-with the morning score and labels legacy absences honestly. It needs its own full cloud run,
-then native/artifact verification. Build 102 is not yet the testing candidate; the validated
-Build 101 folder below remains unchanged.
-The combined candidate also includes COV-21/22: exact-day Journal reads, atomic rough-night tag
-merging and preservation of unsaved Journal drafts while adding a field. Thirteen new and
-seventeen existing targeted controls pass. These later changes require a new combined full run.
-COV-23 also preserves one-point decrements for larger live match scores. Nine match and fourteen
-goal-picker controls pass locally. The latest combined source awaits full cloud/native gates.
-COV-24's approved passphrase prompt uses built-in dialog scrolling at enlarged text. Ten UI
-controls pass; passphrase rules and the encrypted backup/container format are unchanged.
-The combined continuation totals 148 added targeted cases, with full cloud/native/artifact
-verification still required before replacing the testing candidate.
+Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18–26 from `coverage-audit.md`.
+Full checkpoint [40120011370](https://github.com/akshatksingh18/whoop/actions/runs/40120011370)
+at `27724aa8` verifies COV-18–24 and 148 added cases: 3,833 app tests/429 skips, zero analysis
+errors/warnings (255 infos), both package suites, 13 Python controls and 180 visual checks.
+Handwritten execution is 40,717/50,205 (81.10%), with 9,488 lines unexecuted; raw root execution
+is 40,768/57,818 (70.51%). No denominator exclusions changed.
+The newer approved COV-25/26 fixes preserve readable complete shared confirmations and the
+Reset disclosure at large text, bringing the continuation to 175 targeted cases. They need a
+fresh combined cloud run, then native compilation and downloaded-artifact verification.
+Build 102 is not yet the testing candidate; the validated Build 101 folder remains unchanged.
+Metric definitions, dependencies, signing/capabilities and backup formats are unchanged.
 
 ## Build 101 candidate
 

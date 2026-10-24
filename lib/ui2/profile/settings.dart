@@ -188,6 +188,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   final ok = await showDialog<bool>(
     context: c,
     builder: (d) => AlertDialog(
+      scrollable: true,
       title: Text(l?.settingsResetTitle ?? 'Delete everything?'),
       // Names what this app holds; the wipe below removes all of it.
       content: Text(

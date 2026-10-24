@@ -599,25 +599,25 @@ other worktrees remain untouched.
   zero analysis errors/warnings, all packages, 13 Python controls and 152 visual checks/607 captures.
   Handwritten execution is 39,226/50,058 (78.36%): 902 more executed lines, 10 more instrumented,
   and 10,832 still unexecuted. Native `40090175199` and downloaded source/checksum/CRC/AOT checks
-  pass. Build 101 (`0.9.68+101`, source `9a92656f`, algorithm 99/schema 50) is the single testing
-  candidate; Build 100's folder went to the Recycle Bin. Build 70 accepted recovery is unchanged.
+  pass. Build 101 (`0.9.68+101`, source `9a92656f`, algorithm 99/schema 50) was the testing
+  candidate at that release and is now superseded by Build 102. Build 100's folder went to the Recycle Bin.
+  Build 70 accepted recovery is unchanged.
   `setup.md` owns fingerprints. Installation/signing/native-device acceptance remains open.
 - [ ] 3r. Continue the full remaining Build 101 execution inventory (10,832 lines), beginning
   with AppState/BLE/derivation/Train and continuing through every missed-file group.
-  Full run `40139202681` at `7f10b51b` verifies COV-18–27 and all 208 added controls:
-  3,893 app tests/429 skips, independent packages, 13 Python controls, 207 visual checks and
-  zero analysis errors/warnings. Handwritten execution is 40,851/50,207 (81.37%), with 9,356
-  still unexecuted. Native `40139204943` passes. Build 102 (`0.9.69+102`, algorithm 99/schema 50)
-  is prepared; the cached IPA remains Build 101. Approved COV-28/29 additionally repair
-  analysis-range scrolling and the working-message row. Their 24 real-screen controls pass,
-  bringing the continuation to 232; six full-scroll capture states also pass locally. The final
-  source still needs combined cloud/native/artifact verification before replacement.
-  `coverage-audit.md` owns contracts, exact source inventories and scope limits. Add real
-  synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
-  exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
-  remainder with source evidence instead of padding the percentage. No every-line or every-click
-  certification. Keep native delivery and phone acceptance distinct. Full regression/coverage
-  runs remain on GitHub; Build 101 stays cached until a replacement passes all release gates.
+  Build 102 (`0.9.69+102`, app source `fc69b0d3`, algorithm 99/schema 50) is the validated
+  testing candidate. All 232 added controls and COV-18–29 pass full run `40141173339`:
+  3,917 app tests/429 skips, both package suites, 13 Python controls, 213 visual checks/708
+  captures and zero analysis errors/warnings. Native `40141175245` and downloaded IPA checks
+  pass. Handwritten execution is 40,888/50,209 (81.44%), with 9,321 still unexecuted, 1,511
+  fewer than the starting inventory. No exclusions or skip rules changed. Build 101's testing
+  folder went to the Recycle Bin; Build 70 recovery is unchanged. `setup.md` owns fingerprints.
+  `coverage-audit.md` owns contracts, exact source inventories and test-substitute limits.
+  Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve
+  metric contracts. Classify unexecutable/dead/platform-only regions with source evidence;
+  do not pad the percentage. The remaining inventory includes portable software and retained
+  compatibility/developer branches. No every-line, every-click or physical certification.
+  Keep native delivery and phone acceptance separate. Full runs remain on GitHub.
 - [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the

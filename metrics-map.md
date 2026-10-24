@@ -3,21 +3,23 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 101 (`9a92656f`, `0.9.68+101`) is the single validated testing candidate;
+**Status:** Build 102 (`fc69b0d3`, `0.9.69+102`) is the single validated testing candidate;
 Build 91 is the last reported installation. The A framework and B calorie-ring/macros remain.
-All 17 coverage-directed, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are
+All 29 coverage-directed, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are
 implemented. Full app/package/visual/native checks and downloaded IPA validation pass.
 `setup.md` owns exact evidence; `todo.md` owns phone gates. Build 70 remains recovery.
 Algorithm 99/schema 50 and scientific coefficients/headline formulas are unchanged.
 
-The remaining execution work prepares Build 102 with COV-18/19: stopped calculation cannot
+Build 102 implements COV-18/19: stopped calculation cannot
 revive itself between stages or stamp a new rollup status, and a refused live-HR command leaves
-the stream unarmed for retry. Full run `40139202681` verifies COV-18–27 at `7f10b51b`. COV-20's
+the stream unarmed for retry. Full run `40141173339` verifies COV-18–29 at `fc69b0d3`. COV-20's
 correction saves Recovery's original composite, values, comparisons, notes and dated HRV with
 the pinned morning score. Recovery reads that paired evidence while normal metrics keep updating;
-legacy pins say the original breakdown is unavailable. Native checks pass at that checkpoint;
-final source/artifact gates remain before replacement. No valid-input metric definition or scientific coefficient changes.
-COV-21/22 preserve historical Journal notes/tags and unsaved drafts when adding a custom field.
+legacy pins say the original breakdown is unavailable. Native `40141175245` and downloaded-
+artifact checks pass. Further execution work and physical acceptance remain open. No valid-input
+metric definition or scientific coefficient changes.
+COV-21/22 preserve historical Journal notes/tags and custom-field drafts in retained editor/tag
+pathways. Those routes stay outside current personal navigation; shared input widgets remain live.
 Selected-day reads do not inherit the recent-list limit; rough-night tags merge atomically with
 the current note. The recent list and numerical/correlation definitions retain their meaning.
 COV-23 fixes typed live-match score decrements above 100; manual scores, closed/partial sets,
@@ -32,8 +34,8 @@ energy methods and day-result definitions remain unchanged; no algorithm bump is
 COV-28/29 keep the same five analysis-export ranges and full explanation accessible through
 scrolling, and wrap the existing working message beside its spinner. Report contents, selected
 period meaning, action locks, share outcome wording and temporary-file cleanup retain their
-existing contracts. Their 24 real-screen checks and six capture states pass locally; final
-combined release gates remain. No metric or backup format changes.
+existing contracts. Their 24 real-screen checks and six capture states pass in the final full run;
+`setup.md` owns exact totals, source and IPA evidence. No metric or backup format changes.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

@@ -14,35 +14,24 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.68`/`101` (app source `9a92656f`,
-`todo.md` 3q) is the single validated testing candidate:
-`../final-ipas/whoop/testing/WHOOP-0.9.68-build101-9a92656f`. All 17 coverage-directed finding
-families in `coverage-audit.md` are repaired, retaining the 22 Build 99 and earlier contracts
-and the locked kraft/cream A+B interface. Full app/package/visual checks, native compilation
-and downloaded IPA validation pass; `setup.md` owns exact source/hash/workflow evidence.
-Cached Build 101's handwritten execution is 78.36%; the newer source checkpoint below reaches
-81.37%. Neither is every-line, every-click or hardware certification. Algorithm 99,
-schema 50, scientific coefficients, dependencies, BLE ACK ordering, features, signing identity
-and capabilities are unchanged. Build 100's superseded testing folder went to the Recycle Bin.
+**Status:** Active iPhone verification. Build `0.9.69`/`102` (app source `fc69b0d3`)
+is the single validated testing candidate:
+`../final-ipas/whoop/testing/WHOOP-0.9.69-build102-fc69b0d3`. COV-01–29 are repaired,
+retaining the Build 99 and earlier contracts and the locked kraft/cream A+B interface.
+Full run `40141173339` passes 3,917 app tests, both package suites, 13 Python controls and
+213 visual checks/708 captures; native `40141175245` and downloaded IPA validation pass.
+`setup.md` owns exact source/hash/release evidence. Algorithm 99/schema 50, scientific
+coefficients, dependencies, BLE ACK ordering, signing identity and capabilities are unchanged.
+Build 101's superseded testing folder went to the Recycle Bin; its fingerprint remains in setup.
 Build 91 remains the last reported installation; Build 70 remains accepted recovery.
 Current-version installation, signing enrollment and the physical-device matrix remain open.
-Earlier build notes are in `build-history.md`.
 
-The `coverage-expansion` extension adds 96 passing synthetic cases and repairs late Lift editor
-results after disposal (COV-17). All 3,685 app cases, package suites, 152 visual checks/607 captures,
-13 Python controls, native compilation and downloaded-artifact validation pass. `coverage-audit.md`
-owns exact gaps and test-substitute limits. The treadmill incline proposal remains unimplemented.
-
-The remaining-line continuation is active under `todo.md` 3r. Full run `40139202681` at
-`7f10b51b` verifies COV-18–27 and 208 added cases: 3,893 app tests and 81.37% handwritten
-execution (40,851/50,207), with 9,356 lines still unexecuted. Native `40139204943` passes.
-`coverage-audit.md` owns exact evidence and test-substitute limits. The newer approved COV-28/29
-corrections keep all analysis-export ranges and the active-operation message reachable at enlarged
-text. Twenty-four further real-screen controls pass, bringing the continuation to 232; six capture
-states also pass locally. Their final combined cloud/native/artifact gates remain. Build 102 is in
-preparation; the validated Build 101 testing IPA is unchanged. No physiological score formula,
-scientific coefficient, schema, dependency, ACK ordering or capability changes. The remaining
-inventory is still active; it is not all hardware blocked.
+The remaining-line continuation stays active under `todo.md` 3r. Its 232 added synthetic
+controls verify COV-18–29; handwritten execution is **40,888/50,209 (81.44%)**, with **9,321
+unexecuted**. `coverage-audit.md` owns the exact source inventory and test-substitute limits,
+including retained dormant/compatibility paths. This is not every-line, every-click or hardware
+certification, and the remaining gaps are not all hardware blocked. The treadmill incline
+proposal remains unimplemented. Earlier build notes are in `build-history.md`.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.

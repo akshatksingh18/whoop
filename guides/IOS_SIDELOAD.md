@@ -1,7 +1,7 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 101 (`0.9.68+101`, app source
-`9a92656f`) is the single testing candidate, including all 17 coverage-directed, 22 B98/eighteen B97 repairs and the retained
+**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 102 (`0.9.69+102`, app source
+`fc69b0d3`) is the single testing candidate, including all 29 coverage-directed, 22 B98/eighteen B97 repairs and the retained
 seven B96/29 earlier repairs. Full cloud analysis/tests/visuals, the macOS build and downloaded
 IPA/source/version/checksum/ZIP/payload checks pass. `../setup.md` owns exact evidence;
 `../todo.md`, `../coverage-audit.md` and the earlier audits own feature, native/background,
@@ -15,7 +15,9 @@ Build `0.9.37`/`70` remains the accepted recovery build: its phone check and com
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.68-build101-9a92656f` holds validated Build 101, not yet reported installed.
+`testing\WHOOP-0.9.69-build102-fc69b0d3` holds validated Build 102, not yet reported installed.
+Build 101's superseded folder (native `40090175199`, not reported installed) went to the Recycle Bin;
+its source/hash/run record remains in `../setup.md`.
 Build 100's superseded folder (native `40044650218`, not reported installed) went to the Recycle Bin.
 Build 99's folder (native run `40002250844`, not reported installed) went to the Recycle Bin. Build 98's
 superseded folder (native run `39942864975`, not reported installed) went to the Recycle Bin. Build 97's

@@ -1,9 +1,12 @@
 # Coverage-directed audit
 
-**Status:** Coverage-directed software checks and all 17 repair families are complete in
-validated Build 101, app source `9a92656f`. Full run `40090172761`, native `40090175199`
-and downloaded IPA validation pass. Build 101 is the single testing candidate; physical
-iPhone/signing acceptance remains open. No every-line, every-click or hardware certification.
+**Status:** COV-01–29 are repaired in validated Build 102, app source `fc69b0d3`.
+Full run `40141173339`, native `40141175245` and downloaded IPA validation pass. Build 102
+is the single testing candidate. The remaining execution work stays active: 9,321 handwritten
+lines are unexecuted, and software checks are not every-click or physical-device certification.
+`setup.md` owns cache/source/hash evidence; `todo.md` owns the open execution and phone gates.
+
+## Build 101 baseline
 
 The extension adds 96 passing synthetic cases. Full root suite: **3,685 pass/429 intentional
 skips**, including 408 absent golden baselines. Analysis has zero errors/warnings and 243 infos.
@@ -25,19 +28,21 @@ blocked. Constants/barrel exports remain the same three unimported files.
 
 ## Remaining execution work
 
-The requested continuation began with all 10,832 Build 101 missed lines. Full run
-`40139202681` at `7f10b51b` verifies COV-18–27 and all **208 added cases**:
-**3,893 app tests/429 intentional skips**, zero analysis errors/warnings and 256 infos,
-protocol 433/skip four, analytics 645/skip six, 13 Python controls and 207 visual checks.
-Handwritten execution is **40,851/50,207 (81.37%)**: 1,625 more executed lines and 149 more
-instrumented than Build 101, leaving **9,356 unexecuted** (1,476 fewer). Raw root LCOV is
-40,902/57,820 (70.74%) across the same 203 imported files; the handwritten view excludes the
+The requested continuation began with all 10,832 Build 101 missed lines. Final full run
+`40141173339` at `fc69b0d3` verifies COV-18–29 and all **232 added cases**:
+**3,917 app tests/429 intentional skips** (408 absent golden baselines), zero analysis errors/
+warnings and 257 infos, protocol 433/skip four, analytics 645/skip six, 13 Python controls and
+**213 visual checks/708 synthetic full-scroll captures** with substituted fonts.
+Handwritten execution is **40,888/50,209 (81.44%)**: 1,662 more executed lines and 151 more
+instrumented than Build 101, leaving **9,321 unexecuted** (1,511 fewer). Raw root LCOV is
+40,939/57,822 (70.80%) across the same 203 imported files; the handwritten view excludes the
 same seven generated files. The same three constant/barrel files remain unimported. No
 exclusions, skip rules or denominator filters changed. The exact next inventory is ignored
-`build/coverage-remainder/cloud7f/gaps.json`; contexts/dispositions stay under
-`build/coverage-remainder/`. These are execution counts, not manual review or branch/hardware proof.
-Native `40139204943` also passes at that source. The newer COV-28/29 UI changes below need their
-fresh combined release gates. Build 101 remains the single validated testing candidate.
+`build/release102/coverage/gaps.json`; discovery/context helpers remain under
+`build/coverage-remainder/` and refuse stale source hashes. These are execution counts,
+not manual review or branch/hardware proof. Native `40141175245` and full downloaded
+manifest/source/version/checksum/ZIP/payload/AOT validation pass at the same source.
+Build 102 is the single testing candidate; Build 101 was superseded without reported installation.
 
 The six additional packs pass **84 synthetic cases**: AppState commands/device callbacks (31),
 stored metric readers (13), derivation stop/resume/status (14), live transport (7), workout
@@ -47,9 +52,8 @@ confirmation/refusal, stored-summary navigation and the Food serving/provenance/
 are asserted. Material calendar fonts are substituted explicitly; the history fixture uses
 in-process SQLite to avoid simulated-clock/FFI-isolate teardown races. This batch is verified in
 the full cloud run above, along with the later Recovery/Journal/match/goal/backup controls.
-Build 102 (`0.9.69+102`) remains in preparation: the newest COV-28/29 Your data fixes need
-their combined clean full run, then native build/artifact verification. Build 101 is still
-the validated cached candidate.
+Build 102 (`0.9.69+102`) is the validated cached candidate. All later controls described below
+are included in its final full run; physical acceptance and the remaining execution work stay open.
 
 **COV-18 — calculation entry points can revive stopped work.** Selected-day recalculation and
 raw import captured a new cancellation generation after an asynchronous read, so a stop that
@@ -90,18 +94,21 @@ The approved kraft/cream composition is retained. All **18 new controls** and 15
 freeze/explanation controls pass locally. Synthetic controls cover later recalculation,
 dated-history gaps, held-over unscored days, restart, next-day replacement, malformed snapshots,
 database export/wipe/restore and the saved/legacy states at 1x, 2x and 3.1x text. Full cloud
-verification is included in checkpoint `40120011370`. The six saved/legacy enlarged-text
+verification is included in checkpoint `40141173339`. The six saved/legacy enlarged-text
 states are included in the cloud visual job, with full-scroll synthetic captures and substituted fonts.
 
 **COV-21 — older Journal entries disappear from an editor or lose their note/tags.**
-Sleep can open Journal for a selected historical night, but the editor and its conflict refresh
-searched only the recent 30-day list. The rough-night answer read the same bounded list, then
+The retained Journal editor and tag-answer pathways accept historical nights, but their reads
+searched only the recent 30-day list. The retained rough-night answer read the same bounded list, then
 replaced that older row using an empty note/tag baseline. Two failing real-store controls show
 the hidden note and its deletion after logging a tag. Selected-day reads now use an exact-date
 query, separate from the unchanged recent-list window. Rough-night answers merge tags in one
 transaction with the current note, retaining concurrent answers and unrelated numeric entries.
 The new repository methods are additive; list ranges and whole-entry replacement keep their
-existing meaning. No page composition, scoring formula or schema changes.
+existing meaning. These editor/tag routes are not current personal navigation: Sleep passes
+`ask: never`, as the dormant-path inventory below records. Their tests exercise retained code
+and compatibility/data-preservation contracts, not a newly exposed personal flow. No page
+composition, scoring formula or schema changes.
 
 **COV-22 — adding a custom Journal field discards the unsaved day draft.**
 After the definition committed, the editor reloaded the entire day, replacing unsaved note,
@@ -112,7 +119,7 @@ rating, tags and new field value reach storage together. Thirteen new synthetic 
 for COV-21/22, including older-day conflict refresh, concurrent tag additions, refused definition
 write/retry, time-picker cancellation and custom-field validation/kind changes. Seventeen existing
 save/conflict and neighboring controls also pass. Full cloud verification is included in
-checkpoint `40120011370`.
+checkpoint `40141173339`.
 
 **COV-23 — one match-score decrement can remove many points above 100.**
 The live match screen allows point increments above 100, but its decrement clamped the result
@@ -125,7 +132,7 @@ restart, Finish cancellation and transfer of closed/partial sets into the summar
 Fourteen additional goal-picker controls pass for all phases, all fat-loss paces and training
 ages, measured/absent holding weights, failed-save retry, Back/Keep editing/Discard and full
 navigation at 2x/3.1x text. They found no new goal-calculation defect. These 23 cases are included
-in full checkpoint `40120011370`; they have no separate execution-percentage claim.
+in full checkpoint `40141173339`; they have no separate execution-percentage claim.
 
 **COV-24 — backup passphrase dialogs overflow at enlarged text.**
 With readable substitute fonts, both creating and opening a backup overflow at 3.1x text.
@@ -141,8 +148,8 @@ visual job. The common render helper now supplies readable fonts for Material's 
 as well as the existing app families, preventing false block-font reports.
 
 All 148 cases and seven repair families COV-18–24 are verified by the full checkpoint above.
-The remaining inventory is still active and is not all hardware blocked. Build 101 stays the
-validated cached candidate until replacement release gates pass.
+The remaining inventory is still active and is not all hardware blocked. Build 102 is the
+validated cached candidate; installation and physical acceptance remain open.
 
 **COV-25 — shared confirmations clip messages/actions at enlarged text.**
 The shared sheet's height ceiling and non-scrollable column overflow for Finish/Delete/Discard
@@ -161,8 +168,8 @@ Akshat approved every scroll view of the full reset preview. The existing dialog
 built-in scrolling; wording, Keep my data, Delete everything and actual reset behavior remain.
 Three real Settings-entry controls verify full-text geometry/reachability and cancellation;
 the destructive callback is substituted and must stay uncalled. These 27 controls are verified
-in full run `40139202681`, with native `40139204943`. The combined COV-18–27 checkpoint above
-reaches 81.37%/9,356; no physical reset/confirmation delivery is inferred.
+in full run `40141173339`, with native `40141175245`. The combined COV-18–29 checkpoint above
+reaches 81.44%/9,321; no physical reset/confirmation delivery is inferred.
 
 **COV-27 — a settled workout can keep the previous activity/window's score.**
 The recent-session sweep cached only `id@end`, although changing an activity changes its energy
@@ -173,8 +180,8 @@ redundant writes. No equation, coefficient or day-result output changes, so algo
 Nine synthetic sweep controls cover type correction, start-only retiming with later imported
 coverage, a moving frontier, live-to-finished state, retry after a substrate-read failure, honest
 absence, fabricated ends and retention of privacy/effort/HR-recovery fields. Nineteen existing
-manual-workout/calorie-repair neighbors also pass. All are verified in full run `40139202681`;
-native `40139204943` passes. Physical edit/sync delivery remains open.
+manual-workout/calorie-repair neighbors also pass. All are verified in full run `40141173339`;
+native `40141175245` passes. Physical edit/sync delivery remains open.
 
 Fifteen further step-goal editor controls verify invalid/non-finite and boundary inputs,
 write refusal/retry, disposal during successful/refused writes and usable actions at 2x/3.1x.
@@ -182,7 +189,8 @@ Nine Sleep-page controls cover fallback confirmation, manual reversion, selected
 write failure versus an unapplied saved correction, both picker cancellations, overnight instants
 and disabled duplicate writes/disposal. These use the real widgets and substitute the command/
 post-write calculation boundary; they are not new proof of native time-picker or engine delivery.
-Together the continuation adds 208 targeted cases. The remaining execution inventory stays open.
+Those controls brought the continuation to 208 cases; the final total below is 232. The remaining
+execution inventory stays open.
 
 **COV-28 — analysis export ranges overflow at enlarged text.**
 The range picker used a non-scrolling column under the default short-sheet ceiling. Both
@@ -194,12 +202,13 @@ within the viewport and scroll, retaining selection, cancellation and export sem
 The actual export flow also exposed an unbounded status Text beside its spinner. At 2x/3.1x it
 runs past the right edge during imports, exports and rebuilds. Akshat approved the complete
 before/after page. The existing message now wraps in the remaining row width; the spinner,
-action lock and operation behavior are unchanged. All twenty-four new real-screen controls pass locally, covering
+action lock and operation behavior are unchanged. All twenty-four new real-screen controls pass in the final full run, covering
 all five range selections at three text sizes, picker cancellation without file creation,
 share outcomes/failure/retry and temporary report cleanup, plus working-state layout/action
 gates. The OS share sheet and rebuild callback are substitutes. Six pressure states join the
-cloud capture job and pass locally. The continuation totals 232 targeted cases; these new controls and the
-final source require their fresh combined cloud/native/artifact result before release.
+cloud capture job. The continuation totals 232 targeted cases. Final full run `40141173339`,
+native `40141175245` and downloaded-artifact checks pass at `fc69b0d3`; the remaining execution
+inventory and physical-device acceptance stay open.
 
 ## Build 100 baseline
 

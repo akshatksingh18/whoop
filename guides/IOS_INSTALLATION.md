@@ -1,15 +1,16 @@
 # WHOOP iPhone build
 
 **State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
-Build 101 (`0.9.68+101`, app source `9a92656f`, algorithm 99/schema 50) is the validated unsigned
-candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.68-build101-9a92656f`. All 17
-`../coverage-audit.md` repairs retain the Build 99 and earlier contracts. Full app/package/visual
-run `40090172761`, native `40090175199` and downloaded source/version/checksum/ZIP/payload
-checks pass. Akshat last reported Build 91 installed; Build 101 is not yet phone-accepted.
+Build 102 (`0.9.69+102`, app source `fc69b0d3`, algorithm 99/schema 50) is the validated unsigned
+candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.69-build102-fc69b0d3`. All 29
+`../coverage-audit.md` repair families retain the Build 99 and earlier contracts. Full app/package/
+visual run `40141173339`, native `40141175245` and downloaded source/version/checksum/ZIP/payload/
+AOT checks pass. Build 101's superseded testing folder went to the Recycle Bin. Akshat last
+reported Build 91 installed; Build 102 is not reported installed or phone-accepted.
 Build `0.9.37`/`70` remains accepted recovery in
 `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact artifact
-evidence; `../todo.md` and `../coverage-audit.md` own device checks. Installation and completion
-of current-version device/signing gates change acceptance, not compilation alone.
+evidence; `../todo.md` and `../coverage-audit.md` own remaining execution/device checks.
+Installation and current-version device/signing gates change acceptance, not compilation alone.
 
 The app reads the iPhone's own pedometer when **This phone → Steps** is on and does not use Apple
 Health. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID manual refresh
@@ -79,10 +80,10 @@ and the bundle identity never changes.
 ## Acceptance
 
 The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
-Build 101 retains those repairs, the eighteen `../build-97-audit.md` contracts, all 22
-`../build-98-audit.md` repairs and the 17 `../coverage-audit.md` contracts. Full cloud/visual/native
+Build 102 retains those repairs, the eighteen `../build-97-audit.md` contracts, all 22
+`../build-98-audit.md` repairs and the 29 `../coverage-audit.md` contracts. Full cloud/visual/native
 checks and replacement IPA validation pass; Builds 96–100 are historical payload evidence.
-Handwritten Dart execution is 78.36%, with 10,832 instrumented lines still unexecuted;
+Handwritten Dart execution is 81.44%, with 9,321 instrumented lines still unexecuted;
 physical delivery and device acceptance remain open.
 
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,

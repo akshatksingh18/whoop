@@ -34,27 +34,47 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 102 preparation
+## Build 102 candidate
 
-Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18–29 from `coverage-audit.md`.
-Full checkpoint [40139202681](https://github.com/akshatksingh18/whoop/actions/runs/40139202681)
-at `7f10b51b` verifies COV-18–27 and 208 added cases: **3,893 app tests/429 intentional skips**,
-zero analysis errors/warnings (256 infos), protocol 433/skip four, analytics 645/skip six,
-13 Python controls and 207 visual checks. Handwritten execution is **40,851/50,207 (81.37%)**,
-with **9,356 unexecuted**; raw root execution is 40,902/57,820 (70.74%), 203 imported files.
-No skips, denominator exclusions or unimported-file changes were added. Native
-[40139204943](https://github.com/akshatksingh18/whoop/actions/runs/40139204943) passes at that source.
+Build 102 (`0.9.69+102`, algorithm 99/schema 50) implements COV-18–29 from `coverage-audit.md`,
+retaining COV-01–17 and the earlier repair contracts. App source:
+`fc69b0d38ab3500c22a3ae6efbb04a78fed37319`. The 232 added synthetic controls cover stopped
+calculation, refused live arming, the original morning Recovery explanation, retained Journal
+preservation, match decrements, complete enlarged-text prompts, activity/window score-cache
+invalidation, analysis-export ranges and the working-message row. No metric definition,
+scientific coefficient, dependency, capability, signing identity or backup-format change.
+The treadmill-incline proposal is unimplemented.
 
-The newer approved COV-28/29 Your data corrections keep all five analysis-export ranges and
-its working message readable at enlarged text. All 24 additional real-screen range, cancellation,
-share-outcome, cleanup and working-state controls pass, bringing the continuation to 232.
-Six full-scroll capture states pass locally. Their final source still requires fresh combined
-cloud/native verification and downloaded-artifact inspection before replacement. Build 102 is
-not yet the testing candidate; the validated Build 101 folder remains unchanged. Metric definitions,
-dependencies, signing/capabilities and backup formats are unchanged. The earlier `8112964e`
-artifact was validated in staging only; no superseded staging artifact is release proof.
+Full [40141173339](https://github.com/akshatksingh18/whoop/actions/runs/40141173339) passes
+**3,917 app tests/429 intentional skips** (408 require absent golden baselines), zero analysis
+errors/warnings and 257 infos, protocol 433/skip four, analytics 645/skip six, 13 Python controls
+and **213 visual checks/708 synthetic full-scroll captures** with substituted fonts.
+Handwritten execution is **40,888/50,209 (81.44%)**, leaving **9,321 unexecuted**; raw root
+execution is 40,939/57,822 (70.80%), 203 imported files. Relative to Build 101 there are 1,662
+more executed lines, 151 more instrumented and 1,511 fewer unexecuted. No skips, exclusions,
+denominator filters or unimported-file changes were added. Further portable execution work and
+physical-device acceptance remain separate and open.
 
-## Build 101 candidate
+Native [40141175245](https://github.com/akshatksingh18/whoop/actions/runs/40141175245) passes.
+Downloaded `whoop-personal-fc69b0d38ab3-unsigned.ipa` is **15,500,660 bytes**; SHA-256
+`f3e5be5a20b982c7bc36258e74e7c522cf64d0f1157e15e2c769da79dbd54c10`.
+Manifest/source/version/checksum, full ZIP CRC, personal payload, compiled Runner/App AOT and
+source-revision-literal checks pass. It is the single testing folder,
+`../final-ipas/whoop/testing/WHOOP-0.9.69-build102-fc69b0d3`, with its IPA, manifest, checksum,
+validation and build-info. Build 101's superseded folder went to the Windows Recycle Bin.
+Earlier `8112964e`/`7f10b51b` staging/checkpoint artifacts are not the release source.
+
+Outgoing tracked code, fixtures, documentation, history and artifacts were privacy-reviewed;
+fixtures/captures are synthetic. The release record changes only technical documentation after
+the tested source and uses `[skip ci]`; production app/package/assets/iOS/dependency/workflow
+source stays at the verified revision. `main` and `local-backup` mirror the release record.
+Build 70 recovery is unchanged (SHA-256
+`0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 is the last
+reported installation. Build 102 is unsigned and not reported installed/accepted. Data-preserving
+upgrade, current-version signing enrollment, native/background delivery and the device matrix
+remain open. Delivery does not promote recovery.
+
+## Build 101 artifact (superseded)
 
 Build 101 (`0.9.68+101`, algorithm 99/schema 50) extends coverage with 96 passing synthetic
 cases and repairs COV-17, late split/live-Lift editor results after owner disposal. App source:
@@ -74,9 +94,10 @@ Native [40090175199](https://github.com/akshatksingh18/whoop/actions/runs/400901
 Downloaded `whoop-personal-9a92656f111d-unsigned.ipa` is 15,500,758 bytes; SHA-256
 `f0dfcd247f47644ced3f88268e312c9671d81b35d022df8a0d96b501f25818bd`.
 Manifest/source/version/checksum, complete ZIP CRC, personal payload and compiled Runner/App
-AOT checks pass; the source-revision literal is present in AOT. It is the single testing folder,
+AOT checks pass; the source-revision literal is present in AOT. It occupied the testing folder,
 `../final-ipas/whoop/testing/WHOOP-0.9.68-build101-9a92656f`, with the IPA, manifest, checksum,
-validation and build-info. Build 100's superseded folder went to the Windows Recycle Bin.
+validation and build-info. Build 102 replaced that folder; it went to the Recycle Bin.
+Build 100's superseded folder also went to the Windows Recycle Bin.
 
 Outgoing tracked source/history, synthetic fixtures, docs and artifacts were privacy-reviewed.
 The release record changes only technical documentation after the tested source, uses `[skip ci]`

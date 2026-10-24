@@ -1,9 +1,9 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 101 (`9a92656f`) is the validated testing candidate; Build 91 is the last reported
+**Status:** Build 102 (`fc69b0d3`) is the validated testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence; full app/package/visual run `40090172761`, native `40090175199` and IPA
-validation pass. The repairs in `build-95-repairs.md`, retained in Build 101,
+release/device evidence; full app/package/visual run `40141173339`, native `40141175245` and IPA
+validation pass. The repairs in `build-95-repairs.md`, retained in Build 102,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
@@ -41,18 +41,18 @@ the CalculationStore read/write gate. Concurrent readers cannot heal an erased a
 remaining mirror. This gate is per isolate; capture/derivation shutdown and the physical reset
 and background-delivery matrix remain necessary. No ACK or band command ordering changes.
 
-The unreleased remaining-execution continuation fixes COV-18/19 in `coverage-audit.md`:
+The remaining-execution continuation fixes COV-18/19 in `coverage-audit.md`:
 selected recalculation/raw import retain their original stop generation through both compute
 stages, and refused realtime-HR writes leave the stream unarmed for retry. Targeted synthetic
-stop/resume and transport controls pass in full run `40120011370`. COV-20 additionally archives
+stop/resume and transport controls pass in full run `40141173339`. COV-20 additionally archives
 the morning Recovery explanation in the same cursor write as its pin, without changing the
 score or transfer/ACK behavior. Its full cloud check passes; physical delivery remains open.
 The recent-session sweep also keys its settled cache by both time bounds and activity (COV-27),
 so a user edit cannot keep the old activity/window's score through the next sync. Targeted
-late-record, retime, finish and read-failure controls pass; fresh combined release gates remain.
+late-record, retime, finish and read-failure controls pass in full run `40141173339`, with native `40141175245`; physical delivery remains open.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
-The completed coverage follow-up (`coverage-audit.md`, cached in Build 100) also fixes
+The completed coverage follow-up (`coverage-audit.md`, introduced in Build 100) also fixes
 the restoration-expiry and gate-ceiling paths that omitted the registered headless transport
 stop. Synthetic callbacks verify the request and late-lease protection; native disconnect,
 expiration timing and physical delivery remain phone gates. Cooperative stop is not cancellation

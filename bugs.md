@@ -5,25 +5,21 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Build 91 is the last reported installation. Build 101 (`9a92656f`,
-`0.9.68+101`, algorithm 99/schema 50) is the validated testing candidate. All 17 coverage-directed
-finding families, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are retained.
-Full run `40090172761` passes 3,685 app tests/429 skips, independent packages and 152 visual
-checks/607 captures; native `40090175199` and downloaded IPA validation pass. `setup.md` owns
-fingerprints. Handwritten Dart execution is 78.36%, with 10,832 instrumented lines unexecuted.
-The calm A+B interface and all scientific coefficients remain. Build 70 recovery is unchanged;
-physical/background/permission/gesture delivery, installation and signing gates remain open.
-
-The remaining-execution continuation is in `coverage-audit.md`. Full checkpoint `40139202681`
-at `7f10b51b` verifies COV-18–27 and all 208 new controls: 3,893 app cases/429 skips, both
-packages, 13 Python controls, 207 visual checks and zero analysis errors/warnings. Handwritten
-execution is 81.37%, with 9,356 lines unexecuted. Native `40139204943` passes. These repairs cover
-cancellation, refused live arming, original Recovery explanations, Journal/draft preservation,
-match decrements, readable complete prompts and invalidation of activity/window score caches.
-The newer approved COV-28/29 keep analysis-export ranges and the working-message row reachable;
-24 more real-screen controls and six capture states pass locally. Final combined cloud/native/
-artifact gates remain; the validated Build 101 cache is unchanged. The remaining audit is active,
-and software checks are not physical-device acceptance.
+**Current verification:** Build 91 is the last reported installation. Build 102 (`fc69b0d3`,
+`0.9.69+102`, algorithm 99/schema 50) is the single validated testing candidate. All 29
+coverage-directed families, 22 B98, eighteen B97, seven B96 and the earlier contracts are retained.
+Full run `40141173339` passes 3,917 app tests/429 intentional skips, both independent packages,
+13 Python controls and 213 visual checks/708 captures, with zero analysis errors/warnings.
+Native `40141175245` and downloaded IPA validation pass; `setup.md` owns fingerprints.
+The 232 added controls for COV-18–29 cover cancellation, refused live arming, matching original
+Recovery explanations, retained Journal/drafts, match decrements, complete prompts, workout
+score-cache invalidation and analysis-range/working-state layout and cleanup. Retained dormant
+paths are labelled as such; they are not newly exposed personal navigation.
+Handwritten execution is 40,888/50,209 (81.44%), with 9,321 lines still unexecuted. The remaining
+audit stays active; these gaps are not all hardware blocked. The calm A+B interface, scientific
+coefficients and metric definitions remain. Build 101's testing folder was superseded and
+recycled. Build 70 recovery is unchanged. Physical/background/permission/gesture delivery,
+installation and signing gates remain open; software checks are not phone acceptance.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

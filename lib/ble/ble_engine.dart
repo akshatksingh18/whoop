@@ -7160,11 +7160,16 @@ class BleEngine {
   /// [enableLiveStreams] restores the full set on foreground return. Idempotent.
   Future<void> enableHrOnlyLive() async {
     if (_session?.connected != true) return;
+    if (!await _send(Cmd.toggleRealtimeHr, const [0x01])) {
+      _liveEnabled = false;
+      _liveHrOnly = false;
+      _log('Live heart-rate command was not written — stream remains unarmed for retry.');
+      return;
+    }
     _liveEnabled = true;
     _liveHrOnly = true;
     final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
     unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
-    await _send(Cmd.toggleRealtimeHr, const [0x01]);
     final offOps = <Future<bool> Function()>[
       () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
       () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),

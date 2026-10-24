@@ -2441,7 +2441,13 @@ class DerivationEngine {
             _log('derive day $dayId skipped: override day, raw pruned — kept');
           } else if (prepared != null) {
             _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
-            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            await _derivePreparedDay(
+              prepared,
+              profile,
+              dataNowSec,
+              history,
+              stopGeneration: stopGen,
+            );
             done++;
             _diag['done_days'] = done;
           } else {
@@ -2604,6 +2610,7 @@ class DerivationEngine {
     if (_running) return 0;
     if (force) _inputReuse.clear();
     _running = true;
+    final stopGen = DeriveStop.generation;
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -2654,13 +2661,20 @@ class DerivationEngine {
       final activeDays = <String>{};
 
       Future<void> processDay(String dayId) async {
+        DeriveStop.check(stopGen);
         activeDays.add(dayId);
         _diag['active_days'] = activeDays.toList();
         try {
           final prepared = await _prepareTargetDay(dayId);
           if (prepared != null) {
             _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
-            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            await _derivePreparedDay(
+              prepared,
+              profile,
+              dataNowSec,
+              history,
+              stopGeneration: stopGen,
+            );
             done++;
             _diag['done_days'] = done;
           } else {
@@ -2669,6 +2683,7 @@ class DerivationEngine {
             failures++;
           }
         } catch (e) {
+          if (e is DeriveCancelled || DeriveStop.generation != stopGen) rethrow;
           _log('derive selected day $dayId FAILED/skipped: $e');
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
@@ -2681,6 +2696,7 @@ class DerivationEngine {
       }
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      DeriveStop.check(stopGen);
       // A SELECTED re-analyze that happens to cover the whole raw history, with
       // every day resolved, is a full restage by any other name — it re-derived
       // every day under the current timezone, so it clears the travel hold too.
@@ -2700,19 +2716,26 @@ class DerivationEngine {
       }
       if (done > 0) {
         await _refreshBaselines();
+        DeriveStop.check(stopGen);
         await _runCrossDay(profile);
+        DeriveStop.check(stopGen);
         await _runNotifications();
       }
       return done;
     } catch (e, st) {
+      if (e is DeriveCancelled || DeriveStop.generation != stopGen) {
+        _diag['last_error'] = '${DeriveStop.error}';
+        throw DeriveStop.error;
+      }
       _log('derive selected ERROR: $e\n$st');
       return 0;
     } finally {
-      await _runStorageHousekeeping();
+      if (DeriveStop.generation == stopGen) await _runStorageHousekeeping();
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
         ..['running'] = false
         ..['stage'] = 'idle'
+        ..['active_days'] = const <String>[]
         ..['finished_at'] = finishedAt
         ..['duration_ms'] = finishedAt - startedAt;
       _running = false;
@@ -3583,7 +3606,13 @@ class DerivationEngine {
         try {
           final prepared = await _prepareTargetDay(dayId);
           if (prepared != null) {
-            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            await _derivePreparedDay(
+              prepared,
+              profile,
+              dataNowSec,
+              history,
+              stopGeneration: stopGen,
+            );
             done++;
           } else {
             failures++;
@@ -3706,15 +3735,18 @@ class DerivationEngine {
     void Function(String day)? onDayDone,
   }) async {
     if (sub.isEmpty || dates.isEmpty) return 0;
+    final stopGen = DeriveStop.generation;
     // Under the SAME lock as run()/runDays(): this writes day_result rows, and
     // an import racing a background derive of the same day is exactly the
     // partial-overwrites-complete case the lock exists for.
     return _withRunLock(0, () async {
       await DayZoneStore.ensureRange(sub.tsSec.first, sub.tsSec.last);
+      DeriveStop.check(stopGen);
       final days = calendarDays(sub);
       final dataNowSec = sub.lastTs ?? 0;
       var done = 0;
       for (final day in days) {
+        DeriveStop.check(stopGen);
         if (!dates.contains(day.date)) continue;
         // NEVER clobber a day the band measured. `forceFinalize: true` below
         // both replaces the measured result and locks the day out of every
@@ -3727,10 +3759,18 @@ class DerivationEngine {
           continue;
         }
         try {
-          await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
+          await _deriveDay(
+            sub,
+            day,
+            profile,
+            dataNowSec,
+            forceFinalize: true,
+            stopGeneration: stopGen,
+          );
           done++;
           onDayDone?.call(day.date);
         } catch (e) {
+          if (e is DeriveCancelled || DeriveStop.generation != stopGen) rethrow;
           _log('import day ${day.date} FAILED/skipped: $e');
         }
       }
@@ -3758,6 +3798,7 @@ class DerivationEngine {
     Profile profile,
     int dataNowSec, {
     bool forceFinalize = false,
+    int? stopGeneration,
   }) async {
     final daySub = sub.slice(day.startSec, day.endSec);
     // Same buffered slice prepareDerivationPayload uses — without it, imported
@@ -3804,6 +3845,7 @@ class DerivationEngine {
       dataNowSec,
       await _BaselineHistoryCache.load(),
       forceFinalize: forceFinalize,
+      stopGeneration: stopGeneration,
     );
   }
 
@@ -3813,8 +3855,12 @@ class DerivationEngine {
     int dataNowSec,
     _BaselineHistoryCache history, {
     bool forceFinalize = false,
+    int? stopGeneration,
   }) async {
-    final stopGen = DeriveStop.generation;
+    // Keep the pass's generation through preparation/history reads. Taking a
+    // fresh generation here would revive work stopped during those awaits.
+    final stopGen = stopGeneration ?? DeriveStop.generation;
+    DeriveStop.check(stopGen);
     final daySub = day.daySub;
     final sleepSub = day.sleepSub;
     // Per-second 4-class stage labels (the single source): 'wake'|'light'|
@@ -3871,6 +3917,7 @@ class DerivationEngine {
         : InputReuse(kAlgoVersion);
     final hitsBefore = cache.hits, missesBefore = cache.misses;
     final workerTime = Stopwatch()..start();
+    DeriveStop.check(stopGen);
     final reused = await _runIsolateCancellable(
       () => (bundle: deriveDayBundle(withHistory, reuse: cache), cache: cache),
       _perDayTimeout,
@@ -4151,10 +4198,12 @@ class DerivationEngine {
         viewNowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         dayContext: DayClock.snapshot(),
       );
+      DeriveStop.check(stopGen);
       final blocks = await _runDayBlocksCancellable(
         blocksInput,
         _perDayTimeout,
       );
+      DeriveStop.check(stopGen);
 
       // Merge the computed blocks back into the isolate-1 bundle. scMap is the
       // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
@@ -4252,6 +4301,7 @@ class DerivationEngine {
 
       await _persistWakeDayFeatures(dayId: day.date, wake: blocks.wake);
     } catch (e) {
+      if (e is DeriveCancelled || DeriveStop.generation != stopGen) rethrow;
       secondHalfOk = false;
       _log(
         'day-blocks (offloaded second half) failed for ${day.date} — '
@@ -4313,6 +4363,7 @@ class DerivationEngine {
     final scalars =
         (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     double? sc(String k) => (scalars[k] as num?)?.toDouble();
+    DeriveStop.check(stopGen);
     await LocalDb.putDayResult(
       dayId: day.date,
       algoVersion: kAlgoVersion,
@@ -4735,13 +4786,17 @@ class DerivationEngine {
     return builtFor is String && builtFor.isNotEmpty && builtFor == today;
   }
 
-  Future<String> rebuildCrossDay(Profile profile) =>
-      _withRunLock('busy', () async {
-        await _refreshCrossDayInputArtifact();
-        return _runCrossDay(profile);
-      });
+  Future<String> rebuildCrossDay(Profile profile) {
+    final stopGen = DeriveStop.generation;
+    return _withRunLock('busy', () async {
+      await _refreshCrossDayInputArtifact();
+      DeriveStop.check(stopGen);
+      return _runCrossDay(profile);
+    });
+  }
 
   Future<String> _runCrossDay(Profile profile) async {
+    final stopGen = DeriveStop.generation;
     try {
       final days = await _crossDayInputDays();
       final usableDays = days.length;
@@ -4757,6 +4812,7 @@ class DerivationEngine {
           .where((d) => d.compareTo(firstDate) >= 0 && d.compareTo(today) <= 0)
           .toList();
       final rows = [for (final date in dates) await LocalDb.dayResult(date)];
+      DeriveStop.check(stopGen);
       final blocks = await _runIsolateCancellable(
         () {
           return <String, Map<String, dynamic>?>{
@@ -4773,6 +4829,7 @@ class DerivationEngine {
         _crossDayTimeout,
         label: 'nap-corrections',
       );
+      DeriveStop.check(stopGen);
       final known = {for (final d in days) d['date']};
       for (final date in dates) {
         final naps = await NapLedger.read(date, blocks[date]);
@@ -4801,6 +4858,7 @@ class DerivationEngine {
       days.sort((a, b) => (a['date'] as String).compareTo(b['date'] as String));
       if (usableDays < 3) {
         _log('crossday: only ${days.length} usable day(s) — skip');
+        DeriveStop.check(stopGen);
         await LocalDb.putBaseline(
           'crossday_status',
           jsonEncode({'kind': 'needs_history', 'days': days.length}),
@@ -4835,6 +4893,7 @@ class DerivationEngine {
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final crossDayContext = DayClock.snapshot();
+      DeriveStop.check(stopGen);
       final (bundleJson, dropped, needSec) = await _runIsolateCancellable(
         () {
           DayClock.restore(crossDayContext);
@@ -4862,6 +4921,7 @@ class DerivationEngine {
         _crossDayTimeout,
         label: 'crossday',
       );
+      DeriveStop.check(stopGen);
       await LocalDb.putBaseline('crossday', bundleJson);
       // B88-04: keep each day's computed need as that day's series point, so
       // the Home sleep bar can divide last night's sleep by the need that
@@ -4882,12 +4942,14 @@ class DerivationEngine {
         );
       }
       _log('crossday: stored over ${days.length} day(s)');
+      DeriveStop.check(stopGen);
       await LocalDb.putBaseline(
         'crossday_status',
         jsonEncode({'kind': 'ready', 'days': days.length}),
       );
       return 'ready';
     } catch (e, st) {
+      if (e is DeriveCancelled || DeriveStop.generation != stopGen) rethrow;
       // NOT a debug line. A failure here means the stored bundle is now STALE
       // — the reader's version/day stamp will reject it and the whole
       // cross-day family goes absent — so it has to be visible in a release

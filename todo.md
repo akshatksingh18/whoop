@@ -602,6 +602,17 @@ other worktrees remain untouched.
   pass. Build 101 (`0.9.68+101`, source `9a92656f`, algorithm 99/schema 50) is the single testing
   candidate; Build 100's folder went to the Recycle Bin. Build 70 accepted recovery is unchanged.
   `setup.md` owns fingerprints. Installation/signing/native-device acceptance remains open.
+- [ ] 3r. Continue the full remaining Build 101 execution inventory (10,832 lines), beginning
+  with AppState/BLE/derivation/Train and continuing through every missed-file group.
+  COV-18 (stopped work revived) and COV-19
+  (refused live command marked enabled) have source repairs and 84 passing targeted controls
+  across six new packs, including history actions and Food editors. Build 102 (`0.9.69+102`)
+  is prepared; full cloud regression/coverage and a replacement binary remain pending.
+  Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
+  exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
+  remainder with source evidence instead of padding the percentage. Keep native delivery and
+  phone acceptance distinct. Full regression/coverage runs remain on GitHub; Build 101 stays
+  the validated cached candidate until any replacement passes all release gates.
 - [ ] 4. Akshat's phone acceptance: check COV-01–17 in `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

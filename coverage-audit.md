@@ -23,6 +23,43 @@ include AppState (1,034), BLE engine (709), derivation (523), Train (513), repos
 and Progress (410). Many remain suitable for further automated work; they are not all hardware
 blocked. Constants/barrel exports remain the same three unimported files.
 
+## Remaining execution work
+
+The requested continuation is active over all 10,832 Build 101 missed lines, using
+`build/coverage-audit/build101-final.json`. Track dispositions and source contexts under ignored
+`build/coverage-remainder/`. No coverage improvement or new binary is claimed before new
+checks complete. Preserve the full denominator, previous contracts and physical-device limits.
+
+The six additional packs pass **84 synthetic cases**: AppState commands/device callbacks (31),
+stored metric readers (13), derivation stop/resume/status (14), live transport (7), workout
+history actions (8) and Food label boundaries (11). They use real synthetic SQLite stores;
+radio, permission and platform boundaries are substitutes. History filters, destructive-action
+confirmation/refusal, stored-summary navigation and the Food serving/provenance/retry outcomes
+are asserted. Material calendar fonts are substituted explicitly; the history fixture uses
+in-process SQLite to avoid simulated-clock/FFI-isolate teardown races. Full cloud regression
+and final coverage for prepared Build 102 (`0.9.69+102`) remain pending. Build 101 is still cached.
+
+**COV-18 — calculation entry points can revive stopped work.** Selected-day recalculation and
+raw import captured a new cancellation generation after an asynchronous read, so a stop that
+already arrived could be ignored and a result written. Two failing first-read controls reproduce
+the defect. Every day now carries its pass's generation into preparation/compute; the second
+compute-stage fallback propagates cancellation instead of treating it as an optional-detail
+failure and persisting a partial headline. Selected work skips housekeeping after a stop and
+releases its process lock. Fourteen real-store controls cover four day entry points, stops before
+compute and between stages, a fresh successful pass after an earlier stop, and the independent
+rollup's first-read/status-write boundaries. Two more negative controls reproduce the rollup
+stamping a history result after a stop; it now retains the previous status. Existing committed
+transactions are retained; this does not claim rollback of writes committed before cancellation.
+Algorithm 99 and the scientific definitions are unchanged.
+
+**COV-19 — a refused live command reports the stream enabled.** The essential realtime-HR write
+returned false on refusal or transport error, but its caller discarded that result and set the
+live flags anyway. Both band generations reproduce the false-success path. Flags are now set
+only after that write succeeds; refusal leaves the stream unarmed for retry and is logged,
+without introducing a new thrown error into fire-and-forget callers. Seven transport-substitute
+controls cover refusal, exception, successful retry, disabling/clearing and a fresh connection.
+This proves Dart command/state behavior, not physical radio delivery or a received live sample.
+
 ## Build 100 baseline
 
 All 16 earlier families passed full run `40046857679` at fixture revision `40f9fee6`, whose

@@ -1,9 +1,9 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 100 (`1277cd3a`) is the validated testing candidate; Build 91 is the last reported
+**Status:** Build 101 (`9a92656f`) is the validated testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence; full app/package/visual run `40046857679`, native `40044650218` and IPA
-validation pass. The repairs in `build-95-repairs.md`, retained in Build 100,
+release/device evidence; full app/package/visual run `40090172761`, native `40090175199` and IPA
+validation pass. The repairs in `build-95-repairs.md`, retained in Build 101,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
@@ -40,6 +40,11 @@ Reset table deletion, calculation-mirror removal and final native/preference cle
 the CalculationStore read/write gate. Concurrent readers cannot heal an erased anchor from a
 remaining mirror. This gate is per isolate; capture/derivation shutdown and the physical reset
 and background-delivery matrix remain necessary. No ACK or band command ordering changes.
+
+The unreleased remaining-execution continuation fixes COV-18/19 in `coverage-audit.md`:
+selected recalculation/raw import retain their original stop generation through both compute
+stages, and refused realtime-HR writes leave the stream unarmed for retry. Targeted synthetic
+stop/resume and transport controls pass; full cloud checks and physical delivery remain open.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
 The completed coverage follow-up (`coverage-audit.md`, cached in Build 100) also fixes

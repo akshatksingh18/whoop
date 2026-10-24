@@ -3,12 +3,17 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 100 (`1277cd3a`, `0.9.67+100`) is the single validated testing candidate;
+**Status:** Build 101 (`9a92656f`, `0.9.68+101`) is the single validated testing candidate;
 Build 91 is the last reported installation. The A framework and B calorie-ring/macros remain.
-All 16 coverage-directed, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are
+All 17 coverage-directed, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are
 implemented. Full app/package/visual/native checks and downloaded IPA validation pass.
 `setup.md` owns exact evidence; `todo.md` owns phone gates. Build 70 remains recovery.
 Algorithm 99/schema 50 and scientific coefficients/headline formulas are unchanged.
+
+The remaining execution work prepares Build 102 with COV-18/19: stopped calculation cannot
+revive itself between stages or stamp a new rollup status, and a refused live-HR command leaves
+the stream unarmed for retry. Targeted synthetic controls pass; full cloud coverage/native
+checks remain pending. No valid-input metric definition or scientific coefficient changes.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

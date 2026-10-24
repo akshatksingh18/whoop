@@ -34,6 +34,14 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
+## Build 102 preparation
+
+Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18/19 from `coverage-audit.md`:
+calculation cancellation survives entry/compute/status boundaries, and refused live-HR
+transport leaves the stream unarmed for retry. Six new targeted packs pass 84 synthetic cases.
+Full cloud regression/coverage and native/artifact verification are pending; this is not yet
+the testing candidate. The validated Build 101 folder below remains unchanged.
+
 ## Build 101 candidate
 
 Build 101 (`0.9.68+101`, algorithm 99/schema 50) extends coverage with 96 passing synthetic

@@ -1,9 +1,33 @@
 # Coverage-directed audit
 
-**Status:** Coverage-directed software review and all 16 repair families are complete in
-validated Build 100. Full run `40046857679` passes at fixture revision `40f9fee6`, whose app
-source is identical to `1277cd3a`. Native run `40044650218` and downloaded IPA validation pass.
-Build 100 is the single testing candidate; physical iPhone/signing acceptance remains open.
+**Status:** Coverage-directed software checks and all 17 repair families are complete in
+validated Build 101, app source `9a92656f`. Full run `40090172761`, native `40090175199`
+and downloaded IPA validation pass. Build 101 is the single testing candidate; physical
+iPhone/signing acceptance remains open. No every-line, every-click or hardware certification.
+
+The extension adds 96 passing synthetic cases. Full root suite: **3,685 pass/429 intentional
+skips**, including 408 absent golden baselines. Analysis has zero errors/warnings and 243 infos.
+Protocol passes 433/skip four; analytics passes 645/skip six. All 13 Python controls and
+152 visual checks pass, producing 607 synthetic captures with substituted fonts.
+
+Final root LCOV is 39,277/57,659 (68.12%, 203 imported files). Excluding the same seven generated
+localization files, handwritten execution is **39,226/50,058 (78.36%, 196 files)**, up from
+76.57%. That is 902 more executed lines; the instrumented denominator grows by 10, leaving
+**10,832 unexecuted lines**, 892 fewer. No exclusions, skipped-test changes or dormant imports
+were added. The exact inventory is ignored `build/coverage-audit/build101-final.json`.
+
+Largest gains are Lift UI (+384 executed lines), actual analysis export (+126), Your data
+actions (+110), Food diary (+103) and retained phone motion (+78). These are execution-count
+differences, not claims of the same number of newly proven old branches. Remaining misses
+include AppState (1,034), BLE engine (709), derivation (523), Train (513), repository (462)
+and Progress (410). Many remain suitable for further automated work; they are not all hardware
+blocked. Constants/barrel exports remain the same three unimported files.
+
+## Build 100 baseline
+
+All 16 earlier families passed full run `40046857679` at fixture revision `40f9fee6`, whose
+app source is identical to `1277cd3a`. Native `40044650218` and downloaded validation passed.
+Its testing folder is superseded by Build 101; its exact fingerprint remains in `setup.md`.
 
 ## Baseline and reuse
 
@@ -25,18 +49,18 @@ Root LCOV records 38,375/57,649 lines (66.57%) across 203 imported Dart files. E
 generated localization files, handwritten execution is **38,324/50,048 (76.57%)** in 196 files,
 up from 75.23%. There are 790 more executed lines; the instrumented denominator also grew by
 157, so this is not a claim that 790 old missed lines were all exercised. **11,724 instrumented
-handwritten lines remain unexecuted.** The production entrypoint and error logger are now
+handwritten lines were then unexecuted.** The production entrypoint and error logger became
 imported/exercised. The three unimported files are the build-profile constant and two UI barrel
 exports; importing them would not establish another user flow.
 
-The exact final inventory is ignored `build/coverage-audit/build100-final.json`, alongside the
+That baseline inventory is ignored `build/coverage-audit/build100-final.json`, alongside the
 canonicalized Build 99 baseline. No denominator filters or exclusions were added to raise the
 percentage. Native iOS, independent package suites, branch correctness and physical delivery
 remain outside this root line-coverage measure.
 
-## Further automated execution
+## Build 101 execution extension
 
-**Status:** Active on `coverage-expansion`; baseline is the verified Build 100 result above.
+**Status:** Complete on `coverage-expansion`; baseline is the verified Build 100 result above.
 Add meaningful outcomes for missed deep Lift/Food/settings/history and state/storage boundaries,
 with real synthetic ledger writes and failure/retry/restart checks where applicable. Keep the
 same denominator and retain earlier tests. Do not import dormant screens, assert only widget
@@ -62,8 +86,13 @@ in flight remains durable; the fix does not undo a committed workout. All 27 Lif
 with the real bundled font substitute. No layout, metric, ACK, schema or dependency change.
 
 Build 101 (`0.9.68+101`, algorithm 99/schema 50) contains this lifecycle repair. Full cloud
-analysis/app/package/visual coverage and native compilation are pending; Build 100 remains
-the cached testing candidate until a replacement passes downloaded-artifact validation.
+analysis/app/package/visual coverage and native compilation pass. Downloaded manifest/source,
+checksum, embedded version, complete ZIP CRC and compiled Runner/App AOT checks pass, including
+the source-revision literal in AOT. The one-slot testing folder is
+`WHOOP-0.9.68-build101-9a92656f`; SHA-256
+`f0dfcd247f47644ced3f88268e312c9671d81b35d022df8a0d96b501f25818bd`.
+Build 100's folder went to the Recycle Bin. Build 70 recovery is unchanged. No installation,
+signing enrollment or native-device acceptance is inferred from the successful software checks.
 
 Reuse the repair contracts and passing tests in `build-98-audit.md`, `build-97-audit.md`,
 `build-96-audit.md` and `build-95-repairs.md`. Revisit their implementation only where an
@@ -247,8 +276,8 @@ pass together. The clean full rerun `40046857679` passes; the earlier run's inte
 Native run `40044650218` passes, and the cached unsigned `0.9.67+100` IPA passes downloaded
 manifest/source/version/checksum, full ZIP CRC and compiled Runner/AOT payload checks. Its
 SHA-256 is `3251c08089021f18af9d551e6b1738fb46e02294f01dc796ac7dbcb078f1d183`.
-Full software/native/payload checks now pass and the testing cache contains Build 100. Phone
-acceptance and signing gates remain open; Build 70 recovery is unchanged.
+Those checks validated the then-cached Build 100. Validated Build 101 now occupies the testing
+slot. Phone acceptance and signing gates remain open; Build 70 recovery is unchanged.
 
 The final cloud visual job in `40046857679` passes **152 checks and 607 synthetic captures**,
 including 19 focused phone-width captures. Review of the earlier job found its new settings
@@ -293,4 +322,4 @@ Do not corrupt live storage, alter the phone clock or force database failures to
   complete the existing BLE-restoration, notification/permission, data-preserving upgrade,
   current-version refresh enrollment and 72-hour matrix in `todo.md` and the iOS guides.
 
-The 16 repaired families are software contracts, not a substitute for those physical outcomes.
+The 17 repaired families are software contracts, not a substitute for those physical outcomes.

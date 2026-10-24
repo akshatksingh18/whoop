@@ -14,29 +14,28 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.67`/`100` (app source `1277cd3a`,
-`todo.md` 3o) is the single validated testing candidate:
-`../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`. All 16 coverage-directed finding
+**Status:** Active iPhone verification. Build `0.9.68`/`101` (app source `9a92656f`,
+`todo.md` 3q) is the single validated testing candidate:
+`../final-ipas/whoop/testing/WHOOP-0.9.68-build101-9a92656f`. All 17 coverage-directed finding
 families in `coverage-audit.md` are repaired, retaining the 22 Build 99 and earlier contracts
 and the locked kraft/cream A+B interface. Full app/package/visual checks, native compilation
 and downloaded IPA validation pass; `setup.md` owns exact source/hash/workflow evidence.
-Handwritten Dart execution coverage is 76.57% (38,324/50,048), with 11,724 instrumented lines
+Handwritten Dart execution coverage is 78.36% (39,226/50,058), with 10,832 instrumented lines
 still unexecuted; this is not every-line, every-click or hardware certification. Algorithm 99,
 schema 50, scientific coefficients, dependencies, BLE ACK ordering, features, signing identity
-and capabilities are unchanged. Build 99's superseded testing folder went to the Recycle Bin.
+and capabilities are unchanged. Build 100's superseded testing folder went to the Recycle Bin.
 Build 91 remains the last reported installation; Build 70 remains accepted recovery.
 Current-version installation, signing enrollment and the physical-device matrix remain open.
 Earlier build notes are in `build-history.md`.
 
-Further automated coverage expansion is active on `coverage-expansion`, using Build 100's
-exact missed-line inventory. Ninety-six new targeted cases pass and COV-17 repairs late Lift
-editor results after disposal. Build 101 metadata is prepared; full cloud coverage/native checks
-are pending. `coverage-audit.md` and `todo.md` own evidence. Build 100 remains the cached candidate;
-no new percentage, binary or physical-device acceptance is claimed until verification finishes.
+The `coverage-expansion` extension adds 96 passing synthetic cases and repairs late Lift editor
+results after disposal (COV-17). All 3,685 app cases, package suites, 152 visual checks/607 captures,
+13 Python controls, native compilation and downloaded-artifact validation pass. `coverage-audit.md`
+owns exact gaps and test-substitute limits. The treadmill incline proposal remains unimplemented.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.
-- `coverage-audit.md` and `tool/coverage_gaps.py` — completed Build 100 coverage-directed follow-up, reusable uncovered-range/source-hash inventory, targeted/full evidence and remaining execution/native/physical limits; read before another audit or release.
+- `coverage-audit.md` and `tool/coverage_gaps.py` — completed Build 100/101 coverage-directed follow-ups, reusable uncovered-range/source-hash inventory, targeted/full evidence and remaining execution/native/physical limits; read before another audit or release.
 - `build-98-audit.md` — comprehensive Build 98 source/flow review, Build 99 repair contracts, completed software/coverage evidence and remaining physical limits; read before release or acceptance.
 - `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.
 - `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.

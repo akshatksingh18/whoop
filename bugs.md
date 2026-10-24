@@ -5,12 +5,12 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Build 91 is the last reported installation. Build 100 (`1277cd3a`,
-`0.9.67+100`, algorithm 99/schema 50) is the validated testing candidate. All 16 coverage-directed
+**Current verification:** Build 91 is the last reported installation. Build 101 (`9a92656f`,
+`0.9.68+101`, algorithm 99/schema 50) is the validated testing candidate. All 17 coverage-directed
 finding families, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are retained.
-Full run `40046857679` passes 3,589 app tests/429 skips, independent packages and 152 visual
-checks/607 captures; native `40044650218` and downloaded IPA validation pass. `setup.md` owns
-fingerprints. Handwritten Dart execution is 76.57%, with 11,724 instrumented lines unexecuted.
+Full run `40090172761` passes 3,685 app tests/429 skips, independent packages and 152 visual
+checks/607 captures; native `40090175199` and downloaded IPA validation pass. `setup.md` owns
+fingerprints. Handwritten Dart execution is 78.36%, with 10,832 instrumented lines unexecuted.
 The calm A+B interface and all scientific coefficients remain. Build 70 recovery is unchanged;
 physical/background/permission/gesture delivery, installation and signing gates remain open.
 
@@ -46,15 +46,17 @@ late editor results, acknowledged onboarding, recorded-zone manual workout corre
 expiry-before-calculation, bounded/coalesced startup, honest Zones read/reflow states and
 post-commit Lift refresh outcomes, failed-rescan retry, corrected-route map invalidation and
 secondary-settings read/save feedback.
-All 65 new cases pass in the clean full run; these repairs are in the cached Build 100 IPA.
+All 65 cases passed in its clean full run; these repairs remain in the cached Build 101 IPA.
 Phone/signing acceptance and the remaining execution inventory stay explicit in the audit.
 
-The next coverage extension reproduces another late-result family, COV-17: closing a split
+The Build 101 coverage extension reproduces another late-result family, COV-17: closing a split
 page while its rename/add/edit sheet is still open used a disposed state on return. Split
 and sibling live-Lift callbacks now reject results after their owner closes. Three failing
 navigation controls pass after the repair, within 27 deep Lift cases; 96 new targeted cases
-cover durable Lift/Food/data actions, motion retention and actual analysis exports. Full cloud
-regression/coverage and the Build 101 binary are pending. No layout or metric definition changes.
+cover durable Lift/Food/data actions, motion retention and actual analysis exports. Full run
+`40090172761` passes 3,685 app cases/429 skips, all packages and visual checks; handwritten
+execution is 78.36%, with 10,832 lines still unexecuted. Native `40090175199` and downloaded
+Build 101 validation pass. No layout or metric definition changes; physical acceptance stays open.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

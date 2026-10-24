@@ -34,17 +34,42 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Build 101 preparation
+## Build 101 candidate
 
-Build 101 (`0.9.68+101`, algorithm 99/schema 50) extends coverage with 96 passing targeted
-synthetic cases and repairs COV-17, late split/live-Lift editor results after owner disposal.
-Full cloud regression/coverage and native checks are pending. Build 100 remains the single
-cached testing candidate until the replacement is downloaded and validated. The treadmill
-proposal remains unimplemented. No signing identity, capability or scientific coefficient changes.
+Build 101 (`0.9.68+101`, algorithm 99/schema 50) extends coverage with 96 passing synthetic
+cases and repairs COV-17, late split/live-Lift editor results after owner disposal. App source:
+`9a92656f111d148cd2453ad4d3c48ff1c2f88ce0`. No layout, scientific coefficient, dependency,
+signing identity or capability changes. The treadmill proposal remains unimplemented.
 
-## Build 100 candidate
+Full run [40090172761](https://github.com/akshatksingh18/whoop/actions/runs/40090172761)
+passes **3,685 app tests/429 intentional skips**, zero analysis errors/warnings and 243 infos.
+Of the skips, 408 require absent golden baselines. Protocol passes 433/skip four; analytics
+passes 645/skip six. All 13 Python controls and 152 visual checks pass, with 607 synthetic captures.
+Root LCOV is 39,277/57,659 (68.12%). Excluding the same seven generated files, handwritten
+execution is **39,226/50,058 (78.36%)**, up from 76.57%: 902 more executed lines, 10 more
+instrumented lines, 10,832 still unexecuted. No exclusions were added. `coverage-audit.md` owns
+the exact inventory, remaining opportunities and test-substitute/physical limits.
 
-Build 100, version `0.9.67+100`, algorithm 99/schema 50, is the validated testing release from
+Native [40090175199](https://github.com/akshatksingh18/whoop/actions/runs/40090175199) passes.
+Downloaded `whoop-personal-9a92656f111d-unsigned.ipa` is 15,500,758 bytes; SHA-256
+`f0dfcd247f47644ced3f88268e312c9671d81b35d022df8a0d96b501f25818bd`.
+Manifest/source/version/checksum, complete ZIP CRC, personal payload and compiled Runner/App
+AOT checks pass; the source-revision literal is present in AOT. It is the single testing folder,
+`../final-ipas/whoop/testing/WHOOP-0.9.68-build101-9a92656f`, with the IPA, manifest, checksum,
+validation and build-info. Build 100's superseded folder went to the Windows Recycle Bin.
+
+Outgoing tracked source/history, synthetic fixtures, docs and artifacts were privacy-reviewed.
+The release record changes only technical documentation after the tested source, uses `[skip ci]`
+and retains the verified app/package/assets/iOS/dependency source. `main` and `local-backup`
+mirror the release record. Build 70 accepted recovery is unchanged (SHA-256
+`0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 remains
+the last reported installation. Build 101 is unsigned and not reported installed/accepted;
+data-preserving upgrade, current-version signing enrollment, native/background delivery and the
+device matrix remain open. Delivery does not promote recovery.
+
+## Build 100 artifact (superseded)
+
+Build 100, version `0.9.67+100`, algorithm 99/schema 50, was the validated testing release from
 `build-100`. App source is `1277cd3a44ee085d07889392819510a9e27b70fa`. All 16 confirmed
 coverage-directed finding families in `coverage-audit.md` are repaired, retaining the Build 99
 and earlier contracts and the approved A+B interface. All 65 new targeted cases pass.
@@ -77,9 +102,10 @@ updates audit hash normalization (five targeted Python controls pass) and docume
 changes no app implementation. It uses `[skip ci]` rather than repeat the identical app suite
 or native build. All changed tooling has its own passing small checks.
 
-The single testing folder is
-`../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`, with IPA, checksum, manifest,
-validation and build-info. Build 99's superseded testing folder went to the Recycle Bin;
+Its former testing folder,
+`../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`, went to the Recycle Bin when
+validated Build 101 replaced it. Its source/hash/runs above remain reproducible. Build 99's
+superseded testing folder also went to the Recycle Bin;
 its reproducible fingerprint remains below. Earlier failure/cancellation results and their
 resolved fixtures are recorded in `coverage-audit.md`; they are not counted as clean passes.
 
@@ -87,9 +113,10 @@ Scientific definitions, algorithm 99, schema 50, dependencies, BLE commit-before
 identity and capabilities are unchanged. Outgoing code, synthetic fixtures, technical docs and
 artifact metadata were privacy-reviewed; no private records, routes, photos, exports, captures
 or secrets were published. `main` is fast-forwarded to the release record and `local-backup`
-mirrors it. Build 70 recovery remains unchanged (SHA-256
+mirrored that release. Build 70 recovery remained unchanged (SHA-256
 `0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 is the last
-reported installation. Build 100 installation, current-version enrollment, data-preserving
+reported installation. Build 100 was not reported installed or accepted before replacement. Its
+installation, current-version enrollment, data-preserving
 upgrade, native/background delivery and the 72-hour matrix remain open. Keep the exact existing
 signed identity; artifact delivery is not phone acceptance or recovery promotion.
 

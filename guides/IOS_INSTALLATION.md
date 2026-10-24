@@ -1,11 +1,11 @@
 # WHOOP iPhone build
 
 **State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
-Build 100 (`0.9.67+100`, app source `1277cd3a`, algorithm 99/schema 50) is the validated unsigned
-candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`. All 16
+Build 101 (`0.9.68+101`, app source `9a92656f`, algorithm 99/schema 50) is the validated unsigned
+candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.68-build101-9a92656f`. All 17
 `../coverage-audit.md` repairs retain the Build 99 and earlier contracts. Full app/package/visual
-run `40046857679`, native `40044650218` and downloaded source/version/checksum/ZIP/payload
-checks pass. Akshat last reported Build 91 installed; Build 100 is not yet phone-accepted.
+run `40090172761`, native `40090175199` and downloaded source/version/checksum/ZIP/payload
+checks pass. Akshat last reported Build 91 installed; Build 101 is not yet phone-accepted.
 Build `0.9.37`/`70` remains accepted recovery in
 `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact artifact
 evidence; `../todo.md` and `../coverage-audit.md` own device checks. Installation and completion
@@ -79,10 +79,11 @@ and the bundle identity never changes.
 ## Acceptance
 
 The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
-Build 100 retains those repairs, the eighteen `../build-97-audit.md` contracts, all 22
-`../build-98-audit.md` repairs and the 16 `../coverage-audit.md` contracts. Full cloud/visual/native
-checks and replacement IPA validation pass; Builds 96–99 are historical payload evidence.
-Line coverage is 76.57%, not every-line or physical delivery proof.
+Build 101 retains those repairs, the eighteen `../build-97-audit.md` contracts, all 22
+`../build-98-audit.md` repairs and the 17 `../coverage-audit.md` contracts. Full cloud/visual/native
+checks and replacement IPA validation pass; Builds 96–100 are historical payload evidence.
+Handwritten Dart execution is 78.36%, with 10,832 instrumented lines still unexecuted;
+physical delivery and device acceptance remain open.
 
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,
 require the shared signing-health check to print `ENROLLED` for the exact WHOOP signed identity and

@@ -1,6 +1,6 @@
 # Treadmill walking: speed, incline and calorie ownership
 
-**Status:** Requested feature; source review and research proposal only. Build 100 does not
+**Status:** Requested feature; source review and research proposal only. The current app does not
 record treadmill settings. The calculation choice and full-page UI previews need review before
 implementation. No metric, schema, version, dependency or installed artifact changes here.
 

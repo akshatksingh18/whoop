@@ -580,7 +580,7 @@ other worktrees remain untouched.
   Handwritten execution is 38,324/50,048 (76.57%, up from 75.23%); 11,724 instrumented lines
   remain unexecuted. This is a completed directed software review, not every-branch/click or
   physical certification. Exact inventories and the new focused phone checklist remain available.
-- [ ] 3p. Treadmill incline walking (`treadmill-walking-plan.md`): requested, not in Build 100.
+- [ ] 3p. Treadmill incline walking (`treadmill-walking-plan.md`): requested, unimplemented.
   Propose Walk → Treadmill with entered speed/incline %, durable timed setting changes,
   pause/resume and editable history. Keep phone steps/counts; add only the incline increment
   to their existing Budget energy, with full ACSM walking as a separate comparison. This
@@ -588,17 +588,21 @@ other worktrees remain untouched.
   belongs to running; preserve its history. Review calculation/accuracy boundaries and full-page
   setup/live/summary/maintenance previews before implementation. No calorie/schema/version or
   IPA change now. Primary sources, missing-data/overlap rules and regression gates are in the plan.
-- [ ] 3q. Expand automated line execution from Build 100's 76.57% baseline on
+- [x] 3q. Expand automated line execution from Build 100's 76.57% baseline on
   `coverage-expansion`. Use the exact missed-line inventory; add meaningful deep-flow and
   failure/retry/retention controls, repair reproduced defects, then run full analysis/app/package
   and coverage checks on GitHub. Preserve the denominator, earlier tests, metric definitions,
   UI design and the separate unimplemented treadmill proposal. Report measured gain and remaining
   gaps; no every-click or physical certification. `coverage-audit.md` owns current evidence.
-  All 96 added cases pass targeted checks. COV-17 fixes split/exercise modal results after their
-  owner closes, including the sibling live editor/controller paths. Build 101 metadata is reserved
-  for the repair; full cloud coverage/app/package/visual checks and native/artifact validation
-  remain pending. Build 100 is still the cached testing candidate; no new percentage is claimed.
-- [ ] 4. Akshat's phone acceptance: check COV-01–16 in `coverage-audit.md`, then recheck
+  All 96 added cases pass. COV-17 fixes split/exercise modal results after their owner closes,
+  including sibling live paths. Full run `40090172761`: 3,685 app tests pass/429 skips,
+  zero analysis errors/warnings, all packages, 13 Python controls and 152 visual checks/607 captures.
+  Handwritten execution is 39,226/50,058 (78.36%): 902 more executed lines, 10 more instrumented,
+  and 10,832 still unexecuted. Native `40090175199` and downloaded source/checksum/CRC/AOT checks
+  pass. Build 101 (`0.9.68+101`, source `9a92656f`, algorithm 99/schema 50) is the single testing
+  candidate; Build 100's folder went to the Recycle Bin. Build 70 accepted recovery is unchanged.
+  `setup.md` owns fingerprints. Installation/signing/native-device acceptance remains open.
+- [ ] 4. Akshat's phone acceptance: check COV-01–17 in `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

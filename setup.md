@@ -52,6 +52,10 @@ merging and preservation of unsaved Journal drafts while adding a field. Thirtee
 seventeen existing targeted controls pass. These later changes require a new combined full run.
 COV-23 also preserves one-point decrements for larger live match scores. Nine match and fourteen
 goal-picker controls pass locally. The latest combined source awaits full cloud/native gates.
+COV-24's approved passphrase prompt uses built-in dialog scrolling at enlarged text. Ten UI
+controls pass; passphrase rules and the encrypted backup/container format are unchanged.
+The combined continuation totals 148 added targeted cases, with full cloud/native/artifact
+verification still required before replacing the testing candidate.
 
 ## Build 101 candidate
 

@@ -22,6 +22,8 @@ Selected-day reads do not inherit the recent-list limit; rough-night tags merge 
 the current note. The recent list and numerical/correlation definitions retain their meaning.
 COV-23 fixes typed live-match score decrements above 100; manual scores, closed/partial sets,
 drafts and summary transfer keep their existing meaning. No physiological metric changes.
+COV-24 keeps all backup/restore passphrase content reachable at enlarged text with built-in
+dialog scrolling. Input rules, exact passphrase bytes, cancellation and encrypted format stay unchanged.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

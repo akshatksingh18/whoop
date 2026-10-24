@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 const auditCaptureKey = ValueKey('audit-capture');
 
 Future<void> loadAuditFonts() async {
-  for (final family in ['Manrope', '.SF Pro Text']) {
+  for (final family in ['Manrope', '.SF Pro Text', 'Roboto']) {
     final loader = FontLoader(family);
     for (final file in Directory(
       'assets/fonts/Manrope',

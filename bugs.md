@@ -30,6 +30,10 @@ these repairs retain the existing page composition and metric definitions.
 COV-23 corrects a live-match decrement that jumped larger scores to 99. Nine match and fourteen
 goal-picker controls pass locally, including restart, Finish/Cancel, failed-save retry and
 large-text goal navigation. The combined source still needs full cloud verification.
+COV-24's approved correction makes the existing backup passphrase dialog scrollable at enlarged
+text. Ten prompt controls pass, with unchanged passphrase rules and backup format. The shared
+visual helper also uses readable substitute Material fonts. The combined COV-18–24 candidate
+awaits full app/package/visual/coverage and native/artifact gates; the remaining audit stays active.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

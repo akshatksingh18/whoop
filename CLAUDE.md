@@ -42,6 +42,9 @@ the validated Build 101 testing IPA is unchanged. COV-21/22 also repair historic
 atomic rough-night answers and custom-field draft loss, with targeted synthetic controls. The
 combined source also corrects live match-score decrements (COV-23), with match/goal-picker controls.
 It requires full cloud/native gates. No physiological score formula or scientific coefficient changes.
+COV-24's approved backup prompt correction adds scrolling at large text, with unchanged rules
+and format. The continuation totals 148 targeted synthetic cases; the remaining inventory is
+still active. `coverage-audit.md` distinguishes verified whole-suite coverage from newer local checks.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.

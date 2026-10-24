@@ -184,6 +184,7 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
     final creating = widget.creating;
     final l = AppLocalizations.of(c);
     return AlertDialog(
+      scrollable: true,
       title: Text(
         creating
             ? (l?.welcomeChoosePassphrase ?? 'Choose a passphrase')

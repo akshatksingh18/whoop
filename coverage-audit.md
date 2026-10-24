@@ -122,6 +122,25 @@ ages, measured/absent holding weights, failed-save retry, Back/Keep editing/Disc
 navigation at 2x/3.1x text. They found no new goal-calculation defect. These 23 cases are the next
 targeted pack, pending a fresh combined cloud run; they are not a new execution percentage.
 
+**COV-24 — backup passphrase dialogs overflow at enlarged text.**
+With readable substitute fonts, both creating and opening a backup overflow at 3.1x text.
+The keyboard-open baseline works; the earlier keyboard overflow was a block-font test artifact.
+Akshat approved the complete before/after preview in ignored
+`build/coverage-remainder/backup-preview/index.html`. The existing AlertDialog now uses its
+built-in scrolling content; all wording, obscured fields, exact passphrase bytes, creation
+minimum, older-backup unlock rules, encryption/container format and cancellation remain.
+Ten synthetic prompt controls pass, covering short/mismatched/empty entries, exact spaces,
+older short passphrases, Cancel and keyboard/large-text creation/restore. No cryptographic work
+or real backup data runs in these UI checks. The four full-scroll pressure states join the cloud
+visual job. The common render helper now supplies readable fonts for Material's Roboto family,
+as well as the existing app families, preventing false block-font reports.
+
+The continuation now adds **148 targeted cases** over the Build 101 baseline, with seven repair
+families COV-18–24. The combined latest source still needs its clean full cloud result and
+coverage artifact; 79.90%/10,068 is the last verified whole-suite measurement at `7830c577`,
+not the newer candidate's coverage. The remaining inventory is still active and is not all
+hardware blocked. Build 101 stays the validated cached candidate until replacement release gates pass.
+
 ## Build 100 baseline
 
 All 16 earlier families passed full run `40046857679` at fixture revision `40f9fee6`, whose

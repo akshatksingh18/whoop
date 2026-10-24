@@ -25,6 +25,10 @@ its original driver points, comparison ranges and dated HRV context, captioned a
 morning score. Older pins without original evidence keep their score/history and show
 "Morning breakdown unavailable". Do not reconstruct their explanation from a later sync.
 
+The approved COV-24 backup/restore correction keeps the existing passphrase dialog and wording,
+using built-in scrolling for its title/content at large text. Its actions stay available;
+fields, validation, cancellation and the backup format retain their existing meaning.
+
 The approved Build 95 repairs keep this composition: Body comparisons stack labels and intact
 values when text or width requires it, Notifications gives Mark all read its own full-width row,
 and enlarged notifications place time/unread context above the message. Save failures retain the

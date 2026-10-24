@@ -619,6 +619,10 @@ other worktrees remain untouched.
   COV-23 additionally corrects one-point decrements above 100 in live match scores. Nine match
   and fourteen goal-picker controls pass locally. Include the complete candidate in fresh
   app/package/visual/coverage checks; do not replace the cached IPA before release gates pass.
+  COV-24's full backup/restore-dialog preview is approved; the existing prompt now scrolls at
+  large text with all wording/rules/format retained. Ten synthetic prompt controls pass. The
+  continuation totals 148 new targeted cases. Fresh combined cloud/native/artifact gates and
+  the rest of the missed-line inventory remain open; do not call this an every-line certification.
   Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
   remainder with source evidence instead of padding the percentage. Keep native delivery and

@@ -98,10 +98,18 @@ affected paths again. No exclusions or no-op calls may be added just to improve 
   history failures remain explicit. Linked split/import cache hydration is best-effort only
   after commit; ordinary startup hydration remains strict and logs the post-commit failure.
 
-Thirteen added Dart files contain **52 targeted cases** for these contracts, real cold-start
+- **COV-14 — a failed recent-day refresh consumes its retry.** A real refused `day_result`
+  insert reproduces a stored baseline signature despite the failed day. The rescan now
+  acknowledges the signature only when every prepared day succeeds; failed/null preparations
+  retain the pending change and existing results. Retry with unchanged baseline succeeds, then
+  the subsequent clean rescan becomes a no-op. This repairs scheduling, not a scientific output
+  definition; algorithm 99 and every formula remain unchanged.
+
+Fourteen added Dart files contain **53 targeted cases** for these contracts, real cold-start
 routing with an optional notification failure, and GPS service/permission/sample boundaries.
 The GPS checks use simulated plugin results, not physical location delivery. Existing manual
-workout (11), startup/quarantine (7) and three legacy failure/cancellation cases also pass.
+workout (11), startup/quarantine (7), baseline-rescan (3) and three legacy failure/cancellation
+cases also pass.
 Four Python inventory checks and eight iOS contract checks pass. Fixture/compiler failures
 are not counted as app findings. Logs stay in ignored `build/coverage-audit/`.
 

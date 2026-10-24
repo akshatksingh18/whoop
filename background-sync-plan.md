@@ -50,7 +50,9 @@ of an arbitrary unresolved future, and the production gate ceiling/ACK protocol 
 An expired transfer also retains its original cancellation generation so a new calculation
 cannot start afterward. Startup presents Retry after its existing six-second ceiling, sharing
 one pending initialization across retries instead of overlapping it. Synthetic controls pass;
-these bounds do not cancel an arbitrary unresolved native read.
+these bounds do not cancel an arbitrary unresolved native read. A failed recent-day rescan
+also leaves the baseline signature unacknowledged, so an unchanged baseline can retry its
+failed days; successful days and normal calculation definitions are retained.
 Build 86 introduced one
 process-wide `DeriveStop` cancels running calculation on backgrounding and on BLE/BG-task
 expiration (isolates killed, no day marked skipped, job requeued); BLE wakes queue calculation

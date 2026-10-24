@@ -38,12 +38,12 @@ Reset also holds deletion/mirror cleanup against concurrent self-healing calcula
 including legacy preference-only anchors; two concurrency controls and all 16 durability cases
 pass. The delivered testing source includes B98-22. Earlier staging IPAs were never delivered.
 
-The coverage-directed follow-up on `build-100` is active in `coverage-audit.md`. Thirteen confirmed
+The coverage-directed follow-up on `build-100` is active in `coverage-audit.md`. Fourteen confirmed
 families have source repairs and initial targeted evidence: restoration/gate transport stops,
 recoverable diagnostics, concurrent/replay-safe Pushups inbox files, atomic linked Lift edits,
 late editor results, acknowledged onboarding, recorded-zone manual workout corrections,
 expiry-before-calculation, bounded/coalesced startup, honest Zones read/reflow states and
-post-commit Lift refresh outcomes.
+post-commit Lift refresh outcomes and retries after a failed recent-day rescan.
 They are not in the cached Build 99 IPA; full successor verification remains open.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of

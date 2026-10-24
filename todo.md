@@ -569,7 +569,7 @@ other worktrees remain untouched.
   Classify every remaining region, add meaningful synthetic checks and repair confirmed faults;
   keep generated/dormant/native/physical limits explicit. No successor release or percentage
   improvement is claimed until appropriate targeted/full cloud checks pass. Build 99 stays cached.
-  Thirteen confirmed families now have repairs and 52 added targeted controls. Real cold boot,
+  Fourteen confirmed families now have repairs and 53 added targeted controls. Real cold boot,
   GPS plugin boundaries and Zones read/retry/large-text paths supplement the existing flow proofs.
   The first full run exposed three incomplete legacy storage-path fixtures; their original
   assertions now pass with synthetic path providers. The clean full rerun and gap classification

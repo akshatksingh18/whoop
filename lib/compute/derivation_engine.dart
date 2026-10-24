@@ -3576,6 +3576,7 @@ class DerivationEngine {
       final orderedDays = todoDays.reversed.toList();
       var done = 0;
       var completed = 0;
+      var failures = 0;
 
       Future<void> processDay(String dayId) async {
         if (DeriveStop.generation != stopGen) return;
@@ -3584,9 +3585,12 @@ class DerivationEngine {
           if (prepared != null) {
             await _derivePreparedDay(prepared, profile, dataNowSec, history);
             done++;
+          } else {
+            failures++;
           }
         } catch (e) {
           if (DeriveStop.generation != stopGen) return;
+          failures++;
           _log('rescan day $dayId FAILED/skipped: $e');
           // Do NOT mark-skipped here — a finalized day already has a good row;
           // overwriting it with a skip marker would DISCARD real structure.
@@ -3604,8 +3608,13 @@ class DerivationEngine {
       DeriveStop.check(stopGen);
       await _runCrossDay(profile);
       await _runNotifications();
-      // Store the new signature so the next tick is a cheap no-op until it moves.
-      await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      // Only acknowledge a complete refresh. A failed day keeps its old result
+      // and must retry even when the baseline itself has not moved again.
+      if (failures == 0) {
+        await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      } else {
+        _log('rescan incomplete: $failures day(s) remain pending');
+      }
       return done;
     } catch (e, st) {
       if (DeriveStop.generation != stopGen) {

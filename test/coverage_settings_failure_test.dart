@@ -51,13 +51,17 @@ Future<void> settleIo(WidgetTester t) async {
 
 Future<void> captureFailure(WidgetTester t, String name) async {
   if (!const bool.fromEnvironment('UI_CAPTURE')) return;
-  await captureAuditScroll(t, name, prefix: 'build100');
+  t.view.physicalSize = const Size(1170, 2700);
+  t.view.devicePixelRatio = 3;
   try {
+    await t.pumpAndSettle();
+    await captureAuditScroll(t, name, prefix: 'build100');
     t.platformDispatcher.textScaleFactorTestValue = 3.1;
     await t.pumpAndSettle();
     await captureAuditScroll(t, '${name}_large', prefix: 'build100');
   } finally {
     t.platformDispatcher.clearTextScaleFactorTestValue();
+    t.view.reset();
     await t.pumpAndSettle();
   }
 }

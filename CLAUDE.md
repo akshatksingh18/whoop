@@ -28,8 +28,9 @@ physical-device matrix remain open. Instrumented handwritten Dart line coverage 
 not every-line, every-click or hardware certification. Earlier build notes are in `build-history.md`.
 
 The coverage-directed follow-up is active on `build-100`, reserved as `0.9.67+100`.
-`coverage-audit.md` owns new fault controls, repairs and remaining review. No successor binary,
-full-check result or coverage gain is claimed; the Build 99 cache above remains unchanged.
+`coverage-audit.md` owns new fault controls, repairs and remaining verification. Native compilation
+and staged IPA validation pass; a clean full-check result and coverage gain are not yet claimed.
+The Build 99 testing cache above remains unchanged.
 
 ## Files
 - `coverage-audit.md` and `tool/coverage_gaps.py` — current coverage-directed follow-up to Build 99, reusable uncovered-range/source-hash inventory, targeted evidence and remaining native/physical limits; read before continuing `build-100`.

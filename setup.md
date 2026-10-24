@@ -38,8 +38,9 @@ reviewed source revisions and must move with any deliberate package update.
 
 `build-100` reserves `0.9.67+100`, retaining algorithm 99/schema 50 and the existing dependency,
 identity and capability contracts. `coverage-audit.md` owns the baseline, new fault controls,
-source repairs and remaining review/verification. No Build 100 binary or coverage improvement
-is claimed yet; Build 99 below remains the testing IPA and Build 70 remains accepted recovery.
+source repairs and remaining verification. Native source `1277cd3a` passes run `40044650218`
+and staged payload validation. A clean full-suite result and coverage improvement are not yet
+claimed; Build 99 below remains the testing IPA and Build 70 remains accepted recovery.
 
 ## Build 99 candidate
 

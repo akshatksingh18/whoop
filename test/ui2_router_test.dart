@@ -461,7 +461,9 @@ void main() {
     testWidgets('the band goes, the phone stays, the pair affordance appears',
         (tester) async {
       _tallView(tester);
-      final app = AppState()
+      // This checks source-row presentation, not platform startup. Cold boot
+      // and bounded/retried initialization have separate integration controls.
+      final app = AppState.forTesting()
         ..paired = PairedDevice('AA:BB:CC:DD:EE:FF', 'SER1')
         ..phoneStepsEnabled = true
         ..phoneStepsLastSyncedDays = 1

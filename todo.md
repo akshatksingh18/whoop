@@ -573,7 +573,10 @@ other worktrees remain untouched.
   GPS plugin boundaries and Zones read/retry/large-text paths supplement the existing flow proofs.
   The first full run exposed three incomplete legacy storage-path fixtures; their original
   assertions now pass with synthetic path providers. Concern-level gap review is recorded;
-  exact unexecuted ranges remain explicit. The clean full rerun and successor delivery remain open; `coverage-audit.md` owns evidence.
+  exact unexecuted ranges remain explicit. A later full run passed 3,588 cases with one old
+  router fixture leaving startup pending; its 39 cases and both real startup controls now pass
+  together. Phone-width failure captures also pass nine focused cases. Native/staged IPA checks
+  pass, but the clean full rerun and successor delivery remain open; `coverage-audit.md` owns evidence.
 - [ ] 4. Akshat's phone acceptance: recheck B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

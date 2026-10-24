@@ -1,7 +1,8 @@
 # Coverage-directed audit
 
-**Status:** Active review of the unexecuted and unimported paths in validated Build 99, on
-`build-100`. Build 99 remains the testing IPA; no successor behavior or coverage gain is claimed.
+**Status:** Coverage-directed software review and 16 repair families are implemented on
+`build-100`. Final full verification is pending for source `1277cd3a`; Build 99 remains the
+testing IPA until it passes. No successor coverage gain or physical acceptance is claimed.
 
 ## Baseline and reuse
 
@@ -177,6 +178,25 @@ original assertions and pass all three targeted cases. A clean full rerun is sti
 coverage from the failed run is preliminary, not successor verification. Intermediate runs `40042565354`, `40043039909` and native
 `40043061254` were cancelled as superseded while the remaining source review found additional
 repairs; cancellation is not a failing test or a release result.
+
+Full app/package/visual/coverage run `40044648006` at source `1277cd3a` passes analysis,
+packages and visuals, with 3,588 app cases passing, 429 skips and one old fixture failure.
+The pairing source-row fixture started platform initialization without awaiting it, leaving
+the six-second startup timeout pending at test teardown. It now uses `AppState.forTesting`;
+all pairing assertions remain. All 39 router cases and both separate real startup controls
+pass together. A clean full rerun remains required; its interim coverage is not release proof.
+Native run `40044650218` passes, and the staged unsigned `0.9.67+100` IPA passes downloaded
+manifest/source/version/checksum, full ZIP CRC and compiled Runner/AOT payload checks. Its
+SHA-256 is `3251c08089021f18af9d551e6b1738fb46e02294f01dc796ac7dbcb078f1d183`.
+Native success alone does not replace the cache or close the full-suite/visual and phone gates.
+
+The cloud visual job passes with 606 synthetic captures. Review found that its new settings
+failure captures used the default wide test window. The two capture fixtures now use a
+390-logical-pixel phone viewport; a focused nine-case local run passes and produces 19
+full-scroll phone captures, including standard/3.1× error states. Retry remains reachable
+through the enlarged Pushups page. This is a test-fixture correction only: app source remains
+identical to `1277cd3a`. One earlier Today scroll frame is no longer required to reach the
+bottom; the final viewport still contains the maintenance card and navigation.
 
 ## Limits
 

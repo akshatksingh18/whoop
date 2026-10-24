@@ -43,6 +43,9 @@ void main() {
   testWidgets(
     'failed zones read is retryable and never claims missing evidence',
     (t) async {
+      t.view.physicalSize = const Size(1170, 2700);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
       final repo = _Repo();
       final app = AppState.forTesting()..repo = repo;
       addTearDown(app.dispose);

@@ -109,6 +109,19 @@ for COV-21/22, including older-day conflict refresh, concurrent tag additions, r
 write/retry, time-picker cancellation and custom-field validation/kind changes. Seventeen existing
 save/conflict and neighboring controls also pass locally. New full cloud verification is pending.
 
+**COV-23 — one match-score decrement can remove many points above 100.**
+The live match screen allows point increments above 100, but its decrement clamped the result
+to 99. Four failing controls reproduce the jump for both sides at two valid larger scores.
+Decrement now removes exactly one point while retaining the zero floor. The existing display,
+draft shape, scoring feature and all physiological/calorie calculations stay unchanged. Nine
+live-match controls pass for the correction, zero/point controls, closed-set append/reset,
+restart, Finish cancellation and transfer of closed/partial sets into the summary.
+
+Fourteen additional goal-picker controls pass for all phases, all fat-loss paces and training
+ages, measured/absent holding weights, failed-save retry, Back/Keep editing/Discard and full
+navigation at 2x/3.1x text. They found no new goal-calculation defect. These 23 cases are the next
+targeted pack, pending a fresh combined cloud run; they are not a new execution percentage.
+
 ## Build 100 baseline
 
 All 16 earlier families passed full run `40046857679` at fixture revision `40f9fee6`, whose

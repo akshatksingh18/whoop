@@ -50,6 +50,8 @@ Build 101 folder below remains unchanged.
 The combined candidate also includes COV-21/22: exact-day Journal reads, atomic rough-night tag
 merging and preservation of unsaved Journal drafts while adding a field. Thirteen new and
 seventeen existing targeted controls pass. These later changes require a new combined full run.
+COV-23 also preserves one-point decrements for larger live match scores. Nine match and fourteen
+goal-picker controls pass locally. The latest combined source awaits full cloud/native gates.
 
 ## Build 101 candidate
 

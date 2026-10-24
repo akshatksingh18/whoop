@@ -20,6 +20,8 @@ remain pending. No valid-input metric definition or scientific coefficient chang
 COV-21/22 preserve historical Journal notes/tags and unsaved drafts when adding a custom field.
 Selected-day reads do not inherit the recent-list limit; rough-night tags merge atomically with
 the current note. The recent list and numerical/correlation definitions retain their meaning.
+COV-23 fixes typed live-match score decrements above 100; manual scores, closed/partial sets,
+drafts and summary transfer keep their existing meaning. No physiological metric changes.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

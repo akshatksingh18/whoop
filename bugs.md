@@ -27,6 +27,9 @@ COV-21 restores exact historical Journal reads and atomic rough-night tag additi
 keeps unsaved Journal edits while a custom field is created. Thirteen new synthetic controls
 and seventeen existing neighboring controls pass locally. Full cloud verification is pending;
 these repairs retain the existing page composition and metric definitions.
+COV-23 corrects a live-match decrement that jumped larger scores to 99. Nine match and fourteen
+goal-picker controls pass locally, including restart, Finish/Cancel, failed-save retry and
+large-text goal navigation. The combined source still needs full cloud verification.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

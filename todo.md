@@ -616,6 +616,9 @@ other worktrees remain untouched.
   COV-21/22 additionally repair historical Journal reads/tag merging and custom-field draft loss.
   Thirteen new controls pass, including a complete draft-to-Save round trip; seventeen existing
   neighboring controls pass. Include these source changes in the next clean full run.
+  COV-23 additionally corrects one-point decrements above 100 in live match scores. Nine match
+  and fourteen goal-picker controls pass locally. Include the complete candidate in fresh
+  app/package/visual/coverage checks; do not replace the cached IPA before release gates pass.
   Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
   remainder with source evidence instead of padding the percentage. Keep native delivery and

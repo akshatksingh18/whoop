@@ -34,6 +34,12 @@ def ranges(numbers):
     return result
 
 
+def source_hash(file):
+    # Git checkouts use CRLF on Windows and LF on Linux. Compare source content,
+    # not checkout line endings, when carrying audit evidence between hosts.
+    return hashlib.sha256(file.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def inventory(records, repo):
     repo = Path(repo).resolve()
     result = []
@@ -55,7 +61,7 @@ def inventory(records, repo):
         missed = [n for n, hits in lines.items() if hits == 0]
         result.append({
             "path": relative,
-            "sha256": hashlib.sha256(file.read_bytes()).hexdigest() if file.exists() else None,
+            "sha256": source_hash(file) if file.exists() else None,
             "generated": file.name.startswith("app_localizations"),
             "instrumented": len(lines),
             "executed": len(lines) - len(missed),
@@ -65,12 +71,13 @@ def inventory(records, repo):
     for file in sorted((repo / "lib").rglob("*.dart")):
         relative = file.relative_to(repo).as_posix()
         if relative not in imported:
-            absent.append({"path": relative, "sha256": hashlib.sha256(file.read_bytes()).hexdigest()})
+            absent.append({"path": relative, "sha256": source_hash(file)})
     handwritten = [r for r in result if not r["generated"]]
     found = sum(r["instrumented"] for r in handwritten)
     hit = sum(r["executed"] for r in handwritten)
     return {
         "meaning": "Executed lines, not manual review, branch correctness or native delivery",
+        "source_hash_basis": "SHA-256 of source with CRLF normalized to LF",
         "handwritten": {"instrumented": found, "executed": hit, "unexecuted": found - hit,
                         "percent": round(100 * hit / found, 2) if found else None},
         "files": result,

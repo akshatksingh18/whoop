@@ -1,15 +1,15 @@
 # WHOOP iPhone build
 
 **State:** The committed Xcode project is the standalone personal release/AOT iPhone app.
-Build 99 (`0.9.66+99`, app source `e52d571a`, algorithm 99/schema 50) is the validated unsigned
-candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.66-build99-e52d571a`. All 22
-`../build-98-audit.md` repairs are implemented, retaining earlier repair contracts. Full cloud
-analysis/tests/visuals, the macOS build and downloaded source/version/checksum/ZIP/payload checks
-pass. Akshat last reported Build 91 installed; Build 99 is not yet installed or phone-accepted.
+Build 100 (`0.9.67+100`, app source `1277cd3a`, algorithm 99/schema 50) is the validated unsigned
+candidate in `../../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`. All 16
+`../coverage-audit.md` repairs retain the Build 99 and earlier contracts. Full app/package/visual
+run `40046857679`, native `40044650218` and downloaded source/version/checksum/ZIP/payload
+checks pass. Akshat last reported Build 91 installed; Build 100 is not yet phone-accepted.
 Build `0.9.37`/`70` remains accepted recovery in
 `../../final-ipas/whoop/backup/WHOOP-0.9.37-build70-accepted`. `../setup.md` owns exact artifact
-evidence and `../todo.md` owns phone checks. This state changes on installation and completion
-of device/signing gates, not on compilation alone.
+evidence; `../todo.md` and `../coverage-audit.md` own device checks. Installation and completion
+of current-version device/signing gates change acceptance, not compilation alone.
 
 The app reads the iPhone's own pedometer when **This phone → Steps** is on and does not use Apple
 Health. Earlier builds verified encrypted restore, data/pairing continuity, exact-ID manual refresh
@@ -79,9 +79,10 @@ and the bundle identity never changes.
 ## Acceptance
 
 The independent `../build-96-audit.md` reproduces seven additional faults in Build 96.
-Build 99 retains those repairs, the eighteen `../build-97-audit.md` contracts and all 22
-`../build-98-audit.md` repairs. Full cloud/visual/native checks and replacement IPA validation pass; Builds 96–98
-are retained only as historical payload evidence.
+Build 100 retains those repairs, the eighteen `../build-97-audit.md` contracts, all 22
+`../build-98-audit.md` repairs and the 16 `../coverage-audit.md` contracts. Full cloud/visual/native
+checks and replacement IPA validation pass; Builds 96–99 are historical payload evidence.
+Line coverage is 76.57%, not every-line or physical delivery proof.
 
 Before promotion, inspect the payload, perform a fresh install and a same-ID in-place upgrade,
 require the shared signing-health check to print `ENROLLED` for the exact WHOOP signed identity and

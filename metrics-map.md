@@ -3,17 +3,17 @@
 Everything the app stores and where it appears in the personal iPhone app. This file is the
 reference for keeping recorded values, absences, estimates and their destinations consistent.
 
-**Status:** Build 99 (`e52d571a`, `0.9.66+99`) is the single validated testing candidate;
-Build 91 remains the last reported installation. The A framework and B calorie-ring/macros are
-retained. All 22 faults in `build-98-audit.md`, eighteen in `build-97-audit.md`, seven in `build-96-audit.md` and the
-29 earlier repairs are implemented. Full cloud analysis/tests, synthetic visual checks, native
-compilation and downloaded IPA validation pass. `setup.md` owns evidence; `todo.md` owns phone
-gates. Build 70 remains recovery. No scientific coefficient or headline formula changes.
+**Status:** Build 100 (`1277cd3a`, `0.9.67+100`) is the single validated testing candidate;
+Build 91 is the last reported installation. The A framework and B calorie-ring/macros remain.
+All 16 coverage-directed, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are
+implemented. Full app/package/visual/native checks and downloaded IPA validation pass.
+`setup.md` owns exact evidence; `todo.md` owns phone gates. Build 70 remains recovery.
+Algorithm 99/schema 50 and scientific coefficients/headline formulas are unchanged.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh
 and visible live checkpoint failures. Algorithm 98 versions session profile/run/day attribution;
-scientific formulas are unchanged. `todo.md` 3n distinguishes current completed software verification
+scientific formulas are unchanged. `todo.md` 3o distinguishes current completed software verification
 from the unexecuted installation, signing and physical-device matrix.
 
 The completed Build 99 review is `build-98-audit.md`. Its repairs keep profile
@@ -54,13 +54,13 @@ submission to iOS, inferred due schedules and unknown legacy delivery; none prov
 was seen. Read state changes only after durable writes. Retained device detail refreshes on
 committed battery changes and foreground return, not on every live-HR tick.
 
-The uncached Build 100 coverage follow-up (`coverage-audit.md`) retains algorithm 99/schema 50.
+The validated Build 100 coverage follow-up (`coverage-audit.md`) retains algorithm 99/schema 50.
 Zones read failures are distinct from absent measured ceilings; failed settings reads do not
 expose editable default choices. Lift saves distinguish post-commit history/cache refresh
 warnings from refused writes, and corrected run tracks invalidate their map projections. The
 baseline rescan leaves failed days pending for retry. These repair publication/error handling;
-scientific definitions and calorie coefficients are unchanged. Full successor checks and device
-acceptance must be read separately from Build 99's evidence above.
+scientific definitions and calorie coefficients are unchanged. Full run `40046857679`, native
+`40044650218` and downloaded IPA checks pass; device acceptance remains separate.
 
 ## What is stored
 
@@ -747,7 +747,7 @@ what each tab still contains.
 - **Pushups:** completed-set events, separate goal/streak/history and optional Home auto-pause;
   never sensor-measured reps, strain, maintenance calories or general activity-streak credit.
   Always permission is approved for Home only, not a new walking requirement.
-  The uncached Build 100 follow-up publishes each background notification action as its own
+  Build 100 publishes each background notification action as its own
   atomic inbox file, retaining legacy arrays. SQLite receipts deduplicate replay; failed commit
   or unreadable input retains pending files, and reset clears the owned inbox. This changes
   delivery durability only; it does not infer reps or change any metric formula.

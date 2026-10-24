@@ -5,13 +5,14 @@ personal product scope is now iPhone-only, so no Android fix, build, or device v
 unless that scope is explicitly reopened. The active work is proving the separate CoreBluetooth
 restoration and reconnection path on the personal iPhone build.
 
-**Current verification:** Build 91 is the last reported installation. Build 99 (`e52d571a`,
-`0.9.66+99`, algorithm 99/schema 50) is the validated testing candidate. All 22 B98-01–22,
-eighteen B97, seven B96 and 29 earlier repair contracts are retained. Full app/package/visual
-checks, the macOS build and downloaded IPA validation pass; `setup.md` owns source/hash/workflow
-evidence. The calm A+B presentation remains; no feature or scientific coefficient changed.
-Build 70 recovery is unchanged. Physical background/restoration, native permissions, gestures,
-delivery, current-version installation and signing gates remain open in `todo.md`.
+**Current verification:** Build 91 is the last reported installation. Build 100 (`1277cd3a`,
+`0.9.67+100`, algorithm 99/schema 50) is the validated testing candidate. All 16 coverage-directed
+finding families, 22 B98, eighteen B97, seven B96 and 29 earlier repair contracts are retained.
+Full run `40046857679` passes 3,589 app tests/429 skips, independent packages and 152 visual
+checks/607 captures; native `40044650218` and downloaded IPA validation pass. `setup.md` owns
+fingerprints. Handwritten Dart execution is 76.57%, with 11,724 instrumented lines unexecuted.
+The calm A+B interface and all scientific coefficients remain. Build 70 recovery is unchanged;
+physical/background/permission/gesture delivery, installation and signing gates remain open.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge
@@ -30,7 +31,7 @@ cleanup, recorded travel-day consistency, restored profile anchors, active lifti
 barcode input/opt-in/scrolling. Forty-six added checks have passing targeted groups, alongside
 existing settings/cache/nutrient/consent checks. Run voice, reminder/reset cancellation, backup metadata/ordering and
 Body read/camera lifecycle, invalid GPS input, elapsed-alarm wording and Food timestamp
-preservation and honest unavailable-timeline wording are in the cached Build 99 IPA. Full run
+preservation and honest unavailable-timeline wording were verified in Build 99 and are retained in Build 100. Full run
 `40003142620` passes 3,524 app tests (429 intentional skips), independent protocol/analytics
 suites and 143 visual checks/589 captures; native `40002250844` and local payload checks pass.
 Instrumented handwritten root Dart coverage is 75.23%, not every-line or hardware verification.
@@ -38,14 +39,15 @@ Reset also holds deletion/mirror cleanup against concurrent self-healing calcula
 including legacy preference-only anchors; two concurrency controls and all 16 durability cases
 pass. The delivered testing source includes B98-22. Earlier staging IPAs were never delivered.
 
-The coverage-directed follow-up on `build-100` is active in `coverage-audit.md`. Sixteen confirmed
-families have source repairs and initial targeted evidence: restoration/gate transport stops,
+The coverage-directed follow-up in `coverage-audit.md` is complete in Build 100. Sixteen confirmed
+families have source repairs and full-suite regression evidence: restoration/gate transport stops,
 recoverable diagnostics, concurrent/replay-safe Pushups inbox files, atomic linked Lift edits,
 late editor results, acknowledged onboarding, recorded-zone manual workout corrections,
 expiry-before-calculation, bounded/coalesced startup, honest Zones read/reflow states and
 post-commit Lift refresh outcomes, failed-rescan retry, corrected-route map invalidation and
 secondary-settings read/save feedback.
-They are not in the cached Build 99 IPA; full successor verification remains open.
+All 65 new cases pass in the clean full run; these repairs are in the cached Build 100 IPA.
+Phone/signing acceptance and the remaining execution inventory stay explicit in the audit.
 
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does

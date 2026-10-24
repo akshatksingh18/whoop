@@ -1,8 +1,9 @@
 # Coverage-directed audit
 
-**Status:** Coverage-directed software review and 16 repair families are implemented on
-`build-100`. Final full verification is pending for source `1277cd3a`; Build 99 remains the
-testing IPA until it passes. No successor coverage gain or physical acceptance is claimed.
+**Status:** Coverage-directed software review and all 16 repair families are complete in
+validated Build 100. Full run `40046857679` passes at fixture revision `40f9fee6`, whose app
+source is identical to `1277cd3a`. Native run `40044650218` and downloaded IPA validation pass.
+Build 100 is the single testing candidate; physical iPhone/signing acceptance remains open.
 
 ## Baseline and reuse
 
@@ -11,6 +12,27 @@ Root LCOV exercises 37,534/49,891 instrumented handwritten Dart lines (75.23%): 
 instrumented lines were not executed**. Five handwritten files were not imported at all.
 This is execution coverage, not the proportion of source reviewed. It excludes native iOS
 and independent package suites, and does not measure branch correctness or physical delivery.
+
+## Verified result
+
+The clean full run passes **3,589 app tests / 429 intentional skips**, including all 65 new
+cases. Of the skips, 408 need absent golden baselines. Analysis has zero errors/warnings and
+235 informational lints. Protocol passes 433/skip four; analytics passes 645/skip six. The
+visual jobs pass 152 checks and produce 607 synthetic captures. Eight iOS contract checks
+and the four original inventory controls pass in CI; all five inventory controls pass locally.
+
+Root LCOV records 38,375/57,649 lines (66.57%) across 203 imported Dart files. Excluding seven
+generated localization files, handwritten execution is **38,324/50,048 (76.57%)** in 196 files,
+up from 75.23%. There are 790 more executed lines; the instrumented denominator also grew by
+157, so this is not a claim that 790 old missed lines were all exercised. **11,724 instrumented
+handwritten lines remain unexecuted.** The production entrypoint and error logger are now
+imported/exercised. The three unimported files are the build-profile constant and two UI barrel
+exports; importing them would not establish another user flow.
+
+The exact final inventory is ignored `build/coverage-audit/build100-final.json`, alongside the
+canonicalized Build 99 baseline. No denominator filters or exclusions were added to raise the
+percentage. Native iOS, independent package suites, branch correctness and physical delivery
+remain outside this root line-coverage measure.
 
 Reuse the repair contracts and passing tests in `build-98-audit.md`, `build-97-audit.md`,
 `build-96-audit.md` and `build-95-repairs.md`. Revisit their implementation only where an
@@ -21,6 +43,10 @@ the previous broad screen sweep or count a previously passing test as a new regr
 from an LCOV artifact. Generated output belongs in ignored `build/coverage-audit/`; unchanged
 source hashes allow review evidence to carry forward. A changed hash requires checking the
 affected paths again. No exclusions or no-op calls may be added just to improve the percentage.
+Hashes normalize CRLF to LF so Windows/Linux checkout formatting does not invalidate unchanged
+source evidence. Every handwritten baseline hash is checked against the `e52d571a` Git blob;
+generated checkout files are excluded from source-review carryover. The five inventory controls
+include equivalent LF/CRLF content and a real-edit counterexample.
 
 ## Review coverage and remaining execution
 
@@ -37,8 +63,8 @@ affected paths again. No exclusions or no-op calls may be added just to improve 
 - [x] Trace the BLE/derivation/repository misses against commit-before-ACK, cancellation,
   retention/finalization, absent input and versioned publication. COV-14 adds the failed-rescan
   retry control; no decoder, coefficient, ACK or scientific definition changes.
-- [ ] Complete full cloud analysis, app/package suites, final coverage and full-scroll capture
-  review for the final implementation. Do not use a superseded/cancelled run as release proof.
+- [x] Complete full cloud analysis, app/package suites, final coverage and full-scroll capture
+  review for the final implementation in `40046857679`; earlier failed/cancelled runs are not release proof.
 - [ ] Physical iPhone/band acceptance remains separate: permissions, radio/restoration,
   real GPS/background/audio/notifications, camera/share gestures, signing and soak.
 
@@ -167,7 +193,9 @@ routing with an optional notification failure, and GPS service/permission/sample
 The GPS checks use simulated plugin results, not physical location delivery. Existing manual
 workout (11), startup/quarantine (7), baseline-rescan (3) and three legacy failure/cancellation
 cases also pass.
-Four Python inventory checks and eight iOS contract checks pass. Fixture/compiler failures
+Five Python inventory checks and eight iOS contract checks pass locally. The four original
+inventory controls also pass in the cloud; the fifth checks cross-host source-hash equivalence.
+Fixture/compiler failures
 are not counted as app findings. Logs stay in ignored `build/coverage-audit/`.
 
 The first full cloud run, [40015378904](https://github.com/akshatksingh18/whoop/actions/runs/40015378904),
@@ -184,19 +212,23 @@ packages and visuals, with 3,588 app cases passing, 429 skips and one old fixtur
 The pairing source-row fixture started platform initialization without awaiting it, leaving
 the six-second startup timeout pending at test teardown. It now uses `AppState.forTesting`;
 all pairing assertions remain. All 39 router cases and both separate real startup controls
-pass together. A clean full rerun remains required; its interim coverage is not release proof.
-Native run `40044650218` passes, and the staged unsigned `0.9.67+100` IPA passes downloaded
+pass together. The clean full rerun `40046857679` passes; the earlier run's interim coverage is not release proof.
+Native run `40044650218` passes, and the cached unsigned `0.9.67+100` IPA passes downloaded
 manifest/source/version/checksum, full ZIP CRC and compiled Runner/AOT payload checks. Its
 SHA-256 is `3251c08089021f18af9d551e6b1738fb46e02294f01dc796ac7dbcb078f1d183`.
-Native success alone does not replace the cache or close the full-suite/visual and phone gates.
+Full software/native/payload checks now pass and the testing cache contains Build 100. Phone
+acceptance and signing gates remain open; Build 70 recovery is unchanged.
 
-The cloud visual job passes with 606 synthetic captures. Review found that its new settings
-failure captures used the default wide test window. The two capture fixtures now use a
-390-logical-pixel phone viewport; a focused nine-case local run passes and produces 19
-full-scroll phone captures, including standard/3.1× error states. Retry remains reachable
-through the enlarged Pushups page. This is a test-fixture correction only: app source remains
-identical to `1277cd3a`. One earlier Today scroll frame is no longer required to reach the
-bottom; the final viewport still contains the maintenance card and navigation.
+The final cloud visual job in `40046857679` passes **152 checks and 607 synthetic captures**,
+including 19 focused phone-width captures. Review of the earlier job found its new settings
+failure captures used the default wide test window; the two fixtures now use a
+390-logical-pixel phone viewport. A focused nine-case local run also passes. Standard/3.1×
+read failures and every enlarged Zones scroll position were inspected; Retry remains reachable
+through the enlarged Pushups page. Existing Today/Trends/Food/Train/Progress/Body samples retain
+their composition. These are test-fixture corrections only: app source remains identical to
+`1277cd3a`. One earlier Today scroll frame is no longer required to reach the bottom; the final
+viewport still contains the maintenance card and navigation. Captures use substituted fonts,
+not physical iPhone typography, and are not comparisons with absent golden baselines.
 
 ## Limits
 
@@ -206,3 +238,28 @@ radio/GPS/audio/permission delivery, signing and soak still need the iPhone. Syn
 channel checks establish app reactions, not what iOS or the band physically did. Pure constants,
 barrel exports, generated strings and dormant upstream-era screens must not be called tested
 user flows. A 100% headline is not a substitute for these distinctions.
+
+## Focused phone acceptance
+
+Use the existing encrypted database/photo recovery and same-ID upgrade procedure before installing
+the candidate. Keep Build 70 recovery until current-version device/signing acceptance is reported.
+Do not corrupt live storage, alter the phone clock or force database failures to repeat synthetic tests.
+
+- **Closed-app Pushups:** take separate Done/Pause notification actions, reopen, inspect the
+  session history, then reopen again. Each real delivery must appear once and reminders must
+  follow the saved session. Actual iOS delivery remains unproved by the file/receipt tests.
+- **Train and Lift:** log a set with rest enabled, change a linked split, return through history
+  and relaunch. The saved set/split and timer must agree; initial history failure must retain Retry.
+- **Historical workout editing:** inspect an existing recorded travel day if available. An
+  untouched start/end must remain exact, and an explicit edit must display in that day's zone.
+- **Run/Walk maps:** record a short safe route, inspect its cursor, correct the saved route if
+  that flow is used, and revisit it. Real GPS accuracy, native snapshots and background voice
+  need the phone; the automated map check substitutes the channel response.
+- **Deeper pages:** open Train → Strain → Zones, Settings → Notifications, Pushups settings and
+  Progress → Body settings at normal/enlarged text. Reach the last section and every action.
+  Saved choices must survive returning to the page; Retry must remain available if a read fails.
+- **Startup/background/signing:** cold-open and resume after ordinary background use, then
+  complete the existing BLE-restoration, notification/permission, data-preserving upgrade,
+  current-version refresh enrollment and 72-hour matrix in `todo.md` and the iOS guides.
+
+The 16 repaired families are software contracts, not a substitute for those physical outcomes.

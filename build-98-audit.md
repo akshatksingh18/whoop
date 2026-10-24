@@ -1,10 +1,11 @@
 # Build 98 comprehensive flow review
 
 **Status:** Source/flow review and all 22 confirmed repair families are complete in the
-validated Build 99 testing candidate. App source `e52d571a` and verification commit `18324f76`
+validated Build 99 checkpoint, now retained in the Build 100 testing candidate. App source `e52d571a` and verification commit `18324f76`
 have identical app/package/assets/iOS/dependency source. Full app/package/visual/coverage run
-`40003142620`, native run `40002250844` and downloaded IPA validation pass. Build 99 replaces
-Build 98 in the single testing slot; installation, signing and physical acceptance remain open.
+`40003142620`, native run `40002250844` and downloaded IPA validation pass. Build 99 replaced
+Build 98; the subsequent directed review and current Build 100 cache are in `coverage-audit.md`.
+Installation, signing and physical acceptance remain open.
 
 ## Baseline and scope
 

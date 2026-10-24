@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tool.coverage_gaps import inventory, parse_lcov, ranges
+from tool.coverage_gaps import inventory, parse_lcov, ranges, source_hash
 
 
 class CoverageGapsTest(unittest.TestCase):
@@ -17,6 +17,18 @@ class CoverageGapsTest(unittest.TestCase):
     def test_bad_counts_do_not_silently_improve_coverage(self):
         with self.assertRaises(ValueError):
             parse_lcov("SF:lib/a.dart\nDA:1,-1")
+
+    def test_source_hash_ignores_checkout_line_endings_but_not_edits(self):
+        base = Path(__file__).resolve().parents[1] / "build" / "coverage-tool-tests"
+        base.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="synthetic-", dir=base) as tmp:
+            file = Path(tmp) / "a.dart"
+            file.write_bytes(b"synthetic\nnext\n")
+            original = source_hash(file)
+            file.write_bytes(b"synthetic\r\nnext\r\n")
+            self.assertEqual(source_hash(file), original)
+            file.write_bytes(b"synthetic\r\nchanged\r\n")
+            self.assertNotEqual(source_hash(file), original)
 
     def test_inventory_retains_generated_unimported_and_source_hashes(self):
         base = Path(__file__).resolve().parents[1] / "build" / "coverage-tool-tests"

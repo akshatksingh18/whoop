@@ -14,26 +14,22 @@ The monorepo preserves all three upstream histories. Its personal `origin` is th
 repository remains available as the `local-backup` remote; the three official OpenStrap sources
 remain fetch-only named upstreams.
 
-**Status:** Active iPhone verification. Build `0.9.66`/`99` (app source `e52d571a`,
-`todo.md` 3n) is the single validated testing candidate:
-`../final-ipas/whoop/testing/WHOOP-0.9.66-build99-e52d571a`. All 22 confirmed finding families in
-`build-98-audit.md` are repaired, retaining earlier repair contracts and the locked kraft/cream
-A+B interface. Full app/package/visual checks, native compilation and downloaded IPA validation
-pass; `setup.md` owns source/hash/workflow evidence. Algorithm 99 versions recorded-day/timing
-and active lifting-window corrections; schema 50, dependencies, scientific coefficients, BLE
-ACK ordering, features, signing identity and capabilities are unchanged. Build 98's superseded
-testing folder went to the Recycle Bin. Build 91 remains the last reported installation and
-Build 70 remains accepted recovery. Current-version installation, signing enrollment and the
-physical-device matrix remain open. Instrumented handwritten Dart line coverage is 75.23%,
-not every-line, every-click or hardware certification. Earlier build notes are in `build-history.md`.
-
-The coverage-directed follow-up is active on `build-100`, reserved as `0.9.67+100`.
-`coverage-audit.md` owns new fault controls, repairs and remaining verification. Native compilation
-and staged IPA validation pass; a clean full-check result and coverage gain are not yet claimed.
-The Build 99 testing cache above remains unchanged.
+**Status:** Active iPhone verification. Build `0.9.67`/`100` (app source `1277cd3a`,
+`todo.md` 3o) is the single validated testing candidate:
+`../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`. All 16 coverage-directed finding
+families in `coverage-audit.md` are repaired, retaining the 22 Build 99 and earlier contracts
+and the locked kraft/cream A+B interface. Full app/package/visual checks, native compilation
+and downloaded IPA validation pass; `setup.md` owns exact source/hash/workflow evidence.
+Handwritten Dart execution coverage is 76.57% (38,324/50,048), with 11,724 instrumented lines
+still unexecuted; this is not every-line, every-click or hardware certification. Algorithm 99,
+schema 50, scientific coefficients, dependencies, BLE ACK ordering, features, signing identity
+and capabilities are unchanged. Build 99's superseded testing folder went to the Recycle Bin.
+Build 91 remains the last reported installation; Build 70 remains accepted recovery.
+Current-version installation, signing enrollment and the physical-device matrix remain open.
+Earlier build notes are in `build-history.md`.
 
 ## Files
-- `coverage-audit.md` and `tool/coverage_gaps.py` — current coverage-directed follow-up to Build 99, reusable uncovered-range/source-hash inventory, targeted evidence and remaining native/physical limits; read before continuing `build-100`.
+- `coverage-audit.md` and `tool/coverage_gaps.py` — completed Build 100 coverage-directed follow-up, reusable uncovered-range/source-hash inventory, targeted/full evidence and remaining execution/native/physical limits; read before another audit or release.
 - `build-98-audit.md` — comprehensive Build 98 source/flow review, Build 99 repair contracts, completed software/coverage evidence and remaining physical limits; read before release or acceptance.
 - `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.
 - `build-96-audit.md` — independent Build 96 deep-flow fault reproductions, coverage/CI-skip limits, Build 97 repair contracts, regression evidence and remaining phone gates; read before release or acceptance.
@@ -59,7 +55,7 @@ The Build 99 testing cache above remains unchanged.
 - `build-history.md` — the build-by-build notes this file carried through Build 94, moved out
   verbatim; history only, not current guidance.
 - `.github/workflows/test.yml`, `.github/workflows/package-tests.yml` and `tool/ui_smoke_gallery.py` — full app and independent protocol/analytics suites, instrumented app coverage, synthetic full-scroll visual checks and their local image index; captures are fixtures, not phone evidence.
-- `todo.md` — Build 99 repairs/release (3n), Build 98 repairs/release (3m), Build 97 repairs (3l), Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
+- `todo.md` — Build 100 coverage-directed repairs/release (3o), Build 99 repairs/release (3n), Build 98 repairs/release (3m), Build 97 repairs (3l), Build 96 release/phone gates (3k), Build 95 decisions (3j), Build 90 (merged lanes, file ownership, phases, lane notes, home workout audit),
   Build 89 source list (HRV, naming, steps, Progress, Food, export), Build 88 installed-build list with its open decisions and phone gates, installed build-86 phone gates, Build 87 implementation/verification and carried-forward lifecycle/refresh checks; read before
   further verification or planning a new build. Source behavior and limits live here and in `metrics-map.md`.
 - `DESIGN.md` — chosen Build 88 visual system (deep kraft, jewel earth colours, big numbers,

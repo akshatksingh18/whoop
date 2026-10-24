@@ -1,9 +1,9 @@
 # Background Sync And Insight Freshness
 
-**Status:** Build 99 (`e52d571a`) is the validated testing candidate; Build 91 is the last reported
+**Status:** Build 100 (`1277cd3a`) is the validated testing candidate; Build 91 is the last reported
 installation and background phone acceptance remains open. `todo.md` and `setup.md` own
-release/device evidence; full app/package/visual run `40003142620`, native `40002250844` and IPA
-validation pass. The repairs in `build-95-repairs.md`, retained in Build 99,
+release/device evidence; full app/package/visual run `40046857679`, native `40044650218` and IPA
+validation pass. The repairs in `build-95-repairs.md`, retained in Build 100,
 leave commit-before-ACK and derivation formulas unchanged. Reset invalidates and drains backup
 publication, stops capture, holds calculation on every platform, and awaits active phone-step,
 profile and workout writes before wiping. Route arming also rechecks reset/stopped state after
@@ -42,7 +42,7 @@ remaining mirror. This gate is per isolate; capture/derivation shutdown and the 
 and background-delivery matrix remain necessary. No ACK or band command ordering changes.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
-The active coverage follow-up (`coverage-audit.md`, not in the cached Build 99 IPA) also fixes
+The completed coverage follow-up (`coverage-audit.md`, cached in Build 100) also fixes
 the restoration-expiry and gate-ceiling paths that omitted the registered headless transport
 stop. Synthetic callbacks verify the request and late-lease protection; native disconnect,
 expiration timing and physical delivery remain phone gates. Cooperative stop is not cancellation

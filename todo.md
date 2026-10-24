@@ -564,20 +564,24 @@ other worktrees remain untouched.
   `40002250844`, source/version/checksum, ZIP CRC and release/AOT payload validation pass.
   The single testing candidate is `WHOOP-0.9.66-build99-e52d571a`; Build 98's superseded folder
   went to the Recycle Bin, and accepted Build 70 is unchanged. `setup.md` owns fingerprints.
-- [ ] 3o. Coverage-directed follow-up on `build-100` (`coverage-audit.md`): use Build 99's
-  LCOV gaps and prior audit contracts to review unexecuted/unimported sibling and failure paths.
-  Classify every remaining region, add meaningful synthetic checks and repair confirmed faults;
-  keep generated/dormant/native/physical limits explicit. No successor release or percentage
-  improvement is claimed until appropriate targeted/full cloud checks pass. Build 99 stays cached.
-  Sixteen confirmed families now have repairs and 65 added targeted controls. Real cold boot,
-  GPS plugin boundaries and Zones read/retry/large-text paths supplement the existing flow proofs.
-  The first full run exposed three incomplete legacy storage-path fixtures; their original
-  assertions now pass with synthetic path providers. Concern-level gap review is recorded;
-  exact unexecuted ranges remain explicit. A later full run passed 3,588 cases with one old
-  router fixture leaving startup pending; its 39 cases and both real startup controls now pass
-  together. Phone-width failure captures also pass nine focused cases. Native/staged IPA checks
-  pass, but the clean full rerun and successor delivery remain open; `coverage-audit.md` owns evidence.
-- [ ] 4. Akshat's phone acceptance: recheck B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
+- [x] 3o. Coverage-directed follow-up and Build 100 release (`coverage-audit.md`): reuse prior
+  flow contracts and Build 99 LCOV gaps, trace unexecuted/unimported sibling/failure paths and
+  retain exact remaining ranges. All 16 confirmed families are repaired; all 65 added cases
+  pass in clean full run `40046857679` at verification `40f9fee6`: 3,589 app tests/429 skips,
+  zero analysis errors/warnings, independent protocol/analytics suites, 152 visual checks and
+  607 synthetic full-scroll captures. Five inventory and eight iOS controls pass locally;
+  four original inventory/eight iOS controls also pass in CI. Phone-width standard/3.1x
+  read failures and enlarged Zones were inspected. No scientific definition, coefficient,
+  algorithm 99, schema 50, dependency, feature or ACK change.
+  Native source `1277cd3a` passes `40044650218`; downloaded/source/checksum/CRC/AOT validation
+  passes. The single testing folder is `WHOOP-0.9.67-build100-1277cd3a`; Build 99's superseded
+  folder went to the Recycle Bin and accepted Build 70 remains unchanged. `setup.md` owns
+  fingerprints and the resolved incomplete-fixture runs remain explicit in the audit.
+  Handwritten execution is 38,324/50,048 (76.57%, up from 75.23%); 11,724 instrumented lines
+  remain unexecuted. This is a completed directed software review, not every-branch/click or
+  physical certification. Exact inventories and the new focused phone checklist remain available.
+- [ ] 4. Akshat's phone acceptance: check COV-01–16 in `coverage-audit.md`, then recheck
+  B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.
 
@@ -640,12 +644,13 @@ blank weight, never a guessed number. A changed load mode is a separate comparis
   - Both requests to Codex are done in its lane: Food's quick weigh-in goes through
     `BodyLogDb.putWeight`, and Sleep/Readiness/metric detail say lowest 30-minute average
     while asleep.
-- Codex: All 22 B98 finding families are repaired in Build 99 (`0.9.66+99`, app source
-  `e52d571a`, algorithm 99/schema 50), retaining the eighteen B97 and earlier repairs.
-  All 46 added regression cases and full app/package/visual/native verification pass (3n).
-  Build 99 replaces Build 98 in the single testing slot. `build-98-audit.md` owns scope,
-  coverage and limits; `setup.md` owns workflow/artifact evidence. No work is
-  waiting on Claude, and existing other checkouts remain untouched. Phone acceptance stays open.
+- Codex: All 16 coverage-directed finding families are repaired in Build 100 (`0.9.67+100`,
+  app source `1277cd3a`, algorithm 99/schema 50), retaining all 22 B98 and earlier contracts.
+  All 65 new cases and full app/package/visual/native verification pass (3o). Build 100 is in
+  the single testing slot; Build 99's superseded folder went to the Recycle Bin. `coverage-audit.md`
+  owns review, exact execution gaps and focused phone checks; `setup.md` owns workflow/artifact
+  evidence. No work waits on Claude and other checkouts remain untouched. Phone/signing acceptance
+  stays open. Five inventory/eight iOS controls also pass locally; hashes now agree across Windows/Linux.
   Independent calorie/recovery review is complete in
   `energy-recovery-independent-review.md`, against `9170201b` and additional primary sources.
   Both reproduced calorie issues were approved and fixed in Build 90 (algorithm 96): stored

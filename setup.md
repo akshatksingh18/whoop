@@ -34,17 +34,60 @@ repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
 
-## Coverage-directed preparation
+## Build 100 candidate
 
-`build-100` reserves `0.9.67+100`, retaining algorithm 99/schema 50 and the existing dependency,
-identity and capability contracts. `coverage-audit.md` owns the baseline, new fault controls,
-source repairs and remaining verification. Native source `1277cd3a` passes run `40044650218`
-and staged payload validation. A clean full-suite result and coverage improvement are not yet
-claimed; Build 99 below remains the testing IPA and Build 70 remains accepted recovery.
+Build 100, version `0.9.67+100`, algorithm 99/schema 50, is the validated testing release from
+`build-100`. App source is `1277cd3a44ee085d07889392819510a9e27b70fa`. All 16 confirmed
+coverage-directed finding families in `coverage-audit.md` are repaired, retaining the Build 99
+and earlier contracts and the approved A+B interface. All 65 new targeted cases pass.
 
-## Build 99 candidate
+Full Linux/visual run [40046857679](https://github.com/akshatksingh18/whoop/actions/runs/40046857679)
+passes at verification `40f9fee6f65dc547b9d4b3ab9e21069680c431ac`: **3,589 app tests pass,
+429 intentional skips**, no analysis errors/warnings and 235 informational lints. Of the skips,
+408 need absent golden baselines. Protocol passes 433/skip four; analytics passes 645/skip six.
+All eight iOS contract checks and four original inventory controls pass in CI. Five inventory
+controls, including cross-host source hashes, pass locally. Visual jobs pass 152 checks and
+produce 607 synthetic full-scroll captures. The 19 new focused phone-width captures include
+standard/3.1x read-failure and Zones states. They use substituted fonts, not native typography.
 
-Build 99, version `0.9.66+99`, algorithm 99/schema 50, is the validated testing release from
+Root LCOV records 38,375/57,649 lines (66.57%) across 203 imported Dart files. Excluding seven
+generated localization files, handwritten execution is 38,324/50,048 (76.57%, 196 files), up
+from 75.23%; **11,724 instrumented handwritten lines remain unexecuted**. The entrypoint and
+error logger are now exercised; the remaining three unimported files are constants/barrel
+exports. `coverage-audit.md` preserves exact inventory and concern-level review limits. A hit
+line is not a branch-correctness proof or every-click/physical certification.
+
+Personal macOS run [40044650218](https://github.com/akshatksingh18/whoop/actions/runs/40044650218)
+passes at app source `1277cd3a`. Downloaded `whoop-personal-1277cd3a44ee-unsigned.ipa` is
+15,501,226 bytes, SHA-256
+`3251c08089021f18af9d551e6b1738fb46e02294f01dc796ac7dbcb078f1d183`. Manifest/source/version,
+checksum, full ZIP CRC, `personal_ios.py validate` and compiled Runner/App AOT checks pass.
+The payload contains one app and no extension, Watch app, provisioning profile, database or
+debug kernel. Verification `40f9fee6` changes fixture isolation and phone-width captures only;
+Git confirms identical app/package/assets/iOS/dependency source. The release record additionally
+updates audit hash normalization (five targeted Python controls pass) and documentation; it
+changes no app implementation. It uses `[skip ci]` rather than repeat the identical app suite
+or native build. All changed tooling has its own passing small checks.
+
+The single testing folder is
+`../final-ipas/whoop/testing/WHOOP-0.9.67-build100-1277cd3a`, with IPA, checksum, manifest,
+validation and build-info. Build 99's superseded testing folder went to the Recycle Bin;
+its reproducible fingerprint remains below. Earlier failure/cancellation results and their
+resolved fixtures are recorded in `coverage-audit.md`; they are not counted as clean passes.
+
+Scientific definitions, algorithm 99, schema 50, dependencies, BLE commit-before-ACK, signing
+identity and capabilities are unchanged. Outgoing code, synthetic fixtures, technical docs and
+artifact metadata were privacy-reviewed; no private records, routes, photos, exports, captures
+or secrets were published. `main` is fast-forwarded to the release record and `local-backup`
+mirrors it. Build 70 recovery remains unchanged (SHA-256
+`0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`). Build 91 is the last
+reported installation. Build 100 installation, current-version enrollment, data-preserving
+upgrade, native/background delivery and the 72-hour matrix remain open. Keep the exact existing
+signed identity; artifact delivery is not phone acceptance or recovery promotion.
+
+## Build 99 artifact (superseded)
+
+Build 99, version `0.9.66+99`, algorithm 99/schema 50, was the validated testing release from
 `build-99`. App source is `e52d571aadd44a96230a338b1bf6c87ecb2ea68e`; all 22 B98-01–22
 repair families in `build-98-audit.md` are implemented, retaining the earlier repair contracts
 and approved A+B interface. Forty-six added regression cases pass within the complete suite.
@@ -74,10 +117,10 @@ only; a Git diff confirms identical app/package/assets/iOS/dependency source. Th
 also changes documentation only; its commit uses `[skip ci]` because the identical implementation
 already passed the full dispatch, and no second native build or duplicate full suite is needed.
 
-The single testing folder is
-`../final-ipas/whoop/testing/WHOOP-0.9.66-build99-e52d571a`, containing the IPA, checksum,
-manifest, validation and build-info. Build 98's superseded folder went to the Windows Recycle
-Bin; its fingerprint and reproducible runs are retained below. Earlier preparation runs
+The former testing folder
+`../final-ipas/whoop/testing/WHOOP-0.9.66-build99-e52d571a` went to the Windows Recycle Bin
+after validated Build 100 replaced it. Its IPA fingerprint remains reproducible above.
+Build 98's superseded folder also went to the Windows Recycle Bin; its fingerprint and reproducible runs are retained below. Earlier preparation runs
 `39963880718`, `39993163845`, `39997217880`, `39998881999` and `40002246646` were incomplete,
 failed or superseded, not release passes. Queue scheduling, fixture cleanup, obsolete coaching
 expectations and the redundant analyzer assertion are reconciled in the final green run.
@@ -89,8 +132,8 @@ corrections. Outgoing source, synthetic fixtures and technical documentation wer
 no private records, photos, routes, captures, exports or secrets were published. `main` is
 fast-forwarded to the release record and `local-backup` mirrors it. Build 70 recovery remains
 unchanged (SHA-256 `0008a6aa96f29251fd88f06bf573d8a8660499b0f1b9a23cdf7a2443b2017d17`).
-Build 91 is the last reported installation. Build 99 signing, installation, current-version
-enrollment, data-preserving upgrade and the physical matrix remain open; delivery is not
+Build 99 was not reported installed or accepted before Build 100 superseded it. Its signing,
+installation, current-version enrollment, data-preserving upgrade and physical matrix were not verified; delivery is not
 phone acceptance or recovery promotion. Preserve the exact existing signed identity.
 
 ## Build 98 artifact (superseded)

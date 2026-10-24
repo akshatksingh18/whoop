@@ -1,10 +1,11 @@
 # WHOOP personal iPhone sideload and refresh plan
 
-**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 99 (`0.9.66+99`, app source
-`e52d571a`) is the single testing candidate, including all 22 B98/eighteen B97 repairs and the retained
+**State:** Akshat last reported Build `0.9.58`/`91` installed. Build 100 (`0.9.67+100`, app source
+`1277cd3a`) is the single testing candidate, including all 16 coverage-directed, 22 B98/eighteen B97 repairs and the retained
 seven B96/29 earlier repairs. Full cloud analysis/tests/visuals, the macOS build and downloaded
 IPA/source/version/checksum/ZIP/payload checks pass. `../setup.md` owns exact evidence;
-`../todo.md` and `../build-98-audit.md` own feature, native/background, signing and refresh gates.
+`../todo.md`, `../coverage-audit.md` and the earlier audits own feature, native/background,
+signing and refresh gates.
 No later candidate has been reported installed or accepted. Earlier same-ID refresh and recovery
 proof applies to earlier builds, not as current-version enrollment evidence. SideStore laptop
 setup is reported; app handover/on-phone renewal remain unconfirmed. No refresh ownership or
@@ -14,7 +15,8 @@ Build `0.9.37`/`70` remains the accepted recovery build: its phone check and com
 automatic-refresh registration for version `0.9.37` at `com.akshat.personal.whoop.5564K8D4SV`
 were confirmed with no error. It is cached under
 `D:\AI Important Files\personal-project\final-ipas\whoop\backup\WHOOP-0.9.37-build70-accepted`.
-`testing\WHOOP-0.9.66-build99-e52d571a` holds validated Build 99, not yet installed. Build 98's
+`testing\WHOOP-0.9.67-build100-1277cd3a` holds validated Build 100, not yet reported installed.
+Build 99's folder (native run `40002250844`, not reported installed) went to the Recycle Bin. Build 98's
 superseded folder (native run `39942864975`, not reported installed) went to the Recycle Bin. Build 97's
 superseded folder (run `39815817300`, not reported installed) went to the Recycle Bin. Build 95's
 folder (run `39293589709`, never reported installed) went to the Recycle Bin. Build 96’s

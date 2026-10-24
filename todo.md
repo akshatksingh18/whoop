@@ -604,23 +604,21 @@ other worktrees remain untouched.
   `setup.md` owns fingerprints. Installation/signing/native-device acceptance remains open.
 - [ ] 3r. Continue the full remaining Build 101 execution inventory (10,832 lines), beginning
   with AppState/BLE/derivation/Train and continuing through every missed-file group.
-  Full run `40120011370` at `27724aa8` verifies COV-18–24 and all 148 added controls:
-  3,833 app tests/429 skips, packages, 13 Python controls, 180 visual checks and zero analysis
-  errors/warnings. Handwritten execution is 40,717/50,205 (81.10%), with 9,488 still unexecuted.
-  Build 102 (`0.9.69+102`, algorithm 99/schema 50) is prepared; the cached IPA remains Build 101.
-  The latest approved COV-25/26 fixes keep complete shared confirmations and Reset's disclosure
-  reachable at enlarged text. Twenty-seven further controls bring the continuation to 175;
-  their fresh combined cloud/native/artifact gates remain. `coverage-audit.md` owns contracts,
-  exact source inventories and scope limits. COV-27 additionally keys settled-workout scores by
-  both time bounds and activity, preventing stale scores after type/start-only edits. Thirty-three
-  more sweep/step-goal/Sleep controls bring the continuation to 208; fresh combined gates remain.
-  No every-line or every-click certification.
-  Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
+  Full run `40139202681` at `7f10b51b` verifies COV-18–27 and all 208 added controls:
+  3,893 app tests/429 skips, independent packages, 13 Python controls, 207 visual checks and
+  zero analysis errors/warnings. Handwritten execution is 40,851/50,207 (81.37%), with 9,356
+  still unexecuted. Native `40139204943` passes. Build 102 (`0.9.69+102`, algorithm 99/schema 50)
+  is prepared; the cached IPA remains Build 101. Approved COV-28/29 additionally repair
+  analysis-range scrolling and the working-message row. Their 24 real-screen controls pass,
+  bringing the continuation to 232; six full-scroll capture states also pass locally. The final
+  source still needs combined cloud/native/artifact verification before replacement.
+  `coverage-audit.md` owns contracts, exact source inventories and scope limits. Add real
+  synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
-  remainder with source evidence instead of padding the percentage. Keep native delivery and
-  phone acceptance distinct. Full regression/coverage runs remain on GitHub; Build 101 stays
-  the validated cached candidate until any replacement passes all release gates.
-- [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–27 when
+  remainder with source evidence instead of padding the percentage. No every-line or every-click
+  certification. Keep native delivery and phone acceptance distinct. Full regression/coverage
+  runs remain on GitHub; Build 101 stays cached until a replacement passes all release gates.
+- [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

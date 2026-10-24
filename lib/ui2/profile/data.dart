@@ -376,53 +376,56 @@ class _DataScreenState extends State<DataScreen> {
     final range = await showModalBottomSheet<AnalysisRange>(
       context: context,
       useSafeArea: true,
+      isScrollControlled: true,
       sheetAnimationStyle: sheetMotion(context),
       backgroundColor: P.of(context).card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
       ),
-      builder: (s) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(S.x5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Export for AI analysis',
-                style: F.head.copyWith(color: P.of(s).ink),
-              ),
-              const SizedBox(height: S.x2),
-              Text(
-                'One Markdown file to paste into Claude or Codex: daily diet, '
-                'weight, waist, steps, sleep, recovery, HRV, strain and '
-                'workouts, weekly averages, lifts and tape measurements. '
-                'Food items are listed for up to 3 months. Made now and '
-                'offered to the share sheet, then the temporary copy is deleted. '
-                'This report has no photos and cannot restore the app.',
-                style: F.cap.copyWith(color: P.of(s).ink2),
-              ),
-              const SizedBox(height: S.x3),
-              for (final r in AnalysisRange.values)
-                Pressable(
-                  semanticLabel: r.label,
-                  onTap: () => Navigator.of(s).pop(r),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: S.x3),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            r.label,
-                            style: F.body.copyWith(color: P.of(s).ink),
+      builder: (s) => SingleChildScrollView(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(S.x5),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Export for AI analysis',
+                  style: F.head.copyWith(color: P.of(s).ink),
+                ),
+                const SizedBox(height: S.x2),
+                Text(
+                  'One Markdown file to paste into Claude or Codex: daily diet, '
+                  'weight, waist, steps, sleep, recovery, HRV, strain and '
+                  'workouts, weekly averages, lifts and tape measurements. '
+                  'Food items are listed for up to 3 months. Made now and '
+                  'offered to the share sheet, then the temporary copy is deleted. '
+                  'This report has no photos and cannot restore the app.',
+                  style: F.cap.copyWith(color: P.of(s).ink2),
+                ),
+                const SizedBox(height: S.x3),
+                for (final r in AnalysisRange.values)
+                  Pressable(
+                    semanticLabel: r.label,
+                    onTap: () => Navigator.of(s).pop(r),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: S.x3),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              r.label,
+                              style: F.body.copyWith(color: P.of(s).ink),
+                            ),
                           ),
-                        ),
-                        Icon(LucideIcons.chevronRight, color: P.of(s).ink2),
-                      ],
+                          Icon(LucideIcons.chevronRight, color: P.of(s).ink2),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -788,9 +791,11 @@ class _DataScreenState extends State<DataScreen> {
                           ),
                         ),
                         const SizedBox(width: S.x3),
-                        Text(
-                          'Working. Keep this screen open.',
-                          style: F.body.copyWith(color: p.ink2),
+                        Expanded(
+                          child: Text(
+                            'Working. Keep this screen open.',
+                            style: F.body.copyWith(color: p.ink2),
+                          ),
                         ),
                       ],
                     ),

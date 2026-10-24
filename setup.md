@@ -36,21 +36,23 @@ reviewed source revisions and must move with any deliberate package update.
 
 ## Build 102 preparation
 
-Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18–27 from `coverage-audit.md`.
-Full checkpoint [40120011370](https://github.com/akshatksingh18/whoop/actions/runs/40120011370)
-at `27724aa8` verifies COV-18–24 and 148 added cases: 3,833 app tests/429 skips, zero analysis
-errors/warnings (255 infos), both package suites, 13 Python controls and 180 visual checks.
-Handwritten execution is 40,717/50,205 (81.10%), with 9,488 lines unexecuted; raw root execution
-is 40,768/57,818 (70.51%). No denominator exclusions changed.
-The newer approved COV-25/26 fixes preserve readable complete shared confirmations and the
-Reset disclosure at large text, bringing the continuation to 175 targeted cases. They need a
-fresh combined cloud run, then native compilation and downloaded-artifact verification.
-Build 102 is not yet the testing candidate; the validated Build 101 folder remains unchanged.
-At source `8112964e`, native run `40137645447` and the downloaded source/version/checksum/ZIP/AOT
-checks pass; full run `40137643399` is pending. COV-27 is newer than that artifact: its fresh
-combined cloud/native verification is required before replacement. Thirty-three additional
-workout-sweep/step-goal/Sleep controls bring this continuation to 208 targeted cases.
-Metric definitions, dependencies, signing/capabilities and backup formats are unchanged.
+Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18–29 from `coverage-audit.md`.
+Full checkpoint [40139202681](https://github.com/akshatksingh18/whoop/actions/runs/40139202681)
+at `7f10b51b` verifies COV-18–27 and 208 added cases: **3,893 app tests/429 intentional skips**,
+zero analysis errors/warnings (256 infos), protocol 433/skip four, analytics 645/skip six,
+13 Python controls and 207 visual checks. Handwritten execution is **40,851/50,207 (81.37%)**,
+with **9,356 unexecuted**; raw root execution is 40,902/57,820 (70.74%), 203 imported files.
+No skips, denominator exclusions or unimported-file changes were added. Native
+[40139204943](https://github.com/akshatksingh18/whoop/actions/runs/40139204943) passes at that source.
+
+The newer approved COV-28/29 Your data corrections keep all five analysis-export ranges and
+its working message readable at enlarged text. All 24 additional real-screen range, cancellation,
+share-outcome, cleanup and working-state controls pass, bringing the continuation to 232.
+Six full-scroll capture states pass locally. Their final source still requires fresh combined
+cloud/native verification and downloaded-artifact inspection before replacement. Build 102 is
+not yet the testing candidate; the validated Build 101 folder remains unchanged. Metric definitions,
+dependencies, signing/capabilities and backup formats are unchanged. The earlier `8112964e`
+artifact was validated in staging only; no superseded staging artifact is release proof.
 
 ## Build 101 candidate
 

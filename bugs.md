@@ -14,19 +14,16 @@ fingerprints. Handwritten Dart execution is 78.36%, with 10,832 instrumented lin
 The calm A+B interface and all scientific coefficients remain. Build 70 recovery is unchanged;
 physical/background/permission/gesture delivery, installation and signing gates remain open.
 
-The remaining-execution continuation is in `coverage-audit.md`. Full checkpoint `40120011370`
-at `27724aa8` verifies COV-18–24 and all 148 new controls: 3,833 app cases/429 skips, both
-packages, 13 Python controls, 180 visual checks and zero analysis errors/warnings. Handwritten
-execution is 81.10%, with 9,488 lines unexecuted. These repairs cover cancellation, refused live
-arming, matching original Recovery explanations, historical Journal/draft preservation, typed
-match decrements and enlarged backup prompts. The newer approved COV-25/26 fixes keep full
-shared confirmations and Reset's deletion disclosure reachable, with 27 further controls.
-Their combined cloud/native/artifact gates remain; the validated Build 101 cache is unchanged.
-The remaining audit is active, and these software checks are not physical-device acceptance.
-COV-27 prevents a settled workout's cached score from surviving an activity or start-bound
-correction. Nine sweep controls and 24 additional step-goal/Sleep controls bring the continuation
-to 208. A fresh combined cloud/native result is required for this newer source; the successful
-native/artifact checks at `8112964e` predate COV-27.
+The remaining-execution continuation is in `coverage-audit.md`. Full checkpoint `40139202681`
+at `7f10b51b` verifies COV-18–27 and all 208 new controls: 3,893 app cases/429 skips, both
+packages, 13 Python controls, 207 visual checks and zero analysis errors/warnings. Handwritten
+execution is 81.37%, with 9,356 lines unexecuted. Native `40139204943` passes. These repairs cover
+cancellation, refused live arming, original Recovery explanations, Journal/draft preservation,
+match decrements, readable complete prompts and invalidation of activity/window score caches.
+The newer approved COV-28/29 keep analysis-export ranges and the working-message row reachable;
+24 more real-screen controls and six capture states pass locally. Final combined cloud/native/
+artifact gates remain; the validated Build 101 cache is unchanged. The remaining audit is active,
+and software checks are not physical-device acceptance.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

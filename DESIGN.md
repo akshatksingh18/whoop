@@ -34,6 +34,10 @@ text. The shared confirmation sheet grows within the viewport and scrolls when n
 Reset's existing dialog uses built-in scrolling so no deletion-disclosure lines are clipped.
 Colours, wording, action labels and Confirm/Keep/Cancel behavior remain unchanged.
 
+Approved COV-28/29 keep Your data's analysis-export explanation and five ranges in the same
+sheet, growing and scrolling at large text. The active-operation message wraps beside its
+existing spinner. All wording, range choices, action locks and operation behavior remain.
+
 The approved Build 95 repairs keep this composition: Body comparisons stack labels and intact
 values when text or width requires it, Notifications gives Mark all read its own full-width row,
 and enlarged notifications place time/unread context above the message. Save failures retain the

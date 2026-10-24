@@ -26,16 +26,18 @@ blocked. Constants/barrel exports remain the same three unimported files.
 ## Remaining execution work
 
 The requested continuation began with all 10,832 Build 101 missed lines. Full run
-`40120011370` at `27724aa8` verifies COV-18–24 and all **148 added cases**:
-**3,833 app tests/429 intentional skips**, zero analysis errors/warnings and 255 infos,
-both independent package suites, 13 Python controls and 180 visual checks. Handwritten
-execution is **40,717/50,205 (81.10%)**: 1,491 more executed lines and 147 more instrumented
-than Build 101, leaving **9,488 unexecuted** (1,344 fewer). Raw root LCOV is 40,768/57,818
-(70.51%) across the same 203 imported files; the handwritten view excludes the same seven
-generated files. The same three constant/barrel files remain unimported. No exclusions,
-skip rules or denominator filters changed. The exact next inventory is ignored
-`build/coverage-remainder/cloud27724/gaps.json`; contexts/dispositions stay under
+`40139202681` at `7f10b51b` verifies COV-18–27 and all **208 added cases**:
+**3,893 app tests/429 intentional skips**, zero analysis errors/warnings and 256 infos,
+protocol 433/skip four, analytics 645/skip six, 13 Python controls and 207 visual checks.
+Handwritten execution is **40,851/50,207 (81.37%)**: 1,625 more executed lines and 149 more
+instrumented than Build 101, leaving **9,356 unexecuted** (1,476 fewer). Raw root LCOV is
+40,902/57,820 (70.74%) across the same 203 imported files; the handwritten view excludes the
+same seven generated files. The same three constant/barrel files remain unimported. No
+exclusions, skip rules or denominator filters changed. The exact next inventory is ignored
+`build/coverage-remainder/cloud7f/gaps.json`; contexts/dispositions stay under
 `build/coverage-remainder/`. These are execution counts, not manual review or branch/hardware proof.
+Native `40139204943` also passes at that source. The newer COV-28/29 UI changes below need their
+fresh combined release gates. Build 101 remains the single validated testing candidate.
 
 The six additional packs pass **84 synthetic cases**: AppState commands/device callbacks (31),
 stored metric readers (13), derivation stop/resume/status (14), live transport (7), workout
@@ -45,7 +47,7 @@ confirmation/refusal, stored-summary navigation and the Food serving/provenance/
 are asserted. Material calendar fonts are substituted explicitly; the history fixture uses
 in-process SQLite to avoid simulated-clock/FFI-isolate teardown races. This batch is verified in
 the full cloud run above, along with the later Recovery/Journal/match/goal/backup controls.
-Build 102 (`0.9.69+102`) remains in preparation: the newest COV-25/26 confirmation fixes need
+Build 102 (`0.9.69+102`) remains in preparation: the newest COV-28/29 Your data fixes need
 their combined clean full run, then native build/artifact verification. Build 101 is still
 the validated cached candidate.
 
@@ -158,9 +160,9 @@ present in the widget tree. Rendered selection-box geometry reproduces the missi
 Akshat approved every scroll view of the full reset preview. The existing dialog now uses
 built-in scrolling; wording, Keep my data, Delete everything and actual reset behavior remain.
 Three real Settings-entry controls verify full-text geometry/reachability and cancellation;
-the destructive callback is substituted and must stay uncalled. The continuation now totals
-175 targeted cases. COV-25/26 need their own fresh combined full cloud result and native/artifact
-gates. 81.10%/9,488 is the verified `27724aa8` checkpoint, not a claim about these later changes.
+the destructive callback is substituted and must stay uncalled. These 27 controls are verified
+in full run `40139202681`, with native `40139204943`. The combined COV-18–27 checkpoint above
+reaches 81.37%/9,356; no physical reset/confirmation delivery is inferred.
 
 **COV-27 — a settled workout can keep the previous activity/window's score.**
 The recent-session sweep cached only `id@end`, although changing an activity changes its energy
@@ -171,7 +173,8 @@ redundant writes. No equation, coefficient or day-result output changes, so algo
 Nine synthetic sweep controls cover type correction, start-only retiming with later imported
 coverage, a moving frontier, live-to-finished state, retry after a substrate-read failure, honest
 absence, fabricated ends and retention of privacy/effort/HR-recovery fields. Nineteen existing
-manual-workout/calorie-repair neighbors also pass. Fresh full cloud/native gates remain.
+manual-workout/calorie-repair neighbors also pass. All are verified in full run `40139202681`;
+native `40139204943` passes. Physical edit/sync delivery remains open.
 
 Fifteen further step-goal editor controls verify invalid/non-finite and boundary inputs,
 write refusal/retry, disposal during successful/refused writes and usable actions at 2x/3.1x.
@@ -180,6 +183,23 @@ write failure versus an unapplied saved correction, both picker cancellations, o
 and disabled duplicate writes/disposal. These use the real widgets and substitute the command/
 post-write calculation boundary; they are not new proof of native time-picker or engine delivery.
 Together the continuation adds 208 targeted cases. The remaining execution inventory stays open.
+
+**COV-28 — analysis export ranges overflow at enlarged text.**
+The range picker used a non-scrolling column under the default short-sheet ceiling. Both
+2x/3.1x before controls reproduce the overflow; the actual Your data button reproduces it too.
+Akshat approved the full-scroll preview. The same five ranges and complete explanation now grow
+within the viewport and scroll, retaining selection, cancellation and export semantics.
+
+**COV-29 — Your data's working message exceeds the screen width.**
+The actual export flow also exposed an unbounded status Text beside its spinner. At 2x/3.1x it
+runs past the right edge during imports, exports and rebuilds. Akshat approved the complete
+before/after page. The existing message now wraps in the remaining row width; the spinner,
+action lock and operation behavior are unchanged. All twenty-four new real-screen controls pass locally, covering
+all five range selections at three text sizes, picker cancellation without file creation,
+share outcomes/failure/retry and temporary report cleanup, plus working-state layout/action
+gates. The OS share sheet and rebuild callback are substitutes. Six pressure states join the
+cloud capture job and pass locally. The continuation totals 232 targeted cases; these new controls and the
+final source require their fresh combined cloud/native/artifact result before release.
 
 ## Build 100 baseline
 

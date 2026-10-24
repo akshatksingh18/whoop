@@ -12,11 +12,11 @@ Algorithm 99/schema 50 and scientific coefficients/headline formulas are unchang
 
 The remaining execution work prepares Build 102 with COV-18/19: stopped calculation cannot
 revive itself between stages or stamp a new rollup status, and a refused live-HR command leaves
-the stream unarmed for retry. Full run `40120011370` verifies COV-18–24 at `27724aa8`. COV-20's
+the stream unarmed for retry. Full run `40139202681` verifies COV-18–27 at `7f10b51b`. COV-20's
 correction saves Recovery's original composite, values, comparisons, notes and dated HRV with
 the pinned morning score. Recovery reads that paired evidence while normal metrics keep updating;
-legacy pins say the original breakdown is unavailable. Native/artifact gates remain before
-replacement. No valid-input metric definition or scientific coefficient changes.
+legacy pins say the original breakdown is unavailable. Native checks pass at that checkpoint;
+final source/artifact gates remain before replacement. No valid-input metric definition or scientific coefficient changes.
 COV-21/22 preserve historical Journal notes/tags and unsaved drafts when adding a custom field.
 Selected-day reads do not inherit the recent-list limit; rough-night tags merge atomically with
 the current note. The recent list and numerical/correlation definitions retain their meaning.
@@ -25,10 +25,15 @@ drafts and summary transfer keep their existing meaning. No physiological metric
 COV-24 keeps all backup/restore passphrase content reachable at enlarged text with built-in
 dialog scrolling. Input rules, exact passphrase bytes, cancellation and encrypted format stay unchanged.
 COV-25/26 preserve full messages and both choices in shared confirmations and Reset at enlarged
-text. These later presentation corrections need their combined full cloud/native checks.
+text. Their combined full cloud/native checks pass at the checkpoint above.
 COV-27 keys recent settled-session scoring by id, both window bounds and activity type, so a
 user correction cannot reuse the previous activity/window's cached calorie score. The chosen
 energy methods and day-result definitions remain unchanged; no algorithm bump is needed.
+COV-28/29 keep the same five analysis-export ranges and full explanation accessible through
+scrolling, and wrap the existing working message beside its spinner. Report contents, selected
+period meaning, action locks, share outcome wording and temporary-file cleanup retain their
+existing contracts. Their 24 real-screen checks and six capture states pass locally; final
+combined release gates remain. No metric or backup format changes.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

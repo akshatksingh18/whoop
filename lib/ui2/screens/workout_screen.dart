@@ -983,6 +983,7 @@ class _HistoryRow extends StatelessWidget {
       return;
     }
     final r = await _detailOf(c.read<AppState>(), w);
+    if (!c.mounted) return;
     await nav.push(
       MaterialPageRoute(builder: (_) => ActivitySummary(r, weightKg: weightKg)),
     );

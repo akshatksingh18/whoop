@@ -21,22 +21,61 @@ from an LCOV artifact. Generated output belongs in ignored `build/coverage-audit
 source hashes allow review evidence to carry forward. A changed hash requires checking the
 affected paths again. No exclusions or no-op calls may be added just to improve the percentage.
 
-## Remaining work
+## Review coverage and remaining execution
 
-- [ ] Entrypoint/error logging and low/zero-coverage host-independent helpers: trace startup
-  bounds, handler chaining, failures, retained writes and cold retry.
-- [ ] Background/native bridges: exercise shared gate collisions, timeout/error release,
-  foreground handoff and expiration through synthetic channels; separately source-review Swift.
-- [ ] AppState's uncovered orchestration: initialization, foreground/background transitions,
-  connection/save failure, clock/resume and refresh dependencies.
-- [ ] Secondary editors/settings/data actions: Lift Log, manual sessions, summary corrections,
-  Food/Body/Progress dialogs, cancel/save/retry, late results and native permission return.
-- [ ] BLE/derivation/repository uncovered branches: retention/finalization, partial inputs,
-  decode/commit failures and publication; preserve scientific coefficients and ACK ordering.
-- [ ] Remaining small uncovered regions: map each to existing proof, added proof, dormant
-  personal-build code, defensive unreachable input, or a specific physical/private-fixture gate.
-- [ ] Run targeted synthetic checks and full cloud coverage; compare against the baseline and
-  report denominator changes, remaining gaps and every confirmed finding honestly.
+- [x] Inventory every baseline LCOV miss/unimported file with source hashes; preserve the
+  complete raw ranges in ignored `build/coverage-audit/build99-baseline.json`.
+- [x] Exercise formerly absent entrypoint/error-log and zero/low-coverage GPS, BG-task,
+  restoration/gate and cold-retry boundaries with meaningful outcomes and retained writes.
+- [x] Trace uncovered AppState initialization, import/publication, foreground/background,
+  band-owner/reconnect, active-clock/route and calculation scheduling branches. New contracts
+  are COV-01/02/07/09/10; retained session/reset/phone-step contracts remain in Build 98's map.
+- [x] Review deeper editor/settings callbacks and their storage/read seams, using the prior
+  full flow map rather than duplicating the main-screen sweep. COV-05/06/08/11–13/15/16 add
+  previously absent failure/retry, disposed-caller, route-refresh and accessibility evidence.
+- [x] Trace the BLE/derivation/repository misses against commit-before-ACK, cancellation,
+  retention/finalization, absent input and versioned publication. COV-14 adds the failed-rescan
+  retry control; no decoder, coefficient, ACK or scientific definition changes.
+- [ ] Complete full cloud analysis, app/package suites, final coverage and full-scroll capture
+  review for the final implementation. Do not use a superseded/cancelled run as release proof.
+- [ ] Physical iPhone/band acceptance remains separate: permissions, radio/restoration,
+  real GPS/background/audio/notifications, camera/share gestures, signing and soak.
+
+This completes a coverage-directed **software review pass**, not execution of every missed
+line. The remaining LCOV regions retain their exact file/range inventory; they are not erased,
+excluded or declared unreachable to improve a percentage. Evidence is carried by concern:
+
+- **Executable host paths:** startup/onboarding, diagnostic chaining, settings, Food/Body/Lift
+  saves, recorded-zone edits, background callback reactions and cache publication now have
+  the new controls below. Existing `startup_and_rebuild_recovery_test`, `app_state_regressions_test`,
+  `workout_stop_durability_test`, `workout_reliability_test`, `route_tracker_test`,
+  `ui2_food_flow_test`, `db_paged_import_export_test`, `import_data_safety_test` and Build 98/99
+  nested/durability/secondary controls retain their prior evidence. They do not prove every
+  exception branch in each containing file.
+- **Storage/calculation/protocol defenses:** DB repair ladders, archive/quarantine, incomplete-day
+  preservation, isolate failure/cancellation, baseline gates, unknown signal families and native
+  GATT outcomes are source-traced alongside the existing ACK, migration, result-protection,
+  readiness/baseline, decode and independent package tests. Rare corrupt-page/low-space/process
+  loss combinations and absent private replay fixtures remain execution gaps; no real record was
+  used to manufacture those cases.
+- **Concrete iOS delivery:** GATT, ASK, zone/pedometer/home bridges, precise GPS, MapKit, camera,
+  notifications and audio have host adapters or source contracts, not a physical certification.
+  Swift BG-task completion/expiry and BLE-restore handoff were source-reviewed; compilation and
+  synthetic callbacks cannot establish OS scheduling, native UI behavior or band receipt.
+- **Retained dormant/developer branches:** manual Journal/custom fields and appearance settings
+  are not current personal navigation. Sleep's sole RoughNightCard uses `ask: 'never'`; shared
+  Journal input widgets remain live and are not classified dormant. Gallery fixture controls,
+  default abstract repository throws, older import/schema compatibility and non-iOS plugin
+  branches remain in the source. A dormant screen is not an exercised user flow, and legacy
+  import/migration code is still a real recovery concern covered by its own contracts.
+- **Non-executable/absent baselines:** build-profile constants and two UI barrel files do not
+  become meaningful flows just by importing them. Generated localization is reported separately.
+  Missing golden baselines remain explicit skips; synthetic screenshots are not pixel-baseline
+  tests or native SF-font/VoiceOver evidence.
+
+The context extracts under ignored `build/coverage-audit/` identify the reviewed gap clusters;
+`build-98-audit.md` owns the complete retained end-to-end flow map. Neither static action counts
+nor source context extraction is counted as new runtime verification.
 
 ## Confirmed findings and targeted evidence
 
@@ -64,7 +103,10 @@ affected paths again. No exclusions or no-op calls may be added just to improve 
 - **COV-06 — a picker returns to a disposed workout editor.** Date, start, end and activity
   pickers all call setState after their editor is removed. Four failing navigation controls
   now pass with mounted guards; suggestion-adjust return and onboarding's file-picker return
-  use the same guard. No feature or layout changes.
+  use the same guard. The Food calendar and metric-day/quiet-hour pickers also refuse results
+  after their caller closes; Food meal selection and late workout-detail navigation check their
+  owner before updating. A fifth real-navigation control confirms the Food callback. No feature
+  or layout changes.
 - **COV-07 — onboarding advances after a refused preference write.** Both New and Imported
   ignore the platform's false acknowledgement. The shared acknowledged preference writer now
   owns the choice before the route advances. Setup reports failure and remains retryable;
@@ -90,7 +132,7 @@ affected paths again. No exclusions or no-op calls may be added just to improve 
   guidance. Retrying a repaired repository displays the measured values.
 - **COV-12 — enlarged Zones ranges overflow.** Measured range/unit rows now reflow beneath
   their labels at enlarged text, preserving standard-size composition and the locked palette.
-  Full-scroll controls pass at 1× and 3.1×; cloud captures cover both and the read-failure state.
+  Full-scroll controls pass at 1× and 3.1×; the cloud capture job includes both and the read-failure state.
 - **COV-13 — an optional Lift refresh falsely reports a committed save as unsaved.** An
   unreadable earlier log reproduces the misleading failure after a new set is durable. The
   controller now distinguishes save failure from refresh failure, retains a saved warning and
@@ -105,7 +147,21 @@ affected paths again. No exclusions or no-op calls may be added just to improve 
   the subsequent clean rescan becomes a no-op. This repairs scheduling, not a scientific output
   definition; algorithm 99 and every formula remain unchanged.
 
-Fourteen added Dart files contain **53 targeted cases** for these contracts, real cold-start
+- **COV-15 — a corrected route reuses its earlier map/projection.** The snapshot cache used
+  only session ID/size, despite correction changing the track. It now matches immutable copies
+  of the coordinates, retains newer requests after an older failure, rejects malformed projected
+  point counts/values and safely handles empty thinning input. The actual map widget uses its
+  plain-route fallback while a new image is pending rather than retaining an earlier projection.
+  Five synthetic channel/widget controls pass; no map service or location request was used.
+- **COV-16 — secondary settings have silent read/write failure paths.** Notification and
+  Pushups settings can spin or show no feedback after a failed read/save. Body settings also
+  expose initial defaults before its saved configuration loads, and Journey start lacks save
+  error handling. These screens now withhold editable defaults until reading succeeds, offer
+  Retry and retain prior choices after a refused save. Six actual-widget controls cover all
+  three readers and Pushups goal/interval plus Journey start refusal/retry. Failure captures
+  at standard/enlarged text are included in the cloud visual job.
+
+Sixteen added Dart files contain **65 targeted cases** for these contracts, real cold-start
 routing with an optional notification failure, and GPS service/permission/sample boundaries.
 The GPS checks use simulated plugin results, not physical location delivery. Existing manual
 workout (11), startup/quarantine (7), baseline-rescan (3) and three legacy failure/cancellation
@@ -118,7 +174,9 @@ passed analysis, package suites and the original visual job, but the app suite h
 fixtures without an application-support path provider. The stricter Pushups inbox correctly
 surfaced that missing fixture. Those fixtures now supply a synthetic path, retain their
 original assertions and pass all three targeted cases. A clean full rerun is still required;
-coverage from the failed run is preliminary, not successor verification.
+coverage from the failed run is preliminary, not successor verification. Intermediate runs `40042565354`, `40043039909` and native
+`40043061254` were cancelled as superseded while the remaining source review found additional
+repairs; cancellation is not a failing test or a release result.
 
 ## Limits
 

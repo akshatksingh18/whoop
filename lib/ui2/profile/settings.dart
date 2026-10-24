@@ -30,6 +30,7 @@ import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_controller.dart';
 import '../ui2.dart';
+import '../screens/metric_detail.dart' show detailScaffold;
 import '../activity/live.dart' show LiveDraft;
 import 'alarm.dart';
 import 'data.dart';
@@ -598,6 +599,7 @@ class _NotificationSettingsState extends State<NotificationSettings>
     with WidgetsBindingObserver {
   NotificationPrefs? _prefs;
   bool _granted = false;
+  bool _readFailed = false;
 
   @override
   void initState() {
@@ -623,13 +625,19 @@ class _NotificationSettingsState extends State<NotificationSettings>
   }
 
   Future<void> _load() async {
-    final p = await NotificationPrefs.load();
-    final granted = await NotificationService.instance.hasPermission();
     if (!mounted) return;
-    setState(() {
-      _prefs = p;
-      _granted = granted;
-    });
+    setState(() => _readFailed = false);
+    try {
+      final p = await NotificationPrefs.load();
+      final granted = await NotificationService.instance.hasPermission();
+      if (!mounted) return;
+      setState(() {
+        _prefs = p;
+        _granted = granted;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _readFailed = true);
+    }
   }
 
   Future<void> _apply(NotificationPrefs next) async {
@@ -678,6 +686,11 @@ class _NotificationSettingsState extends State<NotificationSettings>
   @override
   Widget build(BuildContext c) {
     final p = _prefs;
+    if (_readFailed) return detailScaffold(c, 'Notifications', [
+      StatusCard('Notification settings could not load',
+        'Your saved choices could not be read. Retry before changing them.',
+        fix: 'Retry', onFix: _load),
+    ]);
     return NotificationSettingsView(
       prefs: p ?? const NotificationPrefs(),
       loaded: p != null,
@@ -964,7 +977,7 @@ class NotificationSettingsView extends StatelessWidget {
       context: c,
       initialTime: TimeOfDay(hour: (current ~/ 60) % 24, minute: current % 60),
     );
-    return picked == null ? null : picked.hour * 60 + picked.minute;
+    return picked == null || !c.mounted ? null : picked.hour * 60 + picked.minute;
   }
 }
 

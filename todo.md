@@ -569,11 +569,11 @@ other worktrees remain untouched.
   Classify every remaining region, add meaningful synthetic checks and repair confirmed faults;
   keep generated/dormant/native/physical limits explicit. No successor release or percentage
   improvement is claimed until appropriate targeted/full cloud checks pass. Build 99 stays cached.
-  Fourteen confirmed families now have repairs and 53 added targeted controls. Real cold boot,
+  Sixteen confirmed families now have repairs and 65 added targeted controls. Real cold boot,
   GPS plugin boundaries and Zones read/retry/large-text paths supplement the existing flow proofs.
   The first full run exposed three incomplete legacy storage-path fixtures; their original
-  assertions now pass with synthetic path providers. The clean full rerun and gap classification
-  remain open; `coverage-audit.md` owns evidence.
+  assertions now pass with synthetic path providers. Concern-level gap review is recorded;
+  exact unexecuted ranges remain explicit. The clean full rerun and successor delivery remain open; `coverage-audit.md` owns evidence.
 - [ ] 4. Akshat's phone acceptance: recheck B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in
   `build-90-audit.md`. The latest audit's hardware/native/gesture and signing limits remain open.

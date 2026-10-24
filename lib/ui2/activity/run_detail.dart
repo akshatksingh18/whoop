@@ -274,7 +274,7 @@ class RunMapCard extends StatelessWidget {
                 h,
               ),
               builder: (c, snap) {
-                final s = snap.data;
+                final s = snap.connectionState == ConnectionState.done ? snap.data : null;
                 final List<Offset> pts;
                 final List<double>? paceFrac;
                 if (s != null) {

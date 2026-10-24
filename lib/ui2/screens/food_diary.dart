@@ -62,7 +62,7 @@ Future<String?> pickDate(BuildContext c, String current) async {
         : DateTime(now.year - 2),
     lastDate: DateTime(now.year, now.month, now.day),
   );
-  return picked == null ? null : dayLabelOf(picked);
+  return picked == null || !c.mounted ? null : dayLabelOf(picked);
 }
 
 /// ‹ Day › with the date opening a calendar. [onDay] gets the new label.
@@ -1633,7 +1633,7 @@ class _LogFoodScreenState extends State<LogFoodScreen> with RevisionReload {
           ),
       ]),
     );
-    if (m != null) {
+    if (m != null && mounted) {
       setState(() {
         _meal = m;
         _group = null;

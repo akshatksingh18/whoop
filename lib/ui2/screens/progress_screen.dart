@@ -2714,6 +2714,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
   bool _savingSettings = false;
   String? _settingsError;
   String? _baseline;
+  bool _loadingSettings = true, _readFailed = false;
 
   static const _names = [
     'Monday',
@@ -2732,16 +2733,23 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
   }
 
   Future<void> _load() async {
-    final wd = await BodyLogDb.measureWeekday();
-    final p = await SharedPreferences.getInstance();
-    final b = await CalculationStore.read(ProgressData.baselineKey);
     if (!mounted) return;
-    setState(() {
-      _weekday = wd;
-      _reminder = p.getBool('body.reminder') ?? false;
-      _hour = p.getInt('body.reminder.hour') ?? 8;
-      _baseline = b;
-    });
+    setState(() => (_loadingSettings = true, _readFailed = false));
+    try {
+      final wd = await BodyLogDb.measureWeekday();
+      final p = await SharedPreferences.getInstance();
+      final b = await CalculationStore.read(ProgressData.baselineKey);
+      if (!mounted) return;
+      setState(() {
+        _weekday = wd;
+        _reminder = p.getBool('body.reminder') ?? false;
+        _hour = p.getInt('body.reminder.hour') ?? 8;
+        _baseline = b;
+        _loadingSettings = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => (_loadingSettings = false, _readFailed = true));
+    }
   }
 
   Future<bool> _scheduleReminder(int weekday, int hour) =>
@@ -2863,6 +2871,13 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
                 children: [
+                  if (_loadingSettings)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_readFailed)
+                    StatusCard('Body settings could not load',
+                      'Your saved choices could not be read. Retry before changing them.',
+                      fix: 'Retry', onFix: _load)
+                  else ...[
                   if (_settingsError != null) ...[
                     StatusCard('Check reminder', _settingsError!, icon: LucideIcons.bell),
                     const SizedBox(height: S.x4),
@@ -2958,10 +2973,16 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                         firstDate: DateTime(2000),
                         lastDate: DateTime.parse(todayLabel()),
                       );
-                      if (picked == null) return;
+                      if (picked == null || !mounted) return;
                       final v = dayLabelOf(picked);
-                      await CalculationStore.write(ProgressData.baselineKey, v);
-                      setState(() => _baseline = v);
+                      try {
+                        await CalculationStore.write(ProgressData.baselineKey, v);
+                        if (mounted) setState(() => _baseline = v);
+                      } catch (_) {
+                        if (c.mounted) ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                          const SnackBar(content: Text('Journey start was not saved. Try again.')),
+                        );
+                      }
                     },
                     semanticLabel: 'Journey start',
                     child: Row(
@@ -2997,6 +3018,7 @@ class _BodySettingsScreenState extends State<BodySettingsScreen> {
                         : 'Estimates use your profile height, ${d.heightCm!.round()} cm.',
                     style: F.cap.copyWith(color: p.ink3),
                   ),
+                  ],
                 ],
               ),
             ),

@@ -1998,7 +1998,7 @@ Future<String?> chooseDay(
     helpText:
         AppLocalizations.of(c)?.metricDetailChooseDayHelp ?? 'Choose a day',
   );
-  return picked == null ? null : dayLabelOf(picked);
+  return picked == null || !c.mounted ? null : dayLabelOf(picked);
 }
 
 /// The day stepper every single-day screen wears under its nav bar.

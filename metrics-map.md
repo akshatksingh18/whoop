@@ -54,6 +54,14 @@ submission to iOS, inferred due schedules and unknown legacy delivery; none prov
 was seen. Read state changes only after durable writes. Retained device detail refreshes on
 committed battery changes and foreground return, not on every live-HR tick.
 
+The uncached Build 100 coverage follow-up (`coverage-audit.md`) retains algorithm 99/schema 50.
+Zones read failures are distinct from absent measured ceilings; failed settings reads do not
+expose editable default choices. Lift saves distinguish post-commit history/cache refresh
+warnings from refused writes, and corrected run tracks invalidate their map projections. The
+baseline rescan leaves failed days pending for retry. These repair publication/error handling;
+scientific definitions and calorie coefficients are unchanged. Full successor checks and device
+acceptance must be read separately from Build 99's evidence above.
+
 ## What is stored
 
 ### 1. Raw band data (short-lived)

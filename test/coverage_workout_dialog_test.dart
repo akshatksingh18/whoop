@@ -3,9 +3,51 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/screens/log_workout.dart';
+import 'package:openstrap_edge/ui2/screens/food_diary.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 void main() {
+  testWidgets('Food ignores a calendar result after its day header closes', (
+    t,
+  ) async {
+    final nav = GlobalKey<NavigatorState>();
+    late Route<void> editor;
+    var changes = 0;
+    await t.pumpWidget(
+      MaterialApp(
+        navigatorKey: nav,
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: TextButton(
+            onPressed: () {
+              editor = MaterialPageRoute<void>(
+                builder: (_) =>
+                    Scaffold(body: DayHeader('2026-01-01', (_) => changes++)),
+              );
+              nav.currentState!.push(editor);
+            },
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    );
+    await t.tap(find.text('Open'));
+    await t.pumpAndSettle();
+    await t.tap(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Pressable &&
+            w.semanticLabel?.startsWith('Choose a day') == true,
+      ),
+    );
+    await t.pumpAndSettle();
+    nav.currentState!.removeRoute(editor);
+    await t.pumpAndSettle();
+    nav.currentState!.pop(DateTime(2026, 1, 2));
+    await t.pumpAndSettle();
+    expect(changes, 0);
+    expect(t.takeException(), isNull);
+  });
   for (final label in ['Date', 'Started', 'Ended', 'Activity']) {
     testWidgets('$label ignores a late picker result after the editor closes', (
       t,

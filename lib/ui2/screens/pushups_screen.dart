@@ -741,14 +741,23 @@ class PushupSettingsScreen extends StatefulWidget {
 class _PushupSettingsScreenState extends State<PushupSettingsScreen> {
   int? _interval, _goal;
   String? _note;
+  bool _readFailed = false;
 
   @override
   void initState() {
     super.initState();
-    () async {
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    setState(() => _readFailed = false);
+    try {
       final i = await PushupDb.interval(), g = await PushupDb.goal();
       if (mounted) setState(() => (_interval = i, _goal = g));
-    }();
+    } catch (_) {
+      if (mounted) setState(() => _readFailed = true);
+    }
   }
 
   @override
@@ -762,7 +771,11 @@ class _PushupSettingsScreenState extends State<PushupSettingsScreen> {
       child: Pill(label, on ? C.orange : C.n500),
     );
     return detailScaffold(c, 'Pushup settings', [
-      if (i == null || g == null)
+      if (_readFailed)
+        StatusCard('Pushup settings could not load',
+          'Your saved choices could not be read. Retry before changing them.',
+          fix: 'Retry', onFix: _load)
+      else if (i == null || g == null)
         const Center(child: CircularProgressIndicator())
       else ...[
         Surface(
@@ -781,8 +794,12 @@ class _PushupSettingsScreenState extends State<PushupSettingsScreen> {
                       i == m,
                       widget.canEditInterval
                           ? () async {
-                              await PushupDb.setInterval(m);
-                              setState(() => _interval = m);
+                              try {
+                                await PushupDb.setInterval(m);
+                                if (mounted) setState(() => (_interval = m, _note = null));
+                              } catch (_) {
+                                if (mounted) setState(() => _note = 'That setting was not saved. Try again.');
+                              }
                             }
                           : null,
                     ),
@@ -805,8 +822,12 @@ class _PushupSettingsScreenState extends State<PushupSettingsScreen> {
                 children: [
                   for (final n in const [0, 4, 6, 8, 10, 12])
                     choice(n == 0 ? 'Off' : '$n sets', g == n, () async {
-                      await PushupDb.setGoal(n);
-                      setState(() => _goal = n);
+                      try {
+                        await PushupDb.setGoal(n);
+                        if (mounted) setState(() => (_goal = n, _note = null));
+                      } catch (_) {
+                        if (mounted) setState(() => _note = 'That setting was not saved. Try again.');
+                      }
                     }),
                 ],
               ),

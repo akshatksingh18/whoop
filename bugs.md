@@ -49,6 +49,13 @@ secondary-settings read/save feedback.
 All 65 new cases pass in the clean full run; these repairs are in the cached Build 100 IPA.
 Phone/signing acceptance and the remaining execution inventory stay explicit in the audit.
 
+The next coverage extension reproduces another late-result family, COV-17: closing a split
+page while its rename/add/edit sheet is still open used a disposed state on return. Split
+and sibling live-Lift callbacks now reject results after their owner closes. Three failing
+navigation controls pass after the repair, within 27 deep Lift cases; 96 new targeted cases
+cover durable Lift/Food/data actions, motion retention and actual analysis exports. Full cloud
+regression/coverage and the Build 101 binary are pending. No layout or metric definition changes.
+
 **Symptom:** Pairing works the first time in a session (band off-wrist, double-tap the FRONT of
 the sensor until the LED pulses blue — NOT the back, which just shows a battery-level LED and does
 nothing for pairing). Once connected, live data works fine.

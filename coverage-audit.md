@@ -34,6 +34,37 @@ canonicalized Build 99 baseline. No denominator filters or exclusions were added
 percentage. Native iOS, independent package suites, branch correctness and physical delivery
 remain outside this root line-coverage measure.
 
+## Further automated execution
+
+**Status:** Active on `coverage-expansion`; baseline is the verified Build 100 result above.
+Add meaningful outcomes for missed deep Lift/Food/settings/history and state/storage boundaries,
+with real synthetic ledger writes and failure/retry/restart checks where applicable. Keep the
+same denominator and retain earlier tests. Do not import dormant screens, assert only widget
+existence or call private helpers solely to raise a percentage. New gains require a clean full
+cloud coverage artifact. The incline-walking proposal remains separate and unimplemented.
+
+The extension adds 96 passing targeted cases in five files:
+`coverage_deep_lift_test.dart` (27), `coverage_data_actions_test.dart` (28),
+`coverage_motion_retention_test.dart` (27), `coverage_meal_actions_test.dart` (8) and
+`coverage_analysis_pipeline_test.dart` (6). All data are synthetic. Real SQLite writes cover
+split/load identity, history-preserving edits, finished-set correction/deletion, refused-write
+retry, meal copy/save, import review/commit and analysis-file provenance/privacy/denominators.
+Share/picker/native-motion substitutes check Dart outcomes and cleanup; backup/profile/rebuild
+substitutes check the data screen's responses, not native delivery or the underlying engines.
+Existing independent storage/crypto/engine regressions remain required.
+
+**COV-17 — split/exercise sheets return into disposed owners.** Three negative navigation
+controls reproduced `setState() called after dispose()` on rename, exercise edit and exercise
+add. Mounted guards now reject the late result before mutation. The sibling live set,
+variation, add/remove, rest-setting and recent-exercise callbacks also check their owner before
+applying a returned result or touching disposed text controllers. Successful persistence already
+in flight remains durable; the fix does not undo a committed workout. All 27 Lift checks pass
+with the real bundled font substitute. No layout, metric, ACK, schema or dependency change.
+
+Build 101 (`0.9.68+101`, algorithm 99/schema 50) contains this lifecycle repair. Full cloud
+analysis/app/package/visual coverage and native compilation are pending; Build 100 remains
+the cached testing candidate until a replacement passes downloaded-artifact validation.
+
 Reuse the repair contracts and passing tests in `build-98-audit.md`, `build-97-audit.md`,
 `build-96-audit.md` and `build-95-repairs.md`. Revisit their implementation only where an
 unexecuted sibling/failure path or changed dependency exposes a new question. Do not repeat

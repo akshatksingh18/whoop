@@ -28,7 +28,14 @@ Build 91 remains the last reported installation; Build 70 remains accepted recov
 Current-version installation, signing enrollment and the physical-device matrix remain open.
 Earlier build notes are in `build-history.md`.
 
+Further automated coverage expansion is active on `coverage-expansion`, using Build 100's
+exact missed-line inventory. Ninety-six new targeted cases pass and COV-17 repairs late Lift
+editor results after disposal. Build 101 metadata is prepared; full cloud coverage/native checks
+are pending. `coverage-audit.md` and `todo.md` own evidence. Build 100 remains the cached candidate;
+no new percentage, binary or physical-device acceptance is claimed until verification finishes.
+
 ## Files
+- `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.
 - `coverage-audit.md` and `tool/coverage_gaps.py` — completed Build 100 coverage-directed follow-up, reusable uncovered-range/source-hash inventory, targeted/full evidence and remaining execution/native/physical limits; read before another audit or release.
 - `build-98-audit.md` — comprehensive Build 98 source/flow review, Build 99 repair contracts, completed software/coverage evidence and remaining physical limits; read before release or acceptance.
 - `build-97-audit.md` — eighteen-finding Build 97 audit, Build 98 repair contracts and regression/physical-device limits; read before release or promotion.

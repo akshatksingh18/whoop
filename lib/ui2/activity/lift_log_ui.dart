@@ -250,18 +250,17 @@ class LiftLogController extends ChangeNotifier {
     void Function(LiftWorkout w) f, {
     bool activity = true,
     VoidCallback? onCommitted,
-  }) =>
-      _serial(() async {
-        final cur = workout;
-        if (cur == null) return;
-        final next = cur.copy();
-        f(next);
-        await LiftLogDb.save(next);
-        workout = next;
-        onCommitted?.call();
-        await _refreshLast(committed: true);
-        if (activity) await LiftReminders.update(next);
-      });
+  }) => _serial(() async {
+    final cur = workout;
+    if (cur == null) return;
+    final next = cur.copy();
+    f(next);
+    await LiftLogDb.save(next);
+    workout = next;
+    onCommitted?.call();
+    await _refreshLast(committed: true);
+    if (activity) await LiftReminders.update(next);
+  });
 
   Future<void> logSet(
     String exerciseId, {
@@ -290,9 +289,10 @@ class LiftLogController extends ChangeNotifier {
   Future<void> saveSplits(List<LiftSplit> next) => _serial(() async {
     final checked = LiftSplit.validatedList(next);
     final w = workout;
-    final s = w == null ? null :
-        checked.where((s) => s.id == w.splitId).firstOrNull ??
-        checked.where((s) => s.name == w.splitName).firstOrNull;
+    final s = w == null
+        ? null
+        : checked.where((s) => s.id == w.splitId).firstOrNull ??
+              checked.where((s) => s.name == w.splitName).firstOrNull;
     final synced = w != null && s != null ? (w.copy()..syncWith(s)) : null;
     await LiftLogDb.saveSplits(checked, workout: synced);
     splits = checked;
@@ -608,6 +608,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
   }
 
   void _say(String t) {
+    if (!mounted) return;
     ScaffoldMessenger.maybeOf(context)
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(t), duration: Motion.notice));
@@ -722,9 +723,10 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
             p,
             r.name,
             '${r.loadMode.title} · logged before',
-            () => ctl
-                .addExercise(r.name, r.loadMode, r.equipmentNote)
-                .then((_) => _search.clear()),
+            () =>
+                ctl.addExercise(r.name, r.loadMode, r.equipmentNote).then((_) {
+                  if (mounted) _search.clear();
+                }),
           ),
         if (q.isNotEmpty &&
             !w.exercises.any((e) => sameLiftName(e.name, q)) &&
@@ -1147,7 +1149,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
             semanticLabel: 'New variation of ${e.name}',
             onTap: () async {
               final v = await _askVariation(c, e.name);
-              if (v != null && v.isNotEmpty) await choose(v);
+              if (mounted && v != null && v.isNotEmpty) await choose(v);
             },
             child: Pill('New variation', C.n400, icon: LucideIcons.plus),
           ),
@@ -1322,6 +1324,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
         ),
       ],
     );
+    if (!mounted) return;
     if (r == 'save') {
       final l = double.tryParse(load.text.trim().replaceAll(',', '.'));
       final n = int.tryParse(reps.text.trim());
@@ -1375,15 +1378,16 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
         ),
       ],
     );
-    if (r == null) return;
+    if (r == null || !mounted) return;
     await ctl.removeExercise(e.id, fromSplit: r == 'split');
     if (ctl.message != null) _say(ctl.message!);
   }
 
   Future<void> _addSheet(BuildContext c, {String name = ''}) async {
     final picked = await editLiftExercise(c, name: name);
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     await ctl.addExercise(picked.name, picked.loadMode, picked.equipmentNote);
+    if (!mounted) return;
     _search.clear();
     if (ctl.message != null) _say(ctl.message!);
   }
@@ -1427,7 +1431,7 @@ class _LiftLivePanelState extends State<LiftLivePanel> {
           ),
       ],
     );
-    if (r != null) {
+    if (r != null && mounted) {
       try {
         await RestTimer.setDefault(r);
       } catch (_) {
@@ -1777,7 +1781,7 @@ class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
         ),
       ],
     );
-    return ok == true ? t.text.trim() : null;
+    return ok == true && mounted ? t.text.trim() : null;
   }
 
   @override
@@ -1993,7 +1997,7 @@ class _SplitEditorState extends State<_SplitEditor> {
                             ),
                           ],
                         );
-                        if (ok == true && t.text.trim().isNotEmpty) {
+                        if (mounted && ok == true && t.text.trim().isNotEmpty) {
                           setState(() => s.name = t.text.trim());
                           await _commit();
                         }
@@ -2016,7 +2020,7 @@ class _SplitEditorState extends State<_SplitEditor> {
                               c,
                               existing: s.exercises[i],
                             );
-                            if (e == null) return;
+                            if (e == null || !mounted) return;
                             setState(() => s.exercises[i] = e);
                             await _commit();
                           },
@@ -2086,7 +2090,7 @@ class _SplitEditorState extends State<_SplitEditor> {
                         soft: true,
                         onTap: () async {
                           final e = await editLiftExercise(c);
-                          if (e == null) return;
+                          if (e == null || !mounted) return;
                           setState(() => s.exercises.add(e));
                           await _commit();
                         },

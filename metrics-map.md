@@ -538,6 +538,13 @@ uncertainty as well as the existing trend interval; this is display-only, not a 
 an additional statistical confidence claim.
 
 **A run's or walk's own calories** (setup/live/summary/history/share):
+
+Requested treadmill incline walking is a proposal in `treadmill-walking-plan.md`, not in Build
+100. Current steps do not encode belt grade, and generic Treadmill belongs to running. The
+proposal keeps phone step counts and their existing Budget energy, adds only a timed incline
+increment, and retains a separate full walking comparison. It requires calculation and UI
+preview review; no current coefficient, maintenance total or existing workout is changed here.
+
 - Walking Method 1: exactly `(2.74 * active_session_steps * weight_kg) / 8368`, labelled From steps.
 - Running Method 1: the accepted distance equation, labelled From distance.
 - Method 2: sex-specific Keytel gross kcal/min (men: (−55.0969 + 0.6309 × HR + 0.1988 × kg +

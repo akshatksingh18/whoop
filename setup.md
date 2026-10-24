@@ -2,7 +2,7 @@
 
 ## Current repository state
 
-This folder is one Git repository. Each build is prepared on its own branch (`build-100` currently) and
+This folder is one Git repository. Each build is prepared on its own branch (`coverage-expansion` currently) and
 `main` is fast-forwarded to it on release. It preserves the OpenStrap histories and contains:
 
 - edge base `daf6011d3aa0312e22b991713b7af9e5c4433b32`
@@ -33,6 +33,14 @@ The app's `pubspec.yaml` uses tracked local paths for both packages, so a checko
 repository is self-contained. Do not restore floating Git refs or create a
 `pubspec_overrides.yaml` for the imported packages. `packages/upstream-revisions.yaml` records the
 reviewed source revisions and must move with any deliberate package update.
+
+## Build 101 preparation
+
+Build 101 (`0.9.68+101`, algorithm 99/schema 50) extends coverage with 96 passing targeted
+synthetic cases and repairs COV-17, late split/live-Lift editor results after owner disposal.
+Full cloud regression/coverage and native checks are pending. Build 100 remains the single
+cached testing candidate until the replacement is downloaded and validated. The treadmill
+proposal remains unimplemented. No signing identity, capability or scientific coefficient changes.
 
 ## Build 100 candidate
 

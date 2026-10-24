@@ -366,8 +366,8 @@ class _RoughNightCardState extends State<RoughNightCard> {
   /// Agreeing writes the tags the user picked onto that night, MERGED into
   /// whatever was already logged.
   ///
-  /// `postJournal` replaces the row's whole tag set, so the stored day is read
-  /// first — the same read-merge the compose screen does. Nothing numeric is
+  /// Merge under the store's transaction, so an older night or a concurrent
+  /// writer cannot lose its note or tags. Nothing numeric is
   /// written: the card asked whether, not how much, and a quantity nobody gave
   /// is a fabricated one. "Add how much" leads to the editor that does ask.
   Future<void> _save() async {
@@ -376,19 +376,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
     try {
       final repo = context.read<AppState>().repo;
       if (repo == null) return;
-      Map<String, dynamic>? row;
-      for (final e in await repo.getJournal(range: '30d')) {
-        if (e['date'] == widget.night.day) row = e;
-      }
-      final tags = <String>{
-        ...?(row?['tags'] as List?)?.map((t) => t.toString()),
-        ..._picked,
-      };
-      await repo.postJournal(
-        widget.night.day,
-        tags.toList(),
-        (row?['note'] as String?) ?? '',
-      );
+      await repo.mergeJournalTags(widget.night.day, _picked.toList());
       _dismiss();
     } finally {
       if (mounted) setState(() => _saving = false);

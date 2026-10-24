@@ -14,7 +14,7 @@ fingerprints. Handwritten Dart execution is 78.36%, with 10,832 instrumented lin
 The calm A+B interface and all scientific coefficients remain. Build 70 recovery is unchanged;
 physical/background/permission/gesture delivery, installation and signing gates remain open.
 
-The remaining-execution continuation has two unreleased repairs in `coverage-audit.md`:
+The remaining-execution continuation has unreleased repairs in `coverage-audit.md`:
 COV-18 carries the original stop generation through selected/imported calculation and both
 compute stages; COV-19 keeps live HR unarmed/retryable after a refused transport write. Their
 synthetic stop/resume and transport controls pass in full run `40114050675` at `7830c577`
@@ -23,6 +23,10 @@ cache remains unchanged. COV-20's approved correction archives Recovery's matchi
 explanation and dated HRV context atomically with the morning score. Older or invalid snapshots
 retain score/history with explicit unavailable-original wording. Its synthetic regression checks
 are separate from the earlier full run; fresh cloud/native/artifact gates remain before release.
+COV-21 restores exact historical Journal reads and atomic rough-night tag additions; COV-22
+keeps unsaved Journal edits while a custom field is created. Thirteen new synthetic controls
+and seventeen existing neighboring controls pass locally. Full cloud verification is pending;
+these repairs retain the existing page composition and metric definitions.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

@@ -248,8 +248,18 @@ abstract class LocalRepository {
   // ── journal + correlation engine ──────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) =>
       throw UnimplementedError('re-layer: getJournal');
+  /// A selected day, including older nights outside the recent list window.
+  Future<Map<String, dynamic>?> getJournalDay(String date) async {
+    for (final row in await getJournal(range: 'all')) {
+      if (row['date'] == date) return row;
+    }
+    return null;
+  }
   Future<void> postJournal(String date, List<String> tags, String note) =>
       throw UnimplementedError('re-layer: postJournal');
+  /// Atomically add tags, retaining the day's current note and other answers.
+  Future<void> mergeJournalTags(String date, List<String> tags) =>
+      throw UnimplementedError('re-layer: mergeJournalTags');
   Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) =>
       throw UnimplementedError('re-layer: getJournalInsights');
 

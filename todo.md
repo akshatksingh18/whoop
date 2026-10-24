@@ -613,6 +613,9 @@ other worktrees remain untouched.
   explicit missing-original wording. All 18 new and 15 existing targeted Recovery controls pass;
   the six saved/legacy text-scale states also render from production widgets. This later repair
   requires a fresh full cloud run, then native/artifact verification before a replacement binary.
+  COV-21/22 additionally repair historical Journal reads/tag merging and custom-field draft loss.
+  Thirteen new controls pass, including a complete draft-to-Save round trip; seventeen existing
+  neighboring controls pass. Include these source changes in the next clean full run.
   Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
   remainder with source evidence instead of padding the percentage. Keep native delivery and

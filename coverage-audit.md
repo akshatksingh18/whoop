@@ -89,6 +89,26 @@ database export/wipe/restore and the saved/legacy states at 1x, 2x and 3.1x text
 verification of this later correction remains pending. The six saved/legacy enlarged-text
 states are included in the cloud visual job, with full-scroll synthetic captures and substituted fonts.
 
+**COV-21 — older Journal entries disappear from an editor or lose their note/tags.**
+Sleep can open Journal for a selected historical night, but the editor and its conflict refresh
+searched only the recent 30-day list. The rough-night answer read the same bounded list, then
+replaced that older row using an empty note/tag baseline. Two failing real-store controls show
+the hidden note and its deletion after logging a tag. Selected-day reads now use an exact-date
+query, separate from the unchanged recent-list window. Rough-night answers merge tags in one
+transaction with the current note, retaining concurrent answers and unrelated numeric entries.
+The new repository methods are additive; list ranges and whole-entry replacement keep their
+existing meaning. No page composition, scoring formula or schema changes.
+
+**COV-22 — adding a custom Journal field discards the unsaved day draft.**
+After the definition committed, the editor reloaded the entire day, replacing unsaved note,
+ratings, doses and tags with the stored versions. A failing modal round-trip control reproduces
+the loss. It now adds only the committed definition to the editor; the draft and conflict
+baselines remain intact. A full modal/create/edit/Save round trip verifies the original note,
+rating, tags and new field value reach storage together. Thirteen new synthetic controls pass
+for COV-21/22, including older-day conflict refresh, concurrent tag additions, refused definition
+write/retry, time-picker cancellation and custom-field validation/kind changes. Seventeen existing
+save/conflict and neighboring controls also pass locally. New full cloud verification is pending.
+
 ## Build 100 baseline
 
 All 16 earlier families passed full run `40046857679` at fixture revision `40f9fee6`, whose

@@ -38,7 +38,9 @@ synthetic cases pass full run `40114050675` at `7830c577`: 3,769 app tests and 7
 handwritten execution, with 10,068 lines still unexecuted. The approved COV-20 correction keeps
 Recovery's original explanation/HRV comparison with its pinned morning score; that later source
 needs a fresh full cloud run. `coverage-audit.md` owns exact evidence. Build 102 is in preparation;
-the validated Build 101 testing IPA is unchanged. No score formula or scientific coefficient changes.
+the validated Build 101 testing IPA is unchanged. COV-21/22 also repair historical Journal reads,
+atomic rough-night answers and custom-field draft loss, with targeted synthetic controls. The
+combined source requires full cloud/native gates. No score formula or scientific coefficient changes.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.

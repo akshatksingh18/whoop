@@ -47,6 +47,9 @@ The subsequent approved COV-20 correction saves the original Recovery explanatio
 with the morning score and labels legacy absences honestly. It needs its own full cloud run,
 then native/artifact verification. Build 102 is not yet the testing candidate; the validated
 Build 101 folder below remains unchanged.
+The combined candidate also includes COV-21/22: exact-day Journal reads, atomic rough-night tag
+merging and preservation of unsaved Journal drafts while adding a field. Thirteen new and
+seventeen existing targeted controls pass. These later changes require a new combined full run.
 
 ## Build 101 candidate
 

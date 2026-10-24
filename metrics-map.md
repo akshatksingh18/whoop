@@ -17,6 +17,9 @@ correction saves Recovery's original composite, values, comparisons, notes and d
 the pinned morning score. Recovery reads that paired evidence while normal metrics keep updating;
 legacy pins say the original breakdown is unavailable. COV-20's fresh full cloud/native gates
 remain pending. No valid-input metric definition or scientific coefficient changes.
+COV-21/22 preserve historical Journal notes/tags and unsaved drafts when adding a custom field.
+Selected-day reads do not inherit the recent-list limit; rough-night tags merge atomically with
+the current note. The recent list and numerical/correlation definitions retain their meaning.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

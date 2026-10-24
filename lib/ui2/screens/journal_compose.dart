@@ -82,11 +82,7 @@ class _JournalComposeState extends State<JournalCompose> {
     try {
       final specs = await repo.getJournalFields();
       final values = await repo.getJournalMetrics(_date);
-      final entries = await repo.getJournal(range: '30d');
-      Map<String, dynamic>? today;
-      for (final e in entries) {
-        if (e['date'] == _date) today = e;
-      }
+      final today = await repo.getJournalDay(_date);
       if (!mounted) return;
       setState(() {
         _specs = specs;
@@ -162,8 +158,12 @@ class _JournalComposeState extends State<JournalCompose> {
       return;
     }
     if (!mounted) return;
-    await _load();
-    if (mounted) setState(() => _addingField = false);
+    // Only the definition changed. Reloading the whole day here discarded
+    // the note, tags and numeric edits the user has not saved yet.
+    setState(() {
+      _specs = [..._specs, spec];
+      _addingField = false;
+    });
   }
 
   /// MT-06 — when the LAST one landed.
@@ -246,10 +246,7 @@ class _JournalComposeState extends State<JournalCompose> {
       // (shown) and the user can change it again. A note both changed keeps
       // the typed text and names the other version, so nothing typed is lost.
       final freshValues = await repo.getJournalMetrics(_date);
-      Map<String, dynamic>? row;
-      for (final e in await repo.getJournal(range: '30d')) {
-        if (e['date'] == _date) row = e;
-      }
+      final row = await repo.getJournalDay(_date);
       if (!mounted) return;
       final freshTags = {...?(row?['tags'] as List?)?.map((t) => t.toString())};
       final freshNote = ((row?['note'] as String?) ?? '').trim();

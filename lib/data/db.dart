@@ -8608,11 +8608,15 @@ class LocalDb {
   }
 
   /// Recent journal rows, newest first. [sinceDaysEpoch] (a YYYY-MM-DD label) is
-  /// an optional inclusive lower bound on `date`.
+  /// an optional inclusive lower bound on `date`; [date] selects one exact day.
   static Future<List<Map<String, dynamic>>> journalRows({
     String? sinceDaysEpoch,
+    String? date,
   }) async {
     final db = await instance;
+    if (date != null) {
+      return db.query('journal', where: 'date = ?', whereArgs: [date]);
+    }
     if (sinceDaysEpoch != null) {
       return db.query(
         'journal',
@@ -8622,6 +8626,22 @@ class LocalDb {
       );
     }
     return db.query('journal', orderBy: 'date DESC');
+  }
+
+  /// Add answers to a night without replacing a note or another writer's tags.
+  static Future<void> mergeJournalTags(String date, List<String> tags) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      final rows = await txn.query('journal', where: 'date = ?', whereArgs: [date]);
+      final row = rows.isEmpty ? null : rows.single;
+      final stored = jsonDecode((row?['tags_json'] as String?) ?? '[]') as List;
+      await txn.insert('journal', {
+        'date': date,
+        'tags_json': jsonEncode({...stored.cast<String>(), ...tags}.toList()),
+        'note': (row?['note'] as String?) ?? '',
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   /// Replace one day's numeric journal fields.

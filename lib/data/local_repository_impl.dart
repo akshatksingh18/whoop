@@ -3687,20 +3687,29 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) async {
     final since = _rangeSinceLabel(range);
     final rows = await LocalDb.journalRows(sinceDaysEpoch: since);
-    return [
-      for (final r in rows)
-        {
-          'date': r['date'],
-          'tags': _decodeStrList(r['tags_json']),
-          'note': (r['note'] as String?) ?? '',
-        },
-    ];
+    return [for (final r in rows) _journalEntry(r)];
+  }
+
+  Map<String, dynamic> _journalEntry(Map<String, dynamic> r) => {
+    'date': r['date'],
+    'tags': _decodeStrList(r['tags_json']),
+    'note': (r['note'] as String?) ?? '',
+  };
+
+  @override
+  Future<Map<String, dynamic>?> getJournalDay(String date) async {
+    final rows = await LocalDb.journalRows(date: date);
+    return rows.isEmpty ? null : _journalEntry(rows.single);
   }
 
   @override
   Future<void> postJournal(String date, List<String> tags, String note) async {
     await LocalDb.putJournal(date, jsonEncode(tags), note);
   }
+
+  @override
+  Future<void> mergeJournalTags(String date, List<String> tags) =>
+      LocalDb.mergeJournalTags(date, tags);
 
   @override
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) =>

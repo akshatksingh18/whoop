@@ -162,6 +162,25 @@ the destructive callback is substituted and must stay uncalled. The continuation
 175 targeted cases. COV-25/26 need their own fresh combined full cloud result and native/artifact
 gates. 81.10%/9,488 is the verified `27724aa8` checkpoint, not a claim about these later changes.
 
+**COV-27 — a settled workout can keep the previous activity/window's score.**
+The recent-session sweep cached only `id@end`, although changing an activity changes its energy
+method and retiming can move only the start. A real-store control first settles a lift, uses the
+same narrow type writer as Change activity, then reproduces a sweep that leaves the old calories
+unchanged. The cache now keys id, both bounds and activity type; unchanged sessions still avoid
+redundant writes. No equation, coefficient or day-result output changes, so algorithm 99 remains.
+Nine synthetic sweep controls cover type correction, start-only retiming with later imported
+coverage, a moving frontier, live-to-finished state, retry after a substrate-read failure, honest
+absence, fabricated ends and retention of privacy/effort/HR-recovery fields. Nineteen existing
+manual-workout/calorie-repair neighbors also pass. Fresh full cloud/native gates remain.
+
+Fifteen further step-goal editor controls verify invalid/non-finite and boundary inputs,
+write refusal/retry, disposal during successful/refused writes and usable actions at 2x/3.1x.
+Nine Sleep-page controls cover fallback confirmation, manual reversion, selected-night rejection,
+write failure versus an unapplied saved correction, both picker cancellations, overnight instants
+and disabled duplicate writes/disposal. These use the real widgets and substitute the command/
+post-write calculation boundary; they are not new proof of native time-picker or engine delivery.
+Together the continuation adds 208 targeted cases. The remaining execution inventory stays open.
+
 ## Build 100 baseline
 
 All 16 earlier families passed full run `40046857679` at fixture revision `40f9fee6`, whose

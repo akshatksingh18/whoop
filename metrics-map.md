@@ -26,6 +26,9 @@ COV-24 keeps all backup/restore passphrase content reachable at enlarged text wi
 dialog scrolling. Input rules, exact passphrase bytes, cancellation and encrypted format stay unchanged.
 COV-25/26 preserve full messages and both choices in shared confirmations and Reset at enlarged
 text. These later presentation corrections need their combined full cloud/native checks.
+COV-27 keys recent settled-session scoring by id, both window bounds and activity type, so a
+user correction cannot reuse the previous activity/window's cached calorie score. The chosen
+energy methods and day-result definitions remain unchanged; no algorithm bump is needed.
 
 Build 98 repairs first-reading weights after merge, validated/replay-safe module imports,
 private Lift/Run presentation filters, recorded-zone Food/workout dates, partial-restore refresh

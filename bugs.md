@@ -23,6 +23,10 @@ match decrements and enlarged backup prompts. The newer approved COV-25/26 fixes
 shared confirmations and Reset's deletion disclosure reachable, with 27 further controls.
 Their combined cloud/native/artifact gates remain; the validated Build 101 cache is unchanged.
 The remaining audit is active, and these software checks are not physical-device acceptance.
+COV-27 prevents a settled workout's cached score from surviving an activity or start-bound
+correction. Nine sweep controls and 24 additional step-goal/Sleep controls bring the continuation
+to 208. A fresh combined cloud/native result is required for this newer source; the successful
+native/artifact checks at `8112964e` predate COV-27.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

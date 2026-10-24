@@ -3325,8 +3325,9 @@ class LocalRepositoryImpl extends LocalRepository {
     }
   }
 
-  /// Sessions this process has already scored as FINISHED, keyed by id and the
-  /// window they had at the time (`id@endTs`).
+  /// Sessions this process has already scored as FINISHED, keyed by id, both
+  /// window bounds and activity type. Correcting the type changes its energy
+  /// method even when the measured HR and end time stay the same.
   ///
   /// The skip cannot key on the window alone: a session that was still `live`
   /// during an earlier sweep is skipped by [_rescoreSessionFromSubstrate] (its
@@ -3335,7 +3336,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// list showing the stale live-tally strain until someone opened it. Keying
   /// on the window too means a retimed session is rescored rather than assumed
   /// settled.
-  final Set<String> _rescoredSessions = <String>{};
+  final Set<(String, int, int, String?)> _rescoredSessions = {};
 
   /// Re-score recent finished sessions against the substrate now in the DB.
   /// Called after a drain lands, so a workout whose window arrived late is
@@ -3468,11 +3469,14 @@ class LocalRepositoryImpl extends LocalRepository {
           await LocalDb.getCursorInt('rec_ts_hw') ??
           await LocalDb.lastDecodedRecTs() ??
           0;
-      final seen = <String>{};
+      final seen = <(String, int, int, String?)>{};
       for (final r in rows) {
         final id = r['id']?.toString();
+        final startTs = (r['start_ts'] as num?)?.toInt();
         final endTs = (r['end_ts'] as num?)?.toInt();
-        final key = (id == null || endTs == null) ? null : '$id@$endTs';
+        final key = (id == null || startTs == null || endTs == null)
+            ? null
+            : (id, startTs, endTs, r['type'] as String?);
         if (key != null) seen.add(key);
         // Settled: finished, fully covered, and already scored in that state.
         if (key != null &&

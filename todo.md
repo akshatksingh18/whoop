@@ -611,13 +611,16 @@ other worktrees remain untouched.
   The latest approved COV-25/26 fixes keep complete shared confirmations and Reset's disclosure
   reachable at enlarged text. Twenty-seven further controls bring the continuation to 175;
   their fresh combined cloud/native/artifact gates remain. `coverage-audit.md` owns contracts,
-  exact source inventories and scope limits. No every-line or every-click certification.
+  exact source inventories and scope limits. COV-27 additionally keys settled-workout scores by
+  both time bounds and activity, preventing stale scores after type/start-only edits. Thirty-three
+  more sweep/step-goal/Sleep controls bring the continuation to 208; fresh combined gates remain.
+  No every-line or every-click certification.
   Add real synthetic outcome checks, retain earlier tests, fix reproduced defects and preserve all
   exclusions/skip rules and metric contracts. Classify any unexecutable/dead/platform-only
   remainder with source evidence instead of padding the percentage. Keep native delivery and
   phone acceptance distinct. Full regression/coverage runs remain on GitHub; Build 101 stays
   the validated cached candidate until any replacement passes all release gates.
-- [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–26 when
+- [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–27 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the
   still-open Build 89 checks below, every Build 90 change, and the device/operational matrix in

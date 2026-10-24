@@ -36,7 +36,7 @@ reviewed source revisions and must move with any deliberate package update.
 
 ## Build 102 preparation
 
-Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18–26 from `coverage-audit.md`.
+Build 102 (`0.9.69+102`, algorithm 99/schema 50) prepares COV-18–27 from `coverage-audit.md`.
 Full checkpoint [40120011370](https://github.com/akshatksingh18/whoop/actions/runs/40120011370)
 at `27724aa8` verifies COV-18–24 and 148 added cases: 3,833 app tests/429 skips, zero analysis
 errors/warnings (255 infos), both package suites, 13 Python controls and 180 visual checks.
@@ -46,6 +46,10 @@ The newer approved COV-25/26 fixes preserve readable complete shared confirmatio
 Reset disclosure at large text, bringing the continuation to 175 targeted cases. They need a
 fresh combined cloud run, then native compilation and downloaded-artifact verification.
 Build 102 is not yet the testing candidate; the validated Build 101 folder remains unchanged.
+At source `8112964e`, native run `40137645447` and the downloaded source/version/checksum/ZIP/AOT
+checks pass; full run `40137643399` is pending. COV-27 is newer than that artifact: its fresh
+combined cloud/native verification is required before replacement. Thirty-three additional
+workout-sweep/step-goal/Sleep controls bring this continuation to 208 targeted cases.
 Metric definitions, dependencies, signing/capabilities and backup formats are unchanged.
 
 ## Build 101 candidate

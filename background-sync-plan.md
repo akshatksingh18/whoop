@@ -47,6 +47,9 @@ stages, and refused realtime-HR writes leave the stream unarmed for retry. Targe
 stop/resume and transport controls pass in full run `40120011370`. COV-20 additionally archives
 the morning Recovery explanation in the same cursor write as its pin, without changing the
 score or transfer/ACK behavior. Its full cloud check passes; physical delivery remains open.
+The recent-session sweep also keys its settled cache by both time bounds and activity (COV-27),
+so a user edit cannot keep the old activity/window's score through the next sync. Targeted
+late-record, retime, finish and read-failure controls pass; fresh combined release gates remain.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
 The completed coverage follow-up (`coverage-audit.md`, cached in Build 100) also fixes

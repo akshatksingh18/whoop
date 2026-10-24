@@ -41,7 +41,9 @@ confirmation/reset disclosures reachable; 27 further targeted cases bring the co
 to 175. Their combined full cloud/native/artifact gates remain. Build 102 is in preparation;
 the validated Build 101 testing IPA is unchanged. No physiological score formula, scientific
 coefficient, schema, dependency, ACK ordering or capability changes. The remaining inventory
-is still active; it is not all hardware blocked.
+is still active; it is not all hardware blocked. COV-27 also invalidates the recent-workout
+score cache after activity/start-bound changes. Thirty-three new sweep, step-goal and Sleep
+controls bring the continuation to 208; their fresh combined release gates remain.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.

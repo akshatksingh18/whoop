@@ -58,7 +58,9 @@ configure the replacement band, overwrite its transfer status or request post-se
 Already committed rows remain. COV-32–34 also stop route/display resources on AppState disposal
 without inventing a workout finish, retain a retry state after saved-route read failure and
 make the existing Try again action retry. Final tail writes use the existing bounded stop path;
-failure is logged without a success claim. Ninety-seven new synthetic controls pass locally; cloud checks
+failure is logged without a success claim. Periodic backfill and wake-window reads also retain
+their original generation; COV-35 prevents cold workout recovery after disposal/reset. All 101
+new synthetic controls pass locally; cloud checks
 are pending and GATT/native scheduling is substituted. Further IPA builds are held until the
 coverage work is complete; Build 102 remains cached and the physical matrix stays open.
 

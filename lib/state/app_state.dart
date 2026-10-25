@@ -1321,6 +1321,9 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   Future<void> debugReconnect() => _reconnect();
 
+  @visibleForTesting
+  Future<void> debugPeriodicBackfill() => _runPeriodicBackfill();
+
   /// Feed a strap alarm-lifecycle event (56 set / 57–58 fired / 59 cleared)
   /// without going through the BLE event path. Tests only.
   @visibleForTesting
@@ -3322,6 +3325,12 @@ class AppState extends ChangeNotifier {
   Future<void> _runPeriodicBackfill() async {
     if (!_keepAlive || paired == null || busy || _reconnecting) return;
     if (!engine.isConnected) return;
+    final generation = _reconnectGeneration;
+    bool current() =>
+        !_disposed &&
+        !_resetting &&
+        _keepAlive &&
+        generation == _reconnectGeneration;
     // BACKGROUND: leave periodic offloads to the engine's own timer, which is
     // floored by `BackfillPolicy` (900 s + an empty-streak backoff). This timer
     // runs every 10 minutes and drives `requestHistorySync()`, whose `manual`
@@ -3349,6 +3358,7 @@ class AppState extends ChangeNotifier {
         _lastWakeWindowRefreshAt = DateTime.now();
         try {
           await _refreshHighFreqWakeWindow();
+          if (!current()) return;
         } catch (e) {
           _log('Wake-window refresh failed: $e');
         }
@@ -3367,8 +3377,10 @@ class AppState extends ChangeNotifier {
     }
     try {
       await _refreshHighFreqWakeWindow();
+      if (!current()) return;
       _log('Periodic history refresh — requesting another offload.');
       final report = await _kickSyncBurst(kickFirst: true);
+      if (!current()) return;
       _log(
         'Periodic backlog check: ${report.records} records '
         '(${report.complete ? "complete" : "stopped early"}).',
@@ -4350,9 +4362,16 @@ class AppState extends ChangeNotifier {
   Future<void> syncNow() => openSession();
 
   Future<void> _refreshHighFreqWakeWindow() async {
-    if (!engine.isConnected) return;
+    if (_disposed || _resetting || !engine.isConnected) return;
+    final generation = _reconnectGeneration;
+    bool current() =>
+        !_disposed &&
+        !_resetting &&
+        engine.isConnected &&
+        generation == _reconnectGeneration;
     try {
       final plan = await HighFreqWakeWindow.planNow();
+      if (!current()) return;
       await engine.applyHighFreqWakeWindow(
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
@@ -4361,6 +4380,7 @@ class AppState extends ChangeNotifier {
 
         reason: plan.source,
       );
+      if (!current()) return;
       _log(
         '[SYNC] HighFreq wake window: source=${plan.source} '
         'samples=${plan.sampleCount} enabled=${plan.shouldEnable} '
@@ -5089,7 +5109,7 @@ class AppState extends ChangeNotifier {
       // principle already be running by the time this DB round-trip resolves
       // (CodeRabbit flagged the race). Bail rather than clobber a real,
       // just-started activeWorkout and leak its timer.
-      if (activeWorkout != null) return;
+      if (_disposed || _resetting || activeWorkout != null) return;
       final rows = await LocalDb.liveSessions();
       // RE-CHECK AFTER THE AWAIT. This is kicked unawaited from _init(), one
       // line before `initialized = true` makes the shell interactive — so the
@@ -5100,11 +5120,12 @@ class AppState extends ChangeNotifier {
       // running _tickWorkout at 2 Hz for the rest of the session — double
       // counting calories/strain/zone-seconds against a workout the user never
       // started.
-      if (activeWorkout != null) return;
+      if (_disposed || _resetting || activeWorkout != null) return;
       if (rows.isEmpty) return;
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       var resumed = false;
       for (final row in rows) {
+        if (_disposed || _resetting) return;
         final startSec = (row['start_ts'] as num?)?.toInt();
         final ageMs = startSec == null ? null : nowMs - startSec * 1000;
         final savedClock = startSec == null
@@ -5213,7 +5234,7 @@ class AppState extends ChangeNotifier {
           );
         }
       }
-      if (resumed) {
+      if (!_disposed && !_resetting && resumed) {
         _startCadence();
         notifyListeners();
       }

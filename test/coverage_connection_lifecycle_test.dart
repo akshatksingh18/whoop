@@ -13,6 +13,8 @@ import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/sync/band_ownership.dart';
 import 'package:openstrap_edge/sync/file_log.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
+import 'package:openstrap_edge/gps/workout_clock.dart';
+import 'package:openstrap_edge/gps/screen_wake.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -309,17 +311,19 @@ void main() {
     });
   }
 
-  test('a repair pause arriving during backoff prevents the pending attempt',
-      () async {
-    await app.openSession();
-    band.calls.clear();
-    band.delay = const Duration(milliseconds: 20);
-    final retry = app.debugReconnect();
-    band.state.autoReconnectPaused = true;
-    await retry;
-    expect(band.calls, isEmpty);
-    expect(BandOwnership.foregroundIntent, false);
-  });
+  test(
+    'a repair pause arriving during backoff prevents the pending attempt',
+    () async {
+      await app.openSession();
+      band.calls.clear();
+      band.delay = const Duration(milliseconds: 20);
+      final retry = app.debugReconnect();
+      band.state.autoReconnectPaused = true;
+      await retry;
+      expect(band.calls, isEmpty);
+      expect(BandOwnership.foregroundIntent, false);
+    },
+  );
 
   for (final path in ['foreground', 'retry', 'background retry']) {
     test(
@@ -360,6 +364,92 @@ void main() {
         expect(app.deriving, false);
         expect(app.derivePending, false);
         expect(BandOwnership.owner, isNull);
+      },
+    );
+  }
+
+  for (final at in ['plan read', 'command write']) {
+    test(
+      'periodic backfill held at $at cannot act on a replacement session',
+      () async {
+        await app.openSession(); // Establish session intent without a link.
+        band.connected = true;
+        final reached = Completer<void>(), release = Completer<void>();
+        Future<void>? transaction;
+        if (at == 'plan read') {
+          transaction = (await LocalDb.instance).transaction((_) async {
+            reached.complete();
+            await release.future;
+          });
+          await reached.future;
+        } else {
+          band.command = (cmd) async {
+            if (cmd == 'wake-window') {
+              reached.complete();
+              await release.future;
+            }
+          };
+        }
+        final pending = app.debugPeriodicBackfill();
+        if (at == 'command write') {
+          await reached.future;
+        } else {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        await app.endSession();
+        band.connected = true;
+        band.calls.clear();
+        release.complete();
+        await transaction;
+        await pending;
+        expect(band.calls, isEmpty);
+        expect(app.deriving, false);
+        expect(app.derivePending, false);
+      },
+    );
+  }
+
+  for (final age in [const Duration(minutes: 3), const Duration(hours: 12)]) {
+    test(
+      'orphan recovery returning after disposal leaves the ${age.inHours == 0 ? 'recent' : 'stale'} session untouched',
+      () async {
+        final start =
+            DateTime.now().subtract(age).millisecondsSinceEpoch ~/ 1000;
+        await LocalDb.putSession({
+          'id': 'synthetic-orphan',
+          'type': 'swimming',
+          'start_ts': start,
+          'status': 'live',
+          'created_at': start * 1000,
+        });
+        final reached = Completer<void>(), release = Completer<void>();
+        final tx = (await LocalDb.instance).transaction((_) async {
+          reached.complete();
+          await release.future;
+        });
+        await reached.future;
+        final recovery = app.debugReconcileOrphanedLiveWorkout();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        app.dispose();
+        disposed = true;
+        release.complete();
+        await tx;
+        await recovery;
+        try {
+          expect(app.activeWorkout, isNull);
+          expect(
+            (await LocalDb.session('synthetic-orphan'))!['status'],
+            'live',
+          );
+          expect(WorkoutClock.current, isNull);
+          expect(ScreenWake.isHeld, false);
+        } finally {
+          // Before the repair, recovery re-armed a real periodic timer after
+          // disposal. Retire it through the existing deletion teardown.
+          if (app.activeWorkout != null)
+            await app.deleteWorkout('synthetic-orphan');
+          WorkoutClock.current = null;
+        }
       },
     );
   }

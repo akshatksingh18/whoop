@@ -57,6 +57,9 @@ are retained. Nineteen real-store/substituted-transport controls pass locally, c
 R10 cursor progress independently of decoded rows, stale-timestamp continuation, the 20-session
 bound, cumulative-counter spin prevention, throttle refusal, overlapping wakes and failure/retry.
 The active clock, scientific definitions and BLE transfer/ACK implementation are unchanged.
+Two additional failing sibling controls reproduce a periodic backfill acting after cancellation,
+both behind an actual SQLite-held wake-plan read and a held transport write. The periodic caller
+and shared wake-window helper now keep/check their original generation across those waits.
 
 Ten additional integration controls pass through the real BLE frame queue, decoder and SQLite
 transaction with GATT writes substituted, for both supported families. They verify exact-token
@@ -88,7 +91,14 @@ concurrent arming, retained history, paused tracking, refused final persistence,
 failed permission/storage returns after finish/delete/disposal. SQLite, AppState, route tracking
 and the actual live-feed callbacks are real; geolocation delivery and the injected read fault
 are substitutes. These do not prove device permissions, background GPS or native wake behavior.
-The continuation now has 97 added passing local controls; full combined cloud verification is
+**COV-35 — cold workout recovery resumes after its owner is disposed.** Two held real-store
+read controls dispose AppState before recent/stale live rows return. Recovery then re-arms a
+live workout/timer or finalizes a stale row after disposal. It now checks disposal/reset at
+entry, after the read and before continuing the row loop or re-arming cadence. Both controls
+pass without mutating the saved live row or inventing a finish. These are host lifecycle
+controls, not process-termination or actual iOS restoration proof.
+
+The continuation now has 101 added passing local controls; full combined cloud verification is
 pending. No new IPA, release metadata, metric output, schema or scientific definition change.
 
 The requested continuation began with all 10,832 Build 101 missed lines. Final full run

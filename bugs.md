@@ -21,11 +21,12 @@ coefficients and metric definitions remain. Build 101's testing folder was super
 recycled. Build 70 recovery is unchanged. Physical/background/permission/gesture delivery,
 installation and signing gates remain open; software checks are not phone acceptance.
 
-Further coverage work has source repairs for COV-30–34: stopped or superseded connection
+Further coverage work has source repairs for COV-30–35: stopped or superseded connection
 setup/retries and history waits cannot arm streams, request new bursts or queue calculation
 on a replacement session. Late ownership acquisitions retire safely. Route disposal stops GPS
 and releases the display; transient route failures stay retryable, and Try again retries.
-All 97 new synthetic
+Periodic backfill/wake-window reads also retire on cancellation, and cold workout recovery
+cannot resume or finalize rows after disposal. All 101 new synthetic
 controls pass locally, including real BLE-frame/SQLite failure boundaries with substituted
 GATT delivery. Full cloud verification and updated execution counts remain pending.
 `coverage-audit.md` owns details. No new IPA is to be built until the coverage work is complete;

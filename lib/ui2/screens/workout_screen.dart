@@ -1348,9 +1348,10 @@ LiveFeed _feedOf(AppState app) {
     onFixRoute: () {
       final issue = app.routeLocationIssue;
       if (issue == null) return;
-      // A plain denial can be asked again; the rest can only be fixed in
-      // Settings, and re-asking there would do nothing.
-      if (issue == GpsPermissionStatus.denied) {
+      // A plain denial or transient setup error can retry here. Service-off,
+      // permanent denial and reduced accuracy require Settings.
+      if (issue == GpsPermissionStatus.denied ||
+          issue == GpsPermissionStatus.error) {
         app.retryRouteTracking();
       } else {
         GpsSource.openSettingsFor(issue);

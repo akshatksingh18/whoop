@@ -66,6 +66,31 @@ commit. Unknown-revision archives deliberately do not invent a decoded frontier.
 the existing pure-policy/commit controls; no new BLE defect or physical delivery claim follows.
 All 76 new controls await the full cloud checkpoint; native builds remain held.
 
+**COV-32 — AppState disposal leaves route resources running.** A failing armed-route
+control retains a GPS subscription after disposal; the display-awake flag is also unreleased.
+Disposal now cancels tracking, attempts the buffered tail save through the existing bounded
+stop path and releases the display without finalizing or deleting the live workout/clock.
+A failed tail save is contained and logged; it is not reported as successful persistence.
+Disposed callers cannot re-prompt permissions, and failed stream setup releases its tracker.
+
+**COV-33 — the live route's Try again action opens Settings.** The existing error card says
+Try again, but its feed callback handles only plain permission denial as a retry. A failing
+callback control opens Settings after a transient platform error. Error now retries the same
+route-arming flow; service-off, permanent denial and reduced accuracy retain Settings. The
+page's wording, layout, colors and actions are unchanged.
+
+**COV-34 — saved-route read failure escapes unawaited arming.** A failing repository-read
+control throws from the post-permission preparation, leaving no tracker or retry state.
+The error is contained and logged, the existing route-error/retry state is used, and no new
+recording starts against unknown saved history. A later retry keeps the same live workout.
+Twenty-one route controls pass locally for these repairs and neighboring permissions,
+concurrent arming, retained history, paused tracking, refused final persistence, and successful/
+failed permission/storage returns after finish/delete/disposal. SQLite, AppState, route tracking
+and the actual live-feed callbacks are real; geolocation delivery and the injected read fault
+are substitutes. These do not prove device permissions, background GPS or native wake behavior.
+The continuation now has 97 added passing local controls; full combined cloud verification is
+pending. No new IPA, release metadata, metric output, schema or scientific definition change.
+
 The requested continuation began with all 10,832 Build 101 missed lines. Final full run
 `40141173339` at `fc69b0d3` verifies COV-18–29 and all **232 added cases**:
 **3,917 app tests/429 intentional skips** (408 absent golden baselines), zero analysis errors/

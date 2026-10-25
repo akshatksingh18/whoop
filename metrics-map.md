@@ -300,6 +300,14 @@ local destinations and acceptance gates are documented in `build-87-ui-plan.md`.
 | Food, calories left, macros | — | — | Build-75 source: Maintenance → Calories (opens the whole day) → Macros; meal cards show kcal and P/C/F; one dragged order for My foods and saved meals shared with the log screen (no sort); + opens the portion screen or saved-meal review; − / + amounts; up to two named measures per food; saved meals keep sub-headings; swipe either way deletes. Food → Today: ‹ day › with calendar and swipe, calorie and macro cards, maintenance, evening protein-left line, meal cards (Log; ⋯ copy from / copy to / save meal). Meal page: sub-groups, editable quick-add entries, swipe-to-delete with Undo. Log screen: search, My foods (default) / My meals, sort, direct Scan and product review, food detail with "After this, today" (Build 90: calories and protein left after this food, a "Fit what's left" amount, nutrient panel showing what is left of each goal; also on the amount sheet) and "often eaten with", named quick add with every macro on the sheet, an optional reference weight (g) and a "Save to My foods" pill (build-81 source); decimal servings. Build-82 local source: Food → Foods search; saved-meal rows show calories; tapping a saved meal on the log screen opens its review (with "Edit saved meal"); the saved-meal food picker searches, shows each food's serving and adds several; edit sheets ask before discarding typed values; dragging to a screen edge scrolls the page and heading selection before logging; saved-food/meal deletion directly in the picker |
 | Maintenance history, weight | weekly card | — | Food → History: weight card (7-day trend, estimated maintenance from food and weight), completed-day weekly deficit, trailing 31-day maintenance-vs-eaten chart with range caption, lazy calendar-month accordions (current open, older closed), logged-day rows that open for editing |
 
+Current source route lifecycle (COV-32–34): temporary setup/read failures retain the live
+workout and the existing retry affordance; Try again re-attempts arming, while permission
+settings issues still open Settings. Saved history must load before a new route recorder starts.
+AppState disposal cancels GPS, attempts the buffered tail save and releases the display without
+inventing a finish or deleting its clock. A failed final save is logged, not described as saved.
+The synthetic platform/read-fault controls are in `coverage-audit.md`; this is not native GPS,
+screen-wake or background acceptance, and is not included in cached Build 102.
+
 Build-75 source: Trends opens on 7 days, with the same Today / 7 days / 30 days / 3 months
 switch every metric screen uses. Each row shows today's value (Today) or the range's daily
 average, with a small line; tapping opens the metric at the same range. Every metric shows its

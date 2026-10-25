@@ -621,6 +621,8 @@ other worktrees remain untouched.
   Akshat has put further IPA builds on hold until this coverage work is complete. Continue
   source repairs and Linux/cloud tests without dispatching `personal-ios.yml`, bumping release
   metadata or replacing the testing cache. Build 102 remains the cached candidate.
+  Source repairs COV-30–34 and 97 new synthetic controls pass targeted checks; combined full
+  cloud verification and an updated exact coverage inventory are pending.
 - [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the

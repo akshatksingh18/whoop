@@ -63,6 +63,7 @@ import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
 import '../gps/gps_source.dart';
 import '../gps/route_tracker.dart';
+import '../gps/route_models.dart' show WorkoutRoute;
 import '../gps/route_types.dart';
 import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
@@ -1238,6 +1239,15 @@ class AppState extends ChangeNotifier {
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
+    final route = _routeTracker;
+    _routeTracker = null;
+    if (route != null) {
+      unawaited(route.stop().catchError((Object e) {
+        _log('[route] final save during disposal failed: $e');
+        route.dispose();
+      }));
+    }
+    unawaited(ScreenWake.release());
     _backgroundNotifyTimer?.cancel();
     // EVERY timer this object owns, not just three of them: _workoutTimer
     // used to survive dispose, and its callback ends in notifyListeners() on
@@ -4943,7 +4953,7 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
-    if (_resetting || WorkoutClock.current?.end != null) return;
+    if (_disposed || _resetting || WorkoutClock.current?.end != null) return;
     // Lowercased for the same reason every other type lookup is: the stored
     // `type` column is free-form text and older rows carry mixed case.
     if (!typeRecordsRoute(type)) return;
@@ -4983,7 +4993,21 @@ class AppState extends ChangeNotifier {
         _routeTracker != null) {
       return;
     }
-    final savedRoute = await repo?.getWorkoutRoute(id);
+    WorkoutRoute? savedRoute;
+    try {
+      savedRoute = await repo?.getWorkoutRoute(id);
+    } catch (e) {
+      if (_disposed ||
+          _resetting ||
+          workoutAwaitingSave ||
+          activeWorkout?.workoutId != id) {
+        return;
+      }
+      _log('Route tracking preparation failed: $e');
+      routeLocationIssue = GpsPermissionStatus.error;
+      notifyListeners();
+      return;
+    }
     if (_disposed ||
         _resetting ||
         workoutAwaitingSave ||
@@ -5019,6 +5043,7 @@ class AppState extends ChangeNotifier {
     try {
       tracker.start(GpsSource.stream());
     } catch (_) {
+      tracker.dispose();
       _routeTracker = null;
       routeLocationIssue = GpsPermissionStatus.error;
       notifyListeners();
@@ -5031,7 +5056,7 @@ class AppState extends ChangeNotifier {
   /// Re-attempt route tracking after the user fixed permissions (returns from
   /// Settings). No-op unless a route-eligible session is live without a tracker.
   Future<void> retryRouteTracking() async {
-    if (_resetting || workoutAwaitingSave) return;
+    if (_disposed || _resetting || workoutAwaitingSave) return;
     final w = activeWorkout;
     if (w == null || w.workoutId == null || _routeTracker != null) return;
     await _maybeStartRouteTracking(w.workoutId!, w.type);

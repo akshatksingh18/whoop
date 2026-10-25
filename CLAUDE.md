@@ -142,7 +142,8 @@ The treadmill incline proposal remains unimplemented. Earlier build notes are in
 - `metrics-map.md` — every metric the app stores, where each appears, the Sleep screen's sections,
   and current layout decisions; read before adding, moving or removing any screen.
 - `setup.md` — current public-GitHub/local-backup/upstream remotes, imported revisions, Windows
-  validation, installed personal-iPhone candidate, and remaining migration/device decisions.
+  validation, installed personal-iPhone candidate, complete-workspace transfer boundaries and
+  remaining migration/device decisions. A clone alone does not recover local audit/tooling files.
 - `bugs.md` — retained Android reconnection evidence plus active iPhone CoreBluetooth and verified
   iPhone-pedometer step-source behavior.
 - `README.md` — the public page for this personal app: what it does, how it is built and kept

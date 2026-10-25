@@ -639,6 +639,12 @@ other worktrees remain untouched.
   and HIIT rounds disappearing during finish navigation. The local union reaches at least 939
   old missed lines mapped through identical source blocks; it is provisional, not an updated
   full-run percentage. Full combined cloud verification and a new exact inventory are pending.
+- [ ] Food meal default follow-up (reported, not investigated): opening general Log food
+  sometimes selects Snacks around lunchtime. On opening, choose the meal appropriate to
+  the current local time using the existing meal-time conventions; retain an explicitly
+  chosen meal, manual overrides and the viewed historical date. Check every entry point,
+  reopening/stale selection and meal boundaries before implementing. Keep eaten time and
+  logged_at distinct. This report requests future investigation, not a completed fix.
 - [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the

@@ -26,17 +26,18 @@ Build 101's superseded testing folder went to the Recycle Bin; its fingerprint r
 Build 91 remains the last reported installation; Build 70 remains accepted recovery.
 Current-version installation, signing enrollment and the physical-device matrix remain open.
 
-The remaining-line continuation stays active under `todo.md` 3r. Its 232 added synthetic
-controls verify COV-18–29; handwritten execution is **40,888/50,209 (81.44%)**, with **9,321
-unexecuted**. `coverage-audit.md` owns the exact source inventory and test-substitute limits,
-including retained dormant/compatibility paths. This is not every-line, every-click or hardware
-certification, and the remaining gaps are not all hardware blocked. The treadmill incline
-proposal remains unimplemented. Earlier build notes are in `build-history.md`.
-
-Further coverage work is in progress on `coverage-expansion`. Do not dispatch a native/IPA
-build until the requested coverage work is complete. Build 102 remains the cached candidate;
-new source controls and COV-30–35 repairs are not a replacement release or phone verification.
-All 101 added targeted controls pass locally; combined full cloud verification remains pending.
+The remaining-line continuation stays active under `todo.md` 3r. Source through `e88fde29`
+adds 101 controls and COV-30–35 repairs, verified in full Linux run `40189878355`: 4,018 app
+tests, both packages, 13 Python controls and 213 visual checks/709 captures pass. Handwritten
+execution is **41,181/50,310 (81.85%)**, with **9,129 unexecuted**, 192 fewer than Build 102.
+`coverage-audit.md` owns exact inventories and test-substitute limits. This is not every-line,
+every-click or hardware certification, and the remaining gaps are not all hardware blocked.
+Do not dispatch a native/IPA build until the requested coverage work is complete. Build 102
+remains cached; these newer source repairs are not included in it or phone verified.
+The larger continuation batch adds COV-36's optional-label repair and 57 passing targeted
+Food/workout/Settings controls; combined cloud verification is pending. Checkpoints now aim
+for roughly 1,000 remaining executable lines across related flows; `todo.md` 3r owns the plan.
+The treadmill incline proposal remains unimplemented. Earlier build notes are in `build-history.md`.
 
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.

@@ -657,9 +657,10 @@ Future<String?> askText(
   String initial, {
   String? Function(String)? validate,
   TextInputType? keyboard,
+  bool allowEmpty = false,
 }) => _sheet<String>(
   c,
-  (_) => _TextPrompt(title, label, initial, validate, keyboard),
+  (_) => _TextPrompt(title, label, initial, validate, keyboard, allowEmpty),
 );
 
 class _TextPrompt extends StatefulWidget {
@@ -669,10 +670,12 @@ class _TextPrompt extends StatefulWidget {
     this.initial,
     this.validate,
     this.keyboard,
+    this.allowEmpty,
   );
   final String title, label, initial;
   final String? Function(String)? validate;
   final TextInputType? keyboard;
+  final bool allowEmpty;
   @override
   State<_TextPrompt> createState() => _TextPromptState();
 }
@@ -692,7 +695,7 @@ class _TextPromptState extends State<_TextPrompt> {
     final value = _text.text.trim();
     final error =
         widget.validate?.call(value) ??
-        (value.isEmpty ? 'Enter ${widget.label}.' : null);
+        (value.isEmpty && !widget.allowEmpty ? 'Enter ${widget.label}.' : null);
     if (error != null) {
       setState(() => _error = error);
       return;

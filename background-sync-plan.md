@@ -60,8 +60,8 @@ without inventing a workout finish, retain a retry state after saved-route read 
 make the existing Try again action retry. Final tail writes use the existing bounded stop path;
 failure is logged without a success claim. Periodic backfill and wake-window reads also retain
 their original generation; COV-35 prevents cold workout recovery after disposal/reset. All 101
-new synthetic controls pass locally; cloud checks
-are pending and GATT/native scheduling is substituted. Further IPA builds are held until the
+new synthetic controls pass full Linux checkpoint `40189878355` at `e88fde29`, along with
+all app/package/visual checks; GATT/native scheduling is substituted. Further IPA builds are held until the
 coverage work is complete; Build 102 remains cached and the physical matrix stays open.
 
 The completed coverage follow-up (`coverage-audit.md`, introduced in Build 100) also fixes

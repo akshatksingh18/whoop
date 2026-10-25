@@ -15,7 +15,7 @@ The 232 added controls for COV-18–29 cover cancellation, refused live arming, 
 Recovery explanations, retained Journal/drafts, match decrements, complete prompts, workout
 score-cache invalidation and analysis-range/working-state layout and cleanup. Retained dormant
 paths are labelled as such; they are not newly exposed personal navigation.
-Handwritten execution is 40,888/50,209 (81.44%), with 9,321 lines still unexecuted. The remaining
+Build 102's checkpoint executes 40,888/50,209 handwritten lines (81.44%), with 9,321 unexecuted. The remaining
 audit stays active; these gaps are not all hardware blocked. The calm A+B interface, scientific
 coefficients and metric definitions remain. Build 101's testing folder was superseded and
 recycled. Build 70 recovery is unchanged. Physical/background/permission/gesture delivery,
@@ -28,9 +28,17 @@ and releases the display; transient route failures stay retryable, and Try again
 Periodic backfill/wake-window reads also retire on cancellation, and cold workout recovery
 cannot resume or finalize rows after disposal. All 101 new synthetic
 controls pass locally, including real BLE-frame/SQLite failure boundaries with substituted
-GATT delivery. Full cloud verification and updated execution counts remain pending.
+GATT delivery. Full Linux `40189878355` at `e88fde29` passes all 4,018 app tests/429 skips, both packages,
+13 Python controls, 213 visual checks/709 captures and analysis with zero errors/warnings.
+Current handwritten execution is 41,181/50,310 (81.85%), with 9,129 still unexecuted.
 `coverage-audit.md` owns details. No new IPA is to be built until the coverage work is complete;
 these changes are not in the cached Build 102 candidate or phone verified.
+
+COV-36 restores the label editor's existing promise that an empty name removes the label.
+Only this prompt accepts empty text; shared meal-name/weight/heading prompts remain required.
+The larger continuation has 57 passing targeted Food, workout-summary and Settings controls,
+including real-store refusal/retry and large-text cases. Combined cloud checks and an updated
+execution count are pending. `coverage-audit.md` owns the contracts and substitute limits.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

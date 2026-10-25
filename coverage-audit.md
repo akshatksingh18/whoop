@@ -1,9 +1,12 @@
 # Coverage-directed audit
 
-**Status:** COV-01–29 are repaired in validated Build 102, app source `fc69b0d3`.
-Full run `40141173339`, native `40141175245` and downloaded IPA validation pass. Build 102
-is the single testing candidate. The remaining execution work stays active: 9,321 handwritten
-lines are unexecuted, and software checks are not every-click or physical-device certification.
+**Status:** COV-01–35 are repaired in source through `e88fde29`; full Linux run
+`40189878355` passes. Cached Build 102 (`fc69b0d3`) contains COV-01–29 and remains the single
+validated testing IPA. Further native/IPA builds are held until the coverage work is complete.
+Current handwritten execution is **41,181/50,310 (81.85%)**, with **9,129 unexecuted**.
+These are software execution counts, not every-click or physical-device certification.
+The larger continuation batch adds COV-36 and 57 passing targeted controls; its combined cloud
+checkpoint is pending, so the percentage above remains the last full-run measurement.
 `setup.md` owns cache/source/hash evidence; `todo.md` owns the open execution and phone gates.
 
 ## Build 101 baseline
@@ -28,9 +31,47 @@ blocked. Constants/barrel exports remain the same three unimported files.
 
 ## Remaining execution work
 
+Checkpoints now aim for roughly 1,000 remaining executable lines across related flows before
+another full cloud coverage run. This is a batching target, not a quota of tests, a claim that
+every reached line is proven correct, or permission to pad/exclude paths. Small targeted local
+checks and coherent source commits continue inside the batch. Further IPA builds remain held.
+
+**COV-36 — the promised empty-label rename cannot save.** Food → Foods → Manage labels →
+Rename says "Label (empty removes it)", but the shared text prompt rejects an empty value
+after that caller's validator accepts it. The rename alone now explicitly permits empty input;
+other callers retain required-text validation. Eleven real-sheet/SQLite controls pass for
+rename, case-insensitive merge, clearing, bin cancel/remove, length validation, atomic rollback
+on write refusal and retry, 2x/3.1x access, and the shared prompt's required-field default.
+Saved foods and historical diary entries remain intact. No layout, wording, metric or schema
+changes accompany this repair.
+
+The larger batch also has 25 passing workout-summary view controls, seven saved-meal editor
+controls and fourteen Settings controls. They follow real reachable tabs/sheets, partial
+distance splits, recorded HR gaps, legacy/mile splits, heat/cold no-signal explanations,
+template validation/portion/grouping/persistence/retry, unit independence, barcode consent,
+notification preferences, muted kinds, thresholds and permission refresh. Food and template
+tests use synthetic SQLite; Settings uses a preference-store substitute and scheduler counters,
+and system permission delivery is substituted. Workout views use synthetic ActivityResult
+records rather than a band or native GPS. Screens are scrolled at narrow phone widths, with
+selected 2x/3.1x controls and substituted fonts. These 57 cases pass targeted checks only;
+the next full cloud run and its exact combined inventory remain pending. No new IPA is built.
+
 The next continuation is active on `coverage-expansion`; further IPA builds are held until
 the requested coverage work is complete. Build 102 remains the cached candidate. New source
-controls below are not yet included in a replacement IPA or the published coverage checkpoint.
+controls below are verified in Linux checkpoint `40189878355` at `e88fde29`, but are not in
+a replacement IPA. All 101 added cases pass within **4,018 app tests/429 intentional skips**
+(408 absent golden baselines). Analysis has zero errors/warnings and 258 infos; protocol passes
+433/skip four, analytics 645/skip six, 13 Python controls and **213 visual checks/709 captures**.
+Handwritten execution is **41,181/50,310 (81.85%)**, up from Build 102's 81.44%: 293 more executed
+and 101 more instrumented lines, with **9,129 unexecuted**, a net reduction of 192. Raw root LCOV
+is 41,232/57,923 (71.19%) across the same 203 imported files; the same seven generated files
+are separate from the 196 handwritten files, and the same three constants/barrels remain
+unimported. No exclusions, skip rules or denominator filters changed. Every handwritten and
+unimported source hash matches the downloaded artifact. The next exact inventory is ignored
+`build/coverage-continuation/e88fde29/coverage/gaps.json`, with current discovery ranges in
+`build/coverage-remainder/next-inventory.json`. The screenshots use substituted fonts; no new
+native compilation or device delivery is claimed. Earlier superseded checkpoint runs are not
+used as passing full-suite or coverage evidence.
 
 **COV-30 — retired connection attempts keep configuring a band.** Four failing synthetic
 controls show a reconnect sending wake-window/live/battery/name commands after End session,
@@ -45,7 +86,7 @@ exception and the repair pause. A fifth failing control shows that a repair paus
 during backoff still allowed one connect; the pause is now rechecked after delay/ownership waits.
 Storage and ownership policies are real; the band transport
 is substituted and its callbacks are not wired as native delivery. Full cloud verification
-and a refreshed coverage inventory remain pending. No UI, metric, schema or ACK-order change.
+and a refreshed coverage inventory pass in checkpoint `40189878355`. No UI, metric, schema or ACK-order change.
 
 **COV-31 — an old history wait can continue on a replacement connection.** A failing
 held-transfer control ends the session, establishes a replacement transport, then releases
@@ -67,7 +108,7 @@ ACK only after durable decoded/archive rows, transaction rollback when archive o
 fail, no ACK on failure, and preserved committed rows without a stale ACK after disconnect during
 commit. Unknown-revision archives deliberately do not invent a decoded frontier. These extend
 the existing pure-policy/commit controls; no new BLE defect or physical delivery claim follows.
-All 76 new controls await the full cloud checkpoint; native builds remain held.
+These 76 controls pass in the combined full checkpoint above; native builds remain held.
 
 **COV-32 — AppState disposal leaves route resources running.** A failing armed-route
 control retains a GPS subscription after disposal; the display-awake flag is also unreleased.
@@ -98,8 +139,7 @@ entry, after the read and before continuing the row loop or re-arming cadence. B
 pass without mutating the saved live row or inventing a finish. These are host lifecycle
 controls, not process-termination or actual iOS restoration proof.
 
-The continuation now has 101 added passing local controls; full combined cloud verification is
-pending. No new IPA, release metadata, metric output, schema or scientific definition change.
+All 101 added controls pass in full combined checkpoint `40189878355`. No new IPA, release metadata, metric output, schema or scientific definition change.
 
 The requested continuation began with all 10,832 Build 101 missed lines. Final full run
 `40141173339` at `fc69b0d3` verifies COV-18–29 and all **232 added cases**:

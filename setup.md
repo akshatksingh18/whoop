@@ -40,6 +40,11 @@ Further coverage work continues on `coverage-expansion`. Akshat has held native/
 until that coverage work is complete. Run source checks on Linux without dispatching
 `personal-ios.yml`, bumping release metadata or replacing the cache during this continuation.
 Build 102 below remains the cached candidate; later source repairs are not included in it.
+Source checkpoint `e88fde29` repairs COV-30–35 and passes full Linux run `40189878355`:
+4,018 app tests/429 skips, both packages, 13 Python controls, 213 visual checks/709 synthetic
+captures and zero analysis errors/warnings (258 infos). Handwritten execution is 41,181/50,310
+(81.85%), with 9,129 unexecuted. `coverage-audit.md` owns the current source inventory and
+limits. No native build, release version, cache, signing or installation change accompanies it.
 
 Build 102 (`0.9.69+102`, algorithm 99/schema 50) implements COV-18–29 from `coverage-audit.md`,
 retaining COV-01–17 and the earlier repair contracts. App source:

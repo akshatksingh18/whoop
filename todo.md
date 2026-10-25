@@ -621,8 +621,20 @@ other worktrees remain untouched.
   Akshat has put further IPA builds on hold until this coverage work is complete. Continue
   source repairs and Linux/cloud tests without dispatching `personal-ios.yml`, bumping release
   metadata or replacing the testing cache. Build 102 remains the cached candidate.
-  Source repairs COV-30–35 and 101 new synthetic controls pass targeted checks; combined full
-  cloud verification and an updated exact coverage inventory are pending.
+  Source repairs COV-30–35 and 101 added synthetic controls pass full Linux run `40189878355`
+  at `e88fde29`: 4,018 app tests/429 skips, both packages, 13 Python controls, 213 visual checks/
+  709 captures and zero analysis errors/warnings. Handwritten execution is now 41,181/50,310
+  (81.85%), with 9,129 unexecuted, 192 fewer than Build 102. Exact source-checked inventory:
+  `build/coverage-continuation/e88fde29/coverage/gaps.json`. No new IPA/native build or release
+  metadata change; the coverage task remains open. Continue deeper UI flows and the remaining
+  AppState/BLE/calculation/storage failure branches from this inventory.
+  Akshat requests larger checkpoints: aim for roughly 1,000 remaining executable lines per
+  batch across related flows before the next full cloud coverage run. Small targeted local
+  checks remain appropriate; do not pad counts, add exclusions or skip controls to meet a target.
+  The larger batch has COV-36's empty-label rename repair and 57 passing targeted controls:
+  Food labels (11), workout summary views (25), saved-meal editing (7), Settings choices and
+  notification preferences (14). Full combined cloud verification and a new exact percentage
+  remain pending; keep extending related uncovered flows before dispatching that checkpoint.
 - [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the

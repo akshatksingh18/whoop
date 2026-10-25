@@ -258,7 +258,7 @@ These are still stored but no longer entered in the personal build:
 | `food_def` | your foods, stored per 100 units (grams by default, or links/slices/cups/ml/custom units): typed from a label ("50 g oats = 200 kcal…") or cached from a barcode scan |
 | `meal_template` | saved meals: a name, a usual meal slot, and foods at fixed quantities and units |
 | profile `kcal_target`, `protein_target`, `carbs_target`, `fat_target`, `fibre_target` | typed daily targets |
-| `food_def.category` | the user's own category label (custom labels in Build 86; '' = Uncategorised); existing labels are preserved, and the same field feeds Foods, log-screen and saved-meal-picker filters |
+| `food_def.category` | the user's own category label (custom labels in Build 86; '' = Uncategorised); existing labels are preserved, and the same field feeds Foods, log-screen and saved-meal-picker filters. COV-36 restores empty-name clearing in Rename; clearing/bin removal retains the foods and their diary history |
 | `food_entry.grp` | a sub-heading inside a meal ("Oatmeal", "Omelette"); logging a saved meal fills it with the meal's name |
 | `body_weight` | legacy daily aggregate; today's sets profile `weight_kg`. `unit`, `entered`, `source`, `origin_id` and `history_only` preserve input/provenance; backdated/imported rows never price a day. Build 90 uses the first reading of each day; all readings remain in Body history |
 | `body_weight_reading` | Build 90 schema 50: every reading with identity, effective date, Unix-second measurement time, kg, input units/value, source/origin, history-only flag and creation time. Legacy daily rows migrate once; Body and Food quick-weigh-in use BodyLogDb and rebuild the daily aggregate |
@@ -305,7 +305,8 @@ workout and the existing retry affordance; Try again re-attempts arming, while p
 settings issues still open Settings. Saved history must load before a new route recorder starts.
 AppState disposal cancels GPS, attempts the buffered tail save and releases the display without
 inventing a finish or deleting its clock. A failed final save is logged, not described as saved.
-The synthetic platform/read-fault controls are in `coverage-audit.md`; this is not native GPS,
+The synthetic platform/read-fault controls pass full Linux `40189878355` (`e88fde29`);
+`coverage-audit.md` owns their limits. This is not native GPS,
 screen-wake or background acceptance, and is not included in cached Build 102.
 
 Build-75 source: Trends opens on 7 days, with the same Today / 7 days / 30 days / 3 months

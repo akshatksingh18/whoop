@@ -988,6 +988,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       'Rename $pick',
       'Label (empty removes it)',
       pick,
+      allowEmpty: true,
       validate: (v) =>
           v.trim().length > 30 ? 'Use 30 characters or fewer.' : null,
     );

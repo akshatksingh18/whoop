@@ -33,6 +33,10 @@ including retained dormant/compatibility paths. This is not every-line, every-cl
 certification, and the remaining gaps are not all hardware blocked. The treadmill incline
 proposal remains unimplemented. Earlier build notes are in `build-history.md`.
 
+Further coverage work is in progress on `coverage-expansion`. Do not dispatch a native/IPA
+build until the requested coverage work is complete. Build 102 remains the cached candidate;
+new source controls and repairs are not a replacement release or phone verification.
+
 ## Files
 - `treadmill-walking-plan.md` — requested incline-walking feature, source/research review, proposed timed speed/grade segments and step-calorie ownership; proposal only, with full-page preview/calculation review before implementation.
 - `coverage-audit.md` and `tool/coverage_gaps.py` — completed Build 100/101 coverage-directed follow-ups, reusable uncovered-range/source-hash inventory, targeted/full evidence and remaining execution/native/physical limits; read before another audit or release.

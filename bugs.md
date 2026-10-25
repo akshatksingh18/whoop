@@ -21,6 +21,14 @@ coefficients and metric definitions remain. Build 101's testing folder was super
 recycled. Build 70 recovery is unchanged. Physical/background/permission/gesture delivery,
 installation and signing gates remain open; software checks are not phone acceptance.
 
+Further coverage work has source repairs for COV-30/31: stopped or superseded connection
+setup/retries and history waits cannot arm streams, request new bursts or queue calculation
+on a replacement session. Late ownership acquisitions retire safely. All 76 new synthetic
+controls pass locally, including real BLE-frame/SQLite failure boundaries with substituted
+GATT delivery. Full cloud verification and updated execution counts remain pending.
+`coverage-audit.md` owns details. No new IPA is to be built until the coverage work is complete;
+these changes are not in the cached Build 102 candidate or phone verified.
+
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge
 write refusal, and haptics preserve transport success/failure for both generations without claiming

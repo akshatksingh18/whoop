@@ -28,6 +28,44 @@ blocked. Constants/barrel exports remain the same three unimported files.
 
 ## Remaining execution work
 
+The next continuation is active on `coverage-expansion`; further IPA builds are held until
+the requested coverage work is complete. Build 102 remains the cached candidate. New source
+controls below are not yet included in a replacement IPA or the published coverage checkpoint.
+
+**COV-30 — retired connection attempts keep configuring a band.** Four failing synthetic
+controls show a reconnect sending wake-window/live/battery/name commands after End session,
+Unpair or disposal, and a retired backoff connecting to a newly selected band. The retry
+checked its generation only at the loop boundary, then continued after asynchronous waits.
+Foreground setup has the same interrupted-wait shape. Both paths now recheck lifecycle,
+generation and paired identity before continuing; stopped backoffs wake to exit. A foreground
+lease arriving after cancellation is released without releasing a token adopted by a current
+session. Forty-seven targeted controls pass locally, including interruption at connect,
+battery/name polling, wake-window and live arming, held headless ownership, retryable refusal/
+exception and the repair pause. A fifth failing control shows that a repair pause arriving
+during backoff still allowed one connect; the pause is now rechecked after delay/ownership waits.
+Storage and ownership policies are real; the band transport
+is substituted and its callbacks are not wired as native delivery. Full cloud verification
+and a refreshed coverage inventory remain pending. No UI, metric, schema or ACK-order change.
+
+**COV-31 — an old history wait can continue on a replacement connection.** A failing
+held-transfer control ends the session, establishes a replacement transport, then releases
+the old report. Its caller requests another history burst and overwrites the current capture
+status. The burst now retains its connection generation and paired identity across cursor reads,
+requests and transport waits. Foreground and forced catch-up also retire their deferred requests,
+single-flight waits and calculation callbacks when their session ends. Already committed rows
+are retained. Nineteen real-store/substituted-transport controls pass locally, covering archived/
+R10 cursor progress independently of decoded rows, stale-timestamp continuation, the 20-session
+bound, cumulative-counter spin prevention, throttle refusal, overlapping wakes and failure/retry.
+The active clock, scientific definitions and BLE transfer/ACK implementation are unchanged.
+
+Ten additional integration controls pass through the real BLE frame queue, decoder and SQLite
+transaction with GATT writes substituted, for both supported families. They verify exact-token
+ACK only after durable decoded/archive rows, transaction rollback when archive or cursor writes
+fail, no ACK on failure, and preserved committed rows without a stale ACK after disconnect during
+commit. Unknown-revision archives deliberately do not invent a decoded frontier. These extend
+the existing pure-policy/commit controls; no new BLE defect or physical delivery claim follows.
+All 76 new controls await the full cloud checkpoint; native builds remain held.
+
 The requested continuation began with all 10,832 Build 101 missed lines. Final full run
 `40141173339` at `fc69b0d3` verifies COV-18–29 and all **232 added cases**:
 **3,917 app tests/429 intentional skips** (408 absent golden baselines), zero analysis errors/
@@ -463,8 +501,8 @@ pass together. The clean full rerun `40046857679` passes; the earlier run's inte
 Native run `40044650218` passes, and the cached unsigned `0.9.67+100` IPA passes downloaded
 manifest/source/version/checksum, full ZIP CRC and compiled Runner/AOT payload checks. Its
 SHA-256 is `3251c08089021f18af9d551e6b1738fb46e02294f01dc796ac7dbcb078f1d183`.
-Those checks validated the then-cached Build 100. Validated Build 101 now occupies the testing
-slot. Phone acceptance and signing gates remain open; Build 70 recovery is unchanged.
+Those checks validated the then-cached Build 100; Builds 101 and 102 subsequently superseded it.
+Phone acceptance and signing gates remain open; Build 70 recovery is unchanged.
 
 The final cloud visual job in `40046857679` passes **152 checks and 607 synthetic captures**,
 including 19 focused phone-width captures. Review of the earlier job found its new settings

@@ -52,6 +52,13 @@ so a user edit cannot keep the old activity/window's score through the next sync
 late-record, retime, finish and read-failure controls pass in full run `40141173339`, with native `40141175245`; physical delivery remains open.
 
 The following background contract originated in Build 86 and retains subsequent repairs.
+The current source continuation adds COV-30/31 session-generation guards across reconnect,
+foreground setup, delayed ownership and catch-up transport waits. A retired operation cannot
+configure the replacement band, overwrite its transfer status or request post-session work.
+Already committed rows remain. Seventy-six new synthetic controls pass locally; cloud checks
+are pending and GATT/native scheduling is substituted. Further IPA builds are held until the
+coverage work is complete; Build 102 remains cached and the physical matrix stays open.
+
 The completed coverage follow-up (`coverage-audit.md`, introduced in Build 100) also fixes
 the restoration-expiry and gate-ceiling paths that omitted the registered headless transport
 stop. Synthetic callbacks verify the request and late-lease protection; native disconnect,

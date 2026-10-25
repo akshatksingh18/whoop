@@ -36,6 +36,11 @@ reviewed source revisions and must move with any deliberate package update.
 
 ## Build 102 candidate
 
+Further coverage work continues on `coverage-expansion`. Akshat has held native/IPA builds
+until that coverage work is complete. Run source checks on Linux without dispatching
+`personal-ios.yml`, bumping release metadata or replacing the cache during this continuation.
+Build 102 below remains the cached candidate; later source repairs are not included in it.
+
 Build 102 (`0.9.69+102`, algorithm 99/schema 50) implements COV-18–29 from `coverage-audit.md`,
 retaining COV-01–17 and the earlier repair contracts. App source:
 `fc69b0d38ab3500c22a3ae6efbb04a78fed37319`. The 232 added synthetic controls cover stopped

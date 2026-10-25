@@ -618,6 +618,9 @@ other worktrees remain untouched.
   do not pad the percentage. The remaining inventory includes portable software and retained
   compatibility/developer branches. No every-line, every-click or physical certification.
   Keep native delivery and phone acceptance separate. Full runs remain on GitHub.
+  Akshat has put further IPA builds on hold until this coverage work is complete. Continue
+  source repairs and Linux/cloud tests without dispatching `personal-ios.yml`, bumping release
+  metadata or replacing the testing cache. Build 102 remains the cached candidate.
 - [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the

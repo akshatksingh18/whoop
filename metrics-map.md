@@ -24,6 +24,12 @@ Selected-day reads do not inherit the recent-list limit; rough-night tags merge 
 the current note. The recent list and numerical/correlation definitions retain their meaning.
 COV-23 fixes typed live-match score decrements above 100; manual scores, closed/partial sets,
 drafts and summary transfer keep their existing meaning. No physiological metric changes.
+COV-37 confines summary selections, saved end times, lift markers and earlier-run comparisons
+to their result generation, including save retries; a late effort write cannot rate a replacement
+workout on screen. COV-38 publishes a rating change only when its session row was updated.
+COV-39 copies completed HIIT rounds into the finished result so clearing the live draft cannot
+mutate its summary. Typed detail, durations, rating meaning and physiological formulas remain.
+These later source repairs have targeted synthetic verification; combined cloud checks are pending.
 COV-24 keeps all backup/restore passphrase content reachable at enlarged text with built-in
 dialog scrolling. Input rules, exact passphrase bytes, cancellation and encrypted format stay unchanged.
 COV-25/26 preserve full messages and both choices in shared confirmations and Reset at enlarged

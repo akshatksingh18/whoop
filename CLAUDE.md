@@ -34,8 +34,9 @@ execution is **41,181/50,310 (81.85%)**, with **9,129 unexecuted**, 192 fewer th
 every-click or hardware certification, and the remaining gaps are not all hardware blocked.
 Do not dispatch a native/IPA build until the requested coverage work is complete. Build 102
 remains cached; these newer source repairs are not included in it or phone verified.
-The larger continuation batch adds COV-36's optional-label repair and 57 passing targeted
-Food/workout/Settings controls; combined cloud verification is pending. Checkpoints now aim
+The larger continuation batch adds COV-36–39 repairs and 112 passing targeted controls for
+Food, workout summaries/live details, Train, Progress, Body, Pushups and Settings. Combined
+cloud verification is pending. Checkpoints now aim
 for roughly 1,000 remaining executable lines across related flows; `todo.md` 3r owns the plan.
 The treadmill incline proposal remains unimplemented. Earlier build notes are in `build-history.md`.
 

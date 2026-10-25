@@ -1,4 +1,5 @@
 // Recorded detail -> each reachable summary tab, with synthetic inputs only.
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/state/prefs.dart';
@@ -114,6 +115,138 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await Prefs.ensureLoaded();
   });
+
+  testWidgets(
+    'a replaced summary clears a cursor from the previous longer trace',
+    (t) async {
+      final current = ValueNotifier(result('General workout'));
+      addTearDown(current.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: ValueListenableBuilder<ActivityResult>(
+            valueListenable: current,
+            builder: (_, r, _) => ActivitySummary(r),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      final scrub = find.byWidgetPredicate(
+        (w) => w is Scrubber && w.label == 'Heart rate through the session',
+      );
+      await t.ensureVisible(scrub);
+      await t.pumpAndSettle();
+      final rect = t.getRect(scrub);
+      await t.tapAt(Offset(rect.right - 1, rect.center.dy));
+      await t.pumpAndSettle();
+      expect(
+        t
+            .widget<ChartFrame>(
+              find.ancestor(of: scrub, matching: find.byType(ChartFrame)),
+            )
+            .readout,
+        contains('04:00'),
+      );
+      current.value = result('General workout').copyWith(hr: [98, 101]);
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.textContaining('04:00 ·'), findsNothing);
+    },
+  );
+
+  testWidgets('a replacement with fewer tabs returns to its overview', (
+    t,
+  ) async {
+    final current = ValueNotifier(result('Running'));
+    addTearDown(current.dispose);
+    await t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: ValueListenableBuilder<ActivityResult>(
+          valueListenable: current,
+          builder: (_, r, _) => ActivitySummary(r),
+        ),
+      ),
+    );
+    await t.pumpAndSettle();
+    await tab(t, 'Graphs');
+    current.value = result('General workout');
+    await t.pumpAndSettle();
+    expect(t.takeException(), isNull);
+    expect(find.byType(SessionStats), findsOneWidget);
+  });
+
+  testWidgets(
+    'save retry replaces a draft trace without retaining its cursor',
+    (t) async {
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: ActivitySummary(
+            result('General workout'),
+            onRetrySave: () async =>
+                result('General workout').copyWith(hr: [98, 101]),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      final scrub = find.byWidgetPredicate(
+        (w) => w is Scrubber && w.label == 'Heart rate through the session',
+      );
+      await t.ensureVisible(scrub);
+      await t.pumpAndSettle();
+      final rect = t.getRect(scrub);
+      await t.tapAt(Offset(rect.right - 1, rect.center.dy));
+      await t.pumpAndSettle();
+      t.state<ScrollableState>(find.byType(Scrollable).last).position.jumpTo(0);
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Try again'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Try again'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.text('This session is not saved yet'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a late retry cannot replace a newer result in the same summary',
+    (t) async {
+      final original = result('General workout');
+      final current = ValueNotifier(original);
+      final save = Completer<ActivityResult>();
+      addTearDown(current.dispose);
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: ValueListenableBuilder<ActivityResult>(
+            valueListenable: current,
+            builder: (_, r, _) => ActivitySummary(
+              r,
+              onRetrySave: identical(r, original) ? () => save.future : null,
+            ),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Try again'));
+      await t.pumpAndSettle();
+      final replacement = result(
+        'General workout',
+      ).copyWith(avgHr: 99, hr: [98, 101]);
+      current.value = replacement;
+      await t.pumpAndSettle();
+      save.complete(original.copyWith(avgHr: 177));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.byType(SessionStats));
+      await t.pumpAndSettle();
+      expect(
+        t.widget<SessionStats>(find.byType(SessionStats)).r,
+        same(replacement),
+      );
+      expect(t.takeException(), isNull);
+    },
+  );
 
   for (final (name, defining) in [
     ('Running', 'ROUTE'),

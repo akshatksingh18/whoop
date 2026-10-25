@@ -876,6 +876,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   /// The session's SAVED end, read from its row (build 86 workout times):
   /// never start + active duration, which pauses would shorten.
   DateTime? _savedEnd;
+  int _resultGeneration = 0;
 
   @override
   void initState() {
@@ -889,16 +890,18 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   List<int> _setMarks = const [];
 
   Future<void> _loadSetMarks() async {
-    final id = r.sessionId;
+    final generation = _resultGeneration;
+    final result = r;
+    final id = result.sessionId;
     if (id == null || !isLiftType(a.typeKey)) return;
     try {
       final w = await LiftLogDb.forSession(id);
-      if (w == null || !mounted) return;
-      final marks = setMarkMinutes(r.start, [
+      if (w == null || !mounted || generation != _resultGeneration) return;
+      final marks = setMarkMinutes(result.start, [
         for (final e in w.exercises)
           for (final s in e.sets) s.completedAt,
-      ], r.hr.length);
-      if (marks.isNotEmpty) setState(() => _setMarks = marks);
+      ], result.hr.length);
+      setState(() => _setMarks = marks);
     } catch (_) {
       // No marks is the honest fallback; the trace still draws.
     }
@@ -922,12 +925,19 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       : 'Ticks mark when each set was logged, not how long it took.';
 
   Future<void> _loadEnd() async {
-    final id = r.sessionId;
+    final generation = _resultGeneration;
+    final result = r;
+    final id = result.sessionId;
     if (id == null) return;
     try {
       final row = await LocalDb.session(id);
       final te = (row?['end_ts'] as num?)?.toInt();
-      if (row?['status'] == 'live' || te == null || !mounted) return;
+      if (row?['status'] == 'live' ||
+          te == null ||
+          !mounted ||
+          generation != _resultGeneration) {
+        return;
+      }
       setState(
         () => _savedEnd = DateTime.fromMillisecondsSinceEpoch(te * 1000),
       );
@@ -952,16 +962,19 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   }
 
   Future<void> _loadEarlier() async {
+    if (!mounted) return;
+    final generation = _resultGeneration;
+    final result = r;
     final v = run;
     final repo = repoOf(context);
     if (v == null || !v.isRun || repo == null) return;
     try {
       final all = await loadRuns(repo, includePrivate: false);
-      if (!mounted) return;
+      if (!mounted || generation != _resultGeneration) return;
       setState(
         () => _earlier = [
           for (final x in all)
-            if (x.id != r.sessionId && x.start.isBefore(r.start)) x,
+            if (x.id != result.sessionId && x.start.isBefore(result.start)) x,
         ],
       );
     } catch (_) {
@@ -1004,11 +1017,29 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     super.didUpdateWidget(old);
     if (!identical(old.result, widget.result)) {
       _rated = null;
-      _rpeDismissed = false;
-      _runCache = null;
-      _driftComputed = false;
-      _cursor = null;
+      unsaved = widget.onRetrySave != null;
+      _saving = false;
+      _resetResultView();
+      _loadEnd();
+      _loadSetMarks();
+      _loadEarlier();
     }
+  }
+
+  // Selections and loaded metadata belong to one result, including after a
+  // failed-save retry replaces its draft. Never carry them into another trace.
+  void _resetResultView() {
+    _resultGeneration++;
+    tab = 0;
+    _hrPick = null;
+    _cursor = null;
+    _runCache = null;
+    _drift = null;
+    _driftComputed = false;
+    _rpeDismissed = false;
+    _savedEnd = null;
+    _setMarks = const [];
+    _earlier = null;
   }
 
   Activity get a => r.activity;
@@ -1064,7 +1095,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       Prefs.getInt(_kRpeSkips, 0) < _maxSkips;
 
   Future<void> _saveRpe(int v) async {
-    final id = r.sessionId;
+    final generation = _resultGeneration;
+    final result = r;
+    final id = result.sessionId;
     if (id == null) return;
     final app = appOf(context);
     try {
@@ -1073,11 +1106,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     } catch (_) {
       return; // the row is unchanged, so the card stays and says nothing false
     }
-    if (!mounted) return;
+    if (!mounted || generation != _resultGeneration) return;
     // Rating one resets the skip count: the feature retires because it is
     // being ignored, not because it was once inconvenient.
     Prefs.setInt(_kRpeSkips, 0);
-    setState(() => _rated = r.copyWith(rpe: v.toDouble()));
+    setState(() => _rated = result.copyWith(rpe: v.toDouble()));
   }
 
   void _skipRpe() {
@@ -1217,6 +1250,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   Future<void> _retrySave() async {
     if (_saving) return;
+    final generation = _resultGeneration;
     setState(() => _saving = true);
     var ok = false;
     ActivityResult? saved;
@@ -1226,7 +1260,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     } catch (_) {
       ok = false;
     }
-    if (!mounted) return;
+    if (!mounted || generation != _resultGeneration) return;
     // Build 93 (Codex full-flow audit F06): the saved result (with its id
     // and anything the save added) replaces the draft on screen.
     setState(() {
@@ -1234,14 +1268,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       unsaved = !ok;
       if (saved != null) {
         _rated = saved;
-        _runCache = null;
-        _drift = null;
-        _driftComputed = false;
+        _resetResultView();
       }
     });
     if (ok) {
       _loadEnd();
       _loadSetMarks();
+      _loadEarlier();
     }
   }
 

@@ -5,7 +5,7 @@
 validated testing IPA. Further native/IPA builds are held until the coverage work is complete.
 Current handwritten execution is **41,181/50,310 (81.85%)**, with **9,129 unexecuted**.
 These are software execution counts, not every-click or physical-device certification.
-The larger continuation batch adds COV-36 and 57 passing targeted controls; its combined cloud
+The larger continuation batch adds COV-36–39 and 112 passing targeted controls; its combined cloud
 checkpoint is pending, so the percentage above remains the last full-run measurement.
 `setup.md` owns cache/source/hash evidence; `todo.md` owns the open execution and phone gates.
 
@@ -45,7 +45,7 @@ on write refusal and retry, 2x/3.1x access, and the shared prompt's required-fie
 Saved foods and historical diary entries remain intact. No layout, wording, metric or schema
 changes accompany this repair.
 
-The larger batch also has 25 passing workout-summary view controls, seven saved-meal editor
+The larger batch also has 29 passing workout-summary view controls, seven saved-meal editor
 controls and fourteen Settings controls. They follow real reachable tabs/sheets, partial
 distance splits, recorded HR gaps, legacy/mile splits, heat/cold no-signal explanations,
 template validation/portion/grouping/persistence/retry, unit independence, barcode consent,
@@ -53,8 +53,51 @@ notification preferences, muted kinds, thresholds and permission refresh. Food a
 tests use synthetic SQLite; Settings uses a preference-store substitute and scheduler counters,
 and system permission delivery is substituted. Workout views use synthetic ActivityResult
 records rather than a band or native GPS. Screens are scrolled at narrow phone widths, with
-selected 2x/3.1x controls and substituted fonts. These 57 cases pass targeted checks only;
-the next full cloud run and its exact combined inventory remain pending. No new IPA is built.
+selected 2x/3.1x controls and substituted fonts.
+
+**COV-37 — a replacement summary retains the previous result's state.** Three failing controls
+select an HR point beyond a replacement trace, retain a third tab when only two remain, or
+retry a failed save with a shorter trace. The first and third throw a cursor RangeError; the
+second throws a tab RangeError. Result replacement now resets selections and result-owned
+caches, end time, lift markers and earlier-run data. Each asynchronous read/retry/rating completion
+keeps its result generation, so an older completion cannot overwrite a newer record. A rating
+copy within the same result retains valid pending metadata. Controls also hold real SQLite
+reads/writes through replacement and verify that committed old ratings stay on their own row.
+
+**COV-38 — effort rating can report success for a removed workout.** A failing real-store control
+deletes a summary's session before selecting a rating. UPDATE affects no rows, but the caller
+publishes a change and shows the rating as saved. The shared database method now requires one
+updated row, matching session-type editing; refusal keeps the prompt unrated. Ordinary saves,
+skip, missing-row refusal, write refusal/retry, deletion/cancellation and type correction pass
+through the actual repository. No rating, energy or physiological formula changes.
+
+**COV-39 — HIIT rounds disappear while Finish opens the summary.** A restored paused interval
+has two completed rounds on screen. The result shares the live state's mutable list; after the
+draft clears, a timer tick during route removal clears that list, leaving no rounds in the
+summary. The finished result now takes a copy. Its two rounds, work/rest seconds, nullable HR
+and active duration survive the actual finish transition. Swimming lap times, yoga poses and
+match sets already construct independent lists. Five live typed-detail controls follow swim
+lap Undo/pool/stroke/reopen, rowing's unmeasured distance, yoga pose progress, breathing's
+unmeasured rate and interval finish. There is no metric calibration or schema change.
+
+The same batch adds 15 saved-summary action controls, 11 Progress explanation controls, eight
+Body-history controls, one Pushups scripted test covering eight named journeys, five live-detail
+controls and 11 Train destination/history controls. Progress tests distinguish missing goal
+evidence from missing context, expose the fixed-week explanation and return from Change goal.
+Body tests retain related records on tape/weight deletion, roll back refused writes and preserve
+first-reading/edit/unit semantics. Pushups tests exercise Start/Done/Undo/Pause/Resume/End,
+blocked-notification manual logging, refusal/retry, settings, old-month recap and empty history.
+Train tests reach Run/Walk/Gym/Home/Other setup without starting a session, cancel past entry,
+select the running week in km/mi, retain private history while excluding it from running records,
+and open missing/interrupted/saved-session destinations. These use synthetic SQLite and route
+rows; the profile write in Body, platform paths, preference storage, permission delivery and
+schedulers are explicit substitutes. They are not GPS/radio/notification or phone acceptance.
+
+All **112** cases pass targeted checks. The local union reaches at least **939** previously
+missed executable lines, mapped only through identical source blocks against hash-checked
+`e88fde29`; this is provisional and not a new full-run percentage or branch proof. The next
+full cloud run and exact combined inventory remain pending. Layout/copy, scientific coefficients,
+algorithm 99/schema 50, dependencies, release metadata and ACK ordering are unchanged. No IPA.
 
 The next continuation is active on `coverage-expansion`; further IPA builds are held until
 the requested coverage work is complete. Build 102 remains the cached candidate. New source

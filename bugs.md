@@ -36,9 +36,15 @@ these changes are not in the cached Build 102 candidate or phone verified.
 
 COV-36 restores the label editor's existing promise that an empty name removes the label.
 Only this prompt accepts empty text; shared meal-name/weight/heading prompts remain required.
-The larger continuation has 57 passing targeted Food, workout-summary and Settings controls,
-including real-store refusal/retry and large-text cases. Combined cloud checks and an updated
-execution count are pending. `coverage-audit.md` owns the contracts and substitute limits.
+COV-37 resets result-owned cursor/tab/cache state when a summary or save retry replaces its
+record, and rejects superseded metadata/save/rating completions. COV-38 rejects an effort-rating
+update when its session no longer exists instead of publishing success. COV-39 snapshots HIIT
+rounds before draft clearing/navigation, so a final live timer tick cannot empty the summary.
+The larger continuation has 112 passing targeted controls across Food, summaries/live details,
+Train, Progress, Body history, Pushups and Settings, including real-store refusal/retry and
+selected large-text cases. Combined cloud checks and an updated execution count are pending.
+`coverage-audit.md` owns the contracts and substitute limits. Layout/copy and metric formulas
+are unchanged by COV-37–39; these repairs are not in the cached IPA.
 
 **Build 98 repair state:** imports validate identities/counts/times and commit history/configuration
 together; Body projections and partial-restore readers reconcile; settings/actions acknowledge

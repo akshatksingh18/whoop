@@ -631,10 +631,14 @@ other worktrees remain untouched.
   Akshat requests larger checkpoints: aim for roughly 1,000 remaining executable lines per
   batch across related flows before the next full cloud coverage run. Small targeted local
   checks remain appropriate; do not pad counts, add exclusions or skip controls to meet a target.
-  The larger batch has COV-36's empty-label rename repair and 57 passing targeted controls:
-  Food labels (11), workout summary views (25), saved-meal editing (7), Settings choices and
-  notification preferences (14). Full combined cloud verification and a new exact percentage
-  remain pending; keep extending related uncovered flows before dispatching that checkpoint.
+  The larger batch has COV-36–39 repairs and 112 passing targeted controls: Food labels (11),
+  workout summary views (29), saved summary actions (15), saved-meal editing (7), Settings (14),
+  Progress explanations (11), Body history (8), Pushups (one scripted test/eight journeys),
+  live typed details (5) and Train destinations/history (11). Reproduced defects include stale
+  summary cursor/tab crashes and asynchronous metadata, false-success ratings on deleted rows,
+  and HIIT rounds disappearing during finish navigation. The local union reaches at least 939
+  old missed lines mapped through identical source blocks; it is provisional, not an updated
+  full-run percentage. Full combined cloud verification and a new exact inventory are pending.
 - [ ] 4. Akshat's phone acceptance: check the released COV-01–17 repairs and COV-18–29 when
   included in a validated replacement, using `coverage-audit.md`, then recheck
   B98-01–22, B97-01–18 and B96-01–07 repaired flows, then the

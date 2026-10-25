@@ -9547,7 +9547,13 @@ class LocalDb {
   /// honest reading of "they skipped it".
   static Future<void> setSessionRpe(String id, double? rpe) async {
     final db = await instance;
-    await db.update('sessions', {'rpe': rpe}, where: 'id = ?', whereArgs: [id]);
+    final written = await db.update(
+      'sessions',
+      {'rpe': rpe},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (written != 1) throw StateError('The workout no longer exists');
   }
 
   // NOTE: the in-app notifications feed (putNotification/notifications/

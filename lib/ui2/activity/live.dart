@@ -2494,7 +2494,9 @@ class _LiveIntervalState extends State<LiveInterval> {
         widget.weightKg,
         elapsed,
         widget.private,
-        rounds: done,
+        // Finishing clears the draft before this route is disposed. A final
+        // timer tick can rebuild `done`; the saved result keeps its own list.
+        rounds: List<IntervalRound>.of(done),
       ),
       body: (ctx, elapsed) {
         final p = P.of(ctx);

@@ -45,6 +45,9 @@ Source checkpoint `e88fde29` repairs COV-30–35 and passes full Linux run `4018
 captures and zero analysis errors/warnings (258 infos). Handwritten execution is 41,181/50,310
 (81.85%), with 9,129 unexecuted. `coverage-audit.md` owns the current source inventory and
 limits. No native build, release version, cache, signing or installation change accompanies it.
+The subsequent larger source batch repairs COV-36–39 and passes 112 targeted controls for
+nested Food, workout, Train, Progress, Body, Pushups and Settings flows. Its combined cloud
+checkpoint and exact coverage inventory remain pending. It is not a new cached candidate.
 
 Build 102 (`0.9.69+102`, algorithm 99/schema 50) implements COV-18–29 from `coverage-audit.md`,
 retaining COV-01–17 and the earlier repair contracts. App source:

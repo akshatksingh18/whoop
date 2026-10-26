@@ -41,20 +41,43 @@ The workspace's second-laptop guide owns the device transfer. A GitHub clone on
 ignored audit evidence, old uncommitted notes, installed design tooling or IPA caches. Do not
 describe source parity as complete laptop-transfer verification.
 
-The primary checkout's `build/laptop-transfer/whoop-local-material.zip` and adjacent SHA-256
-file are local-only transfer artifacts, with an internal file manifest and verification script.
-They preserve old checkout notes/diff, local research/review/coverage material, design tooling
-and the current WHOOP IPA cache. Treat the entire archive as private: use a local removable-drive
-transfer, not GitHub or a new cloud destination. The archive's README and manifest define exact
-scope and exclusions; generated build/toolchain caches and loose SQLite runtime files are omitted.
-The archive is not an encrypted app backup or a substitute for preserving private exports.
+The primary host's `build/laptop-transfer/` archive (`whoop-local-material.zip`, its SHA-256 and an
+internal manifest and verification script) was the local-only transfer artifact. It preserved old
+checkout notes/diff, local research/review/coverage material, design tooling and the WHOOP IPA
+cache. It is private: a local removable drive only, never GitHub or a cloud destination. It is not
+an encrypted app backup, and it omits generated build/toolchain caches and loose SQLite runtime
+files. The primary keeps its originals.
 
-Extract into a separate archive folder, never over the fresh clone: older CLAUDE/TODO documents
-and source snapshots are historical and must not replace the current branch. Verify all manifest
-hashes on the receiving laptop before retiring the originals. Restore tooling using
-`impeccable-setup.md`; review machine paths and ARM compatibility before executing old tools.
-Signing credentials and the existing signing host remain separate. A prepared archive does not
-establish that the second laptop received it or that signing/development works there.
+The C:-based ARM64 laptop received it: the zip matched its SHA-256 and all 17,177 manifest entries
+hash-matched after extraction into a separate folder, never over the clone. The contents were then
+placed by copy and the zip and extraction were moved to the Windows Recycle Bin (recoverable until
+it is emptied). Older CLAUDE/TODO documents and source snapshots in an archive are historical and
+must not replace the current branch. Placement:
+
+- The bundled bare Git backup is at `C:\Users\aksha\git-remotes\whoop.git` (the `local-backup`
+  remote; `git fsck` clean). It is a same-machine copy, not an off-device backup. It holds
+  `archive/pre-rewrite-main`, which is never pushed: do not use `git push --mirror` or `--all`.
+  `coverage-expansion` is on `origin` and `local-backup`.
+- Old build evidence (`research-local`, `ui-preview`, `ui_capture`, `review-b90`, logs) is in
+  `whoop/build/`. The newer release/coverage evidence is in
+  `whoop/build/worktrees/build95-repairs/build/`; both are gitignored. That worktree is the
+  `coverage-expansion` checkout. The main checkout stays on `build-90-codex` with its old
+  uncommitted notes, as on the primary, because a branch can be checked out in only one place.
+- Old notes, screenshots and the IPA cache were already identical to the live files and
+  `../final-ipas/whoop/`, so they were not copied again.
+- Design tooling (the Impeccable skill, `.codex`, `.impeccable`, `tool/impeccable-hook.ps1`,
+  `.claude/settings.local.json`) is in both checkouts, untracked as on the primary. The pinned
+  engine matches its SHA-256 and `tool/impeccable-hook.ps1 -Mode engine-probe` returns 0.1.14 in
+  both (the x64 engine runs under emulation). Hook trust and automatic delivery stay unverified
+  (`impeccable-setup.md`).
+- Development: the toolchain is `../dev` (Flutter 3.41.6/Dart 3.11.4 and JDK 17), loaded per
+  session with `. ..\dev\env.ps1`. `flutter --version` and `flutter pub get` work in the
+  `coverage-expansion` worktree. Full tests, analysis and builds still run on GitHub Actions, not
+  here. Paths beginning `D:` elsewhere in this document describe the primary host; the same folders
+  on this laptop are under `C:\AI Important Files\`.
+- Signing is not set up here. Sideloadly, the Apple Account sign-in and the refresh enrollment stay
+  on the primary host, pending their own ARM/device acceptance. No signing credential was
+  transferred or entered, and nothing signing-related is installed on this laptop.
 
 The parked calorie research remains in `todo.md`'s three audit sections (heart rate plus movement,
 maintenance omissions, digestion by food type). The incline-walking proposal remains under 3p

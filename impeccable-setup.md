@@ -132,7 +132,9 @@ These limits shape how B88-09 can use the tool; `build-88-plan.md` owns the resu
 
 Verify executable identity and JSON shape, direct synthetic hook events and relevant session
 trust state separately. A passing direct probe is not proof of automatic delivery in this chat.
-Never disable host security or bypass a hook trust prompt. Failed hooks must not corrupt files,
+On the C:-based ARM64 laptop the same pinned x64 engine (hash matches) runs under emulation, and
+the wrapper probe returns `impeccable-engine 0.1.14` in both checkouts; hook trust there is still
+unverified. Never disable host security or bypass a hook trust prompt. Failed hooks must not corrupt files,
 change health results or repeatedly prevent completion over a speculative design warning.
 
 The upstream `hooks on` installer may restore its default launcher commands. After any deliberate

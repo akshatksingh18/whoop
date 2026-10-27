@@ -1,0 +1,136 @@
+// CLINICAL TIER-1 — lnRMSSD readiness stack (Plews 2013/2014; Kiviniemi 2007).
+//
+// Nightly ln(RMSSD), a 7-day rolling mean, its coefficient of variation, the
+// Smallest Worthwhile Change band, and a z-score decision band. Our whole-night
+// baseline beats the morning-spot baseline the literature is stuck with
+// (Nuuttila 2022). Includes the LnRMSSD:RR saturation guard: at high HRV the
+// RMSSD-RR relationship saturates, so we flag when nightly RR (mean NN) is high
+// AND lnRMSSD is near the top of its personal range (interpretation caution).
+//
+// HONESTY: needs ≥ minNights of valid history; absent otherwise. PRV.
+
+import '../types.dart';
+import '../util.dart';
+
+class ReadinessLnRmssd {
+  final double lnRmssdToday;
+  final double rolling7Mean;
+  final double cvPct; // CV of lnRMSSD over the window
+  final double? z; // (today - rollingMean)/rollingSD
+  final double? swc; // smallest worthwhile change (0.5×SD, Plews-style)
+  final String band; // 'suppressed' | 'normal' | 'elevated'
+  final bool saturationFlag;
+  const ReadinessLnRmssd({
+    required this.lnRmssdToday,
+    required this.rolling7Mean,
+    required this.cvPct,
+    required this.z,
+    required this.swc,
+    required this.band,
+    required this.saturationFlag,
+  });
+  Map<String, dynamic> toJson() => {
+        'ln_rmssd_today': round6(lnRmssdToday),
+        'rolling7_mean': round6(rolling7Mean),
+        'cv_pct': round6(cvPct),
+        if (z != null) 'z': round6(z!),
+        if (swc != null) 'swc': round6(swc!),
+        'band': band,
+        'saturation_flag': saturationFlag,
+      };
+}
+
+/// Required minimum nights of lnRMSSD history before this metric computes.
+const int readinessLnRmssdMinNights = 4;
+
+/// Compute the lnRMSSD readiness stack.
+///
+/// [historyLnRmssd] trailing nightly ln(RMSSD), OLDEST→NEWEST, INCLUDING tonight
+/// as the last element. [meanNnTodayMs] tonight's mean NN (for the saturation
+/// guard; optional). [windowDays] rolling window (default 7).
+Metric<ReadinessLnRmssd> readinessLnRmssd(
+  List<double> historyLnRmssd, {
+  double? meanNnTodayMs,
+  int windowDays = 7,
+  int minNights = readinessLnRmssdMinNights,
+}) {
+  const inputs = ['ln_rmssd_history'];
+  if (historyLnRmssd.length < minNights) {
+    return Metric<ReadinessLnRmssd>.absent(
+      tier: Tier.high,
+      inputs_used: inputs,
+      note: needBaselineNote(have: historyLnRmssd.length, need: minNights),
+    );
+  }
+  final today = historyLnRmssd.last;
+  final n = historyLnRmssd.length;
+  final start = n - 1 - windowDays < 0 ? 0 : n - 1 - windowDays;
+  // this used to be historyLnRmssd.sublist(start), which runs to the END of
+  // the list - including tonight's own value in its own baseline. that
+  // pulls the mean/sd toward tonight, understating how far off a genuinely
+  // suppressed/elevated night actually is, worst right when the window is
+  // smallest (minNights). the baseline has to be strictly prior nights.
+  final priorWindow = historyLnRmssd.sublist(start, n - 1);
+  if (priorWindow.isEmpty) {
+    // only happens if minNights got set to 1 somewhere - there's no prior
+    // night to build a baseline from yet, so same as not enough history.
+    return Metric<ReadinessLnRmssd>.absent(
+      tier: Tier.high,
+      inputs_used: inputs,
+      note: needBaselineNote(have: historyLnRmssd.length, need: minNights + 1),
+    );
+  }
+  final m = mean(priorWindow)!;
+  final sd = stddev(priorWindow);
+  if (sd == null || m == 0) {
+    // The published outputs of this stack (CV, SWC, band) are all defined
+    // RELATIVE to the baseline's dispersion. With a single prior night the SD
+    // is UNDEFINED — and the metric used to fill in cvPct 0.0 and band
+    // 'normal', asserting "tonight is typical" on the strength of nothing at
+    // all. Abstain instead (a zero-but-DEFINED SD is a different case: CV is
+    // genuinely 0 and SWC is genuinely 0, so that still computes below).
+    return Metric<ReadinessLnRmssd>.absent(
+      tier: Tier.high,
+      inputs_used: inputs,
+      note: 'lnRMSSD baseline dispersion undefined (needs ≥2 prior nights) — '
+          'CV/z/SWC/band are undefined',
+    );
+  }
+  final cv = (sd / m).abs() * 100;
+  final z = sd > 0 ? (today - m) / sd : null;
+  // Plews SWC ≈ 0.5 × within-window SD (a small worthwhile change in lnRMSSD).
+  final swc = 0.5 * sd;
+
+  final String band;
+  if (today < m - swc) {
+    band = 'suppressed';
+  } else if (today > m + swc) {
+    band = 'elevated';
+  } else {
+    band = 'normal';
+  }
+
+  // LnRMSSD:RR saturation guard: when mean NN is long (low HR, high vagal tone)
+  // and lnRMSSD is at the top of the personal range, the metric saturates.
+  final saturation =
+      meanNnTodayMs != null && meanNnTodayMs > 1100 && z != null && z > 1.0;
+
+  final conf = (priorWindow.length / windowDays.toDouble()).clamp(0.3, 0.9);
+  return Metric<ReadinessLnRmssd>(
+    value: ReadinessLnRmssd(
+      lnRmssdToday: today,
+      rolling7Mean: m,
+      cvPct: cv,
+      z: z,
+      swc: swc,
+      band: band,
+      saturationFlag: saturation,
+    ),
+    confidence: conf,
+    tier: Tier.high,
+    inputs_used: inputs,
+    note: saturation
+        ? 'lnRMSSD:RR saturation — high-HRV interpretation caution'
+        : 'Plews/Kiviniemi whole-night lnRMSSD readiness; PRV',
+  );
+}

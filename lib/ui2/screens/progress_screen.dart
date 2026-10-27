@@ -1,0 +1,3239 @@
+// Progress (build 87): the one recomposition page — leaner while getting
+// stronger — with Body inside it. Body progress first (weight and tape with
+// a measurement and a range menu, dated Start / Latest / Change, entries and
+// two-panel photo comparison), with dated strength, food, activity and recovery,
+// and one weekly / monthly review drawn from recorded evidence only.
+//
+// Nothing here is a score. Every number shows its dates and counts, a family
+// with no data says so, and nothing claims muscle gained or a cause.
+
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../state/prefs.dart';
+
+import '../../compute/profile.dart' show Profile, bmrMifflin;
+import '../../data/body_log.dart';
+import '../../data/calculation_store.dart';
+import '../../data/day_label.dart';
+import '../../data/db.dart';
+import '../../data/goal_plan.dart';
+import '../../data/goal_review.dart';
+import '../../data/lift_log.dart';
+import '../../data/lift_progress.dart' show SetVerdict;
+import '../../data/nutrition_store.dart';
+import '../../data/photo_encode.dart';
+import '../../data/progress_milestones.dart';
+import '../../data/progress_review.dart';
+import '../../notify/notification_event.dart' show NotifCategory;
+import '../../notify/notification_service.dart';
+import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
+import '../ui2.dart';
+import 'home_screen.dart'
+    show pad, pointsOf, pullToRefresh, repoOf, thousands, unitsOf;
+import 'journal_compose.dart' show WhoopTextField;
+import 'metric_detail.dart' show detailScaffold;
+import 'progress_routes.dart';
+import 'today_plan.dart' show PlanRow;
+
+part 'progress_details.dart';
+
+const _camera = MethodChannel('whoop/camera');
+
+/// B88-12 (C6): one tape reading, or two of the same site averaged. Two
+/// readings more than half an inch apart are refused: one of them is off.
+@visibleForTesting
+double tapeReading(String site, String text) {
+  final parts = text
+      .replaceAll(',', '.')
+      .split(RegExp(r'[\s/]+'))
+      .where((x) => x.isNotEmpty)
+      .toList();
+  final vs = [for (final x in parts) double.tryParse(x)];
+  if (vs.isEmpty || vs.length > 2 || vs.any((v) => v == null || v <= 0)) {
+    throw BodyLogError(
+      '$site must be one number, or two from measuring twice.',
+    );
+  }
+  if (vs.length == 2 && (vs[0]! - vs[1]!).abs() > 0.5) {
+    throw BodyLogError(
+      'The two $site readings are more than half an inch apart. Measure again.',
+    );
+  }
+  return vs.length == 1 ? vs[0]! : (vs[0]! + vs[1]!) / 2;
+}
+
+String _md(String day) {
+  final d = DateTime.parse(day);
+  return '${formatShortDate(d)}${d.year == DateTime.now().year ? '' : ', ${d.year}'}';
+}
+
+String _num(double v, [int places = 1]) {
+  final s = v.toStringAsFixed(places);
+  return s.contains('.') ? s.replaceFirst(RegExp(r'\.?0+$'), '') : s;
+}
+
+/// A typed weight, with a decimal comma or point; null when it is not a
+/// finite number. The one parser Save and the kg/lb switch share (Build 94,
+/// Codex N09: the switch read "75,5" as nothing and relabelled it lb).
+double? parseWeightText(String text) {
+  final v = double.tryParse(text.trim().replaceAll(',', '.'));
+  return v != null && v.isFinite ? v : null;
+}
+
+/// Everything the page shows, read once per revision.
+class ProgressData {
+  ProgressData({
+    required this.weights,
+    required this.measures,
+    required this.photos,
+    required this.lifts,
+    required this.food,
+    required this.steps,
+    required this.sleepMin,
+    required this.recovery,
+    required this.sessions,
+    required this.baseline,
+    required this.heightCm,
+    this.measureWeekday = DateTime.saturday,
+    this.goal = const GoalPlan(phase: GoalPhase.recomp),
+    this.goalChosen = false,
+    this.user = const {},
+    this.readErrors = const [],
+    this.latestWeightReading,
+  });
+
+  /// The goal you chose (recomposition until you choose), and the profile
+  /// the advice reads its calorie goal and resting energy from.
+  final GoalPlan goal;
+  final bool goalChosen;
+  final Map<String, dynamic> user;
+  final List<String> readErrors;
+  final BodyWeightReading? latestWeightReading;
+
+  /// Body's measurement weekday: weekly weight blocks start on it.
+  final int measureWeekday;
+
+  final List<BodyWeightRow> weights;
+  final List<BodyMeasure> measures;
+  final List<BodyPhoto> photos;
+  final List<LiftWorkout> lifts;
+  final List<
+    ({
+      String date,
+      double? kcal,
+      bool counts,
+      double? protein,
+      bool proteinComplete,
+    })
+  >
+  food;
+  final List<DatedValue> steps, sleepMin, recovery;
+  final List<({String date, String type})> sessions;
+  final String? baseline;
+  final double? heightCm;
+
+  String? get earliest {
+    final ds = [
+      ...weights.map((x) => x.date),
+      ...measures.map((x) => x.date),
+      ...photos.map((x) => x.date),
+      ...food.map((x) => x.date),
+      ...sessions.map((x) => x.date),
+      ...lifts.map((x) => dayLabelAt(x.startedAt)),
+      ...steps.map((x) => x.date),
+      ...sleepMin.map((x) => x.date),
+      ...recovery.map((x) => x.date),
+    ]..sort();
+    return ds.isEmpty ? null : ds.first;
+  }
+
+  static const baselineKey = progressBaselineKey;
+
+  /// Build 90: the overview's one review, over the goal's closed weeks.
+  GoalReview review(String today) => goalReview(
+    plan: goal,
+    today: today,
+    weights: weights,
+    measures: measures,
+    lifts: lifts,
+    food: food,
+    steps: steps,
+    sleepMin: sleepMin,
+    recovery: recovery,
+    sessions: sessions,
+    currentGoal: (user['kcal_target'] as num?)?.toDouble(),
+    restingKcal: bmrMifflin(Profile.fromMap(user)),
+    female: (user['sex'] as String?)?.toLowerCase().startsWith('f') ?? false,
+  );
+
+  /// Build 90: the overview's body and inputs, last 7 days against the 7
+  /// before — the same rule as the detail pages and Trends.
+  RollingReview rolling(String today) => rollingReview(
+    today: today,
+    weights: weights,
+    measures: measures,
+    lifts: lifts,
+    food: food,
+    steps: steps,
+    sleepMin: sleepMin,
+    recovery: recovery,
+    sessions: sessions,
+  );
+
+  static Future<ProgressData> load(
+    BuildContext c, {
+    ProgressData? previous,
+  }) async {
+    final repo = repoOf(c);
+    final user = c.read<AppState>().user ?? const {};
+    final db = await LocalDb.instance;
+    List<DatedValue> chart(Map<String, dynamic>? m) => [
+      for (final p in pointsOf(m)) (date: dayLabelAtSec(p.t), value: p.v),
+    ];
+    final errors = <String>[];
+    Future<T> read<T>(String label, Future<T> future, T fallback) async {
+      try {
+        return await future;
+      } catch (_) {
+        errors.add(label);
+        return fallback;
+      }
+    }
+
+    Future<Map<String, dynamic>?> get(String k) => read(
+      k,
+      repo?.getChart(k) ?? Future.error(StateError('No repository')),
+      null,
+    );
+    // ponytail: retained history is materialized here; multi-year diaries need
+    // SQL day aggregates and paged details before memory becomes a constraint.
+    final byDay = await read(
+      'Food',
+      NutritionDb.entriesSince(db, '0000-00-00'),
+      <String, List<FoodEntry>>{},
+    );
+    final marks = await read(
+      'Food',
+      NutritionDb.dayMarks(db, '0000-00-00', strict: true),
+      <String, String>{},
+    );
+    final win = NutritionWindow([
+      for (final date in byDay.keys.toList()..sort())
+        rollupDay(date, byDay[date]!, today: todayLabel(), mark: marks[date]),
+    ]);
+    final now = DateTime.now();
+    Future<List<DatedValue>> dated(String key, List<DatedValue>? saved) async {
+      final value = await get(key);
+      return errors.contains(key) ? saved ?? const [] : chart(value);
+    }
+
+    final sessions = await read(
+      'Workouts',
+      LocalDb.sessionsInRange(0, now.millisecondsSinceEpoch ~/ 1000),
+      <Map<String, dynamic>>[],
+    );
+    return ProgressData(
+      latestWeightReading: await read(
+        'Latest weight',
+        BodyLogDb.latestReading(),
+        null,
+      ),
+      weights: await read(
+        'Weight',
+        BodyLogDb.weights(),
+        previous?.weights ?? <BodyWeightRow>[],
+      ),
+      measures: await read(
+        'Measurements',
+        BodyLogDb.measures(),
+        previous?.measures ?? <BodyMeasure>[],
+      ),
+      photos: await read(
+        'Photos',
+        BodyLogDb.photos(),
+        previous?.photos ?? <BodyPhoto>[],
+      ),
+      lifts: await read(
+        'Lifts',
+        LiftLogDb.finished(includePrivate: false),
+        previous?.lifts ?? <LiftWorkout>[],
+      ),
+      food: errors.contains('Food') && previous != null
+          ? previous.food
+          : [
+              for (final d in win.days)
+                (
+                  date: d.date,
+                  kcal: d.kcal.value,
+                  counts: d.countsTowardAverages,
+                  protein: d.protein.value,
+                  proteinComplete: d.protein.complete,
+                ),
+            ],
+      steps: await dated('steps', previous?.steps),
+      sleepMin: await dated('sleep', previous?.sleepMin),
+      recovery: await dated('recovery', previous?.recovery),
+      sessions: errors.contains('Workouts') && previous != null
+          ? previous.sessions
+          : [
+              for (final r in sessions)
+                if (r['status'] != 'live' &&
+                    r['start_ts'] is num &&
+                    r['private'] != 1 &&
+                    r['end_ts_fabricated'] != 1)
+                  (
+                    date: dayLabelAtSec((r['start_ts'] as num).toInt()),
+                    type: (r['type'] as String?) ?? '',
+                  ),
+            ],
+      baseline: await read<String?>(
+        'Baseline',
+        CalculationStore.read(baselineKey),
+        previous?.baseline,
+      ),
+      heightCm: (user['height_cm'] as num?)?.toDouble(),
+      measureWeekday: await read(
+        'Measurement day',
+        BodyLogDb.measureWeekday(),
+        previous?.measureWeekday ?? DateTime.saturday,
+      ),
+      goal: await read(
+        'Goal',
+        GoalPlan.read(strict: true),
+        previous?.goal ?? const GoalPlan(phase: GoalPhase.recomp),
+      ),
+      goalChosen: await read(
+        'Goal selection',
+        GoalPlan.isChosen(),
+        previous?.goalChosen ?? false,
+      ),
+      readErrors: errors.toSet().toList(),
+      user: user,
+    );
+  }
+}
+
+class ProgressScreen extends StatefulWidget {
+  const ProgressScreen({super.key, this.data});
+  final ProgressData? data;
+  @override
+  State<ProgressScreen> createState() => _ProgressScreenState();
+}
+
+class _ProgressScreenState extends State<ProgressScreen>
+    with RevisionReload, _ProgressCommon {
+  @override
+  ProgressData? get _fixed => widget.data;
+
+  @override
+  void initState() {
+    super.initState();
+    _d = widget.data;
+    _prefs();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final d = _d;
+    return RefreshIndicator(
+      onRefresh: () => pullToRefresh(c, reload),
+      child: ListView(
+        padding: pad,
+        children: [
+          // The goal card names the goal; no kicker repeats it.
+          const ScreenTitle('Progress'),
+          if (_failed)
+            StatusCard(
+              'Progress could not load',
+              'Your saved records are intact.',
+              fix: 'Retry',
+              onFix: reload,
+            ),
+          if (d == null && !_failed)
+            const Center(child: CircularProgressIndicator()),
+          if (d != null) ...[
+            if (d.readErrors.isNotEmpty) _readErrors(c, d),
+            ..._overview(c, d),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Build 90: the overview judges the goal and shows the evidence for it,
+  /// all from the goal's own closed weeks (`goalReview`). Charts, histories,
+  /// methods and every other period live on the detail pages.
+  List<Widget> _overview(BuildContext c, ProgressData d) {
+    final p = P.of(c);
+    final r = d.review(todayLabel());
+    final rr = d.rolling(todayLabel());
+    return [
+      Row(
+        children: [
+          Expanded(
+            child: BigButton(
+              'Add body entry',
+              icon: LucideIcons.plus,
+              // The body family colour (DESIGN.md token), not an off-palette
+              // teal (Build 90 audit).
+              color: C.body,
+              onTap: () => _addEntry(c, d),
+            ),
+          ),
+          const SizedBox(width: S.x2),
+          IconButton(
+            tooltip: 'Body settings',
+            onPressed: () => _settings(c, d),
+            icon: Icon(LucideIcons.settings2, color: p.onGround),
+          ),
+        ],
+      ),
+      const SizedBox(height: S.x3),
+      _goalCard(c, p, d, r),
+      const SizedBox(height: S.x4),
+      Section('Body · last 7 days vs the 7 before', _outcomes(c, p, d, rr)),
+      const SizedBox(height: S.x4),
+      _inputs(c, p, rr),
+      const SizedBox(height: S.x4),
+      _photoStrip(c, p, d),
+    ];
+  }
+
+  // ── the goal ──
+
+  /// The record families the goal review reads. A failed steps, sleep or
+  /// recovery read leaves the verdict standing (it uses none of them).
+  static const _reviewFamilies = {
+    'Weight',
+    'Food',
+    'Lifts',
+    'Measurements',
+    'Goal',
+    'Goal selection',
+  };
+
+  /// Build 95 (Akshat's pick): "How the check works" opens inside the card
+  /// rather than in a dialog.
+  bool _goalHowOpen = false;
+
+  Widget _goalCard(BuildContext c, P p, ProgressData d, GoalReview r) {
+    final a = r.advice;
+    final unavailable = d.readErrors.any(_reviewFamilies.contains);
+    final (word, color) = unavailable
+        ? ('Unavailable', C.n400)
+        : switch (a.verdict) {
+            GoalVerdict.onTrack => ('On track', C.green),
+            GoalVerdict.adjust => ('Adjust', C.orange),
+            GoalVerdict.reviewRecovery => ('Review', C.yellow),
+            GoalVerdict.needMore => ('Not yet', C.n400),
+          };
+    if (!unavailable && a.verdict == GoalVerdict.needMore) {
+      return _goalCardWaiting(c, p, d, r);
+    }
+    final next = unavailable ? null : a.next;
+    return Surface(
+      semanticLabel:
+          'Goal ${r.plan.phase.title}. $word. ${unavailable ? '' : a.headline}.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _goalHeader(p, r, word, color),
+          const SizedBox(height: S.x1),
+          Text(
+            'Full weeks ${reviewWeekLabel(r.after.from, r.after.to)} vs '
+            '${reviewWeekLabel(r.before.from, r.before.to)}',
+            style: F.cap.copyWith(color: p.ink2),
+          ),
+          const SizedBox(height: S.x2),
+          Text(
+            unavailable ? 'Not available' : a.headline,
+            style: F.t2.copyWith(color: p.ink),
+          ),
+          if (unavailable)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x1),
+              child: Text(
+                'Review unavailable until the records refresh.',
+                style: F.body.copyWith(color: p.ink2),
+              ),
+            )
+          else if (a.because.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x1),
+              child: Text(
+                a.because.first,
+                style: F.body.copyWith(color: p.ink2),
+              ),
+            ),
+          if (next != null) ...[
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+            Text('NEXT', style: F.label.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x1),
+            Text(next, style: F.body.copyWith(color: p.ink)),
+          ],
+          const SizedBox(height: S.x2),
+          _goalHowToggle(p),
+          if (_goalHowOpen)
+            _goalHow(
+              c,
+              p,
+              d,
+              r,
+              const [],
+              windows: (before: r.before, after: r.after),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The goal, its day and the verdict word. Wraps rather than squeezing: at
+  /// large text the word drops under the goal line instead of overflowing it.
+  Widget _goalHeader(P p, GoalReview r, String word, Color color) {
+    final days = r.daysOnGoal;
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: S.x3,
+      runSpacing: S.x1,
+      children: [
+        Text(
+          [r.plan.phase.title, if (days != null) 'day ${days + 1}'].join(' · '),
+          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+        ),
+        Tag(word, color: color),
+      ],
+    );
+  }
+
+  Widget _goalHowToggle(P p) => Pressable(
+    semanticLabel: _goalHowOpen
+        ? 'Hide how the check works'
+        : 'Show how the check works',
+    onTap: () => setState(() => _goalHowOpen = !_goalHowOpen),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              'How the check works',
+              style: F.cap.copyWith(
+                color: p.on(C.recovery),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: S.x1),
+          Icon(
+            _goalHowOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+            size: 14,
+            color: p.on(C.recovery),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _needBadge(P p, NeedState s, {double size = 20}) => switch (s) {
+    NeedState.met => Icon(
+      LucideIcons.circleCheck,
+      size: size,
+      color: p.on(C.green),
+    ),
+    NeedState.partly => Icon(
+      LucideIcons.circleDashed,
+      size: size,
+      color: p.on(C.body),
+    ),
+    NeedState.none => Icon(
+      LucideIcons.circle,
+      size: size,
+      color: p.on(C.alert),
+    ),
+  };
+
+  static String _needWord(NeedState s) => switch (s) {
+    NeedState.met => 'done',
+    NeedState.partly => 'under way',
+    NeedState.none => 'not started',
+  };
+
+  /// Until the check can judge, the card leads with the date it first can,
+  /// the one thing to do next, and a tile per requirement (Build 95, Akshat's
+  /// pick; the requirements themselves are Build 91's, Codex audit F05).
+  Widget _goalCardWaiting(BuildContext c, P p, ProgressData d, GoalReview r) {
+    final today = todayLabel();
+    final ev = thisWeekEvidence(today: today, weights: d.weights, food: d.food);
+    final needs = goalNeeds(
+      r,
+      today: today,
+      weights: d.weights,
+      food: d.food,
+      measures: d.measures,
+      lifts: d.lifts,
+    );
+    final first = r.firstCheck;
+    final open = [
+      for (final n in needs)
+        if (n.state != NeedState.met) n,
+    ];
+    // The next thing to do: one whose window is open today, else the first
+    // still missing.
+    final next = open.where((n) => n.actNow).firstOrNull ?? open.firstOrNull;
+
+    Widget? action(GoalNeed n) {
+      if (n.state == NeedState.met || !n.actNow) return null;
+      return switch (n.kind) {
+        // Build 92: opens the entry with Measurements already open, so the
+        // waist field is in view.
+        GoalNeedKind.waist => Pressable(
+          semanticLabel: 'Log waist',
+          onTap: () => Navigator.of(c).push(
+            MaterialPageRoute<bool>(
+              builder: (_) => BodyEntryScreen(unit: _unit, showTape: true),
+            ),
+          ),
+          child: const Pill('Log waist', C.body, icon: LucideIcons.ruler),
+        ),
+        GoalNeedKind.lift => Pressable(
+          semanticLabel: 'Open Train',
+          onTap: () => c.read<AppState>().navRequest.value = 4,
+          child: const Pill('Open Train', C.body, icon: LucideIcons.dumbbell),
+        ),
+        GoalNeedKind.evidence => null,
+      };
+    }
+
+    String nextTitle(GoalNeed n) => switch (n.kind) {
+      GoalNeedKind.evidence => 'Weigh in and log food each day',
+      GoalNeedKind.waist => 'Log your waist',
+      GoalNeedKind.lift => 'Log one lift on the same setup',
+    };
+    String tileName(GoalNeedKind k) => switch (k) {
+      GoalNeedKind.evidence => 'Logging',
+      GoalNeedKind.waist => 'Waist',
+      GoalNeedKind.lift => 'Same lift',
+    };
+    String tileSub(GoalNeed n) => switch (n.kind) {
+      GoalNeedKind.evidence =>
+        n.state == NeedState.met
+            ? 'every week'
+            : 'this week ${ev.weighIns < ev.foodDays ? ev.weighIns : ev.foodDays}'
+                  ' of $kReviewWeekMinimum',
+      GoalNeedKind.waist => switch (n.state) {
+        NeedState.met => 'both ends',
+        NeedState.partly => '1 of 2 ends',
+        NeedState.none => '0 of 2 ends',
+      },
+      GoalNeedKind.lift => switch (n.state) {
+        NeedState.met => 'both halves',
+        NeedState.partly => '1 of 2 halves',
+        NeedState.none => '0 of 2 halves',
+      },
+    };
+
+    Widget tile(GoalNeed n) => Container(
+      padding: const EdgeInsets.all(S.x2),
+      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _needBadge(p, n.state),
+          const SizedBox(height: S.x1),
+          Text(
+            tileName(n.kind),
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w700),
+          ),
+          Text(tileSub(n), style: F.cap.copyWith(color: p.ink2)),
+        ],
+      ),
+    );
+
+    final checkWords = first == null ? null : _md(first);
+    return Surface(
+      semanticLabel:
+          'Goal ${r.plan.phase.title}. '
+          '${checkWords == null ? 'Not judged yet' : 'First check $checkWords'}. '
+          '${next == null ? '' : 'Next: ${nextTitle(next)}. ${next.sub} '}'
+          '${needs.map((n) => '${n.title}: ${_needWord(n.state)}.').join(' ')} '
+          'This week: ${ev.weighIns} weigh-ins, ${ev.foodDays} food days, '
+          '${ev.proteinDays} days with protein logged.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _goalHeader(p, r, 'Not judged yet', C.n400),
+          if (checkWords != null) ...[
+            const SizedBox(height: S.x3),
+            Text('FIRST CHECK', style: F.label.copyWith(color: p.ink2)),
+            Text(checkWords, style: F.n30.copyWith(color: p.ink)),
+            Text(
+              needs.length > 1
+                  ? 'if the ${needs.length} things below are in place by then'
+                  : 'if every week has $kReviewWeekMinimum weigh-ins and '
+                        '$kReviewWeekMinimum fully logged food days by then',
+              style: F.cap.copyWith(color: p.ink2, height: 1.4),
+            ),
+          ],
+          if (next != null) ...[
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+            Text('NEXT', style: F.label.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x1),
+            Text(
+              nextTitle(next),
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            ),
+            Text(next.sub, style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+            if (action(next) case final a?) ...[
+              const SizedBox(height: S.x2),
+              Align(alignment: Alignment.centerLeft, child: a),
+            ],
+          ],
+          if (needs.length > 1) ...[
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+            // Equal tiles side by side; each grows to its tallest neighbour.
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < needs.length; i++) ...[
+                    if (i > 0) const SizedBox(width: S.x2),
+                    Expanded(child: tile(needs[i])),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: S.x3),
+          Text(
+            'This week so far: ${ev.weighIns} weigh-ins · ${ev.foodDays} food '
+            'days · ${ev.proteinDays} with protein',
+            style: F.cap.copyWith(color: p.ink2, height: 1.4),
+          ),
+          _goalHowToggle(p),
+          if (_goalHowOpen)
+            _goalHow(
+              c,
+              p,
+              d,
+              r,
+              needs,
+              // The rules name the FIRST check's own weeks. The closed weeks
+              // the verdict would use can start before the goal did, which is
+              // how the old dialog came to quote windows the card never used.
+              windows: first == null
+                  ? null
+                  : checkWindows(first, r.plan.windowWeeks),
+              checkDate: first,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// "How the check works", inline: what it waits for, how it judges, and the
+  /// way to change the goal.
+  Widget _goalHow(
+    BuildContext c,
+    P p,
+    ProgressData d,
+    GoalReview r,
+    List<GoalNeed> needs, {
+    required ({DayWindow before, DayWindow after})? windows,
+    String? checkDate,
+  }) {
+    final g = r.plan;
+    final band = g.band;
+    String pct(double v) =>
+        '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
+    final weeks = g.windowWeeks == 1
+        ? 'full Monday-to-Sunday week with the one'
+        : '${g.windowWeeks} full Monday-to-Sunday weeks with the '
+              '${g.windowWeeks}';
+    final unavailable = d.readErrors.any(_reviewFamilies.contains);
+    final judge = [
+      if (windows != null)
+        '${checkDate == null ? 'It compares' : 'The first check, on ${_md(checkDate)}, compares'} '
+            '${reviewWeekLabel(windows.after.from, windows.after.to)} with '
+            '${reviewWeekLabel(windows.before.from, windows.before.to)}: the '
+            'last $weeks before. The rest of Progress uses the last 7 days.',
+      'Aim ${pct(band.low)} to ${pct(band.high)} a week · protein '
+          '${band.proteinLow}–${band.proteinHigh} g/kg.'
+          '${g.since == null ? '' : ' On this goal since ${_md(g.since!)}.'}',
+      if (unavailable)
+        'Review unavailable until the records refresh.'
+      else if (needs.isEmpty)
+        ...r.advice.because.skip(1)
+      else ...[
+        r.advice.headline,
+        ?r.advice.next,
+      ],
+      'Suggestions only: your goals are never changed automatically, and '
+          'changing the History range on the detail pages never changes this '
+          'review.',
+    ];
+    Text body(String s) =>
+        Text(s, style: F.body.copyWith(color: p.ink2, height: 1.45));
+    return Container(
+      margin: const EdgeInsets.only(top: S.x1),
+      padding: const EdgeInsets.all(S.x3),
+      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (needs.isNotEmpty) ...[
+            Text('WHAT IT WAITS FOR', style: F.label.copyWith(color: p.ink2)),
+            for (final n in needs)
+              Padding(
+                padding: const EdgeInsets.only(top: S.x2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: _needBadge(p, n.state, size: 18),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${n.title} · ${_needWord(n.state)}',
+                            style: F.cap.copyWith(
+                              color: p.ink,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          body(n.sub),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: S.x3),
+            Divider(color: p.line, height: 1),
+            const SizedBox(height: S.x3),
+          ],
+          Text('HOW IT JUDGES', style: F.label.copyWith(color: p.ink2)),
+          for (final line in judge)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x2),
+              child: body(line),
+            ),
+          const SizedBox(height: S.x3),
+          Pressable(
+            semanticLabel: 'Change goal',
+            onTap: () => _changeGoal(c, d, g),
+            child: const Pill('Change goal', C.body),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _changeGoal(BuildContext c, ProgressData d, GoalPlan g) async {
+    final kg = BodyLogDb.sevenDayMean(d.weights, todayLabel())?.kg;
+    final changed = await Navigator.of(c).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => GoalScreen(plan: g, kg: kg),
+      ),
+    );
+    if (changed == true) reload();
+  }
+
+  // ── the three results ──
+
+  Widget _outcomes(BuildContext c, P p, ProgressData d, RollingReview r) {
+    double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
+    String signed(double v, String unit, [int places = 1]) =>
+        '${v >= 0 ? '+' : '−'}${_num(v.abs(), places)} $unit';
+    final before = reviewWeekLabel(r.before.from, r.before.to);
+    final after = reviewWeekLabel(r.after.from, r.after.to);
+    final wa = r.weightAfter, wb = r.weightBefore;
+    // Build 91 (Codex audit F04): the row is the 7-day AVERAGE, so it says
+    // so, and the latest reading is shown with its date beside it: the two
+    // can honestly differ.
+    final lastWeight = inRange(
+      weightSeries(d.weights, unit: 'kg'),
+      '0000-00-00',
+      r.after.to,
+    ).lastOrNull;
+    final latestWords = lastWeight == null
+        ? ''
+        : ' · latest ${_num(u(lastWeight.value))} $_unit, ${_md(lastWeight.date)}';
+    final weight = (
+      value: wa.mean == null ? '—' : '${_num(u(wa.mean!))} $_unit',
+      sub: wa.mean == null
+          ? 'No weigh-in in $after$latestWords'
+          : r.weightChangeKg == null
+          ? '${wa.count} weigh-ins · none in $before to compare$latestWords'
+          : '${signed(u(r.weightChangeKg!), _unit)} vs $before · '
+                '${wa.count} and ${wb.count} weigh-ins$latestWords',
+    );
+    final latest = r.waistLatest;
+    final waist = (
+      value: latest == null ? '—' : '${_num(latest.value, 1)} in',
+      sub: latest == null
+          ? 'No waist reading yet'
+          : r.waistFrom != null && r.waistTo != null
+          ? '${signed(r.waistTo!.value - r.waistFrom!.value, 'in', 2)} · '
+                '${_md(r.waistFrom!.date)} → ${_md(r.waistTo!.date)}'
+          : 'Latest ${_md(latest.date)} · none in $before to compare',
+    );
+    final comparable = [
+      for (final x in r.lifts)
+        if (x.change != SetVerdict.incomparable) x,
+    ];
+    final up = comparable.where((x) => x.change == SetVerdict.better).length;
+    final down = comparable.where((x) => x.change == SetVerdict.worse).length;
+    final apart = r.lifts.length - comparable.length;
+    final strength = (
+      value: comparable.isEmpty ? '—' : '$up of ${comparable.length}',
+      sub: r.lifts.isEmpty
+          ? 'No lift on the same setup in both halves'
+          : comparable.isEmpty
+          ? '${r.lifts.length} ${r.lifts.length == 1 ? 'lift' : 'lifts'}, none comparable'
+          : [
+              'improved',
+              if (comparable.length - up - down > 0)
+                '${comparable.length - up - down} same',
+              if (down > 0) '$down down',
+              if (apart > 0) '$apart not comparable',
+            ].join(' · '),
+    );
+    return Surface(
+      pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x1),
+      child: Column(
+        children: [
+          _outcomeRow(
+            c,
+            p,
+            'Average weight',
+            weight.value,
+            weight.sub,
+            ProgressDest.weight,
+          ),
+          Divider(color: p.line, height: 1),
+          _outcomeRow(
+            c,
+            p,
+            'Waist',
+            waist.value,
+            waist.sub,
+            ProgressDest.waist,
+          ),
+          Divider(color: p.line, height: 1),
+          _outcomeRow(
+            c,
+            p,
+            'Strength',
+            strength.value,
+            strength.sub,
+            ProgressDest.strength,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _outcomeRow(
+    BuildContext c,
+    P p,
+    String label,
+    String value,
+    String sub,
+    ProgressDest dest,
+  ) => Pressable(
+    semanticLabel: '$label: $value. $sub. Details',
+    // Opens on the same last 7 days the row shows (Build 91, F04).
+    onTap: () => openProgress(c, dest, _d, ProgressRange.week),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
+      child: bigText(c)
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  label,
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: S.x1),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Text(
+                          value,
+                          style: F.n17.copyWith(color: p.ink),
+                          softWrap: false,
+                        ),
+                      ),
+                    ),
+                    Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+                  ],
+                ),
+                Text(sub, style: F.cap.copyWith(color: p.ink2)),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: F.body.copyWith(
+                          color: p.ink,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(sub, style: F.cap.copyWith(color: p.ink2)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: S.x3),
+                Text(value, style: F.n17.copyWith(color: p.ink)),
+                const SizedBox(width: S.x1),
+                Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+              ],
+            ),
+    ),
+  );
+
+  // ── what went in ──
+
+  /// Build 90 (Akshat's phone review): what went in over the last 7 days
+  /// beside the 7 before, so a comparison always shows both numbers.
+  Widget _inputs(BuildContext c, P p, RollingReview r) {
+    String kcal(PeriodInputs x) =>
+        x.food.kcal == null ? '—' : thousands(x.food.kcal!);
+    String protein(PeriodInputs x) =>
+        x.food.protein == null ? '—' : '${x.food.protein!.round()} g';
+    String steps(PeriodInputs x) =>
+        x.steps.average == null ? '—' : thousands(x.steps.average!);
+    String sleep(PeriodInputs x) => x.sleep.minutes == null
+        ? '—'
+        : '${x.sleep.minutes! ~/ 60}h ${(x.sleep.minutes! % 60).round()}m';
+    String rec(PeriodInputs x) =>
+        x.recovery.pct == null ? '—' : '${x.recovery.pct!.round()}';
+    final rows = <(String, String, String)>[
+      ('Calories / day', kcal(r.now), kcal(r.was)),
+      ('Protein / day', protein(r.now), protein(r.was)),
+      ('Steps / day', steps(r.now), steps(r.was)),
+      ('Sleep / night', sleep(r.now), sleep(r.was)),
+      ('Recovery', rec(r.now), rec(r.was)),
+      ('Workouts', '${r.now.workouts.total}', '${r.was.workouts.total}'),
+    ];
+    // Build 91 (Codex audit F09; Claude's pick B for Akshat): how many days
+    // each average rests on, shown only where a column is short of the full
+    // 7 or the two differ, so a fully logged week stays clean and one logged
+    // day never reads like seven. Workouts are a count, not an average.
+    ({int a, int b})? daysOf(int i) => switch (i) {
+      0 => (a: r.now.food.kcalDays, b: r.was.food.kcalDays),
+      1 => (a: r.now.food.proteinDays, b: r.was.food.proteinDays),
+      2 => (a: r.now.steps.days, b: r.was.steps.days),
+      3 => (a: r.now.sleep.nights, b: r.was.sleep.nights),
+      4 => (a: r.now.recovery.days, b: r.was.recovery.days),
+      _ => null,
+    };
+    String? countOf(int i, int n) {
+      final k = daysOf(i);
+      if (k == null || (k.a >= 7 && k.b >= 7)) return null;
+      final unit = i == 3
+          ? (n == 1 ? 'night' : 'nights')
+          : (n == 1 ? 'day' : 'days');
+      return '$n $unit';
+    }
+
+    final span =
+        '${reviewWeekLabel(r.after.from, r.after.to)} vs '
+        '${reviewWeekLabel(r.before.from, r.before.to)}';
+    Widget cell(
+      String t, {
+      bool strong = false,
+      String? days,
+      bool short = false,
+    }) => SizedBox(
+      width: 92,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            t,
+            textAlign: TextAlign.right,
+            style: (strong ? F.body : F.cap).copyWith(
+              color: strong ? p.ink : p.ink2,
+              fontWeight: strong ? FontWeight.w600 : null,
+            ),
+          ),
+          if (days != null)
+            Text(
+              days,
+              textAlign: TextAlign.right,
+              style: F.over.copyWith(color: short ? p.on(C.alert) : p.ink3),
+            ),
+        ],
+      ),
+    );
+    bool short(int i, bool now) {
+      final k = daysOf(i);
+      return k != null && (now ? k.a : k.b) < kReviewWeekMinimum;
+    }
+
+    final large = bigText(c);
+    return Surface(
+      onTap: () => openProgress(c, ProgressDest.food, _d, ProgressRange.week),
+      semanticLabel:
+          'What went in, $span: '
+          '${[for (var i = 0; i < rows.length; i++) '${rows[i].$1} ${rows[i].$2}${countOf(i, daysOf(i)?.a ?? 0) == null ? '' : ' over ${countOf(i, daysOf(i)!.a)}'}, before ${rows[i].$3}${countOf(i, daysOf(i)?.b ?? 0) == null ? '' : ' over ${countOf(i, daysOf(i)!.b)}'}'].join('. ')}. Details',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'What went in',
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+            ],
+          ),
+          Text(span, style: F.cap.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
+          if (!large)
+            Row(
+              children: [
+                const Spacer(),
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    'LAST 7 DAYS',
+                    textAlign: TextAlign.right,
+                    style: F.over.copyWith(color: p.ink2),
+                  ),
+                ),
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    '7 DAYS BEFORE',
+                    textAlign: TextAlign.right,
+                    style: F.over.copyWith(color: p.ink2),
+                  ),
+                ),
+              ],
+            ),
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(color: p.line, height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x2),
+              child: large
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(rows[i].$1, style: F.body.copyWith(color: p.ink)),
+                        Text(
+                          '${rows[i].$2}'
+                          '${countOf(i, daysOf(i)?.a ?? 0) == null ? '' : ' (${countOf(i, daysOf(i)!.a)})'}'
+                          ' · before ${rows[i].$3}'
+                          '${countOf(i, daysOf(i)?.b ?? 0) == null ? '' : ' (${countOf(i, daysOf(i)!.b)})'}',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            rows[i].$1,
+                            style: F.body.copyWith(color: p.ink),
+                          ),
+                        ),
+                        cell(
+                          rows[i].$2,
+                          strong: true,
+                          days: countOf(i, daysOf(i)?.a ?? 0),
+                          short: short(i, true),
+                        ),
+                        cell(
+                          rows[i].$3,
+                          days: countOf(i, daysOf(i)?.b ?? 0),
+                          short: short(i, false),
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+          Text(
+            'Calories over counted food days; protein over complete days.',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── photos ──
+
+  Widget _photoStrip(BuildContext c, P p, ProgressData d) {
+    final recent = d.photos.reversed.take(4).toList();
+    return Surface(
+      onTap: d.photos.isEmpty
+          ? () => _addEntry(c, d)
+          : () => Navigator.of(c).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PhotoCompareScreen(photos: d.photos),
+              ),
+            ),
+      semanticLabel: d.photos.isEmpty ? 'Add a photo' : 'Compare photos',
+      child: Row(
+        children: [
+          if (recent.isEmpty)
+            Icon(LucideIcons.images, size: 20, color: p.ink2)
+          else
+            for (final ph in recent.reversed)
+              Padding(
+                padding: const EdgeInsets.only(right: S.x2),
+                child: _Thumb(ph, size: 52, label: _md(ph.date)),
+              ),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Photos',
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  d.photos.isEmpty
+                      ? 'No photos yet · Add'
+                      : '${d.photos.length} · latest ${_md(d.photos.last.date)} · Compare',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+              ],
+            ),
+          ),
+          Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the overview and the detail pages share: the loaded data, the unit,
+/// the shared sheets and the small figure block.
+mixin _ProgressCommon<T extends StatefulWidget> on RevisionReload<T> {
+  ProgressData? _d;
+  bool _failed = false;
+
+  /// The weight unit chosen in Settings → Units.
+  UnitsController? _units;
+  String get _unit => _units?.weightUnit ?? 'kg';
+
+  /// Data handed in by a test or the gallery: shown as is, never reloaded.
+  ProgressData? get _fixed;
+
+  Future<void> _prefs() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      _prefsLoaded(p);
+    } catch (_) {}
+  }
+
+  /// A detail page reads its own saved choices here.
+  void _prefsLoaded(SharedPreferences p) {}
+
+  Future<void> _save(String k, String v) async {
+    try {
+      await (await SharedPreferences.getInstance()).setString(k, v);
+    } catch (_) {}
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _units = unitsOf(context);
+    if (_d == null && !_failed) reload();
+  }
+
+  @override
+  Future<void> reload() async {
+    if (_fixed != null) return;
+    final t = beginRead(#progress);
+    _prefs();
+    try {
+      final d = await ProgressData.load(context, previous: _d);
+      if (stillNewest(#progress, t)) setState(() => (_d = d, _failed = false));
+    } catch (_) {
+      if (stillNewest(#progress, t)) setState(() => _failed = true);
+    }
+  }
+
+  Widget _readErrors(BuildContext c, ProgressData d) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          '${d.readErrors.join(', ')} could not refresh. Saved view retained where available.',
+          style: F.cap.copyWith(color: P.of(c).on(C.orange)),
+        ),
+      ),
+      TextButton(onPressed: reload, child: const Text('Retry')),
+    ],
+  );
+
+  Widget _stats(BuildContext c, List<Widget> items) => bigText(c)
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(height: S.x3),
+              items[i],
+            ],
+          ],
+        )
+      : Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final item in items) Expanded(child: item)],
+        );
+
+  /// [was] is the same figure over the period before (Build 90: a
+  /// comparison always shows both numbers).
+  Widget _stat(P p, String k, String v, String sub, {String? was}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(k, style: F.cap.copyWith(color: p.ink3)),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Text(v, softWrap: false, style: F.n17.copyWith(color: p.ink)),
+      ),
+      Text(sub, style: F.cap.copyWith(color: p.ink3)),
+      if (was != null)
+        Text('Before: $was', style: F.cap.copyWith(color: p.ink2)),
+    ],
+  );
+  // ── entry and settings sheets ──
+
+  Future<void> _addEntry(BuildContext c, ProgressData d) async {
+    final changed = await Navigator.of(c).push<bool>(
+      MaterialPageRoute(builder: (_) => BodyEntryScreen(unit: _unit)),
+    );
+    if (changed == true) reload();
+  }
+
+  Future<void> _editWeight(BuildContext c, BodyWeightRow w) async {
+    final changed = await Navigator.of(c).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BodyEntryScreen(unit: _unit, date: w.date),
+      ),
+    );
+    if (changed == true) reload();
+  }
+
+  Future<void> _editMeasure(BuildContext c, BodyMeasure m) async {
+    final changed = await Navigator.of(c).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BodyEntryScreen(unit: _unit, date: m.date, measure: m),
+      ),
+    );
+    if (changed == true) reload();
+  }
+
+  Future<void> _settings(BuildContext c, ProgressData d) async {
+    await Navigator.of(c).push(
+      MaterialPageRoute<void>(builder: (_) => BodySettingsScreen(data: d)),
+    );
+    reload();
+  }
+}
+
+// ── Today's Body row ────────────────────────────────────────────────────────
+
+/// Today: the 7-day weight with its reading count, a one-tap weigh-in, and
+/// the way into Progress. Not a second dashboard.
+class TodayBodyRow extends StatefulWidget {
+  /// Drawn as one row of Today's plan card rather than its own card.
+  const TodayBodyRow({super.key, this.embedded = false});
+  final bool embedded;
+  @override
+  State<TodayBodyRow> createState() => _TodayBodyRowState();
+}
+
+class _TodayBodyRowState extends State<TodayBodyRow> with RevisionReload {
+  ({double kg, int count})? _mean;
+  bool _today = false;
+  UnitsController? _units;
+  String get _unit => _units?.weightUnit ?? 'kg';
+
+  /// Today is the measurement weekday and no tape is logged yet.
+  bool _tapeDue = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _units = unitsOf(context);
+    reload();
+  }
+
+  @override
+  void reload() async {
+    final t = beginRead(#todayBody);
+    try {
+      final ws = await BodyLogDb.weights();
+      final today = todayLabel();
+      final wd = await BodyLogDb.measureWeekday();
+      final measured = (await BodyLogDb.measures()).any((m) => m.date == today);
+      if (!stillNewest(#todayBody, t)) return;
+      setState(() {
+        _mean = BodyLogDb.sevenDayMean(ws, today);
+        _today = ws.any((w) => w.date == today);
+        _tapeDue = DateTime.now().weekday == wd && !measured;
+      });
+    } catch (_) {}
+  }
+
+  /// Build 93 (Codex audit C14): on measurement day the entry opens with
+  /// Measurements expanded, so Measure lands on the tape fields.
+  Future<void> _entry(BuildContext c) async {
+    final changed = await Navigator.of(c).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => BodyEntryScreen(unit: _unit, showTape: _tapeDue),
+      ),
+    );
+    if (changed == true) reload();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final m = _mean;
+    if (widget.embedded) {
+      final mean = m == null
+          ? null
+          : '${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit';
+      return PlanRow(
+        icon: LucideIcons.scale,
+        color: C.body,
+        title: _tapeDue
+            ? 'Measurement day'
+            : _today
+            ? 'Weighed in'
+            : 'Weigh in',
+        sub: _tapeDue
+            ? 'Take your tape today${mean == null ? '' : ' · 7-day $mean'}'
+            : mean == null
+            ? 'No weigh-ins this week'
+            : '7-day $mean · ${m!.count} ${m.count == 1 ? 'reading' : 'readings'}',
+        action: !_today
+            ? 'Weigh in'
+            : _tapeDue
+            ? 'Measure'
+            : null,
+        onAction: () => _entry(c),
+        onTap: () => openProgress(c, ProgressDest.weight),
+      );
+    }
+    return Surface(
+      onTap: () => openProgress(c, ProgressDest.weight),
+      semanticLabel: 'Body. Opens Progress',
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Body',
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  m == null
+                      ? 'No weigh-ins this week'
+                      : '7-day ${_num(_unit == 'lb' ? m.kg * kLbPerKg : m.kg)} $_unit · '
+                            '${m.count} ${m.count == 1 ? 'reading' : 'readings'}',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+                if (_tapeDue)
+                  Text(
+                    'Measurement day: take your tape today',
+                    style: F.cap.copyWith(color: p.on(C.body)),
+                  ),
+              ],
+            ),
+          ),
+          if (_tapeDue && _today)
+            Pressable(
+              semanticLabel: 'Take measurements',
+              onTap: () async {
+                final changed = await Navigator.of(c).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        BodyEntryScreen(unit: _unit, showTape: true),
+                  ),
+                );
+                if (changed == true) reload();
+              },
+              child: Pill('Measure', C.body, icon: LucideIcons.ruler),
+            ),
+          if (!_today)
+            Pressable(
+              semanticLabel: 'Log weigh-in',
+              onTap: () async {
+                final changed = await Navigator.of(c).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => BodyEntryScreen(unit: _unit),
+                  ),
+                );
+                if (changed == true) reload();
+              },
+              child: Pill('Weigh in', C.body, icon: LucideIcons.plus),
+            ),
+          const SizedBox(width: S.x2),
+          Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Add / edit an entry ─────────────────────────────────────────────────────
+
+/// One dated body entry: weight, any tape sites and photos, for today or a
+/// chosen past day. A past or imported weight is history only.
+/// Build 93 (Codex audit C02): after today's weigh-in is deleted, the profile
+/// weight the calorie maths uses follows the newest remaining weigh-in (today's
+/// next reading, else the latest earlier day), the same rule Save uses. With
+/// no weigh-in left the profile keeps its value: nothing is invented.
+Future<void> syncProfileWeightAfterDelete(AppState app, String date) async {
+  final today = todayLabel();
+  if (date != today) return;
+  // A history-only reading (one entered for an earlier day) never becomes
+  // the live profile weight (Build 93, Codex full-flow audit C02).
+  final all = [
+    for (final w in await BodyLogDb.weights())
+      if (w.date.compareTo(today) <= 0 && !w.historyOnly) w,
+  ]..sort((a, b) => a.date.compareTo(b.date));
+  if (all.isEmpty) return;
+  final kg = all.last.kg;
+  final cur = (app.user?['weight_kg'] as num?)?.toDouble();
+  if (cur != null && (cur - kg).abs() < 1e-9) return;
+  await app.updateProfile({'weight_kg': kg});
+}
+
+class BodyEntryScreen extends StatefulWidget {
+  const BodyEntryScreen({
+    super.key,
+    required this.unit,
+    this.date,
+    this.measure,
+    this.showTape = false,
+  });
+  final String unit;
+  final String? date;
+  final BodyMeasure? measure;
+
+  /// Open with Measurements expanded (the goal card's Log waist).
+  final bool showTape;
+  @override
+  State<BodyEntryScreen> createState() => _BodyEntryScreenState();
+}
+
+class _BodyEntryScreenState extends State<BodyEntryScreen> {
+  late String _date = widget.date ?? todayLabel();
+  late final String _unit = widget.unit;
+  final _weight = TextEditingController();
+  final _sites = {for (final s in BodySite.values) s: TextEditingController()};
+  BodyWeightRow? _existing;
+  List<BodyWeightReading> _readings = const [];
+  List<BodyPhoto> _photos = const [];
+  bool _busy = false;
+  bool _photoBusy = false;
+  bool _dayReadFailed = false;
+  String? _error;
+
+  /// B90 quick weigh-in: weight and Save come first; tape and photos are
+  /// optional sections, open when editing a tape entry.
+  late bool _showTape = widget.measure != null || widget.showTape;
+  bool _showPhotos = false;
+
+  /// Build 91 (Codex audit F11): what the fields held when the screen
+  /// opened, so Back or an edge swipe asks before dropping typed values.
+  String _weightAtOpen = '';
+  late final Map<BodySite, String> _sitesAtOpen;
+
+  /// Set once the screen is leaving on purpose (Save, or Discard confirmed).
+  bool _leaving = false;
+
+  /// The newest day read; a slower earlier read never overwrites it.
+  int _loadSeq = 0;
+  Future<void>? _dayRead;
+  String? _committedWeight;
+  String? _profilePendingDate;
+  late final String _tapeId = widget.measure?.id ?? newLiftId();
+
+  bool get _dirty =>
+      _weight.text.trim() != _weightAtOpen.trim() ||
+      BodySite.values.any(
+        (s) => _sites[s]!.text.trim() != _sitesAtOpen[s]!.trim(),
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    final m = widget.measure;
+    if (m != null) {
+      for (final s in BodySite.values) {
+        final v = m.value(s);
+        if (v != null) _sites[s]!.text = _num(v, 2);
+      }
+    }
+    _sitesAtOpen = {for (final s in BodySite.values) s: _sites[s]!.text};
+    _loadDay();
+  }
+
+  Future<void> _loadDay() => _dayRead = _readDay();
+
+  Future<void> _readDay() async {
+    final seq = ++_loadSeq;
+    try {
+      final w = await BodyLogDb.weightOn(_date);
+      final readings = await BodyLogDb.readingsOn(_date);
+      final ph = [
+        for (final x in await BodyLogDb.photos())
+          if (x.date == _date) x,
+      ];
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _dayReadFailed = false;
+        _existing = w;
+        _readings = readings;
+        _photos = ph;
+        if (w != null && _weight.text.isEmpty && widget.date != null) {
+          _weight.text = w.entered != null && w.unit == _unit
+              ? _num(w.entered!)
+              : _num(_unit == 'lb' ? w.kg * kLbPerKg : w.kg);
+          _weightAtOpen = _weight.text;
+        }
+      });
+    } catch (_) {
+      if (mounted && seq == _loadSeq) setState(() => _dayReadFailed = true);
+    }
+  }
+
+  Future<void> _pickDate() async {
+    if (_busy || _photoBusy) return;
+    final now = DateTime.parse(todayLabel());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.parse(_date),
+      firstDate: DateTime(2000),
+      lastDate: now,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _date = dayLabelOf(picked);
+      // Build 92 (Codex audit 2): a weight the user typed stays and is saved
+      // to the new day; only the value loaded from the old day is cleared.
+      if (_weight.text.trim() == _weightAtOpen.trim()) {
+        _weight.clear();
+        _weightAtOpen = '';
+      }
+    });
+    _loadDay();
+  }
+
+  /// B90-01: every field is checked before anything is written, so a typo in
+  /// one field never saves the others behind an error. If a later write fails
+  /// after an earlier one succeeded, the message says exactly what was saved,
+  /// and the draft stays on screen.
+  Future<void> _save() async {
+    if (_busy) return;
+    setState(() => (_busy = true, _error = null));
+    final app = context.read<AppState>();
+    final saved = <String>[];
+    try {
+      await _dayRead;
+      if (!mounted) return;
+      if (_dayReadFailed) throw const BodyLogError('This day could not be read. Retry loading it before saving.');
+      // 1. Validate everything.
+      final wText = _weight.text.trim();
+      double? value, kg;
+      if (wText.isNotEmpty) {
+        value = parseWeightText(wText);
+        if (value == null) {
+          throw const BodyLogError('Enter the weight as a number.');
+        }
+        kg = BodyLogDb.checkWeight(value, _unit);
+      }
+      // Build 94 (Codex N10): the day's own weight, prefilled and left alone,
+      // is not a new reading — saving tape on a weighed day used to add a
+      // second weigh-in.
+      if (_committedWeight == '$_date|$_unit|$wText' ||
+          (kg != null &&
+              _existing != null &&
+              (_existing!.kg - kg).abs() < 0.05 &&
+              wText == _weightAtOpen.trim())) {
+        kg = null;
+        value = null;
+      }
+      // Sites a newer build wrote that this one does not know are carried.
+      final inches = <String, double>{
+        for (final e
+            in (widget.measure?.inches ?? const <String, double>{}).entries)
+          if (BodySite.parse(e.key) == null) e.key: e.value,
+      };
+      var tape = false;
+      for (final s in BodySite.values) {
+        final t = _sites[s]!.text.trim();
+        if (t.isEmpty) continue;
+        inches[s.name] = tapeReading(s.title, t);
+        tape = true;
+      }
+      if (kg == null && !tape && _profilePendingDate == null) {
+        if (wText.isNotEmpty) {
+          // Nothing changed: leave as Save would.
+          if (mounted) {
+            _leaving = true;
+            Navigator.of(context).pop(_committedWeight != null);
+          }
+          return;
+        }
+        throw const BodyLogError('Enter a weight or a tape reading.');
+      }
+      // 2. A day that already has a weight: another reading, or a fix of
+      // the first (the day's weight is its first reading; Build 90, C3).
+      var correctFirst = false;
+      if (kg != null &&
+          _existing != null &&
+          (_existing!.kg - kg).abs() >= 0.05 &&
+          mounted) {
+        final choice = await _askReading(context, _existing!);
+        if (choice == null) {
+          throw const BodyLogError('Nothing saved.');
+        }
+        correctFirst = choice == 'correct';
+      }
+      // 3. Write, recording what landed.
+      if (kg != null) {
+        await BodyLogDb.putWeight(
+          _date,
+          value!,
+          _unit,
+          correctFirst: correctFirst,
+        );
+        _committedWeight = '$_date|$_unit|$wText';
+        if (_date == todayLabel()) _profilePendingDate = _date;
+        saved.add('weight');
+        // A Retry after a later write failed must not add this reading again:
+        // it is now the day's saved weight, unchanged.
+        _existing = await BodyLogDb.weightOn(_date);
+        _weightAtOpen = wText;
+        // Today's FIRST reading is the current profile weight; a later one
+        // is kept but does not move it. A past day's never re-prices.
+      }
+      if (_profilePendingDate != null) {
+        final first = await BodyLogDb.weightOn(_profilePendingDate!);
+        if (first != null) {
+          await app.updateProfile({'weight_kg': first.kg});
+        }
+        _profilePendingDate = null;
+        saved.add('current weight');
+      }
+      if (tape) {
+        await BodyLogDb.putMeasure(
+          BodyMeasure(
+            id: _tapeId,
+            date: _date,
+            recordedAt: widget.measure?.recordedAt ?? DateTime.now(),
+            inches: inches,
+          ),
+        );
+        saved.add('tape');
+      }
+      app.bumpInsights();
+      if (mounted) {
+        _leaving = true;
+        Navigator.of(context).pop(true);
+      }
+    } on BodyLogError catch (e) {
+      if (mounted) setState(() => _error = _partial(saved, e.message));
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = _partial(saved, 'Not saved. Please try again.'),
+        );
+      }
+    } finally {
+      if (saved.isNotEmpty) app.bumpInsights();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Add another reading, or correct the day's first; null cancels.
+  Future<String?> _askReading(BuildContext c, BodyWeightRow first) =>
+      showDialog<String>(
+        context: c,
+        builder: (dc) => AlertDialog(
+          title: Text(
+            _date == todayLabel()
+                ? 'Today already has a weight'
+                : '${_md(_date)} already has a weight',
+          ),
+          content: Text(
+            'Its first reading is ${bodyWeightText(first, unit: _unit)}, and '
+            "the first reading is the day's weight. Keep it and add this one, "
+            'or correct the first if it was mistyped.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop('correct'),
+              child: const Text('Correct the first'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dc).pop('add'),
+              child: const Text('Add reading'),
+            ),
+          ],
+        ),
+      );
+
+  /// The day's readings, earliest first; the first is the day's weight.
+  Widget _readingList(P p) {
+    String hm(int ts) =>
+        formatClock(DateTime.fromMillisecondsSinceEpoch(ts * 1000));
+
+    String w(BodyWeightReading r) => r.entered != null && r.unit == _unit
+        ? '${_num(r.entered!)} $_unit'
+        : '${_num(_unit == 'lb' ? r.kg * kLbPerKg : r.kg)} $_unit';
+    const dayWeight = " · the day's weight";
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < _readings.length; i++)
+            Pressable(
+              semanticLabel:
+                  '${hm(_readings[i].atTs)}, ${w(_readings[i])}'
+                  '${i == 0 ? dayWeight : ''}. Delete',
+              onTap: () => _deleteReading(_readings[i], i, hm, w),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: S.x1),
+                child: Text(
+                  '${hm(_readings[i].atTs)} · ${w(_readings[i])}'
+                  '${i == 0 ? dayWeight : ''}',
+                  style: F.cap.copyWith(color: i == 0 ? p.ink : p.ink2),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteReading(
+    BodyWeightReading r,
+    int index,
+    String Function(int) hm,
+    String Function(BodyWeightReading) w,
+  ) async {
+    final next = index == 0 && _readings.length > 1
+        ? " The next reading becomes the day's weight."
+        : '';
+    final ok = await confirmRemove(
+      context,
+      title: 'Delete this reading?',
+      body: '${w(r)} at ${hm(r.atTs)}.$next',
+      remove: 'Delete',
+      keep: 'Keep it',
+    );
+    if (!ok || !mounted) return;
+    final app = context.read<AppState>();
+    try {
+      await BodyLogDb.deleteReading(r.id);
+      await syncProfileWeightAfterDelete(app, _date);
+      app.bumpInsights();
+    } catch (_) {
+      if (mounted) setState(() => _error = 'That reading was not deleted.');
+    }
+    if (!mounted) return;
+    // A field still showing the deleted reading (not typed over) refills
+    // from what remains; a typed draft is left alone.
+    if (_weight.text.trim() == _weightAtOpen.trim()) {
+      _weight.clear();
+      _weightAtOpen = '';
+    }
+    await _loadDay();
+  }
+
+  /// The error, prefixed with what was already saved when part of it was.
+  String _partial(List<String> saved, String error) {
+    if (saved.isEmpty) return error;
+    final what = saved.contains('weight') && saved.contains('current weight')
+        ? 'The weight was saved, and is your current weight'
+        : saved.contains('weight')
+        ? 'The weight was saved'
+        : 'The tape was saved';
+    final missing = [
+      if (_weight.text.trim().isNotEmpty && !saved.contains('weight')) 'weight',
+      if (_weight.text.trim().isNotEmpty &&
+          _date == todayLabel() &&
+          saved.contains('weight') &&
+          !saved.contains('current weight'))
+        'your current weight for calculations',
+      if (_sites.values.any((c) => c.text.trim().isNotEmpty) &&
+          !saved.contains('tape'))
+        'tape',
+    ];
+    return '$what; ${missing.isEmpty ? 'the rest' : missing.join(' and ')} '
+        'did not save ($error). Your entries are still here: Save again.';
+  }
+
+  Future<void> _addPhoto(String pose, {required bool camera}) async {
+    if (_photoBusy || _busy) return;
+    final date = _date;
+    setState(() => _photoBusy = true);
+    try {
+      Uint8List? raw;
+      if (camera) {
+        raw = await _camera.invokeMethod<Uint8List>('capture');
+      } else {
+        final picked = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+        );
+        final path = picked?.files.single.path;
+        if (path != null) raw = await File(path).readAsBytes();
+      }
+      if (raw == null || !mounted) return;
+      final jpeg = await encodeProgressPhoto(raw);
+      if (!mounted) return;
+      await BodyLogDb.addPhoto(jpeg, date: date, pose: pose);
+      await _loadDay();
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => _error = e.message ?? 'The camera is not available.');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'That photo could not be added.');
+    } finally {
+      if (mounted) setState(() => _photoBusy = false);
+    }
+  }
+
+  /// An optional section's header: tap to open or close it.
+  Widget _section(
+    P p,
+    String title,
+    String sub,
+    bool open,
+    VoidCallback onTap,
+  ) => Surface(
+    semanticLabel: '$title. ${open ? 'Hide' : 'Show'}',
+    onTap: onTap,
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(sub, style: F.cap.copyWith(color: p.ink2)),
+            ],
+          ),
+        ),
+        Icon(
+          open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+          size: 18,
+          color: p.ink3,
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // The shared guard (Build 94): Back, the edge swipe and a notification's
+    // navigation all wait on unsaved typing.
+    return DirtyPopScope(
+      dirty: () => !_leaving && _dirty,
+      listenables: [_weight, ..._sites.values],
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: NavBar(
+                  widget.date == null ? 'Add entry' : 'Edit ${_md(_date)}',
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                  children: [
+                    Surface(
+                      onTap: _busy || _photoBusy ? null : _pickDate,
+                      semanticLabel: 'Day ${_md(_date)}. Change',
+                      child: Row(
+                        children: [
+                          Icon(LucideIcons.calendar, size: 18, color: p.ink2),
+                          const SizedBox(width: S.x3),
+                          Expanded(
+                            child: Text(
+                              _date == todayLabel() ? 'Today' : _md(_date),
+                              style: F.body.copyWith(color: p.ink),
+                            ),
+                          ),
+                          Text('Change', style: F.cap.copyWith(color: p.ink2)),
+                        ],
+                      ),
+                    ),
+                    if (_date != todayLabel())
+                      Padding(
+                        padding: const EdgeInsets.only(top: S.x2),
+                        child: Text(
+                          'A past day is kept as history: it does not change that day\'s calories or your current weight.',
+                          style: F.over.copyWith(color: p.ink3),
+                        ),
+                      ),
+                    const SizedBox(height: S.x4),
+                    WhoopTextField(
+                      controller: _weight,
+                      label: 'Weight ($_unit)',
+                      keyboard: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                    if (_readings.isNotEmpty) _readingList(p),
+                    if (_dayReadFailed) ...[
+                      const SizedBox(height: S.x3),
+                      StatusCard('This day could not be read',
+                        'Your entries are still here. Reload the saved history before adding or changing a reading.',
+                        icon: LucideIcons.databaseZap, fix: 'Retry loading', onFix: _loadDay),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: S.x3),
+                      Text(_error!, style: F.cap.copyWith(color: p.on(C.red))),
+                    ],
+                    const SizedBox(height: S.x4),
+                    BigButton(
+                      _busy ? 'Saving' : 'Save',
+                      color: C.body,
+                      onTap: _busy || _photoBusy ? null : _save,
+                    ),
+                    const SizedBox(height: S.x5),
+                    _section(
+                      p,
+                      'Measurements',
+                      'Tape, in inches. Optional.',
+                      _showTape,
+                      () => setState(() => _showTape = !_showTape),
+                    ),
+                    if (_showTape) ...[
+                      const SizedBox(height: S.x2),
+                      // B88-12 (C6): what makes two tape readings comparable.
+                      Text(
+                        'Same spot and same time of day each time, relaxed, tape '
+                        'snug but not pressing. Measured twice? Enter both, like '
+                        '34.5 34.75, and the average is kept.',
+                        style: F.cap.copyWith(color: p.ink3),
+                      ),
+                      const SizedBox(height: S.x2),
+                      for (final s in BodySite.values) ...[
+                        WhoopTextField(
+                          controller: _sites[s]!,
+                          label: s.title,
+                          hint: s.guidance,
+                          // Signed numbers open iOS's numbers-and-punctuation
+                          // keyboard, which has the space a second reading needs.
+                          keyboard: const TextInputType.numberWithOptions(
+                            decimal: true,
+                            signed: true,
+                          ),
+                        ),
+                        const SizedBox(height: S.x3),
+                      ],
+                    ],
+                    const SizedBox(height: S.x3),
+                    _section(
+                      p,
+                      'Photos',
+                      _photos.isEmpty
+                          ? 'Optional. Each photo saves the moment you add it.'
+                          : '${_photos.length} for this day. Each photo saves the moment you add it.',
+                      _showPhotos,
+                      () => setState(() => _showPhotos = !_showPhotos),
+                    ),
+                    if (_showPhotos) ...[
+                      const SizedBox(height: S.x2),
+                      if (_photos.isNotEmpty)
+                        SizedBox(
+                          height:
+                              96 +
+                              MediaQuery.textScalerOf(
+                                    c,
+                                  ).scale(F.over.fontSize!) *
+                                  2,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            children: [
+                              for (final ph in _photos)
+                                _Thumb(ph, size: 96, label: ph.pose),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: S.x2),
+                      Wrap(
+                        spacing: S.x2,
+                        runSpacing: S.x2,
+                        children: [
+                          for (final pose in const ['front', 'side']) ...[
+                            Pressable(
+                              semanticLabel: 'Take a $pose photo',
+                              onTap: _photoBusy || _busy ? null : () => _addPhoto(pose, camera: true),
+                              child: Pill(
+                                'Camera · ${pose == 'front' ? 'Front' : 'Side'}',
+                                C.body,
+                                icon: LucideIcons.camera,
+                              ),
+                            ),
+                            Pressable(
+                              semanticLabel: 'Choose a $pose photo',
+                              onTap: _photoBusy || _busy ? null : () => _addPhoto(pose, camera: false),
+                              child: Pill(
+                                'Photos · ${pose == 'front' ? 'Front' : 'Side'}',
+                                C.n400,
+                                icon: LucideIcons.image,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Thumb extends StatelessWidget {
+  const _Thumb(
+    this.photo, {
+    this.size = 72,
+    this.label,
+    this.selected = false,
+    this.onTap,
+  });
+  final BodyPhoto photo;
+  final double size;
+  final String? label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Padding(
+      padding: const EdgeInsets.only(right: S.x2),
+      child: Pressable(
+        semanticLabel: '${photo.pose} photo, ${_md(photo.date)}',
+        onTap: onTap,
+        child: Column(
+          children: [
+            Container(
+              width: size * .75,
+              height: size * .75 * 4 / 3 > size ? size : size * .75 * 4 / 3,
+              decoration: BoxDecoration(
+                borderRadius: R.rMd,
+                border: Border.all(
+                  color: selected ? p.on(C.body) : p.line,
+                  width: selected ? 2 : 1,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: FutureBuilder<File>(
+                future: BodyLogDb.photoFile(photo),
+                builder: (_, s) => s.data == null
+                    ? const SizedBox.shrink()
+                    : Image.file(
+                        s.data!,
+                        fit: BoxFit.cover,
+                        cacheWidth: 200,
+                        errorBuilder: (_, _, _) =>
+                            Icon(LucideIcons.imageOff, color: p.ink3),
+                      ),
+              ),
+            ),
+            if (label != null)
+              Text(label!, style: F.over.copyWith(color: p.ink3)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── photo comparison ────────────────────────────────────────────────────────
+
+/// Two independent panels. Tap a panel to make it active, then pick its
+/// photo from the dated strip; the other panel stays. Any photo against any
+/// other; same-pose filtering is a convenience. No overlay, no verdict.
+class PhotoCompareScreen extends StatefulWidget {
+  const PhotoCompareScreen({super.key, required this.photos});
+  final List<BodyPhoto> photos;
+  @override
+  State<PhotoCompareScreen> createState() => _PhotoCompareScreenState();
+}
+
+class _PhotoCompareScreenState extends State<PhotoCompareScreen> {
+  late BodyPhoto _left = widget.photos.first;
+  late BodyPhoto _right = widget.photos.last;
+  int _active = 1;
+  String? _pose;
+
+  List<BodyPhoto> get _strip => [
+    for (final x in widget.photos)
+      if (_pose == null || x.pose == _pose) x,
+  ];
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    if (widget.photos.isEmpty) {
+      return Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: ListView(
+            children: [
+              const NavBar('Compare photos'),
+              Text('No photos yet', style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+        ),
+      );
+    }
+    Widget panel(int side, BodyPhoto ph) => Expanded(
+      child: Pressable(
+        semanticLabel:
+            '${side == 0 ? 'Left' : 'Right'} panel, ${ph.pose} ${_md(ph.date)}${_active == side ? ', active' : ''}',
+        onTap: () => setState(() => _active = side),
+        child: Column(
+          children: [
+            AspectRatio(
+              aspectRatio: 3 / 4,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: R.rLg,
+                  border: Border.all(
+                    color: _active == side ? p.on(C.body) : p.line,
+                    width: _active == side ? 2 : 1,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: FutureBuilder<File>(
+                  future: BodyLogDb.photoFile(ph),
+                  builder: (_, s) => s.data == null
+                      ? const SizedBox.shrink()
+                      : InteractiveViewer(
+                          child: Image.file(
+                            s.data!,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) => Center(
+                              child: Text(
+                                'File missing',
+                                style: F.cap.copyWith(color: p.ink3),
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(height: S.x1),
+            Text(
+              '${_md(ph.date)} · ${ph.pose}',
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: ListView(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar('Compare photos'),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Row(
+                children: [
+                  panel(0, _left),
+                  Pressable(
+                    semanticLabel: 'Swap sides',
+                    onTap: () => setState(() {
+                      final t = _left;
+                      _left = _right;
+                      _right = t;
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.all(S.x2),
+                      child: Icon(
+                        LucideIcons.arrowLeftRight,
+                        size: 18,
+                        color: p.ink2,
+                      ),
+                    ),
+                  ),
+                  panel(1, _right),
+                ],
+              ),
+            ),
+            const SizedBox(height: S.x3),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  for (final (k, label) in const [
+                    (null, 'All'),
+                    ('front', 'Front'),
+                    ('side', 'Side'),
+                  ])
+                    Pressable(
+                      semanticLabel: 'Show $label',
+                      onTap: () => setState(() => _pose = k),
+                      child: Pill(label, _pose == k ? C.body : C.n400),
+                    ),
+                  Text(
+                    'Picking for the ${_active == 0 ? 'left' : 'right'}',
+                    style: F.over.copyWith(color: p.ink3),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: S.x2),
+            SizedBox(
+              height:
+                  96 + MediaQuery.textScalerOf(c).scale(F.over.fontSize!) * 2,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final ph in _strip)
+                    _Thumb(
+                      ph,
+                      size: 96,
+                      label: _md(ph.date),
+                      selected: (_active == 0 ? _left : _right).id == ph.id,
+                      onTap: () => setState(
+                        () => _active == 0 ? _left = ph : _right = ph,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: S.x2),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Text(
+                'Light, pose and distance change how a photo looks. These are for your own eye; the app makes no judgement from them.',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── history ─────────────────────────────────────────────────────────────────
+
+class BodyHistoryScreen extends StatefulWidget {
+  const BodyHistoryScreen({super.key, required this.data});
+  final ProgressData data;
+  @override
+  State<BodyHistoryScreen> createState() => _BodyHistoryScreenState();
+}
+
+class _BodyHistoryScreenState extends State<BodyHistoryScreen>
+    with RevisionReload {
+  late ProgressData d = widget.data;
+  UnitsController? _units;
+  String get _unit => _units?.weightUnit ?? 'kg';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _units = unitsOf(context);
+  }
+
+  int _readSeq = 0;
+  @override
+  void reload() => _refresh();
+  Future<void> _refresh() async {
+    if (!mounted) return;
+    final seq = ++_readSeq;
+    final n = await ProgressData.load(context);
+    if (mounted && seq == _readSeq) setState(() => d = n);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final days = <String>{
+      for (final w in d.weights) w.date,
+      for (final m in d.measures) m.date,
+      for (final ph in d.photos) ph.date,
+    }.toList()..sort((a, b) => b.compareTo(a));
+    String? month;
+    final rows = <Widget>[];
+    final blocks = BodyLogDb.weekBlocks(d.weights, DateTime.monday);
+    double u(double kg) => _unit == 'lb' ? kg * kLbPerKg : kg;
+    for (final day in days) {
+      final mo = day.substring(0, 7);
+      if (mo != month) {
+        month = mo;
+        rows.add(
+          Padding(
+            padding: const EdgeInsets.only(top: S.x4, bottom: S.x2),
+            child: Text(
+              '${_md('$mo-01').split(' ').first.toUpperCase()} ${mo.substring(0, 4)}',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+          ),
+        );
+        // Weekly weight blocks, by the month they start in (Body parity).
+        final inMonth = [
+          for (final b in blocks)
+            if (b.from.startsWith(mo)) b,
+        ];
+        if (inMonth.isNotEmpty) {
+          rows.add(
+            Surface(
+              pad: const EdgeInsets.all(S.x3),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Weekly averages', style: F.cap.copyWith(color: p.ink2)),
+                  for (final b in inMonth)
+                    Padding(
+                      padding: const EdgeInsets.only(top: S.x1),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${_md(b.from)} – ${_md(b.to)} · '
+                              '${b.count} ${b.count == 1 ? 'reading' : 'readings'}',
+                              style: F.cap.copyWith(color: p.ink3),
+                            ),
+                          ),
+                          Text(
+                            [
+                              '${_num(u(b.kg))} $_unit',
+                              if (b.change case final ch?)
+                                '${ch >= 0 ? '+' : '−'}${_num(u(ch.abs()))}',
+                            ].join('  '),
+                            style: F.cap.copyWith(color: p.ink),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+          rows.add(const SizedBox(height: S.x2));
+        }
+      }
+      final w = d.weights.where((x) => x.date == day).firstOrNull;
+      final ms = d.measures.where((x) => x.date == day).toList();
+      final ph = d.photos.where((x) => x.date == day).toList();
+      rows.add(
+        Surface(
+          pad: const EdgeInsets.all(S.x3),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(_md(day), style: F.body.copyWith(color: p.ink)),
+                  ),
+                  if (w != null)
+                    Text(
+                      bodyWeightText(w, unit: _unit),
+                      style: F.n17.copyWith(color: p.ink),
+                    ),
+                ],
+              ),
+              for (final m in ms)
+                Text(
+                  [
+                    for (final s in BodySite.values)
+                      if (m.value(s) != null)
+                        '${s.title} ${_num(m.value(s)!, 2)}',
+                  ].join(' · '),
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              if (ph.isNotEmpty)
+                SizedBox(
+                  height: 80,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      for (final x in ph)
+                        _Thumb(
+                          x,
+                          size: 72,
+                          onTap: () async {
+                            if (await confirmRemove(
+                              c,
+                              title: 'Delete this photo?',
+                              body:
+                                  '${x.pose} photo from ${_md(x.date)}. That day\'s weight and measurements stay.',
+                              remove: 'Delete',
+                            )) {
+                              try {
+                                await BodyLogDb.deletePhoto(x);
+                              } catch (_) {
+                                if (c.mounted) {
+                                  ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Could not delete it. Try again.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                              await _refresh();
+                            }
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              Row(
+                children: [
+                  Pressable(
+                    semanticLabel: 'Edit ${_md(day)}',
+                    onTap: () async {
+                      await Navigator.of(c).push<bool>(
+                        MaterialPageRoute(
+                          builder: (_) => BodyEntryScreen(
+                            unit: _unit,
+                            date: day,
+                            measure: ms.firstOrNull,
+                          ),
+                        ),
+                      );
+                      if (mounted) await _refresh();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: S.x2, right: S.x4),
+                      child: Text('Edit', style: F.cap.copyWith(color: p.ink2)),
+                    ),
+                  ),
+                  if (w != null)
+                    Pressable(
+                      semanticLabel: 'Delete weight on ${_md(day)}',
+                      onTap: () async {
+                        if (await confirmRemove(
+                          c,
+                          title: 'Delete ${_md(day)}\'s weight?',
+                          body: 'Photos and measurements from that day stay.',
+                          remove: 'Delete',
+                        )) {
+                          try {
+                            await BodyLogDb.deleteWeight(day);
+                            if (c.mounted) {
+                              final app = c.read<AppState>();
+                              await syncProfileWeightAfterDelete(app, day);
+                              app.bumpInsights();
+                            }
+                          } catch (_) {
+                            if (c.mounted) {
+                              ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Could not delete it. Try again.',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                          await _refresh();
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: S.x2, right: S.x4),
+                        child: Text(
+                          'Delete weight',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ),
+                    ),
+                  for (final m in ms)
+                    Pressable(
+                      semanticLabel: 'Delete measurements on ${_md(day)}',
+                      onTap: () async {
+                        if (await confirmRemove(
+                          c,
+                          title: 'Delete these measurements?',
+                          body: 'From ${_md(day)}. Its weight and photos stay.',
+                          remove: 'Delete',
+                        )) {
+                          try {
+                            await BodyLogDb.deleteMeasure(m.id);
+                          } catch (_) {
+                            if (c.mounted) {
+                              ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Could not delete it. Try again.',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                          await _refresh();
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: S.x2),
+                        child: Text(
+                          'Delete tape',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+      rows.add(const SizedBox(height: S.x2));
+    }
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar('Body history'),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: rows.isEmpty
+                    ? [
+                        Text(
+                          'Nothing recorded yet.',
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ]
+                    : rows,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── settings ────────────────────────────────────────────────────────────────
+
+class BodySettingsScreen extends StatefulWidget {
+  const BodySettingsScreen({super.key, required this.data});
+  final ProgressData data;
+  @override
+  State<BodySettingsScreen> createState() => _BodySettingsScreenState();
+}
+
+class _BodySettingsScreenState extends State<BodySettingsScreen> {
+  int _weekday = DateTime.saturday;
+  bool _reminder = false;
+  int _hour = 8;
+  bool _savingSettings = false;
+  String? _settingsError;
+  String? _baseline;
+  bool _loadingSettings = true, _readFailed = false;
+
+  static const _names = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    setState(() => (_loadingSettings = true, _readFailed = false));
+    try {
+      final wd = await BodyLogDb.measureWeekday();
+      final p = await SharedPreferences.getInstance();
+      final b = await CalculationStore.read(ProgressData.baselineKey);
+      if (!mounted) return;
+      setState(() {
+        _weekday = wd;
+        _reminder = p.getBool('body.reminder') ?? false;
+        _hour = p.getInt('body.reminder.hour') ?? 8;
+        _baseline = b;
+        _loadingSettings = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => (_loadingSettings = false, _readFailed = true));
+    }
+  }
+
+  Future<bool> _scheduleReminder(int weekday, int hour) =>
+      NotificationService.instance.scheduleWeekly(
+        id: NotificationService.idBodyReminder,
+        category: NotifCategory.reminders,
+        title: 'Measurement day',
+        body: 'Weigh in and take your tape measurements in Progress.',
+        weekday: weekday,
+        hour: hour,
+        minute: 0,
+      );
+
+  Future<void> _changeSettings({
+    bool? reminder,
+    int? weekday,
+    int? hour,
+  }) async {
+    if (_savingSettings) return;
+    final before = (on: _reminder, weekday: _weekday, hour: _hour);
+    final next = (
+      on: reminder ?? _reminder,
+      weekday: weekday ?? _weekday,
+      hour: hour ?? _hour,
+    );
+    var nativeTouched = false;
+    var storageTouched = false;
+    setState(() {
+      _savingSettings = true;
+      _settingsError = null;
+    });
+    try {
+      if (next.on && !await NotificationService.instance.ensurePermission()) {
+        throw StateError(
+          'Notifications are off for WHOOP. Allow them in iPhone Settings, then retry.',
+        );
+      }
+      storageTouched = true;
+      await Prefs.saveValues({
+        'body.reminder': next.on,
+        'body.reminder.hour': next.hour,
+      });
+      await BodyLogDb.setMeasureWeekday(next.weekday);
+      nativeTouched = true;
+      if (next.on) {
+        if (!await _scheduleReminder(next.weekday, next.hour)) {
+          throw StateError(
+            'The reminder could not be confirmed on your iPhone.',
+          );
+        }
+      } else {
+        await NotificationService.instance.cancel(
+          NotificationService.idBodyReminder,
+          requireAcknowledgement: true,
+        );
+      }
+      if (mounted)
+        setState(() {
+          _reminder = next.on;
+          _weekday = next.weekday;
+          _hour = next.hour;
+        });
+    } catch (error) {
+      var restored = true;
+      if (storageTouched) {
+        try {
+          await Prefs.saveValues({
+            'body.reminder': before.on,
+            'body.reminder.hour': before.hour,
+          });
+          await BodyLogDb.setMeasureWeekday(before.weekday);
+        } catch (_) {
+          restored = false;
+        }
+      }
+      if (nativeTouched) {
+        try {
+          if (before.on) {
+            if (!await _scheduleReminder(before.weekday, before.hour))
+              restored = false;
+          } else {
+            await NotificationService.instance.cancel(
+              NotificationService.idBodyReminder,
+              requireAcknowledgement: true,
+            );
+          }
+        } catch (_) {
+          restored = false;
+        }
+      }
+      final reason = error is StateError
+          ? error.message.toString()
+          : 'Your iPhone did not confirm the reminder change.';
+      if (mounted)
+        setState(
+          () => _settingsError = restored
+              ? 'The change did not finish. Your previous settings are kept. $reason'
+              : 'Reminder status is unconfirmed. Retry your choice below.',
+        );
+    } finally {
+      if (mounted) setState(() => _savingSettings = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final d = widget.data;
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar('Body settings'),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  if (_loadingSettings)
+                    const Center(child: CircularProgressIndicator())
+                  else if (_readFailed)
+                    StatusCard('Body settings could not load',
+                      'Your saved choices could not be read. Retry before changing them.',
+                      fix: 'Retry', onFix: _load)
+                  else ...[
+                  if (_settingsError != null) ...[
+                    StatusCard('Check reminder', _settingsError!, icon: LucideIcons.bell),
+                    const SizedBox(height: S.x4),
+                  ],
+                  Section(
+                    'Measurement day',
+                    Surface(
+                      pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                      child: Column(
+                        children: [
+                          for (var i = 1; i <= 7; i++)
+                            Pressable(
+                              semanticLabel: _names[i - 1],
+                              onTap: _savingSettings ? null : () => _changeSettings(weekday: i),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: S.x3,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _weekday == i
+                                          ? LucideIcons.circleDot
+                                          : LucideIcons.circle,
+                                      size: 18,
+                                      color: p.ink2,
+                                    ),
+                                    const SizedBox(width: S.x3),
+                                    Text(
+                                      _names[i - 1],
+                                      style: F.body.copyWith(color: p.ink),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: S.x4),
+                  Surface(
+                    onTap: _savingSettings ? null : () => _changeSettings(reminder: !_reminder),
+                    semanticLabel:
+                        'Weekly reminder ${_reminder ? 'on' : 'off'}',
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Weekly reminder',
+                                style: F.body.copyWith(color: p.ink),
+                              ),
+                              Text(
+                                '$_hour:00 on ${_names[_weekday - 1]}',
+                                style: F.over.copyWith(color: p.ink3),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Pill(
+                          _reminder ? 'On' : 'Off',
+                          _reminder ? C.body : C.n400,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_reminder) ...[
+                    const SizedBox(height: S.x2),
+                    Wrap(
+                      spacing: S.x2,
+                      runSpacing: S.x2,
+                      children: [
+                        for (final h in const [6, 7, 8, 9, 10])
+                          Pressable(
+                            semanticLabel: 'Remind at $h:00',
+                            onTap: _savingSettings ? null : () => _changeSettings(hour: h),
+                            child: Pill('$h:00', _hour == h ? C.body : C.n400),
+                          ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: S.x4),
+                  Surface(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: c,
+                        initialDate: DateTime.parse(
+                          _baseline ?? d.earliest ?? todayLabel(),
+                        ),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.parse(todayLabel()),
+                      );
+                      if (picked == null || !mounted) return;
+                      final v = dayLabelOf(picked);
+                      try {
+                        await CalculationStore.write(ProgressData.baselineKey, v);
+                        if (mounted) setState(() => _baseline = v);
+                      } catch (_) {
+                        if (c.mounted) ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+                          const SnackBar(content: Text('Journey start was not saved. Try again.')),
+                        );
+                      }
+                    },
+                    semanticLabel: 'Journey start',
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Journey start',
+                                style: F.body.copyWith(color: p.ink),
+                              ),
+                              Text(
+                                'What "Since start" compares against. Earlier records stay in All.',
+                                style: F.over.copyWith(color: p.ink3),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          _baseline == null
+                              ? (d.earliest == null ? '—' : _md(d.earliest!))
+                              : _md(_baseline!),
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: S.x4),
+                  Text(
+                    d.heightCm == null
+                        ? 'Add your height in Settings → Profile for the waist-to-height and body-fat estimates.'
+                        : 'Estimates use your profile height, ${d.heightCm!.round()} cm.',
+                    style: F.cap.copyWith(color: p.ink3),
+                  ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Choose and change your goal (build 86): the phase, its pace or your
+/// training age where that changes the aim, with what each one means.
+class GoalScreen extends StatefulWidget {
+  const GoalScreen({super.key, required this.plan, this.kg});
+  final GoalPlan plan;
+  final double? kg;
+  @override
+  State<GoalScreen> createState() => _GoalScreenState();
+}
+
+class _GoalScreenState extends State<GoalScreen> {
+  late GoalPhase _phase = widget.plan.phase;
+  late GoalPace _pace = widget.plan.pace;
+  late TrainingAge _age = widget.plan.trainingAge;
+  bool _saving = false;
+  String? _saveError;
+
+  GoalPlan get _draft =>
+      GoalPlan(phase: _phase, pace: _pace, trainingAge: _age);
+
+  /// B90-04: a failed save clears the busy state, keeps every choice on
+  /// screen and offers Try again; the goal counts as changed only once it is
+  /// stored.
+  Future<void> _save(BuildContext c) async {
+    setState(() => (_saving = true, _saveError = null));
+    try {
+      await GoalPlan.save(
+        GoalPlan(
+          phase: _phase,
+          pace: _pace,
+          trainingAge: _age,
+          since: todayLabel(),
+          holdKg: _phase == GoalPhase.maintain ? widget.kg : null,
+        ),
+      );
+      if (c.mounted) Navigator.of(c).pop(true);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _saveError =
+              'Your goal was not saved. Your choices are still here.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final band = _draft.band;
+    String pct(double v) =>
+        '${v >= 0 ? '+' : '−'}${v.abs().toStringAsFixed(2)}%';
+    String kgWeek(double v) => widget.kg == null
+        ? ''
+        : ' (${v >= 0 ? '+' : '−'}${(widget.kg! * v.abs() / 100).toStringAsFixed(2)} kg)';
+    Widget option(String title, String sub, bool on, VoidCallback tap) =>
+        Pressable(
+          semanticLabel: on ? '$title, selected' : title,
+          onTap: tap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  on ? LucideIcons.circleDot : LucideIcons.circle,
+                  size: 18,
+                  color: on ? p.on(C.body) : p.ink3,
+                ),
+                const SizedBox(width: S.x3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: F.body.copyWith(color: p.ink)),
+                      if (sub.isNotEmpty)
+                        Text(sub, style: F.cap.copyWith(color: p.ink3)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+    // Build 93 (Codex full-flow audit F14): leaving with a changed choice
+    // asks first.
+    return DirtyPopScope(
+      dirty: () =>
+          !_saving &&
+          (_phase != widget.plan.phase ||
+              _pace != widget.plan.pace ||
+              _age != widget.plan.trainingAge),
+      child: detailScaffold(c, 'Your goal', [
+        Surface(
+          pad: const EdgeInsets.symmetric(horizontal: S.x4),
+          child: Column(
+            children: [
+              for (final ph in GoalPhase.values)
+                option(
+                  ph.title,
+                  ph.plain,
+                  _phase == ph,
+                  () => setState(() => _phase = ph),
+                ),
+            ],
+          ),
+        ),
+        if (_phase == GoalPhase.fatLoss) ...[
+          const SizedBox(height: S.x4),
+          Text('PACE', style: F.section.copyWith(color: p.ink3)),
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(
+              children: [
+                for (final pc in GoalPace.values)
+                  option(
+                    pc.title,
+                    () {
+                      final b = GoalPlan(
+                        phase: GoalPhase.fatLoss,
+                        pace: pc,
+                      ).band;
+                      return '${pct(b.high)} to ${pct(b.low)} a week${kgWeek(b.low)}'
+                          '${pc == GoalPace.faster ? '. Harder to keep strength.' : ''}';
+                    }(),
+                    _pace == pc,
+                    () => setState(() => _pace = pc),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        if (_phase == GoalPhase.leanGain) ...[
+          const SizedBox(height: S.x4),
+          Text('TRAINING AGE', style: F.section.copyWith(color: p.ink3)),
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: Column(
+              children: [
+                for (final a in TrainingAge.values)
+                  option(
+                    a.title,
+                    () {
+                      final b = GoalPlan(
+                        phase: GoalPhase.leanGain,
+                        trainingAge: a,
+                      ).band;
+                      return '${pct(b.low)} to ${pct(b.high)} a week${kgWeek(b.high)}';
+                    }(),
+                    _age == a,
+                    () => setState(() => _age = a),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: S.x4),
+        Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'What the review will aim for',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+              const SizedBox(height: S.x1),
+              Text(
+                'Weight ${pct(band.low)} to ${pct(band.high)} a week on the 7-day '
+                'average, protein ${band.proteinLow}–${band.proteinHigh} g per kg, '
+                'and comparable lifts holding or better.',
+                style: F.cap.copyWith(color: p.ink),
+              ),
+              const SizedBox(height: S.x2),
+              Text(
+                'It waits two weeks after a goal change, then needs five weigh-ins '
+                'and five full food days in each week it looks at (one week '
+                'against the one before for losing fat or building muscle, four '
+                'weeks for the others). It suggests changes of 100 to 250 kcal, '
+                'raises protein before cutting calories, and never suggests '
+                'going below your resting energy or 1,500 kcal (1,200 for '
+                'women). Water, salt and glycogen move the scale day to day; the '
+                'trend is what counts. With a medical condition or a history of '
+                'disordered eating, set goals with a clinician instead.',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+        ),
+        if (_saveError != null) ...[
+          const SizedBox(height: S.x3),
+          Text(_saveError!, style: F.cap.copyWith(color: p.on(C.red))),
+        ],
+        const SizedBox(height: S.x4),
+        BigButton(
+          _saving
+              ? 'Saving…'
+              : _saveError != null
+              ? 'Try again'
+              : 'Use this goal from today',
+          color: C.body,
+          onTap: _saving ? null : () => _save(c),
+        ),
+      ]),
+    );
+  }
+}

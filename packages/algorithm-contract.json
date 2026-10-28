@@ -1,0 +1,8 @@
+{
+  "algorithmVersion": 99,
+  "review": "Owned identities and source-comment privacy cleanup only; no decoder, metric definition or coefficient change. Algorithm 99 retained. Synthetic test fixtures are authored independently and do not establish hardware validity.",
+  "packages": {
+    "whoop_protocol": "4ceed802f9c3969daeaa7ed770a1ad60abdc09f11e14e795bd7a363e03151545",
+    "whoop_analytics": "ee59b6116f1b978e3be4e5e676e660f6a8c01aa05c38f37f8dc07aa86c623c5b"
+  }
+}

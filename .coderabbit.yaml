@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# The UI rebuild PR was refused outright — 436 files against a 100-file limit —
+# and the bulk of that is not code anyone wants reviewed. Excluding it here is
+# not a way around the ceiling, it is pointing the review at the ~230 files
+# where a bug can actually hide.
+#
+# Kept on the ORG defaults except where noted, so this file does not silently
+# become the place review settings drift.
+language: en-US
+reviews:
+  profile: assertive
+  path_filters:
+    # Generated or mechanical, and the platform dirs churn on every plugin
+    # bump. Genuine platform work (the HealthKit Swift bridge, the launcher
+    # icons) is small and gets read by hand anyway.
+    - "!android/**"
+    - "!ios/**"
+    - "!macos/**"
+    - "!linux/**"
+    - "!windows/**"
+    - "!web/**"
+    - "!assets/**"
+    # Tests are excluded because there are more of them than there is source
+    # and they are the least likely place for a shipped bug. Re-include them
+    # for a PR that is mostly test work.
+    - "!test/**"

@@ -1,0 +1,2250 @@
+// Lift Log inside the WHOOP workout (build 86): the set logger that lives on
+// the live Lift screen, the split choice in Lift setup, the summary card and
+// the Splits editor. One Start, one clock, one Finish: the WHOOP session owns
+// time, heart rate, strain and calories; this file owns exercises and sets.
+//
+// Every mutation is saved whole before the screen shows it (LiftLogDb.save),
+// serialized so two taps cannot interleave. Rest timing, repeat-last-set and
+// records are conveniences — nothing here pauses the WHOOP session, prices
+// calories, or counts a prefilled set as performed.
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../data/lift_log.dart';
+import '../../data/lift_progress.dart';
+import '../../data/lift_reminders.dart';
+export '../../data/lift_reminders.dart';
+import '../../gps/workout_clock.dart';
+import '../../state/app_state.dart';
+import '../charts.dart' show LineChart;
+import '../grammar.dart';
+import '../theme.dart';
+import '../screens/journal_compose.dart' show WhoopTextField;
+
+String _hm(DateTime t) => formatClock(t);
+
+String _md(DateTime t) => formatShortDate(t);
+
+// ── the choice made in Lift setup ──────────────────────────────────────────
+
+/// What a lift session logs: a saved split, an empty workout, or time only.
+sealed class LiftChoice {
+  const LiftChoice();
+  static const empty = _Empty();
+  static const trackOnly = _TrackOnly();
+  String get key;
+
+  static const _prefKey = 'lift.choice';
+
+  static Future<String?> last() async {
+    try {
+      return (await SharedPreferences.getInstance()).getString(_prefKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> remember(LiftChoice c) async {
+    try {
+      await (await SharedPreferences.getInstance()).setString(_prefKey, c.key);
+    } catch (_) {}
+  }
+}
+
+class LiftSplitChoice extends LiftChoice {
+  const LiftSplitChoice(this.split);
+  final LiftSplit split;
+  @override
+  String get key => 'split:${split.id}';
+}
+
+class _Empty extends LiftChoice {
+  const _Empty();
+  @override
+  String get key => 'empty';
+}
+
+class _TrackOnly extends LiftChoice {
+  const _TrackOnly();
+  @override
+  String get key => 'track';
+}
+
+/// Create the set log for a just-started WHOOP session. Tracking only makes
+/// none (sets can still be started later from the live screen).
+Future<void> beginLiftLog(
+  LiftChoice choice, {
+  required String sessionId,
+  required DateTime startedAt,
+}) async {
+  await LiftChoice.remember(choice);
+  if (choice is _TrackOnly) return;
+  if (await LiftLogDb.forSession(sessionId) != null) return;
+  final w = LiftWorkout(startedAt: startedAt, sessionId: sessionId);
+  if (choice is LiftSplitChoice) w.syncWith(choice.split);
+  await LiftLogDb.save(w);
+  await LiftReminders.update(w);
+}
+
+/// End the log of a finished WHOOP session at its saved end. A log with no
+/// sets is removed: the WHOOP workout itself stays, untouched.
+Future<void> finishLiftLogFor(String sessionId, DateTime end) async {
+  final w = await LiftLogDb.forSession(sessionId);
+  if (w == null) return;
+  await LiftReminders.cancel();
+  if (!w.isActive) return;
+  if (w.setCount == 0) {
+    await LiftLogDb.delete(w.id);
+    return;
+  }
+  w.finish(end);
+  await LiftLogDb.save(w);
+}
+
+/// A log still open although its WHOOP session ended (the app was killed
+/// between the two writes): finish it at the session's own end.
+Future<void> reconcileLiftLogs(
+  Future<DateTime?> Function(String sessionId) sessionEnd,
+) async {
+  final w = await LiftLogDb.active();
+  final id = w?.sessionId;
+  if (w == null || id == null) return;
+  final end = await sessionEnd(id);
+  if (end != null) await finishLiftLogFor(id, end);
+}
+
+// ── the controller ─────────────────────────────────────────────────────────
+
+/// One live session's set log. Mutations run one at a time; each is applied
+/// to a copy, saved, and only then shown. A failed save keeps what was shown
+/// before and says so.
+class LiftLogController extends ChangeNotifier {
+  LiftLogController(this.sessionId);
+  final String sessionId;
+
+  LiftWorkout? workout;
+  List<LiftSplit> splits = const [];
+  final Map<String, LiftPerformance?> last = {};
+  List<LiftExercise> recent = const [];
+
+  /// Every finished log, newest first, for the in-workout progress views.
+  List<LiftWorkout> history = const [];
+  String? message;
+  bool loaded = false;
+  Future<void> _tail = Future.value();
+  bool _disposed = false;
+
+  LiftSplit? get split {
+    final w = workout;
+    if (w == null) return null;
+    return splits.where((s) => s.id == w.splitId).firstOrNull ??
+        splits.where((s) => s.name == w.splitName).firstOrNull;
+  }
+
+  Future<void> load() async {
+    try {
+      workout = await LiftLogDb.forSession(sessionId);
+      splits = await LiftLogDb.splits();
+      recent = await LiftLogDb.recentExercises();
+      history = await LiftLogDb.finished();
+      await _refreshLast();
+    } catch (e) {
+      message = 'Your sets could not be read: $e';
+    }
+    loaded = true;
+    _notify();
+  }
+
+  Future<void> _refreshLast({bool committed = false}) async {
+    final w = workout;
+    if (w == null) return;
+    try {
+      for (final e in w.exercises) {
+        final k = _lastKey(e);
+        if (last.containsKey(k)) continue;
+        last[k] = await LiftLogDb.lastPerformance(
+          e.name,
+          e.loadMode,
+          note: e.equipmentNote,
+          excludingId: w.id,
+        );
+      }
+    } catch (_) {
+      if (!committed) rethrow;
+      message = 'Saved. Earlier sets could not refresh.';
+    }
+  }
+
+  /// Build 90: name, load meaning AND variation, so "last time" and Repeat
+  /// only ever show the same variation.
+  static String _lastKey(LiftExercise e) =>
+      '${liftNameKey(e.name)}|${e.loadMode.name}|${liftNameKey(e.equipmentNote)}';
+
+  LiftPerformance? lastFor(LiftExercise e) => last[_lastKey(e)];
+
+  /// Variations used before for [name] (newest first), for the chips.
+  List<String> variationsOf(String name) =>
+      LiftLogDb.variationsOf(name, history);
+
+  /// Change the variation of an exercise with no sets yet.
+  Future<void> setVariation(String exerciseId, String note) => mutate((w) {
+    final e = w.exercises.firstWhere((x) => x.id == exerciseId);
+    if (e.sets.isNotEmpty) {
+      throw const LiftLogError(
+        'Sets are logged on this variation; add the other variation instead.',
+      );
+    }
+    e.equipmentNote = note.trim();
+  }, activity: false);
+
+  /// Earlier sessions of [e] on the same setup, newest first.
+  List<ExerciseSession> historyFor(LiftExercise e) =>
+      exerciseHistory(e, history, excludingId: workout?.id);
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  /// Start logging on a tracking-only session.
+  Future<void> startLogging({LiftSplit? from}) => _serial(() async {
+    if (workout != null) return;
+    final start = WorkoutClock.current?.start ?? DateTime.now();
+    final w = LiftWorkout(startedAt: start, sessionId: sessionId);
+    if (from != null) w.syncWith(from);
+    await LiftLogDb.save(w);
+    workout = w;
+    await _refreshLast(committed: true);
+    await LiftReminders.update(w);
+  });
+
+  Future<void> _serial(Future<void> Function() body) {
+    final run = _tail.then((_) async {
+      try {
+        message = null;
+        await body();
+      } on LiftLogError catch (e) {
+        message = e.message;
+      } catch (e) {
+        message = 'That was not saved. Please try again.';
+      }
+      _notify();
+    });
+    _tail = run;
+    return run;
+  }
+
+  /// Apply [f] to a copy, save it, then show it.
+  Future<void> mutate(
+    void Function(LiftWorkout w) f, {
+    bool activity = true,
+    VoidCallback? onCommitted,
+  }) => _serial(() async {
+    final cur = workout;
+    if (cur == null) return;
+    final next = cur.copy();
+    f(next);
+    await LiftLogDb.save(next);
+    workout = next;
+    onCommitted?.call();
+    await _refreshLast(committed: true);
+    if (activity) await LiftReminders.update(next);
+  });
+
+  Future<void> logSet(
+    String exerciseId, {
+    required int reps,
+    required double load,
+  }) async {
+    var committed = false;
+    await mutate(
+      (w) => w.addSet(exerciseId, reps: reps, load: load, at: DateTime.now()),
+      onCommitted: () => committed = true,
+    );
+    if (!committed) return;
+    final e = workout?.exercises.where((x) => x.id == exerciseId).firstOrNull;
+    if (e == null) return;
+    try {
+      await RestTimer.start(
+        await RestTimer.forExercise(e.name),
+        sessionId: sessionId,
+      );
+    } catch (_) {
+      message = 'Set saved. The rest timer could not start; try it again.';
+    }
+    _notify();
+  }
+
+  Future<void> saveSplits(List<LiftSplit> next) => _serial(() async {
+    final checked = LiftSplit.validatedList(next);
+    final w = workout;
+    final s = w == null
+        ? null
+        : checked.where((s) => s.id == w.splitId).firstOrNull ??
+              checked.where((s) => s.name == w.splitName).firstOrNull;
+    final synced = w != null && s != null ? (w.copy()..syncWith(s)) : null;
+    await LiftLogDb.saveSplits(checked, workout: synced);
+    splits = checked;
+    if (w != null && s != null) {
+      workout = synced;
+      await _refreshLast(committed: true);
+    }
+  });
+
+  /// Add an exercise today and, when the workout came from a split, to the
+  /// split as well (linked by name if it is already there).
+  Future<void> addExercise(String name, LiftLoadMode mode, String note) =>
+      _serial(() async {
+        final cur = workout;
+        if (cur == null) return;
+        // Build 90: a second variation of an exercise may be added (push-ups,
+        // then feet-raised push-ups); the same variation twice may not.
+        if (cur.exercises.any(
+          (e) =>
+              sameLiftName(e.name, name) &&
+              liftNameKey(e.equipmentNote) == liftNameKey(note),
+        )) {
+          throw LiftLogError('${name.trim()} is already in this workout.');
+        }
+        final variationOfOne = cur.exercises.any(
+          (e) => sameLiftName(e.name, name),
+        );
+        String? link;
+        List<LiftSplit>? nextSplits;
+        final s = variationOfOne ? null : split?.copy();
+        if (s != null) {
+          final existing = s.exercises
+              .where((e) => sameLiftName(e.name, name))
+              .firstOrNull;
+          if (existing != null) {
+            link = existing.id;
+          } else if (s.exercises.length < LiftSplit.maxExercises) {
+            final added = LiftSplitExercise(
+              name: name.trim(),
+              loadMode: mode,
+              equipmentNote: note,
+            );
+            s.exercises.add(added);
+            final all = [for (final x in splits) x.id == s.id ? s : x];
+            nextSplits = all;
+            link = added.id;
+          }
+        }
+        final next = cur.copy();
+        if (link != null) next.skipped.remove(link);
+        next.addExercise(
+          name: name,
+          loadMode: mode,
+          equipmentNote: note,
+          splitExerciseId: link,
+        );
+        if (nextSplits != null) {
+          await LiftLogDb.saveSplits(nextSplits, workout: next);
+          splits = LiftSplit.validatedList(nextSplits);
+        } else {
+          await LiftLogDb.save(next);
+        }
+        workout = next;
+        await _refreshLast(committed: true);
+        await LiftReminders.update(next);
+      });
+
+  Future<void> removeExercise(String exerciseId, {required bool fromSplit}) =>
+      _serial(() async {
+        final cur = workout;
+        if (cur == null) return;
+        final next = cur.copy();
+        final removed = next.removeExercise(exerciseId);
+        final link = removed.splitExerciseId;
+        final s = split?.copy();
+        List<LiftSplit>? nextSplits;
+        if (link != null && s != null) {
+          if (fromSplit) {
+            s.exercises.removeWhere((e) => e.id == link);
+            final all = [for (final x in splits) x.id == s.id ? s : x];
+            nextSplits = all;
+          } else {
+            next.skipped.add(link);
+          }
+        }
+        if (nextSplits != null) {
+          await LiftLogDb.saveSplits(nextSplits, workout: next);
+          splits = LiftSplit.validatedList(nextSplits);
+        } else {
+          await LiftLogDb.save(next);
+        }
+        workout = next;
+        await LiftReminders.update(next);
+      });
+}
+
+// ── Lift setup: choose what to log ─────────────────────────────────────────
+
+class LiftChoicePicker extends StatefulWidget {
+  const LiftChoicePicker({super.key, required this.onChanged});
+  final ValueChanged<LiftChoice> onChanged;
+
+  @override
+  State<LiftChoicePicker> createState() => _LiftChoicePickerState();
+}
+
+class _LiftChoicePickerState extends State<LiftChoicePicker> {
+  List<LiftSplit> _splits = const [];
+  String _selected = 'empty';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final s = await LiftLogDb.splits();
+      final last = await LiftChoice.last();
+      if (!mounted) return;
+      setState(() {
+        _splits = s;
+        if (last != null &&
+            (last == 'empty' ||
+                last == 'track' ||
+                s.any((x) => 'split:${x.id}' == last))) {
+          _selected = last;
+        }
+      });
+      widget.onChanged(_choice);
+    } catch (_) {}
+  }
+
+  LiftChoice get _choice {
+    if (_selected == 'track') return LiftChoice.trackOnly;
+    for (final s in _splits) {
+      if ('split:${s.id}' == _selected) return LiftSplitChoice(s);
+    }
+    return LiftChoice.empty;
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    Widget option(String key, String title, String sub) => Pressable(
+      semanticLabel: _selected == key ? '$title, selected' : title,
+      onTap: () {
+        setState(() => _selected = key);
+        widget.onChanged(_choice);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Row(
+          children: [
+            Icon(
+              _selected == key ? LucideIcons.circleDot : LucideIcons.circle,
+              size: 18,
+              color: _selected == key ? p.on(C.purple) : p.ink3,
+            ),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: F.body.copyWith(color: p.ink)),
+                  if (sub.isNotEmpty)
+                    Text(sub, style: F.over.copyWith(color: p.ink3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Section(
+      'Sets',
+      Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: Column(
+          children: [
+            for (final s in _splits)
+              option(
+                'split:${s.id}',
+                s.name,
+                s.exercises.isEmpty
+                    ? 'No exercises yet'
+                    : s.exercises.take(3).map((e) => e.name).join(', ') +
+                          (s.exercises.length > 3 ? '…' : ''),
+              ),
+            option('empty', 'Empty workout', 'Add exercises as you go'),
+            option(
+              'track',
+              'Time only',
+              'No sets; you can start logging later',
+            ),
+          ],
+        ),
+      ),
+      action: 'Splits',
+      onAction: () async {
+        await Navigator.of(c).push(
+          MaterialPageRoute<void>(builder: (_) => const LiftSplitsScreen()),
+        );
+        _load();
+      },
+    );
+  }
+}
+
+// ── the live panel ─────────────────────────────────────────────────────────
+
+class LiftLivePanel extends StatefulWidget {
+  const LiftLivePanel({super.key, required this.sessionId, this.onFinishAt});
+  final String sessionId;
+
+  /// Finish the WHOOP session, at [end] when given (a reviewed last-set end),
+  /// otherwise now.
+  final Future<void> Function(DateTime? end)? onFinishAt;
+
+  @override
+  State<LiftLivePanel> createState() => _LiftLivePanelState();
+}
+
+class _LiftLivePanelState extends State<LiftLivePanel> {
+  late final LiftLogController ctl = LiftLogController(widget.sessionId)
+    ..addListener(_changed);
+  final _search = TextEditingController();
+  final _expanded = <String>{};
+  final _loadText = <String, TextEditingController>{};
+  final _repsText = <String, TextEditingController>{};
+  Timer? _restTick;
+  DateTime? _restUntil;
+  bool _keepGoing = false;
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    ctl.load();
+    _search.addListener(() => setState(() {}));
+    _readRest();
+    _restTick = Timer.periodic(Motion.tick, (_) {
+      if (!mounted) return;
+      if (_restUntil != null && !_restUntil!.isAfter(DateTime.now())) {
+        _restUntil = null;
+        HapticFeedback.mediumImpact();
+      }
+      if (_restUntil != null) setState(() {});
+    });
+  }
+
+  Future<void> _readRest() async {
+    final d = await RestTimer.deadline();
+    if (mounted) setState(() => _restUntil = d);
+  }
+
+  @override
+  void dispose() {
+    _restTick?.cancel();
+    ctl.removeListener(_changed);
+    ctl.dispose();
+    _search.dispose();
+    for (final t in [..._loadText.values, ..._repsText.values]) {
+      t.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _load(String id) =>
+      _loadText[id] ??= TextEditingController();
+  TextEditingController _reps(String id) =>
+      _repsText[id] ??= TextEditingController();
+
+  /// Fill the entry from the set before (today) or the first set last time.
+  /// Only a suggestion: nothing is logged until Log set is pressed.
+  void _repeat(LiftExercise e) {
+    final s = e.sets.isNotEmpty
+        ? e.sets.last
+        : ctl.lastFor(e)?.exercise.sets.firstOrNull;
+    if (s == null) return;
+    _load(e.id).text = e.loadMode == LiftLoadMode.addedWeight && s.load == 0
+        ? ''
+        : liftWeightText(s.load);
+    _reps(e.id).text = '${s.reps}';
+    setState(() {});
+  }
+
+  Future<void> _log(LiftExercise e) async {
+    final loadText = _load(e.id).text.trim().replaceAll(',', '.');
+    // Build 90: in Added weight a blank weight is a bodyweight set.
+    final load = loadText.isEmpty && e.loadMode == LiftLoadMode.addedWeight
+        ? 0.0
+        : double.tryParse(loadText);
+    final reps = int.tryParse(_reps(e.id).text.trim());
+    if (load == null || reps == null) {
+      _say(
+        e.loadMode == LiftLoadMode.addedWeight
+            ? 'Enter the reps (leave the weight blank for bodyweight).'
+            : 'Enter the weight and the reps.',
+      );
+      return;
+    }
+    await ctl.logSet(e.id, reps: reps, load: load);
+    if (ctl.message != null) {
+      _say(ctl.message!);
+    } else {
+      await _readRest();
+    }
+  }
+
+  void _say(String t) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(t), duration: Motion.notice));
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    if (!ctl.loaded) return const SizedBox(height: S.x4);
+    final w = ctl.workout;
+    if (w == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: S.x6),
+        child: Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Sets',
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: S.x1),
+              Text(
+                'This workout records time and heart rate only.',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+              const SizedBox(height: S.x3),
+              BigButton(
+                'Log sets',
+                icon: LucideIcons.dumbbell,
+                color: C.purple,
+                soft: true,
+                onTap: () => ctl.startLogging(),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final q = _search.text.trim().toLowerCase();
+    final shown = [
+      for (final e in w.exercises)
+        if (q.isEmpty || e.name.toLowerCase().contains(q)) e,
+    ];
+    final extra = q.isEmpty
+        ? const <LiftExercise>[]
+        : [
+            for (final r in ctl.recent)
+              if (r.name.toLowerCase().contains(q) &&
+                  !w.exercises.any((e) => sameLiftName(e.name, r.name)))
+                r,
+          ];
+    final idle =
+        DateTime.now().difference(w.lastActivity) >=
+        LiftWorkout.inactivityDelay;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: S.x6),
+        if (idle && !_keepGoing && widget.onFinishAt != null)
+          _forgotten(c, p, w),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                w.splitName ?? 'Empty workout',
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            Text(
+              '${w.setCount} ${w.setCount == 1 ? 'set' : 'sets'}',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+            const SizedBox(width: S.x3),
+            Pressable(
+              semanticLabel: 'Rest timer',
+              onTap: () => _restSheet(c),
+              child: Icon(LucideIcons.timer, size: 20, color: p.ink2),
+            ),
+            const SizedBox(width: S.x3),
+            Pressable(
+              semanticLabel: 'Splits',
+              onTap: () async {
+                await Navigator.of(c).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => LiftSplitsScreen(controller: ctl),
+                  ),
+                );
+              },
+              child: Icon(LucideIcons.listOrdered, size: 20, color: p.ink2),
+            ),
+          ],
+        ),
+        if (_restUntil != null) ...[const SizedBox(height: S.x3), _restBar(p)],
+        const SizedBox(height: S.x3),
+        WhoopTextField(
+          controller: _search,
+          label: 'Find or add an exercise',
+          clearable: true,
+          hint: 'Bench, row…',
+        ),
+        const SizedBox(height: S.x3),
+        for (final e in shown) _card(c, p, w, e),
+        for (final r in extra)
+          _addRow(
+            p,
+            r.name,
+            '${r.loadMode.title} · logged before',
+            () =>
+                ctl.addExercise(r.name, r.loadMode, r.equipmentNote).then((_) {
+                  if (mounted) _search.clear();
+                }),
+          ),
+        if (q.isNotEmpty &&
+            !w.exercises.any((e) => sameLiftName(e.name, q)) &&
+            !extra.any((r) => sameLiftName(r.name, q)))
+          _addRow(
+            p,
+            'Add "${_search.text.trim()}"',
+            'New exercise',
+            () => _addSheet(c, name: _search.text.trim()),
+          ),
+        if (q.isEmpty)
+          Pressable(
+            semanticLabel: 'Add exercise',
+            onTap: () => _addSheet(c),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x3),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.plus, size: 18, color: p.on(C.purple)),
+                  const SizedBox(width: S.x2),
+                  Text(
+                    'Add exercise',
+                    style: F.body.copyWith(color: p.on(C.purple)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (ctl.message != null)
+          Text(ctl.message!, style: F.cap.copyWith(color: p.on(C.red))),
+      ],
+    );
+  }
+
+  Widget _forgotten(BuildContext c, P p, LiftWorkout w) {
+    final last = w.lastActivity;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: S.x4),
+      child: Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Still working out?',
+              style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: S.x1),
+            Text(
+              'Nothing logged since ${_hm(last)}. Finishing at your last set '
+              'ends the workout then; its heart rate and calories stop there too.',
+              style: F.cap.copyWith(color: p.ink3),
+            ),
+            const SizedBox(height: S.x3),
+            BigButton(
+              'Finish at ${_hm(last)}',
+              color: C.purple,
+              onTap: () => widget.onFinishAt!(last),
+            ),
+            const SizedBox(height: S.x2),
+            BigButton(
+              'Finish now',
+              color: C.purple,
+              soft: true,
+              onTap: () => widget.onFinishAt!(null),
+            ),
+            const SizedBox(height: S.x2),
+            BigButton(
+              'Keep going',
+              soft: true,
+              color: C.n500,
+              onTap: () => setState(() => _keepGoing = true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _restBar(P p) {
+    final left = _restUntil!.difference(DateTime.now());
+    final s = left.inSeconds.clamp(0, 3600);
+    return Surface(
+      color: p.card2,
+      elevation: 0,
+      pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+      child: Row(
+        children: [
+          Icon(LucideIcons.timer, size: 18, color: p.ink2),
+          const SizedBox(width: S.x2),
+          Expanded(
+            child: Text(
+              'Rest ${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}',
+              style: F.n17.copyWith(color: p.ink),
+            ),
+          ),
+          Pressable(
+            semanticLabel: 'Add 30 seconds',
+            onTap: () async {
+              try {
+                await RestTimer.addSeconds(30, sessionId: widget.sessionId);
+                await _readRest();
+              } catch (_) {
+                if (mounted)
+                  _say('Could not extend the rest timer. Try again.');
+              }
+            },
+            child: Text('+30 s', style: F.cap.copyWith(color: p.ink2)),
+          ),
+          const SizedBox(width: S.x4),
+          Pressable(
+            semanticLabel: 'Skip rest',
+            onTap: () async {
+              try {
+                await RestTimer.skip();
+                await _readRest();
+              } catch (_) {
+                if (mounted)
+                  _say(
+                    'The alert was cancelled, but the timer state could not save. Try Skip again.',
+                  );
+              }
+            },
+            child: Text('Skip', style: F.cap.copyWith(color: p.ink2)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _addRow(P p, String title, String sub, VoidCallback onTap) =>
+      Pressable(
+        semanticLabel: title,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: S.x3),
+          child: Row(
+            children: [
+              Icon(LucideIcons.plus, size: 18, color: p.on(C.purple)),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: F.body.copyWith(color: p.ink)),
+                    Text(sub, style: F.over.copyWith(color: p.ink3)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _card(BuildContext c, P p, LiftWorkout w, LiftExercise e) {
+    final idx = w.exercises.indexOf(e);
+    final open = e.sets.isNotEmpty || _expanded.contains(e.id);
+    final lastP = ctl.lastFor(e);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: S.x3),
+      child: Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Pressable(
+                    semanticLabel: e.name,
+                    onTap: () => setState(
+                      () => open && e.sets.isEmpty
+                          ? _expanded.remove(e.id)
+                          : _expanded.add(e.id),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          e.name,
+                          style: F.body.copyWith(
+                            color: p.ink,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          [
+                            e.loadMode.title,
+                            if (e.equipmentNote.isNotEmpty) e.equipmentNote,
+                          ].join(' · '),
+                          style: F.over.copyWith(color: p.ink3),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (idx > 0)
+                  Pressable(
+                    semanticLabel: 'Move ${e.name} up',
+                    onTap: () => ctl.mutate(
+                      (x) => x.moveExercise(idx, idx - 1),
+                      activity: false,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(S.x1),
+                      child: Icon(LucideIcons.arrowUp, size: 17, color: p.ink3),
+                    ),
+                  ),
+                Pressable(
+                  semanticLabel: 'Remove ${e.name}',
+                  onTap: () => _removeSheet(c, w, e),
+                  child: Padding(
+                    padding: const EdgeInsets.all(S.x1),
+                    child: Icon(LucideIcons.x, size: 17, color: p.ink3),
+                  ),
+                ),
+              ],
+            ),
+            if (open) _variations(c, p, e),
+            if (lastP != null) ...[
+              const SizedBox(height: S.x2),
+              Text(
+                'Last time ${_md(lastP.date)}: ${[for (var i = 0; i < lastP.exercise.sets.length; i++) 'S${i + 1} ${lastP.exercise.setText(lastP.exercise.sets[i])}'].join(' · ')}',
+                style: F.cap.copyWith(color: p.ink3),
+              ),
+              // As you log: ahead, level or behind last time, set by set.
+              if (versusLast(e, lastP.exercise) case final v?)
+                Padding(
+                  padding: const EdgeInsets.only(top: S.x1),
+                  child: Row(
+                    children: [
+                      Icon(
+                        switch (v.verdict) {
+                          SetVerdict.better => LucideIcons.trendingUp,
+                          SetVerdict.worse => LucideIcons.trendingDown,
+                          SetVerdict.same => LucideIcons.equal,
+                          SetVerdict.incomparable => LucideIcons.minus,
+                        },
+                        size: 14,
+                        color: switch (v.verdict) {
+                          SetVerdict.better => p.on(C.green),
+                          SetVerdict.worse => p.on(C.orange),
+                          SetVerdict.same => p.ink3,
+                          SetVerdict.incomparable => p.ink3,
+                        },
+                      ),
+                      const SizedBox(width: S.x1),
+                      Expanded(
+                        child: Text(
+                          v.text,
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (open)
+                if (nextToBeat(e, lastP.exercise) case final t?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x1),
+                    child: Text(
+                      t,
+                      style: F.cap.copyWith(color: p.on(C.purple)),
+                    ),
+                  ),
+            ],
+            if (ctl.historyFor(e).isNotEmpty)
+              Pressable(
+                semanticLabel: 'Progress for ${e.name}',
+                onTap: () => _progressSheet(c, e),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: S.x2),
+                  child: Row(
+                    children: [
+                      Icon(LucideIcons.chartLine, size: 14, color: p.ink3),
+                      const SizedBox(width: S.x1),
+                      Expanded(
+                        child: Text(
+                          liftTrend(ctl.historyFor(e)).text,
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ),
+                      Text('Progress', style: F.cap.copyWith(color: p.ink2)),
+                      Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                    ],
+                  ),
+                ),
+              ),
+            if (e.sets.isNotEmpty) ...[
+              const SizedBox(height: S.x3),
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                children: [
+                  for (var i = 0; i < e.sets.length; i++)
+                    Pressable(
+                      semanticLabel:
+                          'Set ${i + 1}: ${e.setText(e.sets[i])}. Edit',
+                      onTap: () => _editSet(c, e, e.sets[i]),
+                      child: Pill(
+                        'S${i + 1} ${e.setText(e.sets[i])}',
+                        C.purple,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            if (open) ...[
+              const SizedBox(height: S.x3),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: WhoopTextField(
+                      controller: _load(e.id),
+                      label: e.loadMode == LiftLoadMode.addedWeight
+                          ? 'lb added · blank for bodyweight'
+                          : e.loadMode.shortUnit,
+                      keyboard: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: S.x2),
+                  Expanded(
+                    child: WhoopTextField(
+                      controller: _reps(e.id),
+                      label: 'Reps',
+                      keyboard: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: S.x3),
+              Row(
+                children: [
+                  Expanded(
+                    child: BigButton(
+                      'Log set',
+                      icon: LucideIcons.check,
+                      color: C.purple,
+                      onTap: () => _log(e),
+                    ),
+                  ),
+                  if (e.sets.isNotEmpty || lastP != null) ...[
+                    const SizedBox(width: S.x2),
+                    Pressable(
+                      semanticLabel: 'Repeat last set',
+                      onTap: () => _repeat(e),
+                      child: Padding(
+                        padding: const EdgeInsets.all(S.x3),
+                        child: Icon(
+                          LucideIcons.repeat,
+                          size: 20,
+                          color: p.ink2,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (e.sets.isNotEmpty)
+                    Pressable(
+                      semanticLabel: 'Undo last set',
+                      onTap: () => ctl.mutate((x) => x.removeLastSet(e.id)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(S.x3),
+                        child: Icon(LucideIcons.undo2, size: 20, color: p.ink2),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build 90: the exercise's variations as one-tap chips, so a harder
+  /// version stays one exercise ("Push-up · Feet raised") and compares only
+  /// with itself. Before any set a chip switches this entry's variation;
+  /// after sets it adds the other variation as its own entry, so logged sets
+  /// never change meaning.
+  Widget _variations(BuildContext c, P p, LiftExercise e) {
+    final current = e.equipmentNote.trim();
+    final seen = <String>{liftNameKey(current)};
+    final options = <String>[
+      current,
+      if (current.isNotEmpty && seen.add('')) '',
+      for (final v in ctl.variationsOf(e.name))
+        if (seen.add(liftNameKey(v))) v,
+    ];
+    String label(String v) => v.isEmpty ? 'No variation' : v;
+    Future<void> choose(String v) async {
+      if (liftNameKey(v) == liftNameKey(current)) return;
+      if (e.sets.isEmpty) {
+        await ctl.setVariation(e.id, v);
+      } else {
+        await ctl.addExercise(e.name, e.loadMode, v);
+      }
+      if (ctl.message != null) _say(ctl.message!);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x2),
+      child: Wrap(
+        spacing: S.x2,
+        runSpacing: S.x2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final v in options)
+            Pressable(
+              semanticLabel: liftNameKey(v) == liftNameKey(current)
+                  ? '${label(v)}, selected'
+                  : 'Variation ${label(v)}',
+              onTap: () => choose(v),
+              child: Pill(
+                label(v),
+                liftNameKey(v) == liftNameKey(current) ? C.purple : C.n400,
+              ),
+            ),
+          Pressable(
+            semanticLabel: 'New variation of ${e.name}',
+            onTap: () async {
+              final v = await _askVariation(c, e.name);
+              if (mounted && v != null && v.isNotEmpty) await choose(v);
+            },
+            child: Pill('New variation', C.n400, icon: LucideIcons.plus),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _askVariation(BuildContext c, String name) {
+    final t = TextEditingController();
+    return showDialog<String>(
+      context: c,
+      builder: (dc) => AlertDialog(
+        title: Text('New variation of $name'),
+        content: WhoopTextField(
+          controller: t,
+          label: 'Variation',
+          hint: 'Feet raised, close grip, backpack',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dc).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dc).pop(t.text.trim()),
+            child: const Text('Use it'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The exercise over time, without leaving the workout: the best set of
+  /// each earlier session as a line, today's best against them, the
+  /// sessions, and the heaviest load at each rep count.
+  Future<void> _progressSheet(BuildContext c, LiftExercise e) async {
+    final h = ctl.historyFor(e);
+    final useScore = h.every((s) => s.score != null);
+    final today = e.sets.isEmpty ? null : bestSet(e.sets);
+    final series = <double?>[
+      for (final s in h.reversed) useScore ? s.score : s.best.reps.toDouble(),
+      if (today != null) useScore ? setScore(today) : today.reps.toDouble(),
+    ];
+    final records = repRecords(h);
+    await _sheet<void>(c, (sc) {
+      final p = P.of(sc);
+      return [
+        Text(e.name, style: F.head.copyWith(color: p.ink)),
+        Text(
+          [
+            e.loadMode.title,
+            if (e.equipmentNote.isNotEmpty) e.equipmentNote,
+          ].join(' · '),
+          style: F.cap.copyWith(color: p.ink3),
+        ),
+        const SizedBox(height: S.x3),
+        Text(liftTrend(h).text, style: F.body.copyWith(color: p.ink)),
+        if (series.whereType<double>().length >= 2) ...[
+          const SizedBox(height: S.x3),
+          Text(
+            useScore
+                ? 'Best set, as an estimated one-rep load on this setup'
+                : 'Best set, reps',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          const SizedBox(height: S.x2),
+          SizedBox(
+            height: 96,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(
+                series,
+                p.on(C.purple),
+                fill: false,
+                dots: true,
+              ),
+            ),
+          ),
+          if (today != null)
+            Text(
+              'The last point is today so far.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+        ],
+        const SizedBox(height: S.x3),
+        Text('Sessions', style: F.over.copyWith(color: p.ink3)),
+        for (final s in h.take(8))
+          Padding(
+            padding: const EdgeInsets.only(top: S.x1),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _md(s.date),
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ),
+                Text(
+                  '${s.exercise.sets.length} sets · best ${e.setText(s.best)}',
+                  style: F.cap.copyWith(color: p.ink),
+                ),
+              ],
+            ),
+          ),
+        if (records.isNotEmpty) ...[
+          const SizedBox(height: S.x3),
+          Text(
+            'Heaviest at each rep count',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          Wrap(
+            spacing: S.x2,
+            runSpacing: S.x1,
+            children: [
+              for (final r in records.take(10))
+                Text(
+                  '${r.reps} × ${liftWeightText(r.load)}',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: S.x3),
+        Text(
+          'Only sessions of this exercise with the same load meaning and '
+          'equipment note are compared. The estimate is for ranking your '
+          'own sets, not your true one-rep max.',
+          style: F.over.copyWith(color: p.ink3),
+        ),
+      ];
+    });
+  }
+
+  Future<void> _editSet(BuildContext c, LiftExercise e, LiftSet s) async {
+    final load = TextEditingController(text: liftWeightText(s.load));
+    final reps = TextEditingController(text: '${s.reps}');
+    final r = await _sheet<String>(
+      c,
+      (sc) => [
+        Text('Edit set', style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x1),
+        Text(
+          '${e.name} · logged ${_hm(s.completedAt)}',
+          style: F.cap.copyWith(color: P.of(sc).ink3),
+        ),
+        const SizedBox(height: S.x4),
+        WhoopTextField(
+          controller: load,
+          label: e.loadMode.shortUnit,
+          keyboard: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        const SizedBox(height: S.x3),
+        WhoopTextField(
+          controller: reps,
+          label: 'Reps',
+          keyboard: TextInputType.number,
+        ),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Save',
+          color: C.purple,
+          onTap: () => Navigator.of(sc).pop('save'),
+        ),
+        const SizedBox(height: S.x2),
+        BigButton(
+          'Delete set',
+          icon: LucideIcons.trash2,
+          color: C.red,
+          soft: true,
+          onTap: () => Navigator.of(sc).pop('delete'),
+        ),
+      ],
+    );
+    if (!mounted) return;
+    if (r == 'save') {
+      final l = double.tryParse(load.text.trim().replaceAll(',', '.'));
+      final n = int.tryParse(reps.text.trim());
+      if (l == null || n == null) return _say('Enter the weight and the reps.');
+      await ctl.mutate((x) => x.updateSet(e.id, s.id, reps: n, load: l));
+    } else if (r == 'delete') {
+      await ctl.mutate((x) => x.removeSet(e.id, s.id));
+    }
+    if (ctl.message != null) _say(ctl.message!);
+  }
+
+  Future<void> _removeSheet(
+    BuildContext c,
+    LiftWorkout w,
+    LiftExercise e,
+  ) async {
+    final split = ctl.split;
+    final inSplit = split != null && e.splitExerciseId != null;
+    final r = await _sheet<String>(
+      c,
+      (sc) => [
+        Text('Remove ${e.name}?', style: F.head.copyWith(color: P.of(sc).ink)),
+        if (e.sets.isNotEmpty) ...[
+          const SizedBox(height: S.x1),
+          Text(
+            'Its ${e.sets.length} logged ${e.sets.length == 1 ? 'set goes' : 'sets go'} with it.',
+            style: F.cap.copyWith(color: P.of(sc).on(C.red)),
+          ),
+        ],
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Remove from today',
+          color: C.red,
+          soft: true,
+          onTap: () => Navigator.of(sc).pop('today'),
+        ),
+        if (inSplit) ...[
+          const SizedBox(height: S.x2),
+          BigButton(
+            'Remove from today and ${split.name}',
+            color: C.red,
+            onTap: () => Navigator.of(sc).pop('split'),
+          ),
+        ],
+        const SizedBox(height: S.x2),
+        BigButton(
+          'Keep it',
+          soft: true,
+          color: C.n500,
+          onTap: () => Navigator.of(sc).pop(),
+        ),
+      ],
+    );
+    if (r == null || !mounted) return;
+    await ctl.removeExercise(e.id, fromSplit: r == 'split');
+    if (ctl.message != null) _say(ctl.message!);
+  }
+
+  Future<void> _addSheet(BuildContext c, {String name = ''}) async {
+    final picked = await editLiftExercise(c, name: name);
+    if (picked == null || !mounted) return;
+    await ctl.addExercise(picked.name, picked.loadMode, picked.equipmentNote);
+    if (!mounted) return;
+    _search.clear();
+    if (ctl.message != null) _say(ctl.message!);
+  }
+
+  Future<void> _restSheet(BuildContext c) async {
+    final cur = await RestTimer.defaultSec();
+    if (!c.mounted) return;
+    final r = await _sheet<int>(
+      c,
+      (sc) => [
+        Text('Rest timer', style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x1),
+        Text(
+          'Starts after each logged set. It does not pause the workout.',
+          style: F.cap.copyWith(color: P.of(sc).ink3),
+        ),
+        const SizedBox(height: S.x4),
+        for (final s in RestTimer.choices)
+          Pressable(
+            semanticLabel: s == 0 ? 'Off' : '$s seconds',
+            onTap: () => Navigator.of(sc).pop(s),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: S.x3),
+              child: Row(
+                children: [
+                  Icon(
+                    s == cur ? LucideIcons.circleDot : LucideIcons.circle,
+                    size: 18,
+                    color: P.of(sc).ink2,
+                  ),
+                  const SizedBox(width: S.x3),
+                  Text(
+                    s == 0
+                        ? 'Off'
+                        : '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}',
+                    style: F.body.copyWith(color: P.of(sc).ink),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+    if (r != null && mounted) {
+      try {
+        await RestTimer.setDefault(r);
+      } catch (_) {
+        if (mounted)
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not save the rest timer setting. Try again.',
+              ),
+            ),
+          );
+      }
+    }
+  }
+}
+
+Future<T?> _sheet<T>(
+  BuildContext c,
+  List<Widget> Function(BuildContext) body,
+) => showModalBottomSheet<T>(
+  context: c,
+  isScrollControlled: true,
+  useSafeArea: true,
+  sheetAnimationStyle: sheetMotion(c),
+  backgroundColor: P.of(c).card,
+  shape: const RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+  ),
+  builder: (sc) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.of(sc).viewInsets.bottom),
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(S.x5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: body(sc),
+      ),
+    ),
+  ),
+);
+
+/// Name, load meaning (with its guidance) and an optional equipment note.
+Future<LiftSplitExercise?> editLiftExercise(
+  BuildContext c, {
+  String name = '',
+  LiftSplitExercise? existing,
+}) async {
+  final n = TextEditingController(text: existing?.name ?? name);
+  final note = TextEditingController(text: existing?.equipmentNote ?? '');
+  var mode = existing?.loadMode ?? LiftLoadMode.platesPerSide;
+  final ok = await showModalBottomSheet<bool>(
+    context: c,
+    isScrollControlled: true,
+    useSafeArea: true,
+    sheetAnimationStyle: sheetMotion(c),
+    backgroundColor: P.of(c).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (sc) => StatefulBuilder(
+      builder: (sc, set) {
+        final p = P.of(sc);
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(sc).viewInsets.bottom),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(S.x5),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  existing == null ? 'Add exercise' : 'Edit exercise',
+                  style: F.head.copyWith(color: p.ink),
+                ),
+                const SizedBox(height: S.x4),
+                WhoopTextField(
+                  controller: n,
+                  label: 'Name',
+                  hint: 'Dumbbell bench press',
+                ),
+                const SizedBox(height: S.x4),
+                Text(
+                  'HOW THE WEIGHT IS ENTERED',
+                  style: F.over.copyWith(color: p.ink3),
+                ),
+                const SizedBox(height: S.x2),
+                for (final m in LiftLoadMode.values)
+                  Pressable(
+                    semanticLabel: m == mode ? '${m.title}, selected' : m.title,
+                    onTap: () => set(() => mode = m),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: S.x2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            m == mode
+                                ? LucideIcons.circleDot
+                                : LucideIcons.circle,
+                            size: 18,
+                            color: m == mode ? p.on(C.purple) : p.ink3,
+                          ),
+                          const SizedBox(width: S.x3),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  m.title,
+                                  style: F.body.copyWith(color: p.ink),
+                                ),
+                                if (m == mode)
+                                  Text(
+                                    m.guidance,
+                                    style: F.over.copyWith(color: p.ink3),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: S.x3),
+                WhoopTextField(
+                  controller: note,
+                  label: 'Variation or setup (optional)',
+                  hint: 'Which machine, or base resistance unknown',
+                ),
+                const SizedBox(height: S.x5),
+                BigButton(
+                  'Save',
+                  color: C.purple,
+                  onTap: () {
+                    if (n.text.trim().isEmpty) return;
+                    Navigator.of(sc).pop(true);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+  if (ok != true) return null;
+  return LiftSplitExercise(
+    id: existing?.id,
+    name: n.text.trim(),
+    loadMode: mode,
+    equipmentNote: note.text.trim(),
+  );
+}
+
+// ── the summary card ───────────────────────────────────────────────────────
+
+class LiftSummaryCard extends StatefulWidget {
+  const LiftSummaryCard({super.key, required this.sessionId});
+  final String sessionId;
+  @override
+  State<LiftSummaryCard> createState() => _LiftSummaryCardState();
+}
+
+class _LiftSummaryCardState extends State<LiftSummaryCard> {
+  LiftWorkout? _w;
+  List<LiftRecord> _records = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final w = await LiftLogDb.forSession(widget.sessionId);
+      final records = w == null
+          ? const <LiftRecord>[]
+          : liftRecords(w, await LiftLogDb.finished());
+      if (mounted) setState(() => (_w = w, _records = records));
+    } catch (_) {}
+  }
+
+  /// Fix or delete one set of this finished log, then tell every open tab.
+  Future<void> _fix(
+    BuildContext c,
+    LiftWorkout w,
+    LiftExercise e,
+    LiftSet set,
+  ) async {
+    final saved = await _sheet<bool>(
+      c,
+      (_) => [_FinishedSetEditor(workout: w, exercise: e, set: set)],
+    );
+    if (saved != true || !mounted) return;
+    try {
+      c.read<AppState>().bumpInsights();
+    } catch (_) {}
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final w = _w;
+    if (w == null || w.setCount == 0) return const SizedBox.shrink();
+    final p = P.of(c);
+    return Padding(
+      padding: const EdgeInsets.only(top: S.x4),
+      child: Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    w.splitName ?? 'Sets',
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${w.setCount} ${w.setCount == 1 ? 'set' : 'sets'}',
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
+            for (final e in w.exercises) ...[
+              const SizedBox(height: S.x3),
+              Text(
+                e.equipmentNote.isEmpty
+                    ? e.name
+                    : '${e.name} · ${e.equipmentNote}',
+                style: F.body.copyWith(color: p.ink),
+              ),
+              const SizedBox(height: S.x1),
+              // Build 90 (D5): a mistaken set can be fixed after the workout.
+              Wrap(
+                spacing: S.x2,
+                runSpacing: S.x2,
+                children: [
+                  for (var i = 0; i < e.sets.length; i++)
+                    Pressable(
+                      semanticLabel:
+                          'Set ${i + 1}: ${e.setText(e.sets[i])}. Fix',
+                      onTap: () => _fix(c, w, e, e.sets[i]),
+                      child: Pill('S${i + 1} ${e.setText(e.sets[i])}', C.n400),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: S.x2),
+            Text(
+              'Tap a set to fix a mistake. Times, heart rate and calories stay '
+              'as recorded.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+            if (_records.isNotEmpty) ...[
+              const SizedBox(height: S.x4),
+              Text('NEW BESTS', style: F.over.copyWith(color: p.ink3)),
+              for (final r in _records)
+                Text(
+                  '${r.exercise}: ${r.text}',
+                  style: F.cap.copyWith(color: p.ink2),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Splits ─────────────────────────────────────────────────────────────────
+
+class LiftSplitsScreen extends StatefulWidget {
+  const LiftSplitsScreen({super.key, this.controller});
+
+  /// The live workout's controller, so an edit reaches the open workout.
+  final LiftLogController? controller;
+
+  @override
+  State<LiftSplitsScreen> createState() => _LiftSplitsScreenState();
+}
+
+class _LiftSplitsScreenState extends State<LiftSplitsScreen> {
+  List<LiftSplit> _splits = const [];
+  String? _error;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  // Build 93 (Codex audit C13): a storage error on load or save is shown
+  // (with the saved splits kept on screen), not thrown away.
+  Future<void> _load() async {
+    try {
+      final s = await LiftLogDb.splits();
+      if (mounted) setState(() => (_splits = s, _error = null, _loaded = true));
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loaded = false;
+          _error = 'Your splits could not load. Go back and try again.';
+        });
+      }
+    }
+  }
+
+  Future<bool> _save(List<LiftSplit> next) async {
+    // An unread list is not an empty list. Refresh it, then let the caller
+    // propose its change again against the definitions now on screen.
+    if (!_loaded) {
+      await _load();
+      return false;
+    }
+    try {
+      final ctl = widget.controller;
+      if (ctl != null) {
+        await ctl.saveSplits(next);
+        if (ctl.message != null) throw LiftLogError(ctl.message!);
+      } else {
+        await LiftLogDb.saveSplits(next);
+      }
+      if (!mounted) return true;
+      setState(() => (_splits = LiftSplit.validatedList(next), _error = null));
+      return true;
+    } on LiftLogError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'That change was not saved. Please try again.');
+      }
+    }
+    return false;
+  }
+
+  Future<String?> _name(String title, String initial) async {
+    final t = TextEditingController(text: initial);
+    final ok = await _sheet<bool>(
+      context,
+      (sc) => [
+        Text(title, style: F.head.copyWith(color: P.of(sc).ink)),
+        const SizedBox(height: S.x4),
+        WhoopTextField(controller: t, label: 'Name', hint: 'Chest day'),
+        const SizedBox(height: S.x4),
+        BigButton(
+          'Save',
+          color: C.purple,
+          onTap: () => Navigator.of(sc).pop(true),
+        ),
+      ],
+    );
+    return ok == true && mounted ? t.text.trim() : null;
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar('Splits'),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: S.x3),
+                      child: Text(
+                        _error!,
+                        style: F.cap.copyWith(color: p.on(C.red)),
+                      ),
+                    ),
+                  for (var i = 0; i < _splits.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: S.x3),
+                      child: Surface(
+                        onTap: () async {
+                          await Navigator.of(c).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => _SplitEditor(
+                                split: _splits[i],
+                                onSave: (s) => _save([
+                                  for (final x in _splits) x.id == s.id ? s : x,
+                                ]),
+                              ),
+                            ),
+                          );
+                          _load();
+                        },
+                        semanticLabel: _splits[i].name,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _splits[i].name,
+                                    style: F.body.copyWith(color: p.ink),
+                                  ),
+                                  Text(
+                                    '${_splits[i].exercises.length} exercises',
+                                    style: F.over.copyWith(color: p.ink3),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (i > 0)
+                              Pressable(
+                                semanticLabel: 'Move ${_splits[i].name} up',
+                                onTap: () {
+                                  final n = [..._splits];
+                                  n.insert(i - 1, n.removeAt(i));
+                                  _save(n);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(S.x2),
+                                  child: Icon(
+                                    LucideIcons.arrowUp,
+                                    size: 17,
+                                    color: p.ink3,
+                                  ),
+                                ),
+                              ),
+                            Pressable(
+                              semanticLabel: 'Delete ${_splits[i].name}',
+                              onTap: () async {
+                                final s = _splits[i];
+                                if (await confirmRemove(
+                                  c,
+                                  title: 'Delete ${s.name}?',
+                                  body:
+                                      'Past workouts keep their sets and its name.',
+                                  remove: 'Delete',
+                                )) {
+                                  await _save([
+                                    for (final x in _splits)
+                                      if (x.id != s.id) x,
+                                  ]);
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(S.x2),
+                                child: Icon(
+                                  LucideIcons.trash2,
+                                  size: 17,
+                                  color: p.ink3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (_splits.length < LiftSplit.maxSplits)
+                    BigButton(
+                      'New split',
+                      icon: LucideIcons.plus,
+                      color: C.purple,
+                      soft: true,
+                      onTap: () async {
+                        if (!_loaded) {
+                          await _load();
+                          if (!mounted || !_loaded) {
+                            return;
+                          }
+                        }
+                        if (_splits.length >= LiftSplit.maxSplits) {
+                          return;
+                        }
+                        final n = await _name('New split', '');
+                        if (n == null || n.isEmpty) return;
+                        await _save([..._splits, LiftSplit(name: n)]);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SplitEditor extends StatefulWidget {
+  const _SplitEditor({required this.split, required this.onSave});
+  final LiftSplit split;
+  final Future<bool> Function(LiftSplit) onSave;
+  @override
+  State<_SplitEditor> createState() => _SplitEditorState();
+}
+
+class _SplitEditorState extends State<_SplitEditor> {
+  late LiftSplit s = widget.split.copy();
+
+  bool _saving = false;
+  bool _saveAgain = false;
+  String? _error;
+  Future<void> _commit() async {
+    if (_saving) {
+      _saveAgain = true;
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      do {
+        _saveAgain = false;
+        final ok = await widget.onSave(s.copy());
+        if (!ok) throw StateError('Split was not saved');
+        if (mounted) setState(() => _error = null);
+      } while (_saveAgain && mounted);
+    } catch (_) {
+      if (mounted)
+        setState(
+          () => _error =
+              'Not saved. Your changes are still here; retry before leaving.',
+        );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return DirtyPopScope(
+      dirty: () => _saving || _error != null,
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: NavBar(s.name),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                  children: [
+                    if (_error != null)
+                      StatusCard(
+                        'Changes not saved',
+                        _error!,
+                        fix: 'Retry',
+                        onFix: _saving ? null : _commit,
+                      ),
+                    if (_saving) const LinearProgressIndicator(),
+                    Pressable(
+                      semanticLabel: 'Rename split',
+                      onTap: () async {
+                        final t = TextEditingController(text: s.name);
+                        final ok = await _sheet<bool>(
+                          c,
+                          (sc) => [
+                            Text(
+                              'Rename split',
+                              style: F.head.copyWith(color: P.of(sc).ink),
+                            ),
+                            const SizedBox(height: S.x4),
+                            WhoopTextField(controller: t, label: 'Name'),
+                            const SizedBox(height: S.x4),
+                            BigButton(
+                              'Save',
+                              color: C.purple,
+                              onTap: () => Navigator.of(sc).pop(true),
+                            ),
+                          ],
+                        );
+                        if (mounted && ok == true && t.text.trim().isNotEmpty) {
+                          setState(() => s.name = t.text.trim());
+                          await _commit();
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: S.x3),
+                        child: Text(
+                          'Rename',
+                          style: F.cap.copyWith(color: p.ink2),
+                        ),
+                      ),
+                    ),
+                    for (var i = 0; i < s.exercises.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: S.x2),
+                        child: Surface(
+                          semanticLabel: s.exercises[i].name,
+                          onTap: () async {
+                            final e = await editLiftExercise(
+                              c,
+                              existing: s.exercises[i],
+                            );
+                            if (e == null || !mounted) return;
+                            setState(() => s.exercises[i] = e);
+                            await _commit();
+                          },
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      s.exercises[i].name,
+                                      style: F.body.copyWith(color: p.ink),
+                                    ),
+                                    Text(
+                                      s.exercises[i].loadMode.title,
+                                      style: F.over.copyWith(color: p.ink3),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (i > 0)
+                                Pressable(
+                                  semanticLabel:
+                                      'Move ${s.exercises[i].name} up',
+                                  onTap: () async {
+                                    setState(
+                                      () => s.exercises.insert(
+                                        i - 1,
+                                        s.exercises.removeAt(i),
+                                      ),
+                                    );
+                                    await _commit();
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(S.x2),
+                                    child: Icon(
+                                      LucideIcons.arrowUp,
+                                      size: 17,
+                                      color: p.ink3,
+                                    ),
+                                  ),
+                                ),
+                              Pressable(
+                                semanticLabel: 'Remove ${s.exercises[i].name}',
+                                onTap: () async {
+                                  setState(() => s.exercises.removeAt(i));
+                                  await _commit();
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(S.x2),
+                                  child: Icon(
+                                    LucideIcons.x,
+                                    size: 17,
+                                    color: p.ink3,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (s.exercises.length < LiftSplit.maxExercises)
+                      BigButton(
+                        'Add exercise',
+                        icon: LucideIcons.plus,
+                        color: C.purple,
+                        soft: true,
+                        onTap: () async {
+                          final e = await editLiftExercise(c);
+                          if (e == null || !mounted) return;
+                          setState(() => s.exercises.add(e));
+                          await _commit();
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FinishedSetEditor extends StatefulWidget {
+  const _FinishedSetEditor({
+    required this.workout,
+    required this.exercise,
+    required this.set,
+  });
+  final LiftWorkout workout;
+  final LiftExercise exercise;
+  final LiftSet set;
+  @override
+  State<_FinishedSetEditor> createState() => _FinishedSetEditorState();
+}
+
+class _FinishedSetEditorState extends State<_FinishedSetEditor> {
+  late final _load = TextEditingController(
+    text:
+        widget.exercise.loadMode == LiftLoadMode.addedWeight &&
+            widget.set.load == 0
+        ? ''
+        : liftWeightText(widget.set.load),
+  );
+  late final _reps = TextEditingController(text: '${widget.set.reps}');
+  bool _saving = false;
+  String? _error;
+  @override
+  void dispose() {
+    _load.dispose();
+    _reps.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save({bool remove = false}) async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final next = widget.workout.copy(), e = widget.exercise, s = widget.set;
+      if (remove) {
+        final ok = await confirmRemove(
+          context,
+          title: 'Delete this set?',
+          body:
+              '${e.name}: ${e.setText(s)}. Progress updates; workout time, heart rate and calories stay unchanged.',
+          remove: 'Delete',
+          keep: 'Keep it',
+        );
+        if (!mounted) return;
+        if (!ok) {
+          setState(() => _saving = false);
+          return;
+        }
+        next.deleteFinishedSet(e.id, s.id);
+      } else {
+        final text = _load.text.trim().replaceAll(',', '.');
+        final load = text.isEmpty && e.loadMode == LiftLoadMode.addedWeight
+            ? 0.0
+            : double.tryParse(text);
+        final reps = int.tryParse(_reps.text.trim());
+        if (load == null || reps == null)
+          throw const LiftLogError('Enter a valid weight and repetitions.');
+        next.correctFinishedSet(e.id, s.id, reps: reps, load: load);
+      }
+      if (next.setCount == 0) {
+        await LiftLogDb.delete(next.id);
+      } else {
+        await LiftLogDb.save(next);
+      }
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _saving = false;
+          _error = e is LiftLogError
+              ? e.message
+              : 'That was not saved. Your values are here; try again.';
+        });
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text('Fix set', style: F.head.copyWith(color: P.of(c).ink)),
+      const SizedBox(height: S.x1),
+      Text(
+        '${widget.exercise.name} · logged ${_hm(widget.set.completedAt)}. Only the weight and repetitions change.',
+        style: F.cap.copyWith(color: P.of(c).ink3),
+      ),
+      const SizedBox(height: S.x4),
+      WhoopTextField(
+        controller: _load,
+        label: widget.exercise.loadMode == LiftLoadMode.addedWeight
+            ? 'lb added · blank for bodyweight'
+            : widget.exercise.loadMode.shortUnit,
+        keyboard: const TextInputType.numberWithOptions(decimal: true),
+      ),
+      const SizedBox(height: S.x3),
+      WhoopTextField(
+        controller: _reps,
+        label: 'Reps',
+        keyboard: TextInputType.number,
+      ),
+      if (_error != null)
+        Text(_error!, style: F.cap.copyWith(color: P.of(c).on(C.red))),
+      const SizedBox(height: S.x4),
+      BigButton(
+        _saving ? 'Saving…' : 'Save',
+        color: C.purple,
+        onTap: _saving ? null : () => _save(),
+      ),
+      const SizedBox(height: S.x2),
+      BigButton(
+        'Delete set',
+        icon: LucideIcons.trash2,
+        color: C.red,
+        soft: true,
+        onTap: _saving ? null : () => _save(remove: true),
+      ),
+    ],
+  );
+}

@@ -1,0 +1,101 @@
+// day_label.dart — THE one local-calendar day-label helper.
+//
+// The whole day model is keyed by LOCAL calendar dates: LocalDb labels days in
+// the device's timezone, the DerivationEngine buckets raw by those labels, and
+// getToday() serves the local label. A "today" computed in UTC diverges from
+// that key whenever the local date != the UTC date (for a UTC+5:30 user, every
+// day until ~05:30), making detail cards/trends/coach look up a day_id that
+// doesn't exist (or worse, yesterday's). ALWAYS compute day labels through
+// these helpers — never `DateTime.now().toUtc()...substring(0, 10)`.
+//
+// Epoch timestamps (session bounds, rec_ts, prune cutoffs) are absolute and are
+// NOT day labels — leave those alone.
+
+import 'day_zone_rules.dart';
+export 'day_zone_rules.dart';
+
+bool isDayLabel(String value) {
+  final d = DateTime.tryParse(value);
+  return RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value) &&
+      d != null &&
+      dayLabelOf(d) == value;
+}
+
+String dayLabelAt(DateTime instant) =>
+    dayLabelAtSec(instant.millisecondsSinceEpoch ~/ 1000);
+
+/// An absolute instant uses its persisted travel-day assignment when available.
+String dayLabelAtSec(int second) =>
+    DayClock.at(second)?.date ??
+    dayLabelOf(DateTime.fromMillisecondsSinceEpoch(second * 1000));
+
+/// 'YYYY-MM-DD' of [dt]'s LOCAL calendar date. A UTC instant is converted to
+/// local time first so the label always matches the device-local day model.
+String dayLabelOf(DateTime dt) {
+  final local = dt.isUtc ? dt.toLocal() : dt;
+  String two(int x) => x.toString().padLeft(2, '0');
+  return '${local.year.toString().padLeft(4, '0')}-${two(local.month)}-${two(local.day)}';
+}
+
+/// Today's LOCAL day label — the key `LocalDb`/the derivation engine file days
+/// under. [now] is injectable for tests (defaults to the real clock).
+String todayLabel([DateTime? now]) =>
+    dayLabelAtSec((now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000);
+
+/// Stable dated-series anchor inside the stored day, including a short arrival day.
+int? dayChartAnchorSec(String date) {
+  final stored = DayClock.chartAnchor(date);
+  if (stored != null) return stored;
+  final local = DateTime.tryParse('$date 12:00:00');
+  return local == null ? null : local.millisecondsSinceEpoch ~/ 1000;
+}
+
+/// Parse a 'YYYY-MM-DD' label into its (year, month, day) parts, or null if it
+/// isn't one. Deliberately strict — a malformed label must not silently become
+/// epoch 0 and delete/export the wrong window.
+List<int>? _partsOf(String dayId) {
+  final p = dayId.split('-');
+  if (p.length != 3) return null;
+  final y = int.tryParse(p[0]);
+  final m = int.tryParse(p[1]);
+  final d = int.tryParse(p[2]);
+  if (y == null || m == null || d == null) return null;
+  return [y, m, d];
+}
+
+/// Epoch SECONDS of the LOCAL midnight that STARTS day [dayId] ('YYYY-MM-DD').
+/// Returns null for a malformed label.
+int? localDayStartSec(String dayId) {
+  final stored = DayClock.forDate(dayId);
+  if (stored != null) return stored.startSec;
+  final p = _partsOf(dayId);
+  if (p == null) return null;
+  return DateTime(p[0], p[1], p[2]).millisecondsSinceEpoch ~/ 1000;
+}
+
+/// Epoch SECONDS of the LOCAL midnight that ENDS day [dayId] — i.e. the start
+/// of the NEXT local calendar day. Returns null for a malformed label.
+///
+/// This is deliberately NOT `localDayStartSec(dayId) + 86400`. A local calendar
+/// day is only 86 400 s when there is no DST transition inside it: a
+/// spring-forward day is 23 h and a fall-back day is 25 h. Using `+86400` made
+/// day-window deletes/exports overrun into the NEXT day's first hour on
+/// spring-forward, and leave the last hour behind on fall-back. `DateTime`'s
+/// local constructor normalizes day/month/year rollover AND the wall-clock
+/// offset, so "midnight of the next calendar date" is the only correct end.
+int? localDayEndSec(String dayId) {
+  final stored = DayClock.forDate(dayId);
+  if (stored != null) return stored.endSec;
+  final p = _partsOf(dayId);
+  if (p == null) return null;
+  return DateTime(p[0], p[1], p[2] + 1).millisecondsSinceEpoch ~/ 1000;
+}
+
+/// True local length of day [dayId] in seconds (86400 / 82800 / 90000 …), or
+/// null for a malformed label.
+int? localDayLengthSec(String dayId) {
+  final lo = localDayStartSec(dayId);
+  final hi = localDayEndSec(dayId);
+  if (lo == null || hi == null) return null;
+  return hi - lo;
+}

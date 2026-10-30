@@ -1,0 +1,151 @@
+.fvm
+.fvmrc
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# secrets / build-time env
+.env
+.env.local
+ios/Config/Signing.xcconfig
+
+# stray dumps / archives never belong in assets
+*.gz
+*.sql
+*.dump
+assets/**/*.gz
+
+# android release signing (never commit)
+android/key.properties
+*.jks
+*.keystore
+
+# build outputs / release artifacts
+dist/
+*.apk
+/apk
+
+# Local-only dependency overrides (sibling path linking); never commit.
+pubspec_overrides.yaml
+
+# Firebase configurations
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
+# Personal iOS build/signing artifacts never belong in source control.
+*.ipa
+*.mobileprovision
+*.p12
+*.pfx
+*.xcarchive
+
+firebase.json
+
+# one-off local debug scratch files - had a handful of these lying around
+# untracked for a while (fetch_apps.js, scratch_check_db.py, test_db2.dart,
+# etc), gitignoring the common naming patterns so it doesn't happen again.
+# not trying to catch every possible name, just the obvious ones.
+scratch_*
+**/scratch_test*.dart
+**/*_db2.dart
+/fetch_apps.js
+#adding firebase_options back so that we dont commit it accidentally in future releases
+lib/firebase_options.dart 
+
+# Local agent worktrees and execution ledgers.
+/.worktrees/
+/.superpowers/
+
+.codegraph/
+
+# Impeccable developer tooling: retain reviewed source/config, not binaries or local state.
+/.claude/skills/impeccable/scripts/bin/
+/.claude/settings.local.json
+/.impeccable/config.local.json
+/.impeccable/hook.cache.json
+/.impeccable/hook.pending.json
+/.impeccable/*.png
+/.impeccable/review/
+/.impeccable/mocks/
+/.impeccable/live/sessions/
+/.impeccable/runtime/
+
+# gen-l10n output — regenerated from lib/l10n/*.arb by `flutter gen-l10n`
+# (also runs automatically before build/analyze/test). The .arb files are
+# the source and stay tracked.
+lib/l10n/app_localizations*.dart
+
+# Rendered previews of docs/*.svg — regenerate from the svg rather than
+# committing them. The svg IS the source; these are just what gets pasted
+# into Discord/issues, and they're ~750kb a piece.
+docs/*.gif
+docs/*.mp4
+
+# golden test failure output
+test/failures/
+
+# xcodebuild output from a direct target build
+ios/build/
+
+# Working notes, not deliverables. These are sweep reports, audits and
+# measurement runs written against REAL exports — they quote dated personal
+# readings (a resting heart rate on a named day, an irregular-rhythm flag with
+# its date) and this repo is public. They stay on disk and out of git.
+docs/internal/
+
+# Same leak class as docs/internal/ above — local debug dumps of real dated
+# HRV/sleep payloads (RMSSD/SDNN/pNN50 tied to a calendar date). Never commit.
+payload*.json
+
+# Golden images. 416 PNGs, 27 MB, regenerated locally with
+# `flutter test --update-goldens`. They are machine- and SDK-specific — the two
+# Flutter SDKs on this machine already disagree on antialiasing — so a
+# committed set is a diff nobody can review and a merge conflict nobody can
+# resolve. The test code stays; the pictures do not.
+test/goldens/
+
+# Real protocol capture oracles stay in the registered local-only archive.
+/packages/protocol/decode_parity_cases.json
+/packages/protocol/dart_header.json

@@ -1,0 +1,170 @@
+// "The data under this screen changed — re-read it."
+//
+// One idiom, not two. A screen that loads in `initState` and never reads
+// again is correct exactly until something else writes: an import lands sixty
+// sessions, a derive rewrites the day, a workout is logged from the sheet, and
+// the screen keeps rendering what it read at launch. Three of the five tabs
+// are kept alive forever by the shell's IndexedStack, so "for the life of the
+// widget" means "until the app is relaunched" — which is why the workaround
+// was to leave the tab and come back.
+//
+// The signal already existed: [AppState.insightsRevision], a ValueNotifier the
+// derive, the session writer and now the importers tick. Home and Workouts had
+// each hand-rolled the same twenty lines of subscribe/compare/dispose around
+// it; this is those twenty lines, once.
+//
+// WHY A ValueNotifier AND NOT notifyListeners: AppState ticks at ~1 Hz while a
+// session is live (live HR, log lines). Anything watching AppState broadly
+// rebuilds on every one of those — the reason `select` is used everywhere in
+// this app. `insightsRevision` moves only when DURABLE data changed, and it is
+// off the ChangeNotifier path entirely, so a subscriber re-reads on a derive
+// or an import and never on a heartbeat.
+import 'package:flutter/widgets.dart';
+import 'package:provider/provider.dart';
+
+import '../state/app_state.dart';
+import '../data/nutrition_store.dart';
+import '../state/locale_controller.dart';
+
+/// Re-read on [AppState.insightsRevision].
+///
+/// The screen keeps its own first load in `initState`; this only says when to
+/// do it again. Mix in, implement [reload], and delete the plumbing.
+mixin RevisionReload<T extends StatefulWidget> on State<T> {
+  /// Held so [dispose] can unsubscribe without a context, and so a second
+  /// `didChangeDependencies` cannot subscribe twice — `addListener` stacks
+  /// duplicates.
+  ValueNotifier<int>? _rev;
+  bool _foodSubscribed = false;
+
+  /// The revision this screen's data was read at.
+  int _seen = -1;
+
+  /// Read the database again. Called ONLY when the revision actually moves —
+  /// never on a rebuild, so it is safe for it to be expensive.
+  void reload();
+
+  /// The newest read claimed per resource key. See [beginRead].
+  final Map<Object, int> _reads = {};
+
+  /// LAST WRITER WINS IS THE BUG. Two durable writes land in quick succession
+  /// — an import finishing while a derive commits — and this mixin starts a
+  /// second [reload] while the first one's queries are still in flight. They
+  /// are separate futures against a database that is being written, so they
+  /// can finish in either order, and the loser is whichever one the scheduler
+  /// resumes last. When that is the OLDER read, its `setState` puts
+  /// pre-import data back on screen and the screen stays wrong until the next
+  /// revision — which for a tab the IndexedStack keeps alive means until the
+  /// app is relaunched, the exact failure this mixin was written to end.
+  ///
+  /// So every loader claims a token before it awaits and checks it before it
+  /// commits: `final t = beginRead(#x); … if (stillNewest(#x, t)) setState(…)`.
+  ///
+  /// A TOKEN, NOT A QUEUE. Serialising reloads would be the other obvious fix
+  /// and is worse on both counts: the newest data waits behind a read it has
+  /// already superseded, and a loader that hangs blocks every later one
+  /// forever. Overlapping reads are fine — only overlapping COMMITS are not.
+  ///
+  /// One counter per [key], because a screen's sub-tabs are independent
+  /// resources: Vitals re-reading for a different day must not invalidate the
+  /// Labs read that started before it. Symbols (`#vitals`) are the cheap key.
+  int beginRead(Object key) => _reads[key] = (_reads[key] ?? 0) + 1;
+
+  /// Whether [token] is still the newest read of [key] AND this State is still
+  /// mounted — the whole commit guard, so a call site cannot remember one half
+  /// of it and forget the other.
+  bool stillNewest(Object key, int token) => mounted && _reads[key] == token;
+
+  /// Whether [key] has ever been read — the honest test for "this resource is
+  /// live", which "its cached value is non-null" only approximates.
+  ///
+  /// A [reload] that re-reads on the cache being non-null skips the sub-tab
+  /// whose FIRST read is still in flight: its cache is null, so no newer token
+  /// is issued for that key, so the pre-revision read passes [stillNewest] and
+  /// commits data older than the revision — the exact race the token exists to
+  /// stop, in the window where it matters most, the first load after an
+  /// import. Re-issuing is also what un-sticks it: dropping the old read
+  /// without starting a new one would leave the tab spinning forever.
+  ///
+  /// False for a screen that was handed its data (a golden, the gallery, a
+  /// preview): there is nothing behind it to re-read.
+  bool get revisionReloads => true;
+
+  /// Sentinel so a system-default locale (`code == null`) is not mistaken for
+  /// "never seen yet" on the first pass.
+  static const Object _unset = Object();
+  Object? _seenLocale = _unset;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!revisionReloads) return;
+    if (!_foodSubscribed) {
+      NutritionDb.revision.addListener(_onFood);
+      _foodSubscribed = true;
+    }
+    // No AppState above us in a golden or a widget test — such a screen just
+    // renders what it has, exactly as it did before this mixin existed.
+    final AppState app;
+    try {
+      app = context.read<AppState>();
+    } catch (_) {
+      return;
+    }
+    if (!identical(_rev, app.insightsRevision)) {
+      _rev?.removeListener(_onRevision);
+      _rev = app.insightsRevision..addListener(_onRevision);
+      _seen = app.insightsRevision.value;
+    }
+
+    // Cached data built with strings baked in from `AppLocalizations` — every
+    // `reload()` here re-derives them, not just the DB rows — so a language
+    // switch mid-session is stale in exactly the same way a stale revision
+    // is: nothing tells the screen to look again. `watch` (not `read`) is
+    // what makes that happen: it subscribes this State to `LocaleController`
+    // so `didChangeDependencies` re-runs the moment `setCode` notifies, the
+    // same mechanism `app.dart` uses to rebuild `MaterialApp` with the new
+    // locale, kept off `AppState` itself because that one ticks at ~1 Hz.
+    // `code` alone misses a SYSTEM locale change while it is null (no
+    // in-app override): `AppLocalizations.of(context)` follows the OS, but
+    // `code` doesn't move, so the old compare never saw it. The resolved
+    // locale is the thing that actually decides which strings got baked in.
+    final Object localeKey;
+    try {
+      final code = context.watch<LocaleController>().code;
+      localeKey = code ?? Localizations.localeOf(context);
+    } catch (_) {
+      return;
+    }
+    if (identical(_seenLocale, _unset)) {
+      _seenLocale = localeKey;
+    } else if (_seenLocale != localeKey) {
+      _seenLocale = localeKey;
+      reload();
+    }
+  }
+
+  // ponytail: a parked tab re-reads too — the IndexedStack keeps all five
+  // alive, so a derive costs five loads instead of one. They are the same
+  // queries opening the tab would run, and they run on a derive or an import,
+  // not on a frame. Gate on route/tab visibility if profiling ever says so.
+  void _onRevision() {
+    final r = _rev;
+    // A bump that landed while this screen was being torn down, or one it has
+    // already read, is not a reason to hit the database.
+    if (!mounted || r == null || r.value == _seen) return;
+    _seen = r.value;
+    reload();
+  }
+
+  void _onFood() {
+    if (mounted) reload();
+  }
+
+  @override
+  void dispose() {
+    _rev?.removeListener(_onRevision);
+    if (_foodSubscribed) NutritionDb.revision.removeListener(_onFood);
+    super.dispose();
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "algorithmVersion": 100,
+  "review": "Akshat approved protocol 1.0.1: historical/shared R10-lite accepts up to eight plausible declared intervals using the existing independent R10 bound, matching realtime. Revisions 12/24 and compact frames retain four slots; value/length gates, coefficients and schema stay unchanged. Additional valid beat inputs can affect derived HRV/readiness, so algorithm 100 records the output change. No fabricated old beats or blanket replay; native/phone gates stay open.",
+  "packages": {
+    "whoop_protocol": "48af44d840cd6e1ad4e16fa5b561efb3d5976bba1f9acae223209b22e328f84b",
+    "whoop_analytics": "ee59b6116f1b978e3be4e5e676e660f6a8c01aa05c38f37f8dc07aa86c623c5b"
+  }
+}

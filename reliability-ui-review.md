@@ -1,0 +1,89 @@
+# Reliability repair review
+
+**Status:** Akshat authorized these three repairs using agent judgment. Complete synthetic
+Before/After prototypes were inspected before applying the two UI fixes. The targeted UI checks pass, including
+the three enabled regressions. Full Linux run 40601423011 passes; native acceptance remains
+open and native/IPA builds remain held.
+
+## Scope
+
+- Backup: preserve the existing keychain failure caption when a canceled/refused nested prompt
+  returns no new message. All actions, copy, layout and encryption rules remain.
+- Band name: let the existing form field own its controller through the dialog transition;
+  preserve validation, actions and copy. Do not use a disposed messenger after command completion.
+- Step tail: serialized immutable snapshots, the existing acknowledged checkpoint and idempotent
+  SQLite replacement protect retry and reconnect. This has no visual change.
+
+## Complete-page evidence
+
+Authored test state only; Manrope substitutes for native SF. Each series reaches the bottom
+with overlapping viewports at 390×844/1× and 430×932/2×. Device host/dialog before and prototype
+after are pixel-identical across all ten matched frames. Backup after includes the full existing
+failure caption; its extra height changes subsequent viewport positions. No metric or action is removed.
+All 44 frames were inspected together; full-resolution originals follow.
+
+The name character-helper line is truncated at 2× in both before and after. The separate
+`name-guidance-layout-review.md` also reproduces guidance/error truncation at ordinary text
+and owns the separately approved B wrapping repair. Ten new/six retained checks and all
+twenty-two actual matching frames pass locally; combined Linux proof remains open. The old
+frames here retain the earlier clipping as evidence. No physical keyboard, native
+font, screen reader, keychain or BLE behavior is certified by these synthetic pages.
+
+## Linux page verification
+
+The complete run [40601423011](https://github.com/akshatksingh18/whoop/actions/runs/40601423011) passes 4,608 app checks, both packages, analysis and 217 page checks with
+731 synthetic captures. All 23 repair frames exactly match the previously inspected Linux
+set from run 40596713613, whose page job passed despite its separate old chart-fixture failure.
+The corrected full run verifies the unchanged UI source and all three formerly skipped
+regressions; the chart fixture correction changes no production UI. Complete artifacts and
+SHA-256 manifests remain in the local-only recovery area. No native acceptance is claimed.
+
+## Before
+
+- [cov46_before_backup_refusal_1.0x_0](build/ui_capture/cov46_before_backup_refusal_1.0x_0.png)
+- [cov46_before_backup_refusal_1.0x_1](build/ui_capture/cov46_before_backup_refusal_1.0x_1.png)
+- [cov46_before_backup_refusal_1.0x_2](build/ui_capture/cov46_before_backup_refusal_1.0x_2.png)
+- [cov46_before_backup_refusal_2.0x_0](build/ui_capture/cov46_before_backup_refusal_2.0x_0.png)
+- [cov46_before_backup_refusal_2.0x_1](build/ui_capture/cov46_before_backup_refusal_2.0x_1.png)
+- [cov46_before_backup_refusal_2.0x_2](build/ui_capture/cov46_before_backup_refusal_2.0x_2.png)
+- [cov46_before_backup_refusal_2.0x_3](build/ui_capture/cov46_before_backup_refusal_2.0x_3.png)
+- [cov46_before_backup_refusal_2.0x_4](build/ui_capture/cov46_before_backup_refusal_2.0x_4.png)
+- [cov46_before_backup_refusal_2.0x_5](build/ui_capture/cov46_before_backup_refusal_2.0x_5.png)
+- [cov46_before_backup_refusal_2.0x_6](build/ui_capture/cov46_before_backup_refusal_2.0x_6.png)
+- [cov46_before_backup_refusal_2.0x_7](build/ui_capture/cov46_before_backup_refusal_2.0x_7.png)
+- [cov46_before_device_host_1.0x_0](build/ui_capture/cov46_before_device_host_1.0x_0.png)
+- [cov46_before_device_host_1.0x_1](build/ui_capture/cov46_before_device_host_1.0x_1.png)
+- [cov46_before_device_host_2.0x_0](build/ui_capture/cov46_before_device_host_2.0x_0.png)
+- [cov46_before_device_host_2.0x_1](build/ui_capture/cov46_before_device_host_2.0x_1.png)
+- [cov46_before_device_host_2.0x_2](build/ui_capture/cov46_before_device_host_2.0x_2.png)
+- [cov46_before_name_dialog_1.0x_0](build/ui_capture/cov46_before_name_dialog_1.0x_0.png)
+- [cov46_before_name_dialog_1.0x_1](build/ui_capture/cov46_before_name_dialog_1.0x_1.png)
+- [cov46_before_name_dialog_2.0x_0](build/ui_capture/cov46_before_name_dialog_2.0x_0.png)
+- [cov46_before_name_dialog_2.0x_1](build/ui_capture/cov46_before_name_dialog_2.0x_1.png)
+- [cov46_before_name_dialog_2.0x_2](build/ui_capture/cov46_before_name_dialog_2.0x_2.png)
+
+## After
+
+- [cov46_after_backup_refusal_1.0x_0](build/ui_capture/cov46_after_backup_refusal_1.0x_0.png)
+- [cov46_after_backup_refusal_1.0x_1](build/ui_capture/cov46_after_backup_refusal_1.0x_1.png)
+- [cov46_after_backup_refusal_1.0x_2](build/ui_capture/cov46_after_backup_refusal_1.0x_2.png)
+- [cov46_after_backup_refusal_1.0x_3](build/ui_capture/cov46_after_backup_refusal_1.0x_3.png)
+- [cov46_after_backup_refusal_2.0x_0](build/ui_capture/cov46_after_backup_refusal_2.0x_0.png)
+- [cov46_after_backup_refusal_2.0x_1](build/ui_capture/cov46_after_backup_refusal_2.0x_1.png)
+- [cov46_after_backup_refusal_2.0x_2](build/ui_capture/cov46_after_backup_refusal_2.0x_2.png)
+- [cov46_after_backup_refusal_2.0x_3](build/ui_capture/cov46_after_backup_refusal_2.0x_3.png)
+- [cov46_after_backup_refusal_2.0x_4](build/ui_capture/cov46_after_backup_refusal_2.0x_4.png)
+- [cov46_after_backup_refusal_2.0x_5](build/ui_capture/cov46_after_backup_refusal_2.0x_5.png)
+- [cov46_after_backup_refusal_2.0x_6](build/ui_capture/cov46_after_backup_refusal_2.0x_6.png)
+- [cov46_after_backup_refusal_2.0x_7](build/ui_capture/cov46_after_backup_refusal_2.0x_7.png)
+- [cov46_after_backup_refusal_2.0x_8](build/ui_capture/cov46_after_backup_refusal_2.0x_8.png)
+- [cov46_after_device_host_1.0x_0](build/ui_capture/cov46_after_device_host_1.0x_0.png)
+- [cov46_after_device_host_1.0x_1](build/ui_capture/cov46_after_device_host_1.0x_1.png)
+- [cov46_after_device_host_2.0x_0](build/ui_capture/cov46_after_device_host_2.0x_0.png)
+- [cov46_after_device_host_2.0x_1](build/ui_capture/cov46_after_device_host_2.0x_1.png)
+- [cov46_after_device_host_2.0x_2](build/ui_capture/cov46_after_device_host_2.0x_2.png)
+- [cov46_after_name_dialog_1.0x_0](build/ui_capture/cov46_after_name_dialog_1.0x_0.png)
+- [cov46_after_name_dialog_1.0x_1](build/ui_capture/cov46_after_name_dialog_1.0x_1.png)
+- [cov46_after_name_dialog_2.0x_0](build/ui_capture/cov46_after_name_dialog_2.0x_0.png)
+- [cov46_after_name_dialog_2.0x_1](build/ui_capture/cov46_after_name_dialog_2.0x_1.png)
+- [cov46_after_name_dialog_2.0x_2](build/ui_capture/cov46_after_name_dialog_2.0x_2.png)

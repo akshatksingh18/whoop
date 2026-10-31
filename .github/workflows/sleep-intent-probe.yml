@@ -1,0 +1,46 @@
+name: bounded serial sleep intent diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ownership-ci-candidate-60]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sleep-intent-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sleep-intent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+      - name: Guard source and resolve dependencies
+        run: |
+          python3 tool/algorithm_contract.py
+          flutter pub get
+      - name: Analyze the serial counterfactual
+        run: dart analyze test/diagnostics/sleep_intent_serial_probe.dart
+      - name: Run only the real serial commands on authored input
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/sleep-intent-probe
+          flutter test --no-pub --concurrency=1 --reporter=expanded test/diagnostics/sleep_intent_serial_probe.dart 2>&1 | tee build/sleep-intent-probe/probe.log
+      - name: Retain actual diagnostic output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sleep-intent-diagnostic-${{ github.sha }}
+          path: build/sleep-intent-probe/probe.log
+          if-no-files-found: warn

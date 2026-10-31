@@ -1,0 +1,711 @@
+// Pure-logic tests for the reconnect/offload policy (sync_policy.dart):
+// plausibility gates, clock policy, BackfillPolicy rate floors,
+// BackfillContinuation, and the five value-typed detectors.
+// None of this touches BLE/DB.
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whoop_companion/sync/sync_policy.dart';
+
+void main() {
+  const wall = 1750000000; // a plausible "now" (2025-06)
+
+  group('plausibility gate', () {
+    test('absolute floor + future ceiling', () {
+      expect(isPlausibleUnix(kMinPlausibleUnix - 1, wall), isFalse);
+      expect(isPlausibleUnix(kMinPlausibleUnix, wall), isTrue);
+      expect(isPlausibleUnix(wall, wall), isTrue);
+      expect(isPlausibleUnix(wall + kFutureMargin + 1, wall), isFalse);
+      expect(isPlausibleUnix(wall + kFutureMargin, wall), isTrue);
+    });
+
+    test('session-relative window rejects >7d outside the strap range', () {
+      final oldest = wall - 3 * 86400;
+      final newest = wall;
+      // Inside the ±7d margin around the strap's own window → kept.
+      expect(
+        isPlausibleUnix(
+          oldest - 6 * 86400,
+          wall,
+          sessionOldestUnix: oldest,
+          sessionNewestUnix: newest,
+        ),
+        isTrue,
+      );
+      // >7d before the oldest banked record → rejected (wandering-clock pollution).
+      expect(
+        isPlausibleUnix(
+          oldest - 8 * 86400,
+          wall,
+          sessionOldestUnix: oldest,
+          sessionNewestUnix: newest,
+        ),
+        isFalse,
+      );
+      // >7d after the newest → rejected.
+      expect(
+        isPlausibleUnix(
+          newest + 8 * 86400,
+          wall,
+          sessionOldestUnix: oldest,
+          sessionNewestUnix: newest,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'a garbage session range is ignored (falls back to absolute gate)',
+      () {
+        // newest < oldest → invalid range → only the absolute gate applies.
+        expect(
+          isPlausibleUnix(
+            wall,
+            wall,
+            sessionOldestUnix: wall,
+            sessionNewestUnix: wall - 100,
+          ),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  group('ClockPolicy', () {
+    test('re-sets on >1d drift or an unset (pre-2023) RTC', () {
+      expect(ClockPolicy.shouldSetClock(wall, wall), isFalse);
+      expect(ClockPolicy.shouldSetClock(wall - 86400 - 1, wall), isTrue);
+      expect(ClockPolicy.shouldSetClock(wall + 86400 + 1, wall), isTrue);
+      expect(ClockPolicy.shouldSetClock(1000, wall), isTrue); // frozen/unset
+    });
+
+    test('stops deferring once the disagreement outlives the grace window', () {
+      // MONOTONIC seconds — an arbitrary stopwatch origin, not an epoch.
+      const t0 = 1234.0;
+      const hour = 3600.0;
+      expect(ClockPolicy.suspectGraceExpired(null, t0), isFalse);
+      expect(ClockPolicy.suspectGraceExpired(t0, t0), isFalse);
+      // a slow phone re-syncs over NTP well inside this
+      expect(ClockPolicy.suspectGraceExpired(t0, t0 + hour), isFalse);
+      // still disagreeing after the window => the strap rtc is the fast one,
+      // so history must stop deferring instead of stalling forever
+      expect(ClockPolicy.suspectGraceExpired(t0, t0 + 13 * hour), isTrue);
+    });
+
+    test('a forward wall-clock jump cannot expire the grace window early', () {
+      // The regression: the window used to be measured with DateTime.now(), so
+      // the phone stepping its clock forward — the very event this state is
+      // waiting on, and one that can leave it STILL more than a day behind the
+      // strap — aged the suspicion instantly and re-authorised the
+      // drain-and-trim. Read monotonically, a wall jump is simply invisible:
+      // only real elapsed time moves this forward.
+      const startedAt = 500.0;
+      const aMinuteOfRealTimeLater = 560.0; // wall may have jumped days
+      expect(
+        ClockPolicy.suspectGraceExpired(startedAt, aMinuteOfRealTimeLater),
+        isFalse,
+        reason: 'a minute of real time is a minute, whatever the wall says',
+      );
+    });
+
+    test('flags a slow PHONE clock: a plausible strap RTC > 1d in the future', () {
+      // Clocks agree → not suspect.
+      expect(ClockPolicy.phoneClockSuspect(wall, wall), isFalse);
+      // Strap up to +1 day ahead is within margin → not suspect.
+      expect(ClockPolicy.phoneClockSuspect(wall + kFutureMargin, wall), isFalse);
+      // Plausible strap RTC > 1 day ahead → the phone is likely slow → DEFER
+      // offload (the P1: draining would drop-then-trim real records).
+      expect(
+          ClockPolicy.phoneClockSuspect(wall + kFutureMargin + 1, wall), isTrue);
+      expect(ClockPolicy.phoneClockSuspect(wall + 2 * 86400, wall), isTrue);
+      // Strap BEHIND the phone is a plausible-past time — not dropped as future,
+      // and corrected forward by shouldSetClock — so NOT a phone problem.
+      expect(ClockPolicy.phoneClockSuspect(wall - 2 * 86400, wall), isFalse);
+      // An unset/garbage-low RTC is a STRAP problem (shouldSetClock), not the
+      // phone — must not trip the phone-suspect defer.
+      expect(ClockPolicy.phoneClockSuspect(1000, wall), isFalse);
+    });
+  });
+
+  group('BackfillPolicy', () {
+    test('first run is always allowed', () {
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 100, null, 0),
+        isTrue,
+      );
+    });
+
+    test('manual + autoContinue are never floored', () {
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.manual, 0.1, 0, 0),
+        isTrue,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.autoContinue, 0.1, 0, 0),
+        isTrue,
+      );
+    });
+
+    test('periodic honors the 900s floor', () {
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 899, 0, 0),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 900, 0, 0),
+        isTrue,
+      );
+    });
+
+    test('connect/foreground honor the 90s event floor', () {
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.connect, 89, 0, 0),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.connect, 90, 0, 0),
+        isTrue,
+      );
+      // FOREGROUND catch-up pull (app reopened on a healthy link): allowed
+      // after the floor, refused inside it — rapid app switching can't hammer
+      // the strap.
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.foreground, 89, 0, 0),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.foreground, 90, 0, 0),
+        isTrue,
+      );
+      // First-ever pull is never floored.
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.foreground, 1, null, 0),
+        isTrue,
+      );
+    });
+
+    test('empty-streak backoff multiplies the strap floor (capped 4x)', () {
+      // streak 3 → 2^1 = 2x event floor (90 → 180s)
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 179, 0, 3),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 180, 0, 3),
+        isTrue,
+      );
+      // streak huge → capped at 4x (90 → 360s), not unbounded.
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 359, 0, 99),
+        isFalse,
+      );
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.strap, 360, 0, 99),
+        isTrue,
+      );
+    });
+  });
+
+  group('HistoricalSyncCommandPolicy', () {
+    test('first historical send is immediate', () {
+      expect(HistoricalSyncCommandPolicy.waitSeconds(null, 100), 0);
+    });
+
+    test('historical send is floored to 5 seconds', () {
+      expect(HistoricalSyncCommandPolicy.waitSeconds(100, 101), 4);
+      expect(HistoricalSyncCommandPolicy.waitSeconds(100, 104.5), 0.5);
+      expect(HistoricalSyncCommandPolicy.waitSeconds(100, 105), 0);
+    });
+  });
+
+  group('BackfillContinuation', () {
+    bool cont({
+      bool connected = true,
+      int? strapNewest = 2000,
+      int? frontier = 1000,
+      int rows = 50,
+      bool trimAdvanced = true,
+      int count = 0,
+      double elapsed = 0,
+    }) => BackfillContinuation.shouldAutoContinue(
+      stillConnected: connected,
+      strapNewestTs: strapNewest,
+      ourFrontierTs: frontier,
+      rowsPersistedThisSession: rows,
+      lastTrimAdvanced: trimAdvanced,
+      consecutiveUnproductiveCount: count,
+      elapsedSeconds: elapsed,
+    );
+
+    test('continues when strap is >5min ahead and trim advanced', () {
+      expect(cont(strapNewest: 2000, frontier: 1000), isTrue);
+    });
+    test(
+      'stops when disconnected',
+      () => expect(cont(connected: false), isFalse),
+    );
+    test(
+      'stops at the unproductive-round cap',
+      () => expect(cont(count: 6), isFalse),
+    );
+    test('stops once the run exceeds its time ceiling', () {
+      expect(cont(elapsed: 599), isTrue);
+      expect(cont(elapsed: 600), isFalse);
+    });
+    test('a capped unproductive streak still yields to a productive round', () {
+      // The ordering bug this guards: the streak was cleared INSIDE the
+      // continue branch, so once it reached the cap the gate saw the stale
+      // count and refused the very round that had just banked records.
+      final run = AutoContinueRun();
+      for (var i = 0; i < 6; i++) {
+        run.observe(productive: false);
+        expect(cont(count: run.unproductiveStreak), isTrue,
+            reason: 'unproductive round $i should still be allowed');
+        run.continued(productive: false, now: i.toDouble());
+      }
+      expect(run.unproductiveStreak, 6);
+      expect(cont(count: run.unproductiveStreak), isFalse,
+          reason: 'capped while nothing is being banked');
+
+      // Now a round that actually banked records and advanced the trim token.
+      run.observe(productive: true);
+      expect(run.unproductiveStreak, 0);
+      expect(cont(count: run.unproductiveStreak), isTrue,
+          reason: 'progress must reopen the budget');
+    });
+
+    test('ending a run restores the full budget', () {
+      final run = AutoContinueRun();
+      for (var i = 0; i < 6; i++) {
+        run.observe(productive: false);
+        run.continued(productive: false, now: i.toDouble());
+      }
+      expect(run.unproductiveStreak, 6);
+      expect(run.active, isTrue);
+      run.end();
+      expect(run.unproductiveStreak, 0);
+      expect(run.active, isFalse);
+      expect(run.elapsed(1000), 0);
+    });
+
+    test('elapsed measures from the first continuation of the run', () {
+      final run = AutoContinueRun();
+      expect(run.elapsed(500), 0, reason: 'no run active yet');
+      run.continued(productive: true, now: 100);
+      expect(run.elapsed(160), 60);
+      run.continued(productive: true, now: 160); // start must not move
+      expect(run.elapsed(220), 120);
+    });
+
+    test('a long productive backlog is not cut short by the round cap', () {
+      // Productive rounds keep the unproductive streak at 0, so continuation
+      // survives far past maxAutoContinues rounds.
+      for (var round = 0; round < 50; round++) {
+        expect(cont(count: 0, rows: 200, elapsed: round * 5.0), isTrue,
+            reason: 'round $round');
+      }
+    });
+    test(
+      'stops when the cursor did not advance (spin guard)',
+      () => expect(cont(trimAdvanced: false), isFalse),
+    );
+    test(
+      'within the behind-gap but rows persisted → continues (#451 stale newest)',
+      () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 30), isTrue),
+    );
+    test(
+      'within the behind-gap and no rows → stops',
+      () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 0), isFalse),
+    );
+    test(
+      'missing strap newest information + no rows → stops',
+      () => expect(
+        cont(strapNewest: null, frontier: 1000, rows: 0),
+        isFalse,
+      ),
+    );
+  });
+
+  group('MarginalRadioDetector', () {
+    test('trips after 2 consecutive arm→quick-timeouts, one-shot', () {
+      final d = MarginalRadioDetector();
+      expect(
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+        isFalse,
+      );
+      expect(
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+        isTrue,
+      ); // trips
+      expect(
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+        isFalse,
+      ); // already tripped → one-shot
+    });
+
+    test(
+      'a slow timeout (>20s after arm) does not count + resets the streak',
+      () {
+        final d = MarginalRadioDetector();
+        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true);
+        // 25s later → outside the quick window → resets.
+        expect(
+          d.connectionEnded(
+            wasArmed: true,
+            secondsSinceArm: 25,
+            timedOut: true,
+          ),
+          isFalse,
+        );
+        // Next single quick timeout shouldn't trip (streak was reset).
+        expect(
+          d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
+          isFalse,
+        );
+      },
+    );
+
+    test('not armed → never counts', () {
+      final d = MarginalRadioDetector();
+      expect(
+        d.connectionEnded(
+          wasArmed: false,
+          secondsSinceArm: null,
+          timedOut: true,
+        ),
+        isFalse,
+      );
+      expect(
+        d.connectionEnded(
+          wasArmed: false,
+          secondsSinceArm: null,
+          timedOut: true,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('FrameCorruptionDetector', () {
+    test('does not trip below minSamples even at 100% invalid', () {
+      final d = FrameCorruptionDetector(minSamples: 20);
+      for (var i = 0; i < 19; i++) {
+        expect(d.feed(false), isFalse);
+      }
+      expect(d.tripped, isFalse);
+    });
+
+    test('trips once the window crosses the corruption-rate threshold', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 50,
+        rateThreshold: 0.2,
+        minSamples: 20,
+      );
+      // 20 valid frames — enough samples, 0% corrupt, must not trip.
+      for (var i = 0; i < 20; i++) {
+        expect(d.feed(true), isFalse);
+      }
+      expect(d.tripped, isFalse);
+      // Now push the rate over 20% within the window.
+      bool trippedNow = false;
+      for (var i = 0; i < 10; i++) {
+        if (d.feed(false)) trippedNow = true;
+      }
+      expect(trippedNow, isTrue);
+      expect(d.tripped, isTrue);
+    });
+
+    test('one-shot — does not re-report after tripping', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 10,
+        rateThreshold: 0.2,
+        minSamples: 5,
+      );
+      for (var i = 0; i < 5; i++) {
+        d.feed(false);
+      }
+      // First feed past minSamples at 100% invalid trips.
+      var tripCount = 0;
+      for (var i = 0; i < 5; i++) {
+        if (d.feed(false)) tripCount++;
+      }
+      expect(tripCount, lessThanOrEqualTo(1));
+      expect(d.tripped, isTrue);
+    });
+
+    test('a healthy link (occasional blip under threshold) never trips', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 50,
+        rateThreshold: 0.2,
+        minSamples: 20,
+      );
+      // 100 frames, ~5% corrupt — well under the 20% threshold.
+      for (var i = 0; i < 100; i++) {
+        final valid = i % 20 != 0; // 1 in 20 invalid = 5%
+        expect(d.feed(valid), isFalse);
+      }
+      expect(d.tripped, isFalse);
+    });
+
+    test('reset clears the window and tripped state', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 10,
+        rateThreshold: 0.2,
+        minSamples: 5,
+      );
+      for (var i = 0; i < 10; i++) {
+        d.feed(false);
+      }
+      expect(d.tripped, isTrue);
+      d.reset();
+      expect(d.tripped, isFalse);
+      for (var i = 0; i < 4; i++) {
+        expect(d.feed(false), isFalse); // below minSamples again
+      }
+    });
+  });
+
+  group('PostBondTimeoutLoopDetector', () {
+    test('trips after 2 bond→quick(<=8s)-timeouts', () {
+      final d = PostBondTimeoutLoopDetector();
+      expect(
+        d.connectionEnded(wasBonded: true, secondsSinceBond: 2, timedOut: true),
+        isFalse,
+      );
+      expect(
+        d.connectionEnded(wasBonded: true, secondsSinceBond: 2, timedOut: true),
+        isTrue,
+      );
+    });
+    test('a timeout 9s after bond is outside the window', () {
+      final d = PostBondTimeoutLoopDetector();
+      d.connectionEnded(wasBonded: true, secondsSinceBond: 2, timedOut: true);
+      expect(
+        d.connectionEnded(wasBonded: true, secondsSinceBond: 9, timedOut: true),
+        isFalse,
+      );
+    });
+  });
+
+  group('EmptySyncTracker', () {
+    test('trips on the 3rd consecutive console-only completed sync', () {
+      final d = EmptySyncTracker();
+      expect(
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isFalse,
+      );
+      expect(
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isFalse,
+      );
+      expect(
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isTrue,
+      );
+    });
+    test('a sync that banked sensor records resets the streak', () {
+      final d = EmptySyncTracker();
+      d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true);
+      d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true);
+      expect(
+        d.recordCompletedSync(bankedSensorRecords: true, consoleOnly: false),
+        isFalse,
+      ); // reset
+      expect(
+        d.recordCompletedSync(bankedSensorRecords: false, consoleOnly: true),
+        isFalse,
+      ); // streak back to 1
+    });
+  });
+
+  group('StuckStrapDetector', () {
+    test('trips when frontier frozen >=10min and strap >5min ahead', () {
+      final d = StuckStrapDetector();
+      // seed
+      expect(d.observe(5000, 1000, 0), isFalse);
+      // frozen frontier (1000), strap ahead (5000), 9min later → not yet.
+      expect(d.observe(5000, 1000, 540), isFalse);
+      // 10min after the last advance → stuck.
+      expect(d.observe(5000, 1000, 600), isTrue);
+    });
+    test('progressing frontier is healthy (never stuck)', () {
+      final d = StuckStrapDetector();
+      d.observe(5000, 1000, 0);
+      expect(d.observe(5000, 2000, 600), isFalse); // advanced → re-seed
+      expect(d.observe(5000, 3000, 1200), isFalse);
+    });
+    test('caught up (within the behind-gap) is not stuck', () {
+      final d = StuckStrapDetector();
+      d.observe(1200, 1000, 0);
+      // strap only 200s ahead (< 300s behind-gap) → off-wrist, not stuck.
+      expect(d.observe(1200, 1000, 1000), isFalse);
+    });
+  });
+
+  group('BondRefusalGiveUp', () {
+    test('trips exactly once on the Nth consecutive refusal', () {
+      final d = BondRefusalGiveUp(giveUpThreshold: 3);
+      expect(d.bondRefused(), isFalse); // 1
+      expect(d.bondRefused(), isFalse); // 2
+      expect(d.bondRefused(), isTrue); // 3 → give up (one-shot)
+      expect(d.gaveUp, isTrue);
+      expect(d.consecutive, 3);
+      // Already gave up → never re-fires on further refusals.
+      expect(d.bondRefused(), isFalse);
+    });
+
+    test('a successful bond clears the streak AND the give-up latch', () {
+      final d = BondRefusalGiveUp(giveUpThreshold: 2);
+      d.bondRefused();
+      expect(d.bondRefused(), isTrue); // gave up
+      d.bondSucceeded();
+      expect(d.gaveUp, isFalse);
+      expect(d.consecutive, 0);
+      // A fresh run of refusals can trip again.
+      d.bondRefused();
+      expect(d.bondRefused(), isTrue);
+    });
+  });
+
+  group('isLinkStale (background zombie-link guard)', () {
+    test('fresh data (well under the bar) is NOT stale', () {
+      expect(isLinkStale(const Duration(seconds: 5)), isFalse);
+      expect(isLinkStale(const Duration(seconds: 29)), isFalse);
+    });
+
+    test('at or over kLinkFreshnessSeconds is stale', () {
+      expect(isLinkStale(const Duration(seconds: kLinkFreshnessSeconds)), isTrue);
+      expect(isLinkStale(const Duration(seconds: 31)), isTrue);
+      expect(isLinkStale(const Duration(minutes: 10)), isTrue);
+    });
+
+    test('is strictly tighter than the in-session liveness fuse', () {
+      // Deliberately different bars for different jobs (see doc comment on
+      // kLinkFreshnessSeconds): this guards "should I trust a connection I
+      // didn't just watch tick over" (resume / BG-task wake / headless entry),
+      // kLivenessFuseSeconds guards "should an ACTIVE session bounce itself".
+      expect(kLinkFreshnessSeconds, lessThan(kLivenessFuseSeconds));
+    });
+  });
+
+  group('isCorruptFutureRtc (GET_DATA_RANGE sanity gate)', () {
+    const wall = 1750000000;
+
+    test('a plausible newest timestamp is not corrupt', () {
+      expect(isCorruptFutureRtc(wall - 3600, wall), isFalse);
+      expect(isCorruptFutureRtc(wall, wall), isFalse);
+    });
+
+    test('exactly at the future margin is not corrupt', () {
+      expect(isCorruptFutureRtc(wall + kFutureMargin, wall), isFalse);
+    });
+
+    test('past the future margin is flagged corrupt', () {
+      expect(isCorruptFutureRtc(wall + kFutureMargin + 1, wall), isTrue);
+      expect(isCorruptFutureRtc(wall + 365 * 86400, wall), isTrue); // a year out
+    });
+  });
+
+  group('stalenessTierFor (meta-layer: staleness escalation)', () {
+    test('recently synced is fresh', () {
+      expect(stalenessTierFor(0), StalenessTier.fresh);
+      expect(stalenessTierFor(3600), StalenessTier.fresh);
+      expect(stalenessTierFor(kStalenessQuietSeconds - 1), StalenessTier.fresh);
+    });
+
+    test('12h-48h is the quiet in-app tier', () {
+      expect(stalenessTierFor(kStalenessQuietSeconds), StalenessTier.quiet);
+      expect(stalenessTierFor(24 * 3600), StalenessTier.quiet);
+      expect(
+        stalenessTierFor(kStalenessNotifySeconds - 1),
+        StalenessTier.quiet,
+      );
+    });
+
+    test('48h+ escalates to an OS notification', () {
+      expect(stalenessTierFor(kStalenessNotifySeconds), StalenessTier.notify);
+      expect(stalenessTierFor(7 * 86400), StalenessTier.notify); // a week gone
+    });
+  });
+
+  group('shouldRenotifyStaleness (re-fire cooldown)', () {
+    final now = DateTime(2026, 1, 10, 12);
+
+    test('never notified before → always fires', () {
+      expect(shouldRenotifyStaleness(null, now), isTrue);
+    });
+
+    test('within the cooldown window → does not re-fire', () {
+      final last = now.subtract(const Duration(hours: 1));
+      expect(shouldRenotifyStaleness(last, now), isFalse);
+    });
+
+    test('past the cooldown window → fires again', () {
+      final last = now.subtract(const Duration(hours: 49));
+      expect(shouldRenotifyStaleness(last, now), isTrue);
+    });
+
+    test('a custom cooldown is honoured', () {
+      final last = now.subtract(const Duration(hours: 2));
+      expect(
+        shouldRenotifyStaleness(last, now,
+            renotifyAfter: const Duration(hours: 1)),
+        isTrue,
+      );
+      expect(
+        shouldRenotifyStaleness(last, now,
+            renotifyAfter: const Duration(hours: 3)),
+        isFalse,
+      );
+    });
+  });
+
+  // The strap re-serves its whole buffered EVENT log on connect, so a
+  // BATTERY_LEVEL event is not evidence of the CURRENT charge — only its
+  // timestamp is. Without this gate a first pair with a long backlog replays
+  // weeks of battery history straight into the live indicator.
+  group('battery reading acceptance', () {
+    test('a poll response carries no event timestamp and is always live', () {
+      expect(BatteryPolicy.acceptsEventReading(null, wall), isTrue);
+    });
+
+    test('a battery event stamped just now is accepted', () {
+      expect(BatteryPolicy.acceptsEventReading(wall - 60, wall), isTrue);
+    });
+
+    test('a battery event replayed from days ago is rejected', () {
+      // The real shape of the bug: an event stamped 33 days before the
+      // session that arrived during a backlog drain.
+      expect(
+        BatteryPolicy.acceptsEventReading(wall - 33 * 86400, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event from an implausibly far-future clock is rejected',
+        () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + kFutureMargin + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event stamped beyond the window into the future is '
+        'rejected', () {
+      // A strap RTC running ahead put the stamp in the future rather than the
+      // past. "Recent" has to mean recent in both directions, or the gate lets
+      // an event through on the one side it never checked.
+      expect(
+        BatteryPolicy.acceptsEventReading(
+            wall + BatteryPolicy.maxEventAgeSec + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('small clock skew ahead of the phone is still accepted', () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + 60, wall),
+        isTrue,
+      );
+    });
+  });
+}

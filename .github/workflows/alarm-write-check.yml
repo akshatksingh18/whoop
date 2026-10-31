@@ -1,0 +1,47 @@
+name: bounded alarm write verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ownership-ci-candidate-61]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alarm-write-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alarm-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+      - name: Guard reviewed source and personal payload contract
+        run: |
+          python3 tool/algorithm_contract.py
+          python3 tool/personal_ios.py check
+          flutter pub get
+      - name: Analyze the whole candidate
+        run: flutter analyze --no-fatal-infos
+      - name: Verify alarm commands and retained callers
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/alarm-write-check
+          flutter test --no-pub --concurrency=1 --coverage --coverage-path build/alarm-write-check/targeted.lcov --reporter=expanded test/coverage_alarm_write_refusal_test.dart test/coverage_ble_clock_retry_alarm_test.dart test/coverage_app_commands_test.dart test/coverage_alarm_handoff_test.dart test/gen5_wiring_test.dart 2>&1 | tee build/alarm-write-check/check.log
+      - name: Retain targeted evidence separately from combined coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: targeted-alarm-write-${{ github.sha }}
+          path: build/alarm-write-check/
+          if-no-files-found: warn

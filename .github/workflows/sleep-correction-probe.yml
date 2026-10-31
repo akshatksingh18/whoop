@@ -1,0 +1,47 @@
+name: bounded sleep correction diagnostic
+
+on:
+  workflow_dispatch:
+  # Bootstrap this new diagnostic without changing the held GitHub main.
+  push:
+    branches: [ownership-ci-candidate-58]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sleep-correction-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sleep-correction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+      - name: Guard reviewed source and resolve dependencies
+        run: |
+          python3 tool/algorithm_contract.py
+          flutter pub get
+      - name: Analyze only the authored diagnostic and shared fixture
+        run: dart analyze test/diagnostics/sleep_override_overlap_probe.dart test/coverage_derived_night_continuity_test.dart
+      - name: Run the real-command diagnostic on authored SQLite input
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/sleep-correction-probe
+          flutter test --no-pub --concurrency=1 --reporter=expanded test/diagnostics/sleep_override_overlap_probe.dart 2>&1 | tee build/sleep-correction-probe/probe.log
+      - name: Retain diagnostic output separately from combined coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sleep-correction-diagnostic-${{ github.sha }}
+          path: build/sleep-correction-probe/probe.log
+          if-no-files-found: warn

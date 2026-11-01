@@ -1,0 +1,630 @@
+import '../energy_comparison.dart';
+// DAY STEPS — when the day's steps were counted, and by what.
+//
+// The day total on Home is a sum of SPANS: each stretch of the day goes to the
+// sensor that was actually recording it, overlaps are counted once, and the
+// rest of the day is not counted at all. That resolution has never been
+// visible anywhere — the tile can say "Strap + phone" in two words and stops
+// there. This is the screen that shows the stretches.
+//
+// WHY THE SOURCE IS THE POINT, and not a footnote on it. The two counters are
+// not two readings of one quantity. Measured against camera-annotated free
+// living (docs/internal/OXWALK_VALIDATION.md), a wrist reads a real walk about
+// a quarter low and can read rhythmic hand work as walking — its error runs
+// both ways and has no ceiling above. The same class of counter carried at the
+// trunk barely over-counts at all. So a strap-counted hour and a phone-counted
+// hour are different kinds of number, and the one place a user could ever learn
+// that is here, beside the spans themselves.
+//
+// It is ONE line, in the frame's footnote, phrased for whichever sensors
+// actually counted this day — not a warning per span, not a percentage beside
+// every number, not a modal. No numbers from that study appear on screen: a
+// "33% error" printed against today's count would be read as a correction the
+// user could apply, and it is not one (the error changes sign with the
+// activity, which is exactly why no gain fixes it).
+//
+// What this screen deliberately does NOT do: no goal, no target, no comparison
+// with yesterday, no streak. It answers one question — where did today's steps
+// come from — and the trend lives one screen up.
+
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
+import '../../compute/profile.dart'
+    show Profile, walkingEnergy, movementEquationEstimateKcal;
+import '../../compute/day_upkeep.dart';
+import '../../data/day_label.dart';
+import '../../data/local_repository.dart';
+import '../../models/metric.dart' show whyFromNote;
+import '../profile/devices.dart' show bandLabelFor;
+import '../ui2.dart';
+import 'home_screen.dart' show prettyDay, repoOf, thousands, go;
+import 'metric_detail.dart' show dayNavLabel, dayNavRow, detailScaffold;
+
+/// One resolved stretch of the day.
+class DayStepSpan {
+  const DayStepSpan({
+    required this.startTs,
+    required this.endTs,
+    required this.steps,
+    required this.fromBand,
+    this.activity,
+  });
+
+  final int startTs, endTs, steps;
+
+  /// The band's own 100 Hz pedometer (as opposed to the phone's).
+  final bool fromBand;
+
+  /// The session type this span sits inside, when it sits inside one. Null is
+  /// the ordinary case: a step count is not an activity, and the phone's hourly
+  /// windows are not bouts.
+  final String? activity;
+}
+
+class DayStepsData {
+  const DayStepsData({
+    this.day,
+    this.days = const [],
+    this.spans = const [],
+    this.total = 0,
+    this.strap = 0,
+    this.phone = 0,
+    this.dayTotal,
+    this.daySource,
+    this.note,
+    this.bandLabel = _defaultBand,
+    this.walking,
+    this.acsmWalking,
+    this.distanceSource = 'Estimated step length',
+    this.hourlyWalkingKcal = const [],
+  });
+
+  /// Walking contribution after run-step accounting, using the day's weight.
+  /// The calorie value is the same Steps part already included in maintenance.
+  final ({double kcal, double? km})? walking;
+  final double? acsmWalking;
+  final String distanceSource;
+  final List<double?> hourlyWalkingKcal;
+
+  /// The fallback name for the strap. Nothing is paired, or the link has not
+  /// said which generation it is this process — either way, naming a model we
+  /// were not told is a guess.
+  static const _defaultBand = 'Your band';
+
+  /// The day these spans belong to, and every derived day this install has —
+  /// newest first, which is what [DayNav] steers over.
+  final String? day;
+  final List<String> days;
+
+  final List<DayStepSpan> spans;
+
+  /// The spans' own totals, from the ladder. Not re-summed here.
+  final int total, strap, phone;
+
+  /// What the day actually published, and off which sensor. Usually [total] —
+  /// but a day whose only counter was the strap's on-chip one publishes a
+  /// whole-day figure with no times behind it, and therefore no spans.
+  final int? dayTotal;
+  final String? daySource;
+
+  /// The bundle's own reason for an absent count. Never a sentence written
+  /// here.
+  final String? note;
+
+  /// The paired band's name, in the same words the Devices screen uses —
+  /// or [_defaultBand] when nothing has told us which band it is.
+  final String bandLabel;
+
+  bool get mixed => strap > 0 && phone > 0;
+
+  static Future<DayStepsData> load(
+    LocalRepository repo, {
+    String bandLabel = _defaultBand,
+    String? want,
+  }) async {
+    final days = await repo.availableDays();
+    final day = want ?? todayLabel();
+    final d = await repo.getDaySteps(day);
+    final upkeep = await DayUpkeep.read(
+      repo,
+      day,
+      Profile.fromMap(await repo.getProfile()),
+      eaten: 0,
+    );
+    final energy = walkingEnergy(upkeep.walkedSteps, upkeep.profile);
+    final hours = List<double?>.filled(24, null);
+    final runWindows = [...upkeep.runWindows]
+      ..sort((a, b) => a.start.compareTo(b.start));
+    // Session cuts are already persisted in the source ledger. Hourly kcal is
+    // apportioned from the accepted outside-run steps, not a second estimate.
+    final spans = d['spans'] as List? ?? const [];
+    for (final s in spans.whereType<Map>()) {
+      final n = (s['steps'] as num?)?.toDouble();
+      final start = (s['start_ts'] as num?)?.toInt(),
+          end = (s['end_ts'] as num?)?.toInt();
+      if (n == null || start == null || end == null || end <= start) continue;
+      for (var t = start; t < end; t += 60) {
+        final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+        final secs = (end - t).clamp(0, 60);
+        var remaining = secs, until = t;
+        for (final w in runWindows) {
+          final a = w.start.millisecondsSinceEpoch ~/ 1000;
+          final b = w.end.millisecondsSinceEpoch ~/ 1000;
+          final left = a > until ? a : until,
+              right = b < t + secs ? b : t + secs;
+          if (right > left) {
+            remaining -= right - left;
+            until = right;
+          }
+        }
+        if (remaining > 0)
+          hours[h] = (hours[h] ?? 0) + n * remaining / (end - start);
+      }
+    }
+    final totalHourly = hours.whereType<double>().fold<double>(
+      0,
+      (a, b) => a + b,
+    );
+    for (var h = 0; h < 24; h++) {
+      if (hours[h] != null)
+        hours[h] = totalHourly <= 0
+            ? null
+            : hours[h]! /
+                  totalHourly *
+                  (upkeep.parts?.steps ?? energy?.kcal ?? 0);
+    }
+    return DayStepsData(
+      walking: energy == null
+          ? null
+          : (
+              kcal: upkeep.parts?.steps ?? energy.kcal,
+              km: upkeep.walkingMeters == null
+                  ? null
+                  : upkeep.walkingMeters! / 1000,
+            ),
+      acsmWalking:
+          upkeep.acsmParts?.steps ??
+          movementEquationEstimateKcal(
+            runMeters: 0,
+            walkMeters: upkeep.walkingMeters ?? 0,
+            weightKg: upkeep.walkingMeters == null
+                ? null
+                : upkeep.profile.weightKg,
+          ),
+      distanceSource: upkeep.distanceSource,
+      hourlyWalkingKcal: hours,
+      day: day,
+      days: days,
+      spans: [
+        for (final s in (d['spans'] as List? ?? const []))
+          if (s is Map &&
+              s['start_ts'] is num &&
+              s['end_ts'] is num &&
+              s['steps'] is num)
+            DayStepSpan(
+              startTs: (s['start_ts'] as num).toInt(),
+              endTs: (s['end_ts'] as num).toInt(),
+              steps: (s['steps'] as num).toInt(),
+              fromBand: s['source'] != 'phone',
+              activity: s['activity'] as String?,
+            ),
+      ],
+      total: (d['total'] as num?)?.toInt() ?? 0,
+      strap: (d['strap'] as num?)?.toInt() ?? 0,
+      phone: (d['phone'] as num?)?.toInt() ?? 0,
+      dayTotal: (d['day_total'] as num?)?.toInt(),
+      daySource: d['day_source'] as String?,
+      note: d['note'] as String?,
+      bandLabel: bandLabel,
+    );
+  }
+}
+
+/// 24 hourly buckets, one list per sensor, apportioned across the hours each
+/// span covers.
+///
+/// Walked a minute at a time rather than by arithmetic on hour offsets, so the
+/// two days a year that are 23 or 25 hours long put their steps in the hour
+/// they happened in.
+///
+/// Splitting a span's steps across hours by TIME is the resolver's own model,
+/// not a new claim: `resolveDaySteps` already apportions by shared time when it
+/// settles an overlap. Nothing is invented — a span's steps stay inside the
+/// span's own extent.
+(List<double?>, List<double?>) hourlySteps(List<DayStepSpan> spans) {
+  final band = List<double>.filled(24, 0);
+  final phone = List<double>.filled(24, 0);
+  for (final s in spans) {
+    final dur = s.endTs - s.startTs;
+    if (dur <= 0) continue;
+    for (var t = s.startTs; t < s.endTs; t += 60) {
+      final secs = (s.endTs - t).clamp(0, 60);
+      final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+      final share = s.steps * secs / dur;
+      if (s.fromBand) {
+        band[h] += share;
+      } else {
+        phone[h] += share;
+      }
+    }
+  }
+  // ONE BAR PER HOUR, in the colour of the sensor that counted most of it.
+  // Two overlaid bars would hide the shorter one behind the taller, which is
+  // the one thing a source chart may not do. The hour's height is still every
+  // step counted in it, and the rows below carry the exact spans.
+  final a = List<double?>.filled(24, null);
+  final b = List<double?>.filled(24, null);
+  for (var h = 0; h < 24; h++) {
+    final sum = band[h] + phone[h];
+    if (sum < .5) continue; // never measured — a hole, not a zero
+    if (band[h] >= phone[h]) {
+      a[h] = sum;
+    } else {
+      b[h] = sum;
+    }
+  }
+  return (a, b);
+}
+
+class DayStepsDetail extends StatefulWidget {
+  /// Preloaded, for goldens. Null means read the repo on open.
+  final DayStepsData? data;
+
+  /// The day to open. Null means today.
+  final String? day;
+  final bool embedded;
+  final bool calories;
+
+  const DayStepsDetail({
+    super.key,
+    this.data,
+    this.day,
+    this.embedded = false,
+    this.calories = false,
+  });
+
+  @override
+  State<DayStepsDetail> createState() => _DayStepsDetailState();
+}
+
+class _DayStepsDetailState extends State<DayStepsDetail> with RevisionReload {
+  DayStepsData? _d;
+  bool _loading = true;
+  bool _failed = false;
+  String? _day;
+
+  /// The hour under the finger on the chart, or null.
+  int? _hour;
+
+  @override
+  void initState() {
+    super.initState();
+    _day = widget.day;
+    if (widget.data != null) {
+      _d = widget.data;
+      _loading = false;
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  bool get revisionReloads => widget.data == null;
+  @override
+  void reload() => _load();
+
+  Future<void> _load() async {
+    final repo = repoOf(context);
+    if (repo == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    final token = beginRead(#day);
+    setState(() => _loading = true);
+    try {
+      final d = await DayStepsData.load(
+        repo,
+        bandLabel: bandLabel(context),
+        want: _day,
+      );
+      if (stillNewest(#day, token))
+        setState(() => (_d = d, _loading = false, _failed = false));
+    } catch (_) {
+      if (stillNewest(#day, token))
+        setState(() => (_loading = false, _failed = true));
+    }
+  }
+
+  bool get _stale => _d != null && _day != null && _d!.day != _day;
+
+  void _goDay(String day) {
+    if (widget.embedded) {
+      // One tap from the hourly preview opens the requested complete day.
+      go(context, DayStepsDetail(day: day, calories: widget.calories));
+      return;
+    }
+    setState(() {
+      _day = day;
+      _hour = null;
+      _loading = true;
+    });
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final d = _d ?? const DayStepsData();
+    // Same rule as Sleep: the stepper names the day, so the nav bar only does
+    // when there is no stepper.
+    return detailScaffold(
+      c,
+      widget.calories ? 'Step calories' : l?.dayStepsTitle ?? 'Steps',
+      embedded: widget.embedded,
+      sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '',
+      [
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
+        // Build 94 (Codex N15): the old day's counts are never shown under
+        // the newly selected date; a same-day refresh keeps them, marked.
+        if (_loading && _d != null && !_stale) const Text('Updating steps…'),
+        if (_loading && (_d == null || _stale)) ...[
+          const SizedBox(height: S.x8),
+          const Center(child: CircularProgressIndicator()),
+        ] else if (_failed)
+          StatusCard(
+            'Steps could not load',
+            'Your saved counts are intact.',
+            fix: 'Retry',
+            onFix: _load,
+          )
+        else if (d.spans.isEmpty)
+          _absent(c, d)
+        else ...[
+          _chart(c, p, d),
+          if (d.walking case final w?) ...[
+            const SizedBox(height: S.x3),
+            Surface(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Each fact once, as a chip (build 85): the screen above
+                  // already shows the pair when this is embedded.
+                  if (!(widget.embedded && widget.calories)) ...[
+                    EnergyComparison(
+                      budget: w.kcal,
+                      acsm: d.acsmWalking,
+                      note: '',
+                    ),
+                    const SizedBox(height: S.x3),
+                  ],
+                  Wrap(
+                    spacing: S.x2,
+                    runSpacing: S.x2,
+                    children: [
+                      Tag(
+                        distanceTagOf(d.distanceSource),
+                        icon: LucideIcons.ruler,
+                      ),
+                      const Tag('In maintenance', icon: LucideIcons.check),
+                      const Tag('Run steps counted with runs'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+
+  // ── nothing to place on a clock ────────────────────────────────────────────
+  Widget _absent(BuildContext c, DayStepsData d) {
+    final l = AppLocalizations.of(c);
+    // A day CAN carry a step count with no spans behind it: with no windowed
+    // source at all, the day falls back to the strap's on-chip counter, which
+    // is a running total with no times of its own. Saying "no steps" over the
+    // tile's 6,000 would be false, so the absence this card names is the one
+    // that is real — the times.
+    final chip = d.daySource == 'strap_counter' && (d.dayTotal ?? 0) > 0;
+    // The day this card is about, named. It used to say "today" on a screen
+    // that could only ever be today; now it can be any day on disk.
+    final when = dayNavLabel(d.day) == 'Today'
+        ? (l?.dayStepsToday ?? 'today')
+        : (l?.dayStepsOnDay(prettyDay(d.day, l)) ??
+              'on ${prettyDay(d.day, l)}');
+    return StatusCard(
+      chip
+          ? (l?.dayStepsNoTimesTitle(when) ?? 'No times behind the count $when')
+          : (l?.dayStepsNoStepsTitle(when) ?? 'No steps counted $when'),
+      chip
+          ? (l?.dayStepsStrapCounterBody(thousands(d.dayTotal), when) ??
+                'The ${thousands(d.dayTotal)} steps counted $when came from the '
+                    'strap\'s own step counter, which reports a running day total '
+                    'and no times. There is nothing to place on a clock.')
+          : whyFromNote(d.note, unit: 'days') ??
+                (l?.dayStepsNothingCounted(when) ??
+                    'Nothing that can count steps recorded $when.'),
+      icon: chip ? LucideIcons.watch : LucideIcons.footprints,
+    );
+  }
+
+  // ── when they were counted ─────────────────────────────────────────────────
+  Widget _chart(BuildContext c, P p, DayStepsData d) {
+    final l = AppLocalizations.of(c);
+    final (band, phone) = hourlySteps(d.spans);
+    if (widget.calories && d.hourlyWalkingKcal.length == 24) {
+      for (var h = 0; h < 24; h++) {
+        band[h] = null;
+        phone[h] = d.hourlyWalkingKcal[h];
+      }
+    }
+    final last = latestDaySlot(d.day, 24);
+    for (var h = last + 1; h < 24; h++) {
+      band[h] = null;
+      phone[h] = null;
+    }
+    final totals = [for (var h = 0; h < 24; h++) band[h] ?? phone[h]];
+    final axis = AxisSpec.of(totals.whereType<double>(), floor: 0);
+    String says(int h) {
+      final current = d.day == todayLabel() && h == last;
+      final b = band[h], ph = phone[h];
+      final n = (b ?? 0) + (ph ?? 0);
+      final who = b != null && ph != null
+          ? ''
+          : b != null
+          ? ' · ${d.bandLabel}'
+          : ph != null
+          ? ' · ${l?.dayStepsYourPhone ?? 'Your phone'}'
+          : '';
+      return '${formatMinuteOfDay(h * 60)}–${current ? 'now (partial)' : formatMinuteOfDay((h + 1) * 60)} · ${b == null && ph == null ? 'not recorded' : thousands(n)}$who';
+    }
+
+    final hr = _hour?.clamp(0, last);
+    return Surface(
+      child: Column(
+        children: [
+          ChartFrame(
+            title: widget.calories
+                ? 'Walking energy by hour'
+                : l?.dayStepsChartTitle ?? 'WHEN THEY WERE COUNTED',
+            unit: widget.calories
+                ? 'kcal · budget'
+                : l?.dayStepsUnit ?? 'steps',
+            height: 150,
+            yAxis: axis,
+            xLabels: const ['Midnight', 'Noon', 'Midnight'],
+            series: totals,
+            // ONE colour, one key — a day with a single sensor has nothing to
+            // tell apart, and a legend of one is noise.
+            legend: d.mixed && !widget.calories
+                ? [
+                    (d.bandLabel, p.on(C.green)),
+                    (l?.dayStepsYourPhone ?? 'Your phone', p.on(C.teal)),
+                  ]
+                : const [],
+            footnote: widget.calories
+                ? 'Budget walking calories allocated to recorded step windows. Running windows are excluded.'
+                : '${_honesty(c, d)}${d.mixed ? ' Bar colour shows the main source for each hour.' : ''}',
+            empty: axis == null ? const NoData() : null,
+            readout: hr == null ? null : says(hr),
+            child: Scrubber(
+              maxValue: (last + .5) / 24,
+              value: hr == null ? null : (hr + .5) / 24,
+              step: 1 / 24,
+              label: widget.calories
+                  ? 'Walking calories by hour'
+                  : 'Steps by hour',
+              describe: (v) => says((v * 24).floor().clamp(0, 23)),
+              onChanged: (v) =>
+                  setState(() => _hour = (v * 24).floor().clamp(0, 23)),
+              child: Stack(
+                children: [
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(
+                      band,
+                      p.on(C.green),
+                      axis: axis,
+                      cursor: hr,
+                      t: animate(c, 1),
+                    ),
+                  ),
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(
+                      phone,
+                      p.on(C.teal),
+                      axis: axis,
+                      cursor: hr,
+                      t: animate(c, 1),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: S.x4),
+          InlineMetrics(
+            d.mixed
+                ? [
+                    (
+                      l?.dayStepsCounted ?? 'Counted',
+                      thousands(d.total),
+                      C.green,
+                    ),
+                    (d.bandLabel, thousands(d.strap), C.green),
+                    (
+                      l?.dayStepsYourPhone ?? 'Your phone',
+                      thousands(d.phone),
+                      C.teal,
+                    ),
+                  ]
+                : [
+                    (
+                      d.strap > 0
+                          ? d.bandLabel
+                          : (l?.dayStepsYourPhone ?? 'Your phone'),
+                      thousands(d.total),
+                      d.strap > 0 ? C.green : C.teal,
+                    ),
+                  ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// THE line. One sentence, once, about why these two counts are not the same
+  /// kind of number — and only about the sensors that actually counted today.
+  ///
+  /// It states each counter's own failure and no figure. Both halves are
+  /// measured (OXWALK_VALIDATION §1, §5): at the wrist the error runs both ways
+  /// — a real walk under-counts, and rhythmic arm work with still feet can
+  /// over-count — while a trunk-carried counter's error is one-sided, so the
+  /// phone's honest caveat is the steps it never saw rather than the ones it
+  /// invented.
+  String _honesty(BuildContext c, DayStepsData d) {
+    final l = AppLocalizations.of(c);
+    return d.mixed
+        ? (l?.dayStepsHonestyMixed ??
+              'Counted at your wrist and by your phone, and the two miscount '
+                  'differently: a wrist reads a real walk low and can read rhythmic '
+                  'hand work as walking, while a phone counts only the steps you had '
+                  'it on you for.')
+        : d.strap > 0
+        ? (l?.dayStepsHonestyStrap ??
+              'Counted at your wrist, where a real walk tends to read low and '
+                  'rhythmic hand work can read as walking.')
+        : (l?.dayStepsHonestyPhone ??
+              'Counted by your phone, so only the steps you had it on you for '
+                  'are here.');
+  }
+}
+
+/// The paired band's name, in the Devices screen's own words — or null when
+/// nothing is paired or the link has not said which generation it is.
+///
+/// It names the band that is paired NOW. A day's coverage rows do not record
+/// which strap wrote them, so on the (rare) day someone swaps bands mid-day
+/// this is the current one's name for both. The alternative is to name none of
+/// them, which loses the thing the screen exists to say.
+String bandLabel(BuildContext c) {
+  final fallback =
+      AppLocalizations.of(c)?.dayStepsYourBand ?? DayStepsData._defaultBand;
+  try {
+    final app = c.read<AppState>();
+    if (!app.isPaired) return fallback;
+    // The registry's own label for the band that is paired. A family with no
+    // entry — an import, a pre-stamp row, an adapter this build does not carry
+    // — is NOT a WHOOP 4, which is what the ternary here used to publish.
+    return bandLabelFor(app.device.generation) ?? fallback;
+  } catch (_) {
+    return fallback;
+  }
+}

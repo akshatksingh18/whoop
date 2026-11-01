@@ -1,0 +1,254 @@
+// A write landed underneath a screen that is already on screen. Does it show?
+//
+// The bug this pins: "I imported something, and to see those workouts in
+// Workouts I have to switch to another tab and come back." Every screen here
+// loads in `initState`, and three of the five tabs are kept alive by the
+// shell's IndexedStack for the life of the process — so "loads once" means
+// "until the app is relaunched", and leaving the tab was the workaround.
+//
+// The test below writes UNDERNEATH a live screen and asserts the screen
+// updates while keeping the SAME State object. Asserting only that the text
+// appears would pass for the same wrong reason switching tabs does — a fresh
+// widget reading the database for the first time.
+
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:whoop_companion/data/db.dart';
+import 'package:whoop_companion/data/local_repository.dart';
+import 'package:whoop_companion/state/app_state.dart';
+import 'package:whoop_companion/state/prefs.dart';
+import 'package:whoop_companion/state/locale_controller.dart';
+import 'package:whoop_companion/ui2/screens/screens.dart';
+import 'package:whoop_companion/ui2/ui2.dart';
+
+/// The repo the app holds. Nutrition reads its own food tables, written by the
+/// log sheets or an import underneath a live tab, so the probe is the screen's
+/// own load counter: it moves only on a real re-read.
+class _Repo extends LocalRepository {
+  int get reads => NutritionScreen.debugLoads;
+  @override
+  Future<num?> getMeasuredDaySteps(String date) async => 0;
+  @override
+  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async => {
+    'workouts': [],
+  };
+}
+
+/// Frames until [done] holds, or give up.
+Future<void> _untilTrue(
+  WidgetTester t,
+  bool Function() done, {
+  int n = 250,
+}) async {
+  for (var i = 0; i < n && !done(); i++) {
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await t.pump(const Duration(milliseconds: 50));
+  }
+}
+
+/// Let any database read the screen started finish in real time before the
+/// test ends. A read left pending inside the fake clock kept the shared test
+/// database from closing, and the suite hung in tearDownAll.
+Future<void> _settle(WidgetTester t) async {
+  await t.pumpWidget(const SizedBox.shrink());
+  await t.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 300)),
+  );
+}
+
+Widget _app(AppState app, {LocaleController? locale}) => MaterialApp(
+  theme: buildTheme(Brightness.light),
+  home: MultiProvider(
+    providers: [
+      ChangeNotifierProvider<AppState>.value(value: app),
+      ChangeNotifierProvider<LocaleController>.value(
+        value: locale ?? LocaleController.seed(null),
+      ),
+    ],
+    child: const Scaffold(body: NutritionScreen()),
+  ),
+);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    LocalDb.dbName = 'whoop_revision_reload_test.db';
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    await LocalDb.instance;
+  });
+
+  tearDownAll(() async {
+    await LocalDb.close();
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+  });
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await Prefs.ensureLoaded();
+  });
+
+  testWidgets('a write underneath the live tab reaches it', (t) async {
+    t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final repo = _Repo();
+    app.repo = repo;
+
+    await t.pumpWidget(_app(app));
+    await _untilTrue(t, () => repo.reads > 0);
+    final first = repo.reads;
+    expect(first, greaterThan(0));
+
+    // The screen that is about to be asked to notice.
+    final before = t.state(find.byType(NutritionScreen));
+
+    // Something else writes — an import, the journal screen, a headless
+    // derive. All of them raise the one signal.
+    app.bumpInsights();
+    await _untilTrue(t, () => repo.reads > first);
+
+    expect(
+      repo.reads,
+      greaterThan(first),
+      reason: 'the live screen did not re-read after the signal',
+    );
+    // THE POINT: same State, so the number arrived by re-reading and not by
+    // the screen being thrown away and built again — which is what leaving the
+    // tab and coming back used to do.
+    expect(
+      identical(t.state(find.byType(NutritionScreen)), before),
+      isTrue,
+      reason: 'the screen was remounted — that is the workaround, not the fix',
+    );
+    await _settle(t);
+  });
+
+  testWidgets('a rebuild is not a write', (t) async {
+    t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final repo = _Repo();
+    app.repo = repo;
+
+    await t.pumpWidget(_app(app));
+    await _untilTrue(t, () => repo.reads > 0);
+    final first = repo.reads;
+    expect(first, greaterThan(0));
+
+    // AppState ticks at ~1 Hz with live HR and a log line. A refresh signal
+    // riding on that would re-read the database every second — the rebuild
+    // storm this must not become, and the harder bug of the two to diagnose.
+    for (var i = 0; i < 5; i++) {
+      app.notifyListeners();
+      await t.pump();
+    }
+    expect(
+      repo.reads,
+      first,
+      reason: 'the screen re-read with nothing having landed',
+    );
+    await _settle(t);
+  });
+
+  testWidgets('a language switch reaches the live tab', (t) async {
+    t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final repo = _Repo();
+    app.repo = repo;
+    final locale = LocaleController.seed(null);
+    addTearDown(locale.dispose);
+
+    await t.pumpWidget(_app(app, locale: locale));
+    await _untilTrue(t, () => repo.reads > 0);
+    final before = t.state(find.byType(NutritionScreen));
+    final reads = repo.reads;
+    expect(reads, greaterThan(0));
+
+    // Nothing wrote underneath the screen — only the language changed.
+    // `NutritionData` bakes `AppLocalizations` strings into what it reads, so
+    // this has to reach the screen exactly like a durable write does, or a
+    // switch to Spanish leaves English on screen until something else forces
+    // a reload.
+    await locale.setCode('es');
+    await _untilTrue(t, () => repo.reads > reads);
+
+    expect(
+      repo.reads,
+      greaterThan(reads),
+      reason: 'the screen did not notice the language changed',
+    );
+    expect(
+      identical(t.state(find.byType(NutritionScreen)), before),
+      isTrue,
+      reason: 'the screen was remounted — that is the workaround, not the fix',
+    );
+    await _settle(t);
+  });
+
+  // ── the signal has to be raised where the writes are ──────────────────────
+  //
+  // A behavioural test of the importers needs a vendor export, a database and
+  // the derivation engine; what it would actually be checking is one line, so
+  // this checks that line. Every import path lands rows into a database the
+  // live tabs have already finished reading.
+  test('every AppState importer raises the signal', () {
+    final src = File('lib/state/app_state.dart').readAsStringSync();
+    for (final m in const [
+      'Future<int> importNoopCsv(',
+      'Future<int> importWhoopCsvs(',
+      'Future<int> importEdgeBackup(',
+    ]) {
+      final at = src.indexOf(m);
+      expect(at, greaterThan(0), reason: '$m has moved or been renamed');
+      // The method body, to its `return` — long enough to hold the whole of
+      // any of the three, short enough not to reach the next one.
+      final body = src.substring(at, at + 2600);
+      // publishSessionChange() raises the same signal plus Food's (B90-02).
+      expect(
+        body,
+        matches(RegExp(r'bumpInsights\(\)|publishSessionChange\(\)')),
+        reason: '$m writes durable rows and no screen is told',
+      );
+    }
+  });
+
+  test('the screens the shell keeps alive re-read', () {
+    // Home, Health, Nutrition, Workout are the four tabs.
+    for (final f in const [
+      'home_screen',
+      'health_screen',
+      'nutrition_screen',
+      'workout_screen',
+    ]) {
+      expect(
+        File('lib/ui2/screens/$f.dart').readAsStringSync(),
+        contains('with RevisionReload'),
+        reason: '$f loads once and never reads again',
+      );
+    }
+  });
+}

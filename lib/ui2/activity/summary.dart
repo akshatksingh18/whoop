@@ -1,0 +1,2756 @@
+// The activity summary — eight archetypes, eight centres of gravity.
+//
+// The rule the whole file exists to enforce: a session is not a run with
+// the map removed. A run is a route coloured by pace; a hike is an elevation
+// profile; a swim is a lap ladder; HIIT is an interval ladder; a match is
+// heart rate and hard minutes. Same grammar — same cards, same type, same
+// spacing — different defining object.
+//
+// A lift is a timed session here (its sets live in the Lift Log), so it has
+// no defining visual object: nothing in the session measures one.
+//
+// [ActivityResult] is the seam. Everything on screen comes out of it, every
+// field is nullable or empty by default, and an absent field renders a
+// StatusCard rather than a zero. That is not politeness: `sessions` has no
+// distance and no lap columns of its own, so several of these fields come
+// from elsewhere (`workout_route`, `session_detail`) or not at all, and the
+// screen has to be honest about it without falling apart.
+
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../../gps/route_models.dart' as rm show Split;
+import '../../gps/route_models.dart' show RoutePoint;
+import '../../gps/run_analysis.dart' show paceZoneShares, runVerdict, RunMix;
+import '../../gps/run_history.dart';
+import '../../gps/workout_clock.dart';
+import '../../gps/workout_context.dart';
+import '../../gps/heart_rate_drift.dart';
+import 'workout_context.dart';
+import '../../data/db.dart';
+import '../../l10n/app_localizations.dart';
+import '../../state/prefs.dart';
+import '../../state/units_controller.dart';
+import '../charts.dart';
+import '../grammar.dart';
+import '../paint_activity.dart';
+import '../profile/profile.dart';
+import '../screens/home_screen.dart' show profileOf, repoOf, unitsOf;
+import '../../compute/profile.dart'
+    show
+        Profile,
+        stepCalories,
+        runFloorKcal,
+        acsmActiveKcal,
+        movementEquationEstimateKcal,
+        workoutEnergyMethodLabel,
+        conservativeMet,
+        isLiftType;
+import '../screens/log_workout.dart' show appOf;
+import '../theme.dart';
+import 'catalogue.dart';
+import '../../data/lift_log.dart' show LiftLogDb, setMarkMinutes;
+import 'lift_log_ui.dart' show LiftSummaryCard;
+import 'picker.dart';
+import 'run_detail.dart';
+import 'stat_row.dart';
+
+/// The defining visual object of an activity. Everything else supports it.
+///
+/// There is no `power`. Cycling power is watts at the crank, and nothing in
+/// this stack measures them: no power meter is paired, no opcode carries them,
+/// and a wrist cannot infer them. The indoor machines that used to claim the
+/// archetype (bike, treadmill, elliptical, stair climber) are [basic] — their
+/// defining object is the heart-rate trace, which is measured.
+enum Arch { route, interval, flow, laps, journey, match, basic }
+
+const _sports = {
+  'Football',
+  'Basketball',
+  'Cricket',
+  'Tennis',
+  'Badminton',
+  'Table tennis',
+  'Squash',
+  'Volleyball',
+  'Hockey',
+  'Baseball',
+  'Rugby',
+  'Boxing',
+  'Martial arts',
+  'Wrestling',
+};
+const _laps = {'Swimming', 'Rowing'};
+const _journey = {
+  'Hiking',
+  'Trail running',
+  'Mountain biking',
+  'Skiing',
+  'Snowboarding',
+};
+
+/// MT-08 — deliberate heat and cold. Not an archetype: both are
+/// `Track.stillness`, so both land on [Arch.flow], and what they need is a
+/// different defining object inside it rather than an eighth centre of
+/// gravity. The reason they need one is physiological — **cold exposure causes
+/// peripheral vasoconstriction, which is exactly when wrist reflectance PPG
+/// has nothing to measure** — so a plunge whose card says the sensor could not
+/// find a pulse is the correct outcome, not a failure state to design around.
+const _thermal = {'Sauna', 'Cold plunge'};
+
+/// Name first, then track. The named sets are the activities whose defining
+/// object is not what their tracking mode would suggest — a hike is tracked by
+/// distance but is *about* the climb, and swimming is tracked by distance but
+/// is *about* the lap.
+Arch archOf(Activity a) {
+  if (_journey.contains(a.name)) return Arch.journey;
+  if (_laps.contains(a.name)) return Arch.laps;
+  if (_sports.contains(a.name)) return Arch.match;
+  return switch (a.track) {
+    // A lift is a timed session; its sets live in the Lift Log panel.
+    Track.sets => Arch.basic,
+    Track.interval => Arch.interval,
+    Track.stillness => Arch.flow,
+    Track.distance => Arch.route,
+    Track.duration => Arch.basic,
+  };
+}
+
+String archLabel(Arch a) => switch (a) {
+  Arch.route => 'Route',
+  Arch.interval => 'Intervals',
+  Arch.flow => 'Flow',
+  Arch.laps => 'Laps',
+  Arch.journey => 'Elevation',
+  Arch.match => 'Effort',
+  Arch.basic => 'Session',
+};
+
+// ── THE RECORD ─────────────────────────────────────────────────────────────
+
+/// One HIIT round.
+class IntervalRound {
+  final int workSec, restSec;
+  final int? avgHr;
+  const IntervalRound(this.workSec, this.restSec, {this.avgHr});
+}
+
+/// Build 93 (Codex full-flow audit F01): what was typed during a workout
+/// that no sensor records, as a JSON string for `session_detail`; null when
+/// there is nothing.
+String? enteredDetailJson(ActivityResult r) {
+  final m = <String, Object?>{
+    if (r.lapSecs.isNotEmpty) 'laps': r.lapSecs,
+    'pool': ?r.poolLengthM,
+    'stroke': ?r.stroke,
+    if (r.rounds.isNotEmpty)
+      'rounds': [
+        for (final x in r.rounds) [x.workSec, x.restSec, x.avgHr],
+      ],
+    if (r.poses.isNotEmpty) 'poses': r.poses,
+    'breaths': ?r.breathsPerMin,
+    if (r.gameScore.isNotEmpty)
+      'score': [
+        for (final (a, b) in r.gameScore) [a, b],
+      ],
+  };
+  return m.isEmpty ? null : jsonEncode(m);
+}
+
+/// [r] with the typed detail from [json] put back (a reopened past workout).
+ActivityResult withEnteredDetail(ActivityResult r, String? json) {
+  if (json == null) return r;
+  try {
+    final m = jsonDecode(json);
+    if (m is! Map) return r;
+    List<int> ints(Object? v) => [
+      for (final x in (v is List ? v : const []))
+        if (x is num) x.toInt(),
+    ];
+    return r.copyWith(
+      lapSecs: m['laps'] == null ? null : ints(m['laps']),
+      poolLengthM: (m['pool'] as num?)?.toInt(),
+      stroke: m['stroke'] as String?,
+      rounds: m['rounds'] is! List
+          ? null
+          : [
+              for (final x in m['rounds'] as List)
+                if (x is List && x.length >= 2 && x[0] is num && x[1] is num)
+                  IntervalRound(
+                    (x[0] as num).toInt(),
+                    (x[1] as num).toInt(),
+                    avgHr: x.length > 2 ? (x[2] as num?)?.toInt() : null,
+                  ),
+            ],
+      poses: m['poses'] is! List
+          ? null
+          : [for (final x in m['poses'] as List) x.toString()],
+      breathsPerMin: (m['breaths'] as num?)?.toDouble(),
+      gameScore: m['score'] is! List
+          ? null
+          : [
+              for (final x in m['score'] as List)
+                if (x is List && x.length == 2 && x[0] is num && x[1] is num)
+                  ((x[0] as num).toInt(), (x[1] as num).toInt()),
+            ],
+    );
+  } catch (_) {
+    return r;
+  }
+}
+
+/// One distance split. Named `KmSplit` because Flutter's animation library
+/// already owns `Split`, and a screen importing both should not have to.
+/// One split. [km] is how many of its unit it covers (kilometres, or miles
+/// in [ActivityResult.mileSplits]): 1 for every whole one, less for the last.
+class KmSplit {
+  final double km;
+  final int sec;
+  final int? avgHr;
+  const KmSplit(this.km, this.sec, {this.avgHr});
+}
+
+/// The splits to show for [u]'s distance unit (Build 95): per mile when miles
+/// are chosen and the session has them, else per kilometre. [asRecorded] is
+/// set when miles were asked for and only kilometre splits exist (an older
+/// session with neither a route nor the phone's motion distance).
+({List<KmSplit> splits, String unit, bool asRecorded}) shownSplits(
+  ActivityResult r,
+  UnitsController? u,
+) {
+  final miles = u?.isMiles ?? false;
+  if (miles && r.mileSplits.isNotEmpty) {
+    return (splits: r.mileSplits, unit: 'mi', asRecorded: false);
+  }
+  return (splits: r.splits, unit: 'km', asRecorded: miles);
+}
+
+/// Everything a finished session knows about itself. Absent means absent.
+class ActivityResult {
+  final Activity activity;
+  final DateTime start;
+  final Duration duration;
+  final bool private;
+
+  /// `sessions.id`, once the session is durably written. Null on a draft, on a
+  /// session whose write threw, and in every fixture — and the RPE prompt is
+  /// gated on it, because there is nowhere to put an answer without one.
+  final String? sessionId;
+
+  /// TS-09 — session RPE, 1–10. A SELF-REPORT and labelled as one wherever it
+  /// is shown. Null means UNRATED, which is not a 0 and not a 7: the
+  /// set-level picker's default of 7 is the garbage-data mechanism this field
+  /// exists to avoid, so nothing here is ever pre-selected.
+  final double? rpe;
+
+  // measured by the band / phone
+  final int? avgHr, maxHr;
+  final int? _storedCalories;
+  final Profile? calculationProfile;
+  double? get acsmCalories => _movementCalories(qualified: true);
+  double? get movementEstimateCalories => _movementCalories(qualified: false);
+
+  double? _movementCalories({required bool qualified}) {
+    final kg = calculationProfile?.weightKg;
+    if (isWalkType(activity.typeKey)) {
+      if (distanceKm == null) return null;
+      return qualified
+          ? acsmActiveKcal(
+              runMeters: 0,
+              walkMeters: distanceKm! * 1000,
+              walkMovingSeconds: movingSec?.toDouble(),
+              weightKg: kg,
+            )
+          : movementEquationEstimateKcal(
+              runMeters: 0,
+              walkMeters: distanceKm! * 1000,
+              weightKg: kg,
+            );
+    }
+    final m = mix;
+    if (!isRunType(activity.typeKey) || m == null) return null;
+    return qualified
+        ? acsmActiveKcal(
+            runMeters: m.runM,
+            walkMeters: m.walkM,
+            runClimbMeters: m.climbM,
+            runMovingSeconds: m.runSec.toDouble(),
+            walkMovingSeconds: m.walkSec.toDouble(),
+            weightKg: kg,
+          )
+        : movementEquationEstimateKcal(
+            runMeters: m.runM,
+            walkMeters: m.walkM,
+            runClimbMeters: m.climbM,
+            weightKg: kg,
+          );
+  }
+
+  int? get calories {
+    final type = activity.typeKey;
+    if (isWalkType(type)) {
+      return stepCalories(
+        phoneSteps ?? stepsCounted,
+        calculationProfile?.weightKg,
+      )?.round();
+    }
+    if (isRunType(type)) {
+      final m = mix;
+      return m == null
+          ? null
+          : runFloorKcal(
+              runMeters: m.runM,
+              walkMeters: m.walkM,
+              climbMeters: m.climbM,
+              weightKg: calculationProfile?.weightKg,
+            )?.round();
+    }
+    return _storedCalories;
+  }
+
+  /// Heart-rate recovery: the bpm drop over the 60 s after the session ended.
+  /// Backfilled into `sessions.hrr_bpm` during derivation and served on every
+  /// session row — 11 of 14 sessions on the real export carry one, and nothing
+  /// read it. Null is UNMEASURED (no trace over the minute after, or a session
+  /// that ended into another one), never a zero drop.
+  final int? hrr60;
+  final double? strain;
+  // Per-MINUTE mean heart rate, live (`LiveWorkoutState.perMinuteHr`) and
+  // stored (`getWorkout()['hr']`) alike. Nothing on this screen has ever been
+  // per-second, whatever the copy used to say.
+  /// DENSE — one slot per minute of the session, `null` where the band
+  /// recorded nothing. A compacted curve under an axis labelled `Start …
+  /// duration` draws a dropout as though it had been measured.
+  final List<double?> hr;
+  final List<double> zoneMinutes; // five, Z1..Z5
+
+  /// WHICH anchors [zoneMinutes] was binned against — `karvonen` · `observed` ·
+  /// `tanaka`, the stamp `trainingZones` puts on the set — and the ceiling that
+  /// set is 100 % of.
+  ///
+  /// Carried rather than re-derived so this card cannot describe the split it
+  /// is drawing as coming from anchors it did not use. Null while the split has
+  /// not been enriched (the history row, a preview): the footnote then says the
+  /// estimate, which is the claim that needs no ceiling to back it.
+  final String? zoneSource;
+  final num? zoneMaxHr;
+
+  /// Steps the strap's own 100 Hz pedometer counted over this session —
+  /// `AppState.workoutStepsMeasured` while it runs, `sessions.steps` once it is
+  /// banked. That column has exactly one producer (an import and a hand-logged
+  /// session write it null on purpose), so this number has one provenance.
+  ///
+  /// NULL IS UNMEASURED, and it is the common case: no live link, the raw
+  /// stream suppressed by the standard-HR fallback, a session logged by hand,
+  /// or an activity the counter is not allowed to count. Never a 0 standing in
+  /// for any of those — that is issue #183, a mile walked under '0 STEPS'.
+  ///
+  /// Read [stepsCounted], not this. The gait gate lives there.
+  final int? steps;
+
+  /// How much of the session window the stored trace actually covers, 0–100.
+  /// 1 Hz means one sample a second, so the banked sample count against the
+  /// window length is the honest coverage of everything drawn off it. Null on a
+  /// live session (nothing has been banked yet) and on any session scored
+  /// before the trace column existed.
+  final int? traceCoveragePct;
+
+  // route / journey
+  final List<Offset> route; // normalised 0…1
+  /// The SAME points in degrees, in the same order — kept alongside [route]
+  /// rather than instead of it because the painters want a unit box and a
+  /// basemap wants the globe. Empty when the session had no GPS.
+  final List<(double lat, double lng)> geo;
+  final List<double>? routePace; // per-point 0…1, colours the route
+  final double? distanceKm;
+  final List<double> elevationM;
+  final double? gainM, lossM;
+  final List<KmSplit> splits;
+
+  /// The same session cut every mile, from the route or the phone's motion
+  /// distance; empty when neither exists.
+  final List<KmSplit> mileSplits;
+
+  /// The recorded fixes themselves, for the run screen's map, best efforts,
+  /// pace curve and shared scrub. Empty without GPS.
+  final List<RoutePoint> track;
+
+  /// Time spent moving (stops removed), from the route. Null without GPS.
+  final int? movingSec;
+
+  /// Running metres, walking metres and climb, for the distance calories.
+  /// Null without a distance.
+  final RunMix? mix;
+
+  /// True when [distanceKm] and [splits] came from the phone's motion data
+  /// because the session had no GPS.
+  final bool motionDistance;
+
+  /// Average steps a minute from the phone, for a motion-measured session.
+  final double? cadence;
+
+  /// Steps the phone counted over the session window. Preferred over the
+  /// band's [steps] on screen (phone first: the wrist reads a run low).
+  final int? phoneSteps;
+
+  /// Steps a minute from the phone, one slot per minute from [start]; empty
+  /// when the phone was not counting.
+  final List<double?> cadenceSeries;
+
+  // laps — seconds per lap, in order. The bar chart's relative speeds are
+  // derived from these rather than stored beside them: two fields for one
+  // measurement is how a chart ends up disagreeing with its own axis.
+  final List<int> lapSecs;
+  final int? poolLengthM;
+  final String? stroke;
+
+  // intervals
+  final List<IntervalRound> rounds;
+
+  // flow
+  final List<String> poses;
+  final double? breathsPerMin;
+
+  // match
+  final List<(int, int)> gameScore;
+
+  const ActivityResult(
+    this.activity, {
+    required this.start,
+    required this.duration,
+    this.private = false,
+    this.sessionId,
+    this.rpe,
+    this.avgHr,
+    this.maxHr,
+    this.hrr60,
+    int? calories,
+    this.calculationProfile,
+    this.strain,
+    this.hr = const [],
+    this.zoneMinutes = const [],
+    this.zoneSource,
+    this.zoneMaxHr,
+    this.steps,
+    this.traceCoveragePct,
+    this.route = const [],
+    this.geo = const [],
+    this.routePace,
+    this.distanceKm,
+    this.elevationM = const [],
+    this.gainM,
+    this.lossM,
+    this.splits = const [],
+    this.mileSplits = const [],
+    this.track = const [],
+    this.movingSec,
+    this.mix,
+    this.motionDistance = false,
+    this.cadence,
+    this.phoneSteps,
+    this.cadenceSeries = const [],
+    this.lapSecs = const [],
+    this.poolLengthM,
+    this.stroke,
+    this.rounds = const [],
+    this.poses = const [],
+    this.breathsPerMin,
+    this.gameScore = const [],
+  }) : _storedCalories = calories;
+
+  /// A copy carrying the things a session can only learn after it ends — the
+  /// recorded route above all. Every field defaults to `this`, so enrichment
+  /// can never silently drop the sets or the score the user typed.
+  ActivityResult copyWith({
+    bool replaceWindowStats = false,
+    int? calories,
+    double? strain,
+    int? steps,
+    String? sessionId,
+    Duration? duration,
+    Profile? calculationProfile,
+    double? rpe,
+    int? avgHr,
+    int? maxHr,
+    int? hrr60,
+    List<double?>? hr,
+    List<double>? zoneMinutes,
+    String? zoneSource,
+    num? zoneMaxHr,
+    int? traceCoveragePct,
+    List<Offset>? route,
+    List<(double lat, double lng)>? geo,
+    List<double>? routePace,
+    double? distanceKm,
+    List<double>? elevationM,
+    double? gainM,
+    double? lossM,
+    List<KmSplit>? splits,
+    List<KmSplit>? mileSplits,
+    List<RoutePoint>? track,
+    int? movingSec,
+    RunMix? mix,
+    bool? motionDistance,
+    double? cadence,
+    int? phoneSteps,
+    List<double?>? cadenceSeries,
+    List<int>? lapSecs,
+    int? poolLengthM,
+    String? stroke,
+    List<IntervalRound>? rounds,
+    List<String>? poses,
+    double? breathsPerMin,
+    List<(int, int)>? gameScore,
+  }) => ActivityResult(
+    activity,
+    start: start,
+    duration: duration ?? this.duration,
+    private: private,
+    sessionId: sessionId ?? this.sessionId,
+    rpe: rpe ?? this.rpe,
+    avgHr: replaceWindowStats ? avgHr : avgHr ?? this.avgHr,
+    maxHr: replaceWindowStats ? maxHr : maxHr ?? this.maxHr,
+    hrr60: replaceWindowStats ? hrr60 : hrr60 ?? this.hrr60,
+    calories: replaceWindowStats ? calories : calories ?? _storedCalories,
+    calculationProfile: calculationProfile ?? this.calculationProfile,
+    strain: replaceWindowStats ? strain : strain ?? this.strain,
+    hr: hr ?? this.hr,
+    zoneMinutes: zoneMinutes ?? this.zoneMinutes,
+    zoneSource: zoneSource ?? this.zoneSource,
+    zoneMaxHr: zoneMaxHr ?? this.zoneMaxHr,
+    // Carried, never re-derived: every enrichment pass on this object goes
+    // through here, and a field left off this list is a measurement the
+    // detail screen silently loses the moment it opens.
+    steps: replaceWindowStats ? steps : steps ?? this.steps,
+    traceCoveragePct: traceCoveragePct ?? this.traceCoveragePct,
+    route: route ?? this.route,
+    geo: geo ?? this.geo,
+    routePace: routePace ?? this.routePace,
+    distanceKm: distanceKm ?? this.distanceKm,
+    elevationM: elevationM ?? this.elevationM,
+    gainM: gainM ?? this.gainM,
+    lossM: lossM ?? this.lossM,
+    splits: splits ?? this.splits,
+    mileSplits: mileSplits ?? this.mileSplits,
+    track: track ?? this.track,
+    movingSec: movingSec ?? this.movingSec,
+    mix: mix ?? this.mix,
+    motionDistance: motionDistance ?? this.motionDistance,
+    cadence: cadence ?? this.cadence,
+    phoneSteps: phoneSteps ?? this.phoneSteps,
+    cadenceSeries: cadenceSeries ?? this.cadenceSeries,
+    lapSecs: lapSecs ?? this.lapSecs,
+    poolLengthM: poolLengthM ?? this.poolLengthM,
+    stroke: stroke ?? this.stroke,
+    rounds: rounds ?? this.rounds,
+    poses: poses ?? this.poses,
+    breathsPerMin: breathsPerMin ?? this.breathsPerMin,
+    gameScore: gameScore ?? this.gameScore,
+  );
+
+  Arch get arch => archOf(activity);
+
+  /// [steps], but only for an activity the pedometer is allowed to count.
+  ///
+  /// The counter's own gate is on the session TYPE at ingest
+  /// (`isGaitStepType`, `ble/live_step_runs.dart`) and it is not a nicety: on a
+  /// free-living wrist the counter over-counts by up to +199.5%, and rowing,
+  /// boxing and lifting are an hour of exactly the rhythmic arm work that does
+  /// it. [Activity.gait] is that same law spelled in the catalogue — the two are
+  /// pinned equal by `gait_step_types_test` — so a count banked under one type
+  /// can never surface on a screen for another.
+  int? get stepsCounted => activity.gait ? steps : null;
+
+  /// Per-lap speed relative to the fastest lap — what [LapBars] draws. The
+  /// fastest lap is the only reference the swim itself provides.
+  List<double> get lapSpeeds {
+    if (lapSecs.isEmpty) return const [];
+    final fastest = lapSecs.reduce((x, y) => x < y ? x : y);
+    return [for (final t in lapSecs) t <= 0 ? 1.0 : fastest / t];
+  }
+
+  /// Minutes above 80% of max heart rate — Z4 and Z5. Null when the session
+  /// banked no zone split, because "0 hard minutes" and "nobody counted" are
+  /// different sessions.
+  double? get hardMinutes =>
+      zoneMinutes.length == 5 ? zoneMinutes[3] + zoneMinutes[4] : null;
+
+  /// `(minutes that carry a heart rate, minutes in the session)`.
+  ///
+  /// `(0, n)` is the band reading nothing for the whole session. On a cold
+  /// plunge that is the EXPECTED reading and not an error — see [_thermal].
+  (int, int) get hrMinutes {
+    var have = 0;
+    for (final v in hr) {
+      if (v != null) have++;
+    }
+    return (have, hr.length);
+  }
+
+  /// Seconds per kilometre. Null without a distance — there is no pace
+  /// without one, and a duration alone will not do.
+  int? get paceSecPerKm => distanceKm == null || distanceKm! <= 0
+      ? null
+      : (duration.inSeconds / distanceKm!).round();
+
+  int? get lapCount => lapSecs.isEmpty ? null : lapSecs.length;
+
+  double? get swimMetres => poolLengthM == null || lapCount == null
+      ? null
+      : (poolLengthM! * lapCount!).toDouble();
+}
+
+// ── FORMATTING ─────────────────────────────────────────────────────────────
+
+/// mm:ss, or h:mm:ss past the hour.
+String clock(int seconds) {
+  final s = seconds.abs();
+  final m = (s ~/ 60) % 60, h = s ~/ 3600;
+  String two(int v) => v.toString().padLeft(2, '0');
+  return h > 0 ? '$h:${two(m)}:${two(s % 60)}' : '${two(m)}:${two(s % 60)}';
+}
+
+String hms(Duration d) => clock(d.inSeconds);
+
+/// 1 234 → "1,234". Thousands separators, because six-thousand-eight-hundred
+/// and forty-two kilos should not read as a phone number.
+String grouped(num v) {
+  final s = v.round().abs().toString();
+  final b = StringBuffer(v < 0 ? '-' : '');
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
+    b.write(s[i]);
+  }
+  return b.toString();
+}
+
+/// "Oct 10, 2026 at 7:04 AM".
+String _shortDate(DateTime t) =>
+    '${formatShortDate(t)}, ${t.year} at ${formatClock(t)}';
+
+// ── THE SUPPORTING STATS ───────────────────────────────────────────────────
+
+/// The glyph for a stat name.
+///
+/// [commonStatIcon] owns the names every session can print; these are the
+/// ones only a session screen prints, and everything else falls through to
+/// it. One mapping, so `Pace` cannot end up with two marks.
+IconData statIcon(String name) => switch (name) {
+  'Reps' => LucideIcons.repeat2,
+  'Rounds' => LucideIcons.repeat,
+  'Poses' => LucideIcons.personStanding,
+  'Breathing' => LucideIcons.wind,
+  'Hard minutes' => LucideIcons.zap,
+  'Strain' => LucideIcons.trendingUp,
+  'Avg HR' => LucideIcons.heart,
+  'Max HR' => LucideIcons.heartPulse,
+  // A person, not an instrument — the one row on this card the band had
+  // no part in.
+  'Your rating' => LucideIcons.userRound,
+  'Cadence' => LucideIcons.footprints,
+  _ => commonStatIcon(name),
+};
+
+/// The supporting numbers a finished session can honestly print, as
+/// `(name, formatted value)`.
+///
+/// A stat with nothing behind it is DROPPED, never dashed. There is no cap:
+/// the three-across strip this replaced could hold exactly three, so a lift's
+/// calories and a run's strain were measured, banked, and then binned by a
+/// layout. A column has room for the ones the session actually has.
+///
+/// The one the hero is already showing is dropped too — see [_heroStatName].
+List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
+  final out = <(String, String)>[];
+  final hero = _heroStatName(r);
+  void add(String name, String? v) {
+    if (v != null && name != hero) out.add((name, v));
+  }
+
+  final distanceUnit = u?.distanceUnit ?? 'km';
+  final secPerKm = r.paceSecPerKm;
+  final perUnit = u == null ? 1.0 : u.distanceUnitMeters / 1000;
+  final pace = secPerKm == null
+      ? null
+      : UnitsController.formatPace(secPerKm * perUnit);
+
+  add('Time', hms(r.duration));
+  switch (r.arch) {
+    case Arch.route:
+      // Walks read as speed (km/h), as Strava shows them; runs as pace.
+      if (isWalkType(r.activity.typeKey)) {
+        add(
+          'Speed',
+          secPerKm == null || secPerKm <= 0
+              ? null
+              : '${(3600 / (secPerKm * perUnit)).toStringAsFixed(1)} '
+                    '${u?.speedUnit ?? 'km/h'}',
+        );
+      } else {
+        add('Pace', pace == null ? null : '$pace /$distanceUnit');
+      }
+    case Arch.laps:
+      add('Laps', r.lapCount?.toString());
+    case Arch.journey:
+      add('Elevation', r.gainM == null ? null : '+${r.gainM!.round()} m');
+    case Arch.interval:
+      add('Rounds', r.rounds.isEmpty ? null : '${r.rounds.length}');
+    case Arch.flow:
+      add('Poses', r.poses.isEmpty ? null : '${r.poses.length}');
+      add(
+        'Breathing',
+        r.breathsPerMin == null
+            ? null
+            : '${r.breathsPerMin!.toStringAsFixed(1)} br/min',
+      );
+    case Arch.match:
+      add('Sets', r.gameScore.isEmpty ? null : '${r.gameScore.length}');
+      add(
+        'Hard minutes',
+        r.hardMinutes == null ? null : '${r.hardMinutes!.round()} min',
+      );
+    case Arch.basic:
+      break; // time, heart rate and calories are the whole story
+  }
+  // Beside the other movement facts, above the heart. Offered only where the
+  // strap was allowed to count — see [ActivityResult.stepsCounted].
+  final stepsShown = r.phoneSteps ?? r.stepsCounted;
+  add('Steps', stepsShown == null ? null : grouped(stepsShown));
+  // 'Avg HR', not 'Heart rate': the trace above is the heart rate, this is its
+  // mean, and the two sat on one screen under one word.
+  add('Avg HR', r.avgHr == null ? null : '${r.avgHr} bpm');
+  // The peak. Measured, spike-suppressed, banked in `sessions.max_hr` and read
+  // back on the history path — and until now printed on the history ROW and
+  // nowhere on the screen that row opens.
+  add('Max HR', r.maxHr == null ? null : '${r.maxHr} bpm');
+  // How far it fell in the minute after. Computed at derive time, stored on the
+  // session, and until now read by nothing at all. The window is in the value
+  // rather than the label because 'HR recovery 24 bpm' is not a claim anybody
+  // can check — recovery over WHAT is the whole measurement.
+  add('HR recovery', r.hrr60 == null ? null : '${r.hrr60} bpm in 60 s');
+  add('Cadence', r.cadence == null ? null : '${r.cadence!.round()} steps/min');
+  // A run or walk with a distance shows its calories on their own card, by
+  // distance and by heart rate, so the band's single figure is not repeated.
+  final ownCard =
+      isRunType(r.activity.typeKey) || isWalkType(r.activity.typeKey);
+  add(
+    'Active calories',
+    r.calories == null || ownCard ? null : '${grouped(r.calories!)} kcal',
+  );
+  add('Strain', r.strain?.toStringAsFixed(1));
+  // TS-09 — last, under the measurements, and named 'Your rating' rather than
+  // 'RPE' so the row cannot read as something the band found out.
+  add('Your rating', r.rpe == null ? null : '${r.rpe!.round()} of 10');
+  return out;
+}
+
+/// The stat the hero is already showing large, or null when the hero is a
+/// number this list does not carry anyway (a distance, a volume, a swim).
+///
+/// Without this the screen printed '45:12' at 48 pt and then 'TIME 45:12' as
+/// the next card's first row.
+String? _heroStatName(ActivityResult r) => switch (r.arch) {
+  Arch.route || Arch.journey => r.distanceKm == null ? 'Time' : null,
+  Arch.laps => r.swimMetres == null ? 'Time' : null,
+  Arch.interval || Arch.flow || Arch.match || Arch.basic => 'Time',
+};
+
+/// A finished session's supporting stats, one to a row.
+///
+/// The three-across strip this replaces set three bare numbers side by side
+/// with a caption under each. The value column was a third of a card, so
+/// '5:08 /mi' had to hide its unit inside the label, and the fourth stat was
+/// dropped without saying so. One row per stat gives every one of them the
+/// same ringed mark, the same caps name, and the same value/unit pair
+/// ([StatRow], shared with the workout history detail).
+class SessionStats extends StatelessWidget {
+  final ActivityResult r;
+  const SessionStats(this.r, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // Solved against the page, not raw pigment: the card lands on both themes.
+    final accent = p.on(r.activity.color);
+    final rows = <Widget>[];
+    for (final s in sessionStats(r, unitsOf(c))) {
+      if (rows.isNotEmpty) rows.add(Divider(color: p.line, height: S.x5));
+      final (value, unit) = splitStatUnit(s.$2);
+      rows.add(
+        StatRow(
+          icon: statIcon(s.$1),
+          label: s.$1,
+          value: value,
+          unit: unit,
+          accent: accent,
+        ),
+      );
+    }
+    return Surface(child: Column(children: rows));
+  }
+}
+
+// ── THE SCREEN ─────────────────────────────────────────────────────────────
+
+class ActivitySummary extends StatefulWidget {
+  final ActivityResult result;
+
+  /// Body weight, for the calorie note. Null when the profile has none.
+  final double? weightKg;
+
+  /// The profile for a run's calories. Null reads it from the app (and a
+  /// golden without one shows the "needs your profile" line).
+  final Profile? profile;
+
+  /// Set only when persisting the session threw. Non-null means this summary
+  /// is drawn from something that is NOT in the database, and calling it tries
+  /// the write again.
+  final Future<ActivityResult> Function()? onRetrySave;
+
+  /// True only on the screen a session lands on the moment it ends. TS-09's
+  /// prompt appears here and nowhere else: "how hard did that feel" asked
+  /// three weeks later is a memory test, and re-asking on every open is the
+  /// escalation the spec refuses.
+  final bool justFinished;
+
+  const ActivitySummary(
+    this.result, {
+    super.key,
+    this.weightKg,
+    this.profile,
+    this.onRetrySave,
+    this.justFinished = false,
+  });
+
+  @override
+  State<ActivitySummary> createState() => _ActivitySummaryState();
+}
+
+class _ActivitySummaryState extends State<ActivitySummary> {
+  int tab = 0;
+
+  /// A yoga session, a tennis match and an untracked session do not break into
+  /// pieces — not "have none today", never. So they do not get the tab. The
+  /// card that used to sit inside it explaining its own absence was the tab
+  /// justifying its existence to the person who opened it.
+  List<String> get _tabs => switch (arch) {
+    Arch.flow || Arch.match || Arch.basic => const ['Overview', 'Graphs'],
+    _ => const ['Overview', 'Splits', 'Graphs'],
+  };
+
+  /// Whether the session is still only on screen. Starts true whenever a
+  /// retry was handed down, because that is what being handed one means.
+  late bool unsaved = widget.onRetrySave != null;
+  bool _saving = false;
+
+  /// The session as this screen currently knows it.
+  ///
+  /// [widget.result] is the source of truth; [_rated] is set only by TS-09, so
+  /// the rating the user just typed reaches [sessionStats] without a reload.
+  /// It is NOT seeded from `widget.result` in a field initialiser: Flutter
+  /// reuses this State when the same route is rebuilt with a different
+  /// session, and a `late` copy taken once would then describe the previous
+  /// one for the rest of the screen's life.
+  ActivityResult? _rated;
+
+  ActivityResult get r => _rated ?? widget.result;
+
+  // ── the run screen ──
+  RunView? _runCache;
+  HeartRateDrift? _drift;
+  bool _driftComputed = false;
+
+  /// A GPS session with a recorded track gets the run screen.
+  RunView? get run => arch == Arch.route && r.track.length >= 2
+      ? (_runCache ??= RunView(r))
+      : null;
+
+  /// Where the shared finger cursor sits, 0…1 of the run, or null.
+  double? _cursor;
+
+  /// Runs before this one, for PR badges and the 5K pace; null while loading.
+  List<RunSummary>? _earlier;
+
+  /// The session's SAVED end, read from its row (build 86 workout times):
+  /// never start + active duration, which pauses would shorten.
+  DateTime? _savedEnd;
+  int _resultGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadEarlier());
+    _loadEnd();
+    _loadSetMarks();
+  }
+
+  /// Minutes of the heart-rate trace in which a set was logged (build 86).
+  List<int> _setMarks = const [];
+
+  Future<void> _loadSetMarks() async {
+    final generation = _resultGeneration;
+    final result = r;
+    final id = result.sessionId;
+    if (id == null || !isLiftType(a.typeKey)) return;
+    try {
+      final w = await LiftLogDb.forSession(id);
+      if (w == null || !mounted || generation != _resultGeneration) return;
+      final marks = setMarkMinutes(result.start, [
+        for (final e in w.exercises)
+          for (final s in e.sets) s.completedAt,
+      ], result.hr.length);
+      setState(() => _setMarks = marks);
+    } catch (_) {
+      // No marks is the honest fallback; the trace still draws.
+    }
+  }
+
+  /// The heart-rate painter with a tick under each minute a set was logged.
+  CustomPainter _hrPainter(P p, AxisSpec? axis, {int? cursor}) {
+    final line = LineChart(
+      r.hr,
+      p.on(C.red),
+      cursor: cursor,
+      axis: axis,
+      t: animate(context, 1),
+    );
+    if (_setMarks.isEmpty) return line;
+    return _SetMarks(line, _setMarks, r.hr.length, p.on(C.purple));
+  }
+
+  String? get _setMarkNote => _setMarks.isEmpty
+      ? null
+      : 'Ticks mark when each set was logged, not how long it took.';
+
+  Future<void> _loadEnd() async {
+    final generation = _resultGeneration;
+    final result = r;
+    final id = result.sessionId;
+    if (id == null) return;
+    try {
+      final row = await LocalDb.session(id);
+      final te = (row?['end_ts'] as num?)?.toInt();
+      if (row?['status'] == 'live' ||
+          te == null ||
+          !mounted ||
+          generation != _resultGeneration) {
+        return;
+      }
+      setState(
+        () => _savedEnd = DateTime.fromMillisecondsSinceEpoch(te * 1000),
+      );
+    } catch (_) {}
+  }
+
+  /// "OCT 10, 2026 AT 7:04 AM – 7:58 AM"; an end after midnight carries its
+  /// own date.
+  String _when(BuildContext c) {
+    String t(DateTime d) => formatClock(d);
+    final end = _savedEnd;
+    // `_shortDate` already carries the start time.
+    final started = _shortDate(r.start).toUpperCase();
+    if (end == null) return started;
+    final sameDay =
+        end.year == r.start.year &&
+        end.month == r.start.month &&
+        end.day == r.start.day;
+    return sameDay
+        ? '$started – ${t(end)}'
+        : '$started – ${_shortDate(end).toUpperCase()}';
+  }
+
+  Future<void> _loadEarlier() async {
+    if (!mounted) return;
+    final generation = _resultGeneration;
+    final result = r;
+    final v = run;
+    final repo = repoOf(context);
+    if (v == null || !v.isRun || repo == null) return;
+    try {
+      final all = await loadRuns(repo, includePrivate: false);
+      if (!mounted || generation != _resultGeneration) return;
+      setState(
+        () => _earlier = [
+          for (final x in all)
+            if (x.id != result.sessionId && x.start.isBefore(result.start)) x,
+        ],
+      );
+    } catch (_) {
+      // Without history there are no badges; the run itself still shows.
+    }
+  }
+
+  /// The predicted 5K pace (s/km) from this run and every run before it.
+  double? get _fiveKPace {
+    final v = run;
+    if (v == null) return null;
+    final p5 = predicted5k([
+      ...?_earlier,
+      RunSummary(r.sessionId ?? '', r.start, 0, 0, v.efforts),
+    ]);
+    return p5 == null ? null : p5 / 5;
+  }
+
+  List<double>? get _paceShares {
+    final v = run, p5 = _fiveKPace;
+    return v == null || p5 == null || !v.isRun
+        ? null
+        : paceZoneShares(v.pace, p5);
+  }
+
+  String? get _verdict => runVerdict(
+    zoneShares: _paceShares ?? const [],
+    splits: [
+      for (var i = 0; i < r.splits.length; i++)
+        rm.Split(
+          index: i + 1,
+          meters: r.splits[i].km * 1000,
+          durationSec: r.splits[i].sec,
+        ),
+    ],
+  );
+
+  @override
+  void didUpdateWidget(covariant ActivitySummary old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.result, widget.result)) {
+      _rated = null;
+      unsaved = widget.onRetrySave != null;
+      _saving = false;
+      _resetResultView();
+      _loadEnd();
+      _loadSetMarks();
+      _loadEarlier();
+    }
+  }
+
+  // Selections and loaded metadata belong to one result, including after a
+  // failed-save retry replaces its draft. Never carry them into another trace.
+  void _resetResultView() {
+    _resultGeneration++;
+    tab = 0;
+    _hrPick = null;
+    _cursor = null;
+    _runCache = null;
+    _drift = null;
+    _driftComputed = false;
+    _rpeDismissed = false;
+    _savedEnd = null;
+    _setMarks = const [];
+    _earlier = null;
+  }
+
+  Activity get a => r.activity;
+  Arch get arch => r.arch;
+
+  /// Both are heat/cold exposure sessions — see [_thermal].
+  bool get thermal => _thermal.contains(a.name);
+
+  /// The user's unit system, watched in [build] so a switch in Settings
+  /// repaints this screen. Null only in a golden, where metric is what the
+  /// store holds.
+  UnitsController? _u;
+
+  /// This session's distance in the user's unit, and that unit's name.
+  (double, String)? get _distance {
+    final km = r.distanceKm;
+    if (km == null) return null;
+    final u = _u;
+    return u == null
+        ? (km, 'km')
+        : (u.distanceValue(km * 1000), u.distanceUnit);
+  }
+
+  String get _distanceUnit => _u?.distanceUnit ?? 'km';
+
+  // ─────────────────── TS-09 · SESSION RPE ───────────────────
+  //
+  // Scores the sessions heart rate cannot see — lifting, climbing, anything
+  // intermittent. Three rules, all of them refusals:
+  //
+  //   * NOTHING IS PRE-SELECTED. The set-level picker defaults to 7 and that
+  //     default is a garbage-data mechanism already running. Here a tap IS the
+  //     answer, so an untouched card leaves the column NULL.
+  //   * SKIPPABLE FOREVER, and the app stops asking rather than escalating —
+  //     [_kRpeSkips] counts the passes and the prompt retires at [_maxSkips].
+  //   * IT IS A FEELING, not a measurement, and every surface says so.
+  //
+  // What is NOT built: no sRPE score fused into training load, no comparison
+  // against TRIMP. The interesting thing about this number is where it
+  // DISAGREES with the measured load, and that needs weeks of both.
+  static const _kRpeSkips = 'workout.rpe_skips';
+  static const _maxSkips = 3;
+
+  /// Set when the user passes on this session, so the card goes away for this
+  /// screen without waiting on the write.
+  bool _rpeDismissed = false;
+
+  bool get _askRpe =>
+      widget.justFinished &&
+      r.sessionId != null &&
+      r.rpe == null &&
+      !_rpeDismissed &&
+      Prefs.getInt(_kRpeSkips, 0) < _maxSkips;
+
+  Future<void> _saveRpe(int v) async {
+    final generation = _resultGeneration;
+    final result = r;
+    final id = result.sessionId;
+    if (id == null) return;
+    final app = appOf(context);
+    try {
+      await LocalDb.setSessionRpe(id, v.toDouble());
+      app?.publishSessionChange();
+    } catch (_) {
+      return; // the row is unchanged, so the card stays and says nothing false
+    }
+    if (!mounted || generation != _resultGeneration) return;
+    // Rating one resets the skip count: the feature retires because it is
+    // being ignored, not because it was once inconvenient.
+    Prefs.setInt(_kRpeSkips, 0);
+    setState(() => _rated = result.copyWith(rpe: v.toDouble()));
+  }
+
+  void _skipRpe() {
+    Prefs.setInt(_kRpeSkips, Prefs.getInt(_kRpeSkips, 0) + 1);
+    setState(() => _rpeDismissed = true);
+  }
+
+  /// Ten choices, two rows of five, none of them lit. A tap saves and the card
+  /// is replaced by the rating in [SessionStats] — there is no confirm step,
+  /// because a picker with a default and a Save button is how a 7 ends up in
+  /// the database on behalf of somebody who never touched it.
+  Widget _rpePrompt(P p) {
+    final l = AppLocalizations.of(context);
+    return Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l?.activitySummaryRpeHeadline ?? 'HOW HARD DID THAT FEEL?',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+          const SizedBox(height: S.x2),
+          Text(
+            l?.activitySummaryRpeBody ??
+                'Your own rating of the effort. It is a feeling, not a '
+                    'measurement — which is the point, because it can '
+                    'disagree with the numbers above.',
+            style: F.cap.copyWith(color: p.ink2, height: 1.4),
+          ),
+          const SizedBox(height: S.x4),
+          for (var row = 0; row < 2; row++) ...[
+            if (row > 0) const SizedBox(height: S.x2),
+            Row(
+              children: [
+                for (var i = 0; i < 5; i++) ...[
+                  if (i > 0) const SizedBox(width: S.x2),
+                  Expanded(
+                    child: Pressable(
+                      semanticLabel:
+                          l?.activitySummaryRateEffort(row * 5 + i + 1) ??
+                          'Rate this effort ${row * 5 + i + 1} of 10',
+                      onTap: () => _saveRpe(row * 5 + i + 1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: S.x3),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: p.wash(a.color),
+                          borderRadius: R.rMd,
+                        ),
+                        child: Text(
+                          '${row * 5 + i + 1}',
+                          style: F.n17.copyWith(color: p.on(a.color)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+          const SizedBox(height: S.x3),
+          Row(
+            children: [
+              Text(
+                l?.activitySummaryRpeVeryEasy ?? '1 · very easy',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+              const Spacer(),
+              Text(
+                l?.activitySummaryRpeMaximal ?? '10 · maximal',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Pressable(
+              onTap: _skipRpe,
+              child: Text(
+                l?.activitySummaryNotNow ?? 'Not now',
+                style: F.body.copyWith(
+                  color: p.ink2,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Correct a session's activity type — the band's own guess, or a hand-typed
+  /// one that was wrong. `LocalDb.setSessionType` is the narrow UPDATE this
+  /// reuses; it used to have no caller at all (lost in the ui2 rewrite along
+  /// with the screen that called it).
+  ///
+  /// Archetype-specific fields on [r] (sets, route, splits…) belong to the OLD
+  /// type and cannot be salvaged for the new one, so this does not try to
+  /// patch [r] in place — it hands back to whatever list pushed this screen,
+  /// which re-reads on the revision bump below.
+  Future<void> _changeType(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null) return;
+    // Only true once a pick actually landed — pressing back out of the picker
+    // must return to this screen, not fall through and pop it too.
+    var picked = false;
+    await Navigator.of(c).push(
+      MaterialPageRoute(
+        builder: (_) => ActivityPicker(
+          onPick: (pc, newActivity) async {
+            final app = appOf(pc);
+            // The stored key everywhere else uses — `startWorkout(type:
+            // a.typeKey)` is the live path's own write. `a.name` here would still
+            // resolve through `activityByName`'s normalized lookup, but it would
+            // store a different string than every other producer of this column.
+            try {
+              await LocalDb.setSessionType(id, newActivity.typeKey);
+              app?.publishSessionChange();
+            } catch (_) {
+              // Same rule as `_saveRpe`: the row is unchanged, so leave the
+              // picker open rather than close it over a write that never
+              // happened — `onPick` is a `void Function`, so there is no caller
+              // to hand this failure back to.
+              return;
+            }
+            picked = true;
+            if (!pc.mounted) return;
+            Navigator.of(pc).pop();
+          },
+        ),
+      ),
+    );
+    if (c.mounted && picked) Navigator.of(c).pop();
+  }
+
+  Future<void> _retrySave() async {
+    if (_saving) return;
+    final generation = _resultGeneration;
+    setState(() => _saving = true);
+    var ok = false;
+    ActivityResult? saved;
+    try {
+      saved = await widget.onRetrySave!();
+      ok = true;
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted || generation != _resultGeneration) return;
+    // Build 93 (Codex full-flow audit F06): the saved result (with its id
+    // and anything the save added) replaces the draft on screen.
+    setState(() {
+      _saving = false;
+      unsaved = !ok;
+      if (saved != null) {
+        _rated = saved;
+        _resetResultView();
+      }
+    });
+    if (ok) {
+      _loadEnd();
+      _loadSetMarks();
+      _loadEarlier();
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    _u = unitsOf(c);
+    // Only a saved session has an id to correct — a draft on screen because
+    // the write threw has nowhere to put it. Reserving the two-icon width
+    // for a row that only ever draws one icon would shove the title left on
+    // every unsaved-session summary for no reason.
+    final canChangeType = r.sessionId != null;
+    final l = AppLocalizations.of(c);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(
+                a.name,
+                sub: _shortDate(r.start),
+                // Two icons, each a Pressable with S.tap's own 44 pt minimum
+                // hit box (grammar.dart's accessibility floor, not optional) —
+                // S.tap * 2 alone is 12 pt short of that plus the gap between
+                // them, which is exactly the RenderFlex overflow this fixed.
+                trailingWidth: canChangeType ? S.tap * 2 + S.x2 : 0,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (canChangeType && !unsaved) ...[
+                      Pressable(
+                        semanticLabel: 'Delete this workout',
+                        onTap: _deleting ? null : () => _delete(c),
+                        child: Icon(
+                          LucideIcons.trash2,
+                          size: 18,
+                          color: p.ink2,
+                        ),
+                      ),
+                      const SizedBox(width: S.x2),
+                    ],
+                    if (canChangeType) ...[
+                      Pressable(
+                        semanticLabel:
+                            l?.activitySummaryChangeType ??
+                            'Change activity type',
+                        onTap: () => _changeType(c),
+                        child: Icon(
+                          LucideIcons.pencil,
+                          size: 18,
+                          color: p.ink2,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              // Display labels are localized; `_tabs` itself stays the fixed
+              // English keys the switch below matches by NAME.
+              child: SubTabs(
+                [
+                  for (final t in _tabs)
+                    switch (t) {
+                      'Overview' => l?.activitySummaryTabOverview ?? 'Overview',
+                      'Splits' => l?.activitySummaryTabSplits ?? 'Splits',
+                      _ => l?.activitySummaryTabGraphs ?? 'Graphs',
+                    },
+                ],
+                tab,
+                (i) => setState(() => tab = i),
+                color: a.color,
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x10),
+                // By NAME: the tab list is shorter for the archetypes that have
+                // no splits, so index 1 is not always the same tab.
+                children: switch (_tabs[tab]) {
+                  'Overview' => [
+                    ..._overview(c, p),
+                    // The set log of this same workout (build 86): one
+                    // history entry carrying both sensor context and sets.
+                    if (r.sessionId != null && isLiftType(a.typeKey))
+                      LiftSummaryCard(
+                        key: ValueKey('lift-${r.sessionId}'),
+                        sessionId: r.sessionId!,
+                      ),
+                  ],
+                  'Splits' => _splits(c, p),
+                  _ => _graphs(c, p),
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _deleting = false;
+
+  /// Delete this saved session from its own summary, just-finished or
+  /// reopened (B86-06). Asks first with its date, leaves only after the
+  /// delete is durable, and keeps the screen if the write fails.
+  Future<void> _delete(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null || _deleting) return;
+    final ok = await confirmRemove(
+      c,
+      title: 'Delete this ${a.name.toLowerCase()}?',
+      body:
+          '${_shortDate(r.start)}. Its route, splits and logged sets go with '
+          'it. Band heart-rate history for that time stays.',
+      remove: 'Delete',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _deleting = true);
+    final app = appOf(c);
+    try {
+      // Through AppState, so a session it still owns is torn down too
+      // (Build 94, Codex N05).
+      app == null
+          ? await LocalDb.deleteSession(id)
+          : await app.deleteWorkout(id);
+      app?.publishSessionChange();
+      forgetRun(id);
+      if (!c.mounted) return;
+      await Navigator.of(c).maybePop();
+    } catch (_) {
+      if (c.mounted) {
+        ScaffoldMessenger.maybeOf(c)?.showSnackBar(
+          const SnackBar(
+            content: Text('The workout was not deleted. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
+  // ─────────────────── OVERVIEW ───────────────────
+  List<Widget> _overview(BuildContext c, P p) {
+    final hero = _hero();
+    final l = AppLocalizations.of(c);
+    final v = run;
+    if (v != null && !unsaved) {
+      final verdict = _verdict;
+      return [
+        _timing(c, p),
+        const SizedBox(height: S.x3),
+        RunMapCard(v, cursor: _cursor, medals: runMedals(v, _earlier)),
+        const SizedBox(height: S.x4),
+        // Scales down rather than overflowing at large text sizes.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(hero.$1, style: F.n34.copyWith(color: p.ink)),
+              if (hero.$2.isNotEmpty) ...[
+                const SizedBox(width: S.x2),
+                Text(hero.$2, style: F.body.copyWith(color: p.ink3)),
+              ],
+            ],
+          ),
+        ),
+        Text(a.name, style: F.cap.copyWith(color: p.ink2)),
+        const SizedBox(height: S.x4),
+        RunStatsGrid(v),
+        if (_distanceCalories) ...[
+          const SizedBox(height: S.x3),
+          RunCaloriesCard(
+            r,
+            r.calculationProfile ?? widget.profile ?? profileOf(c),
+          ),
+        ],
+        if (_askRpe) ...[const SizedBox(height: S.x3), _rpePrompt(p)],
+        if (verdict != null && v.isRun) ...[
+          const SizedBox(height: S.x3),
+          RunVerdictCard(verdict),
+        ],
+        BestEffortsCard(v, _earlier),
+        ..._zoneSection(p),
+      ];
+    }
+    return [
+      if (unsaved) ...[
+        StatusCard(
+          l?.activitySummaryUnsavedTitle ?? 'This session is not saved yet',
+          l?.activitySummaryUnsavedBody ?? 'Writing it to this phone failed.',
+          fix: _saving
+              ? (l?.activitySummarySaving ?? 'Saving')
+              : (l?.activitySummaryTryAgain ?? 'Try again'),
+          onFix: _saving ? null : _retrySave,
+          icon: LucideIcons.triangleAlert,
+        ),
+        const SizedBox(height: S.x5),
+      ],
+      _timing(c, p),
+      const SizedBox(height: S.x3),
+      // ONE flexible child. A `Flexible` hero next to a `Spacer` split the row
+      // by flex, so the headline got half the width whatever it said, and a
+      // 1,500 m swim printed '1,…' at 2x text. The privacy pill keeps its
+      // natural width; the hero takes the rest and scales down rather than
+      // truncating — a cut-off measurement is not a
+      // measurement.
+      Row(
+        children: [
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    hero.$1,
+                    style: F.n48.copyWith(color: p.ink),
+                    maxLines: 1,
+                  ),
+                  if (hero.$2.isNotEmpty) ...[
+                    const SizedBox(width: S.x2),
+                    Text(hero.$2, style: F.body.copyWith(color: p.ink3)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (r.private) ...[
+            const SizedBox(width: S.x3),
+            Pill(
+              l?.activitySummaryPrivate ?? 'Private',
+              C.n500,
+              icon: LucideIcons.lock,
+            ),
+          ],
+        ],
+      ),
+      const SizedBox(height: S.x1),
+      Text(hero.$3, style: F.cap.copyWith(color: p.ink2)),
+      const SizedBox(height: S.x5),
+      ..._definingObject(c, p),
+      const SizedBox(height: S.x5),
+      SessionStats(r),
+      if (_distanceCalories) ...[
+        const SizedBox(height: S.x3),
+        RunCaloriesCard(
+          r,
+          r.calculationProfile ?? widget.profile ?? profileOf(c),
+        ),
+      ],
+      if (_distanceCalories && r.sessionId != null) ...[
+        const SizedBox(height: S.x3),
+        WorkoutContextSelector(
+          tags: workoutContext(
+            WorkoutClock.read(r.sessionId!, r.start).results['context'],
+          ),
+          onChanged: (tags) async {
+            final app = appOf(c);
+            final clock = WorkoutClock.read(r.sessionId!, r.start);
+            clock.results['context'] = tags;
+            try {
+              await clock.persist();
+            } catch (_) {
+              return;
+            }
+            app?.publishSessionChange();
+            if (!mounted) return;
+            _driftComputed = false;
+            setState(() {});
+          },
+        ),
+      ],
+      if (_distanceCalories &&
+          r.track.length > 1 &&
+          r.duration.inMinutes >= 20) ...[
+        const SizedBox(height: S.x3),
+        _driftCard(p),
+      ],
+      // TS-09 — directly under the measurements, because that is what it is
+      // being asked against, and directly where the answer lands: once rated,
+      // this card is gone and 'Your rating' is the last row of the card above.
+      if (_askRpe) ...[const SizedBox(height: S.x3), _rpePrompt(p)],
+      ..._body(c, p),
+      // Zones belong to any session that banked a split — a lift and a yoga
+      // class have heart-rate zones too.
+      ..._zoneSection(p),
+      const SizedBox(height: S.x5),
+      _basisNote(p),
+    ];
+  }
+
+  Widget _timing(BuildContext c, P p) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(_when(c), style: F.cap.copyWith(color: p.ink2)),
+      Text('${hms(r.duration)} active', style: F.n17.copyWith(color: p.ink)),
+    ],
+  );
+
+  Widget _driftCard(P p) {
+    final clock = r.sessionId == null
+        ? WorkoutClock('', r.start, end: r.start.add(r.duration))
+        : WorkoutClock.read(r.sessionId!, r.start);
+    if (!_driftComputed) {
+      _drift = heartRateDrift(
+        r.track,
+        r.hr,
+        clock,
+        clock.end ?? r.start.add(r.duration),
+        tags: workoutContext(clock.results['context']),
+      );
+      _driftComputed = true;
+    }
+    final drift = _drift;
+    return Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Heart-rate drift', style: F.head.copyWith(color: p.ink)),
+          const SizedBox(height: S.x2),
+          Text(
+            drift == null
+                ? 'Not enough comparable data in both halves'
+                : '${drift.change >= 0 ? "+" : ""}${drift.change.toStringAsFixed(1)} bpm at similar recorded pace',
+            style: F.t2.copyWith(color: p.ink),
+          ),
+          if (drift != null)
+            Text(
+              'First half ${drift.earlierHr.round()} bpm → second half ${drift.laterHr.round()} bpm. '
+              'At least ${(drift.hrCoverage * 100).round()}% HR and ${(drift.routeCoverage * 100).round()}% route coverage.',
+              style: F.cap.copyWith(color: p.ink2),
+            ),
+          Text(
+            'A comparison within this session, at 20+ active minutes. Pauses are excluded. '
+            'Pace must be within 5% between halves; hills and treadmill tags withhold it. '
+            'Warm-up, heat and fatigue can affect HR. This does not change calories or diagnose fitness.',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A run or walk with a distance gets the two-method calorie card in place
+  /// of the band's heart-rate calorie stat.
+  bool get _distanceCalories => isRunType(a.typeKey) || isWalkType(a.typeKey);
+
+  /// What the numbers on this screen were made of. The calorie sentence is
+  /// always here; the step one joins it whenever a count is on the card,
+  /// because a step row that does not name its sensor is weaker than the day
+  /// screens beside it, which have named theirs all along.
+  Widget _basisNote(P p) {
+    final l = AppLocalizations.of(context);
+    if (_distanceCalories &&
+        !r.motionDistance &&
+        r.stepsCounted == null &&
+        r.phoneSteps == null) {
+      return const SizedBox.shrink();
+    }
+    return Surface(
+      elevation: 0,
+      color: p.card2,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              [
+                if (r.motionDistance)
+                  "Distance, pace and splits came from your phone's motion "
+                      'sensor, because this session had no GPS.'
+                else if (!_distanceCalories)
+                  _calorieBasis(),
+                if (r.phoneSteps != null)
+                  'Steps came from your phone, which counts a run more '
+                      'reliably than the wrist.'
+                else if (r.stepsCounted != null)
+                  l?.activitySummaryStepsBasis ??
+                      "Steps came from the strap's own motion sensor, which "
+                          'only counts them on foot.',
+              ].join(' '),
+              style: F.cap.copyWith(color: p.ink3, height: 1.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// What the calorie figure was actually made of — or why there isn't one.
+  ///
+  /// It claimed heart rate on every session, including the ones scored from
+  /// MET and weight alone because no beat ever arrived — printed three cards
+  /// under 'The band reported nothing while this was running'. Without a curve
+  /// there is no heart rate in the number: `_kcal` falls through to
+  /// `Activity.kcal`, which is MET × weight × minutes and nothing else.
+  ///
+  /// It also described a figure that was not on the screen. A session scored
+  /// from the substrate only banks kcal when the profile carries a real HRmax
+  /// AND a real resting HR (`manual_session.dart` refuses to persist one built
+  /// on the 220/60 fallback), so a stored session very often has no calorie
+  /// stat at all — and this card still explained how it had been estimated.
+  /// When there is no number, say which anchor is missing and point at the
+  /// effort measure that does not need one.
+  String _calorieBasis() {
+    final l = AppLocalizations.of(context);
+    if (widget.weightKg == null) {
+      return l?.activitySummaryCaloriesNeedWeight ??
+          'Calories need your weight.';
+    }
+    final met = a.met == null
+        ? null
+        : conservativeMet(a.typeKey, a.met!).toStringAsFixed(1);
+    if (r.calories != null && isLiftType(a.typeKey)) {
+      // The figure is sessionActiveKcal: MET only, sets and rests together.
+      return '${workoutEnergyMethodLabel(a.typeKey)}. ($met − 1) × your weight × active time (start to '
+          'stop, minus pauses). Heart rate is shown, not counted: it '
+          'overstates lifting. Not added to maintenance.';
+    }
+    if (r.calories == null) {
+      return r.strain == null
+          ? l?.activitySummaryNoCalorieNoStrain ??
+                'No calorie figure for this session. An energy estimate from '
+                    'heart rate needs your maximum and resting heart rates, and '
+                    'one of them is not set.'
+          : l?.activitySummaryNoCalorieWithStrain ??
+                'No calorie figure for this session — an energy estimate from '
+                    'heart rate needs your maximum and resting heart rates, and '
+                    'one of them is not set. Strain above is the effort that '
+                    'was measured, on its own 0–21 scale.';
+    }
+    // No MET is the catch-all activity, whose figure is therefore entirely
+    // the heart-rate estimate — saying "from MET" over it would name a basis
+    // this session does not have.
+    if (met == null) {
+      return l?.activitySummaryCalorieNoMet ??
+          'Estimated from your heart rate and your weight. No MET is in '
+              'this figure: the session named no activity for one to apply '
+              'to.';
+    }
+    return r.avgHr == null
+        ? '$met MET above resting × your weight × active time. No heart rate '
+              'reached this session.'
+        : 'The lower of $met MET above resting and your heart-rate estimate, '
+              'over active time.';
+  }
+
+  /// (value, unit, caption). The hero is the archetype's own headline — and
+  /// falls back to elapsed time, which is the one number every session has.
+  (String, String, String) _hero() {
+    final l = AppLocalizations.of(context);
+    final fallback = (
+      hms(r.duration),
+      '',
+      l?.activitySummaryElapsedTime ?? 'Elapsed time',
+    );
+    return switch (arch) {
+      Arch.route || Arch.journey =>
+        _distance == null
+            ? fallback
+            : (
+                _distance!.$1.toStringAsFixed(2),
+                _distance!.$2,
+                arch == Arch.journey && r.gainM != null
+                    ? (l?.activitySummaryClimbed(r.gainM!.round()) ??
+                          '+${r.gainM!.round()} m climbed')
+                    : a.name,
+              ),
+      Arch.laps =>
+        r.swimMetres == null
+            ? fallback
+            : (
+                grouped(r.swimMetres!),
+                'm',
+                l?.activitySummaryLapsCaption(r.lapCount ?? 0) ??
+                    '${r.lapCount} laps',
+              ),
+      Arch.flow || Arch.match || Arch.interval || Arch.basic => fallback,
+    };
+  }
+
+  // ─────────── THE DEFINING VISUAL OBJECT ───────────
+  List<Widget> _definingObject(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    switch (arch) {
+      case Arch.route:
+        if (r.route.length < 2 && r.motionDistance) {
+          return [
+            StatusCard(
+              'No map for this session',
+              'It was not recorded with GPS. Distance and splits are from your '
+                  "phone's motion sensor.",
+              icon: LucideIcons.smartphone,
+            ),
+          ];
+        }
+        if (r.route.length < 2) {
+          return [
+            // No `fix`: there is no "how route recording works" screen, and
+            // StatusCard paints any fix string as a blue call to action —
+            // a button that cannot be tapped is worse than no button.
+            StatusCard(
+              l?.activitySummaryNoRouteTitle ?? 'No route for this session',
+              l?.activitySummaryNoRouteBody ??
+                  'Location was off, or this activity was not recorded with '
+                      'GPS.',
+              icon: LucideIcons.map,
+            ),
+          ];
+        }
+        return [
+          Surface(
+            child: ChartFrame(
+              title: l?.activitySummaryRouteTitle ?? 'ROUTE',
+              unit: _distanceUnit,
+              height: 200,
+              legend: r.routePace == null
+                  ? const []
+                  // Fast is GREEN, slow is red.
+                  : [
+                      (l?.activitySummarySlower ?? 'Slower', p.on(C.red)),
+                      (l?.activitySummaryFaster ?? 'Faster', p.on(C.green)),
+                    ],
+              footnote: _distance == null
+                  ? (l?.activitySummaryStartFinishPinned ??
+                        'Start and finish are pinned.')
+                  : (l?.activitySummaryRouteFootnote(
+                          _distance!.$1.toStringAsFixed(2),
+                          _distance!.$2,
+                        ) ??
+                        '${_distance!.$1.toStringAsFixed(2)} ${_distance!.$2}, '
+                            'start and finish pinned.'),
+              child: ClipRRect(
+                borderRadius: R.rLg,
+                child: Container(
+                  color: p.card2,
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: RouteMap(
+                      r.route,
+                      pace: r.routePace,
+                      slow: p.on(C.red),
+                      fast: p.on(C.green),
+                      pinStart: p.on(C.green),
+                      pinEnd: p.on(C.red),
+                      pinInk: p.card,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ];
+
+      case Arch.interval:
+        if (r.rounds.isEmpty) {
+          return [
+            StatusCard(
+              l?.activitySummaryNoRoundsTitle ?? 'No rounds recorded',
+              l?.activitySummaryNoRoundsBody ?? '0 rounds logged.',
+              icon: LucideIcons.timer,
+            ),
+          ];
+        }
+        final peak = r.rounds
+            .map((x) => x.workSec > x.restSec ? x.workSec : x.restSec)
+            .reduce((x, y) => x > y ? x : y)
+            .toDouble();
+        return [
+          Surface(
+            child: ChartFrame(
+              title: l?.activitySummaryIntervalLadderTitle ?? 'INTERVAL LADDER',
+              unit: 'seconds',
+              height: 110,
+              legend: [
+                (l?.activitySummaryWork ?? 'Work', p.on(C.red)),
+                (l?.activitySummaryRest ?? 'Rest', p.on(C.teal)),
+              ],
+              xLabels: [
+                l?.activitySummaryRoundLabel(1) ?? 'Round 1',
+                l?.activitySummaryRoundLabel(r.rounds.length) ??
+                    'Round ${r.rounds.length}',
+              ],
+              footnote:
+                  l?.activitySummaryLongestBlock(clock(peak.round())) ??
+                  'Longest block ${clock(peak.round())}.',
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: IntervalLadder(
+                  [
+                    for (final x in r.rounds)
+                      (work: x.workSec / peak, rest: x.restSec / peak),
+                  ],
+                  p.on(C.red),
+                  p.on(C.teal),
+                ),
+              ),
+            ),
+          ),
+        ];
+
+      case Arch.flow:
+        // MT-08 — a sauna and a cold plunge are not a yoga flow. They have no
+        // poses and no paced breath; what they have is a heart rate the
+        // sensor may or may not have been able to read.
+        if (thermal) return _thermalObject(p);
+        // No breath ring here. The live screen's ring is a PACER driven by a
+        // controller the user breathes along with; on a finished session there
+        // is no phase to draw, and a static ring at some pleasing fraction is
+        // a measurement-shaped decoration.
+        return [
+          Container(
+            height: 170,
+            decoration: BoxDecoration(
+              borderRadius: R.rLg,
+              color: p.wash(C.teal, strength: 1.6),
+              boxShadow: p.el(1),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(LucideIcons.personStanding, size: 44, color: p.on(C.teal)),
+                const SizedBox(height: S.x2),
+                Text(
+                  r.poses.isEmpty
+                      ? hms(r.duration)
+                      : (l?.activitySummaryPosesCount(r.poses.length) ??
+                            '${r.poses.length} poses'),
+                  style: F.head.copyWith(color: p.ink),
+                ),
+                Text(
+                  r.breathsPerMin == null
+                      ? a.name
+                      : '${r.breathsPerMin!.toStringAsFixed(1)} breaths/min',
+                  style: F.over.copyWith(color: p.on(C.teal)),
+                ),
+              ],
+            ),
+          ),
+        ];
+
+      case Arch.laps:
+        if (r.lapSecs.isEmpty) {
+          return [
+            StatusCard(
+              l?.activitySummaryNoLapsTitle ?? 'No laps counted',
+              l?.activitySummaryNoLapsBody ?? '0 laps tapped.',
+              icon: LucideIcons.waves,
+            ),
+          ];
+        }
+        final fastest = r.lapSecs.reduce((x, y) => x < y ? x : y);
+        final slowest = r.lapSecs.reduce((x, y) => x > y ? x : y);
+        return [
+          Surface(
+            child: ChartFrame(
+              title: l?.activitySummaryLapsTitle ?? 'LAPS',
+              unit: l?.activitySummarySecondsPerLap ?? 'seconds per lap',
+              height: 150,
+              xLabels: [
+                l?.activitySummaryLapLabel(1) ?? 'Lap 1',
+                l?.activitySummaryLapLabel(r.lapSecs.length) ??
+                    'Lap ${r.lapSecs.length}',
+              ],
+              footnote: [
+                if (r.poolLengthM != null)
+                  l?.activitySummaryPoolLength(r.poolLengthM!) ??
+                      '${r.poolLengthM} m pool',
+                l?.activitySummaryFastest(clock(fastest)) ??
+                    'fastest ${clock(fastest)}',
+                l?.activitySummarySlowest(clock(slowest)) ??
+                    'slowest ${clock(slowest)}',
+              ].join(' · '),
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: LapBars(r.lapSpeeds, p.on(C.blue), p.track),
+              ),
+            ),
+          ),
+        ];
+
+      case Arch.journey:
+        if (r.elevationM.length < 2) {
+          return [
+            StatusCard(
+              l?.activitySummaryNoElevationTitle ?? 'No elevation profile',
+              l?.activitySummaryNoElevationBody ??
+                  'No route, or the route carried no altitude.',
+              icon: LucideIcons.mountain,
+            ),
+          ];
+        }
+        final peak = r.elevationM.reduce((x, y) => x > y ? x : y);
+        final axis = AxisSpec.of(r.elevationM);
+        return [
+          Surface(
+            child: Column(
+              children: [
+                ChartFrame(
+                  title: l?.activitySummaryElevationTitle ?? 'ELEVATION',
+                  unit: 'm',
+                  height: 130,
+                  yAxis: axis,
+                  xLabels: [
+                    l?.activitySummaryStart ?? 'Start',
+                    l?.activitySummaryFinish ?? 'Finish',
+                  ],
+                  series: r.elevationM,
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: Elevation(
+                      r.elevationM,
+                      p.on(C.green),
+                      markerInk: p.card,
+                      axis: axis,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: S.x4),
+                InlineMetrics([
+                  if (r.gainM != null)
+                    (
+                      l?.activitySummaryGain ?? 'Gain',
+                      '+${r.gainM!.round()} m',
+                      C.green,
+                    ),
+                  if (r.lossM != null)
+                    (
+                      l?.activitySummaryLoss ?? 'Loss',
+                      '−${r.lossM!.round()} m',
+                      C.orange,
+                    ),
+                  (
+                    l?.activitySummaryPeak ?? 'Peak',
+                    '${grouped(peak)} m',
+                    C.n500,
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ];
+
+      // A match is heart rate and hard minutes. There is no court map: the
+      // only positioning this app has is GPS at wrist accuracy, which indoors
+      // is nothing at all — the old map drew a decorative scatter that looked
+      // exactly like a measurement.
+      case Arch.match || Arch.basic:
+        if (r.hr.length < 2) {
+          return [_noHrCard(c)];
+        }
+        return [Surface(child: _hrFrame(p))];
+    }
+  }
+
+  // ─────────────────── MT-08 · HEAT AND COLD ───────────────────
+  //
+  // THE CARD IS BUILT AROUND ITS OWN NO-SIGNAL STATE, and on a cold plunge
+  // that state is the common one. Cold water triggers peripheral
+  // vasoconstriction — the vessels in the wrist close — and a reflectance PPG
+  // sensor reads a pulse through exactly those vessels. So "the band could not
+  // find your pulse" is the physiologically expected reading of a plunge, not
+  // a fault, not a strap problem, and not something to hide behind an average
+  // computed from four surviving seconds.
+  //
+  // What is deliberately NOT here, and must not be added: thermal load, a heat
+  // or cold adaptation score, core temperature, brown fat, and above all any
+  // duration target or "go longer next time". Cold-water immersion carries
+  // real cardiac and drowning risk and this app is not going to nudge anybody
+  // deeper into it.
+
+  /// Why a heat/cold session has no pulse in it — or null when the session is
+  /// not one, in which case a missing trace really is a link problem and the
+  /// sources list really is the fix.
+  ///
+  /// The one string, so the overview card, the Graphs tab and the shared
+  /// [_noHrCard] cannot end up telling three different stories about the same
+  /// silent sensor. Offering "Check band connection" for a plunge is a fix for
+  /// a problem the user does not have.
+  String? get _thermalWhy {
+    if (!thermal) return null;
+    final l = AppLocalizations.of(context);
+    return a.name == 'Cold plunge'
+        ? l?.activitySummaryColdPlungeWhy ??
+              'Cold closes the blood vessels the sensor reads through. Finding '
+                  'nothing here is expected, not a fault.'
+        : l?.activitySummaryHeatWhy ??
+              'Heat, sweat and a strap that loosens as you warm up all stop '
+                  'the sensor seeing a pulse. Finding nothing here is '
+                  'ordinary, not a fault.';
+  }
+
+  IconData get _thermalIcon =>
+      a.name == 'Cold plunge' ? LucideIcons.snowflake : LucideIcons.thermometer;
+
+  List<Widget> _thermalObject(P p) {
+    final l = AppLocalizations.of(context);
+    final (have, total) = r.hrMinutes;
+    // Under two readings there is no line to draw — one point is not a trace.
+    // The two headlines are not the same statement: nothing arrived, or one
+    // minute did and a single point is not a curve.
+    if (have < 2) {
+      return [
+        StatusCard(
+          have == 0
+              ? (l?.activitySummaryNoPulseTitle(a.name.toLowerCase()) ??
+                    'No pulse reading for this ${a.name.toLowerCase()}')
+              : (l?.activitySummaryOneMinutePulse ??
+                    'One minute of pulse, and no more'),
+          _thermalWhy!,
+          icon: _thermalIcon,
+        ),
+      ];
+    }
+    return [
+      Surface(
+        child: _hrFrame(
+          p,
+          extra: have < total
+              ? (l?.activitySummaryPulseGapNote(have, total) ??
+                    'The band found a pulse in $have of $total minutes. The '
+                        'gaps are expected, so what is drawn is the part it '
+                        'could see.')
+              : null,
+        ),
+      ),
+    ];
+  }
+
+  /// Why there is no trace — and the two reasons are not the same reason.
+  ///
+  /// The curve is per-MINUTE, so a session stopped after forty-five seconds
+  /// holds exactly one point with a band that streamed perfectly. Both cases
+  /// used to get 'The band reported nothing while this was running' and a
+  /// Check-band button, which is a false reason and a fix for a problem the
+  /// user does not have.
+  Widget _noHrCard(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return r.hr.any((v) => v != null)
+        ? StatusCard(
+            l?.activitySummaryTooShortTitle ?? 'Too short to chart',
+            l?.activitySummaryTooShortBody ??
+                'One minute of heart rate is a point, not a line.',
+            icon: LucideIcons.heartPulse,
+          )
+        // MT-08 — a third reason, and it is not a fault. On a heat or cold
+        // session the sensor is working and the blood is not where it can
+        // see it, so there is no connection to check and no button that
+        // helps.
+        : thermal
+        ? StatusCard(
+            l?.activitySummaryNoPulseTitle(a.name.toLowerCase()) ??
+                'No pulse reading for this ${a.name.toLowerCase()}',
+            _thermalWhy!,
+            icon: _thermalIcon,
+          )
+        : StatusCard(
+            l?.activitySummaryNoHrTitle ?? 'No heart rate for this session',
+            l?.activitySummaryNoHrBody ??
+                'The band reported nothing while this was running.',
+            fix:
+                l?.activitySummaryCheckBandConnection ??
+                'Check band connection',
+            // The band, its battery and its link all live behind the
+            // profile's sources list. The CTA used to be paint.
+            onFix: () => openProfile(c),
+            icon: LucideIcons.heartPulse,
+          );
+  }
+
+  /// The heart-rate trace, framed — the one chart both `basic` and `match`
+  /// are built on, so they cannot end up with two different axes for one
+  /// measurement.
+  /// What the trace does NOT cover.
+  ///
+  /// A session older than `rawRetentionDays` is drawn from the trace frozen at
+  /// score time, and a band that dropped the link mid-session froze a trace
+  /// with holes in it. Without this the chart draws a confident thin line
+  /// across a sync gap and nothing on the screen says the minutes are missing.
+  // ponytail: one threshold, no band. 90% is "a couple of minutes lost on an
+  // hour"; below that the gap is worth a sentence.
+  String? get _traceNote {
+    final pct = r.traceCoveragePct;
+    if (pct == null || pct >= 90) return null;
+    final l = AppLocalizations.of(context);
+    return l?.activitySummaryPartialTrace(pct) ??
+        'Partial trace — the band handed over $pct% of these minutes.';
+  }
+
+  int? _hrPick;
+  Widget _hrFrame(P p, {double height = 130, String? extra}) {
+    final l = AppLocalizations.of(context);
+    final axis = AxisSpec.of(r.hr.whereType<double>());
+    final hard = r.hardMinutes;
+    final note = [
+      if (hard != null)
+        l?.activitySummaryHardMinutesNote(hard.round()) ??
+            '${hard.round()} min above 80% of your maximum.',
+      ?_traceNote,
+      ?extra,
+      ?_setMarkNote,
+    ];
+    return ChartFrame(
+      title: l?.activitySummaryHeartRateTitle ?? 'HEART RATE',
+      unit: 'bpm',
+      height: height,
+      yAxis: axis,
+      xLabels: [l?.activitySummaryStart ?? 'Start', hms(r.duration)],
+      footnote: note.isEmpty ? null : note.join(' '),
+      series: r.hr,
+      readout: _hrPick == null || r.hr.isEmpty
+          ? null
+          : '${clock(_hrPick! * 60)} · ${r.hr[_hrPick!]?.round().toString() ?? 'not recorded'} bpm',
+      child: Scrubber(
+        value: _hrPick == null || r.hr.length < 2
+            ? null
+            : _hrPick! / (r.hr.length - 1),
+        onChanged: (v) {
+          if (r.hr.isNotEmpty)
+            setState(() => _hrPick = (v * (r.hr.length - 1)).round());
+        },
+        describe: (v) => r.hr.isEmpty
+            ? 'not recorded'
+            : '${clock((v * (r.hr.length - 1)).round() * 60)} · ${r.hr[(v * (r.hr.length - 1)).round()]?.round().toString() ?? 'not recorded'} bpm',
+        label: 'Heart rate through the session',
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: _hrPainter(p, axis, cursor: _hrPick),
+        ),
+      ),
+    );
+  }
+
+  /// The zone split, with the minutes in the key rather than in a second row
+  /// underneath it that has to be kept in step by hand.
+  Widget _zoneFrame(P p) => ChartFrame(
+    title:
+        AppLocalizations.of(context)?.activitySummaryTimeInZonesTitle ??
+        'TIME IN ZONES',
+    unit: 'minutes',
+    height: 10,
+    legend: [
+      for (var i = 0; i < 5; i++)
+        ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
+    ],
+    footnote: zonesWhy(r.zoneSource, r.zoneMaxHr, AppLocalizations.of(context)),
+    child: CustomPaint(
+      size: Size.infinite,
+      painter: ZoneBar(_zoneFractions(), p),
+    ),
+  );
+
+  // ─────────── ARCHETYPE BODY ───────────
+  List<Widget> _body(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    switch (arch) {
+      case Arch.flow:
+        return const [];
+
+      case Arch.match:
+        return [
+          if (r.gameScore.isNotEmpty)
+            Section(
+              l?.activitySummaryScore ?? 'Score',
+              Surface(
+                pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < r.gameScore.length; i++) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: S.x3),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                l?.activitySummaryGameSetLabel(i + 1) ??
+                                    'Set ${i + 1}',
+                                style: F.body.copyWith(color: p.ink3),
+                              ),
+                            ),
+                            Text(
+                              '${r.gameScore[i].$1} — ${r.gameScore[i].$2}',
+                              style: F.n17.copyWith(
+                                color: r.gameScore[i].$1 > r.gameScore[i].$2
+                                    ? p.on(a.color)
+                                    : p.ink3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (i < r.gameScore.length - 1)
+                        Divider(color: p.line, height: 1),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ];
+
+      case Arch.route ||
+          Arch.journey ||
+          Arch.laps ||
+          Arch.interval ||
+          Arch.basic:
+        return const [];
+    }
+  }
+
+  List<Widget> _zoneSection(P p) => r.zoneMinutes.length != 5
+      ? const []
+      : [
+          Section(
+            AppLocalizations.of(context)?.activitySummaryHeartRateZones ??
+                'Heart-rate zones',
+            Surface(child: _zoneFrame(p)),
+          ),
+        ];
+
+  List<double> _zoneFractions() {
+    final total = r.zoneMinutes.fold<double>(0, (x, y) => x + y);
+    if (total <= 0) return const [0, 0, 0, 0, 0];
+    return [for (final z in r.zoneMinutes) z / total];
+  }
+
+  // ─────────────────── SPLITS ───────────────────
+  // "Splits" is whatever this archetype breaks into: kilometres for a run,
+  // sets for a lift, rounds for HIIT, laps for a swim.
+  List<Widget> _splits(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    if ((run != null || r.motionDistance) && r.splits.isNotEmpty) {
+      return [RunSplitsCard(r)];
+    }
+    switch (arch) {
+      case Arch.route || Arch.journey:
+        if (r.splits.isEmpty) {
+          return [
+            StatusCard(
+              l?.activitySummaryNoSplitsTitle ?? 'No splits for this session',
+              l?.activitySummaryNoSplitsBody ??
+                  'Splits need a recorded distance.',
+              icon: LucideIcons.list,
+            ),
+          ];
+        }
+        // PACE, not duration. The route tracker emits a trailing PARTIAL split
+        // for whatever is left over — 0.4 km in 144 s — and this table printed
+        // the 144 as if it were a kilometre's pace, so the last row of every
+        // run read 2:24 and became the fastest-split reference every real
+        // kilometre was drawn against. `KmSplit.km` was on the record the
+        // whole time and read by nothing.
+        final shown = shownSplits(r, _u);
+        final splits = shown.splits;
+        final paces = <double?>[
+          for (final s in splits) s.km <= 0 ? null : s.sec / s.km,
+        ];
+        final measured = [for (final v in paces) ?v];
+        final fastest = measured.isEmpty
+            ? null
+            : measured.reduce((x, y) => x < y ? x : y);
+        // Build 95: per mile when miles are chosen, re-cut from the route or
+        // the phone's motion distance; an older session with neither keeps
+        // its kilometre splits and says so.
+        return [
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      child: Text(
+                        shown.unit == 'mi'
+                            ? 'MI'
+                            : (l?.activitySummaryKm ?? 'KM'),
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 46,
+                      child: Text(
+                        l?.activitySummaryPace ?? 'PACE',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    const Expanded(child: SizedBox()),
+                    SizedBox(
+                      width: 34,
+                      child: Text(
+                        l?.activitySummaryHr ?? 'HR',
+                        textAlign: TextAlign.right,
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                  ],
+                ),
+                if (shown.asRecorded)
+                  Padding(
+                    padding: const EdgeInsets.only(top: S.x1),
+                    child: Text(
+                      'km splits (as recorded)',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ),
+                const SizedBox(height: S.x2),
+                for (var i = 0; i < splits.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x1),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 26,
+                          // A partial split is not split N — it is the 0.4 that
+                          // was left, and it says so.
+                          child: Text(
+                            splits[i].km >= .95
+                                ? '${i + 1}'
+                                : splits[i].km.toStringAsFixed(1),
+                            style: F.cap.copyWith(color: p.ink3),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 46,
+                          child: Text(
+                            paces[i] == null
+                                ? ''
+                                : UnitsController.formatPace(paces[i]!) ?? '',
+                            style: F.cap.copyWith(
+                              color: p.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: fastest == null || paces[i] == null
+                              ? const SizedBox()
+                              : PaceBar(fastest / paces[i]!, C.green),
+                        ),
+                        SizedBox(
+                          width: 34,
+                          child: Text(
+                            splits[i].avgHr?.toString() ?? '',
+                            textAlign: TextAlign.right,
+                            style: F.cap.copyWith(color: p.ink2),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ];
+
+      case Arch.interval:
+        if (r.rounds.isEmpty) {
+          return [
+            StatusCard(
+              l?.activitySummaryNoRoundsTitle ?? 'No rounds recorded',
+              l?.activitySummaryNoRoundsBody ?? '0 rounds logged.',
+              icon: LucideIcons.timer,
+            ),
+          ];
+        }
+        // The heart-rate column exists only when the rounds carry one. A
+        // header over four blank cells reads as "your heart stopped".
+        final anyHr = r.rounds.any((x) => x.avgHr != null);
+        return [
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 34,
+                      child: Text(
+                        l?.activitySummaryRoundHeader ?? 'R',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        l?.activitySummaryWorkHeader ?? 'WORK',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        l?.activitySummaryRestHeader ?? 'REST',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    if (anyHr)
+                      SizedBox(
+                        width: 52,
+                        child: Text(
+                          l?.activitySummaryAvgBpm ?? 'AVG BPM',
+                          textAlign: TextAlign.right,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: F.over.copyWith(color: p.ink3),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: S.x2),
+                for (var i = 0; i < r.rounds.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x1),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 34,
+                          child: Container(
+                            width: 22,
+                            height: 22,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: p.wash(C.red),
+                              borderRadius: R.rSm,
+                            ),
+                            child: Text(
+                              '${i + 1}',
+                              style: F.over.copyWith(color: p.on(C.red)),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            clock(r.rounds[i].workSec),
+                            style: F.cap.copyWith(color: p.ink),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            clock(r.rounds[i].restSec),
+                            style: F.cap.copyWith(color: p.ink3),
+                          ),
+                        ),
+                        if (anyHr)
+                          SizedBox(
+                            width: 52,
+                            child: Text(
+                              r.rounds[i].avgHr?.toString() ?? '',
+                              textAlign: TextAlign.right,
+                              style: F.cap.copyWith(
+                                color: p.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ];
+
+      case Arch.laps:
+        if (r.lapSecs.isEmpty) {
+          return [
+            StatusCard(
+              l?.activitySummaryNoLapsTitle ?? 'No laps counted',
+              l?.activitySummaryNoLapsBody ?? '0 laps tapped.',
+              icon: LucideIcons.waves,
+            ),
+          ];
+        }
+        final fastest = r.lapSecs.reduce((x, y) => x < y ? x : y);
+        return [
+          Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 34,
+                      child: Text(
+                        l?.activitySummaryLapHeader ?? 'LAP',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 52,
+                      child: Text(
+                        l?.activitySummaryTimeHeader ?? 'TIME',
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        l?.activitySummarySpeedVsFastest ?? 'SPEED vs FASTEST',
+                        textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: S.x2),
+                for (var i = 0; i < r.lapSecs.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: S.x1),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 34,
+                          child: Text(
+                            '${i + 1}',
+                            style: F.cap.copyWith(color: p.ink3),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 52,
+                          child: Text(
+                            clock(r.lapSecs[i]),
+                            style: F.cap.copyWith(
+                              color: p.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: PaceBar(
+                            r.lapSecs[i] <= 0 ? 1 : fastest / r.lapSecs[i],
+                            C.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ];
+
+      // Unreachable — `_tabs` gives these archetypes no Splits tab to open.
+      case Arch.flow || Arch.match || Arch.basic:
+        return const [];
+    }
+  }
+
+  List<Widget> _graphs(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    final v = run;
+    if (v != null) {
+      final shares = _paceShares, p5 = _fiveKPace;
+      return [
+        RunMapCard(v, cursor: _cursor, medals: runMedals(v, _earlier)),
+        const SizedBox(height: S.x3),
+        RunCharts(
+          v,
+          cursor: _cursor,
+          onCursor: (f) => setState(() => _cursor = f),
+        ),
+        if (shares != null && p5 != null) PaceZonesCard(shares, p5),
+        ..._zoneSection(p),
+      ];
+    }
+    final series = <(String, String, Color, List<double?>)>[
+      if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr),
+      if (r.elevationM.length > 1) ('Elevation', 'm', C.teal, r.elevationM),
+    ];
+    if (series.isEmpty) {
+      // Same distinction the overview draws: a session with one minute in it
+      // is too short to plot, which is not the band's fault and not fixable
+      // from the sources list.
+      return [
+        if (r.hr.any((v) => v != null))
+          StatusCard(
+            l?.activitySummaryTooShortTitle ?? 'Too short to chart',
+            l?.activitySummaryTooShortBody ??
+                'One minute of heart rate is a point, not a line.',
+            icon: LucideIcons.chartLine,
+          )
+        // MT-08 — same guard as `_noHrCard`: a plunge with no trace has a
+        // reason, and "check band connection" is not it.
+        else if (thermal)
+          StatusCard(
+            l?.activitySummaryNothingToPlot(a.name.toLowerCase()) ??
+                'Nothing to plot for this ${a.name.toLowerCase()}',
+            _thermalWhy!,
+            icon: _thermalIcon,
+          )
+        else
+          StatusCard(
+            l?.activitySummaryNoSeriesTitle ?? 'No series to plot',
+            l?.activitySummaryNoSeriesBody ??
+                'This session recorded no per-minute streams.',
+            fix:
+                l?.activitySummaryCheckBandConnection ??
+                'Check band connection',
+            onFix: () => openProfile(c),
+            icon: LucideIcons.chartLine,
+          ),
+      ];
+    }
+    return [
+      for (final g in series)
+        Padding(
+          padding: const EdgeInsets.only(bottom: S.x3),
+          child: Surface(
+            child: Builder(
+              builder: (_) {
+                final axis = AxisSpec.of(g.$4.whereType<double>());
+                return ChartFrame(
+                  title: g.$1.toUpperCase(),
+                  unit: g.$2,
+                  height: 110,
+                  yAxis: axis,
+                  xLabels: ['Start', hms(r.duration)],
+                  // The gap belongs to the heart-rate trace, not to the altitude
+                  // the phone recorded alongside it.
+                  footnote: g.$1 == 'Heart rate'
+                      ? [?_traceNote, ?_setMarkNote].join(' ')
+                      : null,
+                  series: g.$4,
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: g.$1 == 'Heart rate'
+                        ? _hrPainter(p, axis)
+                        : LineChart(
+                            g.$4,
+                            p.on(g.$3),
+                            axis: axis,
+                            t: animate(context, 1),
+                          ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+    ];
+  }
+}
+
+/// A chart with short ticks along its foot at the given slots: where a set
+/// was logged on a lift's heart-rate trace.
+class _SetMarks extends CustomPainter {
+  _SetMarks(this.chart, this.slots, this.length, this.color);
+  final CustomPainter chart;
+  final List<int> slots;
+  final int length;
+  final Color color;
+
+  @override
+  void paint(Canvas cv, Size s) {
+    chart.paint(cv, s);
+    if (length < 2) return;
+    final ink = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    for (final m in slots) {
+      final x = s.width * m / (length - 1);
+      cv.drawLine(Offset(x, s.height - 6), Offset(x, s.height), ink);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SetMarks old) =>
+      old.slots != slots || chart.shouldRepaint(old.chart);
+}

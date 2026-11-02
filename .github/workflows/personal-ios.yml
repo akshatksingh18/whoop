@@ -1,0 +1,74 @@
+name: personal iPhone sideload
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: personal-iphone-sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+# This is a manually requested personal artifact. The job cannot publish a
+# release or write back to the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Standard hosted runners are free for this public repository. If its
+    # visibility ever changes back to private, skip before allocating macOS.
+    if: ${{ github.event.repository.private == false }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Keep this in lockstep with test.yml.
+          flutter-version: '3.41.6'
+          channel: stable
+          cache: true
+
+      - name: Guard — internal algorithm source contract
+        run: python3 tool/algorithm_contract.py
+
+      - name: Verify personal iOS build contract
+        run: |
+          python3 -m unittest tool/test_personal_ios.py
+          python3 tool/personal_ios.py check
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iPhone app
+        run: >-
+          flutter build ios --release --no-codesign
+          --dart-define=SOURCE_REVISION=${{ github.sha }}
+
+      - name: Package and verify unsigned IPA
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:12}"
+          ipa="$GITHUB_WORKSPACE/dist/whoop-personal-${short_sha}-unsigned.ipa"
+          mkdir -p "$GITHUB_WORKSPACE/dist/package/Payload"
+          cp -R build/ios/iphoneos/Runner.app "$GITHUB_WORKSPACE/dist/package/Payload/Runner.app"
+          (cd "$GITHUB_WORKSPACE/dist/package" && zip -qry -y "$ipa" Payload)
+          python3 tool/personal_ios.py validate "$ipa"
+          python3 tool/personal_ios.py manifest \
+            "$ipa" "$GITHUB_WORKSPACE/dist/whoop-personal-manifest.json" \
+            --source-revision "$GITHUB_SHA"
+          ipa_name="${ipa##*/}"
+          (cd "$GITHUB_WORKSPACE/dist" && shasum -a 256 "$ipa_name" > whoop-personal.sha256)
+
+      - name: Upload personal sideload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: whoop-personal-iphone
+          path: |
+            dist/*.ipa
+            dist/whoop-personal-manifest.json
+            dist/whoop-personal.sha256
+          if-no-files-found: error
+          retention-days: 14

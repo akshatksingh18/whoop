@@ -1,0 +1,191 @@
+// iOS CoreBluetooth state-restoration bridge.
+//
+// The native BleRestoreManager (ios/Runner/BleRestoreManager.swift) holds a no-timeout
+// pending connect to the paired band so iOS relaunches the app when the band reappears —
+// even from terminated. When that fires, native invokes `wake` here and we run the same
+// headless drain the periodic task uses, then tell native we're done so it re-arms.
+//
+// No-op on Android (the Edge Tracking foreground service keeps the process + live
+// connection alive there — no restore central needed).
+
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+import '../compute/derivation_engine.dart' show DeriveStop;
+import '../sync/background_sync.dart';
+import '../sync/band_ownership.dart';
+import '../sync/headless_gate.dart';
+import '../sync/sync_policy.dart' show RestoreWakeOutcome;
+import '../sync/file_log.dart';
+import '../sync/wake_timing.dart';
+
+class IosBleRestore {
+  static const _ch = MethodChannel('whoop/ble_restore');
+
+  /// Set true while the app holds a live foreground session (BleEngine connected).
+  /// A wake-triggered headless sync would otherwise fight flutter_blue_plus for the
+  /// band, so we skip it — the foreground session is already draining.
+  static bool foregroundActive = false;
+
+  /// Set by the live app (AppState). A restore wake is offered here BEFORE the
+  /// headless drain: when the app process is alive and still wants the link,
+  /// its own reconnect loop is what has to land the connection — a headless
+  /// drain would be refused the band by that loop's ownership intent, report
+  /// "done", and leave the native side idle with nothing watching the band.
+  static Future<RestoreWakeOutcome> Function()? onWake;
+
+  static bool _readySent = false;
+  static Timer? _readyFallback;
+
+  /// Register the wake handler. Native is told Flutter is ready only once the
+  /// app has chosen its band owner ([announceReady], from AppState's startup),
+  /// so a wake queued before launch cannot start a headless session while
+  /// AppState is also starting one (build 86). A fallback still announces
+  /// readiness if startup never gets that far. Call once at startup.
+  static Future<void> init() async {
+    if (!Platform.isIOS) return;
+    _ch.setMethodCallHandler(handleCall);
+    _readyFallback = Timer(const Duration(seconds: 15), announceReady);
+  }
+
+  /// The native callback, also exercised with synthetic channel messages.
+  @visibleForTesting
+  static Future<dynamic> handleCall(MethodCall call) async {
+    if (call.method == 'expire') {
+      WakeTiming.expire({'ble_restore'});
+      // The native background assertion is ending: stop calculation now.
+      DeriveStop.request('ble_wake_expired');
+      BandOwnership.requestHeadlessStop('ble_wake_expired');
+      return null;
+    }
+    if (call.method != 'wake') return null;
+    return WakeTiming.run<dynamic>('ble_restore', () async {
+      if (foregroundActive) {
+        await _done();
+        return null;
+      }
+      final handler = onWake;
+      if (handler != null) {
+        var outcome = RestoreWakeOutcome.notHandled;
+        try {
+          outcome = await handler();
+        } catch (e) {
+          _bgLog('[ios-restore] live-app wake handler threw: $e');
+        }
+        if (outcome == RestoreWakeOutcome.connected) {
+          await _done();
+          return null;
+        }
+        // Re-armed: the recovery connect is pending again and the native side
+        // already released its handoff — saying "done" now would cancel it.
+        if (outcome == RestoreWakeOutcome.rearmed) return null;
+      }
+      // Shared gate with the BGProcessingTask/BGAppRefreshTask entry points
+      // (HeadlessSyncGate): if another headless sync is mid-flight, skip this
+      // wake — matching the old private-_busy semantics (no syncDone signal;
+      // the running entry point completes its own cycle).
+      await HeadlessSyncGate.tryRun<void>('ble_restore_wake', () async {
+        try {
+          await runHeadlessSync(wake: 'ble_restore');
+        } catch (e) {
+          _bgLog('[ios-restore] headless sync threw: $e');
+        } finally {
+          await _done();
+        }
+      });
+      return null;
+    });
+  }
+
+  /// Let native deliver a queued wake. Idempotent.
+  static Future<void> announceReady() async {
+    if (!Platform.isIOS || _readySent) return;
+    _readySent = true;
+    _readyFallback?.cancel();
+    try {
+      await _ch.invokeMethod('ready');
+    } catch (_) {}
+  }
+
+  /// Tell native whether the app currently owns the live connection (via
+  /// flutter_blue_plus). While true, the restore central must NOT arm a competing
+  /// pending connect to the same peripheral. Set false (then [arm]) to hand the band
+  /// to the restore path for background relaunch.
+  static Future<void> setOwnsBand(bool owns) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('setOwnsBand', owns);
+    } catch (_) {}
+  }
+
+  /// Tell native that an accessory was just provisioned via the ASK picker (first-time
+  /// pairing). This is the cue for the native restore central to be CREATED — it is
+  /// deliberately deferred at launch on a fresh install so the ASK picker can be shown
+  /// with NO CBCentralManager alive (else `showPicker` fails with "CBManager is active
+  /// with global permissions"). Must be called BEFORE any flutter_blue_plus call.
+  static Future<void> provisioned(String remoteId) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('provisioned', remoteId);
+    } catch (_) {}
+  }
+
+  /// Arm restoration for this band (its iOS peripheral UUID == PairedDevice.remoteId).
+  static Future<void> arm(String remoteId) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('arm', remoteId);
+    } catch (_) {}
+  }
+
+  /// Atomic recovery hand-off for the hot disconnect path: combines
+  /// [setOwnsBand]\(false\) + [arm] into ONE native round trip instead of two
+  /// separately-awaited calls. Two calls left a window — a process suspension
+  /// between them — where `appOwnsBand` could already be false with nothing
+  /// armed to replace it, i.e. no one left watching for the band at all. The
+  /// native side also wraps this in a short `beginBackgroundTask` extension.
+  /// See `AppState._armRecovery`.
+  static Future<void> armRecoveryNow(String remoteId) async {
+    if (!Platform.isIOS) return;
+    foregroundActive = false;
+    try {
+      await _ch.invokeMethod('armRecoveryNow', remoteId);
+    } catch (_) {}
+  }
+
+  /// Stop restoration (sign-out / unpair).
+  static Future<void> disarm() async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('disarm');
+    } catch (_) {}
+  }
+
+  /// UIKit's application state: 'active', 'inactive' or 'background'; null off
+  /// iOS or when native cannot answer.
+  static Future<String?> appState() async {
+    if (!Platform.isIOS) return null;
+    try {
+      return await _ch.invokeMethod<String>('appState');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _done() async {
+    try {
+      await _ch.invokeMethod('syncDone');
+    } catch (_) {}
+  }
+}
+
+/// Background/headless diagnostics reach the shared file log too (B88-05):
+/// these lines used to go to `debugPrint` only, so the sync log was blind for
+/// exactly the wakes the reliability work needs to measure.
+void _bgLog(String line) {
+  debugPrint(line);
+  FileLog.write(line);
+}

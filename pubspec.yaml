@@ -1,0 +1,461 @@
+name: whoop_companion
+description: "Open-source, local-first fitness tracking companion for WHOOP 4.0 hardware. Not affiliated with WHOOP, Inc."
+publish_to: 'none'
+# Keep the RunnerTests MARKETING_VERSION/CURRENT_PROJECT_VERSION in
+# ios/Runner.xcodeproj/project.pbxproj aligned; Runner uses Flutter's values.
+# See guides/IOS_INSTALLATION.md, "Version alignment".
+version: 0.9.69+102
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Pinned to what flutter_localizations (this SDK) requires — see its own
+  # pubspec.lock entry, don't drift it independently.
+  intl: ^0.20.2
+
+  # The single icon family behind lib/ui2. One pack, one stroke weight, one
+  # optical size — replacing the five-pack mix the old design system blended
+  # per concept, which is why no two screens' icons quite matched. Lucide is
+  # what the interface was drawn in; keeping it means a screen can name the
+  # glyph the design names.
+  lucide_icons_flutter: ^3.1.15
+
+  # Local pure-Dart packages — the protocol byte codecs and the metric/analytics
+  # engine. Replace the old cloud backend: decode happens on-device, and the
+  # local re-layer computes metrics here (see lib/data/local_repository.dart +
+  # lib/compute/derivation_engine.dart). The analytics package now points at the
+  # 1 Hz-native family (import via `package:whoop_analytics/onehz.dart`).
+  # IN-TREE PACKAGES ARE IMPORTED AT REVIEWED COMMITS, NOT FLOATING BRANCH REFS.
+  # A floating ref means an earlier commit silently changes the behaviour of an
+  # already-tagged edge release (this bit us: analytics v42 rode `ref: main` into
+  # 0.9.13/0.9.14 with no edge change and shipped the main-thread staging ANRs).
+  # Update package histories deliberately as part of a reviewed app change.
+  # This monorepo keeps the reviewed sources under packages/ so local, CI, and
+  # release builds all resolve the same code without a pubspec override.
+  whoop_protocol:
+    path: packages/protocol
+      # protocol PR #27 head. main deliberately stays on a pre-gen5 SHA so the
+      # multiband surface doesn't ride in as a side effect of unrelated work —
+      # that is the right call THERE. This is the branch that wants it.
+      #
+      # Carries the gen5 decoders plus the fixes from #27: command responses
+      # have two more header bytes than we assumed (body location was reading
+      # the status byte as the location), GET_CLOCK/GET_DATA_RANGE read their
+      # fields instead of scanning for them, the R22 config values were
+      # inverted, and the gen4 optical fields are deprecated with what they
+      # actually are.
+      # protocol main @ #27 merge. Carries the gen5 command/decoder fixes plus
+      # the decode-integrity work: a record only decodes if its packet type says
+      # it is one, r-r beats are read only where the field map is confirmed, and
+      # a frame whose payload crc32 fails no longer lets its declared length
+      # swallow the frames behind it.
+      #
+      # protocol `fix/gen5-bounds-and-write-guard` @ e33e53a — the sweep half.
+      # gen4 record versions we never confirmed a field map for (v7/v9/v18 and
+      # unknown) stop publishing spo2/skin-temp/ppg/ambient off that guess and
+      # report absent instead; a gen5 v18 record with an out-of-range HR byte
+      # now decodes with hr absent instead of being thrown at raw_archive whole;
+      # gen4 bounds are no longer applied to gen5; HelloInfo.wristOn/.charging
+      # are always null (wear comes from WRIST_ON/OFF and the realtime wearing
+      # bit). v24/v12 — what our own straps ship — are byte-for-byte unchanged.
+      #
+      # Pushed (2026-08-19) on `fix/gen5-bounds-and-write-guard`, so a fresh
+      # checkout resolves it. The branch has moved on since (decodeFrame now
+      # emits R10 beat intervals) — deliberately NOT repinned: edge never reads
+      # `rr_ms` off decodeFrame, so the hop changes no number here and a repin
+      # would drag kAlgoVersion with it for nothing.
+      #
+      # Repinned to the #27 head after its own review pass. NO kAlgoVersion
+      # bump: the fixes only reject NaN/±inf, which was never a measurement, so
+      # for any user whose data is valid the output is byte-identical.
+      #
+      # REPIN (this branch): protocol main @ b7990e1, the #31 merge commit.
+      # #31 carries the gen5 hello map, the real clock opcodes and the v18
+      # record field map this branch's decoders need. main's pre-gen5 pin is
+      # deliberate THERE; this is the branch that wants gen5.
+      #
+      # REPIN (this branch): protocol #34 head @ 19d7291, on top of 4ce8f02
+      # (everything above). Carries the oura ring and generic bluetooth HR
+      # wire format in from edge — pure decode/encode functions with no BLE
+      # or db dependency, so they belong with the rest of the bytes-in-
+      # records-out code rather than beside the session that drives them.
+      # `parseFrame`/`parseEvent` on the whoop side are unchanged; the moved
+      # functions are `parseOuraFrame`/`parseOuraEvent` to avoid a barrel
+      # collision. No stored WHOOP number moves.
+      #
+      # Repinned again after that branch's own review pass: a truncated HRS
+      # notification (energy-expended flag set but the field cut off, or an
+      # odd-length RR remainder) now refuses instead of silently parsing what
+      # fit; `ouraCmdAuthenticate` rejects a wrong-size cipher instead of
+      # emitting a malformed frame; `ouraCmdSyncTime` no longer calls
+      # `ByteData.setUint64`, which throws on dart2js. None of the three touch
+      # a WHOOP code path.
+      #
+      # REPIN (this branch): protocol main @ 6664854, the #35 merge commit —
+      # a MAIN merge commit, reachable regardless of branch deletion, and the
+      # first pin here that is not a PR-branch head (#34 has since merged at
+      # 2c8448b, which 6664854 descends from, so the oura/HRS wire formats
+      # above are carried unchanged).
+      #
+      # The hop from 19d7291 is ahead 3 / behind 0 and its ONLY lib/ diff is
+      # #35's `lib/src/control.dart` (+4/-5): `Gen5HelloInfo.parse` no longer
+      # returns null for a hello body whose revision byte is not 1 — the byte
+      # is recorded in `helloRevision` and the fixed revision-1 offsets are
+      # read regardless. That matters here because this branch makes HELLO
+      # MANDATORY: under the old gate a firmware that bumped the revision
+      # could not connect at all.
+      #
+      # NO kAlgoVersion bump: hello feeds connection identity and state, not
+      # the derivation pipeline — no decoder for a persisted record changes,
+      # so no stored number can move. Reasoning also sits beside kProtocolPin
+      # in lib/compute/derivation_engine.dart, which moves together with this
+      # ref and pubspec.lock (the pin-equality test fails a partial repin).
+      #
+      # REPIN: protocol main @ 471034c, the #42 (audit/consolidated-fixes)
+      # merge — 6 commits on top of 6664854: decodeFrame's short-packet
+      # dispatch now tries the v2 realtime-HR parser before falling back to
+      # v1 (rev-2 packets were being misdecoded); R10 live dispatch no longer
+      # drops hr==0 (off-wrist) records to a bare data_record and now carries
+      # ts_epoch like the other realtime_hr branches; the copy-pasted LE
+      # (sec, subsec) byte packing used by 5 command builders and the
+      # hand-rolled _pow10/gen5 u16/i16/u32 readers were deduped; and #36
+      # lands raw R11 frame decoding (`R11Raw`/`decodeR11Raw`, meaning
+      # unconfirmed — see live.dart).
+      #
+      # NO kAlgoVersion bump: every changed decoder here is on the live
+      # realtime path (decodeFrame's `realtime_hr`/`realtime_small`, R11) —
+      # live high-rate streams are never persisted (see invariant #1), so no
+      # stored day_result number moves. R11's meaning is still unconfirmed
+      # and edge does not read it.
+  whoop_analytics:
+    path: packages/analytics
+      # analytics main @ #34 merge. Two hops in one: #32 (the HR-onset bypass
+      # for low-limb-swing cardio) had already merged and this pin was still
+      # sitting on its PR-branch head, and #34 lands the sleep-stager rewrite.
+      #
+      # #34 replaces the deep/REM boolean conjunctions with weighted robust-z
+      # scores. Measured against 99 PSG-labelled wrist nights (DREAMT), the old
+      # rules scored kappa 0.036 — deep PPV 5.7% against a 4.5% base rate, REM
+      # 12.1% against 14.0%, i.e. at or below chance — because the deep rule
+      # AND-ed one good axis, one null axis (rmssd, d -0.13) and one INVERTED
+      # axis (mean HR, d +0.31), so they could only co-fire by luck. That is
+      # what produced 30-second deep specks the 3-min bout rule then deleted.
+      # Now kappa 0.128 (0.132 held out), deep 53.0/12.9 sens/PPV, REM
+      # 52.6/20.7. Cutoffs are calibrated on OUR captures, not DREAMT — the
+      # DREAMT-optimal values under-called REM badly on real WHOOP data.
+      # Verified present: `git show <sha>:lib/src/onehz/sleep/cardio_stager.dart
+      #   | grep -E 'classifyCardioEpochs|_remScoreCut = 0.5'`.
+      #
+      # analytics main @ #35 merge (1fb34dc). Neither side of this conflict was
+      # right: HEAD had #35's PR-BRANCH head (38a8636, never on main) and main
+      # had the older #38 merge (c3a30be). This SHA is analytics main and carries
+      # all three hops this release needs -- #38 (nap detector), #39 (the awake-HR
+      # baseline P0 that shipped inside #38), and #35 (the 1 Hz step estimate
+      # deleted + movement minutes on measured evidence), the sibling half of
+      # THIS branch.
+      #
+      # Verified against the SHA: `dailyStepEstimate` absent,
+      # `dailyActiveMinutes` present in lib/src/onehz/motion/steps.dart.
+      #
+      # analytics main @ #41 merge (ebe45da). Adds `journalNumericCorrelations`
+      # — Spearman rho + Theil-Sen slope over journal fields that carry a dose,
+      # which the typed journal entries shipped in edge #218 had no way to
+      # correlate. Nothing else changed; #41 only appends to coaching.dart.
+      #
+      # Verified against the SHA:
+      #   `git show ebe45da:lib/src/onehz/human/coaching.dart |
+      #      grep -E 'journalNumericCorrelations|class JournalNumericDay'`
+      #
+      # analytics main @ #42 merge (e047c59). Names the sample gap cap that
+      # `estimateBoutCalories` applies when the next HR sample is late, so the
+      # live workout scorer in app_state can read the same 150 s rather than
+      # restating it. A default-argument literal is unreachable from another
+      # package, so the second copy was going to drift the day the cap moved.
+      #
+      # Verified against the SHA:
+      #   `git show e047c59:lib/src/onehz/workout/calories.dart |
+      #      grep defaultMergeGapCapS`
+      #
+      # analytics `fix/numerical-correctness` @ beaeafa. THE PIN ABOVE WAS
+      # STALE: it sat on cef6fe4 (#45) while the comment described e047c59 and
+      # every local run built ../analytics through pubspec_overrides.yaml, so
+      # kAlgoVersion 67 and 68 both documented analytics behaviour the pinned
+      # SHA had never contained — the v43 failure, again. The two commits this
+      # moves to are what those entries were actually written against, plus the
+      # sweep: Welch-averaged band powers in ms²/Hz, `ulf` absent rather than
+      # 0.0, nullable `round6`, correctRr advancing its clock by the real
+      # interval on a corrected beat, baselines withheld until a real night is
+      # folded, the resting-HR percentile-of-you oriented lower-is-better, the
+      # circadian non-parametrics omitted when an hour was never observed, and
+      # `meaningful` off readiness_composite. `sex`/`age` are gone from
+      # vo2maxEstimate and physiologicalAge, so this pin and
+      # crossday_pipeline.dart must move together.
+      #
+      # The pins are also asserted from lib/compute/derivation_engine.dart
+      # (kAnalyticsPin/kProtocolPin) — repin without visiting the version gate
+      # and the suite goes red, because kAlgoVersion alone cannot tell two
+      # different analytics apart.
+      #
+      #
+      # analytics `fix/numerical-correctness` @ 98d42b6 — the device seam, at
+      # kAlgoVersion 70. One commit on top of beaeafa, and the one every
+      # family-dispatched metric in edge needs: `lib/src/onehz/device.dart`
+      # (DeviceFamily, deviceFamilyOf() -> null on anything unrecognised,
+      # calibrationFor() -> null rather than gen4's constants). It also lands
+      # Benjamini-Hochberg over the 9x4 journal-correlation grid (findings
+      # disappear; empty is a real answer), binary habits routed to
+      # difference-of-means instead of a rho, hrRecovery's fitted tau,
+      # Kruskal-Wallis + permutation on the weekday effect, sleep runs
+      # terminating at unobserved, per-cycle depths/widths out of the apnea
+      # screen, and the removal of vo2maxEstimate/physiologicalAge — edge
+      # stopped calling those two before this pin, so nothing loses a value.
+      #
+      # Verified against the SHA:
+      #   `git show 98d42b6:lib/src/onehz/device.dart |
+      #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
+      #
+      # analytics `fix/numerical-correctness` @ 391ede4 — analytics HEAD, and
+      # what kAlgoVersion 71 is pinned against. This is the commit that landed
+      # the nine symbols edge lib/ was already calling and 98d42b6 did not have
+      # (alertnessForecast, AlertnessForecast, CvhrNight, CvhrDistribution,
+      # cvhrPersonalDistribution, cvhrDistributionWindowNights, StageInterval,
+      # stageIntervals, journalFieldLagDays) plus observed_max_hr, session_cost,
+      # night_hrv_shape, cycle_lengths and the cvhr apnea screen. The "a clean
+      # checkout does not compile" warning that used to sit here is RESOLVED —
+      # checked symbol by symbol against this SHA.
+      #
+      # Verified against the SHA:
+      #   `git show 391ede4:lib/src/onehz/human/alertness_forecast.dart | head -1`
+      #   `git show 391ede4:lib/src/onehz/device.dart |
+      #      grep -E 'enum DeviceFamily|calibrationFor|unknownFamilyNote'`
+      #
+      # The "pin is behind the working copy" warning that used to sit here is
+      # RESOLVED. The algorithms-audit wave (readiness refusing on a cold start,
+      # the RMSSD jitter gate, the active-energy correction, the EWMA baseline
+      # fix, BH-corrected journal insights) was uncommitted when that was
+      # written; it is committed now and this SHA is the tip of it, so what
+      # kAlgoVersion 71's changelog describes is what a clean checkout builds.
+      # The pin also moved 391ede4 -> 21664f8 without the prose above following
+      # it — the `git show` lines still read true against either.
+      #
+      # `fix/numerical-correctness` merged to main as PR #46 (bfea5e5); the pin
+      # moved 21664f8 -> bfea5e5 to track it. Diff between the two is two
+      # test-only deprecation-ignore annotations (analytics `lib/` untouched),
+      # so kAlgoVersion needs no bump for this move.
+      #
+      # Repinned again after that branch's own review pass. Still no bump, same
+      # reason: the change rejects NaN/±inf inputs and nothing else, and a NaN
+      # was never a reading. `dailyEnergy` returns a nullable record now — it
+      # abstains rather than billing every waking minute as active when the
+      # anchors are unusable — which is source-breaking here, not
+      # number-changing (see `onehz_pipeline` and `_dailyEnergy`).
+      #
+      # REPIN: analytics @ 353c6bc, on top of d6ba41c. FOUR output changes,
+      # kAlgoVersion bumped for this hop — see its own changelog entry:
+      # nocturnalRhr(minCoverage: 0) could reach a NaN trough; the cadence
+      # rescale in the sleep stager was double-applying an already
+      # cadence-invariant factor; cardio_stager's epoch grid could silently
+      # drift from its own reported length; readiness's sub-quantum
+      # dispersion guard only ran when robustZ came back null, missing a
+      # nonzero-MAD-but-still-quantized baseline. WHOOP-cadence output is
+      # unaffected by the first three (1 Hz is the case each already handled
+      # correctly); the quantum-guard fix can change a WHOOP readiness score
+      # when a baseline happens to sit in that gap.
+      #
+      # analytics main @ #51 merge (7105256). Review-fix repin for edge's own
+      # band-agnostic PR (#280) — no lib/ diff over 353c6bc for this hop (#51
+      # was the merge of this same feat/band-agnostic work on the analytics
+      # side; the only lib/ change since 353c6bc is #52's
+      # lib/src/onehz/workout/calories.dart, picked up incidentally since #52
+      # merged before #51 on analytics main).
+      #
+      # main also repinned to a077a4a (the #52 merge, edge#283's own hop) in
+      # the meantime — 7105256 already contains it: analytics main order is
+      # a077a4a (#52) then 7105256 (#51), so this pin supersedes that one and
+      # no further move is needed.
+      #
+      # REPIN: analytics main @ 187e026 (PR #53 merge). One hop on top of
+      # 7105256: adds the optional `nnTimesMs` param to irregularBeatScreen
+      # that onehz_pipeline.dart (edge #289 / 3120774) already calls -- the
+      # pin was never moved when that landed, which broke `flutter analyze`
+      # (undefined_named_parameter, both call sites). No other symbol changed.
+      #
+      # REPIN: analytics main @ 1fa8144, the #59 (audit/consolidated-fixes)
+      # merge — 3 commits on top of 187e026, two output-affecting:
+      # `sessionHrCeiling`'s trailing-motion corroboration window could be
+      # satisfied by a single un-averaged sample at the very first iteration
+      # (one noisy sample "corroborating" a hold before the trailing window
+      # had actually accumulated its ~3 s span) — now only updates `bestTrail`
+      # once the window has matured to a full span; `irregularBeatScreen`'s
+      # sustained-window check diffed consecutive elements of the
+      # artifact-compacted beat array even when a removed beat sat between
+      # them, understating the true gap and risking a false sustained-flag —
+      # now carries an alignment flag (`nnAdjacent`) so a diff across a
+      # dropped beat is skipped the same way the aggregate diff already does.
+      # The third commit is doc-only (README quick-start's `nnTimesMs`
+      # numbers were off by one cumulative sum; `dailyActiveMinutes`'s
+      # AN-2554 citation was wrong, relabeled internal ESTIMATE).
+      #
+      # kAlgoVersion bumped (84) for this hop: `sessionHrCeiling` feeds the
+      # stored `hr_ceiling_bpm` (derivation_engine.dart:7662) and
+      # `irregularBeatScreen` feeds the stored 24 h and sleep irregular-rhythm
+      # screens (onehz_pipeline.dart) — both are real, if narrow, output
+      # changes, not NaN/±inf-only rejections.
+
+  # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
+  flutter_blue_plus: ^1.36.8
+
+  # Local raw-first storage.
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.5
+
+  # Unwrapping the archives users actually pick on the import screen: a WHOOP
+  # "My Data" export is a ZIP of CSVs, and a NOOP `.noopbak` is a ZIP holding a
+  # SQLite database (issues #199, #160). Already present transitively; declared
+  # directly because `lib/import/import_container.dart` imports it.
+  archive: ^4.0.9
+
+  # Passphrase-encrypted backup (lib/import/backup_crypto.dart). A vetted,
+  # long-standing pure-Dart implementation of AES-256-GCM and
+  # PBKDF2-HMAC-SHA256 — no hand-rolled construction, and no platform channel,
+  # so the round trip is testable headless. `crypto` (already transitive) has
+  # HMAC but no AEAD, which is the one primitive that must not be improvised.
+  pointycastle: ^3.9.1
+
+  # HTTP — retained ONLY for the OTA self-update pointer (see lib/sync/update_service.dart)
+  # and the AI Coach's direct LLM (BYOK) calls. No backend / auth traffic anymore.
+  http: ^1.2.2
+
+  # Barcode scanning for the food log (lib/ui2/screens/scan_barcode.dart).
+  #
+  # The floor is not cosmetic: 7.3.0 and 7.4.0 fixed a controller-dispose bug
+  # that tore down ANOTHER controller's camera, and an Apple `captureOutput`
+  # race. This app holds a camera nowhere else today, but the first bug is the
+  # kind that only shows up once it does.
+  #
+  # The default Android config links the BUNDLED ML Kit model, which is what we
+  # want: +3-10 MB of APK in exchange for needing no Google Play Services at
+  # all, on a build distributed through GitHub Releases. Do NOT set the
+  # `useUnbundled` Gradle property.
+  mobile_scanner: ^7.3.1
+
+  # State + small settings persistence.
+  provider: ^6.1.2
+  shared_preferences: ^2.3.3
+
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+
+  # Type: Manrope + Barlow Condensed are BUNDLED under assets/fonts/ (declared
+  # in flutter.fonts below), not pulled at runtime — see the note there.
+
+  # Declarative motion (flutter_animate) and the five-pack icon mix that
+  # backed lib/ui/kit/os_icons.dart went with lib/ui. lib/ui2 has one icon
+  # family (lucide_icons_flutter, declared above) and one motion gate
+  # (lib/ui2/theme.dart), so none of them have a consumer any more.
+  #
+  # phosphor_flutter also no longer COMPILES against the current Flutter SDK —
+  # `IconData` became a final class, and PhosphorIconData extends it — which is
+  # what was failing 33 test files on main before this branch.
+
+  # Structural deep-equality (series_codec's verifyLossless) — was transitive
+  # via flutter itself; declared directly since lib/ code now imports it.
+  collection: ^1.18.0
+
+  # Injectable clock (RouteTracker's stall watchdog) — was a transitive dep via
+  # fake_async/flutter_test; declared directly since lib/ code now imports it.
+  # `clock.now()` instead of raw DateTime.now() lets fakeAsync tests control
+  # time deterministically instead of needing a real multi-second sleep.
+  clock: ^1.1.2
+
+  # Share recap cards (rendered card → image → share sheet).
+  share_plus: ^10.1.4
+
+  # File picker for data imports (NOOP raw CSV, Edge .db backup, WHOOP export CSV).
+  file_picker: ^8.1.6
+  # Build 86 Body photos: decode, bake orientation, resize to 2048 px and
+  # re-encode without metadata (no location), on a worker isolate. Already
+  # resolved in pubspec.lock as a transitive dependency; now used directly.
+  image: ^4.9.2
+
+  # OS-level notifications (band battery low / charging, health alerts, recovery,
+  # scheduled reminders). The single display layer; see lib/notify/. Local +
+  # scheduled only (no FCM — the app is cloud-free).
+  flutter_local_notifications: ^18.0.1
+  # zonedSchedule needs an initialized tz database + the device's IANA zone, so
+  # wind-down / weekly-recap nudges fire at the right wall-clock time.
+  timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
+
+  # OTA self-update (Android sideload): read our own version, download + install the
+  # signed APK from the backend's update pointer, with a browser fallback.
+  package_info_plus: ^8.1.0
+  url_launcher: ^6.3.0
+  flutter_secure_storage: ^10.3.1
+
+# Protocol and analytics are tracked inside this monorepo, so the path dependencies above are
+# also the CI/release source of truth. Do not add a pubspec override for these packages.
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  test: ^1.25.8
+  # no_runtime_font_fetch_test parses pubspec.yaml to assert every family the
+  # type scale uses is bundled rather than fetched at runtime.
+  yaml: ^3.1.2
+  sqflite_common_ffi: ^2.4.0+3
+  # RouteTracker's stall-watchdog tests drive virtual time (was a transitive
+  # dep via flutter_test; declared directly since test/ now imports it).
+  fake_async: ^1.3.1
+  # day_window_dst_test moves the PROCESS timezone via libc setenv/tzset so the
+  # DST day-length regressions are real on a non-DST host (transitive via
+  # sqflite_common_ffi; declared directly since test/ now imports it).
+  ffi: ^2.1.0
+  # db_p0_fixes_test swaps PathProviderPlatform.instance for a temp-dir fake so
+  # exportDaysDb can run without a platform plugin (transitive via
+  # path_provider; declared directly since test/ now imports it).
+  path_provider_platform_interface: ^2.1.0
+  # ack_commit_sync_full_test wraps the ffi factory in SqfliteDatabaseFactoryLogger
+  # to spy the PRAGMA synchronous=FULL/NORMAL bracket around the ACK-gating commit
+  # (transitive via sqflite_common_ffi; declared directly since test/ now imports it).
+  # PINNED, not a caret range: that constructor is @experimental earlier, so a
+  # minor bump is allowed to change or withdraw it and would break the test on
+  # someone else's `pub upgrade` rather than on a deliberate one here.
+  sqflite_common: 2.5.8
+
+
+flutter:
+  generate: true
+  uses-material-design: true
+  # Both families are bundled, not fetched. google_fonts resolves a missing
+  # family over HTTP to fonts.gstatic.com on first launch — before the user
+  # has seen the consent screen, and contrary to PRIVACY.md. It also lets the
+  # hero readiness numerals flicker or fall back on a cold offline launch.
+  # SIL Open Font License (OFL.txt alongside the .ttf files, from
+  # https://github.com/google/fonts).
+  fonts:
+    - family: Barlow Condensed
+      fonts:
+        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-ExtraBold.ttf
+          weight: 800
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope/Manrope-400.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope/Manrope-500.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope/Manrope-600.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope/Manrope-700.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope/Manrope-800.ttf
+          weight: 800

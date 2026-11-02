@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>WHOOP</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>WHOOP</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<!-- GENERATED from lib/ble/adapters/_registry.dart — do not hand-edit.
+	     `dart run tool/gen_ios_ask_plist.dart` rewrites this array and the
+	     WhoopBandLabels dict below; test/ios_ask_plist_test.dart fails CI if
+	     they drift. On iOS 18+ the ASK picker is the pairing path, so a band
+	     missing here cannot be paired on iPhone at all. -->
+	<key>NSAccessorySetupBluetoothServices</key>
+	<array>
+		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
+		<string>FD4B0001-CCE1-4033-93CE-002D5875F58A</string>
+		<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor service
+		     above, and NOT the Bluetooth-base expansion
+		     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises that).
+		     A 128-bit UUID often does not fit the 31-byte advertisement. -->
+		<string>FD4B</string>
+	</array>
+	<!-- Last net for ASK: MG advertises as WHOOP MGB…, 5.0 as WHOOP 5A…,
+	     4.0 as WHOOP 4…. Criteria inside one descriptor AND-combine, so the
+	     name lives on its own ASPickerDisplayItem, not on the UUID items. -->
+	<key>NSAccessorySetupBluetoothNames</key>
+	<array>
+		<string>WHOOP</string>
+	</array>
+	<key>NSAccessorySetupKitSupports</key>
+	<array>
+		<string>Bluetooth</string>
+	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>WHOOP connects to your band over Bluetooth to sync your health data.</string>
+	<!-- GENERATED (see above): service UUID -> ASK picker row label. Cosmetic
+	     only; AccessorySetup.swift falls back to a generic name. -->
+	<key>WhoopBandLabels</key>
+	<dict>
+		<key>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</key>
+		<string>WHOOP 4</string>
+		<key>FD4B0001-CCE1-4033-93CE-002D5875F58A</key>
+		<string>WHOOP 5</string>
+	</dict>
+	<!-- The automatic-backup folder lives in the app's Documents directory.
+	     Without BOTH of these it exists but is invisible in Files, so nothing
+	     the user might sync it with (iCloud Drive, Nextcloud, a cable) can
+	     reach it — which makes the whole feature pointless rather than broken,
+	     and therefore easy to miss. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<!-- REQUIRED, not optional: Apple documents that calling CoreMotion without
+	     this key CRASHES the app. See ios/Runner/AppDelegate.swift
+	     (PedometerBridge). -->
+	<key>NSMotionUsageDescription</key>
+	<string>WHOOP counts your daily steps from this iPhone's own motion chip, because a band on your wrist cannot tell walking from stirring a pot, and the phone in your pocket can. It reads step counts only — never your location or anything else the motion chip records — and only the last few days of them. Your steps stay on this device and are never uploaded.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>WHOOP uses the camera to read the barcode on a food packet, and to take a progress photo when you choose to. A barcode is read and nothing is kept. A progress photo is saved only inside the app on this phone, without its location, and is never uploaded.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>WHOOP connects to your band over Bluetooth to sync your health data.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>WHOOP records your route during a run, ride or walk so you can see it, colored by heart-rate zone, when the workout ends. Recording continues while your screen is locked or you switch apps, but only while a workout is running — it stops the moment you finish. Your route stays on this device and is never uploaded.</string>
+	<!-- NSLocationAlwaysAndWhenInUseUsageDescription: asked for only by Pushups
+	     Home auto-pause (build 86), which watches one area around Home with
+	     region monitoring so leaving and arriving reach the app while it is
+	     closed. Route recording still asks for While-In-Use only
+	     (gps_source.dart). -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>If you turn on Home auto-pause for Pushups, WHOOP watches one area around your Home so it can pause your pushup reminders when you leave and resume them when you return, even while the app is closed. It is told only when you cross that boundary and keeps no record of where you go. Your Home location stays on this device and is never uploaded. Runs, rides and walks still record your route only while a workout is running.</string>
+	<!-- NSPhotoLibraryUsageDescription: not used by app code — import_screen.dart's
+	     only FilePicker call uses FileType.any (Files app / UIDocumentPicker),
+	     never .image/.media. file_picker's iOS podspec unconditionally bundles
+	     DKImagePickerController/PhotoGallery + DKPhotoGallery, which link
+	     PHPhotoLibrary APIs and trip the same ITMS-90683 static scan. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>WHOOP does not access your photo library. This permission is linked by a dependency but unused — importing your own exported WHOOP data uses the Files app, not Photos.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<!-- BGTaskSchedulerPermittedIdentifiers: the BGProcessingTask used by
+	     BgSyncScheduler.swift for opportunistic headless sync + heavy derivation,
+	     plus the lighter BGAppRefreshTask (sync-only, no heavy derive) that uses
+	     the separate app-refresh budget iOS grants alongside processing tasks.
+	     NOTE: "location" IS in UIBackgroundModes, and is required — not optional.
+	     Without it iOS suspends the process within seconds of a screen lock or an
+	     app switch, which during a run or ride means the fix stream dies, the
+	     route is lost, and a suspended app is the first thing jetsam reclaims
+	     under memory pressure (the user just sees "the app closed mid-ride").
+	     The previous v1 stance — while-in-use only, plus a "keep the screen on"
+	     hint in the UI — could not survive a real 40-minute workout.
+	     Scope is kept tight so this stays honest and App-Store-defensible:
+	       • route recording asks for WHEN-IN-USE only ("Always" is asked for
+	         only by Pushups Home auto-pause, which uses region monitoring);
+	       • background updates are armed ONLY while a route session is live and
+	         disarmed the moment it ends (see lib/gps/gps_source.dart);
+	       • showBackgroundLocationIndicator is ON, so iOS shows the blue pill
+	         the entire time we are reading location in the background;
+	       • routes are written to the on-device workout_route table and are
+	         never uploaded — background mode changes WHEN we can read GPS, not
+	         where any of it goes.
+	     "processing" enables BGProcessingTask; "fetch" enables BGAppRefreshTask. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>wtf.openstrap.edge.bgsync</string>
+		<string>wtf.openstrap.edge.refresh</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>audio</string>
+		<string>location</string>
+		<string>processing</string>
+		<string>fetch</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,6 @@
+// Defaults for the personal app. Local Apple signing values go in
+// Signing.xcconfig (gitignored); see Signing.xcconfig.example.
+APP_BUNDLE_IDENTIFIER = com.akshat.personal.whoop
+APPLE_DEVELOPMENT_TEAM =
+
+#include? "Signing.xcconfig"

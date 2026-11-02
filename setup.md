@@ -1,0 +1,647 @@
+# WHOOP development and recovery
+
+**Current:** Fully green82 374ea15c:48,703/50,570 (96.31%;1,867 misses),5,674 app checks/
+429 retained skips,both packages,20 early checks,analysis0/0/331 and204+4 matching source hashes.
+All743 gallery names retain731 preceding pages plus12 approved route views. Full41447305828
+verifies33 controls, default-preserving seams and both separately approved wrapper retirements.
+coverage-audit.md owns exact accounting; main/tags/all97 public refs remain unchanged.
+
+82 is parentless374ea15cec2f037c42543ba4957ad934c72501b5. Its verified pre-push all-refs bundle
+SHA256 is5fac3bbe6f37557cdc6dafe96b0a9b987506f5796e569f14f0ab5b4d887f9ed0.
+81 was superseded and cancelled, not green; packages/gallery/partial logs remain.80 stays local.
+The next combined tree has47 locally passing controls and both approved implemented controller
+lifetime repairs.12 production regressions and23 matching actual pages pass; full83 verifies all47 controls and source hashes but fails the two now-corrected integration assertions. All original failures stay local. Native/IPA and B5 holds stay.
+
+Last final preservation independently hashes45,313 actual vault files with zero differences:
+build/cov53-final-vault-independent.json. Final verified continuation bundle SHA256 is
+3356ef99eabe387d0e9a709691e487efa83a6ea249f3d4e9fe776890f55c6bfd.
+This earlier receipt does not cover the newer82 downloads, scheduler state or active controls;
+refresh the scoped vault after evidence writers finish. Current handoff remains under the
+ignored checkpoint; a clone does not recover private evidence.
+
+Exactly one same-chat continuation is ACTIVE for2026-11-03 03:13:19 UTC (9:13:19 PM Chicago on November2),
+actual current reset plus five minutes. Both computed timestamps1793675599000 and one active
+same-chat target are verified read-only in cov55-restored-next-scheduler-readback.json. The previous app record disappeared; its original TOML is preserved locally and one authorized successor is restored with exact anchored UTC timing. No periodic
+polling, credit redemption or private account-row publication. Recheck actual limits next time.
+
+Parentless79 `d5ff9d826cb1cd4330012123545b5721564419e1` carries the fixture correction;
+full41432580421 passes. All94 previous refs remain (95 total). Its verified all-refs
+bundle is cov53-ci79-all-refs.bundle, SHA256
+532921c69305f29b0e20552d2a016570abe12fc8a47384f93ef3fced0f2cbbf3.
+This tree includes the33-control continuation and approved postJournal/postJournalMetrics retirements. Quick
+checks pass; keep their provisional execution separate until combined Linux proof.
+
+Prior final recovery independently verifies42,866 vault files/zero source differences in
+`build/cov52-final-vault-independent.json`. The verified retained final bundle is
+`cov52-final-continuation-all-refs.bundle`, SHA256
+`e4e423af37a4155b5684990975340ed02a10dc7275e1558d74182065c29c1649`.
+Refresh after all current evidence writers finish; no old receipt covers newer bytes.
+One same-chat reset-plus-five-minute occurrence is re-armed and its computed time verified;
+exact private usage/scheduler rows remain in the local checkpoint. No periodic polling.
+
+[Full83/41483411910](https://github.com/akshatksingh18/whoop/actions/runs/41483411910) completed with5,719 app passes,429 retained skips and two design-system integration failures: the new nonvisual controller owner lacked its barrel export and explicit gallery classification. All47 new controls, both packages,20 early checks, analysis and743 synthetic pages pass. All205 instrumented/four unimported source hashes match. Its48,882/50,579 (96.64%;1,697 misses) is diagnostic failed-run execution, not a fully green checkpoint; fully green82 remains96.31%. The export/classification are now corrected and both exact checks pass locally. Main/tags/all99 public refs stay unchanged; no native build.
+
+The bounded caller-map audit passes on parentless84/e41e3dbb, run41489022587.
+All202 authored source hashes and7 generated hashes match. Its7,633 declarations/callbacks,
+83,040 references and435 unresolved boundaries are static metadata, not execution.13 fixture
+checks and tool analysis pass; all app/package/gallery jobs skipped, so83 is not duplicated.
+All98 prior public refs remain (99 total), main/tags unchanged. The verified pre-push bundle
+SHA256 is5d86961fe2aa7c7ee6e778bd7b78b6fbbf4a94d6716f1d3486ad96d8373d03a6.
+Full app resolution runs only in the cloud. App/source/package versions are unchanged: only two existing locked dependencies
+become direct dev tools. Dispatch scope caller-map skips app/package/gallery suites, so it
+does not duplicate full83. Its artifact is not a new app-coverage percentage. Full workflow
+runs later include the audit; native/IPA and exact-ref B5 still stay held.
+
+Parentless85 `3fa4681d2d150f07dac73c01a89e21468699527e` (source96447bcd) is published. [Full41534829703](https://github.com/akshatksingh18/whoop/actions/runs/41534829703) is running; expected5,747 app checks/429 retained skips, both packages,20 early checks and773 synthetic page names. No new green percentage is claimed. All99 prior refs remain (100 total); main/tags unchanged. The verified pre-push bundle SHA256 is d6e19fe6d679c04ef975fa1994a815c3cfdb3aa202fcf85e28544b3ebd76fe4f;47,467 actual vault files independently hash with zero differences. Later receipts require the next refresh.
+
+The working workflow adds a controlled three-runner full-suite trial with serial workers, exact source/test manifests, stream/skip receipts and strict LCOV union.31 bounded controls and a real ten-check reporter probe pass. The serial-full scope remains available. No local full suite or native build; no speedup/coverage claim before the serial85 parity review in coverage-audit.md.
+
+**Retained earlier checkpoint:** Ownership cleanup continues; GitHub main is unchanged.
+`coverage-audit.md` owns the current fully verified result and retained prior evidence. All 83 earlier remote refs are preserved; main/tags are unchanged. The verified
+candidate 68 bundle and independently hashed40,042-file preliminary vault are local-only.
+Their receipt does not cover newer files; refresh preservation before handoff.
+The following candidate58 measurement is retained earlier evidence, not current-tree proof. Full Linux [41195062515](https://github.com/akshatksingh18/whoop/actions/runs/41195062515) passes on parentless
+`93139775ee709ad1c31edc131c40540c1b85a9bb`/candidate 58, source `f13d97bc`, tree
+`b996346285b936e91a0cd1397e1071ee9a9b5029`: 5,416 app checks/429 retained skips,
+both packages, nine early worker checks, analysis (zero errors/warnings, 325 retained infos)
+and 732 synthetic PNGs. Handwritten execution is 48,104/50,449 (95.35%; 2,345 unexecuted).
+All 203 instrumented/four unimported source hashes match that candidate. Against candidate 57:
+three matching Lift gains, one Food-calendar loss, net +2; no denominator/instrumentation change.
+The lost line is `food_calendar.dart:486`, future-day colour, absent on the month-end run.
+Current AppState/BLE contain later approved queue/alarm repairs; do not claim that the entire
+current production tree matches this older green coverage artifact. R10/protocol 1.0.1/
+algorithm 100 and all 465 COV-48 controls/four Home journeys pass this full checkpoint.
+No source exclusion or retired-feature activation. Native/IPA, migration N, phone acceptance
+and exact-ref B5 gates remain open. Main is unchanged; candidate 61 preserved all 76 prior refs.
+One reset-aware continuation is active; use the actual scheduler readback below. At 5% remaining
+in the five-hour window, stop coding and finish preservation/publication/context handoff.
+Only privacy-reviewed code/technical docs may leave the laptop; B5 remains held.
+Retained pre-repair candidate 64 and its split verification are recorded below; candidate 65
+publishes only the synchronized technical documents. Candidate 64 preserves all 79 preceding
+refs. Its verified `cov49-ci64-publication-all-refs.bundle` is 43,129,410 bytes, SHA-256
+`4d87767fc369e422175da9c8aa7d288d49d7760e68b47e70a310c0cafea02c12`.
+Its pre-push checkpoint independently hashes 39,184 actual vault files with zero differences.
+That earlier source check recorded exactly one intentionally absent source: the deleted automation TOML,
+whose original bytes remain hash-preserved in the vault and retained history. All project-source
+checks match. Receipts: `cov49-ci64-candidate.json` and `build/cov49-ci64-prepush-vault-independent.json`.
+The pre-existing 138 local tooling files also remain hash-preserved, untracked and unexecuted.
+The final all-refs bundle, publication receipt and handoff are recorded in local-only
+`cov49-final-publication-preservation.json` after document publication. Use its referenced
+independent actual-vault report for the final count; pre-push counts do not cover later bytes.
+New CI downloads/proposals require fresh preservation; an old receipt never covers later work.
+No private ancestor, capture, archive or local tooling was sent.
+
+Candidate 58's successful full proof is `cov49-ci58-linux-verified/verification.json`.
+Candidate 59's exact full failure audit is `cov49-ci59-failure-verified.json`; both enabled
+Reject/Clear failures remain open, with all 203/four source hashes verified and artifacts retained.
+The serial counterfactual fails both as well. Candidate 61's targeted success is
+`cov49-ci61-alarm-verified.json`. Targeted LCOV never replaces the last green full denominator.
+All older candidates, bundles, original failed source/logs and recovery caches remain preserved.
+
+Full artifacts/manifests for candidates 50/51/52 are verified in their respective local checkpoint
+folders. All originals and recovery bundles remain preserved; no private ancestor was pushed.
+Archived candidate 57 is parentless `60e04c90548edaa9b9550ed821b7d1183cd8785f`, source
+`6e346f9e`, tree `c379c362b8fd62e8e1f7bdda2a8d681fd83058b4`. Full Linux
+[41100469509](https://github.com/akshatksingh18/whoop/actions/runs/41100469509) passes,
+adding four locally passing actual Lift navigation/comparison controls with clean analysis.
+Thirteen matching candidate-53 misses also execute in the full run; its 95.35% is verified.
+Production/package/native/UI/workflow sources are byte-identical to candidate 56. The verified
+5,413/429 checks include 462 COV-48 controls/four Home journeys. All 72 earlier refs remain
+unchanged. Verified `cov48-ci57-state-all-refs.bundle` is 43,059,481 bytes, SHA-256
+`7e48b333d4a80960dfaf0ab5e63b9ed98582776cc1e99e8b91cec332ced7e3dd`.
+Scoped Apply/Check and independent actual vault hashes verify 33,240 pre-push files.
+Later publication, audit reconciliation and split-editor test work require fresh preservation.
+Only the parentless root was sent; native/IPA, migration N, phone and exact-ref B5 gates remain.
+The current local follow-through, including three newer local-passing Lift controls and
+the app-wide ledger reconciliation, is protected by the verified
+`cov48-ci57-followthrough-state-all-refs.bundle`. Exact final head/hash, scoped collection
+and independent vault-content receipt are in `cov48-ci57-followthrough-preservation.json`.
+This later work needs its next privacy-reviewed combined candidate; no older receipt covers it.
+
+The preceding public candidate is parentless `9407bfccfe2531cce7df477dd709adf6e3e6c0b1`, source
+`09d95da1`, tree `3442b8be056d561161bcdc728608c45d424be518`. Full Linux
+[41099188879](https://github.com/akshatksingh18/whoop/actions/runs/41099188879) passes,
+adding two cloud-only complete-night manual/confirmed correction command controls and keeping
+the original night generator/assertions. Targeted analysis is clean; no full-night local run.
+The only workflow difference is the reviewed app-job timeout/comment from 60 to 75 minutes,
+after verified candidate 53 took 59.02 minutes. Production/package/native/UI sources are
+byte-identical to candidate 55. Verified 5,409/429 checks include 458 COV-48 controls/four
+Home journeys; the full result is verified at 95.32%. All 71 earlier refs remain unchanged. Verified
+`cov48-ci56-state-all-refs.bundle` is 43,069,200 bytes, SHA-256
+`a80e580315eb9b6bdb4da28f51f475536feeb6001fb9e7ef987bf1ab8171dce4`.
+Scoped Apply/Check and independent actual vault hashes verify 33,215 pre-push files, including
+complete candidate-53 evidence and the single next reset continuation. Later work requires
+fresh preservation. Only the parentless root was sent; native/IPA, migration N, phone and B5
+gates remain open. The private source branch, captures and archives stay local.
+
+The preceding public candidate is parentless `2927d80be979cc8c08dded08364498f7070557da`, source
+`ac036baa`, tree `d46fb6785a98349d778c2618b392c4538f5a0aeb`. Full Linux
+[41097562627](https://github.com/akshatksingh18/whoop/actions/runs/41097562627) passes,
+adding thirteen local-passing cadence/short-burst/backlog controls with clean analysis and
+sixteen matching candidate-52 misses hit. Production is byte-identical to candidate 54.
+Verified 5,407/429 app checks include 456 COV-48 controls/four Home journeys; full
+execution is verified at 95.32%. All 70 earlier refs remain unchanged. Verified
+`cov48-ci55-state-all-refs.bundle` is 43,063,692 bytes, SHA-256
+`f31e8f80e6989976419e1d4ab2a4dc6c72daff75745aaaf1e58cba85c04da342`.
+Scoped Apply/Check and independent actual vault hashes verify 32,464 pre-push files.
+Later publication and complete-night test work need fresh preservation. Only the parentless
+root was sent; native/IPA, migration, phone and B5 gates remain.
+
+The preceding public candidate is parentless `7c13388b11759b54939c0a80bf376f4d1a7e1775`, source
+`a6592b09`, tree `7138d5edbdb1e50bb9ab48034d49e54232ad53bc`. Full Linux
+[41095268795](https://github.com/akshatksingh18/whoop/actions/runs/41095268795) passes,
+combining the approved R10 repair/protocol 1.0.1/algorithm 100 and two public reanalysis-command
+recovery controls. Verified 5,394/429 app checks include 443 COV-48 controls/four Home journeys;
+26 new authored protocol checks also pass full package verification. Handwritten execution is 95.29%.
+All 69 prior refs remain unchanged. Verified `cov48-ci54-state-all-refs.bundle` is 43,045,606
+bytes, SHA-256 `20eb0683a13fec2e4f120e441cd8ef946ae71e4b0500e7f8b060547954f28a8a`.
+Scoped Apply/Check and independent actual vault hashes verify 32,423 pre-push files, including
+the original R10 failure, corrected local proof and the single next reset continuation.
+Later receipts require fresh collection. Only the parentless root was sent; native/IPA,
+persisted migration, phone and exact-ref B5 gates remain open.
+
+The preceding public candidate is parentless `5c4435b5ad6228948cf8814b60ea032a67183ca8`, source
+`19ff66ab`, tree `1bd8a30ded01a249d5b9d5db5ac1513ff4b4ed96`. Full Linux
+[41088959684](https://github.com/akshatksingh18/whoop/actions/runs/41088959684) passes,
+verifying ten picker/cadence/workout read-recovery controls without production changes.
+All 5,382/429 checks include 431 COV-48 controls/four Home journeys. Exact full proof is above;
+all 68 prior refs remain unchanged. Verified
+`cov48-ci53-state-all-refs.bundle` is 43,022,063 bytes, SHA-256
+`088b6319ac00c1de28467d7075b76693317c20fd5dbca68bd1d3ea3e642216b7`.
+Scoped Apply/Check and independent actual vault hashes verify 32,365 pre-push files, including
+full candidate-50/51/52 proof and the single next applicable-reset continuation. Later receipts
+require fresh collection. Only this parentless root was sent; native/IPA, phone and B5 gates remain.
+
+The preceding public candidate is parentless `d8d95e583d293f527903ca88e49829eb818e0c50`, source
+`394b115a`, tree `b2a44ad4dabcbd70ad9c6702ed01c105f57117ae`. Full Linux [41058960566](https://github.com/akshatksingh18/whoop/actions/runs/41058960566)
+passes, adding approved name B and ten new controls. Verified count is 5,358/429 retained
+skips, 407 COV-48 controls/four Home journeys. Exact full proof is preserved locally.
+All 65 prior refs remain unchanged. Verified `cov48-ci50-state-all-refs.bundle` is 42,999,450
+bytes, SHA-256 `ec8142eb8f5f88a6fe6b33a7227dfd1e74e330a2e332d1818c88b7555b0d01d9`.
+Scoped Apply/Check and independent actual vault hashes verify 29,991 pre-push files, including
+the complete name review/implementation and full candidate-49 proof. Only this parentless
+public root was sent. Later receipts need fresh collection; native/IPA and B5 gates remain.
+The preceding public candidate is parentless `a1345dbb92257d457150d2b1c5afc822f45537e5`, source
+`b54b77e1`, tree `662fcef9f1f9a0fa4474a54d0b18d4d974a5f98b`. Full Linux
+[41062312719](https://github.com/akshatksingh18/whoop/actions/runs/41062312719) passes.
+It adds eight quick-locally-passing real-SQLite retention/history cases and no production
+source beyond candidate 50. Ten matching candidate-49 misses execute locally; analysis is
+clean. Verified full count is 5,366/429 retained skips, 415 COV-48 controls/four Home journeys;
+full verification is retained in the corresponding checkpoint folder. All 66 previous refs remain unchanged. Verified
+`cov48-ci51-state-all-refs.bundle` is 43,014,958 bytes, SHA-256
+`b4453ad24f29937330385c62b14a4b8fa36770644e5444b1c5034e002b72d5fe`.
+Scoped Apply/Check and independent actual vault hashes verify 30,019 pre-push files. Later
+publication/review receipts need fresh collection. Only the parentless root was pushed;
+native/IPA, phone and B5 holds remain. `coverage-audit.md` owns exact local ranges/limits.
+Newer approved What-changed historical-boundary correction passes six new/five retained local
+controls and three accepted full-page pixel matches. Candidate 51 predates this source change;
+full candidate 52 verifies this source change. No native build, schema, stored-science or identity change.
+The preceding verified candidate is parentless `57aecf818b0ea438094ebff45979488841444589`, source
+`1b1984ec`, tree `8cc0ded0f37eb3a3ad38f9f27f4a087d2d5d2eca`. Full Linux
+[41064321961](https://github.com/akshatksingh18/whoop/actions/runs/41064321961) passes.
+Verified 5,372/429 checks include 421 COV-48 controls/four Home journeys; exact full proof is retained locally. All 67 prior refs remain unchanged. Verified `cov48-ci52-state-all-refs.bundle`
+is 43,014,261 bytes, SHA-256 `76df131990a7bd3553ac9ff23d3cee424547d39ed1338b8333ae12cf73d36c8e`.
+Scoped Apply/Check and independent actual vault hashes verify 30,090 pre-push files, including
+the accepted review/actual pages and original failures. Later receipts require fresh collection.
+Only the parentless root was sent; native/IPA, phone and B5 gates remain.
+
+The preceding public candidate is parentless `a32c446fc6a6c538fcb63833ec5dd790d4a91b1b`, source
+`ef3c6fc1`, tree `7564139184fd691fc2b786c677256174cdbcbb69`. Full Linux [41048093355](https://github.com/akshatksingh18/whoop/actions/runs/41048093355)
+passes, combining approved milestone A with all preceding repairs and thirteen new
+Body/Food controls. Verified count is 5,348/429 retained skips, 397 COV-48 controls/four Home
+journeys. Exact 95.24% and capture-review proof is in the current checkpoint above. All 64 prior refs remain unchanged.
+Verified `cov48-ci49-state-all-refs.bundle` is 42,974,581 bytes, SHA-256
+`6fb623893752640c1d86cff4a2d9ca893e1c87392900e19361e2e48e4d7754ca`.
+Scoped Apply/Check and independent actual vault hashes verify 27,559 pre-push files, including
+all sixteen milestone review/actual pages and the updated single continuation schedule.
+Later publication receipts require fresh collection. Only this parentless public root was
+sent; native/IPA and exact-ref B5 holds remain.
+
+The preceding candidate is parentless `a61b4c48021231647fca4d0cdb3bb604ae12c8a5`, source
+`f53101af`, tree `fe8cc4c7a4c0e0d57e99f09439f7e95a92314b57`. Full Linux [41044234822](https://github.com/akshatksingh18/whoop/actions/runs/41044234822)
+passes, combining ancient unknown-record retention, approved Body A and 35 additions after
+candidate 45 (28 after verified 46; four after 47). Verified count is 5,335/429 retained skips,
+384 COV-48 controls/four Home journeys. Its exact 95.22% proof is in the current checkpoint above. All 63 prior
+refs remain unchanged. Verified `cov48-ci48-state-all-refs.bundle` is 42,967,104 bytes, SHA-256
+`f0fc5b97bd8edb01d3f55bc4d9eb7cccd2b08d271043dcd0005befccae73bf55`.
+Scoped Apply/Check and independent actual vault hashes verify 27,458 pre-push files. Later
+publication receipts and the reset-based continuation's updated schedule need fresh collection.
+Only this parentless root was pushed; no private ancestor, capture, archive or recovery evidence.
+
+The preceding public candidate is parentless `084d0b18ec373e0ad8bd875133436daf58a41317`, source
+`46ca82be`, tree `86f22ae4e9dc48aceb48314b4fd7553759d5756e`. Full Linux [41041518801](https://github.com/akshatksingh18/whoop/actions/runs/41041518801)
+passes, combining approved Body A and 31 additions after candidate 45 (24 after 46).
+Verified count is 5,331/429 skips, 380 COV-48 controls/four Home journeys; exact coverage
+and source-hash proof is in the current checkpoint above. All 62 prior refs remain unchanged. Verified `cov48-ci47-state-all-refs.bundle`
+is 42,955,598 bytes, SHA-256 `c4b1cb4314b07fb6571202c14ac214a7d107f6a9d7b090af6ba5b3608e84df4b`.
+Scoped Apply/Check and independent actual vault hashes verify 27,398 pre-push files, including
+all approval/negative/capture evidence and the single continuation. Later evidence needs a
+fresh receipt. No private ancestry, captures, archives or recovery material was pushed.
+
+The earlier candidate is parentless `fb4635b4e0e42b9c36bd88ad26e66d337de67e97`, source
+`fd1e44e3`, tree `6eabe9fa0a7c4aafaef3201f4d0c6d4a44b5af87`. Full Linux [41036232608](https://github.com/akshatksingh18/whoop/actions/runs/41036232608)
+passes with seven new controls and the scoped recovery repair. Verified
+combined count is 5,307/429 skips, 356 COV-48 controls/four Home journeys; exact full proof is retained locally. All 61 prior refs remain unchanged. Verified `cov48-ci46-state-all-refs.bundle`
+is 42,943,670 bytes, SHA-256 `d8dbfdb72bf811e702c180d8188f6d6f82ddbbc76f2979918857140da8a76f51`.
+Scoped Apply/Check and independent actual vault hashes verify 26,538 pre-push files, including
+the newly verified candidate-44/45 artifacts and single re-armed continuation. Later evidence
+needs a fresh receipt. No private ancestry/captures/archive was pushed.
+
+Candidate 45's full run passes 5,300/429 skips, 349 COV-48 controls/four Home journeys. All
+60 prior refs were unchanged at publication. Verified `cov48-ci45-state-all-refs.bundle` is
+42,921,221 bytes, SHA-256 `20cd999020cea9ebc0f406a6d3e1738cbfd1f003791d867df1af0007ba44a9c6`.
+Scoped Apply/Check and independent actual vault hashes verified 24,955 pre-push files.
+New downloads/docs/style work and the re-armed automation require a fresh receipt.
+
+Candidate 44 (`8fe8dfac`, source `9112047c`) also passes full
+[40990565035](https://github.com/akshatksingh18/whoop/actions/runs/40990565035): 5,296/429 checks,
+95.14%, both packages/analysis and 731 pages. Its downloaded proof, verified bundle and
+24,917-file pre-push vault/content-hash receipt remain retained. No production change.
+
+Candidate 43 (`3614228d`, source `3749a3c0`) passes full
+[40988175387](https://github.com/akshatksingh18/whoop/actions/runs/40988175387), including all 17 additions
+after candidate 41. Its verified bundle/23,409-file pre-push vault receipt remain retained;
+newly downloaded green evidence requires the final follow-through preservation receipt.
+All 731 synthetic PNGs retain every baseline name and the reviewed trailing Home scroll.
+
+Candidate 42 (`1508b616`, source `e603466f`, run 40986864600) failed its early night check:
+its fixture incorrectly finalized the target, so the scheduler correctly skipped it. The full
+app suite did not run and no percentage is promoted. Original source/log/receipt remain in
+`cov48-ci42-linux-failed/`; the corrected target later passes full candidate 43. Its verified all-ref
+bundle and 23,368-file vault/content-hash receipt remain retained. No production change.
+
+Candidate 41 (`bc577b53`, source `555deff1`) passes full
+[40984217421](https://github.com/akshatksingh18/whoop/actions/runs/40984217421), including all 13 bootstrap/
+retention/paused-history additions. Its verified all-ref bundle and 22,592-file pre-push
+vault/content-hash receipt remain retained; downloaded green evidence needs a fresh receipt.
+No production source change follows candidate 37. No private preservation ancestry, archives
+or original captures were pushed.
+
+Candidate 39, parentless `acd8853f`/source `6527a568`, passes all nine focused GATT/storage
+cases in [40956150579](https://github.com/akshatksingh18/whoop/actions/runs/40956150579), with 207 source
+hashes matched and zero analysis errors/warnings. Its verified bundle and 21,007-file vault
+receipt remain retained. This focused proof is not combined coverage.
+
+Candidate 37 now passes all 5,230 app checks/429 skips, both packages, analysis and 730
+captures. Its expanded bundle and 20,248-file pre-push receipt remain retained. Initial draft
+`9a025e19` stays local at `archive/ci37-before-hr`, with original receipts, never pushed.
+The current source/docs/full green downloads are protected by verified
+`cov48-ci40-followthrough-state-all-refs.bundle`; its exact source/hash and final scoped vault
+receipt are in `cov48-ci40-followthrough-preservation.json`. No old count covers newer bytes.
+
+Candidate 38's original source, complete failure log and partial LCOV are retained in
+`cov48-ci38-targeted-probe/` and `cov48-ci38-walking-fixture-failure.json`. Its five prior cases
+pass; four original saved-step assertions failed because the fixture omitted phone input.
+Wrist-only data correctly leaves the approved phone-only workout total absent. Candidate 39
+keeps the positive save assertion, supplies authored phone coverage and saves its exact count
+without adding wrist data. Its transient log-download HTTP 503 was a retrieval failure; the
+retry downloaded and hash-verified successful evidence. No full candidate-38/39 run was
+dispatched: candidate 40 consolidates these four and 23 later targeted controls. Thirteen later
+GATT/retention/pause-history controls now pass combined candidate 41. No production changes; the new
+retention cases prune only expired authored inputs under the existing policy and retain saved
+results/scalars. Their source hashes match and file analysis is clean. Those GATT/retention/
+pause-history controls do not change production/calculations.
+
+The retained candidate-45 checkpoint is protected by verified
+`cov48-ci45-followthrough-state-all-refs.bundle`; exact source/hash and final scoped vault/
+content-hash receipts are in `cov48-ci45-followthrough-preservation.json`. It includes the
+latest green candidate-43 evidence and the pending style/storage investigations. No older
+pre-push file count covers these newer bytes.
+
+The supported app tool has one ACTIVE same-chat usage-aware continuation. Its anchored
+UTC one-occurrence schedule is verified against the app's actual computed next-run and
+nominal time, exactly five minutes after the applicable live reset. Exact usage/scheduler
+rows, private schedule times, original configuration and readbacks remain local-only in
+`cov51-automation-final-readback.json`, the retained history and the current handoff.
+
+The previously missed occurrence used local wall-clock fields that the scheduler evaluated
+as UTC; its actual next-run landed in the following year and had no invocation. The fixed
+schedule was read back from actual scheduler state, correcting the earlier expected-only
+verification. Future re-arms must verify actual computed time, target chat and exactly one
+ACTIVE occurrence. An update accepts anchored UTC DTSTART; if creation rejects it, create
+with UTC fields then anchor through a supported update and verify computed time again.
+Never publish account usage, exact private scheduler rows or archived configurations.
+Never modify the live database/TOML manually, restore polling, redeem reset credits or overlap
+coding sessions. The registered HOME/checkpoint scopes cover the task and local evidence;
+a fresh vault receipt must cover the newer files, with zero source differences while present.
+
+The working repository-contract cleanup retains every concrete API and moves only unused
+production defaults into partial test-reader support. All 56 signatures/default bodies match
+by AST comparison; 20 affected readers and 13 retained targeted checks are preserved. No
+feature, metric or data is removed. Its executable-denominator reduction must be reported
+separately from new coverage. Candidate70 passes full Linux verification and all73 focused checks with zero analysis
+errors/warnings and 329 infos; full run 41372260439 is pending. Candidate 69 passes all 60 focused
+checks; full run 41371454990 is pending. The approved explanation repair is the next candidate.
+
+## Correct checkout
+
+On this laptop use `C:\AI Important Files\personal-project\whoop\build\worktrees\build95-repairs`.
+Its folder name is historical. The preserved project-root checkout remains on `build-90-codex`.
+The cleanup branch starts at `b9f2532d` on `coverage-expansion`; its inherited pre-cleanup
+GitHub checkpoint is `050ae04e`. These are historical baselines, not the current CI candidate
+recorded below. Preserve newer work rather than resetting to either revision.
+Check `git branch --show-current`, `git status` and `pubspec.yaml` before reporting status.
+
+App metadata remains `0.9.69+102`, schema 50. Working algorithm 101 retains protocol 1.0.1
+and the approved R10 count repair; full candidates 54â€“57 verify algorithm 100/protocol 1.0.1.
+Native and phone acceptance are still required before promoting the working tree. Cached Build 102 was built from
+`fc69b0d3`; later coverage repairs and ownership edits are not in that IPA. Build 91 is the
+last reported install; confirm the phone's actual About/version separately. Build 70 remains
+the accepted recovery artifact. No cache promotion or signing enrollment is claimed here.
+
+The retained pre-algorithm-101 split checkpoint is parentless `a74c3b7827a75fca9805ac53e9bc7f5cfa51c12e`,
+`ownership-ci-candidate-64`, tree `6de37ee8578a7445134bf0800df4b4df5f535953`.
+Its [bounded run 41342765021](https://github.com/akshatksingh18/whoop/actions/runs/41342765021)
+passes all 252 retained BLE/drain/headless/alarm checks and whole-candidate analysis:
+zero errors/warnings, 325 retained infos. The four older headless failures now pass with
+all ten existing cases: the scripted peripheral returns an empty round after the trim ACK,
+retaining every original single-ACK/data/cursor/queue/refusal/teardown assertion. No new cases,
+skips or production changes accompany that fixture correction. The two earlier idle waits
+also pass without weakening their warning/data assertions.
+The [full run 41337370399](https://github.com/akshatksingh18/whoop/actions/runs/41337370399)
+on candidate 63 finished with 5,441 passes/429 retained skips/six failures. Four were that
+headless fixture; two are the real held Sleep Reject/Clear defects. Both packages, nine early
+worker checks, analysis and 732 synthetic pages pass. All 203 instrumented/four unimported
+source hashes match candidate 63. Its downloaded LCOV/gaps/logs and full page manifest are
+preserved locally. Candidate 64 changes only that existing fixture, its bounded workflow and
+technical docs; production/package/native code is byte-identical to the full run. This is
+split verification, not a rerun or a green full-suite claim. No failed-run percentage is
+promoted; last fully green coverage remains candidate 58's 95.35%.
+The final evidence publication uses `ownership-ci-candidate-65` with only synchronized
+technical documents beyond the tested candidate-64 tree. No additional full run is needed
+for that documentation-only difference. Existing code/tests are committed and published;
+that publication added no cases; the current authorization resumes coverage and the reviewed Sleep repair.
+The algorithm-101 repair and amended UI are authorized and implemented for verification;
+cloud and actual-page acceptance are pending under the current scope above.
+Main, tags and all previous branches remain unchanged; no B5 publication is authorized.
+One applicable-reset follow-up is restored; inspect the current local-only schedule receipt. Native/IPA, migration N and phone acceptance gates remain open.
+
+## Toolchain and checks
+
+The workspace development toolchain is under `personal-project/dev/`; resolve it from the
+workspace, not relative to this deeply nested checkout. CI pins Flutter 3.41.6. Full suites,
+whole-project analysis and native builds run on Actions. Local checks are a few targeted files
+or short Python probes. `.github/workflows/test.yml` runs both package suites, app analysis,
+instrumented tests and synthetic full-page captures; `personal-ios.yml` is manual only. The separate manual
+`sleep-correction-probe.yml` retains authored overlap output separately. Candidate 58
+bootstrapped the failing diagnostic; the approved repair promotes nine checks into the full
+suite, with exact candidate-59 push giving early cloud feedback. GitHub main stays unchanged.
+it does not replace the full suite or contribute a combined coverage percentage.
+The working Linux app job allows 75 minutes: verified candidate 53 took 59.02 minutes,
+leaving under a minute at the prior 60-minute cap before the additional complete-night commands.
+Only this job's timeout/comment changes; native/release workflows and app behavior stay intact.
+Full candidates 56/57 verify this budget. Manual `test.yml` dispatch defaults to
+`scope=full`, as do push/PR events. A bounded
+`scope=app-gatt` mode was successfully dispatched for the authored full-application storage file; it keeps
+analysis/contracts/toolchain, skips unrelated package/gallery/early-worker jobs, and labels
+its artifact `targeted-dart-line-coverage` so it cannot be mistaken for combined coverage.
+Dispatch and all five authored cases pass [40927733432](https://github.com/akshatksingh18/whoop/actions/runs/40927733432),
+with zero analysis errors/warnings and all 207 source hashes matched. The retry fixture now
+re-offers identical bytes, retaining every assertion. No production change or new combined
+percentage is claimed. It never replaces the full run. No arbitrary
+file or shell command is accepted. The normal Linux workflow first runs the authored worker/scheduler handoff files for early feedback;
+the subsequent complete instrumented suite remains the coverage source.
+`sleep-intent-probe.yml` runs only the two authored serial Reject/Clear counterfactuals,
+bootstrapped on exact candidate-60 push with the same read-only/pinned/bounded contract. It
+retains output separately and does not replace combined coverage or approve a production fix.
+`ble-continuation-check.yml` runs whole-candidate analysis and eleven fixed BLE/drain/headless/alarm
+files, bootstrapped only on exact candidate-62/64 push or manual dispatch, with pinned Flutter,
+read-only permissions, a bounded timeout and separate targeted coverage. Candidate 64 passes
+all 252 retained checks and analysis, separately correcting the four headless fixture failures
+from full candidate 63. Its production tree is unchanged from that full run. It cannot certify full
+coverage, Sleep Reject/Clear, the phone or any native/IPA build.
+
+The internal package digest/version guard is `tool/algorithm_contract.py` and
+`packages/algorithm-contract.json`. Review output/version implications before updating digests.
+No floating Git dependency, local dependency override or external revision probe is permitted.
+
+On Windows, native hooks can fail under paths with spaces. For targeted probes only, use
+temporary unused drive aliases for this checkout and the installed Flutter SDK, remove them
+in `finally`, and regenerate package configuration against the real path afterwards. Never
+leave a long-running test or temporary drive mapping behind. Private reusable helpers live in
+`build/ownership-checkpoint/`: `cov48_probe.ps1` limits runs to one-to-four test files and
+restores real package paths; `cov48_collect_scoped.ps1` validates exactly the checkpoint and
+existing scheduler roots before refreshing the isolated vault; `cov48_verify_vault.py` hashes
+actual vault bytes independently. Their logs/results stay under ignored `build/`. Do not write
+checkpoint evidence during collection. These helpers are local recovery/tooling, never CI payload.
+
+The supported app tool restored the current same-chat continuation after Akshat's explicit
+request. Exactly one future occurrence is armed as described above. Original deleted task
+configurations remain in retained history; never copy an obsolete ACTIVE TOML back into place.
+
+At 5% remaining in the actual five-hour window, stop coding and complete the handoff: update
+affected owning docs, commit safe work locally, verify an all-refs bundle and local-only vault,
+review outgoing content/history and publish only a new parentless candidate to the owned
+GitHub repository. Keep exact CI state, unresolved failures, approvals and next steps durable.
+A handoff push does not authorize main replacement or deleting any branch/tag; B5 stays held.
+No private ancestor, capture, archive, signed artifact or recovery cache may leave the laptop.
+
+The existing registered HOME task root is present again. The scoped collector must now
+verify zero missing sources/differences, with all old deleted-task bytes retained in the
+checkpoint history. Canonical backup engine, sync roots and Windows tasks are unchanged.
+Do not write checkpoint evidence during collection; refresh after newer downloads or edits.
+
+Native/IPA builds remain held until coverage work is complete. Akshat approved coverage completion before build N while retaining that hold. Then resume
+ownership migration/native verification; the GitHub replacement STOP remains. Do not dispatch a native build or bump metadata to bypass that hold.
+
+## Repository and private recovery
+
+`origin` is `https://github.com/akshatksingh18/whoop.git`; `local-backup` is
+`C:\Users\aksha\git-remotes\whoop.git`. Only these remotes remain. Local source cleanup commit: `ce2202d0` (owned identities, preserved runtime aliases and
+internal algorithm guard). Documentation/privacy changes are batched separately.
+Only reviewed parentless CI candidates have been pushed, using public-safe noreply identity
+and no preservation ancestors. GitHub main, existing branches and tags remain untouched.
+Read-only GitHub checks confirm the repository belongs to the authenticated account.
+Archived verified candidate 45 is parentless `225f0862` on `ownership-ci-candidate-45`, source
+`45c1aed9`, passing full Linux 40991843325: 5,300/429 app checks, both packages, analysis with
+zero errors/warnings and 326 infos (325 retained/one now locally corrected test style item),
+nine early worker checks and 731 captures. Handwritten execution is 47,991/50,428 (95.17%;
+2,437 unexecuted), all source hashes matched with no production divergence at verification.
+COV-47's completed milestone remains 88.01% to 93.46%, +2,746 matching lines.
+
+Candidate 20 preserves all 35 prior remote refs; only its new branch was added. Its privacy
+review covers 926 tracked files, 29 unchanged binaries, 134 original historical/private loose
+files, 36 captured originals and the five retained negative reproductions. Verified
+`cov48-ci20-state-all-refs.bundle` protects source/root (42,669,071 bytes; SHA-256
+`578eede63b2b2768b290544ff4d573a0ee6529fd13f3571031f06126b00ddd68`). The pre-push scoped
+vault/content check verifies 9,067 files with zero differences. The candidate and verification
+receipts are `cov48-ci20-candidate.json` and `cov48-ci20-linux-verified/verification.json`.
+The source/docs/expiry checkpoint `61d9eac1` is protected by verified
+`cov48-ci20-verified-expiry-state-all-refs.bundle` (42,679,179 bytes; SHA-256
+`ad49ec35053c6023f2b75a3636d54e58232593985e1425e136110937951a53fe`). Its receipt re-verifies
+all 203+4 source hashes, 134 original loose files and 36 captured originals. Scoped vault and
+independent content verification cover 9,821 files, including all green candidate-20 evidence.
+The 30 controls after candidate 20, including that expiry case, now pass combined CI in
+candidate 21, bringing COV-48's verified cohort to 66. Its full proof is
+`cov48-ci21-linux-verified/verification.json`; exact scopes/probes are in `coverage-audit.md`.
+The seventeen additions after candidate 21 now pass combined CI: maintenance/HRV, Data imports,
+backup status/cadence refusal, Status readers and SQLite event/mirror refusal/retry. The nine
+later Today/Train/reminder-reader controls pass locally and reached 45 candidate-22 misses in
+that source. A separate event-write error-observation repair changes two orchestration sources;
+four new refusal/retry controls pass, and the unchanged original negative source now passes.
+Its three-file targeted cohort passes 14 checks; all thirteen additions pass combined candidate 23.
+Seven further clock controls and six import-encoding controls pass combined candidate 24,
+alongside locally passing unchanged original private failure sources. The
+legacy clock augmenter honors the protocol's revision guard; journal UTF-8 decoding now reports
+format errors separately from I/O errors so the existing vendor route can run. Both preserve
+source data/current policies; candidate 23 predates those repairs. No full suite or encryption worker
+runs locally.
+
+Candidate 22's source/root is protected by verified `cov48-ci22-state-all-refs.bundle`
+(42,708,917 bytes; SHA-256 `0e6c1e6c59531113ebb3127e54a4c5d5f3203a23cd21ea92c1c31664c615dc28`).
+Before push, scoped collection/check and independent content hashes verified 10,700 files;
+all 37 prior remote refs are unchanged. Its full green evidence is now downloaded and verified.
+The previous local reserve checkpoint is protected by `cov48-ci22-reserve-preservation-receipt.json`
+(source `6817ef2c`, verified bundle, all 203+4 hashes, 134 loose originals and 36 captures).
+The scoped vault/content check verified 10,761 files before this continuation. Later repair,
+tests/docs, green downloads and the re-armed automation require a fresh verified bundle/vault
+receipt. Previous checks never cover newer bytes automatically.
+Parentless candidate 23 is `134af85f63b972b942c0145e062f5250a0759625`, source `c6eb0659`,
+tree `e98360be360a63d50a96ff82629a2de5f73d78e4`. Its full run passes 5,047 app checks.
+Its verified all-ref bundle is `cov48-ci23-state-all-refs.bundle`
+(42,725,689 bytes; SHA-256 `4479807dab517df68c3e193993877ff33f941cd618ccf8d6510c1e7c97151bad`).
+Before push, scoped collection/check and independent content hashes verified 11,522 files,
+including candidate 22's green evidence and the re-armed single-occurrence task. All 38 prior
+remote refs are unchanged; only candidate 23 was added. Later source/docs/evidence require a
+fresh continuation bundle/vault receipt; an old receipt never covers newer bytes automatically.
+Parentless candidate 24 is `748043621cd8af6b6fc0cb73e2140886d353214f`, source `9ad6257c`,
+tree `c7fab97b8f221975b171bddc3ec4313c7a358d14`, passing Linux run 40858887923 with
+5,060 checks. Its verified bundle is `cov48-ci24-state-all-refs.bundle`
+(42,743,108 bytes; SHA-256 `26876e45c972c17cf7254d6ba3906537acef86e7135462519a3888948282aa44`).
+Scoped collection/check and independent vault hashes verified 11,552 files before that push;
+all 39 prior remote refs remain unchanged. Subsequent source/docs/evidence need another receipt.
+Candidate 25 is parentless `af64d24729341baed1d5737661eb232340d572ea`, source `c099eec1`,
+tree `c993ef80fe81859d0eacdfb4bd7f6a95a8845bdd`, running full Linux run 40862004211. Its
+5,075 app checks pass. The verified `cov48-ci25-state-all-refs.bundle`
+is 42,750,778 bytes (SHA-256 `ce4033b1879d295ab6bca2ac42bd23554488f8764f3c2d678ac8d2190d960806`).
+Pre-push scoped collection/check and independent vault hashes verify 12,336 files, including
+the green candidate-23 downloads and original notification failure. All 40 prior refs remain.
+Later tests/docs and run receipts require a fresh preservation checkpoint before leaving work.
+Candidate 26 is parentless `5c71cee13b5a48b14d99c9ea70d22c682f2d2986`, source `57dc6167`,
+tree `3670a79b511804231650705efe0446f40138036e`, passing full Linux run 40865029877 with
+5,090 checks. Its verified `cov48-ci26-state-all-refs.bundle` is 42,757,839
+bytes (SHA-256 `4121b3d62b8e8a9d55178c818d22ba882cf83845e24c8cbf226039d2a6d595dc`). Pre-push
+scoped collection/check and independent vault hashes verify 13,134 files, including the full
+green candidate-24 downloads. All 41 prior refs remain unchanged. Later freshness repair,
+tests/docs and evidence need a new local-only checkpoint; an old bundle does not cover them.
+Candidate 27 is parentless `12f4c8ffb9bd00276e235ace9380424a6c2a7c05`, source `4c497ca8`,
+tree `6c5d64a6eaae5080d1e9aacf38e02a32fa4fc371`, passing full Linux run 40867718870 with
+5,102 checks. Its verified `cov48-ci27-state-all-refs.bundle` is 42,777,544
+bytes (SHA-256 `8ad72e5bf273811be09a7f9b33c78d808810fc51745abc403770afe9a9daf28e`). Pre-push
+scoped collection/check and independent vault hashes verify 13,175 files, including the
+re-armed single-occurrence follow-up. All 42 earlier remote refs remain unchanged. Later green
+candidate-25 downloads, tests/docs and evidence require a new preservation checkpoint.
+Candidate 28 is parentless `84db71987f18e1be3c65cb3ee015d6588cfe929f`, source `c346f57b`,
+tree `759463464eedcecb31cfb8ddc0fa4b1d2109b8d1`, passing full Linux run 40871668681 with
+5,119 checks. Its verified `cov48-ci28-state-all-refs.bundle` is 42,768,672
+bytes (SHA-256 `c632c07de349a47e2c60ebc911a058b98aca0189bcb8cccf5f8a0b13dedac9e6`). Pre-push
+scoped collection/check and independent vault hashes verify 14,709 files, including complete
+green candidate-25/26 downloads and the single reset wake-up. All 43 prior remote refs remain.
+Later source/docs/evidence require a new checkpoint; an old receipt does not cover newer bytes.
+The initial local-only candidate-29 draft `fe13443e` (source `e1867741`) was never pushed or
+dispatched. It and its exact receipts remain preserved in the verified
+`cov48-ci29-state-all-refs.bundle` (42,784,711 bytes; SHA-256
+`4ed483d2add62a68c0ef3b33e91c4bf493f05930ef46b9c4cb5f4ef168d270e5`). The earlier draft remains local at `archive/ci29-pre-pause`; the first reviewed expanded root
+`2295db20` remains local at `archive/ci29-first-reviewed-root`. Expanded candidate 29 is
+parentless `273ca2f524c36043c5efb07d92d6516d34a7acd7`, source `d3328f6c`, tree
+`c1db663392810c015f287f98d7d41e7e20c6d003`. It is published only on
+`ownership-ci-candidate-29`; full Linux [40884984071](https://github.com/akshatksingh18/whoop/actions/runs/40884984071)
+passes with 5,141 checks and 94.60%; downloaded evidence is verified. All 44 prior remote
+refs remain unchanged. Verified `cov48-ci29-final-state-all-refs.bundle` is 42,792,056 bytes
+(SHA-256 `4adf82faa1bf27c5caf7b4ef8dbb4441b98e2d3441eca7c2ac47cc5f42d0c997`); pre-push scoped
+collection/check and independent actual vault hashes verify 16,249 files. The pause checkpoint is
+`7a766ad5`, protected by verified `cov48-usage-followup-paused-state-all-refs.bundle`
+(42,780,446 bytes; SHA-256 `f54809fbc883331d74aa5f7b70d09ed64827232dc264910bcc6195bc279e3a8b`).
+Its scoped collection/check and independent actual vault hashes verify 15,481 files. Later
+candidate-28 downloads/source require the next preservation checkpoint; old receipts never
+cover newer bytes automatically. The retained pause snapshot does not establish the current scheduler state.
+All prior bundles, failed-run evidence, caches and local preservation refs remain retained.
+Expanded parentless candidate 30 is `2bf2db1d5f0f846007a2d27470a56dcb1bee25cc`, source
+`f09b0985`, tree `a1c38e08fcaab519910d8e627296257ed023808c`. Linux
+[40887172356](https://github.com/akshatksingh18/whoop/actions/runs/40887172356) passes;
+all 5,148 checks and its 94.63% coverage report are verified. No production/package/native/workflow source
+changes after candidate 29. All 45 prior remote refs remain unchanged. Its verified
+`cov48-ci30-state-all-refs.bundle` is 42,791,083 bytes (SHA-256
+`b45aa8f8e558aced94963ee43ff95acc78156e426d754d21a4aa2476b95e53b8`). Pre-push scoped
+collection/check and independent actual vault hashes verify 16,289 files. Later publication
+receipts/docs require the next preservation checkpoint; old receipts do not cover newer bytes.
+Main, tags, native/IPA, migration N, phone acceptance and B5 gates remain unchanged/open.
+
+The outgoing gate rejected an invalid Windows-1252 dash in a generated setup document before
+candidate 20 was pushed. The corrected document is UTF-8 with LF; an intermediate doubled-CR
+conversion was also corrected before publication. All earlier bytes/roots remain in local-only
+archives, including `preserve/ci20-text-normalization`; never push that ref. Generate documents
+with explicit UTF-8 byte writes and deliberate newline normalization, not Windows defaults.
+
+Earlier COV-47 failed and partial runs remain in their own receipts/bundles. The short main-sleep
+fixture, async share assertion, route-exit wait and repeated media-container issues are corrected
+in tests and pass together in candidate 19. Required RHR, encrypted format/iterations, cleanup,
+photo counts and source-data assertions remain. All old media containers are retained. Failed-run
+coverage was never promoted. The old root/source identities, exact logs and earlier bundle hashes
+remain in `cov47-ci15-*` through `cov47-ci18-*` and their source commits in the verified archives.
+
+COV-46's final-tail refusal/retry, backup failure feedback and band-dialog lifetime repairs and
+all re-enabled regressions remain passing. Its existing heart-fixture rollover correction and
+aged-snapshot controls remain retained; the separate enlarged name-helper clipping stays open.
+No chart implementation, calculation, schema, active identity or metadata changes are made by
+COV-47/COV-48. COV-48's later event-write observation is a scoped reliability repair, not a
+coverage-only behavior-neutral change. Older COV-44â€“46 evidence remains in its owning verified receipts.
+
+Approved capture substitutions and copied call sites are implemented; `privacy-fixture-review.md`
+owns their provenance and private retention. Two JSON oracles already have
+verified local-only copies and optional replay, plus independent public synthetic controls.
+This branch also has private preservation ancestors: never push it. A later candidate must
+send only reviewed content with fresh ancestry and a public-safe commit identity.
+
+All previous histories are still local. The three preservation commits are:
+
+- `0b3817a8642d3bc495e2c4fb5b20913b845d33e6` on historical `build-90-codex`.
+- `f1d5689eca94e4b96149e9e00095fe1806350653` on local-only `preserve/local-design-tooling`.
+- `b9f2532d7388605496291ee9f5b4fc6379493ab5` on `coverage-expansion`.
+
+Verified all-ref bundles and loose-file manifests are in ignored `build/ownership-checkpoint/`.
+Keep the original repositories as well: bundles do not preserve every reflog-only object.
+`archive/pre-rewrite-main` remains in the local bare backup; this clone tracks it as
+`refs/remotes/local-backup/archive/pre-rewrite-main`. Never mirror-push archives or preservation refs.
+The independently verified local-only vault snapshot is
+`C:\AI Local Only\inventories\whoop-pre-fresh-start` (16,124 files, zero check differences).
+The later review snapshot is `C:\AI Local Only\inventories\whoop-ownership-review`.
+These snapshots precede the source cleanup; refresh preservation before destructive publication.
+The original laptop's D:-based checkout and bare backup require their own verified archives.
+Current cleanup recovery uses verified all-ref bundles in `build/ownership-checkpoint/`;
+`cleanup-final-receipt.json` records the `b53d2f9b` checkpoint; the later verified
+`pre-ci-fixture-all-refs.bundle` preserves local source through `2ab7577f` (SHA-256
+`f6107e13a9283ad82a1ec5a1849228ebd1f0acf473dffc56469727f268aaef43`).
+`ci-candidate*.json` records the separate reviewed public roots. The current verified source/CI
+archive receipt for COV-46 is `cov46-session-preservation-receipt.json`; it records exact final head,
+all-ref bundle filename/size/SHA-256, run evidence and preserved loose/artifact counts. Earlier
+COV-46 source/pending/failed-run receipts and `cov45-session-preservation-receipt.json` remain.
+The COV-47 failed-run receipts remain `cov47-ci16-*` through `cov47-ci18-*`; the current verified
+receipts are `cov47-ci19-candidate.json` and `cov47-ci19-linux-verified/verification.json`.
+Their verified all-ref bundles are recorded there.
+`cov47-post-ci14-controls-all-refs.bundle` preserves the later `402c35b8` local commit.
+Verify the applicable receipt; an older one does not cover later edits or uncommitted files.
+
+The post-COV-40
+checkpoint at `0d8b2e2b` is independently preserved in `post-cov40-state-all-refs.bundle`
+(SHA-256 `94d6de093cfab6adc27e58f4249cb745d21f607f3b16a34bc971b62c5df15d7e`).
+The isolated vault snapshot `C:\AI Local Only\inventories\whoop-ownership-cleanup` includes
+those bundles, exact old docs and captured protocol oracles. Its manifest owns current file
+counts; independent collector checks must show zero differences before proceeding. Earlier
+snapshots remain unchanged. Refresh the scoped snapshot again before destructive publication.
+These archives remain local only.
+
+Exact earlier build/audit/research records, original completed tracker and personal worked
+examples remain in the private pre-fresh-start archives. Current edited originals were copied
+and SHA-256 verified in `build/ownership-checkpoint/private-reference-docs/manifest.json` before
+being removed from the proposed public tree. `pre-cleanup-docs/` retains the earlier bytes too.
+These files and local tooling/health captures must not be pushed. The current TODO consolidates
+open work without reopening finished repairs. Backup registration/vault collection must include
+new private evidence; a Git clone does not recover it.
+
+## Deployment
+
+The personal source ships Runner and RunnerTests only, no extensions, Watch or Android target.
+Preserve the bundle/signing identity, encrypted export formats and OS-held restoration state.
+The payload validator enforces empty entitlements, capability exclusions and background modes.
+See the two iOS guides for signing, backup, upgrade and physical acceptance gates.

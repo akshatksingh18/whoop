@@ -1,0 +1,413 @@
+// Set the session up, then start it.
+//
+// One screen, and only the decisions this activity can honour: the GPS row is
+// not offered to an indoor bike. The privacy toggle is offered to everything
+// and defaults on for the entries that carry `private` — same posture Apple
+// Health takes, and the copy says exactly what it does.
+//
+// THERE IS NO GOAL PICKER. There used to be — Open / Time / Distance /
+// Calories, with a minutes stepper under Time — and not one of the four
+// reached the session: `LiveDraft` has no goal field, no live screen mentions
+// a target, and nothing alerts when one is met. Its only real effect was that
+// the calorie line quoted '45 min', a duration the user had not chosen and
+// could not see anywhere else on the screen. A control that changes nothing is
+// not a simpler control, it is a promise. The estimate is a RATE now, on the
+// same thirty-minute basis the picker's rows use, so the two screens compare.
+
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../../compute/profile.dart'
+    show Profile, conservativeMet, isLiftType, sessionActiveKcal;
+import '../../l10n/app_localizations.dart';
+import '../grammar.dart';
+import '../theme.dart';
+import 'catalogue.dart';
+import '../../gps/run_history.dart' show isRunType, isWalkType;
+import 'live.dart';
+import '../../gps/workout_clock.dart';
+import 'workout_context.dart';
+import 'lift_log_ui.dart';
+
+/// The window the calorie estimate is quoted over — the same one
+/// [ActivityRow] uses in the picker, so a row and this screen agree.
+const _estimateMin = 30;
+
+class ActivitySetup extends StatefulWidget {
+  final Activity a;
+  final double? weightKg;
+
+  /// The app behind the screen — the feed, the session lifecycle, the band's
+  /// real connection state and the user's own lifting history.
+  final ActivityHost host;
+
+  const ActivitySetup(
+    this.a, {
+    super.key,
+    this.weightKg,
+    this.host = ActivityHost.none,
+  });
+
+  @override
+  State<ActivitySetup> createState() => _ActivitySetupState();
+}
+
+class _ActivitySetupState extends State<ActivitySetup> {
+  late bool private = widget.a.private;
+
+  List<String> _contextTags = [];
+  bool _starting = false;
+
+  /// For a lift: a saved split, an empty workout or time only (build 86).
+  LiftChoice _lift = LiftChoice.empty;
+  bool get _logsSets => isLiftType(widget.a.typeKey);
+  bool _refused = false;
+
+  /// Open the session in the app FIRST, then the screen. The screen used to
+  /// be pushed on its own, so a "live" workout ran its own clock while the
+  /// app recorded nothing and `sessions` gained no row.
+  Future<void> _start() async {
+    if (_starting) return;
+    setState(() => _starting = true);
+    final start = widget.host.onStart;
+    // Build 92 (end-to-end audit): a start that throws is a refusal, so the
+    // button is released instead of staying disabled.
+    bool ok;
+    try {
+      ok = start == null || await start(widget.a, private: private);
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _starting = false;
+      _refused = !ok;
+    });
+    if (!ok) return;
+    // The draft opens with the session, not with the screen: everything the
+    // user types from here belongs to the session, and has to survive the
+    // screen being minimised or the process being killed.
+    if (start != null) {
+      final clock = WorkoutClock.current;
+      if (clock != null) {
+        clock.results['context'] = _contextTags;
+        clock.save();
+        // Private from the first row (Build 94, Codex N03), so a minimised or
+        // half-finished session is never exported as public.
+        // The set log belongs to this same session id and clock. A failure
+        // here leaves a time-only workout, never a second session.
+        if (_logsSets) {
+          try {
+            await beginLiftLog(
+              _lift,
+              sessionId: clock.id,
+              startedAt: clock.start,
+            );
+          } catch (_) {}
+        }
+      }
+      LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
+    }
+    if (!mounted) return;
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => liveFor(
+          widget.a,
+          private: private,
+          weightKg: widget.weightKg,
+          host: widget.host,
+        ),
+      ),
+    );
+  }
+
+  /// Back into the session that is already running. The refusal used to be a
+  /// dead end: "finish that one first", with no way to reach the one screen
+  /// that can finish it.
+  void _resume() {
+    final d = LiveDraft.current;
+    final a = d == null ? null : activityByName(d.activityKey);
+    if (a == null) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => liveFor(
+          a,
+          private: d!.private,
+          weightKg: d.weightKg,
+          host: widget.host,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final a = widget.a;
+    // The same function the live screen, summary, Train list and Lifting
+    // line use, so the preview is the number the session will show.
+    final est = sessionActiveKcal(
+      p: Profile(weightKg: widget.weightKg),
+      type: a.typeKey,
+      minutes: _estimateMin.toDouble(),
+      catalogueMet: a.met,
+    )?.round();
+
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(a.name),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  Center(
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 84,
+                          height: 84,
+                          decoration: BoxDecoration(
+                            color: p.wash(a.color),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(a.icon, size: 38, color: p.on(a.color)),
+                        ),
+                        const SizedBox(height: S.x4),
+                        Text(a.name, style: F.t2.copyWith(color: p.ink)),
+                        const SizedBox(height: S.x1),
+                        Text(
+                          _trackLabel(a.track, l),
+                          textAlign: TextAlign.center,
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: S.x8),
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: Column(
+                      children: [
+                        if (a.gps) ...[
+                          // No tick. Nothing here has asked for location yet, and
+                          // an unconditional green check claimed a fix that a
+                          // permission dialog had not even been shown for.
+                          _row(
+                            p,
+                            LucideIcons.mapPin,
+                            l?.activitySetupRouteLabel ?? 'Route',
+                            l?.activitySetupRouteDetail ??
+                                'Recorded if location is available, and kept '
+                                    'on this phone',
+                            null,
+                          ),
+                          Divider(color: p.line, height: 1),
+                        ],
+                        _row(
+                          p,
+                          LucideIcons.heartPulse,
+                          l?.activitySetupHeartRateLabel ?? 'Heart rate',
+                          widget.host.bandConnected
+                              ? (l?.activitySetupBandConnected ??
+                                    'Band connected')
+                              : (l?.activitySetupNoBandConnected ??
+                                    'No band connected'),
+                          widget.host.bandConnected,
+                        ),
+                        Divider(color: p.line, height: 1),
+                        _toggle(
+                          p,
+                          LucideIcons.lock,
+                          l?.activitySetupPrivateLabel ?? 'Private session',
+                          l?.activitySetupPrivateDetail ??
+                              'Hidden from summaries and exports',
+                          private,
+                          () => setState(() => private = !private),
+                          l,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: S.x4),
+                  Surface(
+                    elevation: 0,
+                    color: p.card2,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            isWalkType(a.typeKey)
+                                ? 'Budget from steps, ACSM from distance. Both above resting, counted once in maintenance.'
+                                : isRunType(a.typeKey)
+                                ? 'Budget and ACSM from distance and walk breaks. Both above resting.'
+                                : a.met == null
+                                ? (l?.activitySetupNoMetEstimate ??
+                                      'No estimate up front: no published MET '
+                                          'applies to a session that names no '
+                                          'activity. Calories come from your '
+                                          'heart rate instead — when your age, '
+                                          'weight and sex are set, and your '
+                                          'resting and maximum rates are '
+                                          'measured rather than assumed.')
+                                : est == null
+                                ? (l?.activitySetupCaloriesNeedWeight ??
+                                      'Calories need your weight.')
+                                : isLiftType(a.typeKey)
+                                ? 'About $est kcal per $_estimateMin active min: '
+                                      '${conservativeMet(a.typeKey, a.met!).toStringAsFixed(1)} '
+                                      'MET above resting × your weight. Sets and '
+                                      'rests count together; heart rate is shown, '
+                                      'not counted. Not added to maintenance.'
+                                : 'Up to $est kcal per $_estimateMin active min '
+                                      '(${conservativeMet(a.typeKey, a.met!).toStringAsFixed(1)} '
+                                      'MET above resting); a lower heart-rate '
+                                      'estimate wins.',
+                            style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_logsSets) ...[
+                    const SizedBox(height: S.x4),
+                    LiftChoicePicker(onChanged: (v) => _lift = v),
+                  ],
+                  if (isRunType(a.typeKey) || isWalkType(a.typeKey)) ...[
+                    const SizedBox(height: S.x4),
+                    WorkoutContextSelector(
+                      tags: _contextTags,
+                      onChanged: (v) => setState(() => _contextTags = v),
+                    ),
+                  ],
+                  if (_refused) ...[
+                    const SizedBox(height: S.x4),
+                    StatusCard(
+                      l?.activitySetupSessionRunningTitle ??
+                          'A session is already running',
+                      l?.activitySetupSessionRunningBody ??
+                          'Only one can be live at a time.',
+                      fix: LiveDraft.current == null
+                          ? ''
+                          : (l?.activitySetupOpenRunningSession ??
+                                'Open the running session'),
+                      onFix: LiveDraft.current == null ? null : _resume,
+                      icon: LucideIcons.circleAlert,
+                    ),
+                  ],
+                  const SizedBox(height: S.x8),
+                  BigButton(
+                    l?.activitySetupStart ?? 'Start',
+                    icon: LucideIcons.play,
+                    color: a.color,
+                    onTap: _starting ? null : _start,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// What this session will actually produce. Distance and pace are promised
+  /// only where a route can be recorded — a treadmill was being sold "distance
+  /// and pace" that nothing in this app can measure indoors.
+  String _trackLabel(Track t, AppLocalizations? l) => switch (t) {
+    Track.distance when widget.a.gps =>
+      l?.activitySetupTrackDistanceGps ?? 'Distance, pace and heart rate',
+    Track.distance ||
+    Track.duration ||
+    Track.sets => l?.activitySetupTrackTime ?? 'Time and heart rate',
+    Track.interval => l?.activitySetupTrackInterval ?? 'Rounds and heart rate',
+    Track.stillness =>
+      l?.activitySetupTrackStillness ?? 'Time, breathing and heart rate',
+  };
+
+  /// [on] null means "not known yet" — no glyph at all, rather than a tick
+  /// or a cross, both of which are claims.
+  Widget _row(P p, IconData i, String n, String s, bool? on) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: S.x3),
+    child: Row(
+      children: [
+        Icon(i, size: 17, color: p.ink2),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(n, style: F.body.copyWith(color: p.ink)),
+              Text(s, style: F.over.copyWith(color: p.ink3)),
+            ],
+          ),
+        ),
+        if (on != null)
+          Icon(
+            on ? LucideIcons.circleCheck : LucideIcons.circleSlash,
+            size: 20,
+            color: on ? p.on(C.green) : p.line,
+          ),
+      ],
+    ),
+  );
+
+  Widget _toggle(
+    P p,
+    IconData i,
+    String n,
+    String s,
+    bool on,
+    VoidCallback onTap,
+    AppLocalizations? l,
+  ) => Pressable(
+    semanticLabel: '$n, ${on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off')}',
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
+      child: Row(
+        children: [
+          Icon(i, size: 17, color: p.ink2),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(n, style: F.body.copyWith(color: p.ink)),
+                Text(s, style: F.over.copyWith(color: p.ink3)),
+              ],
+            ),
+          ),
+          AnimatedContainer(
+            duration: motion(context, Motion.base),
+            width: 44,
+            height: 26,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: on ? p.fill(C.green) : p.track,
+              borderRadius: R.rPill,
+            ),
+            child: AnimatedAlign(
+              duration: motion(context, Motion.base),
+              alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: p.inkOnFill,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}

@@ -1,0 +1,21 @@
+name: whoop_analytics
+description: >-
+  Recovery, strain, sleep and more, computed from a WHOOP 4.0's 1 Hz sensor
+  stream using published, cited methods only. Pure Dart, zero runtime
+  dependencies, deterministic, on-device.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+# NOTE: no runtime dependencies, by design. whoop_protocol is a DEV-only
+# dependency — the tests replay real records through it, but nothing under lib/
+# imports it. That is what keeps this package pure Dart with zero runtime deps.
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0
+  # The monorepo carries the reviewed protocol source beside this package, so
+  # local and CI tests resolve the same revision without a machine-local override.
+  whoop_protocol:
+    path: ../protocol

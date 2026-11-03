@@ -1,0 +1,276 @@
+# WHOOP companion
+
+Akshat Kumar Singh's personal iPhone Flutter app: BLE → SQLite → on-device analytics → UI.
+No app backend, account, telemetry or LLM calls. Optional barcode lookup and Maps requests
+disclose barcode/route inputs to their providers; never imply zero network disclosure.
+
+**Status:** Use `build/worktrees/build95-repairs`, branch `ownership-cleanup`; preserve the
+historical root checkout. App 0.9.69+102 / protocol 1.0.1 / working algorithm 101 / schema 50.
+Cached Build 102 predates this work, and the installed phone build is unconfirmed.
+GitHub main remains unchanged. Publish only reviewed parentless CI candidates; this branch,
+private ancestors, original captures, archives, local tooling and recovery evidence stay local.
+
+Fully verified parentless100 `ffef0817acba15a2699582e23bedb822a2355892`,source b4c0f0e0,
+passes [full41718971240](https://github.com/akshatksingh18/whoop/actions/runs/41718971240).
+Handwritten app execution is **49,068/50,208 (97.73%;1,140 misses)**:6,170 app passes/429 retained
+skips,583 files exactly once (192/197/194),both packages,20 early checks and analysis0/0/332.
+All203 instrumented/four non-LCOV source hashes match;190 unchanged-source ranges remain exact.
+Raw events,receipts,checksums and strict LCOV union independently recompute. All772 gallery
+names/416 canonical complete-page states and page-end assertions remain. All72 new controls pass.
+Against98,29 old misses gain execution (19 unchanged-source,ten mapped/default-reversed roles).
+The21 new reviewed UI lines all execute. Three separately approved API scopes retire22 old
+misses as cleanup,zero old hits;no retained hit/test/assertion is lost. No skip or exclusion
+is added. Exact accounting:1,191-22-29=1,140 misses;50,209-22+21=50,208 instrumented lines.
+The graph has200 authored/seven generated hashes,7,564 declarations,82,577 references
+(1,012 documentation/81,565 code),443 unresolved boundaries and18 fixture checks. The frozen100
+worksheet assigns all1,140 misses across112 files/611 declaration groups. Manual purpose,
+native and dynamic classification remains incomplete;re-match changed sources before use.
+
+Public100 leaves all112 prior refs unchanged (113 total),including main/tags. Every private
+ancestor and preservation ref stays local. Earlier96 cleanup and98 test-only gains retain
+their separate raw proofs. Cleanup is not newly tested behavior;native/physical acceptance
+stays separate. Current code/root are protected in cov63-ci100-state-all-refs.bundle,SHA256
+9824a1e618f177000aff1678222fb9570d80d37e639e756f3b0317ff88eb0c1e. Earlier57,424-file independent
+vault proof has zero differences;new evidence/owning context requires final refreshed bundle/
+vault before leaving. Private receipts own current protection counts;no archive is uploaded.
+
+Akshat separately approves AppColors.isDark,Palette.isDark and the unshipped Today summary
+mode. All three are removed locally in logical commits; ThemeController.isDark,all palette
+fields,PlanRow and the current Home composition/actions remain. Exact retained-source proofs,
+the existing quick-action check and two real Home Resume/Back checks at1x/3.1x pass locally.
+Nine new speech controls also pass: km/mile progression survives refused native speech,restore
+cannot replay old cues,and mute/unsupported-host/invalid-input paths retain accepted state.
+The private day-preparation return is now non-null,matching its sole typed producer. Only
+impossible null arms retire;18 retained preservation/refusal/retry checks pass. Calculations,
+reachable exception/skip/retention/cancellation paths and algorithm101 stay. These deletions
+are cleanup,not newly tested lines; they pass full96 with separate source-line accounting.
+Coherence,currentWeekSoFar and deleteCustomJournalField remain pending and unchanged.
+Do not activate unused modes for hits or repeat answered approvals.
+
+Full97 verifies33 new controls: four saved morning absence-note cases,four actual Recovery
+gap-scrub/store failures,eleven iPhone GPS permission/settings contracts and fourteen live energy
+anchor/empty-correction controls. Eight retained GPS checks pass too. No calorie formula/output
+policy changes. GPS optional iOS host inputs default to the two original platform reads; exact
+source reversal preserves requests,settings,fix mapping and subscription behavior. All14 old
+misses and unchanged denominator verify in the combined run. Native/phone acceptance and B5 stay separate.
+
+
+
+The next consolidated tree adds47 locally passing controls across native notification cancel
+acknowledgement/refusal/held completion (16),real GATT clock/setup/takeover ownership (seven),
+phone-source disable/SQL refusal/retained-source retry (four),and six-locale finished-effort
+selection/skip/refused-write/missing-row controls (20). Four-file targeted analysis is clean.
+Optional cancellation host inputs reverse exactly to the original platform reads. These tests
+prove Dart IPC/storage/lifecycle contracts,not physical OS or radio delivery. The GATT fixture
+uses the retained final peripheral/observability hook;all old tests/assertions remain unchanged.
+
+Akshat separately approves and the tree removes25 unused AppColors palette getters,seven
+semantic aliases and the ambient zone wrapper. Retained code tokens/palette values and active
+styles/zone helpers are identical;only obsolete comments/repeated blank lines also change.
+All15 retained contrast/theme/navigation checks pass. Exactly33 old missed lines retire as
+cleanup,zero old hits. Conservative source/default-reversal matching reaches12 distinct100
+old misses from the47 controls;this is provisional,not a new full percentage. Keep the still-
+zero MissingPlugin rethrow counter explicit despite its passing contract. No new skip or
+exclusion,old assertion retirement,formula/schema/version/identifier or production UI change.
+One combined full Linux successor remains required;expected6,217 app passes/429 retained
+skips/587 files is a plan,not a result. Keep full100 as the last verified percentage.
+
+Full100 verifies the72-control consolidated batch:14 background-restoration channel contracts,
+eight selected-export lifetimes,the promoted retained-Step negative,42 approved comparison
+page/locale/cache/range/route controls and seven Journal edit/lifetime/retry cases. Six original
+export failures pass unchanged under shared finally-close;source/partial SQLite bytes remain.
+Optional iOS host defaults reverse exactly. The approved Step calories reader withholds unknown
+comparisons,retains measured zero/headline methods and keeps honest absence/day navigation.
+All58 actual implementation viewports match the approved complete proposal byte-for-byte.
+Journal tests preserve historical dates,midnight/23:59 provenance,drafts and late-write ownership.
+
+The approved symptom writer/reader and raw-epoch simple-alarm diagnostic are removed;retained
+source reconstructs exactly. Stored records/schema/export/backup/restore,cycle-log APIs,active
+alarms/RTC conversion and package algorithms stay. The50-method repository contract remains
+compiler-enforced. Retained symptom CSV,alarm refusal and lifecycle checks pass. Candidate99's
+test-override/import analysis failures are preserved;both corrections pass100. No old assertion
+is weakened. Algorithm101/protocol1.0.1/schema50,stable formulas and phone/B5 gates remain.
+
+The three-runner infrastructure-only trial86 preserves serial85 file/count/source/range/gallery
+parity:65m10s becomes27m41s (57.52% less wall time). Keep serial-full fallback. Its incidental
+wear-mask/WhoopApp-constructor instrumentation trade is explicit in coverage-audit.md.
+
+The frozen100 worksheet accounts for all1,140 misses across112 files/611 declaration groups.
+Manual purpose/native/dynamic classification remains incomplete; re-match changed sources.
+Coherence,deleteCustomJournalField and currentWeekSoFar remain pending and unchanged; do not
+repeat answered approvals. All50 retained repository methods remain compiler-enforced after the approved symptom-API retirement.
+
+bugs.md owns manual-suggestion reappearance/retirement, gallery sample writes, stored sleep-window history shape/prior mismatch,
+pure-stage absence-note publication and separate large-text help/Save/status wrapping.
+Preserve review/output/version gates and originals. Do not activate retired flows for hits.
+Akshat authorizes continued meaningful coverage toward100% and the implemented approved
+algorithm101/Sleep/Recovery work. Ponytail/Impeccable are optional; one agent,no hooks,no canvas.
+
+Full suites/whole analysis/heavy derivation run on Actions. Keep stable formulas,recovery
+stores,migrationN/phone/N+1 and exact-ref B5 STOP: main replacement and each branch/tag deletion
+need Akshat's explicit exact-ref yes. Parked calorie/treadmill/default-meal proposals retain
+their review/preview gates. List lost outcomes and obtain per-item feature-removal decisions.
+
+One reset-aware continuation is active; setup.md owns actual scheduler readback. Verify computed
+next-run,not just its rule. At5% remaining,stop coding,synchronize owning context,publish safe
+work,refresh bundle/vault and leave a durable handoff. Respect actual ordinary/weekly limits;
+never buy/redeem credits,switch accounts or bypass limits.
+
+## Files
+
+- `step-calorie-history-review.md` — approved implemented retained-step comparison repair, complete matching pages and targeted regressions; full Linux100 verifies it;native acceptance remains.
+- `tool/coverage_shard_plan.py`, `tool/coverage_shards.py`, their bounded tests and `tool/coverage_test_costs.json` - exact serial-shard discovery/runner/receipt/LCOV verification and scheduling estimates. The app runner is CI-only; coverage-audit.md owns the verified parity and retained fallback.
+- `journal-layout-review.md` - approved implemented Journal wrapping/historical-title repair, complete matching pages and verified Linux proof.
+- `todo.md` — ordered A/B/C work, STOP checkpoints, coverage 3r, Food default investigation,
+  treadmill/calorie proposals and inherited acceptance gates.
+- `ownership-migration-plan.md` — implemented cleanup versus planned migration, compatibility
+  contracts, two-build/phone gates and publication STOP; read before renaming or removing.
+- `privacy-fixture-review.md` — exact remaining captured-test boundary, prepared synthetic
+  controls and implemented approved substitutions; review final candidate ancestry before CI.
+- `setup.md` — correct checkout/branch, toolchain, cached/installed identity, private archives,
+  local-only vault and original-laptop recovery boundaries.
+- `README.md` — public project/features/build overview.
+- `metrics-map.md` — metric readers, absence/estimate rules and calorie ownership.
+- `coverage-map.md` — remaining-gap purpose/caller/reachability audit and explicit classification limits.
+- `text-controller-lifetime-review.md` - approved implemented Journal weight and meal sub-heading controller ownership, complete matching pages and verified Linux proof.
+- `session-band-route-review.md` — confirmed saved-session help destination, complete Before/Proposed/actual pages and implemented approved route-only repair.
+- `tool/coverage_callers.dart`, its fixture/check script - CI-only resolved static references and explicit dispatch limits; coverage-map.md owns interpretation.
+- `coverage-audit.md`, `tool/coverage_gaps.py` — current CI, remaining ranges/source hashes,
+  targeted verification and remaining native/physical limits.
+- `build-90-audit.md` — current app-wide work categories; exact original audit/worklist and older
+  research/build records remain in the private pre-fresh-start archive.
+- `treadmill-walking-plan.md` — open calculation/flow proposal, previews required before code.
+- `bugs.md` — current investigations and acceptance; exact private reproductions are archived.
+- `DESIGN.md` — locked kraft/cream A+B interface and tokens; read for UI work.
+- `food-layout-review.md` — approved Food A composition, complete Before/A/B and actual
+  implementation captures, combined proof and remaining native verification.
+- `body-history-review.md` — approved All/Since-start average correction, complete Before/A/B
+  synthetic pages, approved A, implemented capture parity and combined proof; native acceptance remains.
+- `body-milestone-layout-review.md` — approved milestone A, complete Before/A/B and actual
+  matching pages, nine regressions/full Linux proof and remaining native verification.
+- `reliability-ui-review.md` - authorized backup-feedback and band-dialog fixes, full-page
+  Before/After evidence and remaining large-text helper limitation.
+- `name-guidance-layout-review.md` — approved B, complete Before/A/B and actual matching
+  name forms/device hosts, combined verification and remaining native gates.
+- `what-changed-history-review.md` — approved historical algorithm-break cutoff and read-side
+  version decision, complete Before/Proposed/actual pages and verified combined proof.
+- `r10-beat-review.md` — approved implemented R10 count alignment, storage/recovery limits,
+  protocol/algorithm-version decision and current targeted/combined validation; no native build yet.
+- `sleep-correction-review.md` — confirmed overlap failure, retained cloud proof, approved
+  implemented shared scheduling repair/version treatment and approved implemented algorithm101 preservation/UI work; physical acceptance remains.
+- `alarm-write-feedback-review.md` — confirmed refused pulse/cancel failures, complete
+  authored Before/Proposed pages, implemented feedback/state repair and verified Linux checks; native acceptance remains.
+- `product.md` — platform adapter for local Impeccable tooling, no independent product authority.
+- `guides/IOS_INSTALLATION.md`, `guides/IOS_SIDELOAD.md` — personal payload, signing continuity,
+  encrypted export/restore, upgrades and physical acceptance requirements.
+- `lib/`, `test/`, `ios/`, `assets/` — app, synthetic regressions and personal Runner-only target.
+  BLE in `lib/ble/`, storage/read seam in `lib/data/`, orchestration in `lib/compute/`, AppState
+  in `lib/state/`, screens in `lib/ui2/`, routes/voice in `lib/gps/`, channels in `lib/platform/`.
+- `lib/migration/legacy_names.dart` — existing persisted names, not completed migration. Native
+  equivalents in `ios/Runner/BleRestoreManager.swift`, validator in `tool/legacy_identifiers.py`.
+- `packages/protocol/`, `packages/analytics/` — tracked pure Dart codecs and metric source/tests.
+- `packages/algorithm-contract.json`, `tool/algorithm_contract.py` — internal digests, path
+  identities and algorithm-version contract; review outputs/version before changing it.
+- `tool/generate_protocol_fixture.py` — reproducible public synthetic byte contracts, independent
+  of production decoders and private captures; `--check` guards fixture provenance/drift.
+- `pubspec.yaml`, `pubspec.lock` — identity, metadata and locked path dependencies.
+- `.github/workflows/test.yml`, `.github/workflows/package-tests.yml`, `tool/ui_smoke_gallery.py`
+  — full Linux app/package/coverage checks and synthetic complete-page evidence.
+- `.github/workflows/sleep-correction-probe.yml`,
+  `test/coverage_sleep_override_overlap_test.dart` — early cloud overlap repair checks;
+  the same nine regressions now also run in the complete suite. Original failure stays local.
+- `.github/workflows/sleep-intent-probe.yml`, `test/diagnostics/sleep_intent_serial_probe.dart`
+  — bounded cloud-only serial Reject/Clear counterfactual, separate from combined coverage.
+- `.github/workflows/ble-continuation-check.yml` — bounded Linux continuation/safe-trim/alarm
+  regression checks and analysis on exact candidate-62/64 push; no full/native claim.
+- `.github/workflows/alarm-write-check.yml` — bounded alarm repair checks and whole-candidate
+  analysis on exact candidate-61 push; targeted evidence is separate from full-suite coverage.
+- `.github/workflows/personal-ios.yml`, `tool/personal_ios.py`,
+  `tool/personal_ios_accepted_builds.json` — manual native payload/source/hash and accepted-build
+  ledger. Held until coverage gate resolves; never reuse a published version/build.
+- `.claude/skills/ponytail/SKILL.md` — optional reuse/minimal-change guidance, not a required workflow.
+- `.claude/skills/impeccable/`, `.codex/hooks.json`, `tool/impeccable-hook.ps1`, `.impeccable/`
+  — optional local-only design tooling/state. Read its skill for UI work; hook trust/automatic
+  delivery remain unverified. Never upload local state or bypass executable trust.
+- `LICENSE` and package licenses — MIT, owner's line first and required existing line retained.
+- `build/ownership-checkpoint/` (ignored) — verified bundles, original docs/worked examples,
+  inventories, loose-file hashes and exact old-name migration inventory. Private, never push.
+  `setup.md` owns vault copies; a clone does not recover this material.
+- Sibling `personal-project/final-ipas/whoop/` — private accepted recovery/testing artifact cache;
+  its README owns the model. Promotion requires phone/signing acceptance.
+
+## Working agreement
+
+- Apply workspace root/container instructions and privacy gate. Full suites/analysis/builds
+  run on Actions, quick targeted probes locally. No canvas.
+- Use `C:\AI Important Files\personal-project\whoop\build\worktrees\build95-repairs`.
+  Preserve historical project-root `build-90-codex`; never reset it to become current.
+- Follow A → B → C and every explicit STOP. B2's unused scheme removal is approved; B5's
+  main force-push and each branch/tag deletion require explicit yes after exact review.
+  Archives/preservation branches never leave the laptop; never mirror-push.
+- Before removing a feature/screen/tab, list every unique metric/insight/entry point that becomes
+  unreachable, core versus redundant, and ask per item. UI deletion does not authorize stopping
+  underlying computation/storage. Removed platforms/features stay removed unless reopened.
+- Plan multi-feature work in TODO first. Calculation policies require separate review; show
+  complete before/after full-page synthetic previews and choices before UI implementation.
+  Preserve approved running/walking/lifting/digestion/Recovery methods. The awake 1.2 multiplier
+  was withdrawn. Treadmill/Food default proposals are not implementation approval.
+- Keep one repo: byte/protocol work in protocol, pure metrics in analytics, orchestration/
+  storage/UI in app. Prefer existing shared helpers and Ponytail's reuse ladder.
+- Preserve daily iPhone Runner release/AOT, stable signed identity, empty entitlements and
+  approved ASK/Bluetooth/GPS/Home-region/voice/scheduler profile. No Watch/Android/extensions/
+  HealthKit/App Group/Firebase/OTA/coach, silent audio or installer runtime dependency.
+- Verify full encrypted off-phone export/restore before upgrades or identity/schema/format
+  changes. Automatic in-container copies do not survive uninstall. Promotion requires payload/
+  source/hash, phone matrix/soak, enrollment, natural renewals and recovery; retain known-good IPA.
+- Register new private evidence in local-only recovery. Preserve required third-party licenses.
+  Older build references resolve to the private pre-fresh-start archive.
+- Update affected owning docs together, planned versus verified honestly. Index new project-owned
+  files/source areas here; ordinary files within indexed source areas need no individual bullet.
+  Parent routing changes only when its own boundary changes. Batch docs with implementation.
+- This task authorizes small logical cleanup commits and privacy-reviewed Linux CI, not B5.
+- One same-chat usage-reset follow-up is active at Akshat's request; avoid duplicates.
+  Akshat explicitly restored the one-occurrence reset-aware follow-up; preserve its history.
+  Check actual usage at meaningful batch boundaries. At 5% remaining in the five-hour window,
+  stop coding and complete a safe handoff: owning docs, logical local commits, verified all-refs
+  bundle/local-only vault, privacy-reviewed parentless GitHub candidate and exact next steps.
+  This does not authorize pushing private ancestors, replacing main or deleting refs. Respect
+  actual account limits; never buy/redeem credits, switch accounts or bypass limits.
+  Keep one agent and no overlapping coding session. `setup.md` owns operational recovery.
+  Honor the explicit usage reserve recorded in the private current continuation checkpoint
+  (`build/ownership-checkpoint/cov54-current-handoff.md` when present),including manual work.
+  Account readings,reset timestamps and the live automation stay private.
+
+## Engineering invariants
+
+1. Commit decoded rows/cursor atomically before the verbatim 8-byte HISTORY_END ACK. Never ACK
+   a partial chunk or regenerate the token; ACK can trim band flash permanently.
+2. `decoded_onehz`: INSERT-OR-REPLACE on `(device_id, ts_ms)`; eviction deletes its RR beats
+   in the same batch. Never promise raw replay for bytes no longer retained.
+3. Missing/thin/invalid input means null, `Metric.absent` or honest reason/estimate; no fabricated
+   score, substituted metric or unknown rendered as measured zero.
+4. Analytics output changes need reviewed `kAlgoVersion` bump/changelog; rows are immutable
+   per version. Pure renames do not justify a bump.
+5. A package-output change includes real source and version decision in the same tree.
+6. Track both package trees and path lock together, no floating Git refs or
+   `pubspec_overrides.yaml`. Review source/output implications before updating digest contracts.
+7. Day labels are LOCAL via `todayLabel`/`dayLabelOf`; epochs remain absolute. Do not assume
+   86400-second days. Keep effective, recorded and logged provenance distinct.
+8. One decode seam (`substrate.dart`), sleep/readiness/ingest path and notification emitter
+   (`NotificationCenter.emit`); reuse shared policies before adding caller-specific alternatives.
+9. Never prune raw/decoded before full successful derivation. Partial scalars do not finalize a
+   day. `raw_archive` is not a full backup.
+10. Heavy analytics stays off the UI isolate; re-arm ambient state inside workers.
+11. Migrations are additive/idempotent/cheap with sequential upgrades and same-version repair.
+    WAL mode uses `rawQuery`. Never move a live SQLite main file without its WAL state.
+12. Headless sync serializes through `HeadlessSyncGate.tryRun`: skip, do not queue.
+13. Coach/export readers respect allow-listed views, no hidden decoded/raw fallback.
+14. High-rate live streams stay RAM-only; phone-only steps and HR-only live-band scope remain.
+15. Dangerous opcodes (trim/reboot/power-cycle/firmware) are never auto-sent.
+16. Reset uses `CalculationStore.resetWith` through native/preference completion, with capture/
+    derive shutdown. Do not re-enter CalculationStore there or restore an anchor after wipe.
+
+Check async latches for `finally`/timeout cleanup, late results for generation ownership,
+readiness for idempotence, notifications for atomic dedupe, mutations for cross-tab revision,
+and schema/media/backup changes for failure/retry/cancellation. Implementation wins over stale
+comments. Synthetic assertions/captures do not certify real BLE, sensors or OS delivery.

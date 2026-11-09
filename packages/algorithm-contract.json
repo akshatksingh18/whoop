@@ -1,0 +1,8 @@
+{
+  "algorithmVersion": 101,
+  "review": "Akshat approved algorithm 101 and released the complete Sleep UI hold: explicit main-sleep corrections preserve prior result/override/candidate/series/pin generations, invalidate current stale night output and baselines, and reject obsolete worker publication. Unknown replacement is absent, not zero; ordinary raw-pruning/richer-night protection remains. Scientific formulas, package sources, protocol 1.0.1 and schema 50 are unchanged. R10 input alignment remains the reviewed protocol 1.0.1 change.",
+  "packages": {
+    "whoop_protocol": "48af44d840cd6e1ad4e16fa5b561efb3d5976bba1f9acae223209b22e328f84b",
+    "whoop_analytics": "ee59b6116f1b978e3be4e5e676e660f6a8c01aa05c38f37f8dc07aa86c623c5b"
+  }
+}

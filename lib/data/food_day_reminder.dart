@@ -1,0 +1,90 @@
+// Build 89 (Akshat, item 4 option B): an optional evening question — "Is
+// today's food complete?" — beside the automatic count. One tap on "Mark
+// complete" opens the app and marks today; "Not yet" only dismisses. Either
+// way the automatic rule (`dayLogState`) still decides an unmarked day.
+
+import 'package:shared_preferences/shared_preferences.dart';
+import '../state/prefs.dart';
+
+import '../notify/notification_event.dart';
+import '../notify/notification_service.dart';
+import 'day_label.dart';
+import 'db.dart';
+import 'nutrition_store.dart';
+
+const String kFoodDayCategory = 'whoop.food.day';
+const String kFoodCompleteAction = 'whoop.food.complete';
+const String kFoodNotYetAction = 'whoop.food.notyet';
+
+class FoodDayReminder {
+  static const _kOn = 'food.day_reminder';
+  static const _kHour = 'food.day_reminder.hour';
+  static const _kMinute = 'food.day_reminder.minute';
+
+  /// On unless switched off.
+  static Future<bool> enabled() async =>
+      (await SharedPreferences.getInstance()).getBool(_kOn) ?? true;
+
+  static Future<({int hour, int minute})> time() async {
+    final p = await SharedPreferences.getInstance();
+    return (hour: p.getInt(_kHour) ?? 21, minute: p.getInt(_kMinute) ?? 30);
+  }
+
+  static Future<void> setEnabled(bool on) async {
+    final before = await enabled();
+    await Prefs.saveValues({_kOn: on});
+    try {
+      await arm(requireAcknowledgement: true);
+    } catch (_) {
+      await Prefs.saveValues({_kOn: before});
+      // Restore the prior plan too if a scheduling call partly completed.
+      try { await arm(requireAcknowledgement: true); } catch (_) {}
+      rethrow;
+    }
+  }
+
+  /// Schedule (or cancel) the daily question. Tonight's is skipped once today
+  /// is already marked either way.
+  static Future<void> arm({bool requireAcknowledgement = false}) async {
+    final n = NotificationService.instance;
+    if (!await enabled()) {
+      await n.cancel(NotificationService.idFoodDayReminder,
+          requireAcknowledgement: requireAcknowledgement);
+      return;
+    }
+    final t = await time();
+    final today = todayLabel();
+    final marked =
+        (await NutritionDb.dayMarks(await LocalDb.instance, today))[today] !=
+        null;
+    final scheduled = await n.scheduleDaily(
+      id: NotificationService.idFoodDayReminder,
+      category: NotifCategory.reminders,
+      title: "Is today's food complete?",
+      body:
+          'Mark it complete, or leave it — a day with half your goal or '
+          'more counts on its own.',
+      hour: t.hour,
+      minute: t.minute,
+      route: '/food',
+      skipToday: marked,
+      iosCategory: kFoodDayCategory,
+    );
+    if (!scheduled && requireAcknowledgement) {
+      throw StateError('The food reminder could not be confirmed on your iPhone. Check notification permission and retry.');
+    }
+  }
+
+  /// "Mark complete" from the notification. The question is asked in the
+  /// evening, so an answer before 5 am belongs to the day before.
+  static Future<void> onComplete({DateTime? at}) async {
+    final instant = at ?? DateTime.now();
+    final now = DateTime.parse(todayLabel(instant));
+    final local = DayClock.localAt(instant.millisecondsSinceEpoch ~/ 1000);
+    final day = local.hour < 5
+        ? dayLabelOf(DateTime(now.year, now.month, now.day - 1))
+        : todayLabel(instant);
+    await NutritionDb.setDayMark(await LocalDb.instance, day, 'complete');
+    await arm();
+  }
+}

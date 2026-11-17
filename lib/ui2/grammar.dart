@@ -1,0 +1,4060 @@
+// THE UX GRAMMAR
+//
+// Every card has a job. Cards are not decoration, and a screen that reaches
+// for a card without being able to name which of the seven it is has not
+// finished thinking.
+//
+//   A · Signal      one number, glanceable, lives in grids
+//   B · Progress    something moving toward a goal
+//   C · Trend       something changing over time
+//   D · Insight     something the system noticed
+//   E · Action      something the user should do
+//   F · Status      something absent or uncertain
+//   G · Deep dive   a gateway into serious data
+//
+// Plus the non-card primitives (rows, inline metrics, sections) and the
+// widgets that encode the behavioural rules — Recommendation, GoalTrajectory,
+// Observation, Consistency.
+//
+// Two rules the components enforce so screens cannot break them:
+//
+//   • ABSENCE IS A STATUS, NOT A DASH. There is no "empty" variant of Signal
+//     or Trend. A metric with no value renders `StatusCard(what, why, fix:)`.
+//     The audit found 102 bare `—` with no reason attached; the fix is that
+//     the component that would draw one does not exist.
+//   • EVERY TAP TARGET IS ≥ 44 pt. Not by convention — `Pressable` is the only
+//     gesture primitive in lib/ui2 and `Scrubber` the only drag (the tokens
+//     test enforces both, `Listener` included), and `Pressable` applies the
+//     minimum itself. There is no longer an `expand: false` to opt out with,
+//     and the golden sweep measures every Pressable in every case rather than
+//     the five tabs of the shell.
+
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart' show GestureBinding;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../data/journal_fields.dart'
+    show formatClock, formatMinuteOfDay, formatShortDate;
+
+// The app's one clock and short-date format, for every screen that imports
+// the grammar.
+export '../data/journal_fields.dart'
+    show formatClock, formatMinuteOfDay, formatShortDate;
+import '../models/metric.dart';
+import 'charts.dart';
+import 'scroll_hint.dart';
+import 'theme.dart';
+
+/// ── PRESSABLE ── the only gesture primitive in lib/ui2 ────────────────────
+///
+/// Guarantees a 44 pt minimum hit area regardless of how small the visual is,
+/// and gates its own press feedback through [motion]. Everything tappable in
+/// this library — cards, links, tabs, buttons — is built on it.
+class Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+
+  /// Screen-reader label. Required for anything whose child is not plain text
+  /// (an icon-only control), optional otherwise.
+  final String? semanticLabel;
+  final bool? selected;
+
+  // There is no `expand: false`. It used to exist, documented as "the hit area
+  // is still expanded via the parent's slop" — no such mechanism was ever in
+  // this codebase, so what it actually did was drop the 44 pt minimum at seven
+  // call sites: an 18 × 18 destructive delete, two 20-22 pt closes and a
+  // screen's primary action among them. An opt-out nobody can audit is not a
+  // guarantee, so the opt-out is gone and the seven visuals are unchanged —
+  // only their hit boxes grew.
+
+  /// Holding repeats [onTap], faster the longer it is held — for − / +
+  /// steppers. A tap still calls it exactly once.
+  final bool repeat;
+
+  const Pressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.semanticLabel,
+    this.selected,
+    this.repeat = false,
+  });
+
+  @override
+  State<Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<Pressable> {
+  bool _down = false;
+  Timer? _hold;
+  int _held = 0;
+
+  // About 8 steps a second at first, speeding up to about 27 a second within
+  // two seconds. The interval is a pace, not an animation, so it is not
+  // collapsed by reduced motion (that would make it instant).
+  void _tick() {
+    _held++;
+    widget.onTap?.call();
+    _hold = Timer(Motion.fast * (1 - _held / 20).clamp(.3, 1.0), _tick);
+  }
+
+  void _release() {
+    _hold?.cancel();
+    _hold = null;
+    _held = 0;
+    if (mounted) setState(() => _down = false);
+  }
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    Widget out = ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: S.tap, minHeight: S.tap),
+      // widthFactor/heightFactor pin the Align to its child's size. Without
+      // them Align fills every pixel it is offered, which turned each card
+      // into a greedy box that ate the whole scroll view — caught by the
+      // first golden, and invisible in any layout with a bounded parent.
+      child: Align(
+        alignment: Alignment.center,
+        widthFactor: 1,
+        heightFactor: 1,
+        child: widget.child,
+      ),
+    );
+    if (widget.onTap == null) {
+      return widget.semanticLabel == null
+          ? out
+          : Semantics(
+              label: widget.semanticLabel,
+              selected: widget.selected,
+              inMutuallyExclusiveGroup: widget.selected == null ? null : true,
+              child: out,
+            );
+    }
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      inMutuallyExclusiveGroup: widget.selected == null ? null : true,
+      label: widget.semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (defaultTargetPlatform == TargetPlatform.iOS) {
+            HapticFeedback.selectionClick();
+          }
+          widget.onTap?.call();
+        },
+        onTapDown: (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onLongPressStart: widget.repeat
+            ? (_) {
+                HapticFeedback.selectionClick();
+                _tick();
+              }
+            : null,
+        onLongPressEnd: widget.repeat ? (_) => _release() : null,
+        onLongPressCancel: widget.repeat ? _release : null,
+        child: AnimatedScale(
+          scale: _down ? .975 : 1,
+          duration: motion(c, Motion.fast),
+          child: out,
+        ),
+      ),
+    );
+  }
+}
+
+/// A bounded form sheet with a fixed close/drag header, even above the keyboard.
+/// Scrolling dismisses the keyboard; dragging the header cancels the sheet.
+class InputSheet extends StatefulWidget {
+  const InputSheet({super.key, required this.children, this.changed});
+  final List<Widget> children;
+
+  /// Whether anything typed here would be lost by closing. When it answers
+  /// true, every way out — a pull, the handle, ✕, a tap above the sheet —
+  /// asks "Discard changes?" first; the sheet's own Save still closes it.
+  final bool Function()? changed;
+  static final openSheets = ValueNotifier<int>(0);
+  @override
+  State<InputSheet> createState() => _InputSheetState();
+}
+
+class _InputSheetState extends State<InputSheet> {
+  // A pull past the top of the content closes the sheet, the same as a pull
+  // on the handle: without it, dragging down from mid-sheet only bounced the
+  // content and showed empty space above it.
+  static const _closePull = 80.0;
+  double _pull = 0;
+  bool _closing = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n is ScrollStartNotification) _pull = 0;
+    if (_closing || n.metrics.axis != Axis.vertical) return false;
+    // iOS bounces: the offset itself goes below the top while dragged.
+    // Clamping platforms report the same pull as overscroll instead.
+    if (n is ScrollUpdateNotification && n.dragDetails != null) {
+      _pull = math.max(_pull, n.metrics.minScrollExtent - n.metrics.pixels);
+    } else if (n is OverscrollNotification &&
+        n.dragDetails != null &&
+        n.overscroll < 0) {
+      _pull += -n.overscroll;
+    }
+    if (_pull > _closePull) {
+      _closing = true;
+      FocusScope.of(context).unfocus();
+      Navigator.of(context).maybePop();
+    }
+    return false;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    InputSheet.openSheets.value++;
+  }
+
+  @override
+  void dispose() {
+    InputSheet.openSheets.value--;
+    super.dispose();
+  }
+
+  bool _asking = false;
+
+  /// A close the sheet did not ask for: confirm when there is something to
+  /// lose, then leave; otherwise stay and re-arm the pull.
+  Future<void> _guardedClose() async {
+    if (_asking) return;
+    final changed = widget.changed?.call() ?? false;
+    var leave = !changed;
+    if (changed) {
+      _asking = true;
+      leave = await confirmRemove(
+        context,
+        title: 'Discard changes?',
+        body: 'What you typed here has not been saved.',
+        remove: 'Discard',
+        keep: 'Keep editing',
+      );
+      _asking = false;
+    }
+    if (!mounted) return;
+    if (leave) {
+      Navigator.of(context).pop();
+    } else {
+      _closing = false;
+      _pull = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final children = widget.children;
+    final p = P.of(c);
+    final first = children.isEmpty ? const SizedBox.shrink() : children.first;
+    final header = first is Text
+        ? Row(
+            children: [
+              Expanded(child: first),
+              Pressable(
+                semanticLabel: 'Close',
+                onTap: () {
+                  FocusScope.of(c).unfocus();
+                  Navigator.of(c).maybePop();
+                },
+                child: Icon(LucideIcons.x, color: p.ink3, size: 20),
+              ),
+            ],
+          )
+        : first;
+    return PopScope(
+      canPop: widget.changed == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _guardedClose();
+      },
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(c).bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragEnd: (d) {
+                  if ((d.primaryVelocity ?? 0) > 250) {
+                    FocusScope.of(c).unfocus();
+                    Navigator.of(c).maybePop();
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(S.x5, S.x2, S.x5, 0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: S.x3),
+                        decoration: BoxDecoration(
+                          color: p.line,
+                          borderRadius: R.rPill,
+                        ),
+                      ),
+                      header,
+                    ],
+                  ),
+                ),
+              ),
+              Flexible(
+                fit: FlexFit.loose,
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _onScroll,
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(S.x5, 0, S.x5, S.x5),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: children.skip(1).toList(),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A horizontal swipe between neighbours, e.g. the previous and next day.
+///
+/// The one swipe primitive, beside [Pressable] and [Scrubber]. It claims only
+/// a horizontal drag, so a vertical scroll and a tap inside it work as
+/// before, and it carries the same two moves as screen-reader actions
+/// (scroll left / right), so the swipe has a non-gesture alternative.
+class Swipe extends StatelessWidget {
+  const Swipe({
+    super.key,
+    required this.child,
+    required this.label,
+    this.onPrevious,
+    this.onNext,
+  });
+
+  final Widget child;
+
+  /// What a swipe moves through, e.g. 'Day'.
+  final String label;
+  final VoidCallback? onPrevious, onNext;
+
+  /// Faster than this (logical px/s) counts as a swipe rather than a nudge.
+  static const double _minVelocity = 300;
+
+  @override
+  Widget build(BuildContext c) => Semantics(
+    label: label,
+    onScrollRight: onPrevious,
+    onScrollLeft: onNext,
+    child: GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v > _minVelocity) onPrevious?.call();
+        if (v < -_minVelocity) onNext?.call();
+      },
+      child: child,
+    ),
+  );
+}
+
+/// ── SCRUBBER ── the only continuous drag in lib/ui2 ───────────────────────
+///
+/// It lives here for the same reason [Pressable] does: a drag is a gesture, and
+/// a gesture nobody can audit is a control somebody cannot reach. The hypnogram
+/// scrub used to be a bare `Listener` on a screen — a precise drag along a
+/// 110 pt strip, over a silent painter, with no discrete alternative at all, so
+/// per-stage timing was unreachable without a pointer.
+///
+/// What this adds over the `Listener` it replaces: the slider role, so VoiceOver
+/// and Switch Control expose increase/decrease and can walk it a step at a time;
+/// [describe], so the position is spoken rather than only drawn; and a tap
+/// anywhere on the strip that jumps straight there, which is the whole gesture
+/// for anyone who cannot hold a drag steady.
+/// Wall-clock bucket limit for local daily charts. Historical days stay whole.
+int latestDaySlot(String? day, int slots, {DateTime? now}) {
+  if (slots <= 1) return 0;
+  final n = now ?? DateTime.now();
+  final d = DateTime.tryParse(day ?? '');
+  if (d == null || d.isBefore(DateTime(n.year, n.month, n.day)))
+    return slots - 1;
+  if (d.isAfter(DateTime(n.year, n.month, n.day))) return 0;
+  return ((n.hour * 60 + n.minute + n.second / 60) * slots / 1440)
+      .floor()
+      .clamp(0, slots - 1);
+}
+
+class Scrubber extends StatelessWidget {
+  /// 0…1 along the strip. Null means nothing has been placed yet.
+  final double? value;
+  final ValueChanged<double> onChanged;
+
+  /// What the control IS — 'Hypnogram'.
+  final String label;
+
+  /// What the current position READS as — '03:12, light sleep'. This is the
+  /// entire readout for a screen-reader user, so it says the value, not the
+  /// fraction.
+  final String Function(double) describe;
+
+  /// One increase/decrease step. The default walks the strip in twenty moves,
+  /// which is about a twenty-minute resolution on a night.
+  final double step;
+
+  /// Latest selectable fraction, shared by pointer and accessibility input.
+  final double maxValue;
+
+  final Widget child;
+
+  const Scrubber({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    required this.label,
+    required this.describe,
+    required this.child,
+    this.step = .05,
+    this.maxValue = 1,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final limit = maxValue.clamp(0.0, 1.0);
+    final v = value?.clamp(0.0, limit);
+    // From nothing, increase enters at the start and decrease at the end —
+    // either direction places the cursor rather than doing nothing.
+    final up = ((v ?? -step) + step).clamp(0.0, limit);
+    final down = ((v ?? limit + step) - step).clamp(0.0, limit);
+    return Semantics(
+      label: label,
+      slider: true,
+      value: v == null ? 'Nothing selected' : describe(v),
+      // Flutter requires both neighbours alongside a value, and it is right to:
+      // they are what a screen reader reads as you step, so a slider that only
+      // states where it IS gives no feedback for the action it just performed.
+      increasedValue: describe(up),
+      decreasedValue: describe(down),
+      onIncrease: () => onChanged(up),
+      onDecrease: () => onChanged(down),
+      child: LayoutBuilder(
+        builder: (_, box) {
+          final w = box.maxWidth;
+          void set(Offset o) =>
+              onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, limit));
+          return Listener(
+            // Opaque, like Pressable. A `Listener` defers to its child by
+            // default, so the strip was only touchable where the painter
+            // happened to claim a hit — which is a coincidence, not a target.
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (e) => set(e.localPosition),
+            onPointerMove: (e) => set(e.localPosition),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The base card surface. See [P.el] for what elevation draws in each theme.
+class Surface extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets pad;
+  final VoidCallback? onTap;
+  final Color? color;
+  final int elevation;
+  final String? semanticLabel;
+
+  const Surface({
+    super.key,
+    required this.child,
+    this.pad = const EdgeInsets.all(S.x4),
+    this.onTap,
+    this.color,
+    this.elevation = 1,
+    this.semanticLabel,
+    this.framed = true,
+  });
+
+  /// Build 87 drew page bands unframed. From Build 88 (DESIGN.md) all of a
+  /// screen's data sits on cream panels, so both kinds are panels; the flag
+  /// is kept for callers and for the one difference left: an unframed band
+  /// takes no shadow.
+  final bool framed;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // A surface inside a panel is part of that panel: flat, no paper-on-paper.
+    final nested = _PanelScope.of(c);
+    // Bands that were drawn unframed carried no side padding; on a panel their
+    // text would touch the paper's edge.
+    final inset = !nested && pad.left < S.x3
+        ? pad.copyWith(
+            left: S.x4,
+            right: S.x4,
+            top: pad.top < S.x2 ? S.x3 : pad.top,
+            bottom: pad.bottom < S.x2 ? S.x3 : pad.bottom,
+          )
+        : pad;
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: semanticLabel,
+      child: Container(
+        width: double.infinity,
+        padding: inset,
+        decoration: nested
+            ? (color == null
+                  ? null
+                  : BoxDecoration(color: color, borderRadius: R.rMd))
+            : BoxDecoration(
+                color: color ?? p.card,
+                borderRadius: R.rPanel,
+                boxShadow: framed ? p.el(elevation) : const [],
+              ),
+        child: _PanelScope(child: child),
+      ),
+    );
+  }
+}
+
+/// Marks everything below a [Surface] as inside a panel (Build 88).
+class _PanelScope extends InheritedWidget {
+  const _PanelScope({required super.child});
+
+  static bool of(BuildContext c) =>
+      c.dependOnInheritedWidgetOfExactType<_PanelScope>() != null;
+
+  @override
+  bool updateShouldNotify(_PanelScope old) => false;
+}
+
+/// "2,451" — the grouping every calorie figure in the design pieces uses.
+String _thousands(int v) {
+  final neg = v < 0;
+  final d = v.abs().toString();
+  final b = StringBuffer();
+  for (var i = 0; i < d.length; i++) {
+    if (i > 0 && (d.length - i) % 3 == 0) b.write(',');
+    b.write(d[i]);
+  }
+  return '${neg ? '-' : ''}$b';
+}
+
+/// The same two movement models on every calorie surface; absent stays absent.
+///
+/// Build 85: two columns, each under its own coloured rule and method tag, so
+/// the Budget (Method 1) and ACSM figures can never be read as one number.
+/// [budgetParts] / [acsmParts] list each column's own breakdown, label and
+/// kcal, so a breakdown is never shared between the two methods.
+class CaloriePair extends StatelessWidget {
+  const CaloriePair({
+    super.key,
+    required this.budget,
+    required this.acsm,
+    this.note = 'Estimated active calories above resting.',
+    this.compact = false,
+    this.budgetParts = const [],
+    this.acsmParts = const [],
+    this.acsmQualified = true,
+  });
+  final double? budget, acsm;
+  final String note;
+
+  /// Whether [acsm] is the ACSM equation inside its supported speeds. False
+  /// labels it a Movement estimate (same equation, outside them), exactly as
+  /// the session detail does (Build 90: the Train card said "ACSM ·
+  /// Unavailable" beside a detail page showing the estimate).
+  final bool acsmQualified;
+  final bool compact;
+  final List<(String, double)> budgetParts, acsmParts;
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    Widget column(
+      String name,
+      String method,
+      double? v,
+      Color color,
+      List<(String, double)> parts,
+    ) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 3,
+            width: 28,
+            decoration: BoxDecoration(
+              color: p.on(color),
+              borderRadius: R.rPill,
+            ),
+          ),
+          const SizedBox(height: S.x2),
+          Text(
+            name,
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+          ),
+          Text(method, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              v == null ? 'Unavailable' : '${_thousands(v.round())} kcal',
+              style:
+                  (v == null
+                          ? F.cap
+                          : compact
+                          ? F.n17
+                          : F.n24)
+                      .copyWith(color: v == null ? p.ink3 : p.on(color)),
+            ),
+          ),
+          for (final (label, kcal) in parts) ...[
+            const SizedBox(height: S.x1),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: F.over.copyWith(color: p.ink3),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  _thousands(kcal.round()),
+                  style: F.over.copyWith(color: p.ink2),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            column('Budget', 'Method 1 · steps', budget, C.green, budgetParts),
+            const SizedBox(width: S.x5),
+            column(
+              acsmQualified ? 'ACSM' : 'Movement estimate',
+              acsmQualified ? 'Standard · distance' : 'Estimate · distance',
+              acsm,
+              C.teal,
+              acsmParts,
+            ),
+          ],
+        ),
+        if (note.isNotEmpty) ...[
+          const SizedBox(height: S.x3),
+          Text(note, style: F.cap.copyWith(color: p.ink3, height: 1.4)),
+        ],
+      ],
+    );
+  }
+}
+
+/// Full-width section. Whitespace separates concepts, not borders.
+class Section extends StatelessWidget {
+  final String title;
+  final String? action;
+  final Widget child;
+  final VoidCallback? onAction;
+  final Widget? actions;
+
+  const Section(
+    this.title,
+    this.child, {
+    super.key,
+    this.action,
+    this.onAction,
+    this.actions,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final large = bigText(c);
+    final heading = Text(
+      title,
+      style: F.section.copyWith(color: p.onGround),
+      maxLines: large ? null : 2,
+      overflow: large ? null : TextOverflow.ellipsis,
+    );
+    final actionWidget = action == null
+        ? null
+        : Pressable(
+            semanticLabel: action,
+            onTap: onAction,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x2),
+              child: Text(
+                action!,
+                textAlign: TextAlign.end,
+                style: F.cap.copyWith(
+                  color: p.on(C.blue),
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: large ? null : 2,
+                overflow: large ? null : TextOverflow.ellipsis,
+              ),
+            ),
+          );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Build 90 review: 24 pt above every heading, on top of the previous
+        // block's own tap-height rows, opened 40-53 pt gaps between sections
+        // while cards sat 12 pt apart. One step above the heading, a half
+        // step below, so a heading sits with the block it names.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x2),
+          child: large
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    heading,
+                    if (actionWidget != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: actionWidget,
+                      ),
+                    if (actions != null) actions!,
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Flexible(child: heading),
+                    if (actionWidget != null) Flexible(child: actionWidget),
+                    if (actions != null) Flexible(child: actions!),
+                  ],
+                ),
+        ),
+        child,
+      ],
+    );
+  }
+}
+
+// ══════════════════ A · SIGNAL ══════════════════
+/// One number. Glanceable. Lives in grids.
+class SignalCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String label, value, unit, sub;
+
+  final VoidCallback? onTap;
+
+  /// A small dial in the header row's slack — steps is the only caller today,
+  /// showing progress toward its goal without a second card.
+  final Widget? trailing;
+
+  const SignalCard(
+    this.icon,
+    this.color,
+    this.label,
+    this.value, {
+    super.key,
+    this.unit = '',
+    this.sub = '',
+    this.onTap,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      onTap: onTap,
+      semanticLabel: '$label, $value $unit'.trim(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(color),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(icon, size: 14, color: p.on(color)),
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  label,
+                  style: F.cap.copyWith(color: p.ink2),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  value,
+                  style: F.n24.copyWith(color: p.ink),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (unit.isNotEmpty) ...[
+                const SizedBox(width: S.x1),
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+              ],
+            ],
+          ),
+          if (sub.isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            Text(
+              sub,
+              style: F.over.copyWith(color: p.ink3),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════ B · PROGRESS ══════════════════
+/// Something moving toward a goal. Current → target.
+class ProgressCard extends StatelessWidget {
+  final String label, value, target;
+  final double frac;
+  final Color color;
+  final IconData? icon;
+
+  const ProgressCard(
+    this.label,
+    this.value,
+    this.target,
+    this.frac,
+    this.color, {
+    super.key,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final amount = Wrap(
+      spacing: S.x2,
+      children: [
+        Text(
+          value,
+          style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+        ),
+        Text(target, style: F.cap.copyWith(color: p.ink3)),
+      ],
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label and amount share a line until the text scale makes that a choice
+        // between truncating a measurement and growing the card. `1h 38m / of
+        // 2h 00m` overflowed by 262 px at 3× — and by 105 px with the golden's
+        // own two-character fixture, which is how it shipped.
+        if (bigText(c))
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 15, color: p.on(color)),
+                    const SizedBox(width: S.x2),
+                  ],
+                  Expanded(
+                    child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: S.x1),
+              amount,
+            ],
+          )
+        else
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 15, color: p.on(color)),
+                const SizedBox(width: S.x2),
+              ],
+              Expanded(
+                child: Text(label, style: F.cap.copyWith(color: p.ink2)),
+              ),
+              amount,
+            ],
+          ),
+        const SizedBox(height: S.x2),
+        _Bar(frac: frac, color: color),
+      ],
+    );
+  }
+}
+
+/// The one progress bar. Everything with a fraction uses it.
+class _Bar extends StatelessWidget {
+  final double frac;
+  final Color color;
+  const _Bar({required this.frac, required this.color});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return ClipRRect(
+      borderRadius: R.rPill,
+      child: LinearProgressIndicator(
+        value: frac.clamp(0, 1),
+        minHeight: 8,
+        backgroundColor: p.track,
+        valueColor: AlwaysStoppedAnimation(p.on(color)),
+      ),
+    );
+  }
+}
+
+// ══════════════════ C · TREND ══════════════════
+/// Something changing. Value → context → direction.
+class TrendCard extends StatelessWidget {
+  final String label, value, unit, delta, window;
+  final bool up;
+
+  /// Whether the move is good news — or NULL when there is nothing to compare
+  /// against. Null draws no arrow and passes no judgement: the card states
+  /// [delta] as the caller wrote it ("no baseline") and stops there.
+  final bool? good;
+
+  /// DENSE — see [MetricRow.series].
+  final List<double?> series;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const TrendCard(
+    this.label,
+    this.value,
+    this.unit,
+    this.delta,
+    this.window,
+    this.series,
+    this.color, {
+    super.key,
+    this.up = false,
+    this.good = true,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final j = good;
+    // The arrow says which WAY, the colour says whether that is good news, and
+    // those are independent: "HRV down" and "resting heart rate down" draw the
+    // same arrow in different hues. Hue alone is not a channel, so the reading
+    // goes in the label too.
+    //
+    // With no baseline there is no way and no news — an arrow and a hue would
+    // both be inventions, so neither is drawn and the label says nothing about
+    // better or worse.
+    final dir = j == null ? p.ink3 : p.on(j ? C.green : C.orange);
+    final judgement = j == null
+        ? ''
+        : (j ? 'an improvement' : 'worse than usual');
+    final change = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (j != null) ...[
+          Icon(
+            up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+            size: 14,
+            color: dir,
+          ),
+          const SizedBox(width: S.x1),
+        ],
+        Text(
+          delta,
+          style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+    return Surface(
+      onTap: onTap,
+      semanticLabel:
+          '$label, $value $unit, $delta $window${judgement.isEmpty ? '' : ', $judgement'}'
+              .trim(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: F.cap.copyWith(color: p.ink2)),
+          const SizedBox(height: S.x2),
+          // A realistic value — `7h 42m`, not the two characters the golden used
+          // to pass on — pushed the delta and its arrow clean off the card: 202 px
+          // at 2×, 458 at 3×. Above the restack point the change moves to its own
+          // run rather than off the edge.
+          if (bigText(c))
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.end,
+              spacing: S.x2,
+              runSpacing: S.x1,
+              children: [
+                Text(value, style: F.n34.copyWith(color: p.ink)),
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                change,
+              ],
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Flexible(
+                  child: Text(
+                    value,
+                    style: F.n34.copyWith(color: p.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: S.x1),
+                // `unit` used to be Expanded purely to shove the delta
+                // rightwards. That made it a flex PEER of the value, so the two
+                // split the row 50/50 and a long reading ellipsised at half
+                // width with empty space beside it. A Spacer does the shoving
+                // and the unit goes back to its own size.
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                const Spacer(),
+                if (j != null) ...[
+                  Icon(
+                    up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+                    size: 14,
+                    color: dir,
+                  ),
+                  const SizedBox(width: S.x1),
+                ],
+                Text(
+                  delta,
+                  style: F.cap.copyWith(
+                    color: dir,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: S.x1),
+          Text(window, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x4),
+          SizedBox(
+            height: 64,
+            child: CustomPaint(
+              size: Size.infinite,
+              // No `dotInk`: `dots` is off here, and the knockout colour is
+              // only ever read inside the head-dot branch.
+              painter: LineChart(series, p.on(color)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════ D · INSIGHT ══════════════════
+/// Something the system noticed. Recommendation → reason → action.
+class InsightCard extends StatelessWidget {
+  final String headline, reason, action;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const InsightCard(
+    this.headline,
+    this.reason, {
+    super.key,
+    this.action = '',
+    this.icon = LucideIcons.sparkles,
+    this.color = C.blue,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final ink = p.on(color);
+    return Surface(
+      onTap: onTap,
+      color: p.wash(color, strength: .65),
+      elevation: 0,
+      semanticLabel: '$headline. $reason',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(color),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(icon, size: 16, color: ink),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      style: F.body.copyWith(
+                        color: p.ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: S.x1),
+                    Text(
+                      reason,
+                      style: F.cap.copyWith(color: p.ink2, height: 1.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (action.isNotEmpty) ...[
+            const SizedBox(height: S.x2),
+            Padding(
+              padding: const EdgeInsets.only(left: S.x10 + S.x1),
+              child: _Cta(action, ink),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The "do the thing →" affordance. Always a label plus an arrow, never an
+/// arrow alone.
+class _Cta extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  /// The arrow is the promise that this goes somewhere. A `StatusCard` whose
+  /// fix is advice ("Wear the band overnight") has nothing to tap, so it gets
+  /// the emphasis without the arrow — 60% of cards were drawing a dead link.
+  final bool arrow;
+  const _Cta(this.label, this.color, {this.arrow = true});
+
+  @override
+  Widget build(BuildContext c) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(
+        child: Text(
+          label,
+          style: F.cap.copyWith(color: color, fontWeight: FontWeight.w600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+      if (arrow) ...[
+        const SizedBox(width: S.x1),
+        Icon(LucideIcons.arrowRight, size: 13, color: color),
+      ],
+    ],
+  );
+}
+
+// ══════════════════ E · ACTION ══════════════════
+/// Something the user should do.
+class ActionCard extends StatelessWidget {
+  final String title, meta, cta;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const ActionCard(
+    this.title,
+    this.meta,
+    this.cta,
+    this.icon,
+    this.color, {
+    super.key,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final wide = bigText(c);
+    // The CTA is never Flexible: it is a button label, and a clipped one reads
+    // as a different word. Below the restack point it wins the row against the
+    // title, which is the right loser; above it, it takes its own line.
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+      decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rSm),
+      child: Text(
+        cta,
+        style: F.cap.copyWith(color: p.inkOnFill, fontWeight: FontWeight.w600),
+      ),
+    );
+    final head = Row(
+      children: [
+        Container(
+          width: S.tap,
+          height: S.tap,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rMd),
+          child: Icon(icon, size: 20, color: p.on(color)),
+        ),
+        const SizedBox(width: S.x3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: F.body.copyWith(
+                  color: p.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(meta, style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+        ),
+        if (!wide) ...[const SizedBox(width: S.x3), badge],
+      ],
+    );
+    return Surface(
+      onTap: onTap,
+      semanticLabel: '$title. $meta. $cta',
+      child: !wide
+          ? head
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                head,
+                const SizedBox(height: S.x3),
+                Align(alignment: Alignment.centerLeft, child: badge),
+              ],
+            ),
+    );
+  }
+}
+
+// ══════════════════ F · STATUS ══════════════════
+
+/// How much of the window a gap has to swallow before it is allowed to be the
+/// reason. An hour: a radio hiccup or a shower is not why a night went
+/// unscored, and offering one as the cause is the false diagnosis with an
+/// unactionable fix that costs more trust than the bare absence did.
+///
+/// The WINDOW does the rest of the work — it decides WHERE a gap has to fall,
+/// which is the part that separates "on the charger all night" from "took it
+/// off at lunch". A proportional gate on top of it reads well and is wrong:
+/// the night window is deliberately wide enough to hold any bedtime, so a
+/// third of it is nearly five hours, and the ordinary three-hour charge that
+/// really did cost the night would be thrown away for being too short.
+const int _kGapMinSec = 60 * 60;
+
+/// THE MEASURED REASON A METRIC IS MISSING, when the wear record holds one.
+///
+/// [wear] is one or two `getDayWear` maps — two when the window crosses
+/// midnight, because a night's gap starts on the evening BEFORE the day it is
+/// filed under. Touching off-stretches are joined across that seam first, or a
+/// band off from 11:20 PM to 2:14 AM would be two sub-threshold gaps meeting at
+/// midnight instead of the one three-hour hole it was.
+///
+/// Each map's `segments` are `{on, start, end, len_min}`
+/// over the OBSERVABLE day, so the leading and trailing holes are on the list
+/// too — a night whose records begin at 9 am really does carry its 00:00–09:00
+/// gap. Reads as a wear MEASUREMENT only when the key is there: an ABSENT
+/// `segments` is "we never looked", and `[]` from an older bundle is not
+/// "the band was never off your wrist" either, so both return null.
+///
+/// [fromSec]/[toSec] are the window the missing metric was read from. The gap
+/// has to be the one that plausibly explains THAT window — a hole at 3 pm says
+/// nothing about a night — and when none does, this returns null and the caller
+/// says nothing extra rather than reaching for the nearest gap it can find.
+String? wearGapWhy(
+  List<Map<String, dynamic>?> wear, {
+  required int fromSec,
+  required int toSec,
+}) {
+  if (toSec <= fromSec) return null;
+  final off = <List<int>>[];
+  for (final w in wear) {
+    final segs = w?['segments'];
+    if (segs is! List) continue;
+    for (final s in segs) {
+      if (s is! Map || s['on'] != false) continue;
+      final a = (s['start'] as num?)?.toInt(), b = (s['end'] as num?)?.toInt();
+      if (a != null && b != null && b > a) off.add([a, b]);
+    }
+  }
+  if (off.isEmpty) return null;
+  off.sort((x, y) => x[0].compareTo(y[0]));
+  final joined = <List<int>>[off.first];
+  for (final o in off.skip(1)) {
+    if (o[0] <= joined.last[1]) {
+      joined.last[1] = math.max(joined.last[1], o[1]);
+    } else {
+      joined.add(o);
+    }
+  }
+  int? bestStart, bestEnd;
+  var best = 0;
+  for (final o in joined) {
+    final overlap = math.min<int>(o[1], toSec) - math.max<int>(o[0], fromSec);
+    if (overlap < _kGapMinSec || overlap <= best) continue;
+    best = overlap;
+    bestStart = o[0];
+    bestEnd = o[1];
+  }
+  if (bestStart == null || bestEnd == null) return null;
+  // The stretch's OWN bounds, not the part of it inside the window: the gap is
+  // a thing that happened, and clipping it to the question would report a
+  // shorter absence than the one that was measured.
+  return 'Your band was off your wrist ${_clock(bestStart)} – '
+      '${_clock(bestEnd)}.';
+}
+
+String _clock(int epochSec) {
+  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
+  return formatMinuteOfDay(d.hour * 60 + d.minute);
+}
+
+/// Something unavailable or uncertain. WHAT is missing → WHY → WHAT FIXES IT.
+///
+/// This is the only correct rendering of an absent metric anywhere in the app.
+/// Never an error, never a bare dash, never a zero.
+class StatusCard extends StatelessWidget {
+  final String what, why, fix;
+  final IconData icon;
+  final VoidCallback? onFix;
+
+  /// Replaces the [icon] glyph — a small spinner in place of a static icon is
+  /// the whole difference between "this is missing" and "this is happening",
+  /// and the rest of the card (title, body, fix) is identical either way.
+  final Widget? leading;
+
+  const StatusCard(
+    this.what,
+    this.why, {
+    super.key,
+    this.fix = '',
+    this.icon = LucideIcons.circleHelp,
+    this.onFix,
+    this.leading,
+  });
+
+  /// Build straight from an abstention — turns the metric's own note into the
+  /// honest three-part copy instead of a dash. Returns null when [m] actually
+  /// has a value.
+  ///
+  /// THE PIPELINE'S REASON OUTRANKS THE SCREEN'S. [why] is a sentence written
+  /// into a widget by someone who never saw the day, so it is the FALLBACK, not
+  /// the answer: whenever the metric came back carrying a reason of its own,
+  /// that reason is what renders. And when there is neither — no note, no
+  /// [why] — the card says it does not know. It used to say "No measurement
+  /// covering this period", which is a cause, and it was printed on days with
+  /// 89 % wear and a scored night.
+  /// [gap] is a MEASURED reason from the wear record — see [wearGapWhy]. It
+  /// ranks between the two existing sources, which is the only place it can
+  /// honestly sit: the pipeline saw the day and keeps the first sentence, so a
+  /// gap is ADDED to it, while a [why] written into a widget by someone who
+  /// never saw the day is replaced by the thing that was measured. Null gap
+  /// leaves every existing card byte-identical.
+  static StatusCard? forMetric(
+    String what,
+    Metric? m, {
+    String unit = 'nights',
+    String why = '',
+    String? gap,
+    VoidCallback? onFix,
+  }) {
+    if (m != null && !m.isEmpty) return null;
+    final need = needMessageFromNote(m?.note, unit: unit);
+    // A need_baseline note is rendered as the FIX ("Need 3 more nights"), so
+    // its why stays the generic one — every other note is the why itself.
+    final told = need == null ? whyFromNote(m?.note) : null;
+    return StatusCard(
+      what,
+      told != null
+          ? (gap == null ? told : '$told $gap')
+          : gap ??
+                (why.isNotEmpty
+                    ? why
+                    : need != null
+                    ? 'Not enough history yet to know what normal looks like for you.'
+                    : 'Nothing recorded says why this is missing.'),
+      fix: need ?? '',
+      onFix: onFix,
+    );
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      elevation: 0,
+      color: p.card2,
+      onTap: onFix,
+      semanticLabel: '$what. $why. $fix'.trim(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // The glyph in its own round well (build 85), so a note has a
+              // face rather than a stray icon at the start of a line.
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(C.n400),
+                  shape: BoxShape.circle,
+                ),
+                child: leading ?? Icon(icon, size: 15, color: p.ink2),
+              ),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Text(
+                  what,
+                  style: F.body.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // A card may be a title and an action with no body. That is the
+          // minimal-text ideal, not a broken card — what it must never be is a
+          // title alone, which is why `fix` and `why` cannot both be empty at
+          // the call sites that matter.
+          if (why.isNotEmpty) ...[
+            const SizedBox(height: S.x2),
+            Text(why, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+          ],
+          if (fix.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            _Cta(fix, p.on(C.blue), arrow: onFix != null),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════ G · DEEP DIVE ══════════════════
+/// A gateway into serious data.
+class DeepDiveCard extends StatelessWidget {
+  final String label, value, unit, cta;
+  final Widget? preview;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const DeepDiveCard(
+    this.label,
+    this.value,
+    this.unit,
+    this.cta,
+    this.color, {
+    super.key,
+    this.preview,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      onTap: onTap,
+      semanticLabel: '$label, $value $unit. $cta',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Same restack as TrendCard, for the same reason: `7h 42m` beside a
+          // full-width label overflowed by 184 px at 3×.
+          if (bigText(c))
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: F.cap.copyWith(color: p.ink2)),
+                const SizedBox(height: S.x1),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  spacing: S.x1,
+                  children: [
+                    Text(value, style: F.n24.copyWith(color: p.ink)),
+                    Text(unit, style: F.cap.copyWith(color: p.ink3)),
+                  ],
+                ),
+              ],
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Same 50/50 split as above: Expanded and Flexible are both
+                // flex: 1, so the reading started at the midpoint. Both
+                // shrinkable with spaceBetween owning the gap anchors it.
+                Flexible(
+                  child: Text(
+                    label,
+                    style: F.cap.copyWith(color: p.ink2),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: S.x2),
+                Flexible(
+                  child: Text(
+                    value,
+                    style: F.n24.copyWith(color: p.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: S.x1),
+                Text(unit, style: F.cap.copyWith(color: p.ink3)),
+              ],
+            ),
+          if (preview != null) ...[const SizedBox(height: S.x3), preview!],
+          const SizedBox(height: S.x3),
+          _Cta(cta, p.on(color)),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════ ROWS — for lists, not cards ══════════════════
+
+/// Which way is good news for THIS metric.
+///
+/// Resting heart rate falling is good, HRV rising is good, and skin
+/// temperature moving is neither — it is a deviation signal, and calling a
+/// rise "worse" would be a claim this project does not make. Metrics with no
+/// settled direction get [neither] and an arrow with no hue: the direction is
+/// still stated, the judgement is not invented.
+enum Rising { good, bad, neither }
+
+/// Which way a series is going, or null when there is no basis for saying.
+enum Trend { rising, falling, steady }
+
+/// The direction of the newest few days against the ones before them.
+///
+/// THE RULE, so it is one rule and not a feeling: the mean of the newest 3
+/// recorded values against the mean of up to 14 before them, and the move
+/// only counts as a direction if it clears HALF A STANDARD DEVIATION of that
+/// baseline (Cohen's small effect, 1988). Inside that, a day-to-day wobble
+/// and a trend look identical, and an arrow would be pointing at a coin flip
+/// — so it reads [Trend.steady].
+///
+/// Null is a different answer from steady: fewer than 3 + 4 recorded values
+/// is not a weak comparison, it is no comparison, and the row draws nothing
+/// rather than a flat arrow that would read as a measured "no change".
+///
+/// A baseline with zero spread (a quantized series that really did sit still)
+/// does NOT abstain — any move off it is a real move. Abstaining on a zero
+/// spread is the readiness bug this codebase has already paid for once.
+Trend? trendOf(List<double?> series) {
+  final v = [
+    for (final x in series)
+      if (x != null && x.isFinite) x,
+  ];
+  const recentN = 3, baseMax = 14, baseMin = 4;
+  if (v.length < recentN + baseMin) return null;
+  double mean(Iterable<double> l) =>
+      l.fold<double>(0, (a, b) => a + b) / l.length;
+  final recent = v.sublist(v.length - recentN);
+  final base = v.sublist(
+    math.max(0, v.length - recentN - baseMax),
+    v.length - recentN,
+  );
+  final mb = mean(base);
+  final delta = mean(recent) - mb;
+  final sd = math.sqrt(
+    base.map((x) => (x - mb) * (x - mb)).fold<double>(0, (a, b) => a + b) /
+        (base.length - 1),
+  );
+  if (delta.abs() <= 0.5 * sd) return Trend.steady;
+  return delta > 0 ? Trend.rising : Trend.falling;
+}
+
+/// Whether this move is good news — hue only, never direction.
+///
+/// Steady is not good or bad news, and a metric with no settled direction has
+/// no news at all: both draw in ink.
+Color _trendHue(P p, Trend trend, Rising rising) {
+  if (trend == Trend.steady || rising == Rising.neither) return p.ink3;
+  final good = (trend == Trend.rising) == (rising == Rising.good);
+  return good ? p.on(C.green) : p.on(C.orange);
+}
+
+/// What the arrow says, in words, for the screen reader — including the case
+/// where there is no arrow, so an empty slot is not a silent hole.
+String _trendWord(Trend? t) => switch (t) {
+  Trend.rising => 'trending up',
+  Trend.falling => 'trending down',
+  Trend.steady => 'steady',
+  null => 'no trend yet, not enough days recorded',
+};
+
+/// A metric in a list: name → value → trend.
+class MetricRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String name, sub, value, unit;
+
+  /// DENSE — one slot per calendar day, `null` for a day with no record. A
+  /// compacted list draws a gap as continuity.
+  ///
+  /// Read for a DIRECTION, not drawn: the trailing slot used to hold a 52 pt
+  /// sparkline, which at that size showed a shape nobody could read a number
+  /// off. See [trendOf] for what counts as a direction.
+  final List<double?> series;
+
+  /// Which way is good news here. Defaults to [Rising.neither] — a caller that
+  /// has not said gets a direction and no judgement, never a guess.
+  final Rising rising;
+
+  final String? status;
+  final VoidCallback? onTap;
+
+  const MetricRow(
+    this.icon,
+    this.color,
+    this.name,
+    this.value, {
+    super.key,
+    this.sub = '',
+    this.unit = '',
+    this.series = const [],
+    this.rising = Rising.neither,
+    this.status,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
+          style: F.body.copyWith(color: p.ink),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (sub.isNotEmpty) Text(sub, style: F.over.copyWith(color: p.ink3)),
+      ],
+    );
+    final amount = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        // NOT Flexible. Sharing the row's flex with the name gave the value
+        // a quarter of the width and no more, so 'Respiratory rate' shipped
+        // reading `1… br/min` — a truncated measurement, which this row is
+        // supposed to never do. It is the name that gives way now.
+        Text(
+          value,
+          style: F.n17.copyWith(color: p.ink),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (unit.isNotEmpty) ...[
+          const SizedBox(width: 2),
+          Text(unit, style: F.over.copyWith(color: p.ink3)),
+        ],
+      ],
+    );
+    // `status` is a word — 'ON TRACK' needs 92 pt at 1.0× and was being
+    // silently clipped inside a 52 pt box before any scaling at all — so it
+    // gets measured space rather than the arrow's fixed slot.
+    final trend = trendOf(series);
+    // NO ARROW AND NO EXPLANATION IN THE ROW: a metric with too little history
+    // has nothing to say here, and a horizontal arrow would say "no change",
+    // which is a measurement it has not made. The reason goes to the screen
+    // reader and the row stays quiet — see [_trendWord].
+    final trailing = status != null
+        ? Text(
+            status!,
+            style: F.over.copyWith(color: p.on(C.green)),
+            textAlign: TextAlign.end,
+          )
+        : trend == null
+        ? const SizedBox.shrink()
+        : Icon(
+            switch (trend) {
+              Trend.rising => LucideIcons.arrowUpRight,
+              Trend.falling => LucideIcons.arrowDownRight,
+              Trend.steady => LucideIcons.arrowRight,
+            },
+            size: 18,
+            // THE GLYPH CARRIES THE DIRECTION and the hue only carries the
+            // judgement, because roughly one man in twelve cannot read the
+            // hue at all. Green/orange is the pair TrendCard already spends on
+            // this judgement — red in this system is the heart's category
+            // colour, not a verdict.
+            color: _trendHue(p, trend, rising),
+          );
+    return Pressable(
+      onTap: onTap,
+      // WHAT THE ROW SHOWS IS WHAT IT SAYS. `status` REPLACES the arrow in the
+      // trailing slot, so announcing the trend under it described a glyph that
+      // is not on screen — a row reading 'ON TRACK' told a screen reader
+      // 'trending up'.
+      semanticLabel: '$name, $value $unit ${status ?? _trendWord(trend)}'
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: bigText(c)
+            // A dense row cannot stay one line at accessibility sizes without
+            // truncating the measurement, and a truncated measurement is worse
+            // than a taller row.
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // The pillar's glyph in its own well (build 85).
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.wash(color),
+                      borderRadius: R.rMd,
+                    ),
+                    child: Icon(icon, size: 16, color: p.on(color)),
+                  ),
+                  const SizedBox(width: S.x3),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        title,
+                        const SizedBox(height: S.x1),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: S.x3,
+                          runSpacing: S.x1,
+                          children: [amount, trailing],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            // THE ROW RULE, and it holds for every label→value row in the app:
+            // the name is the only flexible part, so the measurement keeps its
+            // natural width and every row in a list ends on one right edge.
+            // Two flex children split the width by ratio instead, which left
+            // each value block starting and ending at its own x — a column of
+            // readings that did not read as a column.
+            : Row(
+                children: [
+                  // The pillar's glyph in its own well (build 85).
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: p.wash(color),
+                      borderRadius: R.rMd,
+                    ),
+                    child: Icon(icon, size: 16, color: p.on(color)),
+                  ),
+                  const SizedBox(width: S.x3),
+                  Expanded(child: title),
+                  const SizedBox(width: S.x2),
+                  amount,
+                  const SizedBox(width: S.x3),
+                  trailing,
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+/// Related numbers that belong on one line, not in four cards.
+class InlineMetrics extends StatelessWidget {
+  final List<(String, String, Color)> items;
+  const InlineMetrics(this.items, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    Widget metric((String, String, Color) e) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(e.$1, style: F.cap.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x1),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Text(
+            e.$2,
+            style: F.n17.copyWith(color: p.on(e.$3)),
+            softWrap: false,
+          ),
+        ),
+      ],
+    );
+    if (bigText(c)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: S.x3),
+            metric(items[i]),
+          ],
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: S.x2),
+          Expanded(child: metric(items[i])),
+        ],
+      ],
+    );
+  }
+}
+
+// ══════════════════ BEHAVIOURAL RULES ══════════════════
+
+/// Recommendation → reason → action. Never a recommendation on its own; an
+/// instruction the user cannot audit is an instruction they stop trusting.
+class Recommendation extends StatelessWidget {
+  final String rec, reason, action;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const Recommendation(
+    this.rec,
+    this.reason,
+    this.action, {
+    super.key,
+    this.color = C.green,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: '$rec. $reason. $action',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(rec, style: F.t2.copyWith(color: p.ink)),
+          const SizedBox(height: S.x2),
+          Text(reason, style: F.body.copyWith(color: p.ink2, height: 1.5)),
+          const SizedBox(height: S.x3),
+          Row(
+            children: [
+              Flexible(
+                child: Text(
+                  action,
+                  style: F.body.copyWith(
+                    color: p.on(color),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                ),
+              ),
+              const SizedBox(width: S.x1),
+              Icon(LucideIcons.arrowRight, size: 15, color: p.on(color)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Current → target → the rate that connects them.
+class GoalTrajectory extends StatelessWidget {
+  final String label, current, target, rate;
+  final double frac;
+  final Color color;
+
+  /// Which way the rate points. Purely presentational — the caller knows
+  /// whether its own metric going down is good news.
+  final bool rateDown;
+
+  const GoalTrajectory(
+    this.label,
+    this.current,
+    this.target,
+    this.rate,
+    this.frac,
+    this.color, {
+    super.key,
+    this.rateDown = true,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final ink = p.on(color);
+    return Surface(
+      semanticLabel: '$label, $current toward $target. $rate',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: F.cap.copyWith(color: p.ink2)),
+          const SizedBox(height: S.x3),
+          // Wrap, not Row: at large text scales the goal label drops to its own
+          // line rather than pushing the number off the card. A truncated
+          // measurement is worse than a taller card.
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x3,
+            runSpacing: S.x1,
+            children: [
+              Text(current, style: F.n34.copyWith(color: p.ink)),
+              Text('Goal $target', style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          _Bar(frac: frac, color: color),
+          const SizedBox(height: S.x2),
+          Row(
+            children: [
+              Icon(
+                rateDown ? LucideIcons.trendingDown : LucideIcons.trendingUp,
+                size: 14,
+                color: ink,
+              ),
+              const SizedBox(width: S.x1),
+              Flexible(
+                child: Text(rate, style: F.cap.copyWith(color: ink)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A health observation that may deserve a clinician. Not gamification, not a
+/// diagnosis — a statement of what was measured and what it might be worth.
+class Observation extends StatelessWidget {
+  final String headline, detail, advice;
+  final VoidCallback? onTap;
+
+  const Observation(
+    this.headline,
+    this.detail, {
+    super.key,
+    this.advice = '',
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final ink = p.on(C.orange);
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: 'Health observation. $headline. $detail. $advice'.trim(),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(S.x4),
+        decoration: BoxDecoration(
+          color: p.card,
+          borderRadius: R.rLg,
+          border: Border(left: BorderSide(color: ink, width: 3)),
+          boxShadow: p.el(1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(LucideIcons.stethoscope, size: 15, color: ink),
+                const SizedBox(width: S.x2),
+                Flexible(
+                  child: Text(
+                    'HEALTH OBSERVATION',
+                    style: F.over.copyWith(color: ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: S.x3),
+            Text(
+              headline,
+              style: F.body.copyWith(
+                color: p.ink,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: S.x2),
+            Text(detail, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+            if (advice.isNotEmpty) ...[
+              const SizedBox(height: S.x2),
+              Text(advice, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+            ],
+            if (onTap != null) ...[
+              const SizedBox(height: S.x3),
+              _Cta('View data', ink),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Consistency, never a streak. "18 of 24 days" cannot reset to zero, so a
+/// missed day costs a day rather than costing everything.
+class Consistency extends StatelessWidget {
+  final int have, of;
+  final String label;
+  final Color color;
+
+  /// What the segments COUNT. Days for a habit, doses for a medication — the
+  /// adherence card fed this a dose count while the widget printed "of N days"
+  /// and drew one segment per day, so 10 of 14 doses read as 10 of 14 days.
+  final String unit;
+
+  const Consistency(
+    this.have,
+    this.of,
+    this.label,
+    this.color, {
+    super.key,
+    this.unit = 'days',
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final n = of <= 0 ? 0 : of;
+    return Semantics(
+      label: '$have of $n $unit. $label',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: S.x1,
+            children: [
+              Text('$have', style: F.n24.copyWith(color: p.ink)),
+              Text('of $n $unit', style: F.cap.copyWith(color: p.ink3)),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+          Row(
+            children: [
+              for (var i = 0; i < n; i++)
+                Expanded(
+                  child: Container(
+                    margin: EdgeInsets.only(right: i == n - 1 ? 0 : 2),
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i < have ? p.on(color) : p.track,
+                      borderRadius: const BorderRadius.all(Radius.circular(2)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: S.x2),
+          Text(label, style: F.cap.copyWith(color: p.ink3)),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════ FORM INPUT ══════════════════
+
+/// What a typed number actually was. THREE answers, not two.
+///
+/// Every form in the app folded "nothing typed" and "cannot read that" into
+/// the same null and then saved: a weight typed as "78 kg" cleared the stored
+/// weight, an energy typed as "1,200" turned a costed meal into an uncosted
+/// occasion, and a lab value with its unit on it dropped the whole result —
+/// each of them under a screen that closed as if it had saved.
+///
+/// Nothing here guesses. "1,5" is 1.5 to half of Europe and 15 to the other
+/// half, so it is [bad] and the user is asked, never averaged into a number
+/// they did not type.
+class Typed {
+  const Typed._(this.value, this.bad);
+
+  /// The parsed number, or null when the field was left blank.
+  final double? value;
+
+  /// Something was typed and it is not a number. Never save one of these.
+  final bool bad;
+
+  bool get blank => value == null && !bad;
+
+  static Typed of(String text, {bool nonNegative = false}) {
+    final s = text.trim();
+    if (s.isEmpty) return const Typed._(null, false);
+    final v = double.tryParse(s);
+    return v == null || !v.isFinite || (nonNegative && v < 0)
+        ? const Typed._(null, true)
+        : Typed._(v, false);
+  }
+}
+
+/// Say what could not be read, naming the fields. One line, no ceremony —
+/// the point is that the form stops instead of saving a hole.
+void sayUnreadable(BuildContext c, List<String> fields) {
+  if (fields.isEmpty) return;
+  ScaffoldMessenger.of(c).showSnackBar(
+    SnackBar(
+      content: Text(
+        fields.length == 1
+            ? '${fields.first} is not a number. Nothing was saved.'
+            : '${fields.join(', ')} are not numbers. Nothing was saved.',
+      ),
+    ),
+  );
+}
+
+/// The one destructive confirm. Names what goes and what stays, and there is
+/// no undo behind any caller of it.
+///
+/// On-system rather than an `AlertDialog`: this package bans `fontSize:` and
+/// `Colors.white` in its own tests and a Material dialog smuggles both in.
+Future<bool> confirmRemove(
+  BuildContext c, {
+  required String title,
+  required String body,
+  String remove = 'Remove',
+  String keep = 'Keep it',
+}) async {
+  final ok = await showModalBottomSheet<bool>(
+    context: c,
+    sheetAnimationStyle: sheetMotion(c),
+    isScrollControlled: true,
+    backgroundColor: P.of(c).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) => SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(title, style: F.head.copyWith(color: P.of(s).ink)),
+              const SizedBox(height: S.x2),
+              Text(body, style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5)),
+              const SizedBox(height: S.x5),
+              BigButton(
+                remove,
+                icon: LucideIcons.trash2,
+                color: C.red,
+                onTap: () => Navigator.of(s).pop(true),
+              ),
+              const SizedBox(height: S.x3),
+              BigButton(
+                keep,
+                soft: true,
+                onTap: () => Navigator.of(s).pop(false),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  return ok == true;
+}
+
+// ══════════════════ CHROME ══════════════════
+
+/// Contextual sub-navigation inside a domain. Never a bottom tab — the bottom
+/// bar has five destinations and will not grow a sixth.
+class SubTabs extends StatelessWidget {
+  final List<String> items;
+  final int index;
+  final ValueChanged<int> onTap;
+  final Color color;
+
+  const SubTabs(
+    this.items,
+    this.index,
+    this.onTap, {
+    super.key,
+    this.color = C.green,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Container(
+      // The track's padding and edge sit OUTSIDE the 44 pt tap height.
+      height: MediaQuery.textScalerOf(c).scale(S.tap) + 8,
+      // One segmented control, with a stable touch height.
+      padding: const EdgeInsets.all(3),
+      // Build 88: a rule-coloured track on the kraft, the chosen range a
+      // paper chip (the system segmented-control shape).
+      decoration: BoxDecoration(color: p.line, borderRadius: R.rLg),
+      // The fifth tab is off the edge on every phone we ship to — at 360 pt
+      // it is entirely off-screen in both tab sets, and above 1.0x text every
+      // set overflows even a 430 pt screen. ScrollHint draws nothing at all
+      // while the row fits, and scales with how much is left to scroll.
+      //
+      // Build 90: when every option fits at its natural width, the options
+      // share the track equally (the system segmented control), instead of
+      // packing left and leaving an empty strip at the right end.
+      child: LayoutBuilder(
+        builder: (c, box) {
+          final scaler = MediaQuery.textScalerOf(c);
+          final dir = Directionality.of(c);
+          // Each option's natural width (label + padding, at least a tap).
+          final widths = <double>[];
+          for (final t in items) {
+            final tp = TextPainter(
+              text: TextSpan(
+                text: t,
+                style: F.cap.copyWith(fontWeight: FontWeight.w600),
+              ),
+              textDirection: dir,
+              textScaler: scaler,
+              maxLines: 1,
+            )..layout();
+            widths.add(math.max(S.tap, tp.width + 2 * S.x4));
+            tp.dispose();
+          }
+          final natural =
+              widths.fold<double>(0, (a, w) => a + w) +
+              S.x2 * (items.length - 1);
+          if (box.maxWidth.isFinite && natural <= box.maxWidth) {
+            // Each option keeps its natural width plus an equal share of
+            // what is spare, so no label is ever squeezed ("3 months" was cut
+            // to "3" when the track was split into equal parts). Floored so
+            // rounding can never overflow the row.
+            final spare = ((box.maxWidth - natural) / items.length)
+                .floorToDouble();
+            return Row(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(width: S.x2),
+                  SizedBox(width: widths[i] + spare, child: _segment(c, p, i)),
+                ],
+              ],
+            );
+          }
+          return ScrollHint(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: S.x2),
+              itemBuilder: (_, i) => _segment(c, p, i),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _segment(BuildContext c, P p, int i) {
+    final on = i == index;
+    // Build 90: VoiceOver hears which option is chosen ("3 months,
+    // selected"), not only the option names.
+    return Semantics(
+      selected: on,
+      inMutuallyExclusiveGroup: true,
+      child: Pressable(
+        semanticLabel: items[i],
+        onTap: () => onTap(i),
+        child: AnimatedContainer(
+          duration: motion(c, Motion.base),
+          constraints: const BoxConstraints(minWidth: S.tap),
+          padding: const EdgeInsets.symmetric(horizontal: S.x4),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? p.card : const Color(0x00000000),
+            borderRadius: R.rMd,
+            boxShadow: on ? p.el(1) : const [],
+          ),
+          child: Text(
+            items[i],
+            maxLines: 1,
+            style: F.cap.copyWith(
+              color: on ? p.ink : p.ink2,
+              fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ScreenTitle extends StatelessWidget {
+  final String title;
+  final Widget? trailing;
+
+  /// Build 88: the small line above the title (the date, the goal).
+  final String? kicker;
+
+  /// Build 89: makes the kicker a control (a ⌄ after it), such as Food's date
+  /// opening its calendar.
+  final VoidCallback? onKicker;
+  const ScreenTitle(
+    this.title, {
+    super.key,
+    this.trailing,
+    this.kicker,
+    this.onKicker,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    // Build 88 (DESIGN.md): a large title on the kraft, its context above it.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(S.x1, S.x3, S.x1, S.x3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (kicker != null && onKicker != null)
+                  Pressable(
+                    semanticLabel: '$kicker. Choose a day',
+                    onTap: onKicker,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            kicker!,
+                            style: F.body.copyWith(
+                              color: p.onGround,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: S.x1),
+                        Icon(
+                          LucideIcons.chevronDown,
+                          size: 18,
+                          color: p.onGround,
+                        ),
+                      ],
+                    ),
+                  )
+                else if (kicker != null)
+                  Text(kicker!, style: F.body.copyWith(color: p.onGround)),
+                // B90-08: Apple's Large Title grows from 34 to 60 pt at the
+                // largest accessibility size (x1.76), not with body text's
+                // x3.1; past that one word cannot wrap, so it fits rather
+                // than truncating to "Prog…".
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 60 / 34,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      title,
+                      style: F.display.copyWith(color: p.ink),
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ?trailing,
+        ],
+      ),
+    );
+  }
+}
+
+/// Progress toward a goal, [frac] = value / goal (Build 89). Up to the goal
+/// it fills in [color]; past it the goal's share stays solid and the excess
+/// is striped in the alert colour, so "over" reads at a glance.
+class GoalBar extends StatelessWidget {
+  const GoalBar(this.frac, {super.key, required this.color, this.height = 8});
+  final double frac;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final f = frac.isFinite && frac > 0 ? frac : 0.0;
+    return Semantics(
+      label: '${(f * 100).round()} percent of the goal',
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
+        child: CustomPaint(
+          painter: _GoalBarPainter(
+            f,
+            track: p.line,
+            fill: color,
+            over: p.on(C.alert),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalBarPainter extends CustomPainter {
+  _GoalBarPainter(
+    this.f, {
+    required this.track,
+    required this.fill,
+    required this.over,
+  });
+  final double f;
+  final Color track, fill, over;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final r = Radius.circular(s.height / 2);
+    final whole = RRect.fromRectAndRadius(Offset.zero & s, r);
+    c.drawRRect(whole, Paint()..color = track);
+    if (f <= 0) return;
+    c.save();
+    c.clipRRect(whole);
+    if (f <= 1) {
+      c.drawRect(
+        Rect.fromLTWH(0, 0, s.width * f, s.height),
+        Paint()..color = fill,
+      );
+    } else {
+      // The goal is 1/f of the bar; a small gap separates the excess.
+      final goalW = s.width / f;
+      c.drawRect(Rect.fromLTWH(0, 0, goalW, s.height), Paint()..color = fill);
+      final ex = Rect.fromLTWH(goalW + 2, 0, s.width - goalW - 2, s.height);
+      c.drawRect(ex, Paint()..color = over.withValues(alpha: .18));
+      c.save();
+      c.clipRect(ex);
+      final pen = Paint()
+        ..color = over
+        ..strokeWidth = 2;
+      for (var x = ex.left - s.height; x < ex.right + s.height; x += 6) {
+        c.drawLine(Offset(x, s.height), Offset(x + s.height, 0), pen);
+      }
+      c.restore();
+    }
+    c.restore();
+  }
+
+  @override
+  bool shouldRepaint(_GoalBarPainter o) =>
+      o.f != f || o.track != track || o.fill != fill || o.over != over;
+}
+
+/// A small labelled chip. Status, tag, category.
+class Pill extends StatelessWidget {
+  final String text;
+  final Color color;
+  final IconData? icon;
+  const Pill(this.text, this.color, {super.key, this.icon});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final ink = p.on(color);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: 5),
+      decoration: BoxDecoration(
+        color: p.wash(color),
+        borderRadius: R.rPill,
+        border: Border.all(color: ink.withValues(alpha: .28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: ink),
+            const SizedBox(width: S.x1),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              style: F.cap.copyWith(color: ink, fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The primary commitment button. [soft] is the secondary form.
+class BigButton extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final Color color;
+  final bool soft;
+  final VoidCallback? onTap;
+
+  const BigButton(
+    this.label, {
+    super.key,
+    this.icon,
+    this.color = C.green,
+    this.soft = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final fill = p.dark ? Color.alphaBlend(color, p.card) : p.fill(color);
+    final ink = soft
+        ? p.on(color)
+        : P.contrast(fill, C.black) >= 4.5
+        ? C.black
+        : C.white;
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: label,
+      child: Container(
+        // A minimum, never a fixed height — at accessibility text sizes the
+        // label is taller than 52 and a fixed box would clip it.
+        constraints: const BoxConstraints(minHeight: 52),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: soft ? p.wash(color) : fill,
+          borderRadius: R.rMd,
+          boxShadow: soft ? null : p.el(2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: ink),
+              const SizedBox(width: S.x2),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                style: F.head.copyWith(color: ink),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════ CHART FRAME ══════════════════
+/// Everything a chart needs in order to be read: what it is, what it is
+/// measured in, what the heights mean, what the colours mean, and what the
+/// horizontal axis covers.
+///
+/// A painter draws a shape. The shape is only information once something says
+/// `bpm` next to it and puts a `56` beside a gridline, and until this existed
+/// lib/ui2 drew forty charts and printed neither. The rules it enforces:
+///
+///   • THE UNIT IS ALWAYS IN THE HEADER. Not in a caption under the card, not
+///     implied by the metric name. [unit] is required, and there is no variant
+///     without it.
+///   • THE LABELS AND THE CURVE SHARE ONE [AxisSpec]. Pass the same instance to
+///     [yAxis] and to the painter (`LineChart(d, colour, axis: spec)`). The
+///     frame prints [AxisSpec.format] at each gridline and the painter maps
+///     values through [AxisSpec.t], so they cannot disagree. A painter left to
+///     auto-scale is a chart whose gridlines are decoration.
+///   • ABSENCE IS NOT AN EMPTY AXIS. Pass [empty] — normally `const NoData()` —
+///     when there is no series. The frame keeps the title and the unit and
+///     drops the axis entirely, because an axis with nothing on it reads as a
+///     measurement of zero.
+///   • MORE THAN ONE COLOUR MEANS A [legend]. `Hypnogram.legend`,
+///     `ZoneBar.legend`, `Spectrum.legend` and `IntervalLadder.legend` are
+///     derived from the painters' own palettes — pass those rather than
+///     retyping them, so a recolour can never orphan its key.
+///
+/// [xLabels] are laid out first-flush-left, last-flush-right and the rest
+/// centred, on cells that line up with the data: with three labels they mark
+/// the start, middle and end of what is actually drawn. They must describe the
+/// range on screen — a fixed `['30 days ago', '15', 'Today']` under a
+/// seven-day window is worse than no labels at all.
+class ChartFrame extends StatelessWidget {
+  final String title;
+
+  /// `bpm`, `ms`, `min`, `°`. Always rendered.
+  final String unit;
+
+  /// The painter, normally a `CustomPaint(size: Size.infinite, painter: …)`.
+  final Widget child;
+
+  /// Plot height in logical pixels. Text scale does not stretch it; the tick
+  /// labels thin themselves instead (see the note in `build`).
+  final double height;
+
+  final AxisSpec? yAxis;
+  final List<String> xLabels;
+  final List<(String, Color)> legend;
+  final String? footnote;
+
+  /// The series behind [child], for the SPOKEN version of the chart. A painter
+  /// is a picture and a picture has no screen-reader form, so before this a
+  /// fully-specified frame read out its title, its unit and then the three bare
+  /// axis tick numbers — and not one value from the data.
+  ///
+  /// Pass the same list the painter draws. The frame says the latest value,
+  /// the range and which way it moved; it never reads thirty numbers aloud.
+  /// Empty means the chart genuinely has no series to summarise (a hypnogram,
+  /// a route), and the legend and x range carry it instead.
+  final List<double?> series;
+
+  /// Non-null means THERE IS NO DATA: rendered in place of the plot, axis and
+  /// x-labels. `const NoData()` is the house form.
+  final Widget? empty;
+
+  /// Vertical marks at 0…1 across the plot. NOT data — a mark says the days
+  /// either side of it are not strictly comparable, and the only thing that can
+  /// say WHY is [footnote], which is also the mark's only screen-reader form.
+  /// Pass one without the other and the picture gains a line nobody can read.
+  ///
+  /// Drawn dotted, in the axis's own muted ink, so it can never be mistaken for
+  /// a measured line. It does not take taps.
+  final List<double> xMarks;
+
+  /// What the finger is on, e.g. "Tue 29 Sep · 12.4". Shown in the header
+  /// beside the unit while a cursor is placed; null shows the unit alone.
+  final String? readout;
+
+  const ChartFrame({
+    super.key,
+    required this.title,
+    required this.unit,
+    required this.child,
+    this.height = 120,
+    this.yAxis,
+    this.xLabels = const [],
+    this.legend = const [],
+    this.footnote,
+    this.empty,
+    this.series = const [],
+    this.xMarks = const [],
+    this.readout,
+  });
+
+  /// Width and height of [s] as it will actually be laid out — including the
+  /// user's text scale. Estimating this from a character count is how axis
+  /// gutters end up clipping `7h 30m` at 2× on exactly the devices whose
+  /// owners chose 2× because they need it.
+  static Size _measure(String s, TextStyle st, TextScaler sc, TextDirection d) {
+    final tp = TextPainter(
+      text: TextSpan(text: s, style: st),
+      textDirection: d,
+      textScaler: sc,
+      maxLines: 1,
+    )..layout();
+    return tp.size;
+  }
+
+  /// The chart in a sentence: what it ends on, what it spanned, and which way
+  /// it went. Null when there is nothing to say.
+  ///
+  /// A summary, deliberately — not a reading of the series. Thirty numbers read
+  /// aloud is the same non-information as a picture, and a screen reader cannot
+  /// skim. The shape and the extremes are what a sighted glance takes from it,
+  /// so they are what this says.
+  String? _spoken() {
+    // No plot, nothing to summarise. The [empty] child says why in the
+    // caller's own words and is left in the tree to say it — a 'No data' here
+    // would be a second, blunter announcement of the same absence.
+    if (empty != null) return null;
+    final v = [
+      for (final x in series)
+        if (x != null && x.isFinite) x,
+    ];
+    if (v.isEmpty) return null;
+    final fmt = yAxis?.format ?? axisFixedOrInt;
+    var lo = v.first, hi = v.first;
+    for (final x in v) {
+      if (x < lo) lo = x;
+      if (x > hi) hi = x;
+    }
+    final last = v.last;
+    // No unit here: the sentence has already said "measured in $unit", and a
+    // formatter like [axisHm] writes its own — which is how this read out
+    // "Latest 7h 42m min".
+    final parts = ['Latest ${fmt(last)}'];
+    if (v.length > 1) {
+      if (hi > lo) parts.add('ranging ${fmt(lo)} to ${fmt(hi)}');
+      final delta = last - v.first;
+      // A move smaller than a twentieth of the range is not a direction.
+      final noise = (hi - lo) / 20;
+      parts.add(
+        delta.abs() <= noise
+            ? 'roughly level across ${v.length} readings'
+            : '${delta > 0 ? 'up' : 'down'} ${fmt(delta.abs())} '
+                  'across ${v.length} readings',
+      );
+    }
+    return parts.join(', ');
+  }
+
+  Widget _header(P p, bool stacked) {
+    final name = Text(
+      title,
+      style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+    );
+    final Widget measure = readout == null
+        ? Text(unit, style: F.over.copyWith(color: p.ink3))
+        : Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: readout,
+                  style: F.cap.copyWith(
+                    color: p.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextSpan(
+                  text:
+                      unit.isEmpty ||
+                          RegExp(
+                            '(^|[^A-Za-z])' +
+                                RegExp.escape(unit) +
+                                r'([^A-Za-z]|$)',
+                          ).hasMatch(readout!)
+                      ? ''
+                      : '  $unit',
+                  style: F.over.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
+          );
+    if (!stacked && readout == null) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: name),
+          const SizedBox(width: S.x2),
+          if (readout == null) measure else Flexible(flex: 2, child: measure),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        name,
+        const SizedBox(height: S.x2),
+        measure,
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final scaler = MediaQuery.textScalerOf(c);
+    final dir = Directionality.of(c);
+    // ink3 is the muted token that is *solved* to 4.5:1 on every surface — the
+    // axis is the smallest type on the card, so it gets the floor, not a
+    // lighter grey chosen by eye.
+    final tick = F.over.copyWith(color: p.ink3);
+
+    final a = empty == null ? yAxis : null;
+    var labels = const <String>[];
+    var gutter = 0.0, lineH = 0.0;
+    if (a != null) {
+      lineH = _measure('0', tick, scaler, dir).height;
+      // At 2× text a 120 pt plot fits three labels; a 60 pt one fits two. Thin
+      // the LABELS rather than the axis — min and max are unchanged, so the
+      // curve keeps the exact scale the caller pinned and the remaining
+      // gridlines still sit on real values.
+      final fits = (height / (lineH * 1.35)).floor();
+      final n = a.ticks.clamp(2, fits < 2 ? 2 : fits);
+      labels = [
+        for (final v in AxisSpec(
+          min: a.min,
+          max: a.max,
+          ticks: n,
+          format: a.format,
+        ).tickValues)
+          a.format(v),
+      ];
+      for (final s in labels) {
+        final w = _measure(s, tick, scaler, dir).width;
+        if (w > gutter) gutter = w;
+      }
+    }
+    final inset = a == null ? 0.0 : gutter + S.x2;
+
+    return Semantics(
+      container: true,
+      // Keeps `child` as its own node. Without it a container merges every
+      // descendant into itself, so an interactive child's label is swallowed
+      // by the frame's sentence and the control is unreachable — the same
+      // outcome `excludeSemantics` had, by a different route.
+      explicitChildNodes: true,
+      // NOT `excludeSemantics: true`. That suppressed the bare axis ticks and
+      // the doubled header — which was the point — but it deletes EVERY
+      // descendant semantics node, and `child` is a descendant. On the sleep
+      // screen the child is the `Scrubber`, so the one interactive control in
+      // the chart vanished from the accessibility tree entirely. The
+      // decoration is excluded piece by piece below instead, and `child` is
+      // left reachable.
+      label: [
+        title,
+        'measured in $unit',
+        ?_spoken(),
+        if (xLabels.length > 1) 'from ${xLabels.first} to ${xLabels.last}',
+        if (legend.isNotEmpty)
+          'Key: ${[for (final (l, _) in legend) l].join(', ')}',
+        ?footnote,
+      ].join('. '),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── header: what it is, and what it is measured in ──
+          // Title and unit share a line until the text scale makes that a
+          // choice between truncating the title and dropping the unit — at
+          // which point the unit moves under it. Neither is ever dropped.
+          ExcludeSemantics(child: _header(p, scaler.scale(1) > 1.3)),
+          const SizedBox(height: S.x3),
+
+          // ── plot, or the honest absence of one ──
+          if (empty != null)
+            ConstrainedBox(
+              constraints: BoxConstraints(minHeight: height),
+              child: Center(child: empty),
+            )
+          else
+            SizedBox(
+              height: height,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (a != null) ...[
+                    // Tick numbers, spoken already as part of the frame's sentence.
+                    ExcludeSemantics(
+                      child: SizedBox(
+                        width: gutter,
+                        child: Stack(
+                          children: [
+                            for (var i = 0; i < labels.length; i++)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                // Centred on its gridline, then clamped inside the
+                                // plot so the top and bottom labels are not half cut.
+                                top:
+                                    (i / (labels.length - 1) * height -
+                                            lineH / 2)
+                                        .clamp(
+                                          0.0,
+                                          (height - lineH).clamp(0.0, height),
+                                        ),
+                                child: Text(
+                                  labels[i],
+                                  style: tick,
+                                  textAlign: TextAlign.right,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: S.x2),
+                  ],
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        if (a != null)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _Gridlines(labels.length, p.line),
+                            ),
+                          ),
+                        Positioned.fill(child: child),
+                        // Above the curve, because a fill would swallow it —
+                        // and wrapped so it never takes a pointer. A bare
+                        // CustomPaint hit-tests true, which sat on top of the
+                        // Scrubber and swallowed every drag on any chart with
+                        // a mark (30-day trends, build 69).
+                        if (xMarks.isNotEmpty)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _XMarks(xMarks, p.ink3),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // ── x axis ──
+          if (empty == null && xLabels.isNotEmpty)
+            ExcludeSemantics(
+              child: Padding(
+                padding: EdgeInsets.only(top: S.x1, left: inset),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < xLabels.length; i++)
+                      Expanded(
+                        child: Text(
+                          xLabels[i],
+                          style: tick,
+                          textAlign: i == 0
+                              ? TextAlign.start
+                              : i == xLabels.length - 1
+                              ? TextAlign.end
+                              : TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── legend ──
+          if (legend.isNotEmpty)
+            ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(top: S.x3),
+                child: Wrap(
+                  spacing: S.x3,
+                  runSpacing: S.x1,
+                  children: [
+                    for (final (label, colour) in legend)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 9,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colour,
+                              // The swatch is the mark's real colour so the two match,
+                              // and a pale mark still needs an edge to be findable.
+                              border: Border.all(color: p.line, width: .5),
+                            ),
+                          ),
+                          const SizedBox(width: S.x1),
+                          // Flexible, because `Wrap` hands each item the frame's full
+                          // width and no more: a key like "Breathing (br/min)" is wider
+                          // than a 390 pt card at 2× text and overflowed the item
+                          // rather than wrapping inside it.
+                          Flexible(child: Text(label, style: tick)),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+          if (footnote != null)
+            ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(top: S.x2),
+                child: Text(footnote!, style: F.cap.copyWith(color: p.ink3)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The horizontal rules behind a plot, at the same fractions [ChartFrame]
+/// prints its labels — one count, passed to both, so they cannot drift.
+class _Gridlines extends CustomPainter {
+  final int n;
+  final Color color;
+  const _Gridlines(this.n, this.color);
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (n < 2 || s.height <= 0) return;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    for (var i = 0; i < n; i++) {
+      // Inset half a stroke so the first and last rules are drawn, not clipped.
+      final y = (i / (n - 1) * s.height).clamp(.5, s.height - .5);
+      cv.drawLine(Offset(0, y), Offset(s.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _Gridlines o) => o.n != n || o.color != color;
+}
+
+/// A break in the x direction — where the days on one side were not produced
+/// the same way as the days on the other. Dotted and hairline-thin: provenance
+/// is worth seeing and is not worth alarming anybody about.
+class _XMarks extends CustomPainter {
+  final List<double> at;
+  final Color color;
+  const _XMarks(this.at, this.color);
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (s.width <= 0 || s.height <= 0) return;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    for (final f in at) {
+      final x = (f.clamp(0.0, 1.0) * s.width).clamp(.5, s.width - .5);
+      for (var y = 0.0; y < s.height; y += 6) {
+        final end = y + 3 > s.height ? s.height : y + 3;
+        cv.drawLine(Offset(x, y), Offset(x, end), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _XMarks o) => o.color != color || o.at != at;
+}
+
+/// The body of an empty [ChartFrame]. Says what is missing in words.
+///
+/// This is not a replacement for [StatusCard] — a metric that has no value
+/// still renders one, with its why and its fix. This is the smaller case: the
+/// number exists, the SERIES behind the picture does not.
+class NoData extends StatelessWidget {
+  final String message;
+  const NoData({super.key, this.message = 'No data yet'});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(LucideIcons.chartLine, size: 15, color: p.ink3),
+        const SizedBox(width: S.x2),
+        Flexible(
+          child: Text(
+            message,
+            style: F.cap.copyWith(color: p.ink3),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The pushed-screen header. Back → title → one optional action.
+// ══════════════════ BUILD 85 · SCANNABLE PIECES ══════════════════
+// Facts as chips, numbers as tiles, compositions as bars, comparisons as
+// rows, and explanations folded away — so a screen leads with what it found
+// and keeps the how one tap down instead of in grey lines under every card.
+
+/// A small status chip: a fact the eye can catch ("Updated 07:05",
+/// "Distance: GPS route", "Approximate"). Neutral unless [color] is given.
+class Tag extends StatelessWidget {
+  const Tag(this.text, {super.key, this.icon, this.color});
+  final String text;
+  final IconData? icon;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final ink = color == null ? p.ink2 : p.on(color!);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: 3),
+      decoration: BoxDecoration(
+        color: color == null ? p.card2 : p.wash(color!),
+        borderRadius: R.rPill,
+        border: Border.all(color: p.edge),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: ink),
+            const SizedBox(width: S.x1),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              style: F.over.copyWith(color: ink, letterSpacing: .2),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// When today's numbers were last calculated, so an old number never looks
+/// current. [at] null means today has not been calculated yet.
+class UpdatedStamp extends StatelessWidget {
+  const UpdatedStamp(this.at, {super.key, this.now});
+  final DateTime? at;
+
+  /// For tests; the wall clock otherwise.
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext c) {
+    final when = at;
+    if (when == null) {
+      return const Tag('Not calculated yet', icon: LucideIcons.clock);
+    }
+    final today = now ?? DateTime.now();
+    final time = formatClock(when);
+    final sameDay =
+        when.year == today.year &&
+        when.month == today.month &&
+        when.day == today.day;
+    return Tag(
+      sameDay ? 'Updated $time' : 'Updated ${formatShortDate(when)}, $time',
+      icon: LucideIcons.clock,
+    );
+  }
+}
+
+/// One number on its own tile: a label beside its colour well, the value, a
+/// unit and one short line. Lives in two-up grids.
+class StatTile extends StatelessWidget {
+  const StatTile({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.color,
+    this.unit = '',
+    this.sub,
+    this.icon,
+    this.onTap,
+    this.trailing,
+  });
+  final String label, value, unit;
+  final String? sub;
+  final Color color;
+  final IconData? icon;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Surface(
+      onTap: onTap,
+      semanticLabel: '$label $value $unit ${sub ?? ''}'.trim(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: p.wash(color),
+                  borderRadius: R.rSm,
+                ),
+                child: Icon(
+                  icon ?? LucideIcons.circle,
+                  size: 14,
+                  color: p.on(color),
+                ),
+              ),
+              const SizedBox(width: S.x2),
+              Expanded(
+                child: Text(
+                  label,
+                  style: F.cap.copyWith(color: p.ink2),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: S.x3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: value,
+                    style: F.n24.copyWith(color: p.ink),
+                  ),
+                  if (unit.isNotEmpty)
+                    TextSpan(
+                      text: ' $unit',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                ],
+              ),
+              maxLines: 1,
+            ),
+          ),
+          if (sub != null && sub!.isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            Text(
+              sub!,
+              style: F.over.copyWith(color: p.ink3),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A whole made of parts, as one bar: maintenance as Resting · Walking ·
+/// Running · Digestion. Each part is its own colour and is listed under the
+/// bar with its value, so the bar never stands in for the numbers.
+class StackedBar extends StatelessWidget {
+  const StackedBar(this.parts, {super.key});
+  final List<(String, double, Color)> parts;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final shown = [
+      for (final e in parts)
+        if (e.$2.isFinite && e.$2 > 0) e,
+    ];
+    final total = shown.fold<double>(0, (a, e) => a + e.$2);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: R.rPill,
+          child: SizedBox(
+            height: 10,
+            child: total <= 0
+                ? ColoredBox(color: p.track)
+                // Stretch: a ColoredBox with no child takes the smallest
+                // height it is allowed, which inside a Row is zero.
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < shown.length; i++) ...[
+                        if (i > 0)
+                          SizedBox(width: 2, child: ColoredBox(color: p.card)),
+                        Expanded(
+                          // Thousandths keep a small part visible as a sliver.
+                          flex: math.max(
+                            1,
+                            (shown[i].$2 / total * 1000).round(),
+                          ),
+                          child: ColoredBox(color: p.on(shown[i].$3)),
+                        ),
+                      ],
+                    ],
+                  ),
+          ),
+        ),
+        const SizedBox(height: S.x3),
+        Wrap(
+          spacing: S.x4,
+          runSpacing: S.x2,
+          children: [
+            for (final e in parts)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: p.on(e.$3),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: S.x1),
+                  Text(e.$1, style: F.over.copyWith(color: p.ink3)),
+                  const SizedBox(width: S.x1),
+                  Text(
+                    _thousands(e.$2.round()),
+                    style: F.over.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Two figures and the gap between them, as the headline of a card rather
+/// than a caption under it: "Eaten 2,448 · Budget 2,451 · 3 under".
+/// Under is green and over is amber; the words say which, so colour is never
+/// the only signal.
+class CompareRow extends StatelessWidget {
+  const CompareRow({
+    super.key,
+    required this.leftLabel,
+    required this.left,
+    required this.rightLabel,
+    required this.right,
+    this.unit = 'kcal',
+    this.suffix = '',
+  });
+  final String leftLabel, rightLabel, unit;
+  final double left, right;
+
+  /// Appended to the gap's word ("Under so far").
+  final String suffix;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final gap = left - right;
+    final under = gap <= 0;
+    Widget cell(String label, String value, {Color? color}) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x1),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: F.n17.copyWith(color: color ?? p.ink),
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+    return Container(
+      padding: const EdgeInsets.all(S.x3),
+      decoration: BoxDecoration(
+        color: p.card2,
+        borderRadius: R.rLg,
+        border: Border.all(color: p.edge),
+      ),
+      child: Row(
+        children: [
+          cell(leftLabel, _thousands(left.round())),
+          cell(rightLabel, _thousands(right.round())),
+          cell(
+            under ? 'Under$suffix' : 'Over$suffix',
+            '${_thousands(gap.abs().round())} $unit',
+            color: p.on(under ? C.green : C.orange),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "How it's worked out", folded: the explanation is one tap away instead
+/// of grey lines under every number.
+class Explain extends StatefulWidget {
+  const Explain(this.lines, {super.key, this.title = "How it's worked out"});
+  final List<String> lines;
+  final String title;
+
+  @override
+  State<Explain> createState() => _ExplainState();
+}
+
+class _ExplainState extends State<Explain> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Pressable(
+          semanticLabel: _open ? 'Hide ${widget.title}' : widget.title,
+          onTap: () => setState(() => _open = !_open),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x2),
+            child: Row(
+              children: [
+                Icon(LucideIcons.info, size: 14, color: p.ink3),
+                const SizedBox(width: S.x2),
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: F.cap.copyWith(
+                      color: p.ink2,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Icon(
+                  _open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 16,
+                  color: p.ink3,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_open)
+          for (final line in widget.lines)
+            Padding(
+              padding: const EdgeInsets.only(left: S.x5, bottom: S.x2),
+              child: Text(
+                line,
+                style: F.cap.copyWith(color: p.ink3, height: 1.45),
+              ),
+            ),
+      ],
+    );
+  }
+}
+
+class NavBar extends StatelessWidget {
+  final String title;
+  final String sub;
+  final Widget? trailing;
+  final VoidCallback? onBack;
+
+  /// Width of the trailing slot. Only [ActivitySummary] widens it, to fit a
+  /// share icon beside an edit-type one — every other caller keeps the
+  /// one-icon default.
+  final double trailingWidth;
+
+  const NavBar(
+    this.title, {
+    super.key,
+    this.sub = '',
+    this.trailing,
+    this.onBack,
+    this.trailingWidth = S.tap,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final controls = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 52),
+      child: Row(
+        children: [
+          Pressable(
+            onTap: onBack ?? () => Navigator.maybePop(c),
+            semanticLabel: 'Back',
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: p.card,
+                shape: BoxShape.circle,
+                border: Border.all(color: p.edge),
+              ),
+              child: Icon(LucideIcons.chevronLeft, size: 20, color: p.ink),
+            ),
+          ),
+          Expanded(
+            child: bigText(c)
+                ? const SizedBox.shrink()
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: F.head.copyWith(color: p.ink),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (sub.isNotEmpty)
+                        Text(
+                          sub,
+                          style: F.over.copyWith(color: p.ink3),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+          ),
+          SizedBox(
+            width: trailingWidth,
+            child: Align(alignment: Alignment.centerRight, child: trailing),
+          ),
+        ],
+      ),
+    );
+    if (!bigText(c)) return controls;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        controls,
+        Text(title, style: F.head.copyWith(color: p.ink)),
+        if (sub.isNotEmpty) Text(sub, style: F.cap.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x2),
+      ],
+    );
+  }
+}
+
+/// While a row is held, dragging it near the top or bottom edge scrolls the
+/// PAGE the list sits in. The drag lists below are shrink-wrapped inside a
+/// page or sheet that scrolls, and Flutter's own edge scrolling only moves the
+/// list's inner, non-scrolling view — so a long list had to be reordered a
+/// screen at a time. After each scroll step the finger's last position is
+/// replayed to the drag, so the drop slot follows the moved rows even when the
+/// finger is held still at the edge.
+class DragEdgeScroll extends StatefulWidget {
+  const DragEdgeScroll({
+    super.key,
+    required this.dragging,
+    required this.child,
+  });
+
+  final bool dragging;
+  final Widget child;
+
+  /// How close to an edge the finger must be before the page scrolls: half
+  /// of this, above or below it.
+  static const double reach = 140;
+
+  @override
+  State<DragEdgeScroll> createState() => _DragEdgeScrollState();
+}
+
+class _DragEdgeScrollState extends State<DragEdgeScroll> {
+  EdgeDraggingAutoScroller? _scroller;
+  PointerMoveEvent? _last;
+  bool _replaying = false;
+
+  @override
+  void didUpdateWidget(DragEdgeScroll old) {
+    super.didUpdateWidget(old);
+    if (!widget.dragging) _stop();
+  }
+
+  @override
+  void dispose() {
+    _stop();
+    super.dispose();
+  }
+
+  void _stop() {
+    _scroller?.stopAutoScroll();
+    _last = null;
+  }
+
+  void _move(PointerMoveEvent e) {
+    if (!widget.dragging || _replaying) return;
+    final page = Scrollable.maybeOf(context);
+    if (page == null) return;
+    _last = e;
+    _scroller ??= EdgeDraggingAutoScroller(
+      page,
+      velocityScalar: 50,
+      onScrollViewScrolled: _replay,
+    );
+    _aim(e);
+  }
+
+  /// The finger stays put on screen while the page moves, but the scroller
+  /// treats its target as riding with the content; re-aiming after every step
+  /// keeps it scrolling for as long as the finger is held at the edge.
+  void _aim(PointerMoveEvent e) => _scroller?.startAutoScrollIfNecessary(
+    Rect.fromCenter(center: e.position, width: 1, height: DragEdgeScroll.reach),
+  );
+
+  void _replay() {
+    final e = _last;
+    if (e == null || !widget.dragging || !mounted) return;
+    _replaying = true;
+    try {
+      GestureBinding.instance.handlePointerEvent(
+        PointerMoveEvent(
+          pointer: e.pointer,
+          device: e.device,
+          kind: e.kind,
+          position: e.position,
+          timeStamp: e.timeStamp,
+        ),
+      );
+    } finally {
+      _replaying = false;
+    }
+    if (widget.dragging) _aim(e);
+  }
+
+  @override
+  Widget build(BuildContext c) => Listener(
+    onPointerMove: _move,
+    onPointerUp: (_) => _stop(),
+    onPointerCancel: (_) => _stop(),
+    child: widget.child,
+  );
+}
+
+// ══════════════════ BUILD 88 · METRIC LINES ══════════════════
+
+/// A Build 88 day chart (DESIGN.md): [values] one per day, oldest first, null
+/// a hatched blank. The chart's [style] follows the range — tiles on Today,
+/// bars at 7 days, a daily line under a 7-day average at 30 days, weekly
+/// points over a low–high band at 3 months.
+class DayTiles extends StatelessWidget {
+  final List<double?> values;
+  final Color color;
+  final RangeStyle style;
+  final double height;
+
+  const DayTiles(
+    this.values,
+    this.color, {
+    super.key,
+    this.style = RangeStyle.tiles,
+    this.height = 34,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final have = values.whereType<double>().length;
+    return Semantics(
+      label: '$have of ${values.length} days recorded',
+      excludeSemantics: true,
+      child: SizedBox(
+        height: height,
+        child: CustomPaint(
+          size: Size.infinite,
+          // Graphics, not text: the pure family colour (DESIGN.md), which
+          // clears the 3:1 non-text floor on the paper it sits on.
+          painter: RangeChart(values, color, hatch: C.hatch, style: style),
+        ),
+      ),
+    );
+  }
+}
+
+/// A calm metric row: sentence-case label, optional real series and a value
+/// anchored to the same edge with or without a chart or action. An absent value is
+/// "—" in the alert colour with its one-line reason; [fresh] adds the amber
+/// NEW marker until the value has been seen; [progress] (0…1) draws a single
+/// value's progress bar in place of the chart.
+class MetricLine extends StatelessWidget {
+  final String label;
+  final List<double?> values;
+  final Color color;
+  final String? value;
+  final String unit;
+  final String? sub;
+  final String? absentWhy;
+  final RangeStyle style;
+  final double? progress;
+  final bool fresh;
+  final VoidCallback? onTap;
+
+  /// Text in the chart's place — the method, dates or counts behind the
+  /// value (DESIGN.md: "navel · 11 Oct vs 4 Oct").
+  final String? note;
+
+  const MetricLine({
+    super.key,
+    required this.label,
+    required this.color,
+    this.values = const [],
+    this.value,
+    this.unit = '',
+    this.sub,
+    this.absentWhy,
+    this.style = RangeStyle.tiles,
+    this.progress,
+    this.fresh = false,
+    this.onTap,
+    this.note,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final absent = value == null;
+    final big = bigText(c);
+    final hasChart = note == null && (progress != null || values.isNotEmpty);
+    final chart = progress != null
+        ? GoalBar(progress!, color: color, height: 4)
+        : DayTiles(values, color, style: style);
+    final labelCol = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: F.body.copyWith(color: p.ink2)),
+        if (note != null) Text(note!, style: F.cap.copyWith(color: p.ink2)),
+        if (fresh)
+          Padding(
+            padding: const EdgeInsets.only(top: S.x1),
+            child: Pill('NEW', C.alert),
+          ),
+      ],
+    );
+    final valueCol = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          reverse: true,
+          child: Text(
+            value ?? '—',
+            softWrap: false,
+            style: F.n24.copyWith(color: p.on(absent ? C.alert : color)),
+          ),
+        ),
+        if (unit.isNotEmpty && !absent)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Text(
+              unit,
+              softWrap: false,
+              textAlign: TextAlign.end,
+              style: F.over.copyWith(color: p.ink2),
+            ),
+          ),
+        if (sub != null && !absent)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            reverse: true,
+            child: Text(
+              sub!,
+              softWrap: false,
+              textAlign: TextAlign.end,
+              style: F.over.copyWith(color: p.ink2),
+            ),
+          ),
+      ],
+    );
+    final trailing = SizedBox(
+      width: 20,
+      child: onTap == null
+          ? null
+          : Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+    );
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: [
+        label,
+        absent ? 'not measured' : '$value $unit'.trim(),
+        ?sub,
+        ?note,
+        ?absentWhy,
+      ].join(', '),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (big) ...[
+              labelCol,
+              const SizedBox(height: S.x2),
+              Row(
+                children: [
+                  Expanded(child: valueCol),
+                  trailing,
+                ],
+              ),
+              if (hasChart) ...[const SizedBox(height: S.x2), chart],
+            ] else
+              Row(
+                children: [
+                  Expanded(child: labelCol),
+                  if (hasChart) ...[
+                    const SizedBox(width: S.x2),
+                    SizedBox(width: 52, child: chart),
+                  ],
+                  const SizedBox(width: S.x3),
+                  Expanded(child: valueCol),
+                  trailing,
+                ],
+              ),
+            if (absent && absentWhy != null && absentWhy != note) ...[
+              const SizedBox(height: S.x1),
+              Text(absentWhy!, style: F.cap.copyWith(color: p.on(C.alert))),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One primary number in its family colour with quiet context and optional
+/// decorative artwork. It keeps display scaling separate from body text;
+/// absent input is "—", never a substituted value.
+class HeroStat extends StatelessWidget {
+  final String? value;
+  final Color color;
+  final String label;
+  final List<String> lines;
+  final bool fresh;
+  final VoidCallback? onTap;
+  final String? semanticLabel;
+  final Widget? illustration;
+
+  const HeroStat({
+    super.key,
+    required this.value,
+    required this.color,
+    required this.label,
+    this.lines = const [],
+    this.fresh = false,
+    this.onTap,
+    this.semanticLabel,
+    this.illustration,
+  });
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final big = bigText(c);
+    final long = (value ?? '').length > 3;
+    final number = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Text(
+        value ?? '—',
+        softWrap: false,
+        style: (long ? F.heroTileLong : F.heroTile).copyWith(
+          color: p.on(value == null ? C.alert : color),
+        ),
+      ),
+    );
+    final side = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(label, style: F.body.copyWith(color: p.ink2)),
+            ),
+            if (fresh && value != null) ...[
+              const SizedBox(width: S.x2),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: S.x2,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: p.fill(C.alert),
+                  borderRadius: R.rSm,
+                ),
+                child: Text('NEW', style: F.over.copyWith(color: p.inkOnFill)),
+              ),
+            ],
+          ],
+        ),
+        for (var i = 0; i < lines.length; i++) ...[
+          const SizedBox(height: S.x1),
+          Text(
+            lines[i],
+            style: i == 0 && lines.length > 1
+                ? F.head.copyWith(color: p.ink)
+                : F.cap.copyWith(color: value == null ? p.on(C.alert) : p.ink2),
+          ),
+        ],
+      ],
+    );
+    return Pressable(
+      onTap: onTap,
+      semanticLabel:
+          semanticLabel ??
+          [label, value ?? 'not measured', ...lines].join(', '),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: S.x3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 60 / 34,
+                    child: number,
+                  ),
+                  const SizedBox(height: S.x2),
+                  side,
+                ],
+              ),
+            ),
+            if (!big && illustration != null) ...[
+              const SizedBox(width: S.x3),
+              illustration!,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A full-page form's unsaved-changes guard (Build 93, Codex full-flow audit
+/// F14): a clean form leaves at once, including the iPhone edge swipe; a
+/// dirty one asks "Discard changes?" first. [dirty] is read on every build,
+/// and [listenables] (the form's text controllers) rebuild it as typing
+/// changes it. A Save is never held: `Navigator.pop` skips the guard, and a
+/// `maybePop` is let through once [dirty] (e.g. "saving") turns false.
+class DirtyPopScope extends StatefulWidget {
+  const DirtyPopScope({
+    super.key,
+    required this.dirty,
+    required this.child,
+    this.listenables = const [],
+  });
+  final bool Function() dirty;
+  final List<Listenable> listenables;
+  final Widget child;
+
+  static final _open = <_DirtyPopScopeState>{};
+
+  /// Bumped when a form closes, so a navigation held by [anyDirty] retries.
+  static final closed = ValueNotifier<int>(0);
+
+  /// Some open form holds unsaved changes. Build 94 (Codex N14): a
+  /// notification's navigation pops programmatically, past this scope's Back
+  /// guard, so it waits for the form to be saved or discarded instead.
+  static bool get anyDirty => _open.any((s) => !s._leaving && s.widget.dirty());
+
+  @override
+  State<DirtyPopScope> createState() => _DirtyPopScopeState();
+}
+
+class _DirtyPopScopeState extends State<DirtyPopScope> {
+  bool _leaving = false;
+  late final Listenable _any = Listenable.merge(widget.listenables);
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    DirtyPopScope._open.add(this);
+    _any.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    DirtyPopScope._open.remove(this);
+    DirtyPopScope.closed.value++;
+    _any.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext c) => PopScope(
+    canPop: _leaving || !widget.dirty(),
+    onPopInvokedWithResult: (didPop, result) async {
+      if (didPop || _leaving) return;
+      // [canPop] is from the last build; a Save that closes with maybePop
+      // runs before the next one. Judge the form as it is now.
+      if (!widget.dirty()) {
+        _leaving = true;
+        Navigator.of(context).pop(result);
+        return;
+      }
+      final leave = await confirmRemove(
+        context,
+        title: 'Discard changes?',
+        body: 'What you changed here has not been saved.',
+        remove: 'Discard',
+        keep: 'Keep editing',
+      );
+      if (!leave || !mounted) return;
+      _leaving = true;
+      Navigator.of(context).pop(result);
+    },
+    child: widget.child,
+  );
+}

@@ -1,0 +1,4 @@
+// Copy to Signing.xcconfig to sign from Xcode with your own Apple account.
+// Signing.xcconfig is gitignored and should not be committed.
+APP_BUNDLE_IDENTIFIER = com.akshat.personal.whoop
+APPLE_DEVELOPMENT_TEAM = YOURTEAMID

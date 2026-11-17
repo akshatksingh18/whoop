@@ -1,0 +1,8 @@
+{
+  "algorithmVersion": 102,
+  "review": "Akshat approved algorithm 102: restored-history cross-day input reads only map-shaped scalar detail and otherwise retains the existing indexed RHR/HRV/Recovery fallbacks. Unsupported detail stays unknown;original payloads,backups and unrelated history stay intact. Healthy numeric results and all scientific formulas are unchanged. Algorithm101 sleep-correction preservation/publication protections remain. Package sources/digests,protocol1.0.1,schema50 and app metadata remain unchanged;complete import-result pages were approved with the repair.",
+  "packages": {
+    "whoop_protocol": "48af44d840cd6e1ad4e16fa5b561efb3d5976bba1f9acae223209b22e328f84b",
+    "whoop_analytics": "ee59b6116f1b978e3be4e5e676e660f6a8c01aa05c38f37f8dc07aa86c623c5b"
+  }
+}

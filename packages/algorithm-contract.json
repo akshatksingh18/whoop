@@ -1,0 +1,8 @@
+{
+  "algorithmVersion": 103,
+  "review": "Akshat approved algorithm103 and complete Before/Proposed pages: the import PreparedDerivationDay handoff now carries the detected sleepSource,retaining fallback/absent provenance and existing uncertainty/confirmation guidance. Old rows,versions,pins,corrections and original input remain;no ambiguous legacy auto value is bulk-relabeled. Scientific formulas,observation/admission/staging/confidence gates and numeric methods are unchanged. Earlier algorithm102 scalar-shape and algorithm101 correction protections remain. Package sources/digests,protocol1.0.1,schema50 and app metadata stay unchanged during the native/IPA hold.",
+  "packages": {
+    "whoop_protocol": "48af44d840cd6e1ad4e16fa5b561efb3d5976bba1f9acae223209b22e328f84b",
+    "whoop_analytics": "ee59b6116f1b978e3be4e5e676e660f6a8c01aa05c38f37f8dc07aa86c623c5b"
+  }
+}

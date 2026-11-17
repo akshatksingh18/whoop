@@ -1,0 +1,65 @@
+// The iOS AccessorySetupKit block in Info.plist is DERIVED from kFramedBands.
+//
+// kFramedBands and not the whole registry: ASK provisions the PRIMARY band —
+// the one that holds a link and gets its flash trimmed. A notify-only sensor
+// is connected straight from its stored remote id during a workout, so its
+// service in this array would only put chest straps in the WHOOP picker.
+//
+// This is the enforcement half of tool/gen_ios_ask_plist.dart: `flutter test`
+// runs on every PR, so a band added to the registry and forgotten in the plist
+// fails CI. It has to fail loudly, because the symptom otherwise is invisible —
+// on iOS 18+ the ASK picker is the pairing path, so an undeclared service just
+// means that band never appears in the picker.
+//
+// Same shape as telemetry_consent_default_test.dart, which already asserts
+// platform config from Dart.
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whoop_companion/ble/adapters/_registry.dart';
+
+import '../tool/gen_ios_ask_plist.dart';
+
+void main() {
+  final plist = File(kPlistPath).readAsStringSync();
+
+  test('Info.plist ASK block is in sync with kFramedBands', () {
+    expect(
+      applyBlocks(plist, kFramedBands),
+      plist,
+      reason: 'stale — run `dart run tool/gen_ios_ask_plist.dart`',
+    );
+  });
+
+  test('every framed service is declared, uppercased', () {
+    for (final e in kFramedBands) {
+      expect(plist, contains('<string>${e.service.toUpperCase()}</string>'));
+    }
+  });
+
+  test('AccessorySetup.swift keeps no second copy of the UUIDs', () {
+    // The Swift reads NSAccessorySetupBluetoothServices at runtime. A literal
+    // back in the source is the drift this whole thing exists to prevent.
+    final swift =
+        File('ios/Runner/AccessorySetup.swift').readAsStringSync().toLowerCase();
+    for (final e in kFramedBands) {
+      expect(swift, isNot(contains(e.service.toLowerCase())));
+    }
+  });
+
+  test('ASK generation preserves both LF and Windows CRLF line endings', () {
+    final lf = plist.replaceAll('\r\n', '\n');
+    final expected = applyBlocks(lf, kFramedBands);
+    expect(applyBlocks(lf.replaceAll('\n', '\r\n'), kFramedBands),
+        expected.replaceAll('\n', '\r\n'));
+  });
+
+  test('AccessorySetup.swift does not pass a name-only descriptor to iOS', () {
+    // AccessorySetupKit requires every Bluetooth descriptor to identify a
+    // service or company; a name is only an additional filter. This guards the
+    // native crash that occurred when the picker validated the old fallback.
+    final swift =
+        File('ios/Runner/AccessorySetup.swift').readAsStringSync();
+    expect(swift, isNot(contains('bluetoothNameSubstring')));
+  });
+}

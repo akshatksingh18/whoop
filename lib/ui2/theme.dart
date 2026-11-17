@@ -1,0 +1,693 @@
+// The token boundary. Nothing below this file defines a colour, a size, a
+// radius or a duration — everything else in lib/ui2 spends what is declared
+// here, and `test/ui2_tokens_test.dart` fails the build if it doesn't.
+//
+// Three things this file owns that the previous design system did not:
+//
+//   1. CONTRAST IS SOLVED, NOT ASSERTED. Muted ink and every accent used as
+//      text or as a fill are pushed to a WCAG AA (4.5:1) floor by `P.on` /
+//      `P.fill`, against the worst surface they can legally land on. The old
+//      caption token measured 2.20–2.71:1 across 223 call sites; a token that
+//      *can* be misused eventually is. `test/ui2_contrast_test.dart` proves
+//      the floor holds in both themes for every accent.
+//   2. MOTION IS GATED ONCE. `motion()` and `animate()` are the only way to
+//      get a non-zero duration, and they return `Duration.zero` when the
+//      platform asks for reduced motion. No call site can opt out, and the
+//      tokens test forbids `.repeat(` anywhere in lib/ui2 so an infinite loop
+//      can never survive the gate. That gate reaches the NAVIGATOR too:
+//      `buildTheme` installs a `pageTransitionsTheme` that returns the page
+//      unanimated (22 routes were sliding at full duration under Reduce
+//      Motion), and `sheetMotion()` does the same for the four modal sheets,
+//      which do not consult a theme at all. Dialogs still use Flutter's own
+//      fade-and-scale — small, centred, and the least nauseogenic of the
+//      three — so they are deliberately left alone.
+//   3. BOTH THEMES ARE DESIGNED. Every colour is defined for light and dark in
+//      the same expression. There is no token that exists only inside a
+//      dark-mode branch.
+
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+
+/// ── COLOUR ────────────────────────────────────────────────────────────────
+///
+/// Raw pigment. These are *not* safe to paint text with directly — most of
+/// them fail AA on white. Run them through [P.on] (accent as text) or
+/// [P.fill] (accent as a filled surface under [P.inkOnFill]) first.
+class C {
+  // ── Build 88 families (DESIGN.md, locked by Akshat). One flat earth/jewel
+  // colour per metric family, used only for that family's data; [alert] only
+  // marks NEW, unavailable and stale values and never decorates.
+  static const recovery = Color(0xFF2E7D63);
+  static const sleepInk = Color(0xFF34478F);
+  static const strainInk = Color(0xFFC24E25);
+  // Darkened from DESIGN's #D9961A (2.13:1 on paper) to clear the 3:1
+  // graphics floor on paper (3.46:1) and the inner well (3.11:1).
+  static const food = Color(0xFFA8730A);
+  static const body = Color(0xFF7A4F30);
+  static const alert = Color(0xFFC8551B);
+
+  /// The sleep-stage ramp (Build 88): four distinct hues — navy deep, steel
+  /// blue light, plum REM and a warm clay awake, the one interruption — each
+  /// clearing the 4.5:1 mark floor on both panel surfaces. Lane height
+  /// carries the stage too, so hue is never the only channel.
+  static const stageDeep = sleepInk;
+  static const stageLight = Color(0xFF2B6688);
+  static const stageRem = Color(0xFF7A4A92);
+  static const stageAwake = Color(0xFF8F5530);
+
+  /// The fill behind a missing day's hatching. Not an ink: never text.
+  static const hatch = Color(0xFFCDBBA2);
+
+  // primary — the earth/jewel set the families are drawn from. Screens that
+  // still name a raw pigment get the Build 88 tone of it.
+  static const green = recovery;
+  static const greenD = Color(0xFF23664F);
+  static const blue = sleepInk;
+  static const purple = Color(0xFF5B4A8C);
+
+  // secondary
+  static const orange = strainInk;
+  static const red = Color(0xFFB23A3A);
+  static const teal = Color(0xFF2F7F86);
+  static const yellow = food;
+  static const pink = Color(0xFFA8506E);
+  static const indigo = Color(0xFF3F4A8A);
+
+  /// Two light blues the ramps need and nothing else does: the light-sleep
+  /// lane sits between REM and deep, and zone 1 sits below `blue`. They live
+  /// here rather than inside the painters because a palette that is partly in
+  /// theme.dart and partly in charts.dart is two palettes.
+  static const sky = Color(0xFF4F7FB8);
+  static const blueSoft = Color(0xFF6F8FC4);
+
+  // neutrals
+  static const n500 = Color(0xFF64748B);
+  static const n400 = Color(0xFF94A3B8);
+
+  static const white = Color(0xFFFFFFFF);
+  static const black = Color(0xFF000000);
+
+  /// Each domain owns an accent — the mental map is colour-coded, and the map
+  /// is the point. These five are the five tabs, in order, forever.
+  /// One colour per pillar, used wherever that pillar appears: the ring,
+  /// its Trends row, its charts. Recovery itself takes green, amber or red
+  /// from its own band (see `readinessBand`).
+  static const strain = strainInk;
+  static const sleep = sleepInk;
+  // Heart rate, HRV and resting HR belong to the recovery family.
+  static const heart = recovery;
+  static const run = strainInk;
+  static const steps = body;
+
+  static const domHome = recovery;
+  static const domHealth = recovery;
+  static const domFood = food;
+  static const domMove = strainInk;
+  static const domMind = body;
+
+  /// Every accent the contrast test sweeps. Adding a colour above without
+  /// adding it here means it ships unverified.
+  static const all = <Color>[
+    green,
+    greenD,
+    blue,
+    purple,
+    orange,
+    red,
+    teal,
+    yellow,
+    pink,
+    indigo,
+    sky,
+    blueSoft,
+    domHome,
+    domHealth,
+    domFood,
+    domMove,
+    domMind,
+    strain,
+    sleep,
+    heart,
+    run,
+    steps,
+    recovery,
+    sleepInk,
+    strainInk,
+    food,
+    body,
+    alert,
+  ];
+}
+
+/// ── SURFACES + LEGIBLE INK ────────────────────────────────────────────────
+///
+/// Brightness-resolved. `P.of(context)` in every build method.
+class P {
+  final bool dark;
+  const P(this.dark);
+
+  static P of(BuildContext c) => P(Theme.of(c).brightness == Brightness.dark);
+
+  /// Build 88 light appearance (DESIGN.md): the deep kraft [bg] ground, cream
+  /// [card] paper panels the data sits on, a slightly deeper [card2] well,
+  /// and the [line] rule inside panels. The dark values are kept only so the
+  /// contrast sweep still covers them; the app runs light.
+  Color get bg => dark ? const Color(0xFF1B1C19) : const Color(0xFFC9AE84);
+  Color get card => dark ? const Color(0xFF262922) : const Color(0xFFF4EBDA);
+  Color get card2 => dark ? const Color(0xFF30352C) : const Color(0xFFEBDFC9);
+  Color get line => dark ? const Color(0xFF424A3B) : const Color(0xFFE2D2B8);
+
+  /// The hairline round every card (build 85): a card is lifted by its edge
+  /// and a soft top light, not by a shadow the dark page cannot show.
+  Color get edge => line;
+
+  /// The top of a card's light. Never lighter than [card2] in the dark theme,
+  /// so the muted ink solved against [card2] still clears AA on every card.
+  Color get cardHi => card;
+
+  /// A card's surface: [cardHi] at the top falling to [card].
+  LinearGradient get cardFace => LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [cardHi, card],
+  );
+
+  /// The page's top light in a tab's own colour: the first thing that says
+  /// which pillar a page belongs to. Behind content only, never under text.
+  Color glow(Color accent) => accent.withValues(alpha: dark ? .16 : .10);
+  Color get track => line;
+
+  Color get ink => dark ? const Color(0xFFF8F8F3) : const Color(0xFF2A211B);
+
+  /// Secondary ink. Solved so it clears AA on the kraft ground as well as the
+  /// paper (Build 88): DESIGN's #6E6155 measures 2.82:1 on the ground. Akshat
+  /// asked for no text that blends in, so it sits at 6.1:1 on the kraft.
+  Color get ink2 => dark ? const Color(0xFFCED2C5) : const Color(0xFF3A2F27);
+
+  /// Text placed directly on the kraft ground: titles and section heads.
+  Color get onGround => dark ? ink : const Color(0xFF3B2F23);
+
+  /// The muted caption ink. Hand-solved to clear 4.5:1 on [card2], the darkest
+  /// (light theme) / lightest (dark theme) surface it can sit on — so it is
+  /// legible on every surface, not just the one it was eyeballed against.
+  /// The values it replaces measured 4.34:1 and 3.21:1 respectively.
+  Color get ink3 => dark ? const Color(0xFFBFC7B4) : const Color(0xFF40352C);
+
+  /// The ink that goes on top of a [fill]. White by construction — [fill]
+  /// darkens the accent until white clears AA on it.
+  Color get inkOnFill => C.white;
+
+  /// [accent] rendered as TEXT on one of this brightness' surfaces, nudged
+  /// toward the page ink until it clears [_aa] against the worst legal
+  /// surface ([card2]). `C.green` on white measures 2.28:1 raw; `on(C.green)`
+  /// measures 4.53:1 and still reads unmistakably green.
+  ///
+  /// Solved TWICE, against the two worst surfaces it can land on. `card2` is
+  /// the flat one; the other is `wash(accent)` over it — the Pill and the
+  /// active SubTabs chip put this ink on a tinted background nothing was
+  /// solving against, and five of six accents measured 4.30–4.49 there. The
+  /// solver only ever nudges toward the page ink, so clearing the second
+  /// surface cannot un-clear the first.
+  Color on(Color accent) {
+    final toward = dark ? ink : const Color(0xFF2A211B);
+    final flat = _solve(accent, toward, card2, dark);
+    final washed = _solve(
+      flat,
+      toward,
+      Color.alphaBlend(wash(accent), card2),
+      dark,
+    );
+    // Build 88: in the light appearance the kraft ground — and the accent's
+    // own wash over it — are the darkest surfaces accent text can land on,
+    // so both are solved against too.
+    if (dark) return washed;
+    final ground = _solve(washed, toward, bg, dark);
+    return _solve(ground, toward, Color.alphaBlend(wash(accent), bg), dark);
+  }
+
+  /// [accent] rendered as a FILLED surface under [inkOnFill], darkened until
+  /// white text on it clears [_aa]. Buttons, chips, CTA badges.
+  Color fill(Color accent) =>
+      _solve(accent, const Color(0xFF000000), C.white, false);
+
+  /// A tinted wash of [accent] — the InsightCard / Pill / active-tab
+  /// background. Never carries text of its own colour; pair it with [on].
+  ///
+  /// [strength] is capped at 1: full strength is the tint [on] and [ink3] were
+  /// solved against, and a caller asking for 1.6 was pushing muted ink to
+  /// 2.99:1 on its own card. A wash darker than a wash is a fill.
+  Color wash(Color accent, {double strength = 1}) =>
+      accent.withValues(alpha: (dark ? .18 : .11) * strength.clamp(0.0, 1.0));
+
+  /// Dark cards are flat: the page is darker than the card and that step is
+  /// the separation. Light cards keep a soft shadow, because white on
+  /// near-white has no step to lean on.
+  List<BoxShadow> el(int level) {
+    if (level <= 0) return const [];
+    if (dark) return const [];
+    // Build 88: a soft warm shadow lifts the paper off the kraft.
+    return [
+      BoxShadow(
+        color: onGround.withValues(alpha: .08 + level * .03),
+        blurRadius: 14.0 + 4.0 * level,
+        offset: Offset(0, 3.0 + 2.0 * level),
+      ),
+    ];
+  }
+
+  // ── the solver ──────────────────────────────────────────────────────────
+  // WCAG 2.1 AA for body text. Non-text UI is allowed 3:1, but a caption that
+  // is "technically an indicator" is how the 2.20:1 tokens got shipped, so
+  // there is one floor here and it is the strict one.
+  static const _aa = 4.5;
+
+  static final _cache = <int, Color>{};
+
+  /// Binary-search the lerp from [c] toward [toward] for the first colour that
+  /// clears [_aa] against [against]. 24 steps is well past 8-bit resolution.
+  static Color _solve(Color c, Color toward, Color against, bool dark) {
+    final key = Object.hash(
+      c.toARGB32(),
+      toward.toARGB32(),
+      against.toARGB32(),
+      dark,
+    );
+    final hit = _cache[key];
+    if (hit != null) return hit;
+    var out = c;
+    if (contrast(c, against) < _aa) {
+      var lo = 0.0, hi = 1.0;
+      for (var i = 0; i < 24; i++) {
+        final mid = (lo + hi) / 2;
+        if (contrast(Color.lerp(c, toward, mid)!, against) >= _aa) {
+          hi = mid;
+        } else {
+          lo = mid;
+        }
+      }
+      out = Color.lerp(c, toward, hi)!;
+    }
+    // Bounded: one entry per (accent, brightness) pair actually used, and the
+    // accent set is a compile-time constant.
+    _cache[key] = out;
+    return out;
+  }
+
+  /// WCAG 2.1 contrast ratio, 1.0 … 21.0. Public so the contrast test and any
+  /// future palette work measure with exactly the same function the tokens do.
+  /// Luminance is `Color.computeLuminance()` — same WCAG formula, no need to
+  /// carry our own copy of it.
+  static double contrast(Color a, Color b) {
+    final la = a.computeLuminance(), lb = b.computeLuminance();
+    final hi = math.max(la, lb), lo = math.min(la, lb);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+}
+
+/// ── TYPE ── 7 steps, 3 weights, tabular figures on anything that changes ──
+///
+/// The family is the platform's own text face where it exists, falling back to
+/// the bundled Manrope (assets/fonts/Manrope) everywhere else — so Android and
+/// the golden tests render the same shapes the design was drawn in rather than
+/// silently landing on Roboto.
+class F {
+  static const _f = '.SF Pro Text';
+  static const _fb = ['Manrope'];
+  static const _tab = [FontFeature.tabularFigures()];
+
+  // The 7 steps.
+  static const display = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 34,
+    height: 40 / 34,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+  );
+  static const t1 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 28,
+    height: 34 / 28,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+  );
+  static const t2 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 22,
+    height: 28 / 22,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+  );
+  static const head = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 17,
+    height: 24 / 17,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+  );
+  static const body = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 15,
+    height: 22 / 15,
+    // Medium, not regular: regular strokes on the cream panels and the
+    // kraft ground were hard to read (Akshat, Build 89).
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0,
+  );
+  static const cap = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 13,
+    height: 18 / 13,
+    fontWeight: FontWeight.w500,
+  );
+  static const over = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 11,
+    height: 14 / 11,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+  );
+
+  /// A section's heading: smaller than [head], so
+  /// sections read as chapters and card titles as content.
+  static const section = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 13,
+    height: 18 / 13,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+  );
+
+  /// Build 88 hero number (DESIGN.md): about 116 pt, tabular. Semibold from
+  /// Build 89 — the light weight read thin and faint in a family colour.
+  static const hero = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 116,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -2,
+    fontFeatures: _tab,
+  );
+
+  /// Build 90 calm summary tiles: the hero's face at a tile's size, 64 pt,
+  /// and 48 pt for values longer than three characters.
+  static const heroTile = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 64,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -2,
+    fontFeatures: _tab,
+  );
+  static const heroTileLong = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 48,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -2,
+    fontFeatures: _tab,
+  );
+
+  /// Build 88 row value: 30 pt semibold, tabular.
+  static const n30 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 30,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+    fontFeatures: _tab,
+  );
+
+  /// Row label: uppercase, tracked. 12.5 pt semibold from Build 89 (was
+  /// 11.5 pt medium, too small and light to read at a glance).
+  static const label = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 12.5,
+    height: 16 / 12.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 12.5 * .10,
+  );
+
+  // Numerals — a parallel display ramp. Tabular, so a live value never jitters
+  // its own layout as digits change.
+  static const n48 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 48,
+    height: 1,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+    fontFeatures: _tab,
+  );
+  static const n34 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 34,
+    height: 1,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+    fontFeatures: _tab,
+  );
+  static const n24 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 24,
+    height: 1,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+    fontFeatures: _tab,
+  );
+  static const n17 = TextStyle(
+    fontFamily: _f,
+    fontFamilyFallback: _fb,
+    fontSize: 17,
+    height: 1,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+    fontFeatures: _tab,
+  );
+}
+
+/// ── SPACING ── 4pt base ───────────────────────────────────────────────────
+class S {
+  static const x1 = 4.0;
+  static const x2 = 8.0;
+  static const x3 = 12.0;
+  static const x4 = 16.0;
+  static const x5 = 20.0;
+  static const x6 = 24.0;
+  static const x8 = 32.0;
+  static const x10 = 40.0;
+  static const x12 = 48.0;
+  static const x16 = 64.0;
+
+  /// The minimum comfortable target, enforced inside `Pressable`. Apple HIG
+  /// and WCAG 2.5.5 both land here.
+  static const tap = 44.0;
+}
+
+/// ── RADII ─────────────────────────────────────────────────────────────────
+class R {
+  static const sm = 8.0;
+  static const md = 12.0;
+  static const lg = 20.0;
+  static const xl = 24.0;
+  static const xxl = 32.0;
+  static const pill = 999.0;
+
+  /// Build 88 panel corner (DESIGN.md: 26 pt continuous corners).
+  static const panel = 26.0;
+  static const rPanel = BorderRadius.all(Radius.circular(panel));
+
+  static const rSm = BorderRadius.all(Radius.circular(sm));
+  static const rMd = BorderRadius.all(Radius.circular(md));
+  static const rLg = BorderRadius.all(Radius.circular(lg));
+  static const rXl = BorderRadius.all(Radius.circular(xl));
+  static const rXxl = BorderRadius.all(Radius.circular(xxl));
+  static const rPill = BorderRadius.all(Radius.circular(pill));
+}
+
+/// ── MOTION ── one gate, no exceptions ─────────────────────────────────────
+///
+/// The audit found zero reduced-motion support and 13 infinite `.repeat()`
+/// loops. Both are structural problems, so both get structural answers: these
+/// are the only durations in the system, and `test/ui2_tokens_test.dart`
+/// forbids `.repeat(` in lib/ui2 outright. Ambient motion that genuinely needs
+/// to loop takes its phase from a caller-owned value (see `BreathRing.t`), so
+/// the screen owns the ticker and the same gate stops it.
+class Motion {
+  /// True when the platform is NOT asking for reduced motion.
+  static bool enabled(BuildContext c) =>
+      MediaQuery.maybeDisableAnimationsOf(c) != true;
+
+  static const fast = Duration(milliseconds: 120);
+  static const base = Duration(milliseconds: 180);
+  static const slow = Duration(milliseconds: 280);
+
+  /// The session clock. A live workout counts REAL seconds, so this is the one
+  /// duration that must NOT pass through [motion] — reduced motion silences
+  /// animation, it does not stop time. It lives here because theme.dart is the
+  /// only file allowed to write a `Duration(…)`, and a screen inventing its own
+  /// tick is how thirteen ungated tickers happened last time.
+  static const tick = Duration(seconds: 1);
+  // Reading time for transient feedback; this is not an animation duration.
+  static const notice = Duration(seconds: 2);
+
+  /// Reading time for a notice long enough to need it (a Journal conflict
+  /// names the fields and the other note).
+  static const longNotice = Duration(seconds: 8);
+
+  /// One full breath cycle for the paced-breathing ring — 5 s in, 5 s out is
+  /// the pace the breathing session already uses. The PHASE is still owned by
+  /// the screen (see `BreathRing.t`); this is only how long a cycle lasts, and
+  /// the screen must not start it at all when [enabled] is false.
+  static const breath = Duration(seconds: 5);
+}
+
+/// Collapse [d] to zero when the user has asked for reduced motion. Every
+/// `AnimatedFoo`, `AnimationController` and implicit transition in lib/ui2
+/// takes its duration from here.
+Duration motion(BuildContext c, Duration d) =>
+    Motion.enabled(c) ? d : Duration.zero;
+
+/// The animated-progress form: returns `1` (finished) instead of `t` when
+/// motion is off, so a chart that draws itself in still ends up fully drawn.
+double animate(BuildContext c, double t) => Motion.enabled(c) ? t : 1;
+
+/// The motion gate for `showModalBottomSheet`, which takes an [AnimationStyle]
+/// rather than reading [ThemeData.pageTransitionsTheme] like a route does.
+/// Null keeps the platform default; [AnimationStyle.noAnimation] cuts straight
+/// to the open sheet.
+AnimationStyle? sheetMotion(BuildContext c) =>
+    Motion.enabled(c) ? null : AnimationStyle.noAnimation;
+
+/// True once the user's text scale has passed the point where a card's header
+/// can no longer be one line. The number is not a device class — it is where
+/// `label · value · unit` stops fitting a phone's width — and it is shared so
+/// that every card that has to restack does it at the same moment.
+bool bigText(BuildContext c) => MediaQuery.textScalerOf(c).scale(1) > 1.3;
+
+/// Reduced motion has to reach the NAVIGATOR, not only the widgets inside it.
+/// `TransitionRoute` builds its controller straight from `transitionDuration`
+/// and never asks whether animations are disabled, so before this every push
+/// slid at full duration for exactly the people who turned the setting on —
+/// and a full-screen slide is the most nauseogenic thing the app does.
+///
+/// Sheets and dialogs do not consult a theme at all; those pass
+/// `AnimationStyle.noAnimation` at their call sites.
+class _Gated extends PageTransitionsBuilder {
+  /// Whatever the SDK ships for this platform — taken from the default theme
+  /// rather than named here, so the app keeps the native transition and this
+  /// gate does not quietly become a second opinion about what it should be.
+  final PageTransitionsBuilder inner;
+  const _Gated(this.inner);
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext c,
+    Animation<double> animation,
+    Animation<double> secondary,
+    Widget child,
+  ) {
+    if (!Motion.enabled(c)) {
+      // B90-03: keep the platform builder, because on iOS it also supplies
+      // the edge back gesture, and returning the bare child removed it. Its
+      // animations snap instead, so a push or pop no longer slides; a swipe
+      // back the user is driving still follows the finger.
+      Animation<double> calm(Animation<double> a) =>
+          route.popGestureInProgress ? a : _Snapped(a);
+      return inner.buildTransitions(
+        route,
+        c,
+        calm(animation),
+        calm(secondary),
+        child,
+      );
+    }
+    return inner.buildTransitions(route, c, animation, secondary, child);
+  }
+}
+
+/// [parent] at its destination: 1 while showing or arriving, 0 while gone or
+/// leaving, with no frames in between.
+class _Snapped extends Animation<double>
+    with AnimationWithParentMixin<double> {
+  _Snapped(this.parent);
+
+  @override
+  final Animation<double> parent;
+
+  @override
+  double get value => switch (parent.status) {
+    AnimationStatus.forward || AnimationStatus.completed => 1.0,
+    AnimationStatus.reverse || AnimationStatus.dismissed => 0.0,
+  };
+}
+
+TextTheme _readable(TextTheme t, Color ink) {
+  TextStyle? up(TextStyle? s) {
+    if (s == null) return null;
+    final w = s.fontWeight ?? FontWeight.w400;
+    return s.copyWith(
+      color: ink,
+      fontWeight: w.value < 500 ? FontWeight.w500 : w,
+    );
+  }
+
+  return TextTheme(
+    displayLarge: up(t.displayLarge),
+    displayMedium: up(t.displayMedium),
+    displaySmall: up(t.displaySmall),
+    headlineLarge: up(t.headlineLarge),
+    headlineMedium: up(t.headlineMedium),
+    headlineSmall: up(t.headlineSmall),
+    titleLarge: up(t.titleLarge),
+    titleMedium: up(t.titleMedium),
+    titleSmall: up(t.titleSmall),
+    bodyLarge: up(t.bodyLarge),
+    bodyMedium: up(t.bodyMedium),
+    bodySmall: up(t.bodySmall),
+    labelLarge: up(t.labelLarge),
+    labelMedium: up(t.labelMedium),
+    labelSmall: up(t.labelSmall),
+  );
+}
+
+ThemeData buildTheme(Brightness b) {
+  final p = P(b == Brightness.dark);
+  return ThemeData(
+    brightness: b,
+    scaffoldBackgroundColor: p.bg,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: C.recovery,
+      brightness: b,
+      surface: p.card,
+    ),
+    fontFamily: '.SF Pro Text',
+    fontFamilyFallback: const ['Manrope'],
+    // Material text (dialogs, fields, list rows, sheets) at medium weight or
+    // heavier and in the app's ink, matching [F.body].
+    textTheme: _readable(ThemeData(brightness: b).textTheme, p.ink),
+    splashFactory: NoSplash.splashFactory,
+    highlightColor: const Color(0x00000000),
+    pageTransitionsTheme: PageTransitionsTheme(
+      builders: {
+        for (final e in const PageTransitionsTheme().builders.entries)
+          e.key: _Gated(e.value),
+      },
+    ),
+  );
+}

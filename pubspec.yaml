@@ -1,0 +1,103 @@
+name: whoop_companion
+description: "Personal, local-first iPhone companion for WHOOP 4.0 hardware. Not affiliated with WHOOP, Inc."
+publish_to: 'none'
+version: 0.9.69+102
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2 # the version flutter_localizations requires
+
+  # In-tree packages: reviewed source in this monorepo, resolved by path.
+  # Never add a pubspec override or a floating git ref for them
+  # (tool/algorithm_contract.py checks the paths and source digests).
+  whoop_protocol:
+    path: packages/protocol
+  whoop_analytics:
+    path: packages/analytics
+
+  # Bluetooth and storage
+  flutter_blue_plus: ^1.36.8
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  shared_preferences: ^2.3.3
+  flutter_secure_storage: ^10.3.1 # backup passphrase in the keychain
+
+  # Backups and imports
+  archive: ^4.0.9
+  pointycastle: ^3.9.1 # AES-256-GCM and PBKDF2 for encrypted backups
+  crypto: 3.0.7
+  file_picker: ^8.1.6
+  share_plus: ^10.1.4
+  image: ^4.9.2 # Body photos: orientation, resize, metadata strip
+
+  # Food barcode lookup (the only regular network request besides map tiles)
+  http: ^1.2.2
+  mobile_scanner: ^7.3.1
+
+  # Location
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+
+  # Notifications
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
+
+  # App state and utilities
+  provider: ^6.1.2
+  collection: ^1.18.0
+  clock: ^1.1.2
+  uuid: ^4.6.0
+  package_info_plus: ^8.1.0
+  url_launcher: ^6.3.0
+  lucide_icons_flutter: ^3.1.15 # the one icon family
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  test: ^1.25.8
+  analyzer: 10.0.1 # caller-map tooling
+  yaml: ^3.1.2
+  fake_async: ^1.3.1
+  ffi: ^2.1.0
+  sqflite_common_ffi: ^2.4.0+3
+  sqflite_common: 2.5.8 # pinned: its logging factory is experimental
+  path_provider_platform_interface: ^2.1.0
+  shared_preferences_platform_interface: ^2.4.2
+  flutter_blue_plus_platform_interface: ^7.0.0
+  share_plus_platform_interface: ^5.0.2
+  flutter_secure_storage_platform_interface: ^2.0.3
+  url_launcher_platform_interface: ^2.3.2
+
+flutter:
+  generate: true
+  uses-material-design: true
+  # Both families are bundled under assets/fonts/ (SIL OFL, OFL.txt beside them),
+  # never fetched at runtime.
+  fonts:
+    - family: Barlow Condensed
+      fonts:
+        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-ExtraBold.ttf
+          weight: 800
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope/Manrope-400.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope/Manrope-500.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope/Manrope-600.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope/Manrope-700.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope/Manrope-800.ttf
+          weight: 800

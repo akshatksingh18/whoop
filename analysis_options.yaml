@@ -1,0 +1,7 @@
+# Stock Flutter lints. CI runs `flutter analyze`, which fails on any finding, infos included.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  # Ignored local build output (private checkpoints and worktree copies) is not source.
+  exclude:
+    - build/**

@@ -1,0 +1,211 @@
+// Real packets after a complete durable drain;no private-state/latch mutation.
+import 'dart:async';
+import 'dart:typed_data';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whoop_companion/ble/ble_engine.dart';
+import 'package:whoop_companion/data/db.dart';
+import 'package:whoop_protocol/whoop_protocol.dart' as p;
+import 'durable_boundary_test.dart'
+    show historyStart, historyEnd, historyComplete, record, until;
+import '../support/coverage_store.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() => coverageStore('history-inactive-tail-handoff', fresh: true));
+  setUp(() async {
+    await resetCoverageStore();
+    BleEngine.resetBandClaimForTest();
+  });
+  tearDownAll(LocalDb.close);
+  for (final (band, announced) in [
+    (p.BandProfile.gen4, 1),
+    (p.BandProfile.gen5, 1),
+  ]) {
+    for (final completeFirst in [false, true]) {
+      test(
+        '${band.type.name} post-completion data preserves active ownership and bank-before-ACK completeFirst=$completeFirst count=$announced',
+        () async {
+          final logs = <String>[], writes = <List<int>>[];
+          late BleEngine engine;
+          engine = BleEngine(
+            onRecord: (_, _) async {},
+            onState: (_) {},
+            log: logs.add,
+          );
+          engine.debugInstallFakeLink(
+            band: band,
+            onCommit: (raw, samples, token, {archives, deviceFamily}) =>
+                LocalDb.commitSyncBatch(
+                  raw,
+                  samples,
+                  trimToken: token,
+                  archives: archives,
+                  deviceFamily: deviceFamily,
+                ),
+            onWrite: (frame) async {
+              final inner = p.parseFrame(frame, profile: band)!.inner;
+              writes.add(List.of(inner));
+              if (inner[2] == p.Cmd.historicalDataResult && inner[3] == 1) {
+                final db = await LocalDb.instance;
+                final rows = await db.query('decoded_onehz');
+                final positive = writes
+                    .where(
+                      (w) => w[2] == p.Cmd.historicalDataResult && w[3] == 1,
+                    )
+                    .length;
+                expect(
+                  rows,
+                  hasLength(positive),
+                  reason:
+                      'Every success result must follow its actual durable row',
+                );
+              }
+
+              if (inner[2] == p.Cmd.getClock) {
+                scheduleMicrotask(
+                  () => engine.debugAbsorbDecoded(
+                    p.Decoded('cmd_response', {
+                      'opcode': p.Cmd.getClock,
+                      'req_seq': inner[1],
+                      'cmd_status': 1,
+                      'clock_epoch':
+                          DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                    }),
+                  ),
+                );
+              }
+              return true;
+            },
+          );
+          void rx(Uint8List inner) =>
+              engine.debugReceiveFrame(p.Frame(inner, true, true));
+          try {
+            // Authored observations at the actual live edge. Current policy
+            // still follows a productive round with another request.
+            final stamp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1;
+            final sample = record(band);
+            ByteData.sublistView(sample).setUint32(7, stamp, Endian.little);
+            final end = historyEnd();
+            ByteData.sublistView(end).setUint32(3, stamp, Endian.little);
+            rx(historyStart());
+            rx(sample);
+            rx(end);
+            await until(
+              () => writes.any((w) => w[2] == p.Cmd.historicalDataResult),
+            );
+            rx(historyComplete());
+            await until(
+              () => writes.any((w) => w[2] == p.Cmd.sendHistoricalData),
+            );
+            // Follow the real continuation rather than forcing the engine
+            // inactive: the next declared burst is genuinely empty.
+            rx(historyStart());
+            rx(historyComplete());
+            await until(
+              () =>
+                  !engine.offloadActive &&
+                  logs.any(
+                    (s) => s.contains('HistoryComplete — backlog drained'),
+                  ),
+            );
+            final db = await LocalDb.instance;
+            final legacySamples = await db.query('samples', orderBy: 'rowid');
+            final decoded = await db.query('decoded_onehz', orderBy: 'ts_ms');
+            final archived = await db.query('raw_archive', orderBy: 'rowid');
+            final cursor = await LocalDb.getCursor('strap_trim');
+            expect(cursor, '8172635445362718');
+            expect(decoded, hasLength(1));
+            final acknowledgements = writes
+                .where((w) => w[2] == p.Cmd.historicalDataResult)
+                .length;
+            expect(acknowledgements, 1);
+            final late = Uint8List.fromList(end)..[20] ^= 1;
+            ByteData.sublistView(late).setUint32(9, announced, Endian.little);
+            final priorAckLedger = await LocalDb.syncLedgerEntry(
+              'batch:8172635445362718',
+            );
+            final tail = record(band);
+            ByteData.sublistView(tail)
+              ..setUint32(3, 42, Endian.little)
+              ..setUint32(7, stamp + 1, Endian.little);
+            rx(tail);
+            await until(() => engine.offloadSnapshot['buffered_records'] == 1);
+            final markers = completeFirst
+                ? [historyComplete(), late]
+                : [late, historyComplete()];
+            for (final marker in markers) {
+              final old = logs.length;
+              rx(marker);
+              await until(
+                () => logs.skip(old).any((s) => s.contains('[SYNC] META')),
+              );
+              // A durable SQLite read also waits for any commit queued ahead of
+              // it,then the short queue settle lets diagnostic writes finish.
+              await db.query('sync_ledger');
+              await Future<void>.delayed(const Duration(milliseconds: 30));
+            }
+            if (!completeFirst) {
+              // A newly banked tail follows the same productive continuation
+              // policy. Finish its actual empty round rather than flipping
+              // any ownership field from the fixture.
+              await until(
+                () =>
+                    writes
+                        .where((w) => w[2] == p.Cmd.sendHistoricalData)
+                        .length ==
+                    2,
+                attempts: 1600,
+              );
+              rx(historyStart());
+              rx(historyComplete());
+              await until(() => !engine.offloadActive);
+            }
+            expect(
+              await LocalDb.getCursor('strap_trim'),
+              completeFirst ? cursor : '8172635445362719',
+            );
+            final afterSamples = await db.query('samples', orderBy: 'rowid');
+            for (final old in legacySamples) {
+              expect(afterSamples, contains(equals(old)));
+            }
+            final after = await db.query('decoded_onehz', orderBy: 'ts_ms');
+            expect(after, hasLength(2));
+            expect(after, contains(equals(decoded.single)));
+            final savedTail = after.singleWhere((row) => row['counter'] == 42);
+            expect(savedTail['ts_ms'], (stamp + 1) * 1000);
+            expect(savedTail['hr'], band.isGen5 ? 64 : null);
+            expect(engine.offloadSnapshot['buffered_records'], 0);
+            expect(await db.query('raw_archive', orderBy: 'rowid'), archived);
+            expect(
+              writes.where((w) => w[2] == p.Cmd.historicalDataResult),
+              hasLength(acknowledgements + (completeFirst ? 0 : 1)),
+            );
+            expect(writes.any((w) => p.dangerousCmds.contains(w[2])), false);
+            expect(engine.offloadActive, false);
+            expect(engine.pendingCommandCount, 0);
+            expect(
+              await LocalDb.syncLedgerEntry('batch:8172635445362719'),
+              completeFirst
+                  ? isNull
+                  : isA<Map<String, dynamic>>().having(
+                      (row) => row['status'],
+                      'banked tail',
+                      'acked',
+                    ),
+            );
+            expect(
+              await LocalDb.syncLedgerEntry('batch:8172635445362718'),
+              priorAckLedger,
+            );
+          } catch (error) {
+            fail(
+              '$error\nAuthored engine trace:\n${logs.join('\n')}\nWrites:$writes\nSnapshot:${engine.offloadSnapshot}',
+            );
+          } finally {
+            await engine.disconnect();
+          }
+        },
+      );
+    }
+  }
+}

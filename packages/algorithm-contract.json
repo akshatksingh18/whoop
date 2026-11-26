@@ -1,0 +1,8 @@
+{
+  "algorithmVersion": 104,
+  "review": "Akshat approved algorithm104: when the physiological reject drops every heart-rate reading, hr_stats max/min abstain (null) in the engine and the per-day pipeline instead of reporting the extreme of rejected values. Old rows and versions stay immutable and recompute under 104. Package sources/digests, formulas, observation/admission/staging/confidence gates, protocol 1.0.1 and schema 50 are unchanged. Earlier algorithm101-103 protections remain. The later analyzer tidy-up digests are style-only (block braces, unnamed library directives, plain interpolation, renamed locals, doc-comment backticks); outputs and kAlgoVersion are unchanged.",
+  "packages": {
+    "whoop_protocol": "3f120cc39579ee8949a54832cbca3bea5c329d1b19ec257f84ab7551dfdcb404",
+    "whoop_analytics": "571d9a62af022982a5b56aab348420d33ec099bc4a90a4bb5fa78a13100ae50a"
+  }
+}

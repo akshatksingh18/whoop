@@ -7,7 +7,11 @@ delivery; native and physical acceptance stay separate (`bugs.md`, `todo.md`).
 ## Current proof
 
 Fully verified [Linux run 45814713906](https://github.com/akshatksingh18/whoop/actions/runs/45814713906)
-for parentless candidate 182 (`e576ccdb3a691e8c384f8baa4d1eb0c3086398d4`), source `521e8795`:
+for parentless candidate 182 (`e576ccdb3a691e8c384f8baa4d1eb0c3086398d4`), source `521e8795`.
+Candidate 183 (`aacaed47`, the same code plus the proof docs) repeated the full verification in
+[run 45821624488](https://github.com/akshatksingh18/whoop/actions/runs/45821624488) and became
+GitHub main; main's own [run 45831515081](https://github.com/akshatksingh18/whoop/actions/runs/45831515081)
+again executes 49,366/49,366:
 
 - handwritten Dart execution **49,366/49,366 (100%, 0 misses)**; the one `dart format` pass split
   branches onto their own lines, so counted lines rose, and the nine it exposed are now tested or

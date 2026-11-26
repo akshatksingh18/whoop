@@ -14,18 +14,15 @@ Current implementation/compatibility contracts live in ownership-migration-plan.
   Only privacy-reviewed parentless CI roots are public;never push ownership-cleanup/private
   ancestors. Synthetic substitutions are implemented;originals remain local. Compatibility
   constants alone are not a migration. Preserve every current GitHub ref until its exact STOP.
-- [ ] B4:refresh verified all-refs bundles/local vault immediately before destructive publication;
-  independently archive the original laptop's D:-based clone and bare backup. Never upload the
-  archive or archive/pre-rewrite-main. Existing snapshots do not automatically cover later work.
-- [ ] BuildN:after coverage completion,implement/test persisted-name migration,verify full
-  encrypted off-phone restore,personal payload/source/hash and phone upgrade/restoration/
+- [x] B4:verified all-refs bundle before publication (setup.md); Akshat archived the original
+  laptop's D: clone and bare backup there. Never upload the archive or archive/pre-rewrite-main.
+- [x] B5 (Akshat,2026-11-26):GitHub main is parentless root `aacaed47` (candidate 183,100%);
+  all 195 earlier branches deleted;no tag existed;no archive uploaded.
+- [x] B6:fresh main passes CI;owning docs synced;archive-first repoint steps in setup.md.
+- [ ] BuildN (after fresh main,Akshat 2026-11-26):implement/test persisted-name migration,verify
+  full encrypted off-phone restore,personal payload/source/hash and phone upgrade/restoration/
   interruption matrix/soak. Never rename a live DB/OS identity for a text search. N+1 removes
   old aliases only after Akshat confirms N ran and legacy backups still restore.
-- [ ] **B5 STOP:** show exact outgoing root/full privacy review and every old/new GitHub ref.
-  Obtain explicit yes for main force-replacement and separately for EACH branch/tag deletion.
-  No main replacement/ref deletion/archive upload has happened.
-- [ ] B6:verify CI on fresh main,synchronize owning docs and give archive-first repoint commands
-  for the original laptop/its bare backup,preserving divergent work.
 - [ ] C:after B verification,investigate Food meal default first,then inherited work/proposals
   below through their separate calculation/UI/physical gates.
 

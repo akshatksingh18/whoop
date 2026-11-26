@@ -4,7 +4,7 @@ Akshat Kumar Singh's personal iPhone Flutter app:BLE → SQLite → on-device an
 No app backend,account,telemetry or LLM calls. Optional barcode/Maps requests disclose inputs
 to their providers;never imply zero network disclosure.
 
-**Status:** 100% handwritten Dart coverage is verified (candidate 182). Caller classification
+**Status:** 100% handwritten Dart coverage is verified on fresh GitHub main. Caller classification
 and approved repairs continue before native migration. Use the worktree below; coverage-audit.md
 owns the proof.
 
@@ -43,11 +43,12 @@ owns the proof.
 
 - Use `C:\AI Important Files\personal-project\whoop\build\worktrees\build95-repairs`,branch
   `ownership-cleanup`. Preserve historical root `build-90-codex` and newer work;never reset it.
-- Root/container privacy and cloud rules apply. Only reviewed parentless roots go to the owned
-  GitHub remote;never push this branch/private ancestors,captures,archives,local tooling or recovery.
+- Root/container privacy and cloud rules apply. GitHub main descends only from fresh root
+  `aacaed47`;publish per setup.md. Never push this branch/private ancestors,captures,archives,
+  local tooling or recovery.
 - Follow A → B → C and every STOP,with the approved coverage-before-buildN sequencing exception.
-  Native/IPA stays held until coverage completion. MigrationN,phone confirmation,N+1 alias removal,
-  and exact-ref B5 main force-replacement/EACH branch/tag deletion retain separate approval gates.
+  Native/IPA stays held until coverage completion. MigrationN,phone confirmation,N+1 alias removal
+  and any GitHub ref deletion or main rewrite retain separate approval gates.
 - `rules.md` owns the engineering invariants and the removal, UI, calculation and platform
   gates; plan work in todo.md.
 - Verify full encrypted off-phone export/restore before upgrades or identity/schema/format

@@ -2,8 +2,8 @@
 
 **Current:** Use build/worktrees/build95-repairs on ownership-cleanup. App0.9.69+102 /
 protocol1.0.1 / algorithm104 / schema50. context.md explains the codebase, rules.md its rules and
-coverage-audit.md the current verified run. Native/IPA,migration and phone acceptance remain open;
-GitHub main and existing refs are preserved.
+coverage-audit.md the current verified run. Native/IPA,migration and phone acceptance remain open.
+GitHub main is the fresh single-root history (root `aacaed47`);earlier refs survive only locally.
 
 ## Correct checkout
 
@@ -42,9 +42,11 @@ are local tooling,never public CI payload. Do not write checkpoint evidence duri
 
 Origin is https://github.com/akshatksingh18/whoop.git; local-backup is
 `C:\Users\aksha\git-remotes\whoop.git`. Only these remotes remain. Recheck ownership and review
-all outgoing content/history/artifacts before each push. Publish only privacy-reviewed
-parentless roots with public-safe identity. Never push ownership-cleanup,private ancestors,
-captures,archives,local tooling,account/scheduler rows or recovery evidence. Never mirror-push.
+all outgoing content/history/artifacts before each push. Publish to main only a privacy-reviewed
+tree committed with `git commit-tree <tree> -p origin/main` under the public noreply identity,
+so main descends only from root `aacaed47`. CI candidates stay parentless. Never push
+ownership-cleanup,private ancestors,captures,archives,local tooling,account/scheduler rows or
+recovery evidence. Never mirror-push.
 
 Private preservation receipts own current all-refs bundle hashes and independent actual-vault
 file checks. The current private continuation checkpoint points to the latest independent content-hash
@@ -67,9 +69,16 @@ manifest.json and pre-cleanup-docs/ retain the earlier material; cov58-before-se
 the full prior setup guide and its historical receipt index. No unique recovery record is lost
 by keeping this guide current. A Git clone does not recover these private files.
 
-The original laptop's D:-based checkout and local-backup have their own divergent copies;
-archive them independently before B5. This laptop's archive does not certify that device.
-No reset,remote replacement,visibility change or per-ref deletion is authorized here.
+Before B5 the pre-publication bundle `b5-pre-publication-all-refs.bundle` (SHA-256 `ec393d3d…`,
+all 196 earlier GitHub branch tips) was verified in the checkpoint and the local-only vault.
+Akshat archived the original laptop's D: checkout and its bare backup there (all-refs bundles
+under `C:\AI Local Only\whoop-original-laptop-archive`, verified). Neither archive is uploaded.
+
+To repoint any other clone or bare backup, archive first and keep divergent work: in a clone,
+`git branch archive/pre-fresh-main main`, `git fetch origin`, then `git branch -f main origin/main`
+(or `git switch -C main origin/main` only from a clean tree when main is checked out); in a bare
+backup, `git branch archive/pre-fresh-main main` before pushing fresh main to it. Never reset or
+delete other branches. No visibility change or further ref deletion is authorized.
 
 ## Usage continuation and handoff
 
@@ -95,9 +104,7 @@ restore,identity/payload/source/hash,phone upgrade/restoration/interruption matr
 Remove old aliases only inN+1 after Akshat confirmsN ran and legacy backups still restore.
 Keep stable signing identity,empty entitlements,approved background modes and known-good IPA.
 
-B5 remains an exact-ref STOP: show the outgoing root and every old/new GitHub ref and obtain
-explicit main force-replacement and per-branch/tag deletion approval. No archive is uploaded.
-After fresh main passes CI,B6 owns current docs and archive-first repoint commands for the
-original laptop and bare backup. guides/IOS_INSTALLATION.md and guides/IOS_SIDELOAD.md own
+B5 and B6 are done: fresh main passed CI and the repoint steps are under Repository above.
+Any later main rewrite or ref deletion needs its own exact-ref approval. guides/IOS_INSTALLATION.md and guides/IOS_SIDELOAD.md own
 signing,upgrade,backup and physical acceptance. A green synthetic Linux run closes none of
 those phone gates. Parked calorie/treadmill/default-meal proposals retain review/preview gates.

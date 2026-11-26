@@ -2,9 +2,8 @@
 
 **Status:** Ownership cleanup continues on `ownership-cleanup`; B2 and local preservation are
 verified. Current coverage/CI and scoped reliability repairs are owned by `coverage-audit.md`
-and `bugs.md`. Actual persisted-state migration and native acceptance remain open. Public CI
-candidates have fresh parentless ancestry; private preservation history stays local. Main has
-not been replaced, and B5 remains unapproved.
+and `bugs.md`. Actual persisted-state migration and native acceptance remain open. GitHub main
+is the fresh single-root history (B5 done); private preservation history stays local.
 
 ## Completed scope
 
@@ -89,11 +88,9 @@ on another disk. Existing fallback moves do not prove complete build N migration
 
 Routine names above follow the approved plan and need no repeated naming question. Akshat's
 required decisions remain: accept migration N on his phone before N+1 removes old aliases;
-review any new UI/calculation/format choice; and approve exact main replacement and each remote
-ref deletion at B5. No such approval is inferred from a request to continue coverage. Full
-coverage/CI completion precedes native builds under the standing IPA hold. The actual GitHub
-rewrite is short; no finish date is promised before remaining defects and phone acceptance are
-known. Required third-party copyright lines remain in LICENSE files.
+review any new UI/calculation/format choice; and approve any further remote ref deletion.
+Full coverage/CI completion precedes native builds under the standing IPA hold; no finish date
+is promised before remaining defects and phone acceptance are known. Required third-party copyright lines remain in LICENSE files.
 
 ## Preservation and publication
 
@@ -104,33 +101,18 @@ work and does not reopen completed repairs. Refresh preservation before destruct
 
 Full outgoing tree and history must pass the workspace privacy gate. Personal worked examples,
 device logs, reference captures, local tools/state and archives do not belong on GitHub.
-Any CI candidate must avoid sending private preservation history in its ancestors. The current
-privacy boundary and remaining inline captures are listed in `privacy-fixture-review.md`.
-The two JSON corpora are now locally preserved, with optional replay and a separate reproducible
-synthetic public fixture. Targeted private/public configurations pass with explicit skips.
-All nine substitutions were approved and implemented, along with copies in app tests.
-`privacy-fixture-review.md` owns the targeted results and completed source-review boundaries.
-Fresh full-content and single-root ancestry review passes candidate 12 `b3114e22`, source
-`ffd54bad`, tree `bdb0e96231775cbff5cd3206ed3159ed7f05d792`. Its nine changed text files versus
-candidate 11 are the corrected synthetic chart fixture and owning evidence docs; app/package/
-native source, 29 reviewed binaries and seven licence/compatibility files are unchanged from
-candidate 11. Full Linux run [40601423011](https://github.com/akshatksingh18/whoop/actions/runs/40601423011) passes 4,608 app checks, both packages, analysis and 731
-synthetic captures. COV-46 reaches 44,365/50,409 (88.01%), net execution +80/denominator +38;
-`coverage-audit.md` records all gains and missing prior hits. COV-44's consolidated 1,450-line
-batch and COV-45 remain independently verified.
+`privacy-fixture-review.md` lists the privacy boundary, the approved synthetic substitutions
+and the remaining inline captures; the two JSON corpora stay locally preserved with a
+reproducible synthetic public fixture.
 
-Only candidates 11 and 12 were added in this batch, retaining all 26 pre-batch remote refs.
-Candidate 12 leaves all 27 earlier refs unchanged. No main replacement, ref deletion or native
-build occurred. Preserve all failed/passing artifacts, archives and original captures locally.
-Later roots still need fresh content/history review; never push `ownership-cleanup`.
-
-**B5 STOP:** show the one-root-commit candidate and exact main/branch/tag changes, then obtain
-explicit yes before force-pushing main or deleting each remote ref. GitHub main and all earlier refs
-are unchanged. The original laptop must independently archive before re-pointing its clones.
+B5 is done (Akshat, 2026-11-26): GitHub main is parentless root `aacaed47`, the privacy-scanned
+tree of `ownership-cleanup` 6e0299eb (candidate 183, verified at 100%). All 195 earlier GitHub
+branches were deleted after a verified all-refs bundle; they survive only in local repositories,
+bundles and the vault. No tag existed and no archive was uploaded. Never push `ownership-cleanup`.
 
 ## Approved sequence
 
 Akshat approved completing coverage before build N while keeping the IPA hold. Complete safe
 public controls and full Linux verification first, then resume migration and native/phone
-acceptance. No early IPA dispatch or metadata bump is authorized. B5's explicit main rewrite
-and per-ref deletion approvals remain separate and have not been given.
+acceptance. No early IPA dispatch or metadata bump is authorized. Akshat approved fresh main
+before build N (2026-11-26); build N's migration and phone acceptance continue on fresh main.

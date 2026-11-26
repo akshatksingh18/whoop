@@ -71,8 +71,16 @@ by keeping this guide current. A Git clone does not recover these private files.
 
 Before B5 the pre-publication bundle `b5-pre-publication-all-refs.bundle` (SHA-256 `ec393d3d…`,
 all 196 earlier GitHub branch tips) was verified in the checkpoint and the local-only vault.
-Akshat archived the original laptop's D: checkout and its bare backup there (all-refs bundles
-under `C:\AI Local Only\whoop-original-laptop-archive`, verified). Neither archive is uploaded.
+The original laptop's D: clone and its bare backup are repointed to fresh main, each keeping
+`archive/pre-fresh-main` (`dca05ba2`). Both are bundled there, verified, in
+`D:\AI Local Only\whoop-original-laptop-archive` (its README records restore commands):
+`whoop-clone-all-refs.bundle` (140 refs, SHA-256 `947947C4…86A1B0`) and
+`whoop-bare-all-refs.bundle` (14 refs, `5C398BC7…B77EA`). With Akshat's approval its older
+branches matching those bundles were then deleted: the bare backup holds only main and
+`archive/pre-fresh-main`; the clone keeps main, `archive/pre-fresh-main`, `build-88`,
+`build-91`–`build-95`, `build-95-codex-fixes` and `coverage-expansion` (checked out in its own
+worktree). That laptop's vault tooling does not yet list the archive folder. Neither archive is
+uploaded.
 
 To repoint any other clone or bare backup, archive first and keep divergent work: in a clone,
 `git branch archive/pre-fresh-main main`, `git fetch origin`, then `git branch -f main origin/main`

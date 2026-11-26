@@ -14,8 +14,9 @@ Current implementation/compatibility contracts live in ownership-migration-plan.
   Only privacy-reviewed parentless CI roots are public;never push ownership-cleanup/private
   ancestors. Synthetic substitutions are implemented;originals remain local. Compatibility
   constants alone are not a migration. Preserve every current GitHub ref until its exact STOP.
-- [x] B4:verified all-refs bundle before publication (setup.md); Akshat archived the original
-  laptop's D: clone and bare backup there. Never upload the archive or archive/pre-rewrite-main.
+- [x] B4:verified all-refs bundle before publication (setup.md); the original laptop's D: clone
+  and bare backup are bundled on that laptop (setup.md). Never upload any archive or
+  archive/pre-rewrite-main.
 - [x] B5 (Akshat,2026-11-26):GitHub main is parentless root `aacaed47` (candidate 183,100%);
   all 195 earlier branches deleted;no tag existed;no archive uploaded.
 - [x] B6:fresh main passes CI;owning docs synced;archive-first repoint steps in setup.md.

@@ -51,8 +51,8 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
 - [x] App-dead capability (Akshat approved all three groups): retired-feature remnants,
   superseded siblings and Gallery-only components are removed with their tests and Gallery
   entries; tests that only used a removed helper moved onto the live path (coverage-map.md).
-- [x] Re-prove 100% after the 3r removals: main `f54cfc32` executes 48,380/48,380 (run
-  46052870680, every job green).
+- [x] Re-prove 100% after the 3r removals: main `b7b55f8e` executes 48,380/48,380 (run
+  46076034921, every job green).
 - [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
   are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
   per-day export or delete screen is wanted or rejected.
@@ -78,7 +78,8 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
     open, raw/decoded ledger and sync, derived results, sessions and workouts, sleep and naps,
     journal, coverage and day zones, notifications, import/export/backup), with callers moved
     by script and the analyzer. A store that needs `LocalDb`'s private guarded write is a
-    `part` of `db.dart`. Done: notifications (`NotifFiredStore`) and nap edits (`SleepNapStore`), each in
+    `part` of `db.dart`. Done: notifications (`NotifFiredStore`), nap edits (`SleepNapStore`) and journal
+    (`JournalStore`), each in
     `lib/data/<name>_store.dart`; the rest move one concern per commit.
   - `AppState` and `BleEngine` (instance classes, 17 and 21 statics): concern mixins in `part`
     files (`AppState extends ChangeNotifier with _SyncOps, _FoodOps, ...`), with no caller

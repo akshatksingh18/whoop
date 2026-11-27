@@ -22,7 +22,7 @@ class _JournalRepo extends LocalRepositoryImpl {
   @override
   Future<List<JournalFieldSpec>> getJournalFields() async => [
     ...kJournalFields.where((s) => s.key == 'mood' || s.key == 'caffeine_mg'),
-    ...await LocalDb.journalFieldDefs(),
+    ...await JournalStore.fieldDefs(),
   ];
   @override
   Future<void> postCustomJournalField(JournalFieldSpec spec) async {
@@ -69,7 +69,7 @@ void main() {
     await resetCoverageStore();
     repo = _JournalRepo();
     app = AppState.forTesting()..repo = repo;
-    await LocalDb.putJournal(day, '["travel"]', 'Original authored note');
+    await JournalStore.put(day, '["travel"]', 'Original authored note');
   });
   tearDown(() => app.dispose());
   tearDownAll(LocalDb.close);
@@ -167,24 +167,24 @@ void main() {
           t.widget<TextField>(input('Anything else')).controller!.text,
           'Unsaved time draft',
         );
-        final pending = await real(t, () => LocalDb.journalMetricsForDay(day));
+        final pending = await real(t, () => JournalStore.metricsForDay(day));
         expect(pending['caffeine_mg']!.atMinuteOfDay, original);
         await invokeControl(
           t,
           t.widget<BigButton>(find.widgetWithText(BigButton, 'Save')).onTap,
         );
         expect(find.byType(JournalCompose), findsNothing);
-        final saved = await real(t, () => LocalDb.journalMetricsForDay(day));
+        final saved = await real(t, () => JournalStore.metricsForDay(day));
         expect(saved['caffeine_mg']!.value, 100);
         expect(saved['caffeine_mg']!.atMinuteOfDay, edited.atMin);
         expect(
-          (await real(t, () => LocalDb.journalRows(date: day))).single['note'],
+          (await real(t, () => JournalStore.entries(date: day))).single['note'],
           'Unsaved time draft',
         );
         expect(
           (await real(
             t,
-            () => LocalDb.journalRows(),
+            () => JournalStore.entries(),
           )).every((r) => r['date'] == day),
           true,
         );
@@ -234,16 +234,16 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 80));
         });
         expect(t.takeException(), isNull);
-        final defs = await real(t, LocalDb.journalFieldDefs);
+        final defs = await real(t, JournalStore.fieldDefs);
         expect(
           defs.map((s) => s.key),
           rejected ? [] : ['custom_authored_late_definition'],
         );
         expect(
-          (await real(t, () => LocalDb.journalRows(date: day))).single['note'],
+          (await real(t, () => JournalStore.entries(date: day))).single['note'],
           'Original authored note',
         );
-        expect(await real(t, () => LocalDb.journalMetricsForDay(day)), isEmpty);
+        expect(await real(t, () => JournalStore.metricsForDay(day)), isEmpty);
       },
     );
   }

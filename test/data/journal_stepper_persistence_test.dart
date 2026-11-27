@@ -64,7 +64,7 @@ void main() {
           };
           final minute = mode == 'zero' ? 0 : 1439;
           await real(t, () async {
-            await LocalDb.putJournal(
+            await JournalStore.put(
               day,
               '["travel"]',
               'Retained historical note',
@@ -74,7 +74,7 @@ void main() {
                 spec.key: JournalMetricValue(initial, atMinuteOfDay: minute),
               });
             }
-            await LocalDb.putJournal(
+            await JournalStore.put(
               other,
               '["illness"]',
               'Unrelated banked note',
@@ -85,11 +85,11 @@ void main() {
           });
           final savedOther = await real(
             t,
-            () => LocalDb.journalMetricsForDay(other),
+            () => JournalStore.metricsForDay(other),
           );
           final rowsOther = await real(
             t,
-            () => LocalDb.journalRows(date: other),
+            () => JournalStore.entries(date: other),
           );
           final app = AppState.forTesting()..repo = _Repo();
           addTearDown(app.dispose);
@@ -148,14 +148,14 @@ void main() {
           }
           final wanted = value();
           // Gestures edit a draft;no metric or note is written until Save.
-          final draft = await real(t, () => LocalDb.journalMetricsForDay(day));
+          final draft = await real(t, () => JournalStore.metricsForDay(day));
           expect(draft[spec.key]?.value, initial);
           await invokeControl(
             t,
             t.widget<BigButton>(find.widgetWithText(BigButton, 'Save')).onTap,
           );
           expect(find.byType(JournalCompose), findsNothing);
-          final stored = await real(t, () => LocalDb.journalMetricsForDay(day));
+          final stored = await real(t, () => JournalStore.metricsForDay(day));
           expect(stored[spec.key]?.value, wanted);
           if (wanted != null) {
             expect(
@@ -166,23 +166,23 @@ void main() {
           expect(
             (await real(
               t,
-              () => LocalDb.journalRows(date: day),
+              () => JournalStore.entries(date: day),
             )).single['note'],
             'Retained historical note',
           );
           expect(
             (await real(
               t,
-              () => LocalDb.journalRows(date: day),
+              () => JournalStore.entries(date: day),
             )).single['tags_json'],
             '["travel"]',
           );
           expect(
-            await real(t, () => LocalDb.journalMetricsForDay(other)),
+            await real(t, () => JournalStore.metricsForDay(other)),
             savedOther,
           );
           expect(
-            await real(t, () => LocalDb.journalRows(date: other)),
+            await real(t, () => JournalStore.entries(date: other)),
             rowsOther,
           );
           await open();

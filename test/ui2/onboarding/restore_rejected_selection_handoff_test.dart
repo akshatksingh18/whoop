@@ -31,7 +31,7 @@ void main() {
   setUp(() async {
     await resetCoverageStore();
     await BodyLogDb.putWeight('2021-04-06', 70, 'kg');
-    await LocalDb.putJournal(
+    await JournalStore.put(
       '2021-04-06',
       '["authored"]',
       'Preserve this unrelated authored note.',

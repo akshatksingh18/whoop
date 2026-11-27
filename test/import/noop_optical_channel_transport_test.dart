@@ -53,7 +53,7 @@ void main() {
       await db.insert('hrSample', {'ts': ts, 'bpm': 61});
       await db.close();
       final bytes = await source.readAsBytes();
-      await LocalDb.putJournal(
+      await JournalStore.put(
         '2021-04-06',
         '["authored"]',
         'keep before refused import',
@@ -150,7 +150,7 @@ void main() {
           }
           await db.close();
           final bytes = await source.readAsBytes();
-          await LocalDb.putJournal(
+          await JournalStore.put(
             '2021-04-06',
             '["authored"]',
             'retain unrelated note',

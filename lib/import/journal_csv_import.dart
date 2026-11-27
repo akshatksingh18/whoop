@@ -276,7 +276,7 @@ Future<JournalImportResult> importJournalCsvFile(
   final text = utf8.decode(await File(path).readAsBytes());
   final parsed = parseJournalCsv(text, today: today);
   for (final row in parsed.rows) {
-    await LocalDb.putJournal(row.date, jsonEncode(row.tags), row.note);
+    await JournalStore.put(row.date, jsonEncode(row.tags), row.note);
   }
   return JournalImportResult(parsed.rows.length, parsed.rejected);
 }

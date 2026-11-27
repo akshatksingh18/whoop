@@ -29,7 +29,7 @@ void main() {
       final original = latin1.encode('date,tags,note\n2021-04-06,,café\n');
       final file = await bytes('invalid.csv', original);
       await expectLater(importJournalCsvFile(file.path), throwsFormatException);
-      expect(await LocalDb.journalRows(), isEmpty);
+      expect(await JournalStore.entries(), isEmpty);
       expect(await file.readAsBytes(), original);
     },
   );
@@ -41,7 +41,7 @@ void main() {
         importJournalCsvFile(path),
         throwsA(isA<FileSystemException>()),
       );
-      expect(await LocalDb.journalRows(), isEmpty);
+      expect(await JournalStore.entries(), isEmpty);
     },
   );
   for (final bom in [false, true]) {
@@ -58,7 +58,7 @@ void main() {
         final result = await importJournalCsvFile(file.path);
         expect(result.imported, 1);
         expect(result.rejected, isEmpty);
-        expect((await LocalDb.journalRows()).single['note'], 'café, résumé');
+        expect((await JournalStore.entries()).single['note'], 'café, résumé');
         expect(await file.readAsBytes(), original);
       },
     );
@@ -95,7 +95,7 @@ void main() {
         );
         expect(await LocalDb.session('accepted.db'), isNotNull);
         expect(
-          (await LocalDb.journalRows()).single['note'],
+          (await JournalStore.entries()).single['note'],
           'Authored retained note',
         );
         expect(await vendor.readAsBytes(), original);

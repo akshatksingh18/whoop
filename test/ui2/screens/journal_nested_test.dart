@@ -24,7 +24,7 @@ class _Repo extends LocalRepositoryImpl {
   @override
   Future<List<JournalFieldSpec>> getJournalFields() async => [
     ...kJournalFields.where((s) => s.key == 'mood' || s.key == 'caffeine_mg'),
-    ...await LocalDb.journalFieldDefs(),
+    ...await JournalStore.fieldDefs(),
   ];
 }
 
@@ -108,7 +108,7 @@ void main() {
     t,
   ) async {
     await t.runAsync(
-      () => LocalDb.putJournal(oldDay, '["travel"]', 'Original old-night note'),
+      () => JournalStore.put(oldDay, '["travel"]', 'Original old-night note'),
     );
     await open(t, const JournalCompose(date: oldDay));
     expect(
@@ -126,8 +126,7 @@ void main() {
     'logging a tag for an older rough night preserves its earlier tags and note',
     (t) async {
       await t.runAsync(
-        () =>
-            LocalDb.putJournal(oldDay, '["travel"]', 'Original old-night note'),
+        () => JournalStore.put(oldDay, '["travel"]', 'Original old-night note'),
       );
       var dismissed = false;
       await open(
@@ -147,7 +146,7 @@ void main() {
       await press(t, 'caffeine');
       await press(t, 'Log it for that night');
       await until(t, () => dismissed);
-      final rows = await t.runAsync(() => LocalDb.journalRows());
+      final rows = await t.runAsync(() => JournalStore.entries());
       expect(rows!.single['note'], 'Original old-night note');
       expect(
         jsonDecode(rows.single['tags_json'] as String),
@@ -204,7 +203,7 @@ void main() {
         t.widget<Pill>(find.widgetWithText(Pill, 'travel')).color,
         C.domMind,
       );
-      final defs = await t.runAsync(LocalDb.journalFieldDefs);
+      final defs = await t.runAsync(JournalStore.fieldDefs);
       expect(defs!.single.kind, JournalFieldKind.duration);
       expect(defs.single.unit, 'min');
       final stepper = t.widget<FieldStepper>(
@@ -221,12 +220,12 @@ void main() {
       await until(t, () => saved != null);
       expect(saved, isTrue);
       final stored = await t.runAsync(
-        () => LocalDb.journalRows(date: todayLabel()),
+        () => JournalStore.entries(date: todayLabel()),
       );
       expect(stored!.single['note'], 'Keep this unsaved draft');
       expect(jsonDecode(stored.single['tags_json'] as String), ['travel']);
       final values = await t.runAsync(
-        () => LocalDb.journalMetricsForDay(todayLabel()),
+        () => JournalStore.metricsForDay(todayLabel()),
       );
       expect(values!['mood']!.value, 4);
       expect(values[defs.single.key]!.value, 30);
@@ -237,12 +236,12 @@ void main() {
   test(
     'concurrent rough-night tag additions retain every answer and the current note',
     () async {
-      await LocalDb.putJournal(oldDay, '["travel"]', 'Keep the current note');
+      await JournalStore.put(oldDay, '["travel"]', 'Keep the current note');
       await Future.wait([
         for (var i = 0; i < 20; i++)
           app.repo!.mergeJournalTags(oldDay, ['synthetic_tag_$i']),
       ]);
-      final row = (await LocalDb.journalRows(date: oldDay)).single;
+      final row = (await JournalStore.entries(date: oldDay)).single;
       expect(row['note'], 'Keep the current note');
       expect(
         jsonDecode(row['tags_json'] as String),
@@ -255,18 +254,18 @@ void main() {
   );
 
   test('an exact selected-day read reaches an older day', () async {
-    await LocalDb.putJournal(oldDay, '["travel"]', 'Older note');
-    await LocalDb.putJournal(todayLabel(), '["workout"]', 'Recent note');
+    await JournalStore.put(oldDay, '["travel"]', 'Older note');
+    await JournalStore.put(todayLabel(), '["workout"]', 'Recent note');
     expect((await app.repo!.getJournalDay(oldDay))!['note'], 'Older note');
     expect(await app.repo!.getJournalDay('2000-01-01'), isNull);
-    expect((await LocalDb.journalRows(date: oldDay)).single['date'], oldDay);
+    expect((await JournalStore.entries(date: oldDay)).single['date'], oldDay);
   });
 
   testWidgets(
     'an older-day conflict reloads its real note and tags and keeps the typed draft',
     (t) async {
       await t.runAsync(() async {
-        await LocalDb.putJournal(oldDay, '["travel"]', 'Original old note');
+        await JournalStore.put(oldDay, '["travel"]', 'Original old note');
         await seedJournalMetrics(oldDay, {'mood': const JournalMetricValue(1)});
       });
       await open(t, const JournalCompose(date: oldDay));
@@ -274,7 +273,7 @@ void main() {
       t.widget<MoodPicker>(find.byType(MoodPicker)).onChanged(4);
       await t.pump();
       await t.runAsync(() async {
-        await LocalDb.putJournal(oldDay, '["sick"]', 'Newer stored note');
+        await JournalStore.put(oldDay, '["sick"]', 'Newer stored note');
         await seedJournalMetrics(oldDay, {'mood': const JournalMetricValue(2)});
         final dynamic action = t
             .widget<BigButton>(find.widgetWithText(BigButton, 'Save'))
@@ -325,7 +324,7 @@ void main() {
                   .evaluate()
                   .isNotEmpty,
             );
-            expect(await t.runAsync(LocalDb.journalFieldDefs), isEmpty);
+            expect(await t.runAsync(JournalStore.fieldDefs), isEmpty);
             await t.runAsync(
               () => db.execute('DROP TRIGGER reject_journal_def'),
             );
@@ -344,7 +343,7 @@ void main() {
           );
         }
         expect(
-          (await t.runAsync(LocalDb.journalFieldDefs))!.single.key,
+          (await t.runAsync(JournalStore.fieldDefs))!.single.key,
           'custom_synthetic_retry_field',
         );
         await close(t);
@@ -376,7 +375,7 @@ void main() {
       );
       expect(
         (await t.runAsync(
-          () => LocalDb.journalMetricsForDay(oldDay),
+          () => JournalStore.metricsForDay(oldDay),
         ))!['caffeine_mg']!.atMinuteOfDay,
         900,
       );
@@ -422,7 +421,7 @@ void main() {
         }),
         findsOneWidget,
       );
-      expect(await t.runAsync(LocalDb.journalFieldDefs), isEmpty);
+      expect(await t.runAsync(JournalStore.fieldDefs), isEmpty);
       await close(t);
     });
   }

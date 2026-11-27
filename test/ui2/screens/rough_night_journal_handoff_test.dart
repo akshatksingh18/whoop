@@ -46,7 +46,7 @@ void main() {
   });
   setUp(() async {
     await resetCoverageStore();
-    await LocalDb.putJournal(day, '["travel"]', 'Original authored note');
+    await JournalStore.put(day, '["travel"]', 'Original authored note');
   });
   tearDownAll(LocalDb.close);
 
@@ -56,7 +56,7 @@ void main() {
     final app = AppState.forTesting()
       ..repo = LocalRepositoryImpl(getProfileMap: () => const {});
     addTearDown(app.dispose);
-    final before = await LocalDb.journalRows();
+    final before = await JournalStore.entries();
     const card = RoughNightCard(night: night, ask: 'on');
     await localizedPage(t, const Scaffold(body: card), app: app);
 
@@ -77,7 +77,7 @@ void main() {
     expect(find.byWidget(card), findsOneWidget);
     expect(find.text('Add how much'), findsOneWidget);
     expect(Prefs.getString(kRoughNightDismissed, ''), isEmpty);
-    expect(await t.runAsync(LocalDb.journalRows), before);
+    expect(await t.runAsync(JournalStore.entries), before);
   });
 
   testWidgets('rough-night tag save locks until accepted and merges new tags', (
@@ -112,7 +112,7 @@ void main() {
     expect(dismissed, 0);
 
     await t.runAsync(
-      () => LocalDb.putJournal(
+      () => JournalStore.put(
         day,
         '["travel","stress"]',
         'Concurrent authored note',
@@ -122,7 +122,7 @@ void main() {
     await io(t);
     expect(dismissed, 1);
     expect(Prefs.getString(kRoughNightDismissed, ''), day);
-    final row = (await t.runAsync(LocalDb.journalRows))!.single;
+    final row = (await t.runAsync(JournalStore.entries))!.single;
     expect(
       jsonDecode(row['tags_json'] as String),
       unorderedEquals(['travel', 'stress', 'caffeine']),

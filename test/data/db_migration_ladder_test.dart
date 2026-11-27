@@ -1145,20 +1145,17 @@ void main() {
 
     // The upgrade is purely additive: a day that only ever had tags keeps
     // them, and simply has no numeric rows.
-    final rows = await LocalDb.journalRows();
+    final rows = await JournalStore.entries();
     expect(rows.single['tags_json'], '["caffeine","late meal"]');
     expect(rows.single['note'], 'felt rough');
-    expect(await LocalDb.journalMetricsForDay('2026-06-01'), isEmpty);
+    expect(await JournalStore.metricsForDay('2026-06-01'), isEmpty);
 
     // And the new tables are usable immediately, not on the next launch.
     await seedJournalMetrics('2026-06-01', {
       'mood': const JournalMetricValue(4),
     });
-    expect(
-      (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
-      4,
-    );
-    expect(await LocalDb.journalFieldDefs(), isEmpty);
+    expect((await JournalStore.metricsForDay('2026-06-01'))['mood']!.value, 4);
+    expect(await JournalStore.fieldDefs(), isEmpty);
 
     final health = await LocalDb.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
@@ -1224,7 +1221,7 @@ void main() {
       );
 
       expect(
-        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        (await JournalStore.metricsForDay('2026-06-01'))['mood']!.value,
         4,
       );
       expect((await db.query('lab_result')).single['value'], 42.0);

@@ -36,27 +36,27 @@ void main() {
 
   test('journal upsert + read (idempotent on date)', () async {
     const date = '2026-06-20';
-    await LocalDb.putJournal(
+    await JournalStore.put(
       date,
       jsonEncode(['caffeine', 'late meal']),
       'felt wired',
     );
-    var rows = await LocalDb.journalRows();
+    var rows = await JournalStore.entries();
     final row = rows.firstWhere((r) => r['date'] == date);
     expect(jsonDecode(row['tags_json'] as String), ['caffeine', 'late meal']);
     expect(row['note'], 'felt wired');
 
     // Re-put the same date → REPLACE, not a duplicate row.
-    await LocalDb.putJournal(date, jsonEncode(['rest day']), 'recovered');
-    rows = await LocalDb.journalRows();
+    await JournalStore.put(date, jsonEncode(['rest day']), 'recovered');
+    rows = await JournalStore.entries();
     final same = rows.where((r) => r['date'] == date).toList();
     expect(same.length, 1);
     expect(jsonDecode(same.first['tags_json'] as String), ['rest day']);
     expect(same.first['note'], 'recovered');
 
     // sinceDaysEpoch lower bound excludes older rows.
-    await LocalDb.putJournal('2020-01-01', '[]', 'ancient');
-    final recent = await LocalDb.journalRows(sinceDaysEpoch: '2026-01-01');
+    await JournalStore.put('2020-01-01', '[]', 'ancient');
+    final recent = await JournalStore.entries(sinceDaysEpoch: '2026-01-01');
     expect(recent.any((r) => r['date'] == '2020-01-01'), isFalse);
     expect(recent.any((r) => r['date'] == date), isTrue);
   });

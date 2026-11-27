@@ -5,7 +5,7 @@ import 'package:whoop_companion/data/journal_fields.dart';
 /// Sets one day's stored numeric journal fields to exactly [fields], in one
 /// transaction: a fixture for a day's state, or for a write that lands from
 /// elsewhere while an editor is open. The app writes through
-/// `LocalDb.saveJournalEdit`.
+/// `JournalStore.saveEdit`.
 Future<void> seedJournalMetrics(
   String date,
   Map<String, JournalMetricValue> fields,

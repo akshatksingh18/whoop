@@ -69,7 +69,7 @@ void main() {
           );
           app.dispose();
         });
-        await LocalDb.putJournal(
+        await JournalStore.put(
           _day,
           '["travel","workout"]',
           'Retained authored note',
@@ -78,7 +78,7 @@ void main() {
           'mood': const JournalMetricValue(3),
           'caffeine_mg': const JournalMetricValue(0, atMinuteOfDay: 0),
         });
-        await LocalDb.putJournal(_other, '["rest day"]', 'Other authored note');
+        await JournalStore.put(_other, '["rest day"]', 'Other authored note');
         final before = await db.query('journal');
         final metrics = await db.query('journal_metric');
         if (refuse) {
@@ -147,13 +147,13 @@ void main() {
         }
         expect(repo.writes, refuse ? 2 : 1);
         expect(find.byType(JournalCompose), findsNothing);
-        final saved = await real(t, () => LocalDb.journalMetricsForDay(_day));
+        final saved = await real(t, () => JournalStore.metricsForDay(_day));
         expect(saved.containsKey('mood'), false);
         expect(
           saved['caffeine_mg'],
           const JournalMetricValue(0, atMinuteOfDay: 0),
         );
-        final rows = await real(t, () => LocalDb.journalRows(date: _day));
+        final rows = await real(t, () => JournalStore.entries(date: _day));
         expect(jsonDecode(rows.single['tags_json'] as String), ['workout']);
         expect(rows.single['note'], 'Retained authored note');
         expect(
@@ -165,7 +165,7 @@ void main() {
         );
         await open();
         expect(t.widget<MoodPicker>(find.byType(MoodPicker)).value, isNull);
-        expect(await real(t, () => LocalDb.journalMetricsForDay(_day)), saved);
+        expect(await real(t, () => JournalStore.metricsForDay(_day)), saved);
         expect(t.takeException(), isNull);
       });
     }

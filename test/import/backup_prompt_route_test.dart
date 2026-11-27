@@ -37,7 +37,7 @@ void main() {
       ..mode = 'ready'
       ..file = renamed;
     app = AppState.forTesting();
-    await LocalDb.putJournal(
+    await JournalStore.put(
       '2021-04-06',
       '["travel"]',
       'Retained authored note',
@@ -53,7 +53,7 @@ void main() {
     testWidgets(
       'renamed encrypted backup cancel $cancel leaves SQLite intact',
       (t) async {
-        final before = await LocalDb.journalRows();
+        final before = await JournalStore.entries();
         await localizedPage(t, const DataScreen(), app: app);
         final row = find.widgetWithText(SetRow, 'Import a file');
         await reveal(t, row);
@@ -108,7 +108,7 @@ void main() {
             contains('backup'),
           );
         }
-        expect(await t.runAsync(LocalDb.journalRows), before);
+        expect(await t.runAsync(JournalStore.entries), before);
         expect(await t.runAsync(renamed.readAsBytes), kBackupMagic);
         final staging = await t.runAsync(
           () => renamed.parent

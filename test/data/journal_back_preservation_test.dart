@@ -35,8 +35,8 @@ void main() {
         addTearDown(app.dispose);
         addTearDown(units.dispose);
         final db = (await t.runAsync(() async {
-          await LocalDb.putJournal(day, '["travel"]', 'Authored saved note');
-          await LocalDb.putJournal(next, '["sick"]', 'Authored next-day note');
+          await JournalStore.put(day, '["travel"]', 'Authored saved note');
+          await JournalStore.put(next, '["sick"]', 'Authored next-day note');
           await seedJournalMetrics(day, {
             'weight_kg': const JournalMetricValue(71),
           });
@@ -73,11 +73,11 @@ void main() {
           prior,
         );
         final weights = (await t.runAsync(
-          () => LocalDb.journalMetricsForDay(day),
+          () => JournalStore.metricsForDay(day),
         ))!;
         expect(weights['weight_kg']?.value, 71);
         expect(
-          await t.runAsync(() => LocalDb.journalMetricsForDay(next)),
+          await t.runAsync(() => JournalStore.metricsForDay(next)),
           isEmpty,
         );
       },

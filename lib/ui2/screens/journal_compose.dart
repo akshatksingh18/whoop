@@ -986,7 +986,7 @@ class _WeightTrendState extends State<_WeightTrend> {
       final since = dayLabelOf(
         DateTime(now.year, now.month, now.day - (kWeightTrendDays - 1)),
       );
-      final rows = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
+      final rows = await JournalStore.metricsByDay(sinceDaysEpoch: since);
       if (!mounted) return;
       setState(() {
         _byDay = {

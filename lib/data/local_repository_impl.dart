@@ -3421,17 +3421,17 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>?> getJournalDay(String date) async {
-    final rows = await LocalDb.journalRows(date: date);
+    final rows = await JournalStore.entries(date: date);
     return rows.isEmpty ? null : _journalEntry(rows.single);
   }
 
   @override
   Future<void> mergeJournalTags(String date, List<String> tags) =>
-      LocalDb.mergeJournalTags(date, tags);
+      JournalStore.mergeTags(date, tags);
 
   @override
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) =>
-      LocalDb.journalMetricsForDay(date);
+      JournalStore.metricsForDay(date);
 
   @override
   Future<List<String>> saveJournalEdit(
@@ -3457,7 +3457,7 @@ class LocalRepositoryImpl extends LocalRepository {
                     : e.value!.value.clamp(0.0, spec.max).toDouble();
               }(), atMinuteOfDay: e.value!.atMinuteOfDay),
     };
-    return LocalDb.saveJournalEdit(
+    return JournalStore.saveEdit(
       date,
       changes: clamped,
       base: base,
@@ -3471,12 +3471,12 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<List<JournalFieldSpec>> getJournalFields() async => [
     ...kJournalFields,
-    ...await LocalDb.journalFieldDefs(),
+    ...await JournalStore.fieldDefs(),
   ];
 
   @override
   Future<void> postCustomJournalField(JournalFieldSpec spec) =>
-      LocalDb.putJournalFieldDef(spec);
+      JournalStore.putFieldDef(spec);
 
   List<String> _decodeStrList(Object? json) => [
     for (final e in _decodeList(json)) e.toString(),

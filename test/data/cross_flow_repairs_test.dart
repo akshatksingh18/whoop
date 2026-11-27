@@ -89,7 +89,7 @@ Future<void> _seedJournal() async {
     'mood': const JournalMetricValue(1),
     'water_ml': const JournalMetricValue(250),
   });
-  await LocalDb.putJournal(todayLabel(), '[]', 'base');
+  await JournalStore.put(todayLabel(), '[]', 'base');
 }
 
 Future<void> _press(WidgetTester t, String label) async {
@@ -248,7 +248,7 @@ void main() {
       expect(t.widget<MoodPicker>(find.byType(MoodPicker)).value, 2);
       await _press(t, 'Save');
       final values = await t.runAsync(
-        () => LocalDb.journalMetricsForDay(todayLabel()),
+        () => JournalStore.metricsForDay(todayLabel()),
       );
       expect(values!['water_ml']!.value, 500);
       expect(values['mood']!.value, 2);
@@ -266,11 +266,11 @@ void main() {
     await _until(t, () => find.text('Save').evaluate().isNotEmpty);
     await t.enterText(find.byType(TextField).last, 'my draft');
     await t.runAsync(
-      () => LocalDb.putJournal(todayLabel(), '["travel"]', 'base'),
+      () => JournalStore.put(todayLabel(), '["travel"]', 'base'),
     );
     await _press(t, 'Save');
     await _until(t, () => repo.saves == 1);
-    final rows = await t.runAsync(() => LocalDb.journalRows());
+    final rows = await t.runAsync(() => JournalStore.entries());
     expect(rows!.single['note'], 'my draft');
     expect(rows.single['tags_json'], '["travel"]');
   });

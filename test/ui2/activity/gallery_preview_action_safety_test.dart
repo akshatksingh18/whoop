@@ -30,7 +30,7 @@ void main() {
   });
   setUp(() async {
     await resetCoverageStore();
-    await LocalDb.putJournal(
+    await JournalStore.put(
       '2021-04-06',
       '["travel"]',
       'Retained authored note',

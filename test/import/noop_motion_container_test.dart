@@ -64,7 +64,7 @@ void main() {
           }
           await db.close();
           final bytes = await source.readAsBytes();
-          await LocalDb.putJournal(
+          await JournalStore.put(
             '2021-04-06',
             '["authored"]',
             'Unrelated saved note',

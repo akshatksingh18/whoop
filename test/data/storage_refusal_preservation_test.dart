@@ -41,7 +41,7 @@ void main() {
       'invalid ${c.$1} bounds ${c.$2}/${c.$3} preserve every correction and journal row',
       () async {
         await LocalDb.setCursor('authored_recovery', 'kept');
-        await LocalDb.putJournal(day, '["travel"]', 'Keep authored note');
+        await JournalStore.put(day, '["travel"]', 'Keep authored note');
         final before = await snapshot();
         await expectLater(
           LocalDb.acceptSleepCorrection(
@@ -101,7 +101,7 @@ void main() {
   test(
     'same-size concurrent tag replacement refuses the entire numeric edit and can retry',
     () async {
-      await LocalDb.putJournal(day, '["travel"]', 'Authored note');
+      await JournalStore.put(day, '["travel"]', 'Authored note');
       await seedJournalMetrics(day, {
         'caffeine_mg': const JournalMetricValue(0, atMinuteOfDay: 600),
       });
@@ -133,11 +133,11 @@ void main() {
         isEmpty,
       );
       expect(
-        (await LocalDb.journalMetricsForDay(day))['caffeine_mg']!.atMinuteOfDay,
+        (await JournalStore.metricsForDay(day))['caffeine_mg']!.atMinuteOfDay,
         660,
       );
       expect(
-        (await LocalDb.journalRows(date: day)).single['note'],
+        (await JournalStore.entries(date: day)).single['note'],
         'Authored note',
       );
     },
@@ -156,13 +156,13 @@ void main() {
         hasTime: true,
         custom: true,
       );
-      await LocalDb.putJournalFieldDef(original);
+      await JournalStore.putFieldDef(original);
       await seedJournalMetrics(day, {
         'custom_authored': const JournalMetricValue(0, atMinuteOfDay: 600),
       });
       final before = await snapshot();
       await expectLater(
-        LocalDb.putJournalFieldDef(
+        JournalStore.putFieldDef(
           const JournalFieldSpec(
             key: 'custom_authored',
             label: 'Different meaning',
@@ -176,7 +176,7 @@ void main() {
         throwsStateError,
       );
       expect(await snapshot(), before);
-      expect((await LocalDb.journalFieldDefs()).single.unit, 'mg');
+      expect((await JournalStore.fieldDefs()).single.unit, 'mg');
     },
   );
 }

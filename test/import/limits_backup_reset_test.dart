@@ -34,12 +34,8 @@ void main() {
               ? 'a tag is longer than 64 characters'
               : '65 tags (limit 64)',
         );
-        await LocalDb.putJournal('2021-04-06', '["old"]', 'keep original');
-        await LocalDb.putJournal(
-          '2021-04-05',
-          '["unrelated"]',
-          'keep unrelated',
-        );
+        await JournalStore.put('2021-04-06', '["old"]', 'keep original');
+        await JournalStore.put('2021-04-05', '["unrelated"]', 'keep unrelated');
         final dir = await Directory(
           'build/coverage-remainder/import-limits-backup-reset',
         ).absolute.create(recursive: true);

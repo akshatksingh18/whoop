@@ -114,7 +114,7 @@ void main() {
     'Cancel preserves a stored weight and the rest of the old-day journal',
     (t) async {
       await t.runAsync(() async {
-        await LocalDb.putJournal(day, '["travel"]', 'Authored older note');
+        await JournalStore.put(day, '["travel"]', 'Authored older note');
         await seedJournalMetrics(day, {
           'weight_kg': const JournalMetricValue(70),
           'caffeine_mg': const JournalMetricValue(80, atMinuteOfDay: 600),
@@ -126,12 +126,12 @@ void main() {
       await t.enterText(field('Weight (kg)'), '99');
       await press(t, find.widgetWithText(TextButton, 'Cancel'));
       await saveJournal(t);
-      final values = await t.runAsync(() => LocalDb.journalMetricsForDay(day));
+      final values = await t.runAsync(() => JournalStore.metricsForDay(day));
       expect(values!['weight_kg']!.value, 70);
       expect(values['caffeine_mg']!.atMinuteOfDay, 600);
       expect(
         (await t.runAsync(
-          () => LocalDb.journalRows(date: day),
+          () => JournalStore.entries(date: day),
         ))!.single['note'],
         'Authored older note',
       );
@@ -158,20 +158,18 @@ void main() {
         await t.enterText(input, imperial ? '154.5' : '70.25');
         await dialogSave(t);
         expect(
-          await t.runAsync(() => LocalDb.journalMetricsForDay(day)),
+          await t.runAsync(() => JournalStore.metricsForDay(day)),
           isEmpty,
           reason: 'Dialog edits remain unsaved until the editor Save',
         );
         await saveJournal(t);
-        final stored = await t.runAsync(
-          () => LocalDb.journalMetricsForDay(day),
-        );
+        final stored = await t.runAsync(() => JournalStore.metricsForDay(day));
         expect(
           stored!['weight_kg']!.value,
           closeTo(imperial ? 154.5 * .45359237 : 70.25, 1e-10),
         );
         expect(
-          await t.runAsync(() => LocalDb.journalMetricsForDay(todayLabel())),
+          await t.runAsync(() => JournalStore.metricsForDay(todayLabel())),
           isEmpty,
         );
       },
@@ -197,7 +195,7 @@ void main() {
       );
       expect(
         (await t.runAsync(
-          () => LocalDb.journalMetricsForDay(day),
+          () => JournalStore.metricsForDay(day),
         ))!['weight_kg']!.value,
         70,
       );
@@ -206,7 +204,7 @@ void main() {
       await saveJournal(t);
       expect(
         (await t.runAsync(
-          () => LocalDb.journalMetricsForDay(day),
+          () => JournalStore.metricsForDay(day),
         ))!['weight_kg']!.value,
         71,
       );
@@ -227,13 +225,11 @@ void main() {
       await press(t, find.widgetWithText(TextButton, 'Clear'));
       expect(find.text('Not entered'), findsWidgets);
       expect(
-        (await t.runAsync(
-          () => LocalDb.journalMetricsForDay(day),
-        ))!['weight_kg'],
+        (await t.runAsync(() => JournalStore.metricsForDay(day)))!['weight_kg'],
         isNotNull,
       );
       await saveJournal(t);
-      final values = await t.runAsync(() => LocalDb.journalMetricsForDay(day));
+      final values = await t.runAsync(() => JournalStore.metricsForDay(day));
       expect(values!.containsKey('weight_kg'), isFalse);
       expect(values['caffeine_mg']!.value, 0);
       expect(values['caffeine_mg']!.atMinuteOfDay, 615);
@@ -297,7 +293,7 @@ void main() {
         expect(find.textContaining('3 days entered.'), findsOneWidget);
         expect(
           (await t.runAsync(
-            () => LocalDb.journalMetricsForDay(ago(2)),
+            () => JournalStore.metricsForDay(ago(2)),
           ))!['weight_kg']!.value,
           0,
           reason: 'Invalid weight is not silently rewritten',
@@ -317,7 +313,7 @@ void main() {
       );
       expect(find.textContaining('needs at least two days'), findsOneWidget);
       expect(
-        await t.runAsync(() => LocalDb.journalMetricsForDay(todayLabel())),
+        await t.runAsync(() => JournalStore.metricsForDay(todayLabel())),
         isEmpty,
       );
     },

@@ -156,7 +156,7 @@ void main() {
       expect(out.readError, contains('synthetic vendor refusal'));
       expect(out.nothingLanded, false);
       expect(app.insightsRevision.value, greaterThan(before));
-      final rows = await LocalDb.journalRows(date: '2021-04-06');
+      final rows = await JournalStore.entries(date: '2021-04-06');
       expect(rows.single['note'], 'Authored test note');
       expect(jsonDecode(rows.single['tags_json'] as String), ['Synthetic tag']);
       expect(out.source, 'Journal CSV');

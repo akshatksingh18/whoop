@@ -179,7 +179,7 @@ abstract class LocalRepository {
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date);
 
   /// One Journal edit as an atomic patch with conflict detection; see
-  /// `LocalDb.saveJournalEdit`. Returns the fields someone else changed
+  /// `JournalStore.saveEdit`. Returns the fields someone else changed
   /// (nothing written then), or an empty list once saved.
   Future<List<String>> saveJournalEdit(
     String date, {

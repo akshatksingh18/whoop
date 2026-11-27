@@ -18,7 +18,7 @@ void main() {
       () async {
         const day = '2021-04-06';
         const note = 'Authored backup note';
-        await LocalDb.putJournal(day, '["travel"]', note);
+        await JournalStore.put(day, '["travel"]', note);
         final exported = File(await LocalDb.exportCopy());
         final source = compressed
             ? await File(
@@ -42,10 +42,10 @@ void main() {
         await rejected;
         await wipe;
 
-        expect(await LocalDb.journalRows(date: day), isEmpty);
+        expect(await JournalStore.entries(date: day), isEmpty);
         expect(await source.readAsBytes(), bytes);
         await LocalDb.importFromDbFile(source.path);
-        final row = (await LocalDb.journalRows(date: day)).single;
+        final row = (await JournalStore.entries(date: day)).single;
         expect(row['note'], note);
         expect(row['tags_json'], '["travel"]');
         expect(await source.readAsBytes(), bytes);

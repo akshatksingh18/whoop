@@ -44,7 +44,7 @@ void main() {
     await resetCoverageStore();
     reader = _Reader();
     app = AppState.forTesting()..repo = reader;
-    await LocalDb.putJournal(
+    await JournalStore.put(
       '2021-04-06',
       '["authored"]',
       'Preserve this unrelated record',
@@ -76,7 +76,7 @@ void main() {
 
   Future<void> intact(WidgetTester t) async {
     final rows = await t.runAsync(
-      () => LocalDb.journalRows(date: '2021-04-06'),
+      () => JournalStore.entries(date: '2021-04-06'),
     );
     expect(rows!.single['note'], 'Preserve this unrelated record');
     expect(

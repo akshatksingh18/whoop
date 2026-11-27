@@ -82,7 +82,7 @@ void main() {
     expect(LocalDb.schemaVersion, greaterThanOrEqualTo(36));
 
     // Purely additive: what was already stored is untouched.
-    final journal = await LocalDb.journalRows();
+    final journal = await JournalStore.entries();
     expect(journal.single['note'], 'kept');
 
     // The tables work on this launch, not the next one.

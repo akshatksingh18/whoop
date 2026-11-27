@@ -225,7 +225,7 @@ void main() {
       await seedJournalMetrics(d, {'water_ml': const JournalMetricValue(250)});
       // Only the changed field is written; water stays.
       expect(
-        await LocalDb.saveJournalEdit(
+        await JournalStore.saveEdit(
           d,
           changes: {'caffeine_mg': const JournalMetricValue(100)},
           base: const {},
@@ -234,23 +234,23 @@ void main() {
         ),
         isEmpty,
       );
-      var now = await LocalDb.journalMetricsForDay(d);
+      var now = await JournalStore.metricsForDay(d);
       expect(now['water_ml']!.value, 250);
       expect(now['caffeine_mg']!.value, 100);
       // An editor that read 200 ml cannot overwrite the stored 250 ml.
       expect(
-        await LocalDb.saveJournalEdit(
+        await JournalStore.saveEdit(
           d,
           changes: {'water_ml': const JournalMetricValue(300)},
           base: {'water_ml': const JournalMetricValue(200)},
         ),
         ['water_ml'],
       );
-      now = await LocalDb.journalMetricsForDay(d);
+      now = await JournalStore.metricsForDay(d);
       expect(now['water_ml']!.value, 250);
       // A deliberate clear removes the field.
       expect(
-        await LocalDb.saveJournalEdit(
+        await JournalStore.saveEdit(
           d,
           changes: {'caffeine_mg': null},
           base: {'caffeine_mg': const JournalMetricValue(100)},
@@ -258,7 +258,7 @@ void main() {
         isEmpty,
       );
       expect(
-        (await LocalDb.journalMetricsForDay(d)).containsKey('caffeine_mg'),
+        (await JournalStore.metricsForDay(d)).containsKey('caffeine_mg'),
         isFalse,
       );
     },

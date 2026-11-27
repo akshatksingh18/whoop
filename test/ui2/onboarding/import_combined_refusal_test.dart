@@ -49,12 +49,15 @@ void main() {
         expect(app.raw, [inputs[1].path]);
         expect(app.vendor, [inputs[2].path]);
         if (journal) {
-          expect((await LocalDb.journalRows()).single['note'], 'Retained note');
+          expect(
+            (await JournalStore.entries()).single['note'],
+            'Retained note',
+          );
           expect(app.backups, isEmpty);
         } else {
           expect(app.backups, ['accepted.db']);
           expect(await LocalDb.session('accepted.db'), isNotNull);
-          expect(await LocalDb.journalRows(), isEmpty);
+          expect(await JournalStore.entries(), isEmpty);
         }
         for (var i = 0; i < inputs.length; i++) {
           expect(await inputs[i].readAsString(), files.values.elementAt(i));

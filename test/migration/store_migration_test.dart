@@ -248,7 +248,7 @@ void main() {
     () async {
       databaseFactoryFfi.setDatabasesPath(dir.path);
       LocalDb.dbName = _legacy;
-      await LocalDb.putJournal('2026-01-02', '["synthetic"]', 'placeholder');
+      await JournalStore.put('2026-01-02', '["synthetic"]', 'placeholder');
       await LocalDb.close();
 
       LocalDb.dbName = LocalDb.kStoreFileName;

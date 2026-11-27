@@ -21,7 +21,7 @@ void main() {
       'quarantine recovers later tables when a journal table is incompatible: $incompatible',
       () async {
         const day = '2021-04-06';
-        await LocalDb.putJournal(day, '["water"]', 'Authored daily evidence');
+        await JournalStore.put(day, '["water"]', 'Authored daily evidence');
         await LocalDb.putBaseline('authored-marker', '{"bound":7}');
         final prior = await LocalDb.instance;
         final journal = await prior.query('journal');

@@ -67,7 +67,7 @@ void main() {
         final zones = DayClock.snapshot();
         expect(DayClock.days, isNotEmpty);
         await CalculationStore.write(StepGoals.key, history);
-        await LocalDb.putJournal(day, '["rest"]', 'Authored restore row');
+        await JournalStore.put(day, '["rest"]', 'Authored restore row');
         final source = File(await LocalDb.exportCopy());
         final bytes = await source.readAsBytes();
         await LocalDb.wipeAll();
@@ -99,14 +99,14 @@ void main() {
             : expectLater(restore, completion(isNotEmpty));
         try {
           await store.entered.future.timeout(const Duration(seconds: 3));
-          expect(await LocalDb.journalRows(date: day), hasLength(1));
+          expect(await JournalStore.entries(date: day), hasLength(1));
           expect(DayClock.days, isEmpty);
           if (reset) wipe = LocalDb.wipeAll();
           store.release.complete();
           await outcome;
           await wipe;
           if (reset) {
-            expect(await LocalDb.journalRows(date: day), isEmpty);
+            expect(await JournalStore.entries(date: day), isEmpty);
             expect(
               await LocalDb.baseline('calculation:${StepGoals.key}'),
               isNull,
@@ -116,7 +116,7 @@ void main() {
             await LocalDb.importFromDbFile(source.path);
           }
           expect(
-            (await LocalDb.journalRows(date: day)).single['note'],
+            (await JournalStore.entries(date: day)).single['note'],
             'Authored restore row',
           );
           expect(await CalculationStore.read(StepGoals.key), history);

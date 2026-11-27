@@ -178,6 +178,27 @@ void main() {
     },
   );
 
+  testWidgets('Today: a readiness baseline still filling counts nights', (
+    t,
+  ) async {
+    final d = HomeData(
+      dayId: day,
+      readiness: const Metric(note: 'need_baseline:have=2,need=4'),
+      sleepMin: measured(420),
+      hrv: measured(50),
+      rhr: measured(55),
+      strain: measured(8),
+      steps: measured(0),
+      sleepNeedMin: measured(480),
+      bedtime: Metric.empty,
+      proteinTarget: 100,
+      kcalTarget: 2000,
+    );
+    await localizedPage(t, HomeScreen(data: d, hour: 8, workoutLive: false));
+    expect(find.text('2 of 4 nights'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
   for (final state in ['empty', 'new', 'typical', 'rough']) {
     testWidgets(
       'COV-44 localized Sleep keeps observed stages and baseline limits: $state',

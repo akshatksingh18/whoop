@@ -51,11 +51,9 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
 - [x] App-dead capability (Akshat approved all three groups): retired-feature remnants,
   superseded siblings and Gallery-only components are removed with their tests and Gallery
   entries; tests that only used a removed helper moved onto the live path (coverage-map.md).
-- [ ] Re-prove 100% on the next CI candidate. Main `447f37fb` (run 46042793163, every job
-  green) executed 48,366/48,395: the 3r removals took the only tests of four live paths
-  (Home's no-target sleep and calibrating strain rings, `dataHistoryDays`' derived and metric
-  rows, `LiveShell`'s static body and footer) and left three orphans. Those paths now have
-  tests and the orphans are removed in source.
+- [ ] Re-prove 100% on the next CI candidate. Main `27b3d305` (run 46047159510, every job
+  green) executes 48,378/48,380: the last two lines are Home's calibrating-readiness "nights"
+  sub-label, which lost its only test with the 3r removals and now has one in source.
 - [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
   are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
   per-day export or delete screen is wanted or rejected.
@@ -74,7 +72,21 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
   that CI keeps, one shared path-provider fake and tests in lib-mirroring folders (candidate 182).
 - [ ] Split the four largest files by concern, behaviour-identical and at 100% coverage:
   `lib/data/db.dart`, `lib/ble/ble_engine.dart`, `lib/compute/derivation_engine.dart` and
-  `lib/state/app_state.dart` (left out of the tidy-up).
+  `lib/state/app_state.dart` (left out of the tidy-up). Dart cannot spread one class body over
+  files, and static members cannot come from a mixin, so the shape is a decision:
+  - `LocalDb` (9,950 lines, 258 static methods imported by 549 files, each concern scattered
+    across the file). **Akshat chose per-concern stores:** one class per concern (schema and
+    open, raw/decoded ledger and sync, derived results, sessions and workouts, sleep and naps,
+    journal, coverage and day zones, notifications, import/export/backup), with callers moved
+    by script and the analyzer. A store that needs `LocalDb`'s private guarded write is a
+    `part` of `db.dart`. Done: notifications (`NotifFiredStore` in
+    `lib/data/notif_fired_store.dart`); the rest move one concern per commit.
+  - `AppState` and `BleEngine` (instance classes, 17 and 21 statics): concern mixins in `part`
+    files (`AppState extends ChangeNotifier with _SyncOps, _FoodOps, ...`), with no caller
+    change.
+  - `DerivationEngine` (88 statics): its public statics stay on the class; private helpers move
+    to per-stage `part` files as top-level functions.
+  - Each file lands alone, with the same tests and 100% re-proved in CI before the next.
 - [ ] Decide, item by item (no app caller remains; each needs a decision before removal):
   - `packages/analytics` pedometer, `livePedometer`, `calcSteps`, `StepCalibration` and
     `cardiacCoherence`: package APIs the app no longer reaches (removal changes the package

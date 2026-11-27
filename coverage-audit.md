@@ -1,9 +1,10 @@
 # Coverage verification
 
 **Status:** 100% handwritten Dart line execution was verified on main `aacaed47` (below), with
-no exclusions, new skips or retired-feature activation. Main `447f37fb` (the 3r removals)
-executes 48,366/48,395 (99.94%) in [run 46042793163](https://github.com/akshatksingh18/whoop/actions/runs/46042793163);
-the 29 lines are tested or removed in source, and the next candidate re-proves 100%. 100% instrumented Dart execution certifies no radio, sensor or OS
+no exclusions, new skips or retired-feature activation. Main `27b3d305` (the 3r removals and
+their follow-up) executes 48,378/48,380 in [run 46047159510](https://github.com/akshatksingh18/whoop/actions/runs/46047159510);
+the two lines (Home's calibrating-readiness label) are tested in source, and the next candidate
+re-proves 100%. 100% instrumented Dart execution certifies no radio, sensor or OS
 delivery; native and physical acceptance stay separate (`bugs.md`, `todo.md`).
 
 ## Current proof

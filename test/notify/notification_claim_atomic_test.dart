@@ -3,7 +3,7 @@
 // The sibling suite (notify/notification_dedupe_test.dart) runs with no sqlite factory
 // and covers the degraded SharedPreferences fallback. THIS suite runs the real
 // LocalDb via sqflite_common_ffi, so it exercises the path that actually ships:
-// FiredKeyStore.claim → LocalDb.claimNotifFired → one atomic INSERT OR IGNORE.
+// FiredKeyStore.claim → NotifFiredStore.claim → one atomic INSERT OR IGNORE.
 //
 // Why this can be tested in-process at all: the race being fixed is two
 // derivation isolates racing between "has it fired?" and "record that it fired".
@@ -125,7 +125,7 @@ void main() {
 
       // Reconciled forward: the claim table now records the fire too, so the
       // mirror is no longer the only thing standing between us and a repeat.
-      expect(await LocalDb.notifFiredExists(key), isTrue);
+      expect(await NotifFiredStore.exists(key), isTrue);
       expect(await store.hasFired(key), isTrue);
     });
 
@@ -233,21 +233,21 @@ void main() {
         final stale =
             '${_dayOffset(-(FiredKeyStore.retentionDays + 5))}:low_read';
         final fresh = '${_dayOffset(-1)}:low_read';
-        await LocalDb.seedNotifFired([stale, fresh]);
+        await NotifFiredStore.seed([stale, fresh]);
 
         // Any successful claim triggers a prune pass.
         expect(await store.claim('${_dayOffset(0)}:trigger'), isTrue);
 
-        expect(await LocalDb.notifFiredExists(stale), isFalse);
-        expect(await LocalDb.notifFiredExists(fresh), isTrue);
+        expect(await NotifFiredStore.exists(stale), isFalse);
+        expect(await NotifFiredStore.exists(fresh), isTrue);
       },
     );
 
     test('undated claims (alarm_fired:<epoch>) are never pruned', () async {
       const store = FiredKeyStore();
-      await LocalDb.seedNotifFired(['alarm_fired:12345']);
+      await NotifFiredStore.seed(['alarm_fired:12345']);
       expect(await store.claim('${_dayOffset(0)}:trigger'), isTrue);
-      expect(await LocalDb.notifFiredExists('alarm_fired:12345'), isTrue);
+      expect(await NotifFiredStore.exists('alarm_fired:12345'), isTrue);
     });
   });
 }

@@ -23,7 +23,7 @@ void main() {
           source: 'authored',
         );
         expect(
-          await LocalDb.claimNotifFired('authored-old', firedAtMs: ts * 1000),
+          await NotifFiredStore.claim('authored-old', firedAtMs: ts * 1000),
           true,
         );
         final old = await LocalDb.instance;
@@ -39,7 +39,7 @@ void main() {
             millivolts: 4090,
             source: 'authored',
           ).then<Object?>((_) => null),
-          _ => LocalDb.claimNotifFired(
+          _ => NotifFiredStore.claim(
             'authored-new',
             firedAtMs: (ts + 1) * 1000,
           ),
@@ -65,15 +65,15 @@ void main() {
           kind == 'battery' ? [80.0, 79.0] : [80.0],
         );
         expect(batteries.first['millivolts'], 4100);
-        expect(await LocalDb.notifFiredExists('authored-old'), true);
+        expect(await NotifFiredStore.exists('authored-old'), true);
         if (kind == 'claim') {
           expect(result, true);
-          expect(await LocalDb.claimNotifFired('authored-new'), false);
+          expect(await NotifFiredStore.claim('authored-new'), false);
           final rows = await db.query('notif_fired', orderBy: 'fired_at');
           expect(rows.map((r) => r['key']), ['authored-old', 'authored-new']);
           expect(rows.last['fired_at'], (ts + 1) * 1000);
         } else {
-          expect(await LocalDb.notifFiredExists('authored-new'), false);
+          expect(await NotifFiredStore.exists('authored-new'), false);
         }
       },
     );

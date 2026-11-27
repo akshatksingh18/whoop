@@ -36,7 +36,7 @@
 // with a single atomic operation, backed by SQLite. `INSERT OR IGNORE` against a
 // PRIMARY KEY is one statement and writers are serialised, so for a given key
 // exactly one caller in the whole process ever wins. That caller — and only it —
-// presents. See LocalDb.claimNotifFired.
+// presents. See NotifFiredStore.claim.
 //
 // DEGRADED MODE. If the DB is unusable (not yet open, torn down mid-background
 // pass, or absent in a plain unit test), claim falls back to the
@@ -93,7 +93,7 @@ class FiredKeyStore {
     // in the table while we report a fallback claim — firing it twice.
     bool? won;
     try {
-      won = await LocalDb.claimNotifFired(dedupeKey);
+      won = await NotifFiredStore.claim(dedupeKey);
     } catch (_) {
       won = null; // DEGRADED — no atomic claim available.
     }
@@ -134,7 +134,7 @@ class FiredKeyStore {
         if (p.getBool('$_prefix$dedupeKey') ?? false) return false;
         await p.setBool('$_prefix$dedupeKey', true);
       }
-      await LocalDb.pruneNotifFired(_cutoffLabel());
+      await NotifFiredStore.prune(_cutoffLabel());
     } catch (_) {
       /* bookkeeping is best-effort — the claim stands */
     }
@@ -145,7 +145,7 @@ class FiredKeyStore {
   /// (permission denied, OS error, a throw). Best-effort; never throws.
   Future<void> release(String dedupeKey) async {
     try {
-      await LocalDb.releaseNotifFired(dedupeKey);
+      await NotifFiredStore.release(dedupeKey);
     } catch (_) {
       /* degraded mode has no DB row to give back */
     }
@@ -163,7 +163,7 @@ class FiredKeyStore {
   /// exists to kill). For diagnostics, tests, and non-presenting callers.
   Future<bool> hasFired(String dedupeKey) async {
     try {
-      if (await LocalDb.notifFiredExists(dedupeKey)) return true;
+      if (await NotifFiredStore.exists(dedupeKey)) return true;
     } catch (_) {
       /* fall through to the mirror */
     }
@@ -211,7 +211,7 @@ class FiredKeyStore {
         await p.setBool('$_prefix$k', true);
       }
       try {
-        await LocalDb.seedNotifFired(legacy);
+        await NotifFiredStore.seed(legacy);
       } catch (_) {
         /* degraded — the prefs mirror above still carries them */
       }

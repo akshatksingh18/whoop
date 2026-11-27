@@ -189,29 +189,10 @@ abstract final class AppColors {
   // backdrop, which is exactly what a token can encode and a call site cannot.
   //
   // Ratios below are against [nightAlt] (the sheet); every one is higher
-  // against the darker [night]. Guarded by test/theme/zone_contrast_test.dart.
+  // against the darker [night].
 
   /// Primary ink on a dark session surface — 14.23:1.
   static const onNight = Color(0xFFF4F1EC);
-
-  /// The zone ramp resolved against a SPECIFIC palette rather than whatever is
-  /// active. Needed because not every surface follows the app theme.
-  static Color zoneIn(Palette p, int z) {
-    switch (z.clamp(0, 5)) {
-      case 0:
-        return p.cool; // resting / below zone 1
-      case 1:
-        return p.loadDetraining; // warm-up
-      case 2:
-        return p.good; // fat burn
-      case 3:
-        return p.warn; // aerobic
-      case 4:
-        return p.coral; // threshold
-      default:
-        return p.coralDeep; // max effort (Z5)
-    }
-  }
 }
 
 /// Spacing — 4-pt grid.

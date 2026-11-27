@@ -154,6 +154,30 @@ void main() {
     );
   }
 
+  testWidgets(
+    'Today: a scored night with no need has no target, and a strain baseline '
+    'still filling counts days',
+    (t) async {
+      final d = HomeData(
+        dayId: day,
+        readiness: measured(70),
+        sleepMin: measured(420),
+        hrv: measured(50),
+        rhr: measured(55),
+        strain: const Metric(note: 'need_baseline:have=3,need=7'),
+        steps: measured(0),
+        sleepNeedMin: Metric.empty,
+        bedtime: Metric.empty,
+        proteinTarget: 100,
+        kcalTarget: 2000,
+      );
+      await localizedPage(t, HomeScreen(data: d, hour: 8, workoutLive: false));
+      expect(find.text('No target yet'), findsOneWidget);
+      expect(find.text('3 of 7 days'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    },
+  );
+
   for (final state in ['empty', 'new', 'typical', 'rough']) {
     testWidgets(
       'COV-44 localized Sleep keeps observed stages and baseline limits: $state',

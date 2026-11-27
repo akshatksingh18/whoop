@@ -9,9 +9,6 @@
 // to it, and this test sweeps every accent × every surface × both themes to
 // prove they got there. Adding a colour to `C.all` without it clearing AA
 // fails the build.
-//
-// Modelled on test/theme/zone_contrast_test.dart, which does the same job for the
-// live-session HR ramp.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -106,11 +106,11 @@ code.
   `emaSpeed`, `fallbackSpeedMps`, `activeRouteCoverage`, `Split.paceSecPerUnit` and
   `LocalDb.liveStepsForDay`. Orphans they left: `_round2`, `_avgHr`, `_maxHr`, `_mean`,
   `NutrientMean`, `_movementCalories`, `_clock`, `_kGapMinSec`, `_caloriesScored`,
-  `saveProfileFields` and `getPayloadForBand`.
+  `saveProfileFields`, `getPayloadForBand`, `UnitsController.paceUnit` and `AppColors.zoneIn`.
 - **Gallery-only components (3r):** `MacroRing`, `Actogram`, `Spectrum`, `NightStack`, the
   `SignalCard`, `ProgressCard`, `TrendCard`, `ActionCard`, `DeepDiveCard`, `Recommendation`,
   `GoalTrajectory`, `Consistency` and `StatTile` cards with `_Bar`, `RingTrio` (Home keeps a
-  private any-ring check), `Legend`, `LiveHrCard.preview`, the `ZoneBar` and `IntervalLadder`
+  private any-ring check; `_RingState.ink` went with it), `Legend`, `LiveHrCard.preview`, the `ZoneBar` and `IntervalLadder`
   legends and `dayNotes`. The Gallery keeps its own private `archLabel` and fixture kcal;
   `LiveHrCard` reads `AppState` and is out of the Gallery sweeps, covered by its own handoff test.
 - **By-construction branches restructured (output unchanged):** alarm none state, crossday

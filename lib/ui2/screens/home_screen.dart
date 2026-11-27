@@ -964,8 +964,6 @@ class _RingState {
   /// reading, so it is not one.
   bool get measured => why == null && !calibrating;
 
-  Color ink(P p) => measured ? p.on(color) : p.ink3;
-
   String get spoken => [
     label,
     measured ? value : value.toLowerCase(),

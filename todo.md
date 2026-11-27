@@ -51,7 +51,11 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
 - [x] App-dead capability (Akshat approved all three groups): retired-feature remnants,
   superseded siblings and Gallery-only components are removed with their tests and Gallery
   entries; tests that only used a removed helper moved onto the live path (coverage-map.md).
-- [ ] Re-prove 100% on the next CI candidate after the 3r removals.
+- [ ] Re-prove 100% on the next CI candidate. Main `447f37fb` (run 46042793163, every job
+  green) executed 48,366/48,395: the 3r removals took the only tests of four live paths
+  (Home's no-target sleep and calibrating strain rings, `dataHistoryDays`' derived and metric
+  rows, `LiveShell`'s static body and footer) and left three orphans. Those paths now have
+  tests and the orphans are removed in source.
 - [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
   are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
   per-day export or delete screen is wanted or rejected.

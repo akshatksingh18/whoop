@@ -557,7 +557,6 @@
     "test/data/live_coverage_window_test.dart": 2.427,
     "test/state/live_hr_curve_density_test.dart": 1.39,
     "test/compute/live_rescore_calorie_parity_test.dart": 2.063,
-    "test/ble/live_step_day_window_test.dart": 1.154,
     "test/compute/live_strain_convergence_test.dart": 2.183,
     "test/data/local_persistence_test.dart": 1.586,
     "test/data/local_repository_p0_test.dart": 1.691,
@@ -669,7 +668,6 @@
     "test/compute/workout_max_hr_spike_test.dart": 2.585,
     "test/compute/workout_reliability_test.dart": 2.936,
     "test/gps/workout_route_test.dart": 2.251,
-    "test/data/workout_stop_durability_test.dart": 1.623,
-    "test/theme/zone_contrast_test.dart": 2.099
+    "test/data/workout_stop_durability_test.dart": 1.623
   }
 }

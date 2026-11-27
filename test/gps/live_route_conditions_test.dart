@@ -5,6 +5,7 @@ import 'package:whoop_companion/gps/gps_source.dart';
 import 'package:whoop_companion/gps/workout_clock.dart';
 import 'package:whoop_companion/ui2/activity/catalogue.dart';
 import 'package:whoop_companion/ui2/activity/live.dart';
+import 'package:whoop_companion/ui2/activity/summary.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../support/audit_visual.dart' show loadAuditFonts;
 import '../support/coverage_store.dart';
@@ -129,4 +130,35 @@ void main() {
       );
     }
   }
+  testWidgets(
+    'COV-47 LiveShell builds a static body once and pins its footer',
+    (t) async {
+      final activity = activityByName('Running')!;
+      LiveDraft.begin(
+        activity,
+        startedAt: DateTime.now().subtract(const Duration(minutes: 2)),
+      );
+      var builds = 0;
+      final live = LiveShell(
+        activity,
+        bodyFollowsClock: false,
+        body: (_, elapsed) {
+          builds++;
+          return Text('elapsed=$elapsed');
+        },
+        footer: (_) => const Text('Synthetic footer'),
+        result: (elapsed) => ActivityResult(
+          activity,
+          start: LiveDraft.current!.startedAt,
+          duration: Duration(seconds: elapsed),
+        ),
+      );
+      await localizedPage(t, live, push: true);
+      expect(find.text('Synthetic footer'), findsOneWidget);
+      expect(find.textContaining('elapsed=12'), findsOneWidget);
+      final before = builds;
+      await t.pump(const Duration(seconds: 3));
+      expect(builds, before, reason: 'the 1 Hz tick must not rebuild it');
+    },
+  );
 }

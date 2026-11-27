@@ -16,7 +16,6 @@ import 'package:whoop_companion/gps/workout_clock.dart';
 import 'package:whoop_companion/models/metric.dart';
 import 'package:whoop_companion/notify/notification_log.dart';
 import 'package:whoop_companion/sync/sync_policy.dart';
-import 'package:whoop_companion/theme/tokens.dart';
 import 'package:whoop_companion/ui2/profile/alarm.dart';
 import 'package:whoop_companion/ui2/recent_hrv_card.dart';
 import 'package:whoop_companion/ui2/screens/home_screen.dart';
@@ -135,11 +134,6 @@ void main() {
       ),
       [first],
     );
-  });
-
-  test('resting zone resolves against the given palette', () {
-    expect(AppColors.zoneIn(kLightPalette, -3), kLightPalette.cool);
-    expect(AppColors.zoneIn(kLightPalette, 0), kLightPalette.cool);
   });
 
   test('alarm state label for no alarm', () {

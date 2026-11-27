@@ -160,9 +160,6 @@ class UnitsController extends ChangeNotifier {
     return '${distanceValue(meters).toStringAsFixed(decimals)} $distanceUnit';
   }
 
-  /// "/km" / "/mi".
-  String get paceUnit => '/$distanceUnit';
-
   /// Above this, a "pace" is meaningless noise, not a real number — e.g. a
   /// few metres of GPS jitter (stationary) divided into real elapsed time
   /// produces something like 1000 min/km. 60 min/km is already far slower

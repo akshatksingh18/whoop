@@ -222,5 +222,30 @@ void main() {
         expect(await LocalDb.decodedRecTsMaxByDay(), isEmpty);
       },
     );
+
+    test(
+      'dataHistoryDays reports derived days and their metric counts, newest first',
+      () async {
+        for (final d in ['2026-09-01', '2026-09-02']) {
+          await LocalDb.putDayResult(
+            dayId: d,
+            algoVersion: kAlgoVersion,
+            payloadJson: '{"date":"$d"}',
+            windowJson: '{}',
+            series: {'rhr': 55, 'hrv': 48},
+          );
+        }
+        final days = await LocalDb.dataHistoryDays();
+        final ids = [for (final d in days) d['day_id'] as String];
+        expect(ids, [...ids]..sort((a, b) => b.compareTo(a)));
+        expect(ids.indexOf('2026-09-02'), lessThan(ids.indexOf('2026-09-01')));
+        final sep2 = days.firstWhere((d) => d['day_id'] == '2026-09-02');
+        expect(sep2['has_derived'], isTrue);
+        expect(sep2['algo_version'], kAlgoVersion);
+        expect(sep2['computed_at'], isA<int>());
+        expect(sep2['metric_count'], 2);
+        expect(sep2['raw_count'], 0, reason: 'no decoded rows were written');
+      },
+    );
   });
 }

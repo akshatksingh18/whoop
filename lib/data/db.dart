@@ -10,6 +10,7 @@
 // duplicated historical seconds cannot bloat compute.
 
 import 'package:whoop_companion/migration/legacy_names.dart';
+import 'package:whoop_companion/migration/store_migration.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
@@ -135,7 +136,41 @@ class LocalDb {
   static StateError get _restoreResetError => StateError(
     'Restore stopped because your data was reset. The backup file is unchanged.',
   );
-  static String dbName = LegacyNames.databaseFile;
+
+  /// The owned store file name. The installed original is migrated to it by
+  /// [StoreMigration] the first time this name is opened.
+  static const String kStoreFileName = 'whoop.db';
+  static String dbName = kStoreFileName;
+
+  /// What this process's store resolution did, for diagnostics. Null until
+  /// the store is first opened, and for a test-chosen [dbName].
+  static StoreResolution? lastStoreMove;
+
+  // One resolution per databases directory, shared by concurrent openers so
+  // two first opens never run two migrations.
+  static (String, Future<String>)? _resolved;
+
+  /// The store path to open: [dbName], or for the owned name the result of
+  /// migrating the installed original to it.
+  static Future<String> _storePath() async {
+    final dir = await getDatabasesPath();
+    if (dbName != kStoreFileName) return p.join(dir, dbName);
+    final known = _resolved;
+    final name = known != null && known.$1 == dir
+        ? known.$2
+        : (_resolved = (dir, _resolve(dir))).$2;
+    return p.join(dir, await name);
+  }
+
+  static Future<String> _resolve(String dir) async {
+    final r = await StoreMigration.resolve(
+      dir,
+      current: kStoreFileName,
+      legacy: LegacyNames.databaseFile,
+    );
+    lastStoreMove = r;
+    return r.name;
+  }
 
   static Future<Database> get instance async {
     final db = _db;
@@ -335,16 +370,13 @@ class LocalDb {
     try {
       return await _open();
     } catch (e) {
-      final dir = await getDatabasesPath();
-      final path = p.join(dir, dbName);
+      final path = await _storePath();
       // A UNIQUE quarantine name every time. A fixed one would let a SECOND
       // rebuild overwrite the first rebuild's file — the one holding whatever
       // the tolerant salvage could not read — which is the one outcome this
       // whole path exists to prevent. Disk is the cheaper thing to spend here.
-      final quarantine = p.join(
-        dir,
-        '$dbName.unopenable-${DateTime.now().millisecondsSinceEpoch}',
-      );
+      final quarantine =
+          '$path.unopenable-${DateTime.now().millisecondsSinceEpoch}';
       // The -wal/-shm siblings belong to the file being moved. Leaving them
       // beside a FRESH database of the same name hands that database someone
       // else's journal, which is how a recovery corrupts the thing it just
@@ -402,6 +434,7 @@ class LocalDb {
   }
 
   static Future<void> close() async {
+    _resolved = null;
     NutritionDb.resetCountingContext();
     DayClock.install([], []);
     if (_db != null) {
@@ -490,8 +523,7 @@ class LocalDb {
   }
 
   static Future<Database> _open() async {
-    final dir = await getDatabasesPath();
-    final path = p.join(dir, dbName);
+    final path = await _storePath();
     return openDatabase(
       path,
       onConfigure: (db) async {

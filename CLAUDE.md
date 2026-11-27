@@ -33,6 +33,7 @@ owns the proof.
 - `packages/protocol/`, `packages/analytics/` — pure codecs/metrics source and tests;path dependencies stay tracked.
 - `packages/algorithm-contract.json`, `tool/algorithm_contract.py` — internal algorithm guard.
 - `lib/migration/legacy_names.dart`, `ios/Runner/BleRestoreManager.swift`, `tool/legacy_identifiers.py` — retained compatibility names,not completed migration.
+- `lib/migration/store_migration.dart` — the SQLite store's move to `whoop.db`;source-tested,not phone-verified.
 - `tool/`, `.github/workflows/` — Linux checks,coverage/caller contracts,synthetic fixtures/pages and held iOS validation;procedures in setup.md.
 - `pubspec.yaml`, `pubspec.lock`, `LICENSE` and package licenses — locked metadata/dependencies and required MIT text.
 - `product.md`, `.claude/skills/ponytail/SKILL.md`, local Impeccable files/hooks — optional local guidance;no automatic inherited hooks.

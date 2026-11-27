@@ -2,8 +2,9 @@
 
 **Status:** Ownership cleanup continues on `ownership-cleanup`; B2 and local preservation are
 verified. Current coverage/CI and scoped reliability repairs are owned by `coverage-audit.md`
-and `bugs.md`. Actual persisted-state migration and native acceptance remain open. GitHub main
-is the fresh single-root history (B5 done); private preservation history stays local.
+and `bugs.md`. The SQLite store migration is implemented in source (below); the native
+identifiers and all phone acceptance remain open. GitHub main is the fresh single-root history
+(B5 done); private preservation history stays local.
 
 ## Completed scope
 
@@ -54,13 +55,27 @@ earlier design remain in ignored `build/ownership-checkpoint/` and the local-onl
 
 | Contract | Build N requirement | Removal gate |
 |---|---|---|
-| SQLite main/WAL/SHM/recovery families | Quiesce all foreground/headless/backup writers; validated crash-resumable publication to `whoop.db`, preserving originals. Test old-only/new-only/both/neither, corruption/space/refused writes/interruption; never open empty over legacy data or move a live main file alone. | Same-ID phone upgrade and row/key/history/cursor parity; no silent divergent-store merge. |
+| SQLite main/WAL/SHM/recovery families | Implemented in source, Linux-tested (below). | Same-ID phone upgrade and row/key/history/cursor parity; no silent divergent-store merge. |
 | OSBK database member and older exports | Review container version and rollback, preserve v1/v2 DB/photo imports and ambiguity rejection; round-trip old/new formats. | Phone N alone does not migrate off-phone exports. Legacy restore must remain supported after N+1. |
 | Managed backup folders/names/rotation | Preserve collisions, staging remnants and both folders; verify before retention/prune; retry safely. | Phone confirms migration and independent recovery remains. |
 | Dart/native logs and rotations | Preserve both old/new contents and append order; test collisions/refused rename/retry. | Confirm history preserved on phone. |
 | Saved BLE UUID preference | Validate/copy/read back the new key; test conflicts, failures, reset and first pairing; do not invent UUID or unpair. | N confirms pairing/reconnect/reset and new authority. |
 | OS-held BLE restoration identity | Prototype and test transition to `whoop.ble.restore` without competing managers, lost pending connection or ASK first-pairing regressions. Test generations/leases/cold+scene launch/cancellation. | Real range-loss/background/reboot restoration on N, then explicit phone acceptance before N+1. |
 | Background scheduler IDs | Register/drain/cancel old requests while moving to `com.akshat.personal.whoop.bgsync` and `.refresh`; coordinate Info.plist/validator, single completion/expiry and duplicate/late-delivery tests. | Phone N confirms scheduling and safe retirement before old handlers/IDs disappear. |
+
+**Store migration (source, not phone-verified).** Every app-store open goes through
+`LocalDb._storePath` in the one Flutter engine; concurrent first opens share one resolution.
+`StoreMigration.resolve` (`lib/migration/store_migration.dart`) first deletes any unpublished
+`whoop.db.migrating` staging family. With only `openstrap.db` it makes a `VACUUM INTO` copy
+(write-ahead log included) and publishes it by one rename only when `quick_check`, `user_version`
+and every table's row count match; it then moves the original family aside as
+`openstrap.db.migrated-<ms>`, journals first. A failed copy or publication keeps serving
+`openstrap.db` that launch and retries on the next. With both names the owned store stays the
+authority and the original is moved aside as `.retained-<ms>`, never merged; a refused move aside
+puts back what moved and reports it. Nothing is deleted. `LocalDb.lastStoreMove` records the
+outcome but nothing shows it yet. `test/migration/store_migration_test.dart` covers each case on
+synthetic stores. The OSBK backup member keeps the name `openstrap.db`, so the export format is
+unchanged.
 
 The installed bundle identity, existing preference/keychain keys, OSBK magic/version, day keys,
 notification identities and capability exclusions remain stable. No App Group is used. Native

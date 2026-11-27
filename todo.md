@@ -14,6 +14,14 @@ Current implementation/compatibility contracts live in ownership-migration-plan.
   Only privacy-reviewed parentless CI roots are public;never push ownership-cleanup/private
   ancestors. Synthetic substitutions are implemented;originals remain local. Compatibility
   constants alone are not a migration. Preserve every current GitHub ref until its exact STOP.
+  - [x] SQLite store migration in source with synthetic tests (ownership-migration-plan.md);
+    awaiting its CI run.
+  - [ ] Native transition (saved band key, OS restoration ID, background task IDs and
+    Info.plist): Swift only, compiled and tested only by the held macOS workflow. Per the
+    approved sequence it follows caller classification (3r).
+  - [ ] Decide: should Reset also delete the retained `openstrap.db.migrated-*` original, which
+    otherwise keeps a second copy of the data until N+1? Should Status show a kept or retained
+    original (a UI change, so mockups first)?
 - [x] B4:verified all-refs bundle before publication (setup.md); the original laptop's D: clone
   and bare backup are bundled on that laptop (setup.md). Never upload any archive or
   archive/pre-rewrite-main.

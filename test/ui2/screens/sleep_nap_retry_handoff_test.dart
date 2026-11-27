@@ -37,14 +37,14 @@ void main() {
           windowJson: '{}',
           series: {'rhr': 55},
         );
-        await LocalDb.putNapEdit(
+        await SleepNapStore.putEdit(
           dayId: day,
           startTs: 1617714000,
           endTs: 1617715200,
           source: 'manual',
         );
         final dayRows = await db.query('day_result');
-        final edits = await LocalDb.napEdits(day);
+        final edits = await SleepNapStore.edits(day);
         final stamp = await LocalDb.baseline('nap_dirty:$day');
         expect(edits, hasLength(1));
         expect(stamp, isNotNull);
@@ -81,7 +81,7 @@ void main() {
         expect(app.insightsRevision.value, revision + 1);
         expect(app.napRebuilding, isFalse);
         expect(await LocalDb.baseline('nap_dirty:$day'), stamp);
-        expect(await LocalDb.napEdits(day), edits);
+        expect(await SleepNapStore.edits(day), edits);
         expect(retry, findsOneWidget);
 
         await db.execute('DROP TRIGGER authored_nap_cleanup_refusal');
@@ -89,9 +89,9 @@ void main() {
         await io(t);
         expect(app.napRebuilding, isFalse);
         expect(app.napRebuildMessage, isNull);
-        expect(await LocalDb.pendingNapDays(), isEmpty);
+        expect(await SleepNapStore.pendingDays(), isEmpty);
         expect(find.text('Retry update'), findsNothing);
-        expect(await LocalDb.napEdits(day), edits);
+        expect(await SleepNapStore.edits(day), edits);
         expect(await db.query('day_result'), dayRows);
         expect(t.takeException(), isNull);
       },

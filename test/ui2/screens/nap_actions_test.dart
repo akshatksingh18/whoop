@@ -144,7 +144,7 @@ void main() {
   Future<List<Map<String, dynamic>>> edits(
     WidgetTester t, {
     String date = day,
-  }) async => (await t.runAsync(() => LocalDb.napEdits(date)))!;
+  }) async => (await t.runAsync(() => SleepNapStore.edits(date)))!;
 
   for (final cancelStart in [false, true]) {
     testWidgets(
@@ -245,7 +245,7 @@ void main() {
   testWidgets('overlapping a saved manual nap does not count it twice', (
     t,
   ) async {
-    await LocalDb.putNapEdit(
+    await SleepNapStore.putEdit(
       dayId: day,
       startTs: epoch(DateTime(2021, 4, 6, 14)),
       endTs: epoch(DateTime(2021, 4, 6, 14, 30)),
@@ -288,7 +288,7 @@ void main() {
   testWidgets(
     'refused deletion keeps a manual nap and retries without a suppression',
     (t) async {
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: epoch(DateTime(2021, 4, 6, 14)),
         endTs: epoch(DateTime(2021, 4, 6, 14, 30)),
@@ -310,7 +310,7 @@ void main() {
   testWidgets('failed nap reads retain corrections and retry honestly', (
     t,
   ) async {
-    await LocalDb.putNapEdit(
+    await SleepNapStore.putEdit(
       dayId: day,
       startTs: epoch(DateTime(2021, 4, 6, 14)),
       endTs: epoch(DateTime(2021, 4, 6, 14, 30)),
@@ -340,7 +340,7 @@ void main() {
         'confidence': .7,
       },
     ]);
-    await LocalDb.putNapEdit(
+    await SleepNapStore.putEdit(
       dayId: day,
       startTs: s,
       endTs: e,

@@ -740,7 +740,7 @@ void main() {
           await WorkoutClock.flushWrites();
           WorkoutClock.current = null;
         });
-        Future<void> edit(int i) => LocalDb.putNapEdit(
+        Future<void> edit(int i) => SleepNapStore.putEdit(
           dayId: days[i],
           startTs: 1617714000 + i * 86400,
           endTs: 1617715200 + i * 86400,
@@ -765,9 +765,9 @@ void main() {
         final second = app.reanalyzeForNapEdit(days[1]);
         expect(identical(first, second), true);
         final corrections = [
-          for (final day in days) await LocalDb.napEdits(day),
+          for (final day in days) await SleepNapStore.edits(day),
         ];
-        expect((await LocalDb.pendingNapDays()).toSet(), days.toSet());
+        expect((await SleepNapStore.pendingDays()).toSet(), days.toSet());
         expect(await db.query('day_result'), before);
         if (finish) {
           await app.stopWorkout();
@@ -778,9 +778,9 @@ void main() {
         expect(app.napRebuilding, false);
         expect(app.reanalyzing, false);
         expect(app.napRebuildMessage, isNull);
-        expect(await LocalDb.pendingNapDays(), isEmpty);
+        expect(await SleepNapStore.pendingDays(), isEmpty);
         expect([
-          for (final day in days) await LocalDb.napEdits(day),
+          for (final day in days) await SleepNapStore.edits(day),
         ], corrections);
         expect(await db.query('day_result'), before);
         expect(app.activeWorkout, isNull);
@@ -804,7 +804,7 @@ void main() {
           windowJson: '{}',
           series: {'rhr': 55},
         );
-        await LocalDb.putNapEdit(
+        await SleepNapStore.putEdit(
           dayId: day,
           startTs: 1617714000,
           endTs: 1617715200,
@@ -813,7 +813,7 @@ void main() {
         const previous = '{"synthetic":"previous rollup"}';
         await LocalDb.putBaseline('crossday', previous);
         final before = await db.query('day_result');
-        final edit = await LocalDb.napEdits(day);
+        final edit = await SleepNapStore.edits(day);
         final stamp = (await LocalDb.baseline(
           'nap_dirty:$day',
         ))!['payload_json'];
@@ -847,7 +847,7 @@ void main() {
             app.napRebuildMessage,
             'Your nap edit is saved. Sleep calculations could not update. Sync and retry.',
           );
-          expect(await LocalDb.napEdits(day), edit);
+          expect(await SleepNapStore.edits(day), edit);
           expect(
             (await LocalDb.baseline('nap_dirty:$day'))!['payload_json'],
             stamp,
@@ -872,8 +872,8 @@ void main() {
         expect(app.napRebuilding, false);
         expect(app.reanalyzing, false);
         expect(app.napRebuildMessage, isNull);
-        expect(await LocalDb.pendingNapDays(), isEmpty);
-        expect(await LocalDb.napEdits(day), edit);
+        expect(await SleepNapStore.pendingDays(), isEmpty);
+        expect(await SleepNapStore.edits(day), edit);
         expect(await db.query('day_result'), before);
         expect((await LocalDb.baseline('crossday'))!['payload_json'], previous);
       },

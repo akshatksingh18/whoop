@@ -78,7 +78,7 @@ void main() {
         expect(find.text('Not a nap'), findsOneWidget);
         expect(find.text('Log a nap'), findsOneWidget);
         expect(await t.runAsync(() => db.query('day_result')), saved);
-        expect(await t.runAsync(() => LocalDb.napEdits(date)), isEmpty);
+        expect(await t.runAsync(() => SleepNapStore.edits(date)), isEmpty);
         expect(await t.runAsync(backup.readAsBytes), bytes);
       });
     }

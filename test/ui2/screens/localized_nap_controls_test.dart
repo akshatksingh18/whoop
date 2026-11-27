@@ -115,7 +115,7 @@ void main() {
       await seed(day, [
         {'start': s, 'end': s + 1800, 'duration_min': 30, 'source': 'detected'},
       ]);
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: s + 7200,
         endTs: s + 8400,
@@ -134,7 +134,7 @@ void main() {
       expect(find.text('20m · you logged this'), findsOneWidget);
       expect(
         (await t.runAsync(
-          () => LocalDb.napEdits(day),
+          () => SleepNapStore.edits(day),
         ))!.map((e) => e['source']),
         containsAll(['manual', 'rejected']),
       );
@@ -143,7 +143,7 @@ void main() {
       expect(find.text('Removed'), findsNothing);
       await tap(t, 'Delete');
       expect(find.text('20m · you logged this'), findsNothing);
-      expect((await t.runAsync(() => LocalDb.napEdits(day)))!, isEmpty);
+      expect((await t.runAsync(() => SleepNapStore.edits(day)))!, isEmpty);
       expect(app.updates, [day, day, day]);
     },
   );
@@ -152,7 +152,7 @@ void main() {
     (t) async {
       await seed(day, []);
       final s = epoch(DateTime(2021, 4, 6, 14));
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: s,
         endTs: s + 1800,
@@ -166,7 +166,7 @@ void main() {
       await tap(t, 'Put it back');
       expect(find.text('That has not been applied'), findsOneWidget);
       expect(
-        (await t.runAsync(() => LocalDb.napEdits(day)))!.single['source'],
+        (await t.runAsync(() => SleepNapStore.edits(day)))!.single['source'],
         'rejected',
       );
       await t.runAsync(() => db.execute('DROP TRIGGER synthetic_nap_refusal'));
@@ -182,7 +182,7 @@ void main() {
     'localized invalid and overlapping nap windows never write a second nap',
     (t) async {
       await seed(day, []);
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: epoch(DateTime(2021, 4, 6, 14)),
         endTs: epoch(DateTime(2021, 4, 6, 14, 30)),
@@ -196,7 +196,7 @@ void main() {
       );
       await pick(t, 40);
       expect(find.textContaining('overlaps a nap already'), findsOneWidget);
-      expect((await t.runAsync(() => LocalDb.napEdits(day)))!, hasLength(1));
+      expect((await t.runAsync(() => SleepNapStore.edits(day)))!, hasLength(1));
       expect(app.updates, isEmpty);
     },
   );

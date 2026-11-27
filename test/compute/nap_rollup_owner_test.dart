@@ -60,7 +60,7 @@ void main() {
       app.addListener(observe);
       Future<void> add(String day) {
         final noon = localDayStartSec(day)! + 12 * 3600;
-        return LocalDb.putNapEdit(
+        return SleepNapStore.putEdit(
           dayId: day,
           startTs: noon,
           endTs: noon + 20 * 60,
@@ -73,17 +73,21 @@ void main() {
         await add(days.first);
         rebuild = app.reanalyzeForNapEdit(days.first);
         await waiting.future.timeout(const Duration(seconds: 6));
-        expect(await LocalDb.pendingNapDays(), contains(days.first));
+        expect(await SleepNapStore.pendingDays(), contains(days.first));
         await add(days.last);
         expect(app.reanalyzeForNapEdit(days.last), same(rebuild));
-        final accepted = [for (final day in days) await LocalDb.napEdits(day)];
+        final accepted = [
+          for (final day in days) await SleepNapStore.edits(day),
+        ];
         await contender;
         await rebuild;
         expect(app.napRebuilding, isFalse);
         expect(app.reanalyzing, isFalse);
         expect(app.napRebuildMessage, isNull);
-        expect(await LocalDb.pendingNapDays(), isEmpty);
-        expect([for (final day in days) await LocalDb.napEdits(day)], accepted);
+        expect(await SleepNapStore.pendingDays(), isEmpty);
+        expect([
+          for (final day in days) await SleepNapStore.edits(day),
+        ], accepted);
         expect(await db.query('day_result', orderBy: 'day_id'), before);
       } finally {
         app.removeListener(observe);

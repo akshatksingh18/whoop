@@ -673,7 +673,7 @@ class DerivationEngine {
       final overrideDays = {
         ...await LocalDb.sleepOverrideDays(),
         // A nap edit on a finalized day has to take effect too — same reason.
-        ...await LocalDb.napEditDays(),
+        ...await SleepNapStore.editDays(),
       };
       // Accepted intent survives raw retention and a process restart. It can
       // sit outside the remaining raw span, so raw-only scope discovery must
@@ -2337,7 +2337,7 @@ class DerivationEngine {
       // sendable object (never `this`, `day`, or `bundle`).
       // Read HERE, on the main isolate — the worker has no database.
       final napEdits = [
-        for (final row in await LocalDb.napEdits(day.date))
+        for (final row in await SleepNapStore.edits(day.date))
           NapEdit(
             kind: row['source'] == 'rejected'
                 ? NapEditKind.rejected
@@ -3008,7 +3008,7 @@ class DerivationEngine {
         DateTime(now.year, now.month, now.day - _crossDayWindow + 1),
       );
       final today = LocalDb.localDayLabelNow();
-      final dates = (await LocalDb.napCorrectionDays())
+      final dates = (await SleepNapStore.correctionDays())
           .where((d) => d.compareTo(firstDate) >= 0 && d.compareTo(today) <= 0)
           .toList();
       final rows = [for (final date in dates) await LocalDb.dayResult(date)];

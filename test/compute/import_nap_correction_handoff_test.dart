@@ -23,7 +23,7 @@ void main() {
         final start = localDayStartSec(day)! + 12 * 3600;
         final manualStart = start + 3600, rejectedStart = start + 7200;
         if (mode != 'rejected') {
-          await LocalDb.putNapEdit(
+          await SleepNapStore.putEdit(
             dayId: day,
             startTs: manualStart,
             endTs: manualStart + 1800,
@@ -31,7 +31,7 @@ void main() {
           );
         }
         if (mode != 'manual') {
-          await LocalDb.putNapEdit(
+          await SleepNapStore.putEdit(
             dayId: day,
             startTs: rejectedStart,
             endTs: rejectedStart + 1800,
@@ -39,7 +39,7 @@ void main() {
           );
         }
         await LocalDb.setCursor('authored-unrelated-retention', 'keep');
-        final edits = await LocalDb.napEdits(day);
+        final edits = await SleepNapStore.edits(day);
         const n = 720;
         final sub = Substrate(
           tsSec: [for (var i = 0; i < n; i++) start + i],
@@ -95,7 +95,7 @@ void main() {
         }
         expect(row['readiness'], isNull);
         expect(row['rmssd'], isNull);
-        expect(await LocalDb.napEdits(day), edits);
+        expect(await SleepNapStore.edits(day), edits);
         expect(await LocalDb.dayResult(day), row);
         expect(await db.query('metric_series'), series);
         expect(await LocalDb.getCursor('authored-unrelated-retention'), 'keep');

@@ -9,7 +9,7 @@ class NapLedger {
     String date,
     Map<String, dynamic>? block,
   ) async {
-    final rows = await LocalDb.napEdits(date);
+    final rows = await SleepNapStore.edits(date);
     final key = 'nap_proposals:$date';
     final cached = await LocalDb.baseline(key);
     final old = cached == null

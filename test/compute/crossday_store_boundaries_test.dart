@@ -22,7 +22,7 @@ void main() {
           as Map;
   Future<void> nap(String date) async {
     final at = localDayStartSec(date)! + 14 * 3600;
-    await LocalDb.putNapEdit(
+    await SleepNapStore.putEdit(
       dayId: date,
       startTs: at,
       endTs: at + 1800,

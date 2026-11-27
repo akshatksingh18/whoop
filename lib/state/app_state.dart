@@ -1726,7 +1726,7 @@ class AppState extends ChangeNotifier {
         'Nap saved. Updating sleep calculations in the background…';
     notifyListeners();
     try {
-      _napDays.addAll(await LocalDb.pendingNapDays());
+      _napDays.addAll(await SleepNapStore.pendingDays());
       while (_napDays.isNotEmpty && !_disposed) {
         // A sync/override already owns the process-wide engine lock. Keep this
         // edit queued instead of silently losing it, including a rapid undo.
@@ -1772,7 +1772,7 @@ class AppState extends ChangeNotifier {
           reanalyzing = false;
           notifyListeners();
         }
-        _napDays.addAll(await LocalDb.pendingNapDays());
+        _napDays.addAll(await SleepNapStore.pendingDays());
       }
       napRebuildMessage = null;
     } catch (e) {
@@ -1949,7 +1949,7 @@ class AppState extends ChangeNotifier {
     await StepGoals.read(initial: (user?['step_goal'] as num?)?.toInt());
     await _refreshNightlyRhr();
     await _deriveScheduler.init();
-    if ((await LocalDb.pendingNapDays()).isNotEmpty) {
+    if ((await SleepNapStore.pendingDays()).isNotEmpty) {
       unawaited(reanalyzeForNapEdit().catchError((Object e) {}));
     }
     lastSynced = await LocalDb.latestSample();

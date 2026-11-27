@@ -1216,7 +1216,7 @@ void main() {
         'pattern': 'resonance',
         'seconds': 120,
       });
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: '2026-06-01',
         startTs: 1000,
         endTs: 4600,
@@ -1238,8 +1238,11 @@ void main() {
         whereArgs: [1000],
       );
       expect((await db.query('breathing_session')).single['pre_rmssd'], 38.5);
-      expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
-      expect(await LocalDb.napEditDays(), {'2026-06-01'});
+      expect(
+        (await SleepNapStore.edits('2026-06-01')).single['source'],
+        'manual',
+      );
+      expect(await SleepNapStore.editDays(), {'2026-06-01'});
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');

@@ -60,7 +60,7 @@ processing task (`lib/compute/derive_scheduler.dart`).
 | `packages/analytics/` | Metrics: HRV, sleep staging, readiness, strain, energy. Pure Dart. |
 | `lib/ble/` | Link state machine and drain (`ble_engine.dart`); pure policies in `ble_state.dart`. |
 | `lib/sync/` | Sync policies (`sync_policy.dart`), headless/BG entries, paired device, file log. |
-| `lib/data/` | `db.dart` (schema ladder, SQL) and its per-concern stores (`notif_fired_store.dart`), read seam, backups, food/body/lift stores, `day_label.dart`. |
+| `lib/data/` | `db.dart` (schema ladder, SQL) and its per-concern stores (`notif_fired_store.dart`, `sleep_nap_store.dart`), read seam, backups, food/body/lift stores, `day_label.dart`. |
 | `lib/compute/` | Substrate, pipelines, derivation engine and scheduler, sessions, streaks, upkeep. |
 | `lib/state/` | `AppState` and its small helpers; the one source of truth for the UI. |
 | `lib/notify/` | `NotificationCenter.emit` (the single emitter), fire-once keys, alert policies. |

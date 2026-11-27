@@ -260,24 +260,24 @@ void main() {
     () async {
       const day = '2021-04-06';
       final start = localDayStartSec(day)! + 14 * 3600;
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: start,
         endTs: start + 1800,
         source: 'added',
       );
-      expect(await LocalDb.pendingNapDays(), [day]);
+      expect(await SleepNapStore.pendingDays(), [day]);
       final app = _App();
       try {
         await app.debugInit();
         await _until(() => !app.napRebuilding);
         final deadline = DateTime.now().add(const Duration(seconds: 10));
-        while ((await LocalDb.pendingNapDays()).isNotEmpty &&
+        while ((await SleepNapStore.pendingDays()).isNotEmpty &&
             DateTime.now().isBefore(deadline)) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
-        expect(await LocalDb.pendingNapDays(), isEmpty);
-        expect(await LocalDb.napEdits(day), hasLength(1));
+        expect(await SleepNapStore.pendingDays(), isEmpty);
+        expect(await SleepNapStore.edits(day), hasLength(1));
       } finally {
         app.dispose();
         await app.engine.disconnect();

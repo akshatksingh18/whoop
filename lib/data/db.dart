@@ -46,6 +46,7 @@ import 'sleep_correction.dart';
 import '../build_profile.dart';
 
 part 'notif_fired_store.dart';
+part 'sleep_nap_store.dart';
 
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
@@ -578,7 +579,7 @@ class LocalDb {
         await _createDevice(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
-        await _createSleepNap(db);
+        await SleepNapStore._create(db);
         await _createWorkoutRoute(db);
         await _createSessionDetail(db);
         await NotifFiredStore._create(db);
@@ -844,7 +845,7 @@ class LocalDb {
         if (oldV < 31) {
           // User edits to a day's naps. New table only — the detector's own
           // output is untouched and the edits replay over it.
-          await _createSleepNap(db);
+          await SleepNapStore._create(db);
         }
         if (oldV < 32) {
           // Re-key raw_archive off the volatile `counter` onto frame `hex`.
@@ -1136,7 +1137,7 @@ class LocalDb {
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
     await _createSleepOverride(db);
-    await _createSleepNap(db);
+    await SleepNapStore._create(db);
     await _createWorkoutRoute(db);
     await _createSessionDetail(db);
     await _ensureWorkoutRouteSpeed(db);
@@ -1511,34 +1512,6 @@ class LocalDb {
   //   source: 'manual'    — user typed the times
   //           'confirmed' — user accepted the fallback's proposed window
   // Times are epoch SECONDS (phone clock; raw rec_ts is SET_CLOCK'd to match).
-  /// sleep_nap — the user's edits to a day's naps.
-  ///
-  /// Separate from `sleep_override` on purpose: that table means "the main
-  /// sleep window for this day", which is one thing, while naps are a list.
-  /// Widening its primary key would have made "the main sleep" and "a nap"
-  /// indistinguishable in storage.
-  ///
-  /// Edits are stored SEPARATELY from the detector's output and replayed over
-  /// it on every derivation. The detector improves; a day re-derived under a
-  /// better stager should still respect "there was no nap here", and baking
-  /// the edit into the result would freeze the old detection alongside it.
-  ///
-  /// `source` is 'manual' (a nap the user logged) or 'rejected' (a detected
-  /// one they removed — the window is stored so it keeps suppressing that nap
-  /// even after the detector's bounds shift by a minute).
-  static Future<void> _createSleepNap(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS sleep_nap (
-        day_id TEXT NOT NULL,
-        start_ts INTEGER NOT NULL,
-        end_ts INTEGER NOT NULL,
-        source TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY (day_id, start_ts)
-      )
-    ''');
-  }
-
   static Future<void> _createSleepOverride(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS sleep_override (
@@ -8888,93 +8861,6 @@ class LocalDb {
       'has_time': spec.hasTime ? 1 : 0,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
-  }
-
-  // ── nap edits ─────────────────────────────────────────────────────────────
-
-  /// Log a nap the detector missed, or suppress one it invented.
-  static Future<void> putNapEdit({
-    required String dayId,
-    required int startTs,
-    required int endTs,
-    required String source,
-  }) async {
-    final db = await instance;
-    await db.insert('sleep_nap', {
-      'day_id': dayId,
-      'start_ts': startTs,
-      'end_ts': endTs,
-      'source': source,
-      'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-    await putBaseline(
-      'nap_dirty:$dayId',
-      '${DateTime.now().microsecondsSinceEpoch}',
-    );
-    await putBaseline('nap_corrected:$dayId', '{}');
-  }
-
-  static Future<void> deleteNapEdit(String dayId, int startTs) async {
-    final db = await instance;
-    await db.delete(
-      'sleep_nap',
-      where: 'day_id = ? AND start_ts = ?',
-      whereArgs: [dayId, startTs],
-    );
-    await putBaseline(
-      'nap_dirty:$dayId',
-      '${DateTime.now().microsecondsSinceEpoch}',
-    );
-    await putBaseline('nap_corrected:$dayId', '{}');
-  }
-
-  static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
-    final db = await instance;
-    return db.query(
-      'sleep_nap',
-      where: 'day_id = ?',
-      whereArgs: [dayId],
-      orderBy: 'start_ts ASC',
-    );
-  }
-
-  /// Every day carrying a nap edit. Force-derived alongside the sleep-override
-  /// days for the same reason: an edit to a finalized day has to take effect.
-  static Future<Set<String>> napEditDays() async {
-    final db = await instance;
-    final rows = await db.query('sleep_nap', columns: ['day_id']);
-    return {
-      for (final r in rows) r['day_id'] as String,
-      ...await pendingNapDays(),
-    };
-  }
-
-  static Future<Set<String>> napCorrectionDays() async {
-    final db = await instance;
-    final markers = await db.query(
-      'baselines',
-      columns: ['key'],
-      where: 'key LIKE ?',
-      whereArgs: ['nap_corrected:%'],
-    );
-    return {
-      ...await napEditDays(),
-      for (final r in markers)
-        (r['key'] as String).substring('nap_corrected:'.length),
-    };
-  }
-
-  static Future<Set<String>> pendingNapDays() async {
-    final db = await instance;
-    final rows = await db.query(
-      'baselines',
-      columns: ['key'],
-      where: 'key LIKE ?',
-      whereArgs: ['nap_dirty:%'],
-    );
-    return {
-      for (final r in rows) (r['key'] as String).substring('nap_dirty:'.length),
-    };
   }
 
   // ── cycle log I/O ─────────────────────────────────────────────────────────────

@@ -324,7 +324,7 @@ void main() {
         'value': [proposal],
       });
       expect((await repo().getDayNaps(today))['nap_min'], 55);
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: today,
         startTs: proposal['start'] as int,
         endTs: proposal['end'] as int,
@@ -334,8 +334,8 @@ void main() {
       // Simulate the old engine baking rejection into the bundle, then relaunch.
       await seed({'value': []});
       expect((await repo().getDayNaps(today))['naps'], isEmpty);
-      await LocalDb.deleteNapEdit(today, proposal['start'] as int);
-      expect(await LocalDb.pendingNapDays(), contains(today));
+      await SleepNapStore.deleteEdit(today, proposal['start'] as int);
+      expect(await SleepNapStore.pendingDays(), contains(today));
       expect((await repo().getDayNaps(today))['nap_min'], 55);
     },
   );
@@ -343,7 +343,7 @@ void main() {
     'manual addition and deletion do not duplicate or retain baked manual entries',
     () async {
       await seed({'value': null, 'detected': null});
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: today,
         startTs: base + 3600,
         endTs: base + 5400,
@@ -352,7 +352,7 @@ void main() {
       final merged = (await repo().getDayNaps(today))['naps'];
       await seed({'value': merged, 'detected': null});
       expect((await repo().getDayNaps(today))['nap_min'], 30);
-      await LocalDb.deleteNapEdit(today, base + 3600);
+      await SleepNapStore.deleteEdit(today, base + 3600);
       expect((await repo().getDayNaps(today))['naps'], isNull);
       expect((await repo().getDayNaps(today))['nap_min'], isNull);
     },
@@ -408,7 +408,7 @@ void main() {
         }),
       );
       expect((await repo().getDaySleep(today))['total_asleep_min'], 475);
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: today,
         startTs: proposal['start'] as int,
         endTs: proposal['end'] as int,
@@ -417,12 +417,12 @@ void main() {
       final removed = await repo().getDaySleep(today);
       expect(removed['periods'], hasLength(1));
       expect(removed['total_asleep_min'], 420);
-      await LocalDb.deleteNapEdit(today, proposal['start'] as int);
+      await SleepNapStore.deleteEdit(today, proposal['start'] as int);
       expect((await repo().getDaySleep(today))['total_asleep_min'], 475);
       // A manual report remains available without a derived night at all.
       await db.delete('day_result');
       await db.delete('baselines');
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: today,
         startTs: base + 3600,
         endTs: base + 5400,
@@ -463,7 +463,7 @@ void main() {
         },
       }),
     );
-    await LocalDb.putNapEdit(
+    await SleepNapStore.putEdit(
       dayId: today,
       startTs: base + 3600,
       endTs: base + 5400,
@@ -530,7 +530,7 @@ void main() {
       final withNap = await need();
       // Capture the old detector proposal before rejection, as the screen does.
       await repo().getDayNaps(today);
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: today,
         startTs: proposal['start'] as int,
         endTs: proposal['end'] as int,
@@ -539,10 +539,10 @@ void main() {
       final state = AppState.forTesting()..user = profile;
       await state.reanalyzeForNapEdit(today);
       expect(await need() - withNap, 55 * 60);
-      await LocalDb.deleteNapEdit(today, proposal['start'] as int);
+      await SleepNapStore.deleteEdit(today, proposal['start'] as int);
       await state.reanalyzeForNapEdit(today);
       expect(await need(), withNap);
-      expect(await LocalDb.pendingNapDays(), isEmpty);
+      expect(await SleepNapStore.pendingDays(), isEmpty);
       expect(
         await db.query('day_result'),
         before,
@@ -556,14 +556,14 @@ void main() {
       'value': [proposal],
     });
     await repo().getDayNaps(today);
-    await LocalDb.putNapEdit(
+    await SleepNapStore.putEdit(
       dayId: today,
       startTs: proposal['start'] as int,
       endTs: proposal['end'] as int,
       source: 'rejected',
     );
     await LocalDb.deleteDays({today});
-    expect(await LocalDb.napCorrectionDays(), isEmpty);
+    expect(await SleepNapStore.correctionDays(), isEmpty);
     expect(await LocalDb.baseline('nap_proposals:$today'), isNull);
   });
   testWidgets(
@@ -601,7 +601,7 @@ void main() {
     (t) async {
       await t.runAsync(() => seed({'value': [], 'detected': []}));
       await t.runAsync(
-        () => LocalDb.putNapEdit(
+        () => SleepNapStore.putEdit(
           dayId: today,
           startTs: base + 3600,
           endTs: base + 5400,

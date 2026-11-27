@@ -68,7 +68,7 @@ class NapsData {
       note: d['note'] as String?,
       judged: d['naps'] is List,
       rejected: [
-        for (final r in await LocalDb.napEdits(day))
+        for (final r in await SleepNapStore.edits(day))
           if (r['source'] == 'rejected') r,
       ],
     );
@@ -150,9 +150,9 @@ class _NapsScreenState extends State<NapsScreen> with RevisionReload {
     // over the same afternoon, and re-logging it later would land on a
     // window that is still being suppressed.
     if (nap['source'] == 'manual') {
-      await LocalDb.deleteNapEdit(day, start);
+      await SleepNapStore.deleteEdit(day, start);
     } else {
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: start,
         endTs: end,
@@ -182,14 +182,14 @@ class _NapsScreenState extends State<NapsScreen> with RevisionReload {
     if (!hasProposal) {
       // Pre-73 removal may have discarded the detector proposal. The user now
       // confirms this window: restore as their report, without invented stages.
-      await LocalDb.putNapEdit(
+      await SleepNapStore.putEdit(
         dayId: day,
         startTs: start,
         endTs: rejected['end_ts'] as int,
         source: 'manual',
       );
     } else {
-      await LocalDb.deleteNapEdit(day, start);
+      await SleepNapStore.deleteEdit(day, start);
     }
   });
 
@@ -254,7 +254,7 @@ class _NapsScreenState extends State<NapsScreen> with RevisionReload {
       return;
     }
     await _edit(
-      () => LocalDb.putNapEdit(
+      () => SleepNapStore.putEdit(
         dayId: day,
         startTs: s,
         endTs: e,

@@ -142,7 +142,7 @@ void main() {
           );
         }
         if (source == 'nap') {
-          await LocalDb.putNapEdit(
+          await SleepNapStore.putEdit(
             dayId: older,
             startTs: start + 13 * 3600,
             endTs: start + 14 * 3600,

@@ -204,6 +204,10 @@ const _notComponents = {
   // `ui2/screens/pushups_test` covers the domain and the screen.
   'PushupsScreen', 'PushupDayScreen', 'PushupHistoryScreen',
   'PushupSettingsScreen', 'HomeSetupScreen', 'TodayPushupRow',
+  // Reads the live heart rate and trace from AppState (its synthetic preview
+  // was Gallery-only and is removed); `ui2/live_hr_card_state_handoff_test`
+  // renders it.
+  'LiveHrCard',
   // Today's plan card reads AppState for its rows' destinations.
   'TodayPlanCard',
   // The goal chooser reads and writes the saved goal.
@@ -322,7 +326,7 @@ const _notComponents = {
   // `nap_unjudged`, `finding_row`, `finding_row_plain` — are in the gallery.
   'NapsScreen', 'FindingsLog',
   // a live session — a stateful screen with a clock, per archetype
-  'LiveShell', 'LiveTick', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
+  'LiveShell', 'LiveMeasured', 'LiveStrength', 'LiveSwim',
   'LiveFlow', 'LiveMatch', 'LiveInterval',
   // the activity flow: pick → set up → do → summarise
   'ActivityPicker', 'ActivitySetup', 'ActivitySummary',

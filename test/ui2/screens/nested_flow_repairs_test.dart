@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/journal_fields.dart';
+import '../../support/store_fixtures.dart';
 import '../../support/test_local_repository.dart';
 import 'package:whoop_companion/data/nutrition_store.dart';
 import 'package:whoop_companion/state/app_state.dart';
@@ -56,10 +57,10 @@ class _Repo extends TestLocalRepository {
     String date,
   ) async => {...stored};
   @override
-  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) async =>
-      [
-        {'date': '2026-10-17', 'tags': <String>[], 'note': note},
-      ];
+  Future<Map<String, dynamic>?> getJournalDay(String date) async =>
+      date == '2026-10-17'
+      ? {'date': date, 'tags': <String>[], 'note': note}
+      : null;
   @override
   Future<List<String>> saveJournalEdit(
     String date, {
@@ -221,9 +222,7 @@ void main() {
     '12-13: the database writes a Journal edit as one checked patch',
     () async {
       const d = '2026-10-14';
-      await LocalDb.putJournalMetrics(d, {
-        'water_ml': const JournalMetricValue(250),
-      });
+      await seedJournalMetrics(d, {'water_ml': const JournalMetricValue(250)});
       // Only the changed field is written; water stays.
       expect(
         await LocalDb.saveJournalEdit(

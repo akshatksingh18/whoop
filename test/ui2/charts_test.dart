@@ -10,7 +10,6 @@ import 'dart:ui' show PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whoop_companion/ui2/charts.dart';
 import 'package:whoop_companion/ui2/grammar.dart';
@@ -156,10 +155,7 @@ void main() {
         Bars(const [], Colors.red),
         Hypnogram(const [], const P(false)),
         ZoneBar(const [], const P(false)),
-        Actogram(const [], Colors.red),
         HeatMap(const [], Colors.red, Colors.grey),
-        Spectrum(const []),
-        NightStack(const [], const [Colors.red]),
       ]) {
         expect(
           () => p.paint(canvas, size),
@@ -168,12 +164,6 @@ void main() {
         );
       }
       recorder.endRecording();
-    });
-
-    test('a gap in an actogram is a gap, not a night of nothing', () {
-      // A null day is unrecorded; a list of zeroes is "measured, no sleep".
-      // They must not be the same value.
-      expect(<List<double>?>[null], isNot(<List<double>?>[List.filled(24, 0)]));
     });
   });
 
@@ -403,7 +393,7 @@ void main() {
   });
 
   // ── THE AXIS-LESS PATH ──────────────────────────────────────────────────
-  // TrendCard and the MetricRow series go through the painters' own fallback
+  // The MetricRow series go through the painters' own fallback
   // and never see AxisSpec, so every fix that landed there has to land here
   // too or half the app keeps the bug.
   group('the auto-scale fallback', () {
@@ -545,13 +535,6 @@ void main() {
         LineChart(const [double.nan, 60.0], Colors.red),
         Bars(const [double.nan, 60.0], Colors.red),
         ZoneBar(const [double.nan, .5], const P(false)),
-        Actogram([List.filled(24, double.nan)], Colors.red),
-        NightStack(
-          const [
-            [double.nan, 60.0],
-          ],
-          const [Colors.red],
-        ),
       ]) {
         expect(
           () => p.paint(_Rec(), size),
@@ -591,50 +574,6 @@ void main() {
     test('a short night is untouched', () {
       final st = List.filled(40, SleepStage.rem);
       expect(identical(Hypnogram.columns(st, 175), st), isTrue);
-    });
-  });
-
-  group('Actogram agrees with the frame that labels it', () {
-    test('slot 0 is the bottom row — the frame prints max first', () {
-      // ChartFrame stacks tick labels top-first from AxisSpec.max, so hour has
-      // to increase upwards. Drawing slot 0 at the top only read correctly
-      // because the caller's noon-anchored formatter is symmetric at 3 ticks.
-      final rec = _Rec();
-      final day = List.filled(24, 0.0);
-      day[0] = 1;
-      Actogram([day], Colors.red).paint(rec, const Size(20, 240));
-      expect(rec.rects.single.bottom, closeTo(240, .001));
-    });
-  });
-
-  group('NightStack lanes share one time base', () {
-    const size = Size(300, 90);
-
-    test('a lane on its own clock is not stretched to fit', () {
-      final rec = _Rec();
-      NightStack(
-        [
-          List.filled(60, 60.0),
-          List.filled(
-            12,
-            40.0,
-          ), // a coarser lane — a different instant per pixel
-        ],
-        const [Colors.red, Colors.blue],
-      ).paint(rec, size);
-      expect(rec.paths, hasLength(1));
-    });
-
-    test('lanes on the shared grid all draw, holes and all', () {
-      final rec = _Rec();
-      NightStack(
-        [
-          List.filled(60, 60.0),
-          [for (var i = 0; i < 60; i++) i < 20 ? null : 40.0 + i],
-        ],
-        const [Colors.red, Colors.blue],
-      ).paint(rec, size);
-      expect(rec.paths.length, greaterThanOrEqualTo(2));
     });
   });
 
@@ -723,12 +662,6 @@ void main() {
         'Light',
         'Deep',
       ]);
-    });
-
-    test('every zone has a key', () {
-      const p = P(false);
-      expect(ZoneBar.legend(p), hasLength(ZoneBar.cols(p).length));
-      expect(ZoneBar.legend(p).last.$1, 'Zone 5');
     });
   });
 
@@ -918,7 +851,7 @@ void main() {
               unit: 'ms',
               yAxis: AxisSpec(min: 0, max: 480, format: axisHm),
               xLabels: const ['22:30', '02:00', '05:30', '07:10'],
-              legend: ZoneBar.legend(P(b == Brightness.dark)),
+              legend: Hypnogram.legend(P(b == Brightness.dark)),
               footnote: 'Relative to your own 14-night baseline.',
               child: CustomPaint(
                 painter: LineChart(const [40.0, 90.0], C.teal),
@@ -930,63 +863,6 @@ void main() {
         );
         expect(tester.takeException(), isNull, reason: '$b overflowed at 2x');
       }
-    });
-  });
-
-  group('TrendCard', () {
-    testWidgets('with no baseline it passes no judgement', (tester) async {
-      final handle = tester.ensureSemantics();
-      await tester.pumpWidget(
-        _host(
-          const TrendCard(
-            'Resting heart rate',
-            '58',
-            'bpm',
-            'no baseline',
-            'first readings',
-            [58.0],
-            C.red,
-            up: true,
-            good: null,
-          ),
-        ),
-      );
-      final label = tester.getSemantics(find.byType(TrendCard)).label;
-      // It used to read "…, worse than usual" off a delta of zero against a
-      // baseline it had just said it did not have.
-      expect(label, contains('no baseline first readings'));
-      expect(label, isNot(contains('worse than usual')));
-      expect(label, isNot(contains('an improvement')));
-      // …and no arrow either, since there is no direction to point.
-      expect(find.byIcon(LucideIcons.arrowUpRight), findsNothing);
-      expect(find.byIcon(LucideIcons.arrowDownRight), findsNothing);
-      handle.dispose();
-    });
-
-    testWidgets('with a baseline it still says which way and whether that is '
-        'good', (tester) async {
-      final handle = tester.ensureSemantics();
-      await tester.pumpWidget(
-        _host(
-          const TrendCard(
-            'HRV',
-            '61',
-            'ms',
-            '+4',
-            'vs your 28-day average',
-            [57.0, 61.0],
-            C.green,
-            up: true,
-            good: true,
-          ),
-        ),
-      );
-      expect(
-        tester.getSemantics(find.byType(TrendCard)).label,
-        contains('an improvement'),
-      );
-      expect(find.byIcon(LucideIcons.arrowUpRight), findsOneWidget);
-      handle.dispose();
     });
   });
 

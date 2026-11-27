@@ -120,11 +120,6 @@ class Split {
     required this.durationSec,
     this.avgHr,
   });
-
-  /// Seconds per full unit (km or mi) — the split's pace. `unitMeters` is the
-  /// length of a whole unit (1000 for km, 1609.344 for mi).
-  double paceSecPerUnit(double unitMeters) =>
-      meters <= 0 ? double.infinity : durationSec / (meters / unitMeters);
 }
 
 /// Everything the UI needs to render a workout's route: the raw points, the HR

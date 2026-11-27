@@ -244,8 +244,6 @@ void main() {
         }),
         {'n': 0},
       );
-      expect(splitUnit('12 ms'), ('12', 'ms'));
-      expect(splitUnit('absent'), ('absent', ''));
     },
   );
 }

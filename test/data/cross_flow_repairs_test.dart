@@ -26,6 +26,7 @@ import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/screens/metric_detail.dart';
 import 'package:whoop_companion/ui2/screens/progress_screen.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
+import '../support/store_fixtures.dart';
 
 class _Repo extends LocalRepositoryImpl {
   _Repo() : super(getProfileMap: () => null);
@@ -84,7 +85,7 @@ void _tall(WidgetTester t) {
 }
 
 Future<void> _seedJournal() async {
-  await LocalDb.putJournalMetrics(todayLabel(), {
+  await seedJournalMetrics(todayLabel(), {
     'mood': const JournalMetricValue(1),
     'water_ml': const JournalMetricValue(250),
   });
@@ -234,7 +235,7 @@ void main() {
       await t.pump();
       // Another writer: mood 2 and water 500.
       await t.runAsync(
-        () => LocalDb.putJournalMetrics(todayLabel(), {
+        () => seedJournalMetrics(todayLabel(), {
           'mood': const JournalMetricValue(2),
           'water_ml': const JournalMetricValue(500),
         }),

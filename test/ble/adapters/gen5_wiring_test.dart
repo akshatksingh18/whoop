@@ -287,7 +287,6 @@ void main() {
   group('P1 — alarm bodies are generation-correct', () {
     test('gen4 forms are byte-identical (hardware-verified — do not change)', () {
       expect(AlarmPayloads.disableForBand(isGen5: false), <int>[0x01]);
-      expect(AlarmPayloads.getPayloadForBand(isGen5: false), <int>[0x01]);
       expect(AlarmPayloads.disable, <int>[0x01]);
       // gen4 arms with the rev-1 9-byte body (the official app's wire form);
       // the exact layout is pinned against the wire capture in sync/alarm_test.
@@ -303,13 +302,7 @@ void main() {
       expect(AlarmPayloads.disableForBand(isGen5: true, id: 1), <int>[0x02, 1]);
     });
 
-    test('gen5 get-alarm is revision 4 + the alarm id', () {
-      expect(AlarmPayloads.getPayloadForBand(isGen5: true), <int>[0x04, 1]);
-      expect(AlarmPayloads.getPayloadForBand(isGen5: true, id: 0), <int>[
-        0x04,
-        0,
-      ]);
-      // The default id is the slot the gen5 SET arms.
+    test('gen5 SET arms the default alarm slot', () {
       expect(
         AlarmPayloads.setPayloadForBand(DateTime.now(), isGen5: true)[1],
         AlarmPayloads.gen5Slot,
@@ -320,16 +313,12 @@ void main() {
       final w = _Wire(band: BandProfile.gen4);
       await w.engine.disableAlarm();
       expect(w.lastCommandOf(2), <int>[Cmd.disableAlarm, 0x01]);
-      await w.engine.getAlarm();
-      expect(w.lastCommandOf(2), <int>[Cmd.getAlarmTime, 0x01]);
     });
 
     test('the engine writes the gen5 alarm bodies', () async {
       final w = _Wire(band: BandProfile.gen5);
       await w.engine.disableAlarm();
       expect(w.lastCommandOf(3), <int>[Cmd.disableAlarm, 0x02, 0xFF]);
-      await w.engine.getAlarm();
-      expect(w.lastCommandOf(3), <int>[Cmd.getAlarmTime, 0x04, 1]);
     });
   });
 

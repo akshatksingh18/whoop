@@ -164,24 +164,6 @@ List<DatedValue> inRange(List<DatedValue> s, String from, String to) => [
 
 typedef DayWindow = ({String from, String to, int days, bool partial});
 
-/// The last CLOSED Monday–Sunday week before [today] (any weekday), and the
-/// one before it.
-(DayWindow, DayWindow) closedWeeks(String today) {
-  final t = DateTime.parse(today);
-  final thisMonday = DateTime(t.year, t.month, t.day - (t.weekday - 1));
-  DayWindow week(int back) {
-    final m = DateTime(
-      thisMonday.year,
-      thisMonday.month,
-      thisMonday.day - 7 * back,
-    );
-    final s = DateTime(m.year, m.month, m.day + 6);
-    return (from: dayLabelOf(m), to: dayLabelOf(s), days: 7, partial: false);
-  }
-
-  return (week(1), week(2));
-}
-
 /// The first 7 days from [start] and the last 7 days, for the since-start
 /// review (Build 90: the last 7 days, like every other range). Null until the two no longer overlap, so a short
 /// history never compares a week with itself.
@@ -276,24 +258,6 @@ ProgressPeriod progressPeriod(
             'Last ${r.label} (${span(after)}) vs the ${r.label} before (${span(before)})',
       );
   }
-}
-
-/// The last complete calendar month before [today] and the one before it,
-/// with their real day counts (28–31 are not the same length).
-(DayWindow, DayWindow) closedMonths(String today) {
-  final t = DateTime.parse(today);
-  DayWindow month(int back) {
-    final first = DateTime(t.year, t.month - back, 1);
-    final last = DateTime(t.year, t.month - back + 1, 0);
-    return (
-      from: dayLabelOf(first),
-      to: dayLabelOf(last),
-      days: last.day,
-      partial: false,
-    );
-  }
-
-  return (month(1), month(2));
 }
 
 // ── comparisons inside a window ────────────────────────────────────────────
@@ -424,78 +388,6 @@ typedef Review = ({
   List<String> because,
   String? next,
 });
-
-/// The evidence-qualified review of a pair of windows for the stated goal
-/// (recomposition: leaner while getting stronger). It never asks for a lower
-/// weight every week, never cuts intake by default and never diagnoses.
-Review review({
-  required WeightWindow weightBefore,
-  required WeightWindow weightAfter,
-  required double? waistChange,
-  required FoodWindow food,
-  required List<LiftComparison> lifts,
-  required int sessionsAfter,
-}) {
-  final missing = <String>[];
-  if (weightBefore.count < 3 || weightAfter.count < 3) {
-    missing.add('at least three weigh-ins in each period');
-  }
-  if (food.kcalDays < 4) missing.add('food logged on four or more days');
-  // B88-07: a lift whose best sets cannot be compared is not evidence.
-  final comparable = [
-    for (final l in lifts)
-      if (l.change != SetVerdict.incomparable) l,
-  ];
-  if (comparable.isEmpty) {
-    missing.add('the same lift logged comparably in both periods');
-  }
-  if (missing.isNotEmpty) {
-    return (
-      state: ReviewState.gatherEvidence,
-      headline: 'Not enough to compare yet',
-      because: ['Needs ${missing.join(', ')}.'],
-      next: missing.first == 'at least three weigh-ins in each period'
-          ? 'Weigh in on more mornings.'
-          : missing.first.startsWith('food')
-          ? 'Log every meal on more days, or mark the day incomplete.'
-          : 'Log your sets in the Lift workout.',
-    );
-  }
-  final better = comparable.where((l) => l.change == SetVerdict.better).length;
-  final worse = comparable.where((l) => l.change == SetVerdict.worse).length;
-  final same = comparable.length - better - worse;
-  final apart = lifts.length - comparable.length;
-  final dw = weightAfter.mean! - weightBefore.mean!;
-  final pct = dw / weightBefore.mean! * 100;
-  final because = <String>[
-    'Average weight ${dw >= 0 ? 'up' : 'down'} ${dw.abs().toStringAsFixed(1)} '
-        '(${pct.abs().toStringAsFixed(1)}%) on ${weightAfter.count} vs '
-        '${weightBefore.count} weigh-ins.',
-    if (waistChange != null)
-      'Waist ${waistChange == 0 ? 'unchanged' : '${waistChange > 0 ? 'up' : 'down'} ${waistChange.abs().toStringAsFixed(2)} in'} between its measured dates.',
-    '$better of ${comparable.length} comparable lifts better, $same the same, '
-        '$worse worse${apart == 0 ? '' : '; $apart not comparable'}.',
-    '$sessionsAfter workouts; food on ${food.kcalDays} of ${food.windowDays} days.',
-  ];
-  if (worse >= 2 && worse > better) {
-    return (
-      state: ReviewState.reviewTogether,
-      headline: 'Lifts slipped — look at food, sleep and training together',
-      because: because,
-      next: 'Check protein coverage and recent sleep before changing anything.',
-    );
-  }
-  return (
-    state: ReviewState.keepGoing,
-    // B88-07: "stronger" needs at least one lift actually better; 0 better
-    // and 0 worse is holding steady, not improvement.
-    headline: better > 0 && better >= worse
-        ? 'Consistent with getting stronger'
-        : 'Holding steady',
-    because: because,
-    next: null,
-  );
-}
 
 /// Consecutive day labels from [from] to [to], DST-safe.
 List<String> daysBetween(String from, String to) {

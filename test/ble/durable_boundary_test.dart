@@ -12,6 +12,7 @@ import 'package:whoop_companion/state/prefs.dart';
 import 'package:whoop_protocol/whoop_protocol.dart' as proto;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/store_fixtures.dart';
 
 const _ts = 1760000000;
 const _token = [0x81, 0x72, 0x63, 0x54, 0x45, 0x36, 0x27, 0x18];
@@ -282,7 +283,7 @@ void main() {
             expect(await db.query('decoded_onehz'), hasLength(1));
             expect(engine.state.syncChunkQuarantined, failure == 3);
           }
-          final evidence = await LocalDb.quarantinedSyncChunks();
+          final evidence = await quarantineRows();
           expect(evidence, hasLength(1));
           expect(evidence.single['reason'], 'persistent_ack_failure');
           expect(
@@ -323,7 +324,7 @@ void main() {
             'acked',
           );
           expect(
-            await LocalDb.quarantinedSyncChunks(),
+            await quarantineRows(),
             evidence,
             reason: 'recovery must keep the diagnostic evidence',
           );

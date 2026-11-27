@@ -9,6 +9,7 @@ import 'package:whoop_companion/state/app_state.dart';
 import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../support/audit_visual.dart' show loadAuditFonts;
+import '../support/store_fixtures.dart';
 import '../support/coverage_store.dart';
 import '../support/localized_coverage.dart';
 
@@ -88,7 +89,7 @@ void main() {
       (t) async {
         await real(
           t,
-          () => LocalDb.putJournalMetrics(day, {
+          () => seedJournalMetrics(day, {
             'mood': const JournalMetricValue(2),
             'caffeine_mg': const JournalMetricValue(100, atMinuteOfDay: 0),
           }),
@@ -133,7 +134,7 @@ void main() {
       (t) async {
         await real(
           t,
-          () => LocalDb.putJournalMetrics(day, {
+          () => seedJournalMetrics(day, {
             'caffeine_mg': JournalMetricValue(100, atMinuteOfDay: original),
           }),
         );

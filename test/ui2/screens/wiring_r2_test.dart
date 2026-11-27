@@ -51,8 +51,6 @@ class _FakeRepo extends TestLocalRepository {
   _FakeRepo({this.today = const {}});
 
   @override
-  Future<Map<String, dynamic>> getDayHeart(String date) async => const {};
-  @override
   Future<Map<String, dynamic>> getDaySleepV2(String date) async => const {};
   @override
   Future<Map<String, dynamic>> getToday() async => today;
@@ -173,7 +171,7 @@ void main() {
 
   // ── the seam that dropped `t` ──
   group('chart points keep their date', () {
-    test('pointsOf carries t through; seriesOf is still values-only', () {
+    test('pointsOf carries t through', () {
       final chart = {
         'points': [
           {'t': _noon(2), 'v': 51},
@@ -182,7 +180,6 @@ void main() {
       };
       expect(pointsOf(chart).map((e) => e.v).toList(), [51.0, 54.5]);
       expect(pointsOf(chart).last.t, _noon(0));
-      expect(seriesOf(chart), [51.0, 54.5]);
     });
 
     test('a point with no timestamp is not a dated point', () {

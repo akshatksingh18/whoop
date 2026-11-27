@@ -672,45 +672,6 @@ class Ring extends CustomPainter {
       o.v != v || o.t != t || o.solid != solid || o.color != color;
 }
 
-/// The small flat ring used in macro/nutrient clusters.
-class MacroRing extends CustomPainter {
-  final double v;
-  final Color color, track;
-
-  MacroRing(this.v, this.color, this.track);
-
-  @override
-  void paint(Canvas cv, Size s) {
-    final c = Offset(s.width / 2, s.height / 2);
-    final r = min(s.width, s.height) / 2 - 4;
-    if (r <= 0) return;
-    cv.drawCircle(
-      c,
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..color = track,
-    );
-    final sweep = 2 * pi * v.clamp(0, 1);
-    if (sweep <= 0) return;
-    cv.drawArc(
-      Rect.fromCircle(center: c, radius: r),
-      -pi / 2,
-      sweep,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..strokeCap = StrokeCap.round
-        ..color = color,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant MacroRing o) => o.v != v;
-}
-
 /// The four sleep lanes, top to bottom: awake, REM, light, deep.
 enum SleepStage { awake, rem, light, deep }
 
@@ -861,13 +822,6 @@ class ZoneBar extends CustomPainter {
   /// `blueSoft` measured 1.80:1 on a white card, so zone 1 was a pale smear.
   static List<Color> cols(P p) => [for (final c in pigment) p.on(c)];
 
-  /// Five bands of colour mean nothing without their numbers. Derived from
-  /// [cols] for the same reason [Hypnogram.legend] is.
-  static List<(String, Color)> legend(P p) => [
-    for (var i = 0; i < pigment.length; i++)
-      ('Zone ${i + 1}', p.on(pigment[i])),
-  ];
-
   /// How short zone 1 is drawn relative to zone 5.
   ///
   /// Solving each band against the CARD does nothing for zone 4 against zone 5:
@@ -902,45 +856,6 @@ class ZoneBar extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant ZoneBar o) => o.z != z || o.p.dark != p.dark;
-}
-
-/// Actogram — hour of day (rows) × date (columns). The circadian view.
-///
-/// [days] is one entry per day, each a 24-slot list of 0…1 intensity, or null
-/// where nothing was recorded. A null day paints nothing — a gap in the record
-/// reads as a gap, not as a night of no sleep.
-///
-/// Slot 0 is the BOTTOM row: `ChartFrame` stacks its tick labels top-first
-/// from `AxisSpec.max`, so hour has to increase upwards or the labels are the
-/// mirror image of the rows. It used to read correctly only because the
-/// noon-anchored formatter the one caller passes is symmetric at three ticks —
-/// at five it printed 6 AM against the 6 PM row.
-class Actogram extends CustomPainter {
-  final List<List<double>?> days;
-  final Color color;
-
-  Actogram(this.days, this.color);
-
-  @override
-  void paint(Canvas cv, Size s) {
-    if (days.isEmpty) return;
-    final cw = s.width / days.length, ch = s.height / 24;
-    for (var d = 0; d < days.length; d++) {
-      final day = days[d];
-      if (day == null) continue;
-      for (var h = 0; h < 24 && h < day.length; h++) {
-        final v = day[h].clamp(0.0, 1.0);
-        if (!(v > 0)) continue; // NaN fails this too, which is the point
-        cv.drawRect(
-          Rect.fromLTWH(d * cw, s.height - (h + 1) * ch, cw + .4, ch),
-          Paint()..color = color.withValues(alpha: .22 + v * .68),
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant Actogram o) => o.days != days;
 }
 
 /// Column-major grid. [weeks] is one list per COLUMN — seven days of a
@@ -996,105 +911,6 @@ class HeatMap extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant HeatMap o) => o.weeks != weeks;
-}
-
-/// Power spectral density — the LF/HF plot behind HRV. [psd] is the computed
-/// spectrum; [split] is the fraction of the x-axis where LF becomes HF.
-class Spectrum extends CustomPainter {
-  final List<double> psd;
-  final double split;
-  final Color lf, hf;
-
-  Spectrum(this.psd, {this.split = .28, this.lf = C.blue, this.hf = C.purple});
-
-  /// Two colours that mean two different bands of a frequency axis — the one
-  /// chart in here nobody reads correctly without a key.
-  List<(String, Color)> get legend => [('LF power', lf), ('HF power', hf)];
-
-  @override
-  void paint(Canvas cv, Size s) {
-    if (psd.isEmpty) return;
-    final v = maxColumns(psd, (s.width / 3).floor().clamp(1, psd.length));
-    final mx = v.reduce(max);
-    if (mx <= 0) return;
-    final bw = s.width / v.length;
-    for (var i = 0; i < v.length; i++) {
-      final f = i / v.length;
-      final h = v[i] / mx * s.height;
-      cv.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(i * bw, s.height - h, max(bw - .8, 1), h),
-          const Radius.circular(1),
-        ),
-        Paint()..color = (f < split ? lf : hf).withValues(alpha: .85),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant Spectrum o) => o.psd != psd;
-}
-
-/// Several signals stacked over one shared night timeline — HR, movement,
-/// SpO₂ relative, whatever the screen has. Each lane is independently scaled,
-/// because they are different units and a shared axis would be a lie.
-///
-/// ONE TIME BASE, and the painter enforces it: every lane must be the same
-/// length, index i being the same instant in all of them, `null` where a lane
-/// has nothing there. A lane of a different length is not drawn.
-///
-/// That is the whole premise of stacking — a vertical slice is one moment.
-/// Spreading each lane across the full width by its own sample count instead
-/// put a 3 a.m. HRV dip under a 2:20 a.m. HR spike, silently, whenever the
-/// lanes had different rates or different coverage. Resample every lane onto
-/// the night's grid before handing it over; nothing here can recover the
-/// mapping afterwards.
-class NightStack extends CustomPainter {
-  final List<List<double?>> series;
-  final List<Color> colors;
-
-  /// One axis per lane, in the same order as [series]; a null entry (or a
-  /// short list) leaves that lane auto-scaled. Different units genuinely need
-  /// different axes — what they must not do is each invent a new one every
-  /// time the data shifts, which is what makes a lane look dramatic on a quiet
-  /// night. Pin the ones the screen labels.
-  final List<AxisSpec?>? axes;
-
-  NightStack(this.series, this.colors, {this.axes});
-
-  @override
-  void paint(Canvas cv, Size s) {
-    if (series.isEmpty || s.width <= 0) return;
-    // The grid is the longest lane. Anything else is on a different clock.
-    final span = series.fold<int>(0, (n, l) => l.length > n ? l.length : n);
-    final h = s.height / series.length;
-    for (var k = 0; k < series.length; k++) {
-      final d = series[k];
-      if (d.length != span || d.length < 2) continue;
-      final a = (axes != null && k < axes!.length) ? axes![k] : null;
-      final e = a == null ? autoExtent(d) : null;
-      if (a == null && e == null) continue;
-      double y(double v) => a != null
-          ? k * h + h - 6 - a.t(v) * (h - 14)
-          : k * h + h - 6 - (v - e!.min) / e.range * (h - 14);
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.8
-        ..strokeCap = StrokeCap.round
-        ..color = colors[k % colors.length];
-      for (final run in minMaxRuns(d, s.width, y)) {
-        if (run.length == 1) {
-          cv.drawCircle(run.first, 1.2, Paint()..color = paint.color);
-          continue;
-        }
-        cv.drawPath(_polyline(run, smooth: false), paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant NightStack o) =>
-      o.series != series || o.axes != axes;
 }
 
 /// The context behind a day's curve: when you were asleep, when you worked

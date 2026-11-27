@@ -449,54 +449,15 @@ class BackfillContinuation {
   }
 }
 
-// ── detector 1: marginal radio ───────────────────────────────────────────────
-/// A weak BT radio that can't sustain the R10/R11 raw stream: consecutive
-/// arm→quick-timeout cycles. Trips once; action = fall back to standard HR only.
-class MarginalRadioDetector {
-  final int tripThreshold;
-  final double quickTimeoutWindow;
-  MarginalRadioDetector({
-    this.tripThreshold = 2,
-    this.quickTimeoutWindow = 20.0,
-  });
-
-  int _consecutive = 0;
-  bool tripped = false;
-
-  /// Feed a disconnect. Returns true exactly once, on the call that trips.
-  bool connectionEnded({
-    required bool wasArmed,
-    required double? secondsSinceArm,
-    required bool timedOut,
-  }) {
-    final armCausedTimeout =
-        wasArmed &&
-        timedOut &&
-        secondsSinceArm != null &&
-        secondsSinceArm <= quickTimeoutWindow;
-    if (!armCausedTimeout) {
-      _consecutive = 0;
-      return false;
-    }
-    _consecutive++;
-    if (!tripped && _consecutive >= tripThreshold) {
-      tripped = true;
-      return true;
-    }
-    return false;
-  }
-}
-
 // ── detector 1b: frame corruption ────────────────────────────────────────────
-/// [MarginalRadioDetector] only ever sees *timeouts* — a link that stops
-/// responding. A degrading radio can instead keep responding promptly while
+/// A timeout-based detector only ever sees a link that stops responding. A
+/// degrading radio can instead keep responding promptly while
 /// corrupting an increasing fraction of frames (CRC8 length-byte or CRC32
 /// payload mismatch in `framing.dart`) — which looks identical to a healthy
 /// link on every timeout-based diagnostic. This tracks a rolling window of
 /// frame validity and trips once the corruption rate within the window
-/// crosses [rateThreshold], driving the SAME standard-HR fallback action as
-/// marginal-radio — same remedy (drop the raw live stream, keep 1 Hz decode),
-/// independent failure signature. [minSamples] avoids tripping on a tiny,
+/// crosses [rateThreshold], driving the standard-HR fallback action (drop the
+/// raw live stream, keep 1 Hz decode). [minSamples] avoids tripping on a tiny,
 /// noisy sample right after connect.
 class FrameCorruptionDetector {
   final int windowSize;

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/journal_fields.dart';
 import 'package:whoop_companion/data/local_repository_impl.dart';
+import '../support/store_fixtures.dart';
 import '../support/coverage_store.dart';
 
 const day = '2021-04-06';
@@ -101,7 +102,7 @@ void main() {
     'same-size concurrent tag replacement refuses the entire numeric edit and can retry',
     () async {
       await LocalDb.putJournal(day, '["travel"]', 'Authored note');
-      await LocalDb.putJournalMetrics(day, {
+      await seedJournalMetrics(day, {
         'caffeine_mg': const JournalMetricValue(0, atMinuteOfDay: 600),
       });
       final repo = LocalRepositoryImpl(getProfileMap: () => {});
@@ -156,7 +157,7 @@ void main() {
         custom: true,
       );
       await LocalDb.putJournalFieldDef(original);
-      await LocalDb.putJournalMetrics(day, {
+      await seedJournalMetrics(day, {
         'custom_authored': const JournalMetricValue(0, atMinuteOfDay: 600),
       });
       final before = await snapshot();

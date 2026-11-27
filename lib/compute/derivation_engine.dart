@@ -6382,20 +6382,6 @@ class DerivationEngine {
     );
   }
 
-  /// Recovery time constant (s): the analytics library's monoexponential fit
-  /// ([ana.hrRecovery]'s `tauSec`), the one source since B88-03. Published
-  /// alongside HRR-60, never instead of it; null when the fit's gates abstain.
-  @visibleForTesting
-  static double? recoveryTau(List<int> hr, List<int> tsSec, int endIdx) {
-    final m = ana.hrRecovery(
-      hr,
-      endIndex: endIdx,
-      recoverySec: 60,
-      tsSec: tsSec,
-    );
-    return m.present ? m.value!.tauSec : null;
-  }
-
   /// Low-confidence WRIST ORIENTATION during the sleep window (`positionSeries`).
   /// Explicitly a WRIST measure (body-position PROXY), never claimed as the
   /// sleeper's supine/side/prone body position. Emits a dominant-orientation

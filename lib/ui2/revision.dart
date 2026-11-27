@@ -122,7 +122,7 @@ mixin RevisionReload<T extends StatefulWidget> on State<T> {
     // switch mid-session is stale in exactly the same way a stale revision
     // is: nothing tells the screen to look again. `watch` (not `read`) is
     // what makes that happen: it subscribes this State to `LocaleController`
-    // so `didChangeDependencies` re-runs the moment `setCode` notifies, the
+    // so `didChangeDependencies` re-runs the moment the locale changes, the
     // same mechanism `app.dart` uses to rebuild `MaterialApp` with the new
     // locale, kept off `AppState` itself because that one ticks at ~1 Hz.
     // `code` alone misses a SYSTEM locale change while it is null (no

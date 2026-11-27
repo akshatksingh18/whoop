@@ -17,6 +17,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/local_repository_impl.dart';
+import '../support/store_fixtures.dart';
 
 void main() {
   late LocalRepositoryImpl repo;
@@ -59,8 +60,8 @@ void main() {
     'of throwing ArgumentError out of clamp()',
     () async {
       // Two starts 8 days apart → median 8 → clamp(10, 8) used to throw.
-      await LocalDb.putCycleLog('2026-06-01', 'start');
-      await LocalDb.putCycleLog('2026-06-09', 'start');
+      await seedCycleLog('2026-06-01', 'start');
+      await seedCycleLog('2026-06-09', 'start');
 
       final cycle = await repo.getCycle();
 
@@ -77,8 +78,8 @@ void main() {
     'a normal-length cycle gets a real phase once she has declared one',
     () async {
       profile['repro_state'] = 'cycling';
-      await LocalDb.putCycleLog('2026-06-01', 'start');
-      await LocalDb.putCycleLog('2026-06-29', 'start'); // 28 days
+      await seedCycleLog('2026-06-01', 'start');
+      await seedCycleLog('2026-06-29', 'start'); // 28 days
 
       final cycle = await repo.getCycle();
       expect(cycle['median_length'], 28);
@@ -88,8 +89,8 @@ void main() {
 
   test('exactly 10 days — the clamp boundary — does not throw', () async {
     profile['repro_state'] = 'cycling';
-    await LocalDb.putCycleLog('2026-06-01', 'start');
-    await LocalDb.putCycleLog('2026-06-11', 'start');
+    await seedCycleLog('2026-06-01', 'start');
+    await seedCycleLog('2026-06-11', 'start');
     final cycle = await repo.getCycle();
     expect(cycle['median_length'], 10);
     expect(cycle['phase'], isNotNull);
@@ -99,8 +100,8 @@ void main() {
   test(
     'declared state gates what the screen may say, and UNSET is the quiet one',
     () async {
-      await LocalDb.putCycleLog('2026-06-01', 'start');
-      await LocalDb.putCycleLog('2026-06-29', 'start');
+      await seedCycleLog('2026-06-01', 'start');
+      await seedCycleLog('2026-06-29', 'start');
 
       // Never declared → no phase. Not "assume she cycles".
       var cycle = await repo.getCycle();
@@ -129,9 +130,9 @@ void main() {
 
   // ── WH-09 ────────────────────────────────────────────────────────────────
   test('no fertile window is published, ever', () async {
-    await LocalDb.putCycleLog('2026-06-01', 'start');
-    await LocalDb.putCycleLog('2026-06-29', 'start');
-    await LocalDb.putCycleLog('2026-07-27', 'start');
+    await seedCycleLog('2026-06-01', 'start');
+    await seedCycleLog('2026-06-29', 'start');
+    await seedCycleLog('2026-07-27', 'start');
     final cycle = await repo.getCycle();
     expect(cycle.containsKey('fertile_start'), isFalse);
     expect(cycle.containsKey('fertile_end'), isFalse);
@@ -142,8 +143,8 @@ void main() {
     'has no width at all from a single gap',
     () async {
       // One gap: a point, no band — a single gap has no spread to state.
-      await LocalDb.putCycleLog('2026-06-01', 'start');
-      await LocalDb.putCycleLog('2026-06-29', 'start');
+      await seedCycleLog('2026-06-01', 'start');
+      await seedCycleLog('2026-06-29', 'start');
       var cycle = await repo.getCycle();
       expect(cycle['gap_n'], 1);
       expect(cycle['predicted_from'], isNull);
@@ -151,8 +152,8 @@ void main() {
 
       // Gaps 28, 21, 35 → median 28, MAD 7. The mean would also be 28 here;
       // the width is the point, and ±7 days is what her own log supports.
-      await LocalDb.putCycleLog('2026-07-20', 'start'); // +21
-      await LocalDb.putCycleLog('2026-08-24', 'start'); // +35
+      await seedCycleLog('2026-07-20', 'start'); // +21
+      await seedCycleLog('2026-08-24', 'start'); // +35
       cycle = await repo.getCycle();
       expect(cycle['gap_n'], 3);
       expect(cycle['median_length'], 28);
@@ -165,8 +166,8 @@ void main() {
   // ── WH-02 ────────────────────────────────────────────────────────────────
   test('the overlay numbers every day against the start that PRECEDED it, not '
       'the last one logged', () async {
-    await LocalDb.putCycleLog('2026-06-01', 'start');
-    await LocalDb.putCycleLog('2026-07-01', 'start');
+    await seedCycleLog('2026-06-01', 'start');
+    await seedCycleLog('2026-07-01', 'start');
     for (final d in ['2026-05-30', '2026-06-05', '2026-07-05']) {
       await LocalDb.putDayResult(
         dayId: d,
@@ -224,24 +225,6 @@ void main() {
       // streaks and the resting-HR drift all had zero consumers.
       expect(records.keys, ['workouts_tracked']);
       expect(records['workouts_tracked'], 0);
-    },
-  );
-
-  // ── MIND-12 ──────────────────────────────────────────────────────────────
-  test(
-    'the weekday test refuses under its history floor, and says why',
-    () async {
-      for (var i = 0; i < 20; i++) {
-        await LocalDb.putMetricSeriesValue(
-          '2026-06-${(1 + i).toString().padLeft(2, '0')}',
-          'readiness',
-          70.0 + i % 5,
-        );
-      }
-      final w = await repo.getWeekdayEffect();
-      expect(w['present'], isFalse);
-      expect(w['note'], contains('need_history'));
-      expect(w['meaningful'], isNull, reason: 'absent is not "no effect"');
     },
   );
 }

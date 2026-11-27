@@ -9,7 +9,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:whoop_companion/compute/derivation_engine.dart'
     show kAlgoVersion;
 import 'package:whoop_companion/data/db.dart';
-import 'package:whoop_companion/state/app_state.dart';
 import '../support/coverage_store.dart';
 
 class _ExportHandles extends SqfliteDatabaseFactoryBase {
@@ -47,7 +46,6 @@ class _ExportHandles extends SqfliteDatabaseFactoryBase {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late _ExportHandles boundary;
-  late AppState app;
   setUpAll(() async {
     await coverageStore('selected-export-lifetime', fresh: true);
     databaseFactory = boundary = _ExportHandles();
@@ -57,7 +55,6 @@ void main() {
     await resetCoverageStore();
     expect(boundary.live, hasLength(1));
     boundary.sourceId = boundary.live.keys.single;
-    app = AppState.forTesting();
     for (final day in ['2021-04-06', '2021-04-07']) {
       await LocalDb.putDayResult(
         dayId: day,
@@ -73,7 +70,6 @@ void main() {
     }
   });
   tearDown(() async {
-    app.dispose();
     boundary.refuseCopy = false;
     // Preserve each authored partial export; close any handle left by the
     // original failing implementation without deleting its recovery bytes.
@@ -85,101 +81,89 @@ void main() {
     }
   });
   tearDownAll(LocalDb.close);
-  for (final throughApp in [false, true]) {
-    for (final failure in [
-      'invalid selection',
-      'source read',
-      'destination write',
-    ]) {
-      test(
-        'COV-62 selected export $failure through AppState=$throughApp closes its destination',
-        () async {
-          final db = await LocalDb.instance;
-          final rows = await db.query('day_result', orderBy: 'day_id');
-          final series = await db.query('metric_series', orderBy: 'date,key');
-          final originalHandles = Set<int>.of(boundary.live.keys);
-          if (failure == 'source read') {
-            await db.execute(
-              'ALTER TABLE metric_series RENAME TO authored_hidden_series',
-            );
-          }
-          boundary.refuseCopy = failure == 'destination write';
-          try {
-            final selection = {
-              failure == 'invalid selection'
-                  ? 'not-a-calendar-day'
-                  : '2021-04-06',
-            };
-            final exported = throughApp
-                ? app.exportDaysDb(selection)
-                : LocalDb.exportDaysDb(selection);
-            await expectLater(
-              exported,
-              throwsA(
-                failure == 'invalid selection'
-                    ? isA<ArgumentError>()
-                    : failure == 'source read'
-                    ? isA<DatabaseException>()
-                    : isA<StateError>(),
-              ),
-            );
-            expect(
-              boundary.live.keys.toSet(),
-              originalHandles,
-              reason:
-                  'A failed export must close the output, leaving the source open',
-            );
-          } finally {
-            boundary.refuseCopy = false;
-            if (failure == 'source read') {
-              await db.execute(
-                'ALTER TABLE authored_hidden_series RENAME TO metric_series',
-              );
-            }
-          }
-          expect(await db.query('day_result', orderBy: 'day_id'), rows);
-          expect(await db.query('metric_series', orderBy: 'date,key'), series);
-          expect(
-            (await db.rawQuery('PRAGMA integrity_check')).single.values.single,
-            'ok',
-          );
-        },
-      );
-    }
-    test(
-      'COV-62 selected export success through AppState=$throughApp closes and retains only its selected day',
-      () async {
-        final db = await LocalDb.instance;
-        final rows = await db.query('day_result', orderBy: 'day_id');
-        final handles = Set<int>.of(boundary.live.keys);
-        final path = throughApp
-            ? await app.exportDaysDb({'2021-04-06'})
-            : await LocalDb.exportDaysDb({'2021-04-06'});
-        expect(boundary.live.keys.toSet(), handles);
-        final exported = await databaseFactory.openDatabase(
-          path,
-          options: OpenDatabaseOptions(readOnly: true),
+  for (final failure in [
+    'invalid selection',
+    'source read',
+    'destination write',
+  ]) {
+    test('COV-62 selected export $failure closes its destination', () async {
+      final db = await LocalDb.instance;
+      final rows = await db.query('day_result', orderBy: 'day_id');
+      final series = await db.query('metric_series', orderBy: 'date,key');
+      final originalHandles = Set<int>.of(boundary.live.keys);
+      if (failure == 'source read') {
+        await db.execute(
+          'ALTER TABLE metric_series RENAME TO authored_hidden_series',
         );
-        try {
-          expect((await exported.query('day_result')).map((r) => r['day_id']), [
-            '2021-04-06',
-          ]);
-          expect(
-            (await exported.query('metric_series')).map((r) => r['date']),
-            ['2021-04-06'],
+      }
+      boundary.refuseCopy = failure == 'destination write';
+      try {
+        final selection = {
+          failure == 'invalid selection' ? 'not-a-calendar-day' : '2021-04-06',
+        };
+        final exported = LocalDb.exportDaysDb(selection);
+        await expectLater(
+          exported,
+          throwsA(
+            failure == 'invalid selection'
+                ? isA<ArgumentError>()
+                : failure == 'source read'
+                ? isA<DatabaseException>()
+                : isA<StateError>(),
+          ),
+        );
+        expect(
+          boundary.live.keys.toSet(),
+          originalHandles,
+          reason:
+              'A failed export must close the output, leaving the source open',
+        );
+      } finally {
+        boundary.refuseCopy = false;
+        if (failure == 'source read') {
+          await db.execute(
+            'ALTER TABLE authored_hidden_series RENAME TO metric_series',
           );
-          expect(
-            (await exported.rawQuery(
-              'PRAGMA integrity_check',
-            )).single.values.single,
-            'ok',
-          );
-        } finally {
-          await exported.close();
         }
-        expect(await db.query('day_result', orderBy: 'day_id'), rows);
-        expect(boundary.live.keys.toSet(), handles);
-      },
-    );
+      }
+      expect(await db.query('day_result', orderBy: 'day_id'), rows);
+      expect(await db.query('metric_series', orderBy: 'date,key'), series);
+      expect(
+        (await db.rawQuery('PRAGMA integrity_check')).single.values.single,
+        'ok',
+      );
+    });
   }
+  test(
+    'COV-62 selected export success closes and retains only its selected day',
+    () async {
+      final db = await LocalDb.instance;
+      final rows = await db.query('day_result', orderBy: 'day_id');
+      final handles = Set<int>.of(boundary.live.keys);
+      final path = await LocalDb.exportDaysDb({'2021-04-06'});
+      expect(boundary.live.keys.toSet(), handles);
+      final exported = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(readOnly: true),
+      );
+      try {
+        expect((await exported.query('day_result')).map((r) => r['day_id']), [
+          '2021-04-06',
+        ]);
+        expect((await exported.query('metric_series')).map((r) => r['date']), [
+          '2021-04-06',
+        ]);
+        expect(
+          (await exported.rawQuery(
+            'PRAGMA integrity_check',
+          )).single.values.single,
+          'ok',
+        );
+      } finally {
+        await exported.close();
+      }
+      expect(await db.query('day_result', orderBy: 'day_id'), rows);
+      expect(boundary.live.keys.toSet(), handles);
+    },
+  );
 }

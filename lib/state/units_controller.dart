@@ -186,32 +186,9 @@ class UnitsController extends ChangeNotifier {
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
-  /// "5:30 /km" from total metres + total seconds, or NULL whenever there is
-  /// no meaningful pace — including the absurd-pace case (see
-  /// [_kMaxSanePaceSecPerUnit]), not just meters<=0. Null rather than a dash
-  /// so a caller cannot accidentally render "— /km".
-  String? pace(double? meters, int? seconds) {
-    if (meters == null || seconds == null || meters <= 0 || seconds <= 0) {
-      return null;
-    }
-    final formatted = formatPace(seconds / (meters / distanceUnitMeters));
-    return formatted == null ? null : '$formatted $paceUnit';
-  }
-
   /// "km/h" / "mph" — the unit for INSTANTANEOUS speed (cycling reads more
   /// naturally as a speed than a pace; the live map shows both).
   String get speedUnit => _miles ? 'mph' : 'km/h';
-
-  /// Instantaneous speed (m/s) → "18.4 km/h" / "11.4 mph". NULL for
-  /// null/non-finite/negative (no fix yet, or GPS hasn't reported speed) —
-  /// there is no speed to show, and the caller owns saying why.
-  String? speed(double? metersPerSec, {int decimals = 1}) {
-    if (metersPerSec == null || !metersPerSec.isFinite || metersPerSec < 0) {
-      return null;
-    }
-    final perHour = metersPerSec * 3600 / distanceUnitMeters;
-    return '${perHour.toStringAsFixed(decimals)} $speedUnit';
-  }
 
   // ── edit-field helpers (display ↔ metric for storage) ──────────────────────
   String get weightLabel => _lb ? 'Weight (lb)' : 'Weight (kg)';

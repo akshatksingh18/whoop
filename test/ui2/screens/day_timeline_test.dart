@@ -1,5 +1,5 @@
-// What goes on a clock, and what does not. `dayMoments`, `dayNotes` and
-// `dayGraph` are pure, so the placement rules are testable without a database
+// What goes on a clock, and what does not. `dayMoments` and `dayGraph` are
+// pure, so the placement rules are testable without a database
 // or a frame — and they are the rules the page is only honest because of. A
 // mis-slotted sample puts a workout under the wrong hour; a missed hole draws
 // a line through the time the band spent on the charger.
@@ -75,7 +75,7 @@ void main() {
       expect(m, hasLength(2));
     });
 
-    test('a meal with no time is never placed, and is not lost either', () {
+    test('a meal with no time is never placed', () {
       const timed = FoodEntry(
         id: 'a',
         date: '2026-08-14',
@@ -99,8 +99,6 @@ void main() {
         dayMoments(timeline: {'day_start': _day}, meals: [withTime]),
         hasLength(1),
       );
-      expect(dayNotes(meals: const [timed]), hasLength(1));
-      expect(dayNotes(meals: [withTime]), isEmpty);
     });
 
     test('a bare eating occasion carries no energy figure', () {
@@ -133,7 +131,7 @@ void main() {
     });
 
     test(
-      'a timed journal field lands at its own minute, an untimed one below',
+      'a timed journal field lands at its own minute, an untimed one does not',
       () {
         final m = dayMoments(
           timeline: {'day_start': _day},
@@ -145,31 +143,8 @@ void main() {
         );
         expect(m, hasLength(1));
         expect(m.single.at, _at(16, 40));
-        expect(
-          dayNotes(
-            journal: const {
-              'caffeine': JournalMetricValue(3, atMinuteOfDay: 100),
-              'alcohol': JournalMetricValue(2),
-            },
-            fields: kJournalFields,
-          ),
-          hasLength(1),
-        );
       },
     );
-
-    test('a journal row is read off tags_json, not tags', () {
-      final n = dayNotes(
-        journalRows: const [
-          {
-            'date': '2026-08-14',
-            'tags_json': '["travel","late meal"]',
-            'note': '',
-          },
-        ],
-      );
-      expect(n.single.detail, 'travel · late meal');
-    });
   });
 
   _graphTests();

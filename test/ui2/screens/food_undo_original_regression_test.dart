@@ -40,7 +40,11 @@ void main() {
           ),
         );
       }
-      await NutritionDb.reorderEntries(db, ['target', 'last', 'first']);
+      await NutritionDb.arrangeEntries(db, const [], [
+        'target',
+        'last',
+        'first',
+      ]);
       final app = AppState.forTesting()
         ..user = {}
         ..repo = LocalRepositoryImpl(getProfileMap: () => {});

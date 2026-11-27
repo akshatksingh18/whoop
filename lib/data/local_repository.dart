@@ -31,7 +31,6 @@ class RepositoryException implements Exception {
 abstract class LocalRepository {
   // ── profile ────────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getProfile();
-  Future<Map<String, dynamic>> setStepGoal(int goal);
 
   // ── today / summaries ────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getToday();
@@ -50,17 +49,6 @@ abstract class LocalRepository {
   Future<List<Map<String, dynamic>>> sleepWindows({
     int days = 60,
     String? before,
-  });
-
-  /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.
-  ///
-  /// Pass `includeDetected: false` when only saved sessions are wanted: the
-  /// detected half has to read every recent day bundle to find them, and those
-  /// rows carry the full hr_curve/hypnogram/HRV payload.
-  Future<List<Map<String, dynamic>>> getSessions({
-    int? from,
-    int? to,
-    bool includeDetected = true,
   });
 
   /// Cross-day analytics rollup (illness/anomaly/load/SRI/jetlag/chronotype/
@@ -87,8 +75,6 @@ abstract class LocalRepository {
   /// onset-to-wake window, read across every local day it touches (B86-03).
   /// Empty where unsupported; callers keep their day timeline then.
   Future<Map<String, dynamic>> getNightSignals(int onsetTs, int wakeTs);
-  Future<Map<String, dynamic>> getDayStress(String date);
-  Future<Map<String, dynamic>> getDayHeart(String date);
   Future<Map<String, dynamic>> getDayLungs(String date);
   Future<Map<String, dynamic>> getDayWear(String date);
 
@@ -100,23 +86,6 @@ abstract class LocalRepository {
   /// the same as a day with no naps, and reads differently).
   Future<Map<String, dynamic>> getDayNaps(String date);
   Future<Map<String, dynamic>> getDayHrv(String date);
-
-  /// The individual beat intervals behind [date]'s night — the substrate the
-  /// Poincaré plot on Beats is drawn from, artifact-corrected exactly the way
-  /// the pipeline corrected them.
-  ///
-  /// `nn` is the cleaned NN series in ms, in beat order; `rawBeats` is how many
-  /// intervals were read before correction, so a screen can state what it threw
-  /// away instead of implying the cloud is every beat of the night.
-  ///
-  /// EMPTY IS THE NORMAL STEADY STATE, not an error. `decoded_rr` is pruned at
-  /// `rawRetentionDays` behind the data edge, so the beats exist for the last
-  /// few nights and are gone forever after that — while every number computed
-  /// FROM them lives in the day bundle for good. A caller must render that as
-  /// "the beats are no longer on this phone", never as "no data".
-  Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
-    String date,
-  );
 
   /// [date]'s steps as the RESOLVED spans behind them — when each stretch was
   /// counted, by which sensor, and inside which session if any.
@@ -170,8 +139,6 @@ abstract class LocalRepository {
   /// where the shown method's inputs are known, otherwise kept and marked
   /// legacy. Returns how many rows were recalculated. Best-effort.
   Future<int> repairSessionCalorieBasis();
-  Future<Map<String, dynamic>> startWorkout(String type, {String? title});
-  Future<Map<String, dynamic>> endWorkout(String workoutId);
 
   /// Log a COMPLETED workout the athlete times themselves — one the band never
   /// detected, or detected too narrowly. Scored from the 1 Hz substrate over
@@ -201,20 +168,12 @@ abstract class LocalRepository {
   Future<WorkoutRoute?> getWorkoutRoute(String id);
 
   // ── journal + correlation engine ──────────────────────────────────────────────
-  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'});
 
   /// A selected day, including older nights outside the recent list window.
   Future<Map<String, dynamic>?> getJournalDay(String date);
 
   /// Atomically add tags, retaining the day's current note and other answers.
   Future<void> mergeJournalTags(String date, List<String> tags);
-
-  /// MIND-12 — does one day of the week actually cost you, on ONE outcome.
-  ///
-  /// Deliberately one outcome and not four: the omnibus + permutation gate pays
-  /// for having looked at seven weekdays, not for having also looked at four
-  /// metrics. Empty map when there is nothing to say.
-  Future<Map<String, dynamic>> getWeekdayEffect({String key = 'readiness'});
 
   /// One day's numeric journal fields, keyed by field name.
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date);

@@ -68,8 +68,8 @@ Future<void> _insertHr(
 }
 
 void main() {
-  // Pure fallback for the Today stress tile — mirrors getDayStress so the tile
-  // and the stress screen agree (the "stress pill has no number" fix).
+  // Pure fallback for the Today stress tile (the "stress pill has no number"
+  // fix).
   group('stressSummaryForToday', () {
     test('passes through a real SI-derived score', () {
       final out = stressSummaryForToday({

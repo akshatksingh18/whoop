@@ -212,31 +212,6 @@ abstract final class AppColors {
         return p.coralDeep; // max effort (Z5)
     }
   }
-
-  /// Zone colour for a surface that is ALWAYS dark, regardless of the user's
-  /// theme — today that means the live workout session screen, which paints on
-  /// [night]/[nightAlt] whether the app is in light or dark mode.
-  ///
-  /// Two separate legibility bugs are fixed here, both measured rather than
-  /// eyeballed (WCAG relative-luminance contrast against [nightAlt]):
-  ///
-  ///  1. Plain [zone] resolves the ACTIVE palette. With the app in LIGHT mode
-  ///     that returned hues tuned for contrast against white and painted them
-  ///     on near-black.
-  ///  2. Even on the dark palette, Z0 mapped to `cool` — which is a SURFACE
-  ///     token (a dark cool-grey panel), not an ink. As a foreground it
-  ///     measured **1.03:1** against nightAlt: literally invisible. And Z0 is
-  ///     the resting zone, i.e. exactly what is on screen at the start of
-  ///     every workout and whenever heart rate is low or absent.
-  ///
-  /// Z0 therefore uses `coolInk` — the token that already exists as "ink on
-  /// the cool surface" — measuring 9.76:1. The rest of the ramp was already
-  /// clear (5.7:1 – 8.9:1) and is unchanged.
-  ///
-  /// Guarded by a test that asserts every zone clears 3:1 on this surface, so
-  /// a future palette edit cannot silently reintroduce an invisible zone.
-  static Color zoneOnDark(int z) =>
-      z.clamp(0, 5) == 0 ? kDarkPalette.coolInk : zoneIn(kDarkPalette, z);
 }
 
 /// Spacing — 4-pt grid.

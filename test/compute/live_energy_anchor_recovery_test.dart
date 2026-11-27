@@ -20,13 +20,13 @@ void main() {
       () {
         final live = state(rhr: rhr);
         live.accrueHr(120);
-        expect(live.caloriesOrNull, isNull);
+        expect(live.calories, isZero);
         expect(live.meanHr, 120);
         expect(live.perMinuteHrDense(), [120.0]);
         live.restingHr = 60;
         live.elapsed = const Duration(seconds: 2);
         live.accrueHr(120);
-        expect(live.caloriesOrNull, isNotNull);
+        expect(live.calories, greaterThan(0));
         expect(live.calories, greaterThan(0));
         expect(live.meanHr, 120);
         expect(live.perMinuteHrDense(), [120.0]);
@@ -42,7 +42,7 @@ void main() {
         live.accrueHr(120);
         live.elapsed = const Duration(seconds: 2);
         live.accrueHr(120);
-        expect(live.caloriesOrNull, isNull);
+        expect(live.calories, isZero);
         expect(live.meanHr, 120);
         expect(live.perMinuteHrDense(), [120.0]);
         expect(live.hasSamplesAfter(const Duration(seconds: 1)), true);
@@ -57,11 +57,11 @@ void main() {
         live.accrueHr(120);
         live.elapsed = const Duration(seconds: 21);
         live.accrueHr(120);
-        expect(live.caloriesOrNull, isNotNull);
+        expect(live.calories, greaterThan(0));
         final before = live.calories;
         final bounded = live.boundedAt(Duration(seconds: end), (_) => 1);
         expect(bounded.elapsed, Duration(seconds: end));
-        expect(bounded.caloriesOrNull, isNull);
+        expect(bounded.calories, isZero);
         expect(bounded.meanHr, isNull);
         expect(bounded.perMinuteHrDense(), isEmpty);
         expect(bounded.hasSamplesAfter(Duration.zero), false);

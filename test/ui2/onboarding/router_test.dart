@@ -460,14 +460,6 @@ void main() {
   });
 
   group('a source row states what is measuring, not what is switched on', () {
-    HealthSource phone({bool connected = false}) => HealthSource(
-      name: 'This phone',
-      kind: '',
-      tier: SourceTier.phone,
-      icon: LucideIcons.smartphone,
-      connected: connected,
-    );
-
     HealthSource band({bool connected = true, bool syncing = false}) =>
         HealthSource(
           name: 'WHOOP 4.0',
@@ -478,21 +470,6 @@ void main() {
           syncing: syncing,
           isBand: true,
         );
-
-    test('the phone is a source only once steps have actually arrived', () {
-      // It used to say "Connected", unconditionally, while HealthKit was
-      // returning nothing — a confident claim of a source measuring nothing.
-      expect(sourceState(phone()), 'No steps arriving');
-      expect(sourceState(phone(connected: true)), 'Reporting steps');
-      // And it never says "connected" about a thing with no radio link.
-      expect(sourceState(phone(connected: true)), isNot(contains('onnected')));
-    });
-
-    test('an offload in progress is not an idle link', () {
-      expect(sourceState(band(syncing: true)), 'Syncing');
-      expect(sourceState(band()), 'Connected');
-      expect(sourceState(band(connected: false)), 'Not connected');
-    });
 
     testWidgets('a fault is named on the row, with its own fix', (
       tester,

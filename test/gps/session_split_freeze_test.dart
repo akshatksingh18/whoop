@@ -8,6 +8,7 @@ import 'package:whoop_companion/data/local_repository_impl.dart';
 import 'package:whoop_companion/gps/route_models.dart';
 import '../compute/prepare_handoff_test.dart' show raw;
 import '../support/coverage_store.dart';
+import '../support/store_fixtures.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -81,7 +82,7 @@ void main() {
             'net_elev_m': null,
           },
         ]);
-        final old = await LocalDb.workoutSplits(id);
+        final old = await splitRows(id);
         final repo = LocalRepositoryImpl(
           getProfileMap: () => {
             'age': 30,
@@ -93,7 +94,7 @@ void main() {
         );
         final first = await repo.getWorkout(id);
         expect(first['workout_id'] ?? first['id'], id);
-        final frozen = await LocalDb.workoutSplits(id);
+        final frozen = await splitRows(id);
         expect(
           frozen,
           hasLength(2),

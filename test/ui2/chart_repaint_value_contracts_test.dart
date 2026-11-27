@@ -1,4 +1,4 @@
-// Existing timeline/gallery painter consumers, through Flutter's real repaint
+// Existing timeline painter consumers, through Flutter's real repaint
 // dispatch. No dormant renderer, alternate screen mode or new layout is added.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,14 +22,6 @@ class ObservedPainter extends CustomPainter {
 }
 
 void main() {
-  final macro = MacroRing(.2, C.orange, const P(false).track);
-  final circadian = <List<double>?>[
-    [.2, .5],
-  ];
-  final spectrum = <double>[1, 2, 3];
-  final night = <List<double?>>[
-    [60, null, 70],
-  ];
   final gaps = <(double, double)>[(.1, .2)];
   final rest = <(double, double, Color)>[(.2, .4, C.blue)];
   final work = <(double, double, Color)>[(.5, .6, C.orange)];
@@ -48,37 +40,6 @@ void main() {
   );
 
   final cases = <(String, CustomPainter, CustomPainter, CustomPainter)>[
-    (
-      'gallery macro value',
-      macro,
-      MacroRing(.8, C.orange, const P(false).track),
-      MacroRing(.2, C.orange, const P(false).track),
-    ),
-    (
-      'gallery circadian rows',
-      Actogram(circadian, C.blue),
-      Actogram(<List<double>?>[
-        [.8, .9],
-      ], C.blue),
-      Actogram(circadian, C.blue),
-    ),
-    (
-      'gallery spectrum samples',
-      Spectrum(spectrum),
-      Spectrum(<double>[3, 2, 1]),
-      Spectrum(spectrum),
-    ),
-    (
-      'gallery night samples',
-      NightStack(night, [C.blue]),
-      NightStack(
-        <List<double?>>[
-          [65, null, 75],
-        ],
-        [C.blue],
-      ),
-      NightStack(night, [C.blue]),
-    ),
     ('timeline gaps', lane(), lane(g: [(.1, .3)]), lane()),
     ('timeline rest', lane(), lane(r: [(.2, .45, C.blue)]), lane()),
     ('timeline workouts', lane(), lane(w: [(.5, .7, C.orange)]), lane()),

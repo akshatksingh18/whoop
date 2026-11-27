@@ -28,6 +28,7 @@ import 'package:whoop_companion/data/journal_fields.dart';
 import 'package:whoop_companion/data/models.dart';
 import 'package:whoop_companion/sync/paired_device.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../support/store_fixtures.dart';
 
 /// The pre-v3 raw_records shape: keyed by frame hex, NO rec_ts column.
 const _legacyRawDdl = '''
@@ -884,7 +885,7 @@ void main() {
       if (stage == 'partial copy') {
         expect((await LocalDb.syncLedgerEntry('new-only'))!['kind'], 'diag');
       }
-      final before = await LocalDb.syncLedger();
+      final before = await syncLedgerRows();
       final db = await LocalDb.instance;
       expect(
         await db.rawQuery(
@@ -894,7 +895,7 @@ void main() {
       );
       await _openThroughLocalDb(name);
       expect(
-        await LocalDb.syncLedger(),
+        await syncLedgerRows(),
         before,
         reason: 'a second repair must not duplicate or redate migrated rows',
       );
@@ -1150,7 +1151,7 @@ void main() {
     expect(await LocalDb.journalMetricsForDay('2026-06-01'), isEmpty);
 
     // And the new tables are usable immediately, not on the next launch.
-    await LocalDb.putJournalMetrics('2026-06-01', {
+    await seedJournalMetrics('2026-06-01', {
       'mood': const JournalMetricValue(4),
     });
     expect(
@@ -1198,7 +1199,7 @@ void main() {
 
       // Each rung's table, exercised rather than merely present — a CREATE
       // that ran with a typo still leaves a table that nothing can write to.
-      await LocalDb.putJournalMetrics('2026-06-01', {
+      await seedJournalMetrics('2026-06-01', {
         'mood': const JournalMetricValue(4),
       });
       final db = await LocalDb.instance;
@@ -1402,8 +1403,8 @@ void main() {
 
       // 5 old rows → 4: the three distinct frames survive, the duplicate-hex
       // pair collapses to one. Nothing distinct was lost.
-      final stats = await LocalDb.rawArchiveStats();
-      expect(stats['count'], 4);
+      final stats = await rawArchiveCounts();
+      expect(stats.count, 4);
 
       // The migrated table is now hex-PK, proven end-to-end through the REAL
       // ladder (not just a fresh onCreate): two DISTINCT frames that reuse ONE
@@ -1426,7 +1427,7 @@ void main() {
           reason: 'undecodable_post_reboot',
         ),
       );
-      expect((await LocalDb.rawArchiveStats())['count'], 6);
+      expect((await rawArchiveCounts()).count, 6);
 
       // …and an identical re-flood still dedups on content.
       await LocalDb.archiveRawRecord(
@@ -1438,7 +1439,7 @@ void main() {
           reason: 'undecodable_post_reboot',
         ),
       );
-      expect((await LocalDb.rawArchiveStats())['count'], 6);
+      expect((await rawArchiveCounts()).count, 6);
 
       final health = await LocalDb.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
@@ -1922,7 +1923,7 @@ void main() {
     // The device store exists, is empty, and is not silently absent from the
     // health check — the observation table's rung is the worked example.
     expect(await LocalDb.deviceRow(), isNull);
-    expect(await LocalDb.deviceRows(), isEmpty);
+    expect(await (await LocalDb.instance).query('device'), isEmpty);
     final health = await LocalDb.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });

@@ -1,10 +1,7 @@
 // Component contracts the public constructors and seams permit. Authored
 // synthetic inputs only; no physical radio, OS delivery or native claim.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:whoop_companion/ble/accessory_setup.dart';
 import 'package:whoop_companion/data/day_label.dart';
-import 'package:whoop_companion/state/locale_controller.dart';
 import 'package:whoop_companion/ui2/profile/alarm.dart';
 import 'package:whoop_companion/ui2/screens/food_calendar.dart';
 import 'package:whoop_companion/ui2/screens/food_diary.dart' show shiftDay;
@@ -14,22 +11,6 @@ import '../support/localized_coverage.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(loadAuditFonts);
-
-  test('clearing a saved language removes the override', () async {
-    SharedPreferences.setMockInitialValues({'locale_override': 'es'});
-    final c = await LocaleController.bootstrap();
-    expect(c.code, 'es');
-    await c.setCode(null);
-    expect(c.code, isNull);
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('locale_override'), isNull);
-  });
-
-  test('accessory provisioning is iPhone-only', () async {
-    expect(await AccessorySetup.provisionedId(isIOS: false), isNull);
-    // The desktop/Linux test host is not an iPhone either.
-    expect(await AccessorySetup.provisionedId(), isNull);
-  });
 
   testWidgets('a public view given a time without an arm state shows Not set', (
     t,

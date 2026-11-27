@@ -33,17 +33,6 @@ class AccessorySetup {
     }
   }
 
-  /// The uppercased UUID of an already-provisioned WHOOP, or null if none. Lets the
-  /// pairing flow skip the picker when the band is already set up via ASK.
-  static Future<String?> provisionedId({bool? isIOS}) async {
-    if (!(isIOS ?? Platform.isIOS)) return null;
-    try {
-      return await _ch.invokeMethod<String>('provisionedId');
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// Show the ASK picker and return the provisioned band's CoreBluetooth UUID (use as
   /// PairedDevice.remoteId). Throws on cancel / error so the caller can surface it.
   static Future<String> showPicker() async {

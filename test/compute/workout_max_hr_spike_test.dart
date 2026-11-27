@@ -10,14 +10,11 @@
 //     getWorkouts both report the smoothed peak, never the raw spike, so the
 //     detail screen and the workout list agree.
 
-import 'dart:math' as math;
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:whoop_companion/compute/derivation_engine.dart';
 import 'package:whoop_companion/compute/hr_max.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/local_repository_impl.dart';
@@ -270,62 +267,6 @@ void main() {
       // hrCeilingForAge exists to drop impossible SAMPLES and carries headroom
       // above the estimate; folding the two together would clip real effort.
       expect(hrCeilingForAge(30), greaterThan(estimatedMaxHr(30, 'gen4')!));
-    });
-  });
-
-  // CV-08 — the one-sample "HR dropped 24 bpm" is noisy; tau fits the whole
-  // decay. It is NOT intensity-invariant and the gate abstains often, which is
-  // the point: it is published alongside HRR-60, never instead of it.
-  group('recoveryTau fits the decay or abstains', () {
-    List<int> tsOf(int n, {int t0 = 1750000000}) => <int>[
-      for (var i = 0; i < n; i++) t0 + i,
-    ];
-
-    test('recovers the time constant of a clean exponential decay', () {
-      const tau = 60.0, c = 70.0, a = 80.0;
-      final hr = <int>[
-        for (var i = 0; i < 200; i++) (c + a * math.exp(-i / tau)).round(),
-      ];
-      final got = DerivationEngine.recoveryTau(hr, tsOf(200), 0);
-      expect(got, isNotNull);
-      expect(got!, closeTo(tau, 8));
-    });
-
-    test('abstains on a tail that is not a single decay', () {
-      // A flat plateau then a cliff: one exponential cannot describe it, and
-      // the residual gate is what stops us publishing a number anyway.
-      final hr = <int>[
-        for (var i = 0; i < 100; i++) 150,
-        for (var i = 0; i < 100; i++) 70,
-      ];
-      expect(DerivationEngine.recoveryTau(hr, tsOf(200), 0), isNull);
-    });
-
-    test('abstains when there is no fall, and when the tail is short', () {
-      final flat = <int>[for (var i = 0; i < 200; i++) 120];
-      expect(DerivationEngine.recoveryTau(flat, tsOf(200), 0), isNull);
-      const tau = 60.0;
-      final short = <int>[
-        for (var i = 0; i < 70; i++) (70 + 80 * math.exp(-i / tau)).round(),
-      ];
-      expect(
-        DerivationEngine.recoveryTau(short, tsOf(70), 0),
-        isNull,
-        reason: '70 s of tail is one time constant of curve, not a fit',
-      );
-    });
-
-    test('a hole in the tail stops it, it never joins across the gap', () {
-      const tau = 60.0;
-      final hr = <int>[
-        for (var i = 0; i < 200; i++) (70 + 80 * math.exp(-i / tau)).round(),
-      ];
-      // 60 s of samples, then a five-minute hole.
-      final ts = <int>[
-        for (var i = 0; i < 60; i++) 1750000000 + i,
-        for (var i = 60; i < 200; i++) 1750000000 + i + 300,
-      ];
-      expect(DerivationEngine.recoveryTau(hr, ts, 0), isNull);
     });
   });
 }

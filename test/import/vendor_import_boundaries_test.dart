@@ -84,7 +84,7 @@ void main() {
         WhoopImporter.importFiles([path]),
         throwsA(isA<ImportFormatException>()),
       );
-      expect(await LocalDb.dayResultDayIdsDesc(), isEmpty);
+      expect(await (await LocalDb.instance).query('day_result'), isEmpty);
     },
   );
 }

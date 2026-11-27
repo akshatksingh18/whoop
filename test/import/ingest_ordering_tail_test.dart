@@ -55,7 +55,7 @@ void main() {
       expect(rows.single['steps'], 12);
       expect(rows.single['source'], isNot('phone'));
       expect(
-        await LocalDb.liveStepsForDay('2021-04-06'),
+        (await LocalDb.resolvedStepsForDay('2021-04-06')).total,
         0,
         reason: 'Retain the personal phone-only display policy',
       );

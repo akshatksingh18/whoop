@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:whoop_companion/ui2/energy_comparison.dart';
 import 'package:whoop_companion/ui2/theme.dart';
-import 'package:whoop_companion/ui2/activity/summary.dart';
-import 'package:whoop_companion/ui2/activity/catalogue.dart';
 import 'package:whoop_companion/ui2/activity/run_detail.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whoop_companion/compute/profile.dart';
@@ -88,21 +86,6 @@ void main() {
       closeTo(210, 1e-9),
     );
   });
-  test(
-    'session detail retains an estimate without assigning a supported method',
-    () {
-      final walk = ActivityResult(
-        allActivities.firstWhere((a) => a.typeKey == 'walking'),
-        start: DateTime(2025, 1, 1),
-        duration: const Duration(hours: 1),
-        calculationProfile: profile,
-        distanceKm: 3,
-      );
-      expect(walk.acsmCalories, isNull);
-      expect(walk.movementEstimateCalories, closeTo(105, 1e-9));
-      expect(walk.copyWith(movingSec: 3600).acsmCalories, closeTo(105, 1e-9));
-    },
-  );
   for (final scale in [1.0, 2.0, 3.1]) {
     testWidgets('energy methods and full labels fit at ${scale}x', (t) async {
       t.view.physicalSize = const Size(1170, 2532);

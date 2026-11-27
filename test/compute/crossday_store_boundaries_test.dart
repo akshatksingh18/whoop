@@ -7,6 +7,7 @@ import 'package:whoop_companion/compute/profile.dart';
 import 'package:whoop_companion/data/day_label.dart';
 import 'package:whoop_companion/data/db.dart';
 import '../support/coverage_store.dart';
+import '../support/store_fixtures.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -169,8 +170,8 @@ void main() {
         await day(label(39 - i), i);
       }
       // Only `start` markers count; another kind must not be read as one.
-      await LocalDb.putCycleLog(label(20), 'start');
-      await LocalDb.putCycleLog(label(10), 'authored-other');
+      await seedCycleLog(label(20), 'start');
+      await seedCycleLog(label(10), 'authored-other');
       expect(
         await DerivationEngine().rebuildCrossDay(
           const Profile(ageYears: 30, sex: 'f', heightCm: 170, weightKg: 70),

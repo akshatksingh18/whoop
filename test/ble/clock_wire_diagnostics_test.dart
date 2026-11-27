@@ -182,16 +182,15 @@ void main() {
       }
       stats
         ..onEvent()
-        ..onConsole()
-        ..onUnknown();
+        ..onConsole();
       expect(stats.intraBurstGapCount, 2);
       expect(stats.intraBurstMissing, 3);
       expect(stats.intraBurstBackward, 2);
       expect(stats.historicalPacketCount, 11);
       expect(stats.eventCount, 1);
       expect(stats.consoleCount, 1);
-      expect(stats.unknownCount, 3);
-      expect(stats.totalTrafficPacketCount, 16);
+      expect(stats.unknownCount, 2);
+      expect(stats.totalTrafficPacketCount, 15);
       expect(
         stats.sequenceSummary,
         'seqV18(gaps=1, missing=2, backward=1), seqV24(gaps=1, missing=1, backward=1)',

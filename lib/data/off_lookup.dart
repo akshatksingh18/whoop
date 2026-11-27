@@ -144,40 +144,6 @@ class OffProduct {
 
   final double? kcal, proteinG, carbsG, fatG, fibreG, sugarG, satFatG, sodiumMg;
 
-  /// Nothing survived the gates. The label is still worth having — it logs as
-  /// a bare eating occasion, which is a complete entry.
-  bool get isBare =>
-      kcal == null &&
-      proteinG == null &&
-      carbsG == null &&
-      fatG == null &&
-      fibreG == null;
-
-  /// The grams this form opens at.
-  double get defaultPortionG => servingG ?? 100;
-
-  /// The five numbers the log form has boxes for, scaled to [grams].
-  ///
-  /// Absent stays absent — scaling null is null, not zero.
-  ({
-    double? kcal,
-    double? proteinG,
-    double? carbsG,
-    double? fatG,
-    double? fibreG,
-  })
-  forPortion(double grams) {
-    final f = grams / 100;
-    double? s(double? v) => v == null ? null : v * f;
-    return (
-      kcal: s(kcal),
-      proteinG: s(proteinG),
-      carbsG: s(carbsG),
-      fatG: s(fatG),
-      fibreG: s(fibreG),
-    );
-  }
-
   /// The `food_def` row this caches as. The dictionary table already has a
   /// column for every field OFF returns, so the cache is that table and not a
   /// second one.

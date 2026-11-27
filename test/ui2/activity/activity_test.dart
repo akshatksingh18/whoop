@@ -214,11 +214,6 @@ void main() {
       // what this row means.
       final general = activityByName('general_workout')!;
       expect(general.met, isNull);
-      expect(
-        general.kcal(80, 45),
-        isNull,
-        reason: 'a weight is not enough to price an unnamed session',
-      );
       expect(general.track, Track.duration);
     });
 
@@ -233,18 +228,6 @@ void main() {
       expect(activityByName('weight_training')?.track, Track.sets);
       expect(activityByName('underwater basket weaving'), isNull);
       expect(activityByName(null), isNull);
-    });
-
-    test('kcal is MET × 3.5 × kg / 200 × min, and null without a weight', () {
-      final run = activityByName('running')!;
-      // 9.8 × 3.5 × 70 / 200 × 30 = 360.15
-      expect(run.kcal(70, 30), 360);
-      expect(run.kcal(null, 30), isNull);
-      expect(
-        run.kcal(0, 30),
-        isNull,
-        reason: 'a zero weight is a missing weight, not a weightless user',
-      );
     });
   });
 

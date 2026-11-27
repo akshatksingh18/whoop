@@ -572,7 +572,6 @@
     "test/data/mt12_dyn_accel_test.dart": 1.615,
     "test/compute/nap_attribution_test.dart": 1.618,
     "test/compute/nap_edits_test.dart": 1.354,
-    "test/data/night_beats_repo_test.dart": 2.233,
     "test/compute/nightly_sweep_test.dart": 1.923,
     "test/contracts/no_debug_only_apis_test.dart": 1.438,
     "test/sync/no_durable_progress_escalation_test.dart": 1.298,

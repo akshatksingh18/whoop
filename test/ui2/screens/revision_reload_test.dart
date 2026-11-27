@@ -24,6 +24,7 @@ import 'package:whoop_companion/data/db.dart';
 import '../../support/test_local_repository.dart';
 import 'package:whoop_companion/state/app_state.dart';
 import 'package:whoop_companion/state/prefs.dart';
+import 'package:whoop_companion/l10n/app_localizations.dart';
 import 'package:whoop_companion/state/locale_controller.dart';
 import 'package:whoop_companion/ui2/screens/screens.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
@@ -67,6 +68,8 @@ Future<void> _settle(WidgetTester t) async {
 
 Widget _app(AppState app, {LocaleController? locale}) => MaterialApp(
   theme: buildTheme(Brightness.light),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   home: MultiProvider(
     providers: [
       ChangeNotifierProvider<AppState>.value(value: app),
@@ -170,7 +173,7 @@ void main() {
     await _settle(t);
   });
 
-  testWidgets('a language switch reaches the live tab', (t) async {
+  testWidgets('a system language switch reaches the live tab', (t) async {
     t.view.physicalSize = const Size(390 * 3, 2400 * 3);
     t.view.devicePixelRatio = 3;
     addTearDown(t.view.reset);
@@ -188,12 +191,14 @@ void main() {
     final reads = repo.reads;
     expect(reads, greaterThan(0));
 
-    // Nothing wrote underneath the screen — only the language changed.
+    // Nothing wrote underneath the screen — only the phone's language changed.
     // `NutritionData` bakes `AppLocalizations` strings into what it reads, so
     // this has to reach the screen exactly like a durable write does, or a
     // switch to Spanish leaves English on screen until something else forces
     // a reload.
-    await locale.setCode('es');
+    t.platformDispatcher.localesTestValue = const [Locale('es')];
+    addTearDown(t.platformDispatcher.clearLocalesTestValue);
+    await t.pump();
     await _untilTrue(t, () => repo.reads > reads);
 
     expect(

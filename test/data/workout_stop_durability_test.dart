@@ -99,20 +99,22 @@ void main() {
         app.publishSessionChange();
       },
     );
+    const id = 'authored-private';
+    await LocalDb.putSession({
+      'id': id,
+      'type': 'walk',
+      'start_ts': 1617710000,
+      'end_ts': 1617711000,
+      'status': 'done',
+      'source': 'manual',
+      'created_at': 1,
+    });
     await db.execute('ALTER TABLE sessions RENAME TO sessions_hidden');
-    await expectLater(repo.startWorkout('walk'), throwsA(anything));
+    await expectLater(repo.setWorkoutPrivate(id, true), throwsA(anything));
     expect(signals, 0);
     await db.execute('ALTER TABLE sessions_hidden RENAME TO sessions');
-    final result = await repo.startWorkout('walk');
-    final id = result['workout_id'] as String;
-    expect((await LocalDb.session(id))?['status'], 'live');
-    expect(signals, 1);
     await repo.setWorkoutPrivate(id, true);
-    expect(signals, 2);
-    await repo.endWorkout(id);
-    expect((await LocalDb.session(id))?['status'], 'done');
-    expect(signals, 3);
-    await repo.endWorkout(id);
-    expect(signals, 3, reason: 'an unchanged row does not publish again');
+    expect((await LocalDb.session(id))?['private'], 1);
+    expect(signals, 1);
   });
 }

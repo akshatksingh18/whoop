@@ -8,7 +8,6 @@ import 'package:whoop_companion/compute/derivation_engine.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/day_label.dart';
 import 'package:whoop_companion/data/local_repository_impl.dart';
-import 'package:whoop_companion/data/local_repository.dart';
 import 'package:whoop_companion/state/prefs.dart';
 
 Map<String, Object?> env(Object? value) => {
@@ -168,25 +167,14 @@ void main() {
   }
 
   test(
-    'Today and Heart share the stored night, provenance and personal baseline',
+    'Today reads the stored night, provenance and personal baseline',
     () async {
       await seed();
-      final today = await repo.getToday(), heart = await repo.getDayHeart(day);
+      final today = await repo.getToday();
       expect((today['daily'] as Map)['recovery']['value'], 72);
       expect((today['sleep'] as Map)['duration_min']['value'], 420);
       expect((today['sleep'] as Map)['need_min']['value'], 480);
       expect(today['hrv']['baseline'], 50);
-      expect(heart['resting_hr'], 50);
-      expect(heart['avg_hr'], 65);
-      expect(heart['max_hr'], 75);
-      expect(heart['hrv']['lf_hf'], 1.23);
-      expect(heart['hrv']['baseline'], 50);
-      expect(heart['nocturnal']['vs_baseline_bpm'], -2);
-      expect(
-        heart['skin_temp']['value'],
-        isNull,
-        reason: 'unconfirmed optical fields remain absent',
-      );
     },
   );
   test(
@@ -228,22 +216,6 @@ void main() {
       expect(wear['worn_min'], 1350);
       expect(wear['coverage_pct'], 94);
       expect(wear['segments'], hasLength(1));
-    },
-  );
-  test(
-    'stress exposes actual stress only and does not manufacture a score from recovery',
-    () async {
-      payload['stress'] = {'score': 31, 'si': 44, 'level': 'low'};
-      await seed();
-      final stress = await repo.getDayStress(day);
-      expect(stress['stress']['score'], 31);
-      expect(stress['stress']['si'], 44);
-      expect(stress['drivers'], [
-        {'label': 'Synthetic driver', 'detail': 'Synthetic explanation'},
-      ]);
-      payload.remove('stress');
-      await seed();
-      expect((await repo.getDayStress(day))['stress']['score'], isNull);
     },
   );
   test(
@@ -293,41 +265,12 @@ void main() {
             'illness': {'flag': true},
           }),
         );
-        final sleep = await repo.getDaySleep(day),
-            heart = await repo.getDayHeart(day);
+        final sleep = await repo.getDaySleep(day);
         expect(sleep.containsKey('need_min'), isFalse);
-        expect(heart['illness'], isNull);
         expect((await repo.getInsights())['stale'], isNotNull);
       },
     );
   }
-  for (final goal in [499, 100001]) {
-    test('step target $goal is rejected without a profile writer', () async {
-      await expectLater(
-        repo.setStepGoal(goal),
-        throwsA(isA<RepositoryException>()),
-      );
-    });
-  }
-  test(
-    'step target requires a writer and returns only its acknowledged result',
-    () async {
-      await expectLater(
-        repo.setStepGoal(8000),
-        throwsA(isA<RepositoryException>()),
-      );
-      Map<String, dynamic>? written;
-      final writer = LocalRepositoryImpl(
-        getProfileMap: () => {},
-        saveProfileFields: (m) async {
-          written = m;
-          return m;
-        },
-      );
-      expect(await writer.setStepGoal(9000), {'step_goal': 9000});
-      expect(written, {'step_goal': 9000});
-    },
-  );
 }
 
 String shiftDayLabel(String label, int by) {

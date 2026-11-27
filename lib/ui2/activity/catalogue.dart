@@ -87,15 +87,6 @@ class Activity {
     this.storedType,
   });
 
-  /// kcal = MET × 3.5 × kg / 200 × minutes.
-  ///
-  /// Null when body weight is unknown, and null when the activity carries no
-  /// MET. There is no default for either: both numbers would be
-  /// indistinguishable from a real one on screen.
-  int? kcal(double? kg, int minutes) => kg == null || kg <= 0 || met == null
-      ? null
-      : (met! * 3.5 * kg / 200 * minutes).round();
-
   /// The stored `sessions.type` for this activity.
   String get typeKey => storedType ?? name.toLowerCase().replaceAll(' ', '_');
 }

@@ -13,6 +13,7 @@ import 'package:whoop_companion/state/units_controller.dart';
 import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../ui2/screens/nutrition_root_test.dart' show io;
+import '../support/store_fixtures.dart';
 import '../support/audit_visual.dart';
 import '../support/coverage_store.dart';
 import '../support/localized_coverage.dart';
@@ -55,7 +56,7 @@ void main() {
         (t) async {
           final date = historical ? '2021-04-06' : todayLabel();
           await t.runAsync(
-            () => LocalDb.putJournalMetrics(date, {
+            () => seedJournalMetrics(date, {
               'weight_kg': const JournalMetricValue(70),
               'caffeine': const JournalMetricValue(0, atMinuteOfDay: 0),
             }),

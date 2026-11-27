@@ -21,7 +21,6 @@
 // one fact the entry is missing. They go in their own block underneath, which
 // says what it is.
 
-import 'dart:convert' show jsonDecode;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -328,64 +327,6 @@ List<Moment> dayMoments({
   });
 
   out.sort((a, b) => a.at.compareTo(b.at));
-  return out;
-}
-
-/// Logged for the day, with no time on it. Same sources, opposite branch.
-List<DayNote> dayNotes({
-  List<FoodEntry> meals = const [],
-  Map<String, JournalMetricValue> journal = const {},
-  List<JournalFieldSpec> fields = const [],
-  List<Map<String, dynamic>> journalRows = const [],
-  AppLocalizations? l,
-}) {
-  final out = <DayNote>[];
-  for (final r in journalRows) {
-    final note = (r['note'] as String?)?.trim() ?? '';
-    // `tags_json`, not `tags` — the column holds a JSON list and a reader that
-    // asked for the wrong name got null and silently dropped every tagged day
-    // whose note was empty.
-    final tags = <String>[];
-    try {
-      final j = jsonDecode((r['tags_json'] as String?) ?? '[]');
-      if (j is List) tags.addAll([for (final t in j) t.toString()]);
-    } catch (_) {
-      /* a malformed row loses its tags, not the note */
-    }
-    if (note.isEmpty && tags.isEmpty) continue;
-    out.add(
-      DayNote(
-        note.isEmpty ? (l?.dayTimelineTaggedTitle ?? 'Tagged') : note,
-        tags.join(' · '),
-        LucideIcons.notebookPen,
-      ),
-    );
-  }
-  final specs = {for (final f in fields) f.key: f};
-  journal.forEach((key, v) {
-    if (v.atMinuteOfDay != null) return;
-    final spec = specs[key];
-    out.add(
-      DayNote(
-        spec?.label ?? key.replaceAll('_', ' '),
-        spec?.formatWithUnit(v.value) ?? journalNumber(v.value),
-        LucideIcons.clipboardList,
-      ),
-    );
-  });
-  for (final m in meals) {
-    if (m.atTs != null) continue;
-    out.add(
-      DayNote(
-        m.label.isEmpty ? m.meal : m.label,
-        [
-          if (m.meal.isNotEmpty) m.meal,
-          if (m.kcal != null) '${m.kcal!.round()} kcal',
-        ].join(' · '),
-        LucideIcons.utensils,
-      ),
-    );
-  }
   return out;
 }
 

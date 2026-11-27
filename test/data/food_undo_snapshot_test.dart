@@ -44,7 +44,10 @@ void main() {
         ),
       );
     }
-    await NutritionDb.reorderEntries(db, ['authored-sibling', target]);
+    await NutritionDb.arrangeEntries(db, const [], [
+      'authored-sibling',
+      target,
+    ]);
     await db.update(
       'food_entry',
       {'created_at': 1234, 'updated_at': 5678},

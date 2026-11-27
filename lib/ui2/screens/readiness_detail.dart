@@ -58,7 +58,7 @@ class ReadinessData {
   final String? heldOverNight;
 
   /// DENSE — one slot per calendar day, `null` where no score was stored. The
-  /// chart under it is dated, and `seriesOf` (values only) cannot date
+  /// chart under it is dated, and a values-only series cannot date
   /// anything: a five-point series from five scattered weeks used to be drawn
   /// as five consecutive days.
   final List<double?> series;

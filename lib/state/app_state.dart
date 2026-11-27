@@ -1148,7 +1148,6 @@ class AppState extends ChangeNotifier {
     _deriveScheduler.setBackground(_background);
     repo = LocalRepositoryImpl(
       getProfileMap: () => user,
-      saveProfileFields: updateProfile,
       onSessionChanged: publishSessionChange,
     );
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
@@ -1785,26 +1784,6 @@ class AppState extends ChangeNotifier {
       napRebuilding = false;
       notifyListeners();
     }
-  }
-
-  Future<List<Map<String, dynamic>>> dataHistoryDays() =>
-      LocalDb.dataHistoryDays();
-
-  Future<String> exportDaysDb(Set<String> dayIds) =>
-      LocalDb.exportDaysDb(dayIds);
-
-  Future<int> deleteDays(Set<String> dayIds) async {
-    final deleted = await LocalDb.deleteDays(dayIds);
-    await LocalDb.refreshComputeFreshness();
-    lastSynced = await LocalDb.latestSample();
-    // Deleting days is a durable write like any other, so the screens holding a
-    // cached read have to be told. `notifyListeners()` alone leaves a
-    // RevisionReload screen showing days that are gone until some unrelated
-    // bump or a restart — and this is the one write where the stale copy is of
-    // data the user explicitly asked to destroy.
-    if (deleted > 0) bumpInsights();
-    notifyListeners();
-    return deleted;
   }
 
   /// Debounced "new data stored" callback from the engine (continuous listening has
@@ -3714,8 +3693,6 @@ class AppState extends ChangeNotifier {
     _foregroundLease = null;
   }
 
-  String get status => device.connection;
-
   final SyncActivityWindow _syncActivity = SyncActivityWindow();
 
   /// Fires once when the activity window closes. `syncingNow` decays on
@@ -4796,8 +4773,8 @@ class LiveWorkoutState {
   /// Live kcal for the bout so far, by the legacy bout scorer's GROSS rates
   /// (resting energy included). Internal: since Build 90 nothing stores or
   /// shows it — the saved and displayed figure is `AppState.workoutActiveKcal`
-  /// (active energy). Zero here is ambiguous on its own — read
-  /// [caloriesOrNull] if it is ever surfaced.
+  /// (active energy). Zero here is ambiguous on its own (an uncosted bout reads
+  /// the same), so surfacing it needs an absent case first.
   ///
   /// RECOMPUTED from the retained per-minute series on every sample, not
   /// accrued. Same reason [strain] is: [restingHr] is loaded asynchronously and
@@ -4806,22 +4783,6 @@ class LiveWorkoutState {
   /// incremental tally could only ever have corrected the seconds after the
   /// anchor arrived, leaving the earlier ones scored against a guess.
   double calories = 0.0;
-
-  /// Whether the calorie estimate has run even once this session.
-  ///
-  /// Separate from [Profile.hasCalorieAnchors] because "can we score this" and
-  /// "did we score this" are different questions and both have a zero-shaped
-  /// answer. A complete profile whose band never delivered a heart rate — the
-  /// link dropped, the strap was off — accrues nothing, and reporting that as
-  /// 0 kcal claims a measurement that was never taken. Strain already reports
-  /// that case as absent; this makes calories agree.
-  bool _caloriesScored = false;
-
-  /// Live kcal, or null when this session cannot be costed at all — the
-  /// profile lacks the anchors Keytel needs, no resting HR has arrived to set
-  /// the bout gate, or no heart rate ever landed. Absent beats fabricated, and
-  /// absent also beats a confident zero.
-  int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
 
   /// The activity's catalogue MET, when the session was started from the
   /// picker; null for a resumed or gesture-started session (heart rate only).
@@ -4871,7 +4832,6 @@ class LiveWorkoutState {
     // The re-score refuses to invent a 220/60 anchor pair, so neither does
     // this. A resting HR landing later re-scores the whole bout.
     if (!profile.hasCalorieAnchors || rhr == null || maxHr == null) {
-      _caloriesScored = false;
       calories = 0.0;
       return;
     }
@@ -4885,12 +4845,10 @@ class LiveWorkoutState {
     // exactly as the re-score does.
     final gate = ana.Calories.activeGateHr(maxHr, rhr);
     if (gate == null) {
-      _caloriesScored = false;
       calories = 0.0;
       return;
     }
     if (_secondsByBpm.isEmpty && _lastSampleHr == null) {
-      _caloriesScored = false;
       calories = 0.0;
       return;
     }
@@ -4932,7 +4890,6 @@ class LiveWorkoutState {
     if (trailing != null) bill(trailing, 1.0);
 
     calories = kcal;
-    _caloriesScored = true;
   }
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the

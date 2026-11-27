@@ -1,4 +1,4 @@
-// getSessions: the saved sessions table, newest first — and nothing else.
+// getWorkouts: the saved sessions table, newest first — and nothing else.
 //
 // This file used to test a MERGE with `detected_workouts` out of each recent
 // day bundle. That key was a permanently-empty stub, the derivation has stopped
@@ -32,7 +32,7 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  test('getSessions returns the saved sessions newest-first, and never revives '
+  test('getWorkouts returns the saved sessions newest-first, and never revives '
       "a legacy bundle's detected_workouts", () async {
     final repo = LocalRepositoryImpl(getProfileMap: () => const {});
 
@@ -78,14 +78,10 @@ void main() {
       windowJson: '{}',
     );
 
-    final sessions = await repo.getSessions();
+    final sessions = ((await repo.getWorkouts())['workouts'] as List)
+        .cast<Map<String, dynamic>>();
     expect(sessions.map((s) => s['id']), ['manual2', 'manual1']);
     expect(sessions.any((s) => s['source'] == 'auto'), isFalse);
-
-    // The flag is part of the repository interface and callers still pass it;
-    // there is no detected half left for it to exclude.
-    final savedOnly = await repo.getSessions(includeDetected: false);
-    expect(savedOnly.map((s) => s['id']), ['manual2', 'manual1']);
   });
 }
 

@@ -17,7 +17,6 @@ import 'dart:async';
 import 'dart:convert';
 import '../compute/streak.dart' show StepGoals;
 import 'nap_ledger.dart';
-import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
@@ -44,28 +43,13 @@ import 'profile_history.dart';
 import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
-  LocalRepositoryImpl({
-    required this.getProfileMap,
-    this.saveProfileFields,
-    this.onSessionChanged,
-  });
+  LocalRepositoryImpl({required this.getProfileMap, this.onSessionChanged});
 
   /// AppState's post-commit session signal; absent in a headless process.
   final void Function()? onSessionChanged;
 
   /// Reads the live AppState profile map (age/weight/height/sex/step_goal…).
   final Map<String, dynamic>? Function() getProfileMap;
-
-  /// Merges a patch into the stored profile and returns the new map — i.e.
-  /// `AppState.updateProfile`, which is the only writer of that map.
-  ///
-  /// NULL in a process that has no AppState (the iOS background task), and a
-  /// write there FAILS rather than returning a map nobody stored. That is the
-  /// whole P2 bug: [setStepGoal] used to build the merged map, return it, and
-  /// persist nothing — so the coach's `set_step_goal` reported success to the
-  /// user on every call and the goal never moved off 8 000.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)?
-  saveProfileFields;
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -115,8 +99,8 @@ class LocalRepositoryImpl extends LocalRepository {
   /// safe to show ([crossDayStaleReason]).
   ///
   /// The gate lives HERE and not in `getInsights`, because five other seams on
-  /// this class read the same artifact (`getDayHeart`, the sleep-debt block,
-  /// the load block …). Gating one caller would have left the other five
+  /// this class read the same artifact (the sleep-debt block, the load block
+  /// …). Gating one caller would have left the other five
   /// serving the numbers the gate exists to withhold.
   Future<Map<String, dynamic>?> _crossDay() async {
     final a = await _crossDayArtifact();
@@ -194,11 +178,6 @@ class LocalRepositoryImpl extends LocalRepository {
     return v is num ? v : null;
   }
 
-  /// Round a display value to 2dp without upgrading an int to a double —
-  /// used where a raw analytics metric (e.g. round6()'d lf_hf) would
-  /// otherwise render with far more precision than its sibling scalars.
-  num? _round2(num? v) => v == null ? null : num.parse(v.toStringAsFixed(2));
-
   /// A bare metric from a scalar (used where a screen reads a number directly).
   /// An optional [note] (e.g. a `need_baseline:…` string) is carried through so
   /// the UI can render "Need N more nights" for baseline-gated abstentions.
@@ -271,27 +250,6 @@ class LocalRepositoryImpl extends LocalRepository {
       ...p,
       'step_goal': (p['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
     };
-  }
-
-  /// Persist the daily step goal.
-  ///
-  /// [goal] arrives from a caller that may be an LLM (the coach's
-  /// `set_step_goal`), so it is bounded here rather than trusted: a step goal
-  /// is a target a person walks to, and a four-digit typo would sit on Home
-  /// forever with no screen to correct it. The steps detail screen's
-  /// `_StepGoalGauge` (metric_detail.dart) writes the same field directly
-  /// through `AppState.updateProfile` with the same bound, rather than
-  /// through this method.
-  @override
-  Future<Map<String, dynamic>> setStepGoal(int goal) async {
-    if (goal < 500 || goal > 100000) {
-      throw RepositoryException(400, 'A step goal of $goal is not a real one.');
-    }
-    final save = saveProfileFields;
-    if (save == null) {
-      throw RepositoryException(500, 'This process cannot change the profile.');
-    }
-    return save({'step_goal': goal});
   }
 
   // ── today ─────────────────────────────────────────────────────────────────
@@ -500,7 +458,7 @@ class LocalRepositoryImpl extends LocalRepository {
         : {
             'rmssd': rmssd,
             'sdnn': _scalar(b, 'sdnn'),
-            // Same baseline getDayHeart emits. Without it TodayData.hrv.baseline
+            // The trailing rMSSD baseline. Without it TodayData.hrv.baseline
             // was always null, WidgetService pushed -1, and the HRV ring on the
             // widget and the Watch could never fill on any day.
             'baseline': (await _seriesMean('rmssd'))?.round(),
@@ -836,57 +794,6 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── day drill-downs ─────────────────────────────────────────────────────────
 
   @override
-  Future<Map<String, dynamic>> getDayHeart(String date) async {
-    final b = await _dayBundle(date);
-    if (b == null) return const {};
-    final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
-    final rmssd = _scalar(b, 'rmssd');
-    final cd = await _crossDay();
-    return {
-      'hr': hrCurve, // [{t, v}] — detail_cards reads e['v']
-      'resting_hr': _scalar(b, 'rhr')?.round(),
-      'recovery': _scalar(b, 'readiness'),
-      'avg_hr': _avgHr(hrCurve),
-      'max_hr': _maxHr(hrCurve),
-      'hrv': {
-        if (rmssd != null) 'rmssd': rmssd.round(),
-        'sdnn': _scalar(b, 'sdnn')?.round(),
-        'baseline': (await _seriesMean('rmssd'))?.round(),
-        // HRV stability (CV %) + LF/HF — both now computed.
-        'cv': _sub(b, 'clinical')?['cv'],
-        // Rounded to 2dp for display — the raw clinical metric is round6()'d
-        // in analytics, which read as a raw-looking "0.354402" next to the
-        // whole-number RMSSD/SDNN beside it. Only consumer is this HRV group
-        // (detail_cards.dart HeartDayContent), so rounding at the source here
-        // is safe.
-        'lf_hf': _round2(_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?),
-      },
-      // Poincaré irregular-beat screen (sd1/sd2/flag/confidence).
-      'irregular': _sub(b, 'clinical')?['irregular'],
-      // 24/7 irregular-rhythm SCREEN over whole-day RR (the headline screen).
-      'irregular_24h': _sub(b, 'clinical')?['irregular_24h'],
-      // Breathing-rate variability (within-user trend).
-      'brv': _sub(b, 'clinical')?['brv'],
-      // Mean heart-rate recovery across the day's detected/saved bouts (bpm/60s).
-      'hrr': _scalar(b, 'hrr_bpm'),
-      // Winsorized-EWMA personal baselines (rhr/hrv/resp/skin_temp) — robust
-      // center + spread + z + cold-start status for each.
-      'baselines': b['baselines'],
-      // Waking ultradian HRV timeline (RMSSD over the day, outside sleep).
-      'daytime_hrv': b['daytime_hrv'],
-      'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
-      'resp': _respObj(b),
-      // 'spo2' (oxygen dips) moved to _daySleep()/getDaySleep — it's an
-      // overnight signal, grouped with the Sleep tab's nocturnal numbers now,
-      // not shown on the Heart tab anymore.
-      // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
-      // baseline is short, so the card can say "Need N more nights".
-      'illness': cd?['illness'],
-      'skin_temp': await _skinTempBlock(b),
-    };
-  }
-
-  @override
   Future<Map<String, dynamic>> getDayHrv(String date) async {
     final b = await _bundleForDate(date);
     if (b == null) return const {};
@@ -906,11 +813,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'hrv_freq': _sub(b, 'clinical.hrv_freq'),
       'prsa_dc': _sub(b, 'clinical.prsa_dc'),
       'prsa_ac': _sub(b, 'clinical.prsa_ac'),
-      // The SLEEP-window Poincaré screen — sd1/sd2/flag over the same beats
-      // `getNightBeats` returns, which is what makes it legal to print these
-      // two numbers beside that scatter. (`clinical.irregular_24h`, served by
-      // `getDayHeart`, is the WHOLE-DAY screen and a different set of beats;
-      // the two must never be mixed on one picture.)
+      // The SLEEP-window Poincaré screen — sd1/sd2/flag over the night's
+      // beats. (`clinical.irregular_24h` is the WHOLE-DAY screen and a
+      // different set of beats; the two must never be mixed on one picture.)
       'irregular': _sub(b, 'clinical.irregular'),
       // Beats read, beats that survived correction, and the surviving fraction
       // — the denominator for everything above. Pure re-exposure of a block
@@ -926,49 +831,6 @@ class LocalRepositoryImpl extends LocalRepository {
       // computation and no extra decode (it is on the bundle already in hand).
       'night_shape': b['hrv_night_shape'],
     };
-  }
-
-  /// The night's beats, corrected. See [LocalRepository.getNightBeats].
-  ///
-  /// Reads `window_json` — the small sibling column — rather than decoding the
-  /// payload: the sleep window is the only thing needed to bound the query, and
-  /// this is the one method on this class that goes back to the raw decoded
-  /// store at all. `[onset_ms, offset_ms]` is exactly the span the pipeline
-  /// sliced `sleepRrMs` from, so the count this returns matches the bundle's
-  /// own `coverage.rr_beats` on a day whose raw survives.
-  ///
-  /// THE EXACT DAY, never the Today fallback: a scatter borrowed from another
-  /// night and drawn under this night's date is the worst failure this screen
-  /// has available to it.
-  @override
-  Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
-    String date,
-  ) async {
-    const none = (nn: <double>[], rawBeats: 0, cleanFraction: 0.0);
-    final row = await LocalDb.dayResult(date);
-    final w = row == null
-        ? null
-        : jsonDecode(row['window_json'] as String? ?? '{}');
-    if (w is! Map) return none;
-    final on = w['onset_ms'] as num?, off = w['offset_ms'] as num?;
-    if (on == null || off == null || off <= on) return none;
-    // rr_ts_ms == rec_ts * 1000, so `rec_ts >= ceil(on/1000)` and
-    // `rec_ts <= floor(off/1000)` is the same set of beats as bounding on
-    // rr_ts_ms directly — no beat either side of the window sneaks in.
-    final rows = await LocalDb.decodedRrByRecTsRange(
-      fromRecTs: (on / 1000).ceil(),
-      toRecTs: (off / 1000).floor(),
-    );
-    final ts = <double>[], rr = <double>[];
-    for (final r in rows) {
-      final t = r['rr_ts_ms'] as num?, v = r['rr_ms'] as num?;
-      if (t == null || v == null) continue;
-      ts.add(t.toDouble());
-      rr.add(v.toDouble());
-    }
-    if (rr.length < 2) return none;
-    final c = ana.correctRr(rr, rrTsMs: ts);
-    return (nn: c.nn, rawBeats: rr.length, cleanFraction: c.cleanFraction);
   }
 
   @override
@@ -1114,10 +976,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'charging': b['sleep_charging'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
-      // Oxygen dips (SpO2/ODI) — moved here from getDayHeart's payload: an
-      // overnight signal belongs with the rest of this night's numbers, not
-      // a general daytime heart metric. Pure re-exposure of the same bundle
-      // field getDayHeart already read; no new computation.
+      // Oxygen dips (SpO2/ODI): an overnight signal belongs with the rest of
+      // this night's numbers, not a general daytime heart metric. Pure
+      // re-exposure of the bundle field; no new computation.
       'spo2': b['spo2'],
       // Sleep need, and the debt against it — both only when the need was
       // actually learned (`sleep_coach.need`, see [_sleepNeedMin]; it is the
@@ -1528,71 +1389,6 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> getDayStress(String date) async {
-    // Stress = the pipeline's Baevsky Stress Index block (resting autonomic
-    // tension; transparent RR-histogram metric → 0–100 score). No fallback: the
-    // score stays null when the SI is absent, so the screen renders "—" (the old
-    // `100 - readiness` imputation was removed). Nocturnal arousal isn't computed,
-    // so `sleep_stress` is intentionally absent (the screen handles it).
-    final b = await _dayBundle(date);
-    if (b == null) return const {};
-
-    final stressBlk = b['stress'] is Map
-        ? (b['stress'] as Map).cast<String, dynamic>()
-        : null;
-    num? score = (stressBlk?['score'] as num?);
-    String? level = stressBlk?['level'] as String?;
-    final si = (stressBlk?['si'] as num?);
-    // NO fallback here. `100 - readiness` used to backfill a "stress" number
-    // whenever the real Baevsky SI was absent — fabricating a score from an
-    // unrelated metric, which violates the "absent input -> null, never
-    // imputed" rule and is exactly why a user with no overnight SI could see
-    // a confident-looking stress score anyway. `hasStress` downstream (see
-    // stress_screen.dart) already gates the hero UI on `score is num`, so
-    // leaving score/level null here correctly renders as "-".
-
-    final lfHf =
-        (stressBlk?['lf_hf'] as num?) ??
-        (_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?);
-    final rmssd = (stressBlk?['rmssd'] as num?) ?? _scalar(b, 'rmssd');
-    final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
-
-    // Drivers from the cross-day glass-box readiness, when present.
-    final drivers = <Map<String, dynamic>>[];
-    final cd = await _crossDay();
-    final gb = cd?['readiness_glassbox'];
-    final gbDrivers = gb is Map ? (gb['drivers'] as List?) : null;
-    if (gbDrivers != null) {
-      for (final d in gbDrivers) {
-        if (d is Map) {
-          final label = (d['label'] ?? '').toString();
-          if (label.isEmpty) continue;
-          drivers.add({
-            'label': label,
-            'detail': (d['detail'] ?? '').toString(),
-          });
-        }
-      }
-    }
-
-    return {
-      'stress': {
-        'score': score,
-        'si': si,
-        'lf_hf': lfHf,
-        'rmssd': rmssd,
-        'level': level,
-      },
-      'hr': hrCurve,
-      'drivers': drivers,
-      // Nocturnal restlessness (movement fragmentation) + waking ultradian HRV,
-      // both computed in the engine from accel / day-RR.
-      'restlessness': b['restlessness'],
-      'daytime_hrv': b['daytime_hrv'],
-    };
-  }
-
-  @override
   Future<Map<String, dynamic>> getDayStrain(String date) async {
     final b = await _dayBundle(date);
     if (b == null) {
@@ -1955,42 +1751,6 @@ class LocalRepositoryImpl extends LocalRepository {
       });
     }
     return out;
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getSessions({
-    int? from,
-    int? to,
-    bool includeDetected = true,
-  }) async {
-    // The manual/live sessions table, newest first.
-    final now = DateTime.now();
-    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
-    final fromSec =
-        from ??
-        now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/ 1000;
-    final toSec = to ?? nowSec;
-
-    final manualRows = await LocalDb.sessionsInRange(fromSec, toSec);
-    final manual = [for (final r in manualRows) _workoutOf(r)];
-
-    // Manual/live sessions are ALL there is now. There used to be a second
-    // half here: `detected_workouts` from each of the last 60 day bundles,
-    // deduped against the saved spans. That key was a permanently-empty stub
-    // and the derivation has since stopped writing it altogether (analytics
-    // deleted `workout_detect.dart`), so the merge read every recent bundle —
-    // SELECT r.*, the whole hr_curve/hypnogram/HRV payload through jsonDecode —
-    // to append nothing. Auto-detected bouts reach the UI through
-    // `workout_suggestions`, not through this list.
-    //
-    // [includeDetected] is kept because it is part of the repository interface
-    // and callers pass it; there is simply no detected half left to exclude.
-    manual.sort(
-      (a, b) => ((b['start_ts'] as num?) ?? 0).compareTo(
-        (a['start_ts'] as num?) ?? 0,
-      ),
-    );
-    return manual;
   }
 
   // ── trends + records + charts ──────────────────────────────────────────────
@@ -2752,46 +2512,6 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<void> setWorkoutPrivate(String id, bool private) async {
     await LocalDb.setSessionPrivate(id, private);
     onSessionChanged?.call();
-  }
-
-  @override
-  Future<Map<String, dynamic>> startWorkout(
-    String type, {
-    String? title,
-  }) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final id = 'w$nowMs';
-    await LocalDb.putSession({
-      'id': id,
-      'start_ts': nowMs ~/ 1000,
-      'end_ts': null,
-      'type': type,
-      'status': 'live',
-      'source': 'manual',
-      'created_at': nowMs,
-    });
-    onSessionChanged?.call();
-    return {'workout_id': id, 'type': type};
-  }
-
-  @override
-  Future<Map<String, dynamic>> endWorkout(String workoutId) async {
-    // Mark done + stamp end_ts; final stats (calories/strain/etc) are written by
-    // app_state.stopWorkout from the LiveWorkoutState (it has the live tallies).
-    final r = await LocalDb.session(workoutId);
-    if (r != null && r['status'] != 'done') {
-      await (await LocalDb.instance).update(
-        'sessions',
-        {
-          'status': 'done',
-          'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        },
-        where: 'id = ? AND status != ?',
-        whereArgs: [workoutId, 'done'],
-      );
-      onSessionChanged?.call();
-    }
-    return {'workout_id': workoutId};
   }
 
   @override
@@ -3693,13 +3413,6 @@ class LocalRepositoryImpl extends LocalRepository {
 
   // ── journal — local store + tag-vs-metric correlation insights ──────────────
 
-  @override
-  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) async {
-    final since = _rangeSinceLabel(range);
-    final rows = await LocalDb.journalRows(sinceDaysEpoch: since);
-    return [for (final r in rows) _journalEntry(r)];
-  }
-
   Map<String, dynamic> _journalEntry(Map<String, dynamic> r) => {
     'date': r['date'],
     'tags': _decodeStrList(r['tags_json']),
@@ -3764,39 +3477,6 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<void> postCustomJournalField(JournalFieldSpec spec) =>
       LocalDb.putJournalFieldDef(spec);
-
-  /// MIND-12 — which day of the week costs you, on one outcome.
-  ///
-  /// The whole series, not a window: the analytics floor is eight weeks with at
-  /// least five of every weekday in it, and clipping to 90 days would refuse
-  /// installs that have the history. It runs in an isolate because the
-  /// permutation loop is ~1000 reshuffles and this is called from a build.
-  ///
-  /// Absent is the normal answer and the screen has to be able to say so — a
-  /// gate that never refuses is not a gate.
-  @override
-  Future<Map<String, dynamic>> getWeekdayEffect({
-    String key = 'readiness',
-  }) async {
-    // MEASURED DAYS ONLY — a permutation test over a series spliced from two
-    // different algorithms reports the splice, not the weekday.
-    final rows = await LocalDb.metricSeries(key, measuredOnly: true);
-    if (rows.isEmpty) return const {};
-    final dates = <String>[];
-    final values = <double?>[];
-    for (final r in rows) {
-      final d = r['date'];
-      if (d is! String) continue;
-      dates.add(d);
-      values.add((r['value'] as num?)?.toDouble());
-    }
-    final m = await Isolate.run(() => ana.weekdayEffect(dates, values));
-    return {
-      'present': m.present,
-      'note': m.note,
-      if (m.value != null) ...m.value!.toJson(),
-    };
-  }
 
   List<String> _decodeStrList(Object? json) => [
     for (final e in _decodeList(json)) e.toString(),
@@ -4031,23 +3711,6 @@ class LocalRepositoryImpl extends LocalRepository {
     final vs = await LocalDb.trailingSeriesValues(key, 28);
     if (vs.isEmpty) return null;
     return vs.reduce((a, b) => a + b) / vs.length;
-  }
-
-  num? _avgHr(List hrCurve) {
-    final vs = [
-      for (final e in hrCurve)
-        if (e is Map && e['v'] is num && (e['v'] as num) > 0) (e['v'] as num),
-    ];
-    if (vs.isEmpty) return null;
-    return (vs.reduce((a, b) => a + b) / vs.length).round();
-  }
-
-  num? _maxHr(List hrCurve) {
-    num mx = 0;
-    for (final e in hrCurve) {
-      if (e is Map && e['v'] is num && (e['v'] as num) > mx) mx = e['v'] as num;
-    }
-    return mx == 0 ? null : mx;
   }
 
   // ── TS-03 / TS-04 / TS-05 — the zones screen ───────────────────────────────

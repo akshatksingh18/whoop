@@ -15,6 +15,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/models.dart';
+import '../support/store_fixtures.dart';
 
 /// A record with a real gravity vector and NO heart rate — the v25 shape.
 Sample _accelOnly(int ts, int counter) =>
@@ -159,7 +160,7 @@ void main() {
         },
       ]);
 
-      final rows = await LocalDb.workoutSplits('s1');
+      final rows = await splitRows('s1');
       expect(rows.length, 2);
       expect(rows.first['avg_hr'], 141.0);
       expect(rows[1]['avg_hr'], isNull);
@@ -176,9 +177,9 @@ void main() {
           'net_elev_m': 12.5,
         },
       ]);
-      expect((await LocalDb.workoutSplits('s1')).length, 1);
+      expect((await splitRows('s1')).length, 1);
       await LocalDb.deleteSession('s1');
-      expect(await LocalDb.workoutSplits('s1'), isEmpty);
+      expect(await splitRows('s1'), isEmpty);
     },
   );
 

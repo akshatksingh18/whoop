@@ -196,7 +196,7 @@ class NoopIngest {
 
   Future<void> _deriveAndPrune(String date) async {
     // Real steps must be banked BEFORE deriving: the derivation reads them via
-    // LocalDb.liveStepsForDay / coverageWindowsOverlapping at derive time.
+    // LocalDb.coverageWindowsOverlapping at derive time.
     final st = _stepsByDate.remove(date);
     if (st != null) steps += await flushStepCoverage(st, date);
     // Build a Substrate from everything buffered (prev + current date) and
@@ -391,7 +391,7 @@ class NoopIngest {
   }
 
   /// Bank [date]'s step runs into `live_coverage` so the derivation picks them
-  /// up as REAL steps (`liveStepsForDay`) — the same contract the live 100 Hz
+  /// up as REAL steps — the same contract the live 100 Hz
   /// pedometer uses, so imported and live days are counted identically. These
   /// are BAND-sourced counts (the strap's own step counter), which is what makes
   /// them a real gait measurement rather than an estimate.

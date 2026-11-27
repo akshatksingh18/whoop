@@ -106,36 +106,6 @@ typedef DataStoredSink = void Function();
 /// report the Base-UUID expansion.
 const String kWhoopMemberUuid16 = 'fd4b';
 
-/// Service UUIDs used as the BLE `withServices` scan filter.
-///
-/// `withServices` is OR-combined on both platforms. The 16-bit member UUID
-/// must be its own entry: filtering only on the 128-bit vendor UUID misses a
-/// band that advertised the 2-byte form.
-List<Guid> whoopScanServiceUuids() => [
-  Guid(GattProfile.gen4.service),
-  Guid(GattProfile.gen5.service),
-  Guid(kWhoopMemberUuid16),
-];
-
-/// True when a scan result is a WHOOP strap of either generation.
-///
-/// Matching is broad on purpose: a band whose 128-bit service UUID is hidden
-/// in the scan-response overflow must still be caught by the 16-bit member
-/// UUID or by its advertised name, or pairing never starts.
-bool advertisementLooksLikeWhoop({
-  required String platformName,
-  required Iterable<String> serviceUuids,
-}) {
-  if (platformName.toLowerCase().contains('whoop')) return true;
-  for (final raw in serviceUuids) {
-    final u = raw.toLowerCase();
-    if (u.startsWith(GattProfile.gen4.servicePrefix.toLowerCase())) return true;
-    if (u.startsWith(GattProfile.gen5.servicePrefix.toLowerCase())) return true;
-    if (u == kWhoopMemberUuid16 || u.startsWith('0000fd4b')) return true;
-  }
-  return false;
-}
-
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
 ///
@@ -1791,8 +1761,7 @@ class BleEngine {
     // `_doConnect`, which would then talk WHOOP at it.
     //
     // The 16-bit member UUID (kWhoopMemberUuid16) is a WHOOP-only fallback for
-    // a 128-bit vendor UUID hidden in the scan-response overflow area — see
-    // [whoopScanServiceUuids] / [advertisementLooksLikeWhoop]'s doc comment.
+    // a 128-bit vendor UUID hidden in the scan-response overflow area.
     final wanted = [
       for (final e in kFramedBands) Guid(e.service),
       Guid(kWhoopMemberUuid16),
@@ -6586,9 +6555,7 @@ class BleEngine {
   /// auto-disable 59) while the rich 0x04 form previously armed here latched
   /// (event 56) without executing. Execution of the rich form is
   /// firmware-dependent — at least one other WHOOP 4 executes it (see
-  /// [AlarmPayloads]). The 7-byte short form ([AlarmPayloads.simple]) is rev-1
-  /// minus the haptic-mode u16 — the same bytes on the wire once padded, not
-  /// a distinct form.
+  /// [AlarmPayloads]).
   ///
   /// WHOOP 5 — the rich 21-byte slot-1 body, unchanged (#194; index 0 is
   /// rejected with `arm info is invalid, error 0xb`).
@@ -6693,20 +6660,6 @@ class BleEngine {
     return when;
   }
 
-  /// Read the armed alarm back. Body is band-specific (see
-  /// [AlarmPayloads.getPayloadForBand]) — gen5 rejects gen4's operand-less
-  /// revision-1 body.
-  Future<void> getAlarm({int? id}) {
-    final isGen5 = _session?.band.isGen5 ?? false;
-    return _send(
-      Cmd.getAlarmTime,
-      AlarmPayloads.getPayloadForBand(
-        isGen5: isGen5,
-        id: id ?? AlarmPayloads.gen5Slot,
-      ),
-    );
-  }
-
   /// Fire the alarm haptics IMMEDIATELY — a "test buzz" so the user can confirm
   /// the strap actually fires before trusting the scheduled wake.
   ///
@@ -6767,10 +6720,6 @@ class BleEngine {
   // main's throttled poll (a raw send here was 2,880 round-trips a day), and
   // the branch's gen5 HELLO, which is a different opcode on Maverick.
   Future<void> getBattery() => _pollBatteryIfDue(force: true);
-  Future<void> getHello() {
-    final c = (_session?.entry ?? kWhoopGen4).commands;
-    return _send(c.hello, c.helloBody);
-  }
 
   Future<bool> buzz() => buzzPattern(hapticShortPulse);
 
@@ -7715,8 +7664,6 @@ class BurstStats {
   void onEvent() => _eventCount++;
 
   void onConsole() => _consoleCount++;
-
-  void onUnknown() => _unknownCount++;
 
   void reset() {
     _dataPacketCountsByRevision.clear();

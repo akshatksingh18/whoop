@@ -17,6 +17,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/models.dart';
+import '../support/store_fixtures.dart';
 
 Sample _sample(int ts, int counter, List<int> rr) => Sample(
   tsEpoch: ts,
@@ -320,7 +321,7 @@ void main() {
         expect(a!['status'], 'acked');
         expect(b!['status'], 'ack_failed');
 
-        final all = await LocalDb.syncLedger();
+        final all = await syncLedgerRows();
         expect(
           all
               .where(
@@ -373,7 +374,7 @@ void main() {
           payloadJson: '{"token":"deadbeef","ack_failures":3}',
           reason: 'persistent_ack_failure',
         );
-        final quarantined = await LocalDb.quarantinedSyncChunks();
+        final quarantined = await quarantineRows();
         expect(quarantined, isNotEmpty);
         expect(
           quarantined.any((r) => r['reason'] == 'persistent_ack_failure'),

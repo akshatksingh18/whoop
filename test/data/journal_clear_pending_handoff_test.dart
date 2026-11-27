@@ -11,6 +11,7 @@ import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import 'journal_edit_ownership_test.dart' show flush, real;
 import '../support/audit_visual.dart' show loadAuditFonts;
+import '../support/store_fixtures.dart';
 import '../support/coverage_store.dart';
 import '../support/localized_coverage.dart';
 
@@ -73,7 +74,7 @@ void main() {
           '["travel","workout"]',
           'Retained authored note',
         );
-        await LocalDb.putJournalMetrics(_day, {
+        await seedJournalMetrics(_day, {
           'mood': const JournalMetricValue(3),
           'caffeine_mg': const JournalMetricValue(0, atMinuteOfDay: 0),
         });

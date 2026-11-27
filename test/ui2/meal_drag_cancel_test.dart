@@ -38,7 +38,7 @@ void main() {
         ),
       );
     }
-    await NutritionDb.reorderEntries(db, ids);
+    await NutritionDb.arrangeEntries(db, const [], ids);
   });
   tearDownAll(LocalDb.close);
 

@@ -9,6 +9,7 @@ import 'package:whoop_companion/state/app_state.dart';
 import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../support/audit_visual.dart' show loadAuditFonts;
+import '../support/store_fixtures.dart';
 import '../support/coverage_store.dart';
 import '../support/localized_coverage.dart';
 
@@ -69,7 +70,7 @@ void main() {
               'Retained historical note',
             );
             if (initial != null) {
-              await LocalDb.putJournalMetrics(day, {
+              await seedJournalMetrics(day, {
                 spec.key: JournalMetricValue(initial, atMinuteOfDay: minute),
               });
             }
@@ -78,7 +79,7 @@ void main() {
               '["illness"]',
               'Unrelated banked note',
             );
-            await LocalDb.putJournalMetrics(other, {
+            await seedJournalMetrics(other, {
               'caffeine_mg': const JournalMetricValue(77, atMinuteOfDay: 600),
             });
           });

@@ -5,7 +5,6 @@ import 'package:whoop_companion/gps/gps_source.dart';
 import 'package:whoop_companion/gps/workout_clock.dart';
 import 'package:whoop_companion/ui2/activity/catalogue.dart';
 import 'package:whoop_companion/ui2/activity/live.dart';
-import 'package:whoop_companion/ui2/activity/summary.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../support/audit_visual.dart' show loadAuditFonts;
 import '../support/coverage_store.dart';
@@ -130,33 +129,4 @@ void main() {
       );
     }
   }
-  testWidgets(
-    'COV-47 LiveTick works inside and outside a running shell without fabricated elapsed time',
-    (t) async {
-      await localizedPage(
-        t,
-        Scaffold(body: LiveTick((_, elapsed) => Text('elapsed=$elapsed'))),
-      );
-      expect(find.text('elapsed=0'), findsOneWidget);
-      final activity = activityByName('Running')!;
-      LiveDraft.begin(
-        activity,
-        startedAt: DateTime.now().subtract(const Duration(minutes: 2)),
-      );
-      final live = LiveShell(
-        activity,
-        bodyFollowsClock: false,
-        body: (_, _) => LiveTick((_, elapsed) => Text('elapsed=$elapsed')),
-        footer: (_) => const Text('Synthetic footer'),
-        result: (elapsed) => ActivityResult(
-          activity,
-          start: LiveDraft.current!.startedAt,
-          duration: Duration(seconds: elapsed),
-        ),
-      );
-      await localizedPage(t, live, push: true);
-      expect(find.text('Synthetic footer'), findsOneWidget);
-      expect(find.textContaining('elapsed=12'), findsOneWidget);
-    },
-  );
 }

@@ -276,9 +276,6 @@ class IntervalLadder extends CustomPainter {
 
   IntervalLadder(this.rounds, this.work, this.rest);
 
-  /// Two bars per round in two colours — which is which is not guessable.
-  List<(String, Color)> get legend => [('Work', work), ('Rest', rest)];
-
   @override
   void paint(Canvas cv, Size s) {
     if (rounds.isEmpty) return;

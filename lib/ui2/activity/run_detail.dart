@@ -172,10 +172,6 @@ class RunView {
 String pace(double? secPerKm) =>
     secPerKm == null ? '' : (UnitsController.formatPace(secPerKm) ?? '');
 
-/// A walk's rate as km/h ("5.8"), Strava's walking metric; runs keep [pace].
-/// Same distance and moving time, only the unit of the rate differs.
-String speedKmh(double secPerKm) => (3600 / secPerKm).toStringAsFixed(1);
-
 /// The distance unit this page speaks in, from Settings → Units → Distance
 /// (Build 95). Every pace here is stored per km and converted on the way out.
 class DistUnit {

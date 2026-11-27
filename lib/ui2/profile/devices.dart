@@ -368,22 +368,6 @@ class MyDevicesView extends StatelessWidget {
   }
 }
 
-/// The one line under a source's name.
-///
-/// "Not connected" is a statement about a radio link, and the phone has none:
-/// it is either handing steps over or it is not, which is exactly the failure
-/// the row used to hide behind a hardcoded "Connected".
-// Kept context-free and directly tested (see ui2/onboarding/router_test.dart) — this
-// is the tier/connection LOGIC, not just
-// copy. `_localizedSourceState` below is what the UI actually renders.
-String sourceState(HealthSource s) {
-  if (s.tier == SourceTier.phone) {
-    return s.connected ? 'Reporting steps' : 'No steps arriving';
-  }
-  if (s.syncing) return 'Syncing';
-  return s.connected ? 'Connected' : 'Not connected';
-}
-
 String _localizedSourceState(BuildContext c, HealthSource s) {
   final l = AppLocalizations.of(c);
   if (s.tier == SourceTier.phone) {

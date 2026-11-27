@@ -115,49 +115,6 @@ void main() {
       expect(two.protectedInStreak, 2);
     });
 
-    test('allowance: no two in a row, two per seven, one Life happens', () {
-      expect(
-        protectionRefusal(
-          {'2026-10-02': Protection.rest},
-          '2026-10-03',
-          Protection.rest,
-        ),
-        isNotNull,
-      );
-      expect(
-        protectionRefusal(
-          {'2026-09-29': Protection.rest},
-          '2026-10-02',
-          Protection.rest,
-        ),
-        isNull,
-      );
-      expect(
-        protectionRefusal(
-          {'2026-09-28': Protection.rest, '2026-09-30': Protection.rest},
-          '2026-10-02',
-          Protection.rest,
-        ),
-        isNotNull,
-      );
-      expect(
-        protectionRefusal(
-          {'2026-09-29': Protection.life},
-          '2026-10-02',
-          Protection.life,
-        ),
-        isNotNull,
-      );
-      expect(
-        protectionRefusal(
-          {'2026-09-20': Protection.life},
-          '2026-10-02',
-          Protection.life,
-        ),
-        isNull,
-      );
-    });
-
     test('meditation and chores are not exercise; a dog walk is', () {
       expect(isExerciseType('meditation'), isFalse);
       expect(isExerciseType('housework'), isFalse);

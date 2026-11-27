@@ -112,21 +112,7 @@ void main() {
       final served = recent.firstWhere((r) => r['day_id'] == day);
       expect((served['algo_version'] as num).toInt(), kAlgoVersion);
 
-      final meta = await LocalDb.recentDayResultsMeta(10);
-      expect(
-        (meta.firstWhere((r) => r['day_id'] == day)['algo_version'] as num)
-            .toInt(),
-        kAlgoVersion,
-      );
-      expect(
-        meta.first.containsKey('payload_json'),
-        isFalse,
-        reason: 'the meta read must never drag the bundle',
-      );
-
-      expect((await LocalDb.dayResultVersions())[day], kAlgoVersion);
       expect(await LocalDb.availableDayIds(), contains(day));
-      expect(await LocalDb.dayResultDayIdsDesc(), contains(day));
     });
 
     test(
@@ -150,7 +136,6 @@ void main() {
         await _put(day, kAlgoVersion + 3, readiness: 12);
         expect(await LocalDb.dayResult(day), isNull);
         expect(await LocalDb.availableDayIds(), isNot(contains(day)));
-        expect(await LocalDb.dayResultDayIdsDesc(), isNot(contains(day)));
       },
     );
 

@@ -63,7 +63,7 @@ void main() {
             minutes: scenario == 'current-minute' ? 0 : 5,
           );
           final ownCurve = live.perMinuteHrDense();
-          final calories = live.caloriesOrNull;
+          final calories = live.calories;
           final strain = live.strain;
           final saved = await LocalDb.session(id);
           final clock = await LocalDb.baseline('calculation:workout.clock.$id');
@@ -89,7 +89,7 @@ void main() {
               reason: 'Old session samples are not fresh live HR',
             );
             expect(feed.strain, strain);
-            expect(live.caloriesOrNull, calories);
+            expect(live.calories, calories);
             expect(live.perMinuteHrDense(), ownCurve);
             expect(app.activeWorkout, same(live));
             expect(await LocalDb.session(id), saved);

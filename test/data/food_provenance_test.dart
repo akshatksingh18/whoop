@@ -48,7 +48,7 @@ void main() {
       expect(second.countsTowardAverages, true);
       expect(second.counting!.calorieGoal, 2300);
       expect(second.counting!.frozenAt, first.counting!.frozenAt);
-      expect(countedAutomatically(second, null), true);
+      expect(second.state, DayLogState.complete);
     },
   );
   test('manual marks win and keep distinct persisted provenance', () async {
@@ -60,7 +60,6 @@ void main() {
     final marked = await day();
     expect(marked.countsTowardAverages, true);
     expect(marked.counting!.basis, 'marked_complete');
-    expect(countedAutomatically(marked, 'complete'), false);
     await NutritionDb.setDayMark(db, date, null);
     expect((await day()).counting!.basis, 'automatic');
   });

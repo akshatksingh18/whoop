@@ -36,7 +36,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('These numbers are invented'), findsOneWidget);
     final header = tester.widget<NavBar>(find.byType(NavBar));
-    expect(header.sub, archLabel(archOf(descriptor)).toUpperCase());
+    expect(archOf(descriptor), Arch.basic);
+    expect(header.sub, 'SESSION');
     expect(find.textContaining('preview-only stand-in'), findsOneWidget);
 
     final summary = row('Summary');

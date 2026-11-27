@@ -79,7 +79,10 @@ void main() {
             phone.fold<int>(0, (s, r) => s + (r['steps'] as num).toInt()),
             expected,
           );
-          expect(await LocalDb.liveStepsForDay(dayLabelOf(day)), expected);
+          expect(
+            (await LocalDb.resolvedStepsForDay(dayLabelOf(day))).total,
+            expected,
+          );
           expect(
             await db.query(
               'live_coverage',
@@ -127,14 +130,14 @@ void main() {
           expect(await phone.syncDay(day), isNull);
           expect(reads, greaterThan(0));
           expect(await db.query('live_coverage', orderBy: 'id'), before);
-          expect(await LocalDb.liveStepsForDay(id), 60);
+          expect((await LocalDb.resolvedStepsForDay(id)).total, 60);
           expect(await LocalDb.getCursor('authored-retained'), 'keep');
         } finally {
           await db.execute('DROP TRIGGER authored_phone_day_refusal');
         }
         final expected = end.difference(day).inMinutes;
         expect(await phone.syncDay(day), expected);
-        expect(await LocalDb.liveStepsForDay(id), expected);
+        expect((await LocalDb.resolvedStepsForDay(id)).total, expected);
         expect(await LocalDb.getCursor('authored-retained'), 'keep');
         expect(LocalDb.debugBandSteps, false);
       },

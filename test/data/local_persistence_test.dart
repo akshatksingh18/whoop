@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/models.dart';
+import '../support/store_fixtures.dart';
 
 void main() {
   // Route sqflite through the FFI factory so LocalDb.instance opens a real
@@ -106,106 +107,13 @@ void main() {
     expect(await LocalDb.session(id), isNull);
   });
 
-  test('cycle log round-trip (ordered asc, delete)', () async {
-    await LocalDb.putCycleLog('2026-05-01', 'start');
-    await LocalDb.putCycleLog('2026-05-29', 'start');
-    var logs = await LocalDb.cycleLogs();
+  test('cycle logs read oldest first', () async {
+    await seedCycleLog('2026-05-29', 'start');
+    await seedCycleLog('2026-05-01', 'start');
+    final logs = await LocalDb.cycleLogs();
     final dates = logs.map((r) => r['date']).toList();
     expect(dates.indexOf('2026-05-01') < dates.indexOf('2026-05-29'), isTrue);
-    await LocalDb.deleteCycleLog('2026-05-01');
-    logs = await LocalDb.cycleLogs();
-    expect(logs.any((r) => r['date'] == '2026-05-01'), isFalse);
   });
-
-  test(
-    'metrics diagnostics helpers surface recent derived day and series counts',
-    () async {
-      const dayId = '2099-12-31';
-      final rawTs = DateTime(2099, 12, 31, 12).millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.insertRecord(
-        RawRecord(
-          counter: 900001,
-          packetType: 47,
-          hex: 'deadbeef',
-          capturedAt: rawTs * 1000,
-          recTs: rawTs,
-        ),
-        Sample(
-          tsEpoch: rawTs,
-          counter: 900001,
-          hr: 60,
-          rrIntervalsMs: const [1000],
-          ax: 0,
-          ay: 0,
-          az: 1,
-          spo2RedRaw: 1,
-          spo2IrRaw: 1,
-          skinTempRaw: 1,
-        ),
-      );
-
-      await LocalDb.putDayResult(
-        dayId: dayId,
-        algoVersion: 15,
-        payloadJson: jsonEncode({
-          'scalars': {
-            'rhr': 52.0,
-            'rmssd': 48.0,
-            'readiness': 87.0,
-            'strain': 11.3,
-            'tst_min': 445.0,
-            'resp_rate': 14.1,
-          },
-        }),
-        windowJson: '{}',
-        finalized: false,
-        rhr: 52.0,
-        rmssd: 48.0,
-        readiness: 87.0,
-        series: const {'rhr': 52.0, 'tst_min': 445.0, 'readiness': 87.0},
-      );
-
-      final recent = await LocalDb.recentDayDiagnostics(1);
-      expect(recent, isNotEmpty);
-      expect(recent.first['day_id'], dayId);
-      expect(recent.first['raw_max_rec_ts'], rawTs);
-      expect(recent.first['rhr'], 52.0);
-      expect(recent.first['readiness'], 87.0);
-      expect(recent.first['strain'], 11.3);
-      expect(recent.first['tst_min'], 445.0);
-
-      final counts = await LocalDb.metricSeriesCounts([
-        'rhr',
-        'tst_min',
-        'readiness',
-      ]);
-      expect(counts['rhr'], greaterThanOrEqualTo(1));
-      expect(counts['tst_min'], greaterThanOrEqualTo(1));
-      expect(counts['readiness'], greaterThanOrEqualTo(1));
-    },
-  );
-
-  test(
-    'metrics diagnostics surfaces persisted skip reasons for derived days',
-    () async {
-      const dayId = '2099-12-30';
-      await LocalDb.putDayResult(
-        dayId: dayId,
-        algoVersion: 15,
-        payloadJson: jsonEncode({
-          'skipped': true,
-          'reason': 'day_prepare_budget_exceeded',
-        }),
-        windowJson: '{}',
-        finalized: false,
-      );
-
-      final recent = await LocalDb.recentDayDiagnostics(10);
-      final row = recent.firstWhere((r) => r['day_id'] == dayId);
-      expect(row['skipped'], isTrue);
-      expect(row['skip_reason'], 'day_prepare_budget_exceeded');
-    },
-  );
 
   test(
     'decoded substrate tables persist and query 1 Hz frames + RR beats',
@@ -372,15 +280,14 @@ void main() {
         source: 'device_state',
       );
 
-      final stats = await LocalDb.bandSignalsStats();
-      expect(stats['event_count'], greaterThanOrEqualTo(1));
-      expect(stats['battery_count'], greaterThanOrEqualTo(1));
-      final latestBattery = await LocalDb.latestBandBatterySample();
-      expect(latestBattery, isNotNull);
-      expect(latestBattery!['battery_pct'], 77.0);
-      expect(latestBattery['charging'], 1);
-      final kinds = (stats['event_kinds'] as Map).cast<String, dynamic>();
-      expect(kinds['CHARGING_ON'], greaterThanOrEqualTo(1));
+      final db = await LocalDb.instance;
+      final events = await db.query('band_events');
+      final battery = await db.query('band_battery', orderBy: 'ts DESC');
+      expect(events, isNotEmpty);
+      expect(battery, isNotEmpty);
+      expect(battery.first['battery_pct'], 77.0);
+      expect(battery.first['charging'], 1);
+      expect(events.where((r) => r['name'] == 'CHARGING_ON'), isNotEmpty);
     },
   );
   // ── resumable-sync cursor ──────────────────────────────────────────────────────

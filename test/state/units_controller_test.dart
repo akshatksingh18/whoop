@@ -8,6 +8,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whoop_companion/state/units_controller.dart';
+import 'package:whoop_companion/ui2/activity/run_detail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -21,26 +22,12 @@ void main() {
     test('formatPace still shows a real, plausible pace normally', () {
       expect(UnitsController.formatPace(5 * 60 + 30), '5:30');
     });
-
-    test('pace() returns null (never "— /km") for a near-zero distance '
-        'over real elapsed time — the exact bed-jitter scenario', () {
-      final u = UnitsController.seed(UnitSystem.metric);
-      // 1 metre over 60 seconds — GPS noise, not a real 60 min/km pace.
-      expect(u.pace(1, 60), isNull);
-    });
-
-    test('pace() returns a normal formatted pace for real distance/time', () {
-      final u = UnitsController.seed(UnitSystem.metric);
-      // 1 km in 5:30 → "5:30 /km".
-      expect(u.pace(1000, 5 * 60 + 30), '5:30 /km');
-    });
-
-    test('pace() keeps unknown/zero input absent, never "— /km"', () {
-      final u = UnitsController.seed(UnitSystem.metric);
-      expect(u.pace(null, 60), isNull);
-      expect(u.pace(0, 60), isNull);
-    });
   });
+
+  // Pace and speed print through the run page's `DistUnit`, which
+  // `DistUnit.of` builds from exactly these three controller fields.
+  DistUnit dist(UnitsController u) =>
+      DistUnit(u.distanceUnitMeters, u.distanceUnit, u.speedUnit);
 
   group('imperial', () {
     final u = UnitsController.seed(UnitSystem.imperial);
@@ -53,19 +40,19 @@ void main() {
 
     test('pace is per mile, not per km', () {
       // 5:00/km over 5 km is 8:03/mi (5 min × 1.609344).
-      expect(u.pace(5000, 25 * 60), '8:03 /mi');
+      expect(dist(u).pace(5 * 60), '8:03 /mi');
     });
 
     test('speed reads mph', () {
-      // 10 m/s = 22.4 mph.
-      expect(u.speed(10), '22.4 mph');
+      // 10 m/s (100 s/km) = 22.4 mph.
+      expect(dist(u).speed(100), '22.4 mph');
     });
 
     test('metric is unchanged', () {
       final m = UnitsController.seed(UnitSystem.metric);
       expect(m.distance(5000), '5.00 km');
-      expect(m.pace(5000, 25 * 60), '5:00 /km');
-      expect(m.speed(10), '36.0 km/h');
+      expect(dist(m).pace(5 * 60), '5:00 /km');
+      expect(dist(m).speed(100), '36.0 km/h');
     });
   });
 

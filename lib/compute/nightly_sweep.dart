@@ -178,37 +178,6 @@ String? sweepPairing(List<SweepFinding> findings) {
       'measured relationship between them';
 }
 
-/// The exact payload the model is given, and therefore the exact payload the
-/// "what was sent" screen shows. One entry per line in the prompt; a key that
-/// is absent here was absent from the request.
-///
-/// Empty when there is nothing to say. The caller must not call a model with
-/// an empty map — there is no question to ask.
-Map<String, dynamic> sweepInputs(
-  List<SweepFinding> findings, {
-  String? recommendedBedtime,
-}) {
-  if (findings.isEmpty) return const {};
-  final pair = sweepPairing(findings);
-  return {
-    'unusual_for_you': [for (final f in findings.take(4)) f.text],
-    'unusual_together': ?pair,
-    // Evidence for an action, and the only value here that is not a finding.
-    // Already computed by the sleep coach and already shown on Home — the model
-    // is given the time so it can name one rather than invent one.
-    'recommended_bedtime': ?recommendedBedtime,
-  };
-}
-
-/// The one line the OS notification carries. It is a finding, not a promise of
-/// one: the notification is armed only when this is non-null, and its body is
-/// this text, so tapping it can never lead to "nothing to report".
-String? sweepHeadline(List<SweepFinding> findings) {
-  if (findings.isEmpty) return null;
-  final t = findings.first.text;
-  return t.isEmpty ? null : '${t[0].toUpperCase()}${t.substring(1)}';
-}
-
 /// What the briefing says when the sweep found nothing. Complete as it stands —
 /// it must never be padded out with the day's numbers to look like more.
 const String kNothingStoodOut = 'Nothing stood out tonight.';

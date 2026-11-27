@@ -37,7 +37,6 @@ void main() {
       );
       await NutritionDb.put(db, e);
       final saved = (await NutritionDb.entriesForDay(db, e.date)).single;
-      expect(saved.isBareOccasion, isTrue);
       expect(saved.quantity, isNull);
       expect(saved.kcal, isNull);
       expect(saved.proteinG, isNull);
@@ -51,62 +50,53 @@ void main() {
       expect(saved.source, FoodSource.photo);
     },
   );
-  test(
-    'window means name complete nutrient days and exclude floors independently',
-    () {
-      FoodEntry entry(
-        String id,
-        String day,
-        double kcal,
-        double? protein,
-        double? fibre,
-      ) => FoodEntry(
-        id: id,
-        date: day,
-        meal: 'lunch',
-        label: id,
-        kcal: kcal,
-        proteinG: protein,
-        fibreG: fibre,
-      );
-      const today = '2021-04-09';
-      final window = NutritionWindow([
-        rollupDay(
-          '2021-04-06',
-          [
-            entry('a', '2021-04-06', 400, 10, 0),
-            entry('b', '2021-04-06', 600, null, null),
-          ],
-          today: today,
-          mark: 'complete',
-        ),
-        rollupDay(
-          '2021-04-07',
-          [entry('c', '2021-04-07', 800, 20, 3)],
-          today: today,
-          mark: 'complete',
-        ),
-        rollupDay(
-          '2021-04-08',
-          [entry('d', '2021-04-08', 500, 30, 5)],
-          today: today,
-          mark: 'incomplete',
-        ),
-        rollupDay(today, [entry('e', today, 900, 40, 6)], today: today),
-      ]);
-      expect(window.span, 4);
-      expect(window.daysLogged, 4);
-      expect(window.daysExcluded, 2);
-      expect(window.meanKcal.value, 900);
-      expect(window.meanKcal.days, 2);
-      expect(window.meanProtein.value, 20);
-      expect(window.meanProtein.days, 1);
-      expect(window.meanProtein.floorDays, 1);
-      expect(window.meanFibre.value, 3);
-      expect(window.meanFibre.floorDays, 1);
-      expect(const NutritionWindow([]).meanProtein.value, isNull);
-    },
-  );
+  test('window counts complete energy days whatever their nutrient floors', () {
+    FoodEntry entry(
+      String id,
+      String day,
+      double kcal,
+      double? protein,
+      double? fibre,
+    ) => FoodEntry(
+      id: id,
+      date: day,
+      meal: 'lunch',
+      label: id,
+      kcal: kcal,
+      proteinG: protein,
+      fibreG: fibre,
+    );
+    const today = '2021-04-09';
+    final window = NutritionWindow([
+      rollupDay(
+        '2021-04-06',
+        [
+          entry('a', '2021-04-06', 400, 10, 0),
+          entry('b', '2021-04-06', 600, null, null),
+        ],
+        today: today,
+        mark: 'complete',
+      ),
+      rollupDay(
+        '2021-04-07',
+        [entry('c', '2021-04-07', 800, 20, 3)],
+        today: today,
+        mark: 'complete',
+      ),
+      rollupDay(
+        '2021-04-08',
+        [entry('d', '2021-04-08', 500, 30, 5)],
+        today: today,
+        mark: 'incomplete',
+      ),
+      rollupDay(today, [entry('e', today, 900, 40, 6)], today: today),
+    ]);
+    expect(
+      [for (final d in window.counted) d.date],
+      ['2021-04-06', '2021-04-07'],
+    );
+    expect(const NutritionWindow([]).counted, isEmpty);
+  });
   test(
     'moving an existing entry refreshes both count rows and preserves its original log time',
     () async {
@@ -136,7 +126,6 @@ void main() {
       };
       expect(counts[from], 0);
       expect(counts[to], 1);
-      expect((await NutritionDb.recent(db)).single.id, e.id);
     },
   );
   test(

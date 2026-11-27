@@ -32,8 +32,6 @@ void main() {
     (t) async {
       final r = run();
       expect(r.calories, 76);
-      expect(r.acsmCalories, closeTo(86.8, 1e-9));
-      expect(r.movementEstimateCalories, closeTo(86.8, 1e-9));
       await localizedPage(t, RunCaloriesCard(r, profile));
       expect(find.text('76'), findsOneWidget);
       expect(find.text('ACSM'), findsOneWidget);
@@ -45,8 +43,6 @@ void main() {
     (t) async {
       final r = run(supported: false);
       expect(r.calories, 76);
-      expect(r.acsmCalories, isNull);
-      expect(r.movementEstimateCalories, closeTo(86.8, 1e-9));
       await localizedPage(t, RunCaloriesCard(r, profile));
       expect(find.text('76'), findsOneWidget);
       expect(find.text('Movement estimate'), findsOneWidget);
@@ -57,8 +53,6 @@ void main() {
     (t) async {
       final r = run(weight: false);
       expect(r.calories, isNull);
-      expect(r.acsmCalories, isNull);
-      expect(r.movementEstimateCalories, isNull);
       await localizedPage(t, RunCaloriesCard(r, const Profile()));
       expect(find.text('999'), findsNothing);
       expect(find.text('0'), findsNothing);
@@ -79,8 +73,6 @@ void main() {
         phoneSteps: 1000,
       );
       expect(r.calories, 23);
-      expect(r.acsmCalories, closeTo(35, 1e-9));
-      expect(r.movementEstimateCalories, closeTo(35, 1e-9));
       await localizedPage(t, RunCaloriesCard(r, profile));
       expect(find.text('23'), findsOneWidget);
       expect(find.text('999'), findsNothing);

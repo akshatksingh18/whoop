@@ -47,8 +47,6 @@ void main() {
 
     test('an empty input list is fine', () {
       expect(sweepFindings(const []), isEmpty);
-      expect(sweepInputs(const []), isEmpty);
-      expect(sweepHeadline(const []), isNull);
     });
   });
 
@@ -95,7 +93,6 @@ void main() {
         ), // extreme
       ]);
       expect(f.first.key, 'rmssd');
-      expect(sweepHeadline(f), startsWith('HRV'));
     });
   });
 
@@ -121,24 +118,6 @@ void main() {
 
     test('one finding is not a pair', () {
       expect(sweepPairing(sweepFindings([_rhr(68, _steady(54, 45))])), isNull);
-    });
-  });
-
-  group('the payload is exactly what is sent', () {
-    test('findings and the bedtime evidence, and nothing else', () {
-      final f = sweepFindings([_rhr(68, _steady(54, 45))]);
-      final inputs = sweepInputs(f, recommendedBedtime: '22:45');
-      expect(inputs.keys.toSet(), {'unusual_for_you', 'recommended_bedtime'});
-      expect((inputs['unusual_for_you'] as List).first, f.first.text);
-    });
-
-    test('no bedtime means no key — absent stays absent', () {
-      final inputs = sweepInputs(sweepFindings([_rhr(68, _steady(54, 45))]));
-      expect(inputs.containsKey('recommended_bedtime'), isFalse);
-    });
-
-    test('nothing found means an empty payload, and so no request at all', () {
-      expect(sweepInputs(sweepFindings([_rhr(54, _steady(54, 60))])), isEmpty);
     });
   });
 }

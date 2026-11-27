@@ -82,35 +82,6 @@ typedef MoveStreak = ({
 const int kProtectWeekMax = 2;
 const int kLifeWeekMax = 1;
 
-/// Why [kind] cannot protect [date] given [ledger], or null when it can.
-String? protectionRefusal(
-  Map<String, Protection> ledger,
-  String date,
-  Protection kind,
-) {
-  final d = DateTime.parse(date);
-  String label(int off) => dayLabelOf(DateTime(d.year, d.month, d.day + off));
-  if (ledger.containsKey(label(-1)) || ledger.containsKey(label(1))) {
-    return 'Two protected days in a row would not keep the streak honest.';
-  }
-  // Every rolling seven-day window containing [date] stays inside the limits.
-  for (var start = -6; start <= 0; start++) {
-    var all = 1, life = kind == Protection.life ? 1 : 0;
-    for (var i = start; i < start + 7; i++) {
-      if (i == 0) continue;
-      final k = ledger[label(i)];
-      if (k == null) continue;
-      all++;
-      if (k == Protection.life) life++;
-    }
-    if (all > kProtectWeekMax) {
-      return 'Up to $kProtectWeekMax protected days in any seven.';
-    }
-    if (life > kLifeWeekMax) return 'One Life happens day in any seven.';
-  }
-  return null;
-}
-
 /// Days are local calendar days; a session belongs to the day it started.
 /// A day counts once its sessions add up to [minMinutes]. Today does not
 /// break the streak until it is over: with nothing yet, the streak is

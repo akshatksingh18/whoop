@@ -31,16 +31,4 @@ class LocaleController extends ChangeNotifier {
   /// null = system default.
   String? get code => _code;
   Locale? get locale => _code == null ? null : Locale(_code!);
-
-  Future<void> setCode(String? code) async {
-    if (_code == code) return;
-    _code = code;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    if (code == null) {
-      await prefs.remove(_kLocale);
-    } else {
-      await prefs.setString(_kLocale, code);
-    }
-  }
 }

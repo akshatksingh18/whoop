@@ -121,7 +121,7 @@ void main() {
           if (scenario == 'refused' || scenario == 'throws') {
             store.refuseWrite = scenario == 'refused' ? 'false' : 'throws';
             await expectLater(
-              repo.setStepGoal(9000),
+              app.updateProfile({'step_goal': 9000}),
               throwsA(isA<StateError>()),
             );
             expect(app.user, originalUser);
@@ -133,7 +133,10 @@ void main() {
             expect(await CalculationStore.read(StepGoals.key), oldGoals);
             store.refuseWrite = null;
           }
-          expect((await repo.setStepGoal(9000))['step_goal'], 9000);
+          expect(
+            (await app.updateProfile({'step_goal': 9000}))['step_goal'],
+            9000,
+          );
           final current = await repo.getProfile();
           expect(current['step_goal'], 9000);
           expect(app.user!['step_goal'], 9000);

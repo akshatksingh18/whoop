@@ -2045,12 +2045,6 @@ class LocalDb {
     return r.isEmpty ? null : r.first;
   }
 
-  /// Every device this phone knows about, most recently seen first.
-  static Future<List<Map<String, Object?>>> deviceRows() async {
-    final db = await instance;
-    return db.query('device', orderBy: 'last_seen DESC');
-  }
-
   /// Forget one device. The MEASUREMENTS it wrote are untouched — "this
   /// removes the source, not the data", which is what the forget dialog
   /// promises and what `decoded_*` keeping its `device_id` makes possible.
@@ -2315,7 +2309,7 @@ class LocalDb {
 
   /// Step-count provenance for a `live_coverage` row.
   ///
-  /// These are never summed together — see [liveStepsForDay].
+  /// These are never summed together.
   static const String kStepSourceBand = 'band'; // band 100 Hz AN-2554 (wrist)
   static const String kStepSourcePhone = 'phone'; // phone pedometer (pocket)
 
@@ -2392,7 +2386,7 @@ class LocalDb {
   /// [replacePhoneCoverageForDay], which is delete-then-insert.
   ///
   /// Also the UI's source discriminator: it is the same quantity
-  /// [liveStepsForDay] tests to decide which source owns the day, so a screen
+  /// the derive tests to decide which source owns the day, so a screen
   /// can ask "did the phone actually cover today?" instead of approximating it
   /// with "is the toggle on". Those differ exactly when the toggle is on and
   /// the phone has no data, where the band still owns the day.
@@ -2549,10 +2543,6 @@ class LocalDb {
     }
     return resolveDaySteps(spans, bandSteps: debugBandSteps);
   }
-
-  /// [day]'s resolved step TOTAL. See [resolvedStepsForDay] for the split.
-  static Future<int> liveStepsForDay(String day) async =>
-      (await resolvedStepsForDay(day)).total;
 
   /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec), for ONE
   /// [source] (band by default).
@@ -3785,8 +3775,7 @@ class LocalDb {
     //
     // `latest` filters on json_valid first: json_extract raises on a malformed
     // document, and without the guard ONE corrupt payload fails the entire
-    // v_series query instead of dropping that one day. Same guard, same reason,
-    // as daysWithSleepTst.
+    // v_series query instead of dropping that one day.
     //
     // The grid branch needs no running sum because json_each exposes an array's
     // index as `key`, so t = t0 + key*dt. Verified row-for-row against the
@@ -5938,83 +5927,6 @@ class LocalDb {
     );
   }
 
-  /// How many undecodable records we've archived, and by reason — for the sync
-  /// diagnostics ("clean sync" honesty: N records set aside, not lost).
-  static Future<Map<String, dynamic>> rawArchiveStats() async {
-    final db = await instance;
-    final count =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM raw_archive'),
-        ) ??
-        0;
-    final byReason = await db.rawQuery(
-      'SELECT reason, COUNT(*) AS n FROM raw_archive '
-      'GROUP BY reason ORDER BY n DESC, reason ASC',
-    );
-    return {
-      'count': count,
-      'by_reason': {
-        for (final row in byReason)
-          (row['reason']?.toString() ?? 'unknown'):
-              (row['n'] as num?)?.toInt() ?? 0,
-      },
-    };
-  }
-
-  static Future<Map<String, dynamic>?> latestBandBatterySample() async {
-    final db = await instance;
-    final rows = await db.query('band_battery', orderBy: 'ts DESC', limit: 1);
-    return rows.isEmpty ? null : rows.first;
-  }
-
-  static Future<Map<String, dynamic>> bandSignalsStats() async {
-    final db = await instance;
-    final eventCount =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM band_events'),
-        ) ??
-        0;
-    final batteryCount =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM band_battery'),
-        ) ??
-        0;
-    final eventSpan = (await db.rawQuery(
-      'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM band_events',
-    )).first;
-    final batterySpan = (await db.rawQuery(
-      'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM band_battery',
-    )).first;
-    final eventKinds = await db.rawQuery(
-      'SELECT name, COUNT(*) AS n FROM band_events GROUP BY name ORDER BY n DESC, name ASC',
-    );
-    return {
-      'event_count': eventCount,
-      'battery_count': batteryCount,
-      'event_min_ts': (eventSpan['lo'] as num?)?.toInt(),
-      'event_max_ts': (eventSpan['hi'] as num?)?.toInt(),
-      'battery_min_ts': (batterySpan['lo'] as num?)?.toInt(),
-      'battery_max_ts': (batterySpan['hi'] as num?)?.toInt(),
-      'event_kinds': {
-        for (final row in eventKinds)
-          (row['name']?.toString() ?? 'unknown'):
-              (row['n'] as num?)?.toInt() ?? 0,
-      },
-    };
-  }
-
-  /// The OLDEST [limit] queued events — an upload-queue drain head, and ONLY
-  /// that. Never use it to answer "what happened on day X": once `events` holds
-  /// more than [limit] rows the page can't reach recent days at all (the same
-  /// oldest-N-vs-trailing-N shape as the `metricSeries(limit:)` outage). Use
-  /// [eventsInRange] for a day/window query.
-  static Future<List<Map<String, dynamic>>> unuploadedEvents({
-    int limit = 500,
-  }) async {
-    final db = await instance;
-    return db.query('events', orderBy: 'ts ASC', limit: limit);
-  }
-
   /// Events whose `ts` (epoch SECONDS) is in the half-open window
   /// `[fromTs, toTs)`, oldest first. Bounded BY THE WINDOW, not by an unrelated
   /// global page, so a day's markers can never be crowded out by older rows.
@@ -6208,11 +6120,6 @@ class LocalDb {
     );
   }
 
-  static Future<List<Map<String, dynamic>>> syncLedger() async {
-    final db = await instance;
-    return db.query('sync_ledger', orderBy: 'created_at ASC');
-  }
-
   static Future<void> quarantineSyncChunk({
     required String kind,
     required String payloadJson,
@@ -6225,17 +6132,6 @@ class LocalDb {
       'reason': reason,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
-  }
-
-  /// Previously write-only: `quarantineSyncChunk` had no reader anywhere,
-  /// so a persistently-stuck batch was recorded but never actually
-  /// retrievable for diagnosis. Append-only audit trail (like `raw_archive`)
-  /// — never pruned here, resolution is implicit once the same token finally
-  /// ACKs (see the `batch:$tokenHex` sync_ledger row transitioning to
-  /// `acked`), not a deletion of the quarantine record.
-  static Future<List<Map<String, dynamic>>> quarantinedSyncChunks() async {
-    final db = await instance;
-    return db.query('sync_quarantine', orderBy: 'created_at DESC');
   }
 
   /// Columns [Sample.fromDecodedRow] reads. Deliberately NOT `*`: the accel /
@@ -6654,50 +6550,6 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
-  /// The N most recent days at their served version — EVERY column except the
-  /// two big JSON blobs. Newest day_id first.
-  ///
-  /// The payload-free half of [recentDayResults]. `SELECT r.*` drags
-  /// `payload_json` (~88 KB a day) for every row, so a caller that only needs
-  /// "which days, at what version, finalized or not" was moving tens of MB of
-  /// Dart strings to read a few scalars — measured at ~35 MB for a 400-day
-  /// health-export pass, before the caller then decoded and RETAINED a bundle
-  /// per day (~298 MB RSS). Fetch the bundle for one day at a time with
-  /// [dayResult] and let each one go.
-  static Future<List<Map<String, dynamic>>> recentDayResultsMeta(
-    int limit,
-  ) async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized, '
-      'r.skipped, r.partial, r.rhr, r.rmssd, r.readiness '
-      'FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
-      [limit],
-    );
-    return [for (final r in rows) _withDate(r)];
-  }
-
-  /// `{day_id -> served algo_version}` for every day, payload-free.
-  ///
-  /// One query instead of a `dayResult()` per day: a caller walking history to
-  /// ask "what version is this day at" was doing an N+1 that pulled a full
-  /// bundle each time to read one integer.
-  static Future<Map<String, int>> dayResultVersions() async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      'SELECT day_id, MAX(algo_version) AS v FROM day_result '
-      'WHERE algo_version <= ? GROUP BY day_id',
-      [_servedAlgoCeiling],
-    );
-    return {
-      for (final r in rows)
-        if (r['day_id'] is String && r['v'] is num)
-          r['day_id'] as String: (r['v'] as num).toInt(),
-    };
-  }
-
   /// The stored sleep WINDOW for each of the [limit] most recent days, newest
   /// first, WITHOUT touching `payload_json`.
   ///
@@ -6721,47 +6573,6 @@ class LocalDb {
       'ORDER BY r.day_id DESC LIMIT ?',
       [?before, limit],
     );
-  }
-
-  /// Every day_id that has a `day_result` row at its LATEST algo_version, newest
-  /// first — WITHOUT touching `payload_json`.
-  ///
-  /// `recentDayResults()` does `SELECT r.*`, which drags the whole bundle
-  /// (hr_curve / hypnogram / HRV series, tens of KB a day) across the isolate
-  /// boundary. Screens that only need "which days exist" must use this instead:
-  /// over a multi-year history the payload variant is hundreds of MB.
-  static Future<List<String>> dayResultDayIdsDesc() async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      'SELECT day_id FROM day_result WHERE algo_version <= ? '
-      'GROUP BY day_id ORDER BY day_id DESC',
-      [_servedAlgoCeiling],
-    );
-    return [
-      for (final r in rows)
-        if (r['day_id'] is String) r['day_id'] as String,
-    ];
-  }
-
-  /// Day labels whose LATEST-version bundle records a real sleep total
-  /// (`sleep.accounting.value.tst_sec` present). Extracted IN SQLite via
-  /// json_extract, so only the scalar crosses the boundary — never the payload.
-  static Future<Set<String>> daysWithSleepTst() async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      'SELECT r.day_id FROM day_result r '
-      '$_servedDayJoin '
-      // json_valid() first: json_extract() ERRORS on a malformed payload, and a
-      // corrupt bundle must degrade to "no sleep that day", never take out the
-      // whole Records screen.
-      'WHERE json_valid(r.payload_json) '
-      "AND json_extract(r.payload_json, '\$.sleep.accounting.value.tst_sec') "
-      'IS NOT NULL',
-    );
-    return {
-      for (final r in rows)
-        if (r['day_id'] is String) r['day_id'] as String,
-    };
   }
 
   /// Every day label ('YYYY-MM-DD') the lookback screen can actually RENDER —
@@ -8194,58 +8005,6 @@ class LocalDb {
     };
   }
 
-  /// Recent latest-version day rows with lightweight status fields used by the
-  /// metrics diagnostics view.
-  static Future<List<Map<String, dynamic>>> recentDayDiagnostics(
-    int limit,
-  ) async {
-    final rows = await recentDayResults(limit);
-    final rawByDay = await decodedRecTsMaxByDay();
-    final out = <Map<String, dynamic>>[];
-    for (final row in rows) {
-      final decoded =
-          SeriesCodec.decodePayloadJson(row['payload_json']) ??
-          const <String, dynamic>{};
-      final scalars = ((decoded['scalars'] as Map?) ?? const {})
-          .cast<String, dynamic>();
-      final dayId = row['day_id'] as String? ?? '';
-      out.add({
-        'day_id': dayId,
-        'computed_at': row['computed_at'],
-        'algo_version': row['algo_version'],
-        'finalized': row['finalized'],
-        'raw_max_rec_ts': rawByDay[dayId],
-        'skipped': decoded['skipped'] == true,
-        'skip_reason': decoded['reason'],
-        'rhr': row['rhr'] ?? scalars['rhr'],
-        'rmssd': row['rmssd'] ?? scalars['rmssd'],
-        'readiness': row['readiness'] ?? scalars['readiness'],
-        'strain': scalars['strain'],
-        'tst_min': scalars['tst_min'],
-        'resp_rate': scalars['resp_rate'],
-      });
-    }
-    return out;
-  }
-
-  /// Count non-null series points for each requested metric key.
-  static Future<Map<String, int>> metricSeriesCounts(List<String> keys) async {
-    if (keys.isEmpty) return const {};
-    final db = await instance;
-    final out = <String, int>{};
-    for (final key in keys) {
-      out[key] =
-          Sqflite.firstIntValue(
-            await db.rawQuery(
-              'SELECT COUNT(*) FROM metric_series WHERE key = ? AND value IS NOT NULL',
-              [key],
-            ),
-          ) ??
-          0;
-    }
-    return out;
-  }
-
   /// Single metric_series value for one (date, key), or null.
   static Future<double?> metricValueOn(String date, String key) async {
     final db = await instance;
@@ -9055,35 +8814,6 @@ class LocalDb {
     });
   }
 
-  /// Replace one day's numeric journal fields.
-  ///
-  /// The map IS the day: a field that is absent from [fields] is DELETED for
-  /// that date, not left behind. Clearing a value the user cleared matters
-  /// more than it sounds — a stale "3 coffees" that survives an edit becomes a
-  /// data point the user never entered, and correlations are exactly where
-  /// that does damage.
-  ///
-  /// Written in one transaction so a day is never half-updated.
-  static Future<void> putJournalMetrics(
-    String date,
-    Map<String, JournalMetricValue> fields,
-  ) async {
-    final db = await instance;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await db.transaction((txn) async {
-      await txn.delete('journal_metric', where: 'date = ?', whereArgs: [date]);
-      for (final e in fields.entries) {
-        await txn.insert('journal_metric', {
-          'date': date,
-          'field': e.key,
-          'value': e.value.value,
-          'at_min': e.value.atMinuteOfDay,
-          'updated_at': now,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-    });
-  }
-
   /// Build 92 (Codex audit 12-13): one Journal edit in ONE transaction, as a
   /// patch. [changes] holds only the fields the editor changed (null clears
   /// one); [base] is what the editor read for them. Tags and note are written
@@ -9211,16 +8941,6 @@ class LocalDb {
       );
     }
     return out;
-  }
-
-  /// Every field name that has ever been recorded, so a user-defined field
-  /// keeps appearing in the editor after the day it was invented on.
-  static Future<List<String>> journalMetricFields() async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      'SELECT DISTINCT field FROM journal_metric ORDER BY field ASC',
-    );
-    return [for (final r in rows) r['field'] as String];
   }
 
   /// Custom field definitions, ordered by label.
@@ -9364,24 +9084,6 @@ class LocalDb {
   }
 
   // ── cycle log I/O ─────────────────────────────────────────────────────────────
-
-  static Future<void> putCycleLog(
-    String date,
-    String kind, {
-    String? note,
-  }) async {
-    final db = await instance;
-    await db.insert('cycle_log', {
-      'date': date,
-      'kind': kind,
-      'note': note,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  static Future<void> deleteCycleLog(String date) async {
-    final db = await instance;
-    await db.delete('cycle_log', where: 'date = ?', whereArgs: [date]);
-  }
 
   /// All cycle markers, oldest first.
   static Future<List<Map<String, dynamic>>> cycleLogs() async {
@@ -9752,20 +9454,6 @@ class LocalDb {
         ...r,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
-  }
-
-  /// The stored splits for one session, in order. Empty when the session
-  /// predates this table or had no route — never inferred.
-  static Future<List<Map<String, dynamic>>> workoutSplits(
-    String sessionId,
-  ) async {
-    final db = await instance;
-    return db.query(
-      'workout_split',
-      where: 'session_id = ?',
-      whereArgs: [sessionId],
-      orderBy: 'km ASC',
-    );
   }
 
   /// Additive: add the `speed` column (smoothed instantaneous m/s) to an

@@ -265,68 +265,12 @@ void main() {
       }
       await batch.commit(noResult: true);
 
-      // The OLD path: oldest-2000 globally, then filtered to the day → nothing.
-      final oldest = await LocalDb.unuploadedEvents(limit: 2000);
-      final viaOldPath = oldest.where(
-        (e) =>
-            (e['ts'] as num) >= lateDayStart &&
-            (e['ts'] as num) < lateDayStart + 86400,
-      );
-      expect(
-        viaOldPath,
-        isEmpty,
-        reason: 'documents the bug the day-bounded query replaces',
-      );
-
       final viaNewPath = await LocalDb.eventsInRange(
         lateDayStart,
         lateDayStart + 86400,
       );
       expect(viaNewPath, hasLength(3));
       expect(viaNewPath.every((e) => e['event_id'] == 2), isTrue);
-    },
-  );
-
-  // ── fix 10 ───────────────────────────────────────────────────────────────
-  test(
-    'dayResultDayIdsDesc / daysWithSleepTst answer in SQL, latest version only',
-    () async {
-      final db = await LocalDb.instance;
-      await db.delete('day_result');
-      await LocalDb.putDayResult(
-        dayId: '2026-02-01',
-        algoVersion: 40,
-        payloadJson: '{"sleep":{"accounting":{"value":{"tst_sec":21600}}}}',
-        windowJson: '{}',
-      );
-      // A LATER version of the same day that lost its sleep block — the latest
-      // version is the one that counts.
-      await LocalDb.putDayResult(
-        dayId: '2026-02-01',
-        algoVersion: 41,
-        payloadJson: '{"sleep":{"accounting":{"value":{"tst_sec":25200}}}}',
-        windowJson: '{}',
-      );
-      await LocalDb.putDayResult(
-        dayId: '2026-02-02',
-        algoVersion: 41,
-        payloadJson: '{"sleep":{"accounting":{"value":{}}}}',
-        windowJson: '{}',
-      );
-      // A corrupt payload must degrade to "no sleep", never take the query out.
-      await LocalDb.putDayResult(
-        dayId: '2026-02-03',
-        algoVersion: 41,
-        payloadJson: 'not json at all',
-        windowJson: '{}',
-      );
-
-      expect(await LocalDb.dayResultDayIdsDesc(), [
-        '2026-02-03',
-        '2026-02-02',
-        '2026-02-01',
-      ]);
-      expect(await LocalDb.daysWithSleepTst(), {'2026-02-01'});
     },
   );
 

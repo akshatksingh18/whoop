@@ -134,8 +134,8 @@ void main() {
     });
   });
 
-  group('LiveWorkoutState.caloriesOrNull', () {
-    test('rounds the live figure once something was actually costed', () {
+  group('LiveWorkoutState live calories abstain as zero', () {
+    test('is positive once something was actually costed', () {
       final s = _session(_anchored);
       s.restingHr = 55; // the bout gate needs a real resting HR
       for (var i = 0; i < 120; i++) {
@@ -143,17 +143,16 @@ void main() {
         s.accrueHr(140);
       }
       expect(s.calories, greaterThan(0));
-      expect(s.caloriesOrNull, s.calories.round());
     });
 
-    test('is null until the estimate has run even once', () {
+    test('is zero until the estimate has run even once', () {
       // "Can we score this" and "did we score this" are different questions
       // and both have a zero-shaped answer. A complete profile whose band
       // never delivered a heart rate — link dropped, strap off — accrues
       // nothing, and reporting that as 0 kcal claims a measurement nobody
       // took. Strain already reports that case as absent.
-      expect(_session(_anchored).caloriesOrNull, isNull);
-      expect(_session(const Profile()).caloriesOrNull, isNull);
+      expect(_session(_anchored).calories, isZero);
+      expect(_session(const Profile()).calories, isZero);
     });
 
     test(
@@ -166,16 +165,14 @@ void main() {
         // It no longer is. The tick shares the substrate re-score's rates, and
         // below the activity gate that means the Harris-Benedict RESTING rate,
         // which is strictly positive. A session with any heart rate at all now
-        // has a positive cost; a session with none is absent. The zero-shaped
-        // ambiguity `caloriesOrNull` exists to resolve is therefore now only
-        // ever "we could not score this", which is exactly what null says.
+        // has a positive cost; a session with none is absent. A zero live total
+        // is therefore now only ever "we could not score this".
         final s = _session(_anchored);
         s.restingHr = 55;
         for (var i = 0; i < 120; i++) {
           s.elapsed = Duration(seconds: i);
           s.accrueHr(45); // far below the gate — bills the resting floor
         }
-        expect(s.caloriesOrNull, isNotNull);
         expect(s.calories, greaterThan(0));
       },
     );
@@ -189,7 +186,7 @@ void main() {
         s.elapsed = Duration(seconds: i);
         s.accrueHr(140);
       }
-      expect(s.caloriesOrNull, isNull);
+      expect(s.calories, isZero);
     });
   });
 

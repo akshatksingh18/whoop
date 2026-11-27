@@ -17,6 +17,7 @@ import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/screens/rough_night.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../../support/audit_visual.dart' show loadAuditFonts;
+import '../../support/store_fixtures.dart';
 
 class _Repo extends LocalRepositoryImpl {
   _Repo() : super(getProfileMap: () => {});
@@ -253,28 +254,20 @@ void main() {
     },
   );
 
-  test(
-    'an exact selected-day read is independent of recent-list bounds',
-    () async {
-      await LocalDb.putJournal(oldDay, '["travel"]', 'Older note');
-      await LocalDb.putJournal(todayLabel(), '["workout"]', 'Recent note');
-      expect((await app.repo!.getJournal()).map((r) => r['date']), [
-        todayLabel(),
-      ]);
-      expect((await app.repo!.getJournalDay(oldDay))!['note'], 'Older note');
-      expect(await app.repo!.getJournalDay('2000-01-01'), isNull);
-      expect((await LocalDb.journalRows(date: oldDay)).single['date'], oldDay);
-    },
-  );
+  test('an exact selected-day read reaches an older day', () async {
+    await LocalDb.putJournal(oldDay, '["travel"]', 'Older note');
+    await LocalDb.putJournal(todayLabel(), '["workout"]', 'Recent note');
+    expect((await app.repo!.getJournalDay(oldDay))!['note'], 'Older note');
+    expect(await app.repo!.getJournalDay('2000-01-01'), isNull);
+    expect((await LocalDb.journalRows(date: oldDay)).single['date'], oldDay);
+  });
 
   testWidgets(
     'an older-day conflict reloads its real note and tags and keeps the typed draft',
     (t) async {
       await t.runAsync(() async {
         await LocalDb.putJournal(oldDay, '["travel"]', 'Original old note');
-        await LocalDb.putJournalMetrics(oldDay, {
-          'mood': const JournalMetricValue(1),
-        });
+        await seedJournalMetrics(oldDay, {'mood': const JournalMetricValue(1)});
       });
       await open(t, const JournalCompose(date: oldDay));
       await t.enterText(field('Anything else'), 'My typed draft');
@@ -282,9 +275,7 @@ void main() {
       await t.pump();
       await t.runAsync(() async {
         await LocalDb.putJournal(oldDay, '["sick"]', 'Newer stored note');
-        await LocalDb.putJournalMetrics(oldDay, {
-          'mood': const JournalMetricValue(2),
-        });
+        await seedJournalMetrics(oldDay, {'mood': const JournalMetricValue(2)});
         final dynamic action = t
             .widget<BigButton>(find.widgetWithText(BigButton, 'Save'))
             .onTap;
@@ -369,7 +360,7 @@ void main() {
     'cancelling a last-dose time edit retains the original time and unsaved note',
     (t) async {
       await t.runAsync(
-        () => LocalDb.putJournalMetrics(oldDay, {
+        () => seedJournalMetrics(oldDay, {
           'caffeine_mg': const JournalMetricValue(100, atMinuteOfDay: 900),
         }),
       );

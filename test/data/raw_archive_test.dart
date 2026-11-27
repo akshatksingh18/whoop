@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/models.dart';
+import '../support/store_fixtures.dart';
 
 void main() {
   setUpAll(() async {
@@ -67,9 +68,9 @@ void main() {
       );
 
       // Archive landed (durable, keyed by counter with reason breakdown).
-      final stats = await LocalDb.rawArchiveStats();
-      expect(stats['count'], 1);
-      expect((stats['by_reason'] as Map)['undecodable_rec_v99'], 1);
+      final stats = await rawArchiveCounts();
+      expect(stats.count, 1);
+      expect(stats.byReason['undecodable_rec_v99'], 1);
 
       // Decoded record landed in the SAME commit.
       final counts = await LocalDb.counts();
@@ -98,8 +99,8 @@ void main() {
         archives: [archive],
       );
       // Still one archived row — same bytes, so the redelivery deduped.
-      final stats = await LocalDb.rawArchiveStats();
-      expect(stats['count'], 1);
+      final stats = await rawArchiveCounts();
+      expect(stats.count, 1);
       // …but the trim cursor still advanced (this chunk was ACK-safe).
       expect(await LocalDb.getCursor('strap_trim'), 'aabbccddeeff0022');
     },
@@ -115,9 +116,9 @@ void main() {
         reason: 'undecodable_rec_v112',
       ),
     );
-    final stats = await LocalDb.rawArchiveStats();
-    expect(stats['count'], 2);
-    expect((stats['by_reason'] as Map)['undecodable_rec_v112'], 1);
+    final stats = await rawArchiveCounts();
+    expect(stats.count, 2);
+    expect(stats.byReason['undecodable_rec_v112'], 1);
   });
 
   test('two DISTINCT frames sharing a reused counter BOTH survive', () async {
@@ -126,7 +127,7 @@ void main() {
     // Under the old `counter INTEGER PRIMARY KEY` + IGNORE, the second frame
     // was silently DROPPED — permanent loss in the table that exists precisely
     // to never lose a frame. Content-keyed, both must survive.
-    final before = (await LocalDb.rawArchiveStats())['count'] as int;
+    final before = (await rawArchiveCounts()).count;
     const reusedCounter = 4004;
     await LocalDb.archiveRawRecord(
       ArchiveRecord(
@@ -146,7 +147,7 @@ void main() {
         reason: 'undecodable_post_reboot',
       ),
     );
-    final after = (await LocalDb.rawArchiveStats())['count'] as int;
+    final after = (await rawArchiveCounts()).count;
     // Pre-fix: +1 (second dropped by counter-PK IGNORE). Post-fix: +2.
     expect(after - before, 2);
   });
@@ -210,10 +211,10 @@ void main() {
     }
 
     // The bytes are never consumed: raw_archive keeps every row, unrelabelled.
-    final stats = await LocalDb.rawArchiveStats();
-    expect((stats['by_reason'] as Map)['undecodable_rec_v18'], 2);
-    expect((stats['by_reason'] as Map)['partial_decode_v18_no_gravity'], 2);
-    expect((stats['by_reason'] as Map)['undecodable_rec_v20'], 1);
+    final stats = await rawArchiveCounts();
+    expect(stats.byReason['undecodable_rec_v18'], 2);
+    expect(stats.byReason['partial_decode_v18_no_gravity'], 2);
+    expect(stats.byReason['undecodable_rec_v20'], 1);
   });
 
   test(

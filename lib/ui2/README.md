@@ -160,46 +160,24 @@ Surface({required Widget child, EdgeInsets pad = EdgeInsets.all(S.x4),
 Section(String title, Widget child, {String? action, VoidCallback? onAction})
 ```
 
-### The seven card jobs
+### The card jobs
 
 ```dart
-// A · one number, glanceable, for grids
-SignalCard(IconData icon, Color color, String label, String value,
-           {String unit = '', String sub = '', VoidCallback? onTap})
-
-// B · moving toward a goal
-ProgressCard(String label, String value, String target, double frac,
-             Color color, {IconData? icon})
-
-// C · changing over time
-TrendCard(String label, String value, String unit, String delta,
-          String window, List<double> series, Color color,
-          {bool up = false, bool? good = true, VoidCallback? onTap})
-          // good: null = no baseline. No arrow, no verdict.
-
-// D · something the system noticed
+// something the system noticed
 InsightCard(String headline, String reason,
             {String action = '', IconData icon = LucideIcons.sparkles,
              Color color = C.blue, VoidCallback? onTap})
 
-// E · something the user should do
-ActionCard(String title, String meta, String cta, IconData icon, Color color,
-           {VoidCallback? onTap})
-
-// F · something absent or uncertain — THE ONLY WAY TO RENDER A MISSING VALUE
+// something absent or uncertain — THE ONLY WAY TO RENDER A MISSING VALUE
 StatusCard(String what, String why,
            {String fix = '', IconData icon = LucideIcons.circleHelp,
             VoidCallback? onFix})
 StatusCard.forMetric(String what, Metric? m,
            {String unit = 'nights', String why = '', VoidCallback? onFix})
            // -> StatusCard? — null when the metric HAS a value
-
-// G · a gateway into serious data
-DeepDiveCard(String label, String value, String unit, String cta, Color color,
-             {Widget? preview, VoidCallback? onTap})
 ```
 
-**Never render `—`.** There is no empty variant of Signal or Trend on purpose.
+**Never render `—`.** There is no empty variant of a metric card on purpose.
 An absent metric is `StatusCard.forMetric(...)`: what is missing → why → what
 fixes it.
 
@@ -239,18 +217,9 @@ InlineMetrics(List<(String label, String value, Color color)> items)
 ### Behavioural rules
 
 ```dart
-Recommendation(String rec, String reason, String action,
-               {Color color = C.green, VoidCallback? onTap})
-GoalTrajectory(String label, String current, String target, String rate,
-               double frac, Color color, {bool rateDown = true})
 Observation(String headline, String detail,
             {String advice = '', VoidCallback? onTap})
-Consistency(int have, int of, String label, Color color,
-            {String unit = 'days'})
 ```
-
-`Consistency` is **not a streak**. It reads "18 of 24 days" and never resets to
-zero. Do not add one.
 
 ### Chrome
 
@@ -286,14 +255,9 @@ LineChart(List<double> d, Color color,
 Bars(List<double> d, Color color,
      {int highlight = -1, double t = 1, AxisSpec? axis})
 Ring(double v, Color color, Color track, {double stroke = 10, double t = 1})
-MacroRing(double v, Color color, Color track)
 Hypnogram(List<SleepStage> stages, P p, {double t = 1})  // awake/rem/light/deep
 ZoneBar(List<double> z, P p)                         // five fractions
-Actogram(List<List<double>?> days, Color color)      // per day, 24 slots; null = no record
 HeatMap(List<List<double?>> weeks, Color color, Color track)  // null = no data
-Spectrum(List<double> psd, {double split = .28, Color lf, Color hf})
-NightStack(List<List<double>> series, List<Color> colors,
-           {List<AxisSpec?>? axes})   // one per lane; lanes are different units
 
 // paint_activity.dart — positions are normalised 0…1, origin top-left
 RouteMap(List<Offset> pts, {List<double>? pace, Color slow, Color fast,
@@ -399,8 +363,7 @@ Five rules:
    the only thing that can say what it is. Keep the wording flat — a version
    change is provenance, not something that happened to the user.
 4. **More than one colour means a `legend`.** Use the painters' own, never
-   retyped: `Hypnogram.legend(p)`, `ZoneBar.legend(p)`, `Spectrum.legend`
-   (instance), `IntervalLadder.legend` (instance). The swatch is the mark's
+   retyped: `Hypnogram.legend(p)`. The swatch is the mark's
    *solved* colour, so the key and the plot can never disagree.
 
    The two painters that own a palette take `P` for exactly that reason: raw
@@ -450,7 +413,6 @@ computed but not listed on Trends has no screen, and `metrics-map.md` lists thos
 ## Conventions that are not enforced by a test — follow them anyway
 
 - Tabular figures (`F.n*`) on any number that can change.
-- One `Recommendation` per screen at most; more than one is noise.
 - `Observation` is for a clinician-worthy pattern. It never diagnoses and never
   names a cause.
 - Copy in `StatusCard` is three parts: what is missing, why, what fixes it.

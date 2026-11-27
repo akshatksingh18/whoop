@@ -52,13 +52,6 @@ import '../screens/food_calendar.dart'
 import 'devices.dart';
 import 'profile.dart';
 
-/// A deterministic series — a gallery cannot depend on random data, and
-/// neither can a golden.
-final _series = List<double>.generate(
-  24,
-  (i) => 52 + (i * 37 % 23) - (i % 5) * 2.0,
-);
-
 /// The four answers [trendOf] can give: a move clear of its own noise in
 /// either direction, a move inside it, and a series too short to compare at
 /// all. [_falling] is [_rising] backwards — without it no fixture in this
@@ -68,75 +61,6 @@ const _rising = <double?>[50, 51, 50, 52, 51, 53, 58, 59, 60];
 const _falling = <double?>[60, 59, 58, 53, 51, 52, 50, 51, 50];
 const _flat = <double?>[50, 51, 50, 51, 50, 51, 50, 51, 50];
 const _tooShort = <double?>[50, 51, 50];
-
-// ── the three rings, in the four states a ring has ──
-//
-// Fed as HomeData through the SAME mapping the screen uses, so a state the
-// gallery shows is a state the screen can actually produce. Hand-built ring
-// objects would drift from it the first time the mapping changed.
-
-/// All three measured. Sleep has a computed need behind it, so its ring has a
-/// denominator that is the user's own rather than the hardcoded 480.
-const _ringsMeasured = HomeData(
-  dayId: '2026-08-16',
-  readiness: Metric(value: 72, confidence: .8, tier: MetricTier.high),
-  drivers: [
-    {'label': 'hrv'},
-    {'label': 'rhr'},
-    {'label': 'resp'},
-  ],
-  strain: Metric(value: 14.2, confidence: .6, tier: MetricTier.estimate),
-  sleepMin: Metric(
-    value: 465,
-    unit: 'min',
-    confidence: .8,
-    tier: MetricTier.estimate,
-  ),
-  sleepNeedMin: Metric(
-    value: 462,
-    unit: 'min',
-    confidence: .7,
-    tier: MetricTier.estimate,
-  ),
-);
-
-/// Recovery three nights into a fourteen-night baseline, and a real night with
-/// nothing to measure it against.
-const _ringsCalibrating = HomeData(
-  dayId: '2026-08-16',
-  readiness: Metric(note: 'need_baseline:have=3,need=14'),
-  strain: Metric(value: 9.8, confidence: .6, tier: MetricTier.estimate),
-  sleepMin: Metric(
-    value: 401,
-    unit: 'min',
-    confidence: .8,
-    tier: MetricTier.estimate,
-  ),
-);
-
-/// Nothing measured, three different reasons: one the pipeline named, one it
-/// named differently, and one nothing said anything about at all.
-const _ringsAbsent = HomeData(
-  dayId: '2026-08-16',
-  readiness: Metric(note: 'need_input:name=nn_beats,have=0,need=1'),
-  strain: Metric(note: 'need_input:name=today_activity'),
-  sleepMin: Metric(),
-);
-
-/// The overnight block held over from an older night while strain describes
-/// today — one sentence under the rings rather than a date under two of them.
-const _ringsHeldOver = HomeData(
-  dayId: '2026-08-16',
-  heldOverNight: '2026-08-14',
-  readiness: Metric(value: 41, confidence: .6, tier: MetricTier.estimate),
-  strain: Metric(value: 3.1, confidence: .6, tier: MetricTier.estimate),
-  sleepMin: Metric(
-    value: 322,
-    unit: 'min',
-    confidence: .8,
-    tier: MetricTier.estimate,
-  ),
-);
 
 /// Newest first, the shape `availableDays()` returns. Today leads it so the
 /// stepper's "Today" state can be photographed; the rest are FIXED dates,
@@ -180,82 +104,17 @@ Map<String, Widget> galleryCases() => {
 /// because a PNG per case per theme per scale is a file somebody has to
 /// review — see the note at the bottom of the golden test.
 Map<String, Widget> goldenCases() => {
-  // The one number the whole app is judged by, and the picture the app
-  // leaves someone else's phone. Both are photographed rather than merely
-  // swept: they are the two components a regression would be noticed in
-  // last and cost the most.
-  'rings': const RingTrio(d: _ringsMeasured),
-  // The two states that decide whether the trio is honest, in one picture:
-  // recovery still filling its baseline (progress, not a bad score), and a
-  // real duration with no computed need to draw it against.
-  'rings_calibrating': const RingTrio(d: _ringsCalibrating),
-  // All three empty. Each one says the absence in words where the number
-  // goes and carries the PIPELINE'S reason on the row that opens the
-  // screen which can say more — including the one absence nothing
-  // explained, which says exactly that.
-  'rings_absent': const RingTrio(d: _ringsAbsent),
-  'signal': const SignalCard(
-    LucideIcons.heartPulse,
-    C.blue,
-    'Resting heart rate',
-    '52',
-    unit: 'bpm',
-    sub: '4 BELOW YOUR BASELINE',
-  ),
-  // A REALISTIC value, not two characters. Every card below used to be
-  // shot with '52' / '38 min' / '+6', and the 2.0x tier passed because of
-  // it: with a duration or a thousands separator in the same slot, six
-  // components overflowed at the very scale the goldens claimed to cover.
-  'progress': const ProgressCard(
-    'Time asleep',
-    '1h 38m',
-    'of 2h 00m',
-    .63,
-    C.domMove,
-    icon: LucideIcons.footprints,
-  ),
-  'trend': TrendCard(
-    'Time asleep',
-    '7h 42m',
-    'last night',
-    '+38m',
-    'vs 14-day baseline',
-    _series,
-    C.green,
-    up: true,
-  ),
   'insight': const InsightCard(
     'Your sleep debt cleared overnight',
     'Seven hours forty, the longest this week, and your heart rate '
         'settled forty minutes earlier than usual.',
     action: 'See the night',
   ),
-  'action': const ActionCard(
-    'Charge the strap',
-    '18% remaining',
-    'Remind me',
-    LucideIcons.batteryLow,
-    C.orange,
-  ),
   'status': const StatusCard(
     'No respiratory rate last night',
     'The strap was off your wrist between 01:10 and 06:40, so there was '
         'nothing to measure.',
     fix: 'How wear position affects this',
-  ),
-  'deep_dive': DeepDiveCard(
-    'Heart rate variability',
-    '7h 42m',
-    'ms',
-    'Open the full night',
-    C.purple,
-    preview: SizedBox(
-      height: 48,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: LineChart(_series, C.purple),
-      ),
-    ),
   ),
   'metric_row': const Column(
     children: [
@@ -335,30 +194,10 @@ Map<String, Widget> goldenCases() => {
     ('EFFICIENCY', '91%', C.green),
     ('AWAKE', '22m', C.orange),
   ]),
-  'recommendation': const Recommendation(
-    'Keep it easy today',
-    'HRV is six milliseconds below your baseline and resting heart rate '
-        'is up three — the same pattern as the day before your last cold.',
-    'See what changed',
-  ),
-  'goal_trajectory': const GoalTrajectory(
-    'Weight',
-    '78.4 kg',
-    '75 kg',
-    '0.3 kg per week',
-    .62,
-    C.teal,
-  ),
   'observation': const Observation(
     'Your resting heart rate has risen on six of the last seven nights',
     'From 51 to 58 bpm, alongside a 0.4° skin-temperature rise.',
     advice: 'Worth mentioning if it continues past a week.',
-  ),
-  'consistency': const Consistency(
-    18,
-    24,
-    'Nights with a full sleep record',
-    C.domHealth,
   ),
   'pill_row': const Wrap(
     spacing: S.x2,
@@ -539,14 +378,6 @@ Map<String, Widget> goldenCases() => {
       ),
     ],
   ),
-  'stat_tile': const StatTile(
-    label: 'Steps',
-    value: '8,642',
-    unit: 'steps',
-    color: C.steps,
-    sub: '108% of goal',
-    icon: LucideIcons.footprints,
-  ),
   'stacked_bar': const Surface(
     child: StackedBar([
       ('Resting', 1862, C.steps),
@@ -688,7 +519,6 @@ Map<String, Widget> _chartCases() {
             title: 'Time in heart-rate zones',
             unit: 'share of the session',
             height: 28,
-            legend: ZoneBar.legend(p),
             child: CustomPaint(
               size: Size.infinite,
               painter: ZoneBar(const [.18, .34, .28, .15, .05], p),
@@ -807,43 +637,6 @@ Map<String, Widget> _nutritionAndWellnessCases() {
       pad: EdgeInsets.symmetric(horizontal: S.x4),
       child: PickRow('Oats', 'per 100 g: 380 kcal · P 13.0 · C 66.0'),
     ),
-    // `.preview`, because the gallery has no band and no Provider. The numbers
-    // are a fixture and are shaped like one — a resting wobble, not a workout.
-    'live_hr_card': const LiveHrCard.preview(
-      hr: 68,
-      trace: [
-        64,
-        65,
-        65,
-        66,
-        67,
-        66,
-        65,
-        66,
-        68,
-        69,
-        70,
-        69,
-        68,
-        67,
-        66,
-        66,
-        67,
-        68,
-        69,
-        68,
-        67,
-        67,
-        68,
-        69,
-        70,
-        71,
-        70,
-        69,
-        68,
-        68,
-      ],
-    ),
     'mood_picker': MoodPicker(value: 4, onChanged: (_) {}),
     'mood_picker_blank': MoodPicker(onChanged: (_) {}),
     'field_stepper': Surface(
@@ -936,10 +729,6 @@ final _metres = List<double>.generate(
   120,
   (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0,
 );
-final _psd = List<double>.generate(
-  64,
-  (i) => (i < 20 ? 40 - i : 26 - i * .3).clamp(1, 60).toDouble(),
-);
 
 Map<String, Widget> extraCases() => {
   // The edge treatment that tells a horizontal row it continues. Swept
@@ -968,13 +757,8 @@ Map<String, Widget> extraCases() => {
       ),
     ),
   ),
-  // Swept rather than photographed: it is the measured trio plus one
-  // sentence. Two of the three rings are last night's and the third is
-  // today's, and the morning before the first sync is not a rare case.
-  'rings_held_over': const RingTrio(d: _ringsHeldOver),
-  // THE ABSENCE THAT KNOWS WHY. `wearGapWhy` reads the day's off-wrist
-  // stretches — written on every derive, read by nothing until now — and
-  // hands the card the reason as a measurement. Both rankings, because the
+  // THE ABSENCE THAT KNOWS WHY. The day's measured off-wrist stretch hands
+  // the card the reason as a measurement. Both rankings, because the
   // rule is the whole feature: a sentence the screen made up is REPLACED
   // by the one that was measured, and a reason the pipeline gave keeps its
   // place with the gap added after it.
@@ -1085,45 +869,6 @@ Map<String, Widget> extraCases() => {
       );
     },
   ),
-  'chart_macro_ring': Builder(
-    builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Protein',
-          unit: 'of 140 g',
-          height: 44,
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: MacroRing(.48, p.on(C.orange), p.track),
-          ),
-        ),
-      );
-    },
-  ),
-  'chart_actogram': Builder(
-    builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Rest and activity by hour',
-          unit: 'last 28 days',
-          height: 120,
-          xLabels: const ['18 Jul', '1 Aug', 'Today'],
-          // A missing day is a null column, not a quiet one.
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: Actogram([
-              for (var d = 0; d < 28; d++)
-                d == 9 || d == 10
-                    ? null
-                    : [for (var h = 0; h < 24; h++) ((h + d) % 24) / 24],
-            ], p.on(C.domMove)),
-          ),
-        ),
-      );
-    },
-  ),
   'chart_heatmap': Builder(
     builder: (c) {
       final p = P.of(c);
@@ -1145,51 +890,6 @@ Map<String, Widget> extraCases() => {
               ],
               p.on(C.domHealth),
               p.track,
-            ),
-          ),
-        ),
-      );
-    },
-  ),
-  'chart_spectrum': Builder(
-    builder: (c) {
-      final p = P.of(c);
-      final painter = Spectrum(_psd, lf: p.on(C.blue), hf: p.on(C.purple));
-      return Surface(
-        child: ChartFrame(
-          title: 'Heart-rate variability spectrum',
-          unit: 'ms² per Hz',
-          height: 96,
-          legend: painter.legend,
-          footnote: 'Beat timing at 1 Hz is pulse-rate variability, not ECG.',
-          child: CustomPaint(size: Size.infinite, painter: painter),
-        ),
-      );
-    },
-  ),
-  'chart_night_stack': Builder(
-    builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Heart rate, movement and skin temperature',
-          unit: 'over one night',
-          height: 140,
-          xLabels: const ['23:10', '03:00', '06:40'],
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: NightStack(
-              [
-                [for (var i = 0; i < 96; i++) 52 + (i * 17 % 19) * 1.0],
-                [for (var i = 0; i < 96; i++) (i * 29 % 13) * 1.0],
-                // A lane with a gap in it — the honest shape of a night the
-                // strap spent partly off the wrist.
-                [
-                  for (var i = 0; i < 96; i++)
-                    i > 40 && i < 52 ? null : 33 + (i % 9) * .1,
-                ],
-              ],
-              [p.on(C.red), p.on(C.domMove), p.on(C.orange)],
             ),
           ),
         ),
@@ -1300,7 +1000,6 @@ Map<String, Widget> extraCases() => {
           title: 'Work and rest, round by round',
           unit: 'share of the hardest round',
           height: 110,
-          legend: painter.legend,
           child: CustomPaint(size: Size.infinite, painter: painter),
         ),
       );
@@ -1473,46 +1172,6 @@ const _roughTwoSign = RoughNight(
 /// has data. A card is not in this design system until both of its faces are
 /// in here.
 Map<String, Widget> _stateCases() => {
-  'signal_absent': const SignalCard(
-    LucideIcons.wind,
-    C.teal,
-    'Respiratory rate',
-    '—',
-    sub: 'BEAT TIMING WAS TOO NOISY LAST NIGHT',
-  ),
-  'progress_over': const ProgressCard(
-    'Protein',
-    '164 g',
-    'of 140 g',
-    1.17,
-    C.orange,
-    icon: LucideIcons.beef,
-  ),
-  // Down AND bad, which is the pairing the colour logic gets wrong: a
-  // falling number is not automatically a win.
-  'trend_down_bad': TrendCard(
-    'Heart-rate variability',
-    '48',
-    'ms',
-    '−13',
-    'vs 14-day baseline',
-    _series,
-    C.orange,
-    good: false,
-  ),
-  // A gap in the middle of the series — the strap was off the wrist for
-  // three days, and the line must BREAK rather than interpolate across it.
-  'trend_with_gap': TrendCard(
-    'Resting heart rate',
-    '58',
-    'bpm',
-    '+4',
-    'vs 14-day baseline',
-    [for (var i = 0; i < 24; i++) i > 9 && i < 13 ? null : _series[i]],
-    C.red,
-    up: true,
-    good: false,
-  ),
   'insight_no_action': const InsightCard(
     'You went to bed at the same time four nights running',
     'That is the longest stretch since May, and your resting heart rate '
@@ -1523,37 +1182,9 @@ Map<String, Widget> _stateCases() => {
     '',
     fix: 'Allow location',
   ),
-  'deep_dive_no_preview': const DeepDiveCard(
-    'Sleep debt',
-    '2h 14m',
-    'owed',
-    'See the fortnight',
-    C.indigo,
-  ),
-  'goal_trajectory_gaining': const GoalTrajectory(
-    'Weight',
-    '71.2 kg',
-    '76 kg',
-    '0.25 kg per week',
-    .34,
-    C.teal,
-    rateDown: false,
-  ),
   'observation_no_advice': const Observation(
     'Your skin temperature has been above baseline for three nights',
     '+0.6° against your own 28-night mean.',
-  ),
-  'consistency_none': const Consistency(
-    0,
-    7,
-    'Nights with a full sleep record',
-    C.domHealth,
-  ),
-  'consistency_full': const Consistency(
-    7,
-    7,
-    'Nights with a full sleep record',
-    C.domHealth,
   ),
   // Every accent, so a palette change is one picture rather than a hunt.
   'pill_every_colour': const Wrap(
@@ -1848,14 +1479,6 @@ Map<String, Widget> _listCases() => {
       ],
     ),
   ),
-  'legend': const Surface(
-    child: Legend([
-      ('Deep', C.indigo),
-      ('REM', C.purple),
-      ('Light', C.blue),
-      ('Awake', C.orange),
-    ]),
-  ),
   'no_data': const Surface(
     child: NoData(message: 'No nights recorded this week'),
   ),
@@ -1968,25 +1591,17 @@ TimelineData get _tlFull => TimelineData(
     },
     fields: kJournalFields,
   ),
-  notes: dayNotes(
-    meals: [
-      const FoodEntry(
-        id: 'm2',
-        date: '2026-08-14',
-        meal: 'Snack',
-        label: 'Flapjack',
-      ),
-    ],
-    journal: const {'alcohol': JournalMetricValue(2)},
-    fields: kJournalFields,
-    journalRows: const [
-      {
-        'date': '2026-08-14',
-        'tags_json': '["late meal","travel"]',
-        'note': 'Long drive back, ate at the services around eleven.',
-      },
-    ],
-  ),
+  // The untimed things logged that day: a tagged note, a journal value and a
+  // meal with no time on it.
+  notes: const [
+    DayNote(
+      'Long drive back, ate at the services around eleven.',
+      'late meal · travel',
+      LucideIcons.notebookPen,
+    ),
+    DayNote('alcohol', '2', LucideIcons.clipboardList),
+    DayNote('Flapjack', 'Snack', LucideIcons.utensils),
+  ],
 );
 
 Map<String, Widget> _dayTimelineCases() => {
@@ -2027,13 +1642,10 @@ Map<String, Widget> _dayTimelineCases() => {
         c,
         TimelineData(
           day: '2026-08-14',
-          notes: dayNotes(
-            journal: const {'alcohol': JournalMetricValue(2)},
-            fields: kJournalFields,
-            journalRows: const [
-              {'date': '2026-08-14', 'tags_json': '["travel"]', 'note': ''},
-            ],
-          ),
+          notes: const [
+            DayNote('Tagged', 'travel', LucideIcons.notebookPen),
+            DayNote('alcohol', '2', LucideIcons.clipboardList),
+          ],
         ),
       ),
     ),
@@ -2254,11 +1866,27 @@ double _n(String name, int salt) {
 
 /// The body weight the placeholder calories are costed at.
 ///
-/// A real screen has no default weight — [Activity.kcal] returns null without
-/// one, and that is the whole point of it. This is a FIXTURE constant, named
+/// A real screen has no default weight. This is a FIXTURE constant, named
 /// so that it cannot be mistaken for one: it exists so the calorie row has
 /// something to draw, and it never leaves this file.
 const _fixtureWeightKg = 72.0;
+
+/// The placeholder session's calories: MET × 3.5 × kg / 200 × minutes, and
+/// null for an activity with no MET, so the preview shows the absent figure.
+int? _fixtureKcal(Activity a, int minutes) => a.met == null
+    ? null
+    : (a.met! * 3.5 * _fixtureWeightKg / 200 * minutes).round();
+
+/// The archetype name the gallery's activity list and preview header show.
+String _archLabel(Arch a) => switch (a) {
+  Arch.route => 'Route',
+  Arch.interval => 'Intervals',
+  Arch.flow => 'Flow',
+  Arch.laps => 'Laps',
+  Arch.journey => 'Elevation',
+  Arch.match => 'Effort',
+  Arch.basic => 'Session',
+};
 
 /// A finished session for [a], invented from its own catalogue entry.
 ///
@@ -2279,7 +1907,7 @@ ActivityResult _placeholder(Activity a) {
   // The catch-all activity has no MET (it names no activity), and a fixture
   // still has to draw a heart rate and a zone spread. 5.0 is invented HERE,
   // in the preview, where inventing is the whole job — `calories` below stays
-  // `a.kcal(...)` and so previews the absent figure the real screen shows.
+  // `_fixtureKcal` and so previews the absent figure the real screen shows.
   final met = a.met ?? 5.0;
   final avg = (58 + met * 7).clamp(50, 172).round();
   final peak = (avg + 9 + _n(a.name, 3) * 24).clamp(avg + 4, 198).round();
@@ -2339,7 +1967,7 @@ ActivityResult _placeholder(Activity a) {
     private: a.private,
     avgHr: avg,
     maxHr: peak,
-    calories: a.kcal(_fixtureWeightKg, mins),
+    calories: _fixtureKcal(a, mins),
     strain: double.parse(
       (met * mins / 60 * 1.15).clamp(0, 21).toStringAsFixed(1),
     ),
@@ -2462,7 +2090,7 @@ class _Flows extends StatelessWidget {
                     a.icon,
                     a.color,
                     a.name,
-                    sub: archLabel(archOf(a)),
+                    sub: _archLabel(archOf(a)),
                     onTap: () => Navigator.of(c).push(
                       MaterialPageRoute<void>(builder: (_) => _FlowScreen(a)),
                     ),
@@ -2534,8 +2162,8 @@ class _FlowScreen extends StatelessWidget {
               child: NavBar(
                 a.name,
                 sub: a.met == null
-                    ? archLabel(r.arch).toUpperCase()
-                    : '${archLabel(r.arch).toUpperCase()} · '
+                    ? _archLabel(r.arch).toUpperCase()
+                    : '${_archLabel(r.arch).toUpperCase()} · '
                           '${a.met!.toStringAsFixed(1)} MET',
               ),
             ),

@@ -263,7 +263,7 @@ void main() {
       for (final (i, id) in ['p', 'q', 'r'].indexed) {
         await NutritionDb.put(db, _entry(id, id, at: i));
       }
-      await NutritionDb.reorderEntries(db, ['r', 'p', 'q']);
+      await NutritionDb.arrangeEntries(db, const [], ['r', 'p', 'q']);
       final es = await NutritionDb.entriesForDay(db, '2026-10-06');
       expect([for (final e in es) e.id], ['r', 'p', 'q']);
       await NutritionDb.put(

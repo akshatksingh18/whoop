@@ -11,6 +11,7 @@ import 'package:whoop_companion/ui2/ui2.dart';
 
 import '../ui2/screens/body_history_actions_test.dart' show flush;
 import '../support/audit_visual.dart' show loadAuditFonts;
+import '../support/store_fixtures.dart';
 import '../support/coverage_store.dart';
 import '../support/localized_coverage.dart';
 
@@ -36,7 +37,7 @@ void main() {
         final db = (await t.runAsync(() async {
           await LocalDb.putJournal(day, '["travel"]', 'Authored saved note');
           await LocalDb.putJournal(next, '["sick"]', 'Authored next-day note');
-          await LocalDb.putJournalMetrics(day, {
+          await seedJournalMetrics(day, {
             'weight_kg': const JournalMetricValue(71),
           });
           return LocalDb.instance;

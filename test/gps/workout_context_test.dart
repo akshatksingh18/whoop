@@ -200,11 +200,6 @@ void main() {
     );
     final hr = [for (var i = 0; i < 30; i++) i < 15 ? 120.0 : 130.0];
     final result = heartRateDrift(track(), hr, clock, clock.end!);
-    expect(activeRouteCoverage(track(), clock, clock.end!), greaterThan(.99));
-    expect(
-      activeRouteCoverage([track().first, track().last], clock, clock.end!),
-      0,
-    );
     expect(result, isNotNull);
     expect(result!.change, closeTo(10, .001));
     expect(heartRateDrift(track(faster: true), hr, clock, clock.end!), isNull);
@@ -240,10 +235,6 @@ void main() {
     );
     final hr = [for (var i = 0; i < 30; i++) i < 15 ? 120.0 : 130.0];
     final result = heartRateDrift(track(paused: true), hr, clock, clock.end!);
-    expect(
-      activeRouteCoverage(track(paused: true), clock, clock.end!),
-      greaterThan(.98),
-    );
     expect(result, isNotNull);
     expect(result!.change, closeTo(10, .01));
   });

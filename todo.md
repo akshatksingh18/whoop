@@ -15,7 +15,7 @@ Current implementation/compatibility contracts live in ownership-migration-plan.
   ancestors. Synthetic substitutions are implemented;originals remain local. Compatibility
   constants alone are not a migration. Preserve every current GitHub ref until its exact STOP.
   - [x] SQLite store migration in source with synthetic tests (ownership-migration-plan.md);
-    awaiting its CI run.
+    CI run 46023750021 passed.
   - [ ] Native transition (saved band key, OS restoration ID, background task IDs and
     Info.plist): Swift only, compiled and tested only by the held macOS workflow. Per the
     approved sequence it follows caller classification (3r).
@@ -44,9 +44,17 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
   coverage-audit.md owns the counts, the method and the rules every new change keeps.
 - [x] By-construction-unreachable lines are restructured with unchanged output (candidate 168,
   Akshat's decision); coverage-map.md lists them.
-- [ ] Finish function/caller/purpose/manual native/dynamic classification. Static zero-inbound
-  is not deletion permission. Preserve Gallery configurations/thermal explanations/defensive
-  guards;record exact lost capabilities and ask per item before removing anything.
+- [x] Function/caller/purpose classification over the main `a7b5f572` caller map, with each
+  candidate checked by hand (coverage-map.md "Caller classification"). Static zero-inbound is
+  not deletion permission. Preserve Gallery configurations, thermal explanations and defensive
+  guards.
+- [x] App-dead capability (Akshat approved all three groups): retired-feature remnants,
+  superseded siblings and Gallery-only components are removed with their tests and Gallery
+  entries; tests that only used a removed helper moved onto the live path (coverage-map.md).
+- [ ] Re-prove 100% on the next CI candidate after the 3r removals.
+- [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
+  are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
+  per-day export or delete screen is wanted or rejected.
 - [x] Android removed altogether (Akshat, 2026-11-22): PHY, gen5 OS bonding, bond-refusal
   give-up/pause, notification channels/permissions and GPS settings (candidate 168).
 - [x] Remove the Android link-priority policy and move the setup-drop tests onto the fake

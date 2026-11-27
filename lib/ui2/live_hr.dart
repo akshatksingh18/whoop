@@ -35,31 +35,14 @@ import 'ui2.dart';
 
 /// The live reading as a card: the number, and the recent readings behind it.
 class LiveHrCard extends StatelessWidget {
-  /// The real one: reads the live stream off [AppState].
-  const LiveHrCard({super.key}) : _hr = null, _trace = null, _preview = false;
-
-  /// A fixed reading, for the gallery. The gallery has no band, no stream and
-  /// no Provider above it, and a card that reached for one would either throw
-  /// there or force every caller to thread state through. This is the same
-  /// widget with its inputs handed to it.
-  const LiveHrCard.preview({
-    super.key,
-    required int hr,
-    required List<int> trace,
-  }) : _hr = hr,
-       _trace = trace,
-       _preview = true;
-
-  final int? _hr;
-  final List<int>? _trace;
-  final bool _preview;
+  /// Reads the live stream off [AppState].
+  const LiveHrCard({super.key});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final hr = _preview ? _hr : c.select<AppState, int?>((a) => a.liveHr);
+    final hr = c.select<AppState, int?>((a) => a.liveHr);
     if (hr == null) {
-      if (_preview) return _absent(paired: true, connected: true);
       // SELECTED, not read: with no reading the only thing this widget watched
       // was `liveHr`, which stays null through both pairing and connecting — so
       // the card went on saying "No band is paired" after the band was paired
@@ -72,13 +55,8 @@ class LiveHrCard extends StatelessWidget {
 
     // A REVISION, not the length. Length is pinned at the cap once the buffer
     // is full, so watching it drew the first 90 readings and then froze.
-    final List<int> trace;
-    if (_preview) {
-      trace = _trace ?? const [];
-    } else {
-      c.select<AppState, int>((a) => a.liveHrTraceRev);
-      trace = c.read<AppState>().liveHrTrace;
-    }
+    c.select<AppState, int>((a) => a.liveHrTraceRev);
+    final trace = c.read<AppState>().liveHrTrace;
 
     return Surface(
       child: Column(

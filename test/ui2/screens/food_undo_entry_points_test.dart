@@ -77,7 +77,7 @@ void main() {
         ),
       );
     }
-    await NutritionDb.reorderEntries(db, [target, 'authored-last']);
+    await NutritionDb.arrangeEntries(db, const [], [target, 'authored-last']);
     await db.update(
       'food_entry',
       {'created_at': 1234, 'updated_at': 5678},

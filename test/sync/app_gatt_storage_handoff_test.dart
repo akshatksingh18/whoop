@@ -298,7 +298,7 @@ void main() {
               true,
               reason: app.logLines.join('\n'),
             );
-            expect(app.status, 'connected');
+            expect(app.device.connection, 'connected');
             reports.add(
               app.engine.runSync(timeout: const Duration(minutes: 2)),
             );

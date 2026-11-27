@@ -5,8 +5,8 @@ No app backend,account,telemetry or LLM calls. Optional barcode/Maps requests di
 to their providers;never imply zero network disclosure.
 
 **Status:** 100% handwritten Dart coverage is verified on fresh GitHub main. Caller classification
-and approved repairs continue before native migration. Use the worktree below; coverage-audit.md
-owns the proof.
+and its approved app-dead removals are done in source; 100% is re-proved on the next CI candidate,
+then the large-file split and native migration. Use the worktree below; coverage-audit.md owns the proof.
 
 ## Files
 

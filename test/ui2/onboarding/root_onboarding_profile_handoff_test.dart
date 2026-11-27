@@ -59,10 +59,7 @@ void main() {
           SharedPreferences.resetStatic();
           await Prefs.ensureLoaded();
           final app = AppState.forTesting()..initialized = true;
-          app.repo = LocalRepositoryImpl(
-            getProfileMap: () => app.user,
-            saveProfileFields: app.updateProfile,
-          );
+          app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
           final theme = ThemeController.seed(
             AppThemeChoice.light,
             Brightness.light,

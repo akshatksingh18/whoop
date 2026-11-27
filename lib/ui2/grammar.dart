@@ -1,25 +1,19 @@
 // THE UX GRAMMAR
 //
 // Every card has a job. Cards are not decoration, and a screen that reaches
-// for a card without being able to name which of the seven it is has not
-// finished thinking.
+// for a card without being able to name which one it is has not finished
+// thinking.
 //
-//   A · Signal      one number, glanceable, lives in grids
-//   B · Progress    something moving toward a goal
-//   C · Trend       something changing over time
-//   D · Insight     something the system noticed
-//   E · Action      something the user should do
-//   F · Status      something absent or uncertain
-//   G · Deep dive   a gateway into serious data
+//   Insight     something the system noticed
+//   Status      something absent or uncertain
 //
-// Plus the non-card primitives (rows, inline metrics, sections) and the
-// widgets that encode the behavioural rules — Recommendation, GoalTrajectory,
-// Observation, Consistency.
+// Plus the non-card primitives (rows, inline metrics, sections) and
+// Observation, the widget that encodes the behavioural rule.
 //
 // Two rules the components enforce so screens cannot break them:
 //
-//   • ABSENCE IS A STATUS, NOT A DASH. There is no "empty" variant of Signal
-//     or Trend. A metric with no value renders `StatusCard(what, why, fix:)`.
+//   • ABSENCE IS A STATUS, NOT A DASH. There is no "empty" variant of a
+//     metric card. A metric with no value renders `StatusCard(what, why, fix:)`.
 //     The audit found 102 bare `—` with no reason attached; the fix is that
 //     the component that would draw one does not exist.
 //   • EVERY TAP TARGET IS ≥ 44 pt. Not by convention — `Pressable` is the only
@@ -38,8 +32,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../data/journal_fields.dart'
-    show formatClock, formatMinuteOfDay, formatShortDate;
+import '../data/journal_fields.dart' show formatClock, formatShortDate;
 
 // The app's one clock and short-date format, for every screen that imports
 // the grammar.
@@ -766,342 +759,9 @@ class Section extends StatelessWidget {
   }
 }
 
-// ══════════════════ A · SIGNAL ══════════════════
-/// One number. Glanceable. Lives in grids.
-class SignalCard extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String label, value, unit, sub;
+// ══════════════════ INSIGHT ══════════════════
 
-  final VoidCallback? onTap;
-
-  /// A small dial in the header row's slack — steps is the only caller today,
-  /// showing progress toward its goal without a second card.
-  final Widget? trailing;
-
-  const SignalCard(
-    this.icon,
-    this.color,
-    this.label,
-    this.value, {
-    super.key,
-    this.unit = '',
-    this.sub = '',
-    this.onTap,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Surface(
-      onTap: onTap,
-      semanticLabel: '$label, $value $unit'.trim(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: p.wash(color),
-                  borderRadius: R.rSm,
-                ),
-                child: Icon(icon, size: 14, color: p.on(color)),
-              ),
-              const SizedBox(width: S.x2),
-              Expanded(
-                child: Text(
-                  label,
-                  style: F.cap.copyWith(color: p.ink2),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              ?trailing,
-            ],
-          ),
-          const SizedBox(height: S.x3),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(
-                  value,
-                  style: F.n24.copyWith(color: p.ink),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (unit.isNotEmpty) ...[
-                const SizedBox(width: S.x1),
-                Text(unit, style: F.cap.copyWith(color: p.ink3)),
-              ],
-            ],
-          ),
-          if (sub.isNotEmpty) ...[
-            const SizedBox(height: S.x1),
-            Text(
-              sub,
-              style: F.over.copyWith(color: p.ink3),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// ══════════════════ B · PROGRESS ══════════════════
-/// Something moving toward a goal. Current → target.
-class ProgressCard extends StatelessWidget {
-  final String label, value, target;
-  final double frac;
-  final Color color;
-  final IconData? icon;
-
-  const ProgressCard(
-    this.label,
-    this.value,
-    this.target,
-    this.frac,
-    this.color, {
-    super.key,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final amount = Wrap(
-      spacing: S.x2,
-      children: [
-        Text(
-          value,
-          style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-        ),
-        Text(target, style: F.cap.copyWith(color: p.ink3)),
-      ],
-    );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Label and amount share a line until the text scale makes that a choice
-        // between truncating a measurement and growing the card. `1h 38m / of
-        // 2h 00m` overflowed by 262 px at 3× — and by 105 px with the golden's
-        // own two-character fixture, which is how it shipped.
-        if (bigText(c))
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: 15, color: p.on(color)),
-                    const SizedBox(width: S.x2),
-                  ],
-                  Expanded(
-                    child: Text(label, style: F.cap.copyWith(color: p.ink2)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: S.x1),
-              amount,
-            ],
-          )
-        else
-          Row(
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 15, color: p.on(color)),
-                const SizedBox(width: S.x2),
-              ],
-              Expanded(
-                child: Text(label, style: F.cap.copyWith(color: p.ink2)),
-              ),
-              amount,
-            ],
-          ),
-        const SizedBox(height: S.x2),
-        _Bar(frac: frac, color: color),
-      ],
-    );
-  }
-}
-
-/// The one progress bar. Everything with a fraction uses it.
-class _Bar extends StatelessWidget {
-  final double frac;
-  final Color color;
-  const _Bar({required this.frac, required this.color});
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return ClipRRect(
-      borderRadius: R.rPill,
-      child: LinearProgressIndicator(
-        value: frac.clamp(0, 1),
-        minHeight: 8,
-        backgroundColor: p.track,
-        valueColor: AlwaysStoppedAnimation(p.on(color)),
-      ),
-    );
-  }
-}
-
-// ══════════════════ C · TREND ══════════════════
-/// Something changing. Value → context → direction.
-class TrendCard extends StatelessWidget {
-  final String label, value, unit, delta, window;
-  final bool up;
-
-  /// Whether the move is good news — or NULL when there is nothing to compare
-  /// against. Null draws no arrow and passes no judgement: the card states
-  /// [delta] as the caller wrote it ("no baseline") and stops there.
-  final bool? good;
-
-  /// DENSE — see [MetricRow.series].
-  final List<double?> series;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const TrendCard(
-    this.label,
-    this.value,
-    this.unit,
-    this.delta,
-    this.window,
-    this.series,
-    this.color, {
-    super.key,
-    this.up = false,
-    this.good = true,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final j = good;
-    // The arrow says which WAY, the colour says whether that is good news, and
-    // those are independent: "HRV down" and "resting heart rate down" draw the
-    // same arrow in different hues. Hue alone is not a channel, so the reading
-    // goes in the label too.
-    //
-    // With no baseline there is no way and no news — an arrow and a hue would
-    // both be inventions, so neither is drawn and the label says nothing about
-    // better or worse.
-    final dir = j == null ? p.ink3 : p.on(j ? C.green : C.orange);
-    final judgement = j == null
-        ? ''
-        : (j ? 'an improvement' : 'worse than usual');
-    final change = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (j != null) ...[
-          Icon(
-            up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-            size: 14,
-            color: dir,
-          ),
-          const SizedBox(width: S.x1),
-        ],
-        Text(
-          delta,
-          style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600),
-        ),
-      ],
-    );
-    return Surface(
-      onTap: onTap,
-      semanticLabel:
-          '$label, $value $unit, $delta $window${judgement.isEmpty ? '' : ', $judgement'}'
-              .trim(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: F.cap.copyWith(color: p.ink2)),
-          const SizedBox(height: S.x2),
-          // A realistic value — `7h 42m`, not the two characters the golden used
-          // to pass on — pushed the delta and its arrow clean off the card: 202 px
-          // at 2×, 458 at 3×. Above the restack point the change moves to its own
-          // run rather than off the edge.
-          if (bigText(c))
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.end,
-              spacing: S.x2,
-              runSpacing: S.x1,
-              children: [
-                Text(value, style: F.n34.copyWith(color: p.ink)),
-                Text(unit, style: F.cap.copyWith(color: p.ink3)),
-                change,
-              ],
-            )
-          else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Flexible(
-                  child: Text(
-                    value,
-                    style: F.n34.copyWith(color: p.ink),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: S.x1),
-                // `unit` used to be Expanded purely to shove the delta
-                // rightwards. That made it a flex PEER of the value, so the two
-                // split the row 50/50 and a long reading ellipsised at half
-                // width with empty space beside it. A Spacer does the shoving
-                // and the unit goes back to its own size.
-                Text(unit, style: F.cap.copyWith(color: p.ink3)),
-                const Spacer(),
-                if (j != null) ...[
-                  Icon(
-                    up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-                    size: 14,
-                    color: dir,
-                  ),
-                  const SizedBox(width: S.x1),
-                ],
-                Text(
-                  delta,
-                  style: F.cap.copyWith(
-                    color: dir,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          const SizedBox(height: S.x1),
-          Text(window, style: F.over.copyWith(color: p.ink3)),
-          const SizedBox(height: S.x4),
-          SizedBox(
-            height: 64,
-            child: CustomPaint(
-              size: Size.infinite,
-              // No `dotInk`: `dots` is off here, and the knockout colour is
-              // only ever read inside the head-dot branch.
-              painter: LineChart(series, p.on(color)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ══════════════════ D · INSIGHT ══════════════════
-/// Something the system noticed. Recommendation → reason → action.
+/// Something the system noticed. Headline → reason → action.
 class InsightCard extends StatelessWidget {
   final String headline, reason, action;
   final IconData icon;
@@ -1210,165 +870,7 @@ class _Cta extends StatelessWidget {
   );
 }
 
-// ══════════════════ E · ACTION ══════════════════
-/// Something the user should do.
-class ActionCard extends StatelessWidget {
-  final String title, meta, cta;
-  final IconData icon;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const ActionCard(
-    this.title,
-    this.meta,
-    this.cta,
-    this.icon,
-    this.color, {
-    super.key,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final wide = bigText(c);
-    // The CTA is never Flexible: it is a button label, and a clipped one reads
-    // as a different word. Below the restack point it wins the row against the
-    // title, which is the right loser; above it, it takes its own line.
-    final badge = Container(
-      padding: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
-      decoration: BoxDecoration(color: p.fill(color), borderRadius: R.rSm),
-      child: Text(
-        cta,
-        style: F.cap.copyWith(color: p.inkOnFill, fontWeight: FontWeight.w600),
-      ),
-    );
-    final head = Row(
-      children: [
-        Container(
-          width: S.tap,
-          height: S.tap,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(color: p.wash(color), borderRadius: R.rMd),
-          child: Icon(icon, size: 20, color: p.on(color)),
-        ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: F.body.copyWith(
-                  color: p.ink,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(meta, style: F.cap.copyWith(color: p.ink3)),
-            ],
-          ),
-        ),
-        if (!wide) ...[const SizedBox(width: S.x3), badge],
-      ],
-    );
-    return Surface(
-      onTap: onTap,
-      semanticLabel: '$title. $meta. $cta',
-      child: !wide
-          ? head
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                head,
-                const SizedBox(height: S.x3),
-                Align(alignment: Alignment.centerLeft, child: badge),
-              ],
-            ),
-    );
-  }
-}
-
-// ══════════════════ F · STATUS ══════════════════
-
-/// How much of the window a gap has to swallow before it is allowed to be the
-/// reason. An hour: a radio hiccup or a shower is not why a night went
-/// unscored, and offering one as the cause is the false diagnosis with an
-/// unactionable fix that costs more trust than the bare absence did.
-///
-/// The WINDOW does the rest of the work — it decides WHERE a gap has to fall,
-/// which is the part that separates "on the charger all night" from "took it
-/// off at lunch". A proportional gate on top of it reads well and is wrong:
-/// the night window is deliberately wide enough to hold any bedtime, so a
-/// third of it is nearly five hours, and the ordinary three-hour charge that
-/// really did cost the night would be thrown away for being too short.
-const int _kGapMinSec = 60 * 60;
-
-/// THE MEASURED REASON A METRIC IS MISSING, when the wear record holds one.
-///
-/// [wear] is one or two `getDayWear` maps — two when the window crosses
-/// midnight, because a night's gap starts on the evening BEFORE the day it is
-/// filed under. Touching off-stretches are joined across that seam first, or a
-/// band off from 11:20 PM to 2:14 AM would be two sub-threshold gaps meeting at
-/// midnight instead of the one three-hour hole it was.
-///
-/// Each map's `segments` are `{on, start, end, len_min}`
-/// over the OBSERVABLE day, so the leading and trailing holes are on the list
-/// too — a night whose records begin at 9 am really does carry its 00:00–09:00
-/// gap. Reads as a wear MEASUREMENT only when the key is there: an ABSENT
-/// `segments` is "we never looked", and `[]` from an older bundle is not
-/// "the band was never off your wrist" either, so both return null.
-///
-/// [fromSec]/[toSec] are the window the missing metric was read from. The gap
-/// has to be the one that plausibly explains THAT window — a hole at 3 pm says
-/// nothing about a night — and when none does, this returns null and the caller
-/// says nothing extra rather than reaching for the nearest gap it can find.
-String? wearGapWhy(
-  List<Map<String, dynamic>?> wear, {
-  required int fromSec,
-  required int toSec,
-}) {
-  if (toSec <= fromSec) return null;
-  final off = <List<int>>[];
-  for (final w in wear) {
-    final segs = w?['segments'];
-    if (segs is! List) continue;
-    for (final s in segs) {
-      if (s is! Map || s['on'] != false) continue;
-      final a = (s['start'] as num?)?.toInt(), b = (s['end'] as num?)?.toInt();
-      if (a != null && b != null && b > a) off.add([a, b]);
-    }
-  }
-  if (off.isEmpty) return null;
-  off.sort((x, y) => x[0].compareTo(y[0]));
-  final joined = <List<int>>[off.first];
-  for (final o in off.skip(1)) {
-    if (o[0] <= joined.last[1]) {
-      joined.last[1] = math.max(joined.last[1], o[1]);
-    } else {
-      joined.add(o);
-    }
-  }
-  int? bestStart, bestEnd;
-  var best = 0;
-  for (final o in joined) {
-    final overlap = math.min<int>(o[1], toSec) - math.max<int>(o[0], fromSec);
-    if (overlap < _kGapMinSec || overlap <= best) continue;
-    best = overlap;
-    bestStart = o[0];
-    bestEnd = o[1];
-  }
-  if (bestStart == null || bestEnd == null) return null;
-  // The stretch's OWN bounds, not the part of it inside the window: the gap is
-  // a thing that happened, and clipping it to the question would report a
-  // shorter absence than the one that was measured.
-  return 'Your band was off your wrist ${_clock(bestStart)} – '
-      '${_clock(bestEnd)}.';
-}
-
-String _clock(int epochSec) {
-  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
-  return formatMinuteOfDay(d.hour * 60 + d.minute);
-}
+// ══════════════════ STATUS ══════════════════
 
 /// Something unavailable or uncertain. WHAT is missing → WHY → WHAT FIXES IT.
 ///
@@ -1405,7 +907,7 @@ class StatusCard extends StatelessWidget {
   /// [why] — the card says it does not know. It used to say "No measurement
   /// covering this period", which is a cause, and it was printed on days with
   /// 89 % wear and a scored night.
-  /// [gap] is a MEASURED reason from the wear record — see [wearGapWhy]. It
+  /// [gap] is a MEASURED reason from the wear record. It
   /// ranks between the two existing sources, which is the only place it can
   /// honestly sit: the pipeline saw the day and keeps the first sentence, so a
   /// gap is ADDED to it, while a [why] written into a widget by someone who
@@ -1488,91 +990,6 @@ class StatusCard extends StatelessWidget {
             const SizedBox(height: S.x3),
             _Cta(fix, p.on(C.blue), arrow: onFix != null),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-// ══════════════════ G · DEEP DIVE ══════════════════
-/// A gateway into serious data.
-class DeepDiveCard extends StatelessWidget {
-  final String label, value, unit, cta;
-  final Widget? preview;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const DeepDiveCard(
-    this.label,
-    this.value,
-    this.unit,
-    this.cta,
-    this.color, {
-    super.key,
-    this.preview,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Surface(
-      onTap: onTap,
-      semanticLabel: '$label, $value $unit. $cta',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Same restack as TrendCard, for the same reason: `7h 42m` beside a
-          // full-width label overflowed by 184 px at 3×.
-          if (bigText(c))
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: F.cap.copyWith(color: p.ink2)),
-                const SizedBox(height: S.x1),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.end,
-                  spacing: S.x1,
-                  children: [
-                    Text(value, style: F.n24.copyWith(color: p.ink)),
-                    Text(unit, style: F.cap.copyWith(color: p.ink3)),
-                  ],
-                ),
-              ],
-            )
-          else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Same 50/50 split as above: Expanded and Flexible are both
-                // flex: 1, so the reading started at the midpoint. Both
-                // shrinkable with spaceBetween owning the gap anchors it.
-                Flexible(
-                  child: Text(
-                    label,
-                    style: F.cap.copyWith(color: p.ink2),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: S.x2),
-                Flexible(
-                  child: Text(
-                    value,
-                    style: F.n24.copyWith(color: p.ink),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: S.x1),
-                Text(unit, style: F.cap.copyWith(color: p.ink3)),
-              ],
-            ),
-          if (preview != null) ...[const SizedBox(height: S.x3), preview!],
-          const SizedBox(height: S.x3),
-          _Cta(cta, p.on(color)),
         ],
       ),
     );
@@ -1748,7 +1165,7 @@ class MetricRow extends StatelessWidget {
             size: 18,
             // THE GLYPH CARRIES THE DIRECTION and the hue only carries the
             // judgement, because roughly one man in twelve cannot read the
-            // hue at all. Green/orange is the pair TrendCard already spends on
+            // hue at all. Green/orange is the pair this system spends on
             // this judgement — red in this system is the heart's category
             // colour, not a verdict.
             color: _trendHue(p, trend, rising),
@@ -1880,123 +1297,6 @@ class InlineMetrics extends StatelessWidget {
 
 // ══════════════════ BEHAVIOURAL RULES ══════════════════
 
-/// Recommendation → reason → action. Never a recommendation on its own; an
-/// instruction the user cannot audit is an instruction they stop trusting.
-class Recommendation extends StatelessWidget {
-  final String rec, reason, action;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const Recommendation(
-    this.rec,
-    this.reason,
-    this.action, {
-    super.key,
-    this.color = C.green,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Pressable(
-      onTap: onTap,
-      semanticLabel: '$rec. $reason. $action',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(rec, style: F.t2.copyWith(color: p.ink)),
-          const SizedBox(height: S.x2),
-          Text(reason, style: F.body.copyWith(color: p.ink2, height: 1.5)),
-          const SizedBox(height: S.x3),
-          Row(
-            children: [
-              Flexible(
-                child: Text(
-                  action,
-                  style: F.body.copyWith(
-                    color: p.on(color),
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 2,
-                ),
-              ),
-              const SizedBox(width: S.x1),
-              Icon(LucideIcons.arrowRight, size: 15, color: p.on(color)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Current → target → the rate that connects them.
-class GoalTrajectory extends StatelessWidget {
-  final String label, current, target, rate;
-  final double frac;
-  final Color color;
-
-  /// Which way the rate points. Purely presentational — the caller knows
-  /// whether its own metric going down is good news.
-  final bool rateDown;
-
-  const GoalTrajectory(
-    this.label,
-    this.current,
-    this.target,
-    this.rate,
-    this.frac,
-    this.color, {
-    super.key,
-    this.rateDown = true,
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final ink = p.on(color);
-    return Surface(
-      semanticLabel: '$label, $current toward $target. $rate',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: F.cap.copyWith(color: p.ink2)),
-          const SizedBox(height: S.x3),
-          // Wrap, not Row: at large text scales the goal label drops to its own
-          // line rather than pushing the number off the card. A truncated
-          // measurement is worse than a taller card.
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.end,
-            spacing: S.x3,
-            runSpacing: S.x1,
-            children: [
-              Text(current, style: F.n34.copyWith(color: p.ink)),
-              Text('Goal $target', style: F.cap.copyWith(color: p.ink3)),
-            ],
-          ),
-          const SizedBox(height: S.x3),
-          _Bar(frac: frac, color: color),
-          const SizedBox(height: S.x2),
-          Row(
-            children: [
-              Icon(
-                rateDown ? LucideIcons.trendingDown : LucideIcons.trendingUp,
-                size: 14,
-                color: ink,
-              ),
-              const SizedBox(width: S.x1),
-              Flexible(
-                child: Text(rate, style: F.cap.copyWith(color: ink)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// A health observation that may deserve a clinician. Not gamification, not a
 /// diagnosis — a statement of what was measured and what it might be worth.
 class Observation extends StatelessWidget {
@@ -2065,68 +1365,6 @@ class Observation extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Consistency, never a streak. "18 of 24 days" cannot reset to zero, so a
-/// missed day costs a day rather than costing everything.
-class Consistency extends StatelessWidget {
-  final int have, of;
-  final String label;
-  final Color color;
-
-  /// What the segments COUNT. Days for a habit, doses for a medication — the
-  /// adherence card fed this a dose count while the widget printed "of N days"
-  /// and drew one segment per day, so 10 of 14 doses read as 10 of 14 days.
-  final String unit;
-
-  const Consistency(
-    this.have,
-    this.of,
-    this.label,
-    this.color, {
-    super.key,
-    this.unit = 'days',
-  });
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final n = of <= 0 ? 0 : of;
-    return Semantics(
-      label: '$have of $n $unit. $label',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.end,
-            spacing: S.x1,
-            children: [
-              Text('$have', style: F.n24.copyWith(color: p.ink)),
-              Text('of $n $unit', style: F.cap.copyWith(color: p.ink3)),
-            ],
-          ),
-          const SizedBox(height: S.x2),
-          Row(
-            children: [
-              for (var i = 0; i < n; i++)
-                Expanded(
-                  child: Container(
-                    margin: EdgeInsets.only(right: i == n - 1 ? 0 : 2),
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: i < have ? p.on(color) : p.track,
-                      borderRadius: const BorderRadius.all(Radius.circular(2)),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: S.x2),
-          Text(label, style: F.cap.copyWith(color: p.ink3)),
-        ],
       ),
     );
   }
@@ -2643,10 +1881,9 @@ class BigButton extends StatelessWidget {
 ///     when there is no series. The frame keeps the title and the unit and
 ///     drops the axis entirely, because an axis with nothing on it reads as a
 ///     measurement of zero.
-///   • MORE THAN ONE COLOUR MEANS A [legend]. `Hypnogram.legend`,
-///     `ZoneBar.legend`, `Spectrum.legend` and `IntervalLadder.legend` are
-///     derived from the painters' own palettes — pass those rather than
-///     retyping them, so a recolour can never orphan its key.
+///   • MORE THAN ONE COLOUR MEANS A [legend]. `Hypnogram.legend` is derived
+///     from the painter's own palette — pass it rather than retyping it, so a
+///     recolour can never orphan its key.
 ///
 /// [xLabels] are laid out first-flush-left, last-flush-right and the rest
 /// centred, on cells that line up with the data: with three labels they mark
@@ -3194,100 +2431,6 @@ class UpdatedStamp extends StatelessWidget {
     return Tag(
       sameDay ? 'Updated $time' : 'Updated ${formatShortDate(when)}, $time',
       icon: LucideIcons.clock,
-    );
-  }
-}
-
-/// One number on its own tile: a label beside its colour well, the value, a
-/// unit and one short line. Lives in two-up grids.
-class StatTile extends StatelessWidget {
-  const StatTile({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.color,
-    this.unit = '',
-    this.sub,
-    this.icon,
-    this.onTap,
-    this.trailing,
-  });
-  final String label, value, unit;
-  final String? sub;
-  final Color color;
-  final IconData? icon;
-  final VoidCallback? onTap;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Surface(
-      onTap: onTap,
-      semanticLabel: '$label $value $unit ${sub ?? ''}'.trim(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: p.wash(color),
-                  borderRadius: R.rSm,
-                ),
-                child: Icon(
-                  icon ?? LucideIcons.circle,
-                  size: 14,
-                  color: p.on(color),
-                ),
-              ),
-              const SizedBox(width: S.x2),
-              Expanded(
-                child: Text(
-                  label,
-                  style: F.cap.copyWith(color: p.ink2),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              ?trailing,
-            ],
-          ),
-          const SizedBox(height: S.x3),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: value,
-                    style: F.n24.copyWith(color: p.ink),
-                  ),
-                  if (unit.isNotEmpty)
-                    TextSpan(
-                      text: ' $unit',
-                      style: F.cap.copyWith(color: p.ink3),
-                    ),
-                ],
-              ),
-              maxLines: 1,
-            ),
-          ),
-          if (sub != null && sub!.isNotEmpty) ...[
-            const SizedBox(height: S.x1),
-            Text(
-              sub!,
-              style: F.over.copyWith(color: p.ink3),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

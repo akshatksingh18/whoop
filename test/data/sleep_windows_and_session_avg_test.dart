@@ -221,19 +221,14 @@ void main() {
     });
 
     test(
-      'surfaces on getSessions, where there was no average at all',
+      'surfaces on the workout projection, where there was no average at all',
       () async {
-        final sessions = await repo.getSessions(
-          from: 1_714_000_000,
-          to: 1_715_000_000,
-          includeDetected: false,
-        );
-        final s = sessions.firstWhere((w) => w['id'] == 's1');
+        final s = await repo.getWorkout('s1');
         expect(
           s['avg_hr'],
           150,
           reason:
-              'getSessions projected max_hr but never an average, so the '
+              'the projection carried max_hr but never an average, so the '
               'activity list had nothing real to label "Avg"',
         );
       },
@@ -257,12 +252,7 @@ void main() {
         'source': 'manual',
         'created_at': 1_714_703_600_000,
       });
-      final sessions = await repo.getSessions(
-        from: 1_714_000_000,
-        to: 1_715_000_000,
-        includeDetected: false,
-      );
-      expect(sessions.firstWhere((w) => w['id'] == 's2')['avg_hr'], isNull);
+      expect((await repo.getWorkout('s2'))['avg_hr'], isNull);
     });
   });
 }

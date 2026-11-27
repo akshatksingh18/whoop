@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whoop_companion/ble/adapters/_registry.dart';
 import 'package:whoop_companion/compute/crossday_pipeline.dart';
 import 'package:whoop_companion/compute/manual_session.dart';
-import 'package:whoop_companion/compute/nightly_sweep.dart';
 import 'package:whoop_companion/compute/profile.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/live_coverage_policy.dart';
@@ -104,18 +103,6 @@ void main() {
       expect(s.maxHr, 253);
     },
   );
-
-  test('sweep inputs pair two findings without claiming a relationship', () {
-    final m = sweepInputs(const [
-      SweepFinding(key: 'rhr', text: 'Resting HR — high', z: 3, high: true),
-      SweepFinding(key: 'hrv', text: 'HRV — low', z: -3, high: false),
-    ]);
-    expect(
-      m['unusual_together'],
-      startsWith('Resting HR and HRV — both outside'),
-    );
-    expect(m.containsKey('recommended_bedtime'), isFalse);
-  });
 
   test('JSON sanitizer drops a non-string key and records its path', () {
     final dropped = <String>[];

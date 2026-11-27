@@ -12,6 +12,7 @@ import 'package:whoop_companion/compute/derive_scheduler.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/gps/screen_wake.dart';
 import 'package:whoop_companion/state/units_controller.dart';
+import 'package:whoop_companion/ui2/activity/run_detail.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -421,7 +422,7 @@ void main() {
   // field's own doc. The test only proved that `Set.add` returns false twice.
 
   group('pace is MOVING pace', () {
-    final units = UnitsController.seed(UnitSystem.metric);
+    const km = DistUnit(1000, 'km', 'km/h');
 
     test(
       'standing still after a short walk does not invent an absurd pace',
@@ -434,11 +435,11 @@ void main() {
         const elapsedSec = 608; // most of it spent standing
 
         expect(
-          units.pace(meters, elapsedSec),
+          km.pace(elapsedSec / (meters / 1000)),
           '40:32 /km',
           reason: 'this is the wrong number the old code showed',
         );
-        expect(units.pace(meters, movingSec), '13:20 /km');
+        expect(km.pace(movingSec / (meters / 1000)), '13:20 /km');
       },
     );
 
@@ -447,7 +448,7 @@ void main() {
       () {
         // Null, not '—': the formatter says "there is no pace" and the screen
         // drops the stat. A bare dash rendered into a stat slot is a defect.
-        expect(units.pace(120.0, 0), isNull);
+        expect(UnitsController.formatPace(0 / (120.0 / 1000)), isNull);
       },
     );
   });

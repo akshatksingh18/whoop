@@ -179,8 +179,8 @@ void main() {
       s.accrueHr(_hr[i]);
     }
     expect(
-      s.caloriesOrNull,
-      isNull,
+      s.calories,
+      isZero,
       reason:
           'the gate needs a real resting HR — the re-score refuses to '
           'guess one, so the live tick must not either',
@@ -191,8 +191,8 @@ void main() {
     s.accrueHr(_hr[300]);
 
     expect(
-      s.caloriesOrNull,
-      isNotNull,
+      s.calories,
+      greaterThan(0),
       reason: 'the anchor arriving must score the seconds already banked',
     );
     expect(s.calories, greaterThan(60.0));
@@ -350,7 +350,7 @@ void main() {
 
   test('abstains for a profile without the Keytel anchors', () {
     final s = _run(_hr.take(60).toList());
-    expect(s.caloriesOrNull, isNotNull);
+    expect(s.calories, greaterThan(0));
 
     final unanchored = LiveWorkoutState(
       workoutId: 'authored-live',
@@ -364,6 +364,6 @@ void main() {
       unanchored.elapsed = Duration(seconds: i);
       unanchored.accrueHr(140);
     }
-    expect(unanchored.caloriesOrNull, isNull);
+    expect(unanchored.calories, isZero);
   });
 }

@@ -10,9 +10,6 @@ abstract class TestLocalRepository extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getProfile() =>
       throw UnimplementedError('re-layer: getProfile');
-  @override
-  Future<Map<String, dynamic>> setStepGoal(int goal) =>
-      throw UnimplementedError('re-layer: setStepGoal');
 
   @override
   Future<Map<String, dynamic>> getToday() =>
@@ -23,13 +20,6 @@ abstract class TestLocalRepository extends LocalRepository {
     int days = 60,
     String? before,
   }) => throw UnimplementedError('re-layer: sleepWindows');
-
-  @override
-  Future<List<Map<String, dynamic>>> getSessions({
-    int? from,
-    int? to,
-    bool includeDetected = true,
-  }) => throw UnimplementedError('re-layer: getSessions');
 
   @override
   Future<Map<String, dynamic>> getInsights() =>
@@ -60,12 +50,6 @@ abstract class TestLocalRepository extends LocalRepository {
   Future<Map<String, dynamic>> getNightSignals(int onsetTs, int wakeTs) async =>
       const {};
   @override
-  Future<Map<String, dynamic>> getDayStress(String date) =>
-      throw UnimplementedError('re-layer: getDayStress');
-  @override
-  Future<Map<String, dynamic>> getDayHeart(String date) =>
-      throw UnimplementedError('re-layer: getDayHeart');
-  @override
   Future<Map<String, dynamic>> getDayLungs(String date) =>
       throw UnimplementedError('re-layer: getDayLungs');
   @override
@@ -78,11 +62,6 @@ abstract class TestLocalRepository extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDayHrv(String date) =>
       throw UnimplementedError('re-layer: getDayHrv');
-
-  @override
-  Future<({List<double> nn, int rawBeats, double cleanFraction})> getNightBeats(
-    String date,
-  ) => throw UnimplementedError('re-layer: getNightBeats');
 
   @override
   Future<num?> getMeasuredDaySteps(String date) async {
@@ -126,12 +105,6 @@ abstract class TestLocalRepository extends LocalRepository {
   @override
   Future<int> repairSessionCalorieBasis() =>
       throw UnimplementedError('re-layer: repairSessionCalorieBasis');
-  @override
-  Future<Map<String, dynamic>> startWorkout(String type, {String? title}) =>
-      throw UnimplementedError('re-layer: startWorkout');
-  @override
-  Future<Map<String, dynamic>> endWorkout(String workoutId) =>
-      throw UnimplementedError('re-layer: endWorkout');
 
   @override
   Future<Map<String, dynamic>> logManualWorkout({
@@ -155,24 +128,12 @@ abstract class TestLocalRepository extends LocalRepository {
       throw UnimplementedError('re-layer: getWorkoutRoute');
 
   @override
-  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) =>
-      throw UnimplementedError('re-layer: getJournal');
-
-  @override
-  Future<Map<String, dynamic>?> getJournalDay(String date) async {
-    for (final row in await getJournal(range: 'all')) {
-      if (row['date'] == date) return row;
-    }
-    return null;
-  }
+  Future<Map<String, dynamic>?> getJournalDay(String date) =>
+      throw UnimplementedError('re-layer: getJournalDay');
 
   @override
   Future<void> mergeJournalTags(String date, List<String> tags) =>
       throw UnimplementedError('re-layer: mergeJournalTags');
-
-  @override
-  Future<Map<String, dynamic>> getWeekdayEffect({String key = 'readiness'}) =>
-      throw UnimplementedError('re-layer: getWeekdayEffect');
 
   @override
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) =>

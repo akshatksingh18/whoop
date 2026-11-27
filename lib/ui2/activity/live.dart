@@ -728,7 +728,7 @@ class LiveShellState extends State<LiveShell> with WidgetsBindingObserver {
               // follow the clock is handed through as `child`, which is the same
               // widget instance on every tick — so its whole subtree is skipped
               // rather than rebuilt — and the parts of it that DO move once a
-              // second ask for the tick themselves, through [LiveTick].
+              // second ask for the tick themselves, through [_LiveClock].
               child: _LiveClock(
                 clock,
                 child: Builder(
@@ -842,8 +842,7 @@ class LiveShellState extends State<LiveShell> with WidgetsBindingObserver {
 }
 
 /// The shell's clock, offered to the body without subscribing anyone to it.
-/// Looked up with `getInheritedWidgetOfExactType` (see [LiveTick]) rather than
-/// depended on, because depending on it is the 1 Hz whole-screen rebuild this
+/// Looked up with `getInheritedWidgetOfExactType` rather than depended on, because depending on it is the 1 Hz whole-screen rebuild this
 /// exists to avoid.
 class _LiveClock extends InheritedWidget {
   final ValueNotifier<int> clock;
@@ -851,25 +850,6 @@ class _LiveClock extends InheritedWidget {
 
   @override
   bool updateShouldNotify(_LiveClock old) => old.clock != clock;
-}
-
-/// The one part of a body that does follow the clock, in a body that mostly
-/// does not. Outside a [LiveShell] it builds once at zero, which is what a
-/// preview or a widget test wants.
-class LiveTick extends StatelessWidget {
-  final Widget Function(BuildContext c, int elapsed) builder;
-  const LiveTick(this.builder, {super.key});
-
-  @override
-  Widget build(BuildContext c) {
-    final clock = c.getInheritedWidgetOfExactType<_LiveClock>()?.clock;
-    return clock == null
-        ? builder(c, 0)
-        : ValueListenableBuilder<int>(
-            valueListenable: clock,
-            builder: (bc, e, _) => builder(bc, e),
-          );
-  }
 }
 
 // ══════════════ SHARED PIECES ══════════════

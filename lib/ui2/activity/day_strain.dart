@@ -12,7 +12,7 @@
 // What this screen deliberately does NOT draw:
 //   * CTL/ATL/TSB. That is a fortnight of history and it already has a card one
 //     tap away on the Workout tab. A day screen repeating it is noise.
-//   * the resting heart rate TRIMP was anchored on. `getDayHeart`'s
+//   * the resting heart rate TRIMP was anchored on. The day bundle's
 //     `resting_hr` is now that same nocturnal number (`scalars.rhr` no longer
 //     falls back to daytime HR), so it COULD be printed — it just does not earn
 //     a line on a day screen whose subject is the curve. Naming the input in a

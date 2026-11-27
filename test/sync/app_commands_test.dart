@@ -319,26 +319,6 @@ void main() {
     );
   }
   test(
-    'deleting a stored day publishes removal while retaining a different day',
-    () async {
-      for (final d in ['2026-01-02', '2026-01-03']) {
-        await LocalDb.putDayResult(
-          dayId: d,
-          algoVersion: kAlgoVersion,
-          payloadJson: '{"date":"$d"}',
-          windowJson: '{}',
-          series: {'rhr': 55},
-        );
-      }
-      final before = app.insightsRevision.value;
-      expect(await app.dataHistoryDays(), hasLength(2));
-      expect(await app.deleteDays({'2026-01-02'}), greaterThan(0));
-      expect(await LocalDb.dayResult('2026-01-02'), isNull);
-      expect(await LocalDb.dayResult('2026-01-03'), isNotNull);
-      expect(app.insightsRevision.value, greaterThan(before));
-    },
-  );
-  test(
     'permission denial persists Off without inventing step totals',
     () async {
       final calls = <String>[];

@@ -68,7 +68,7 @@ void main() {
     // truncated to a handful.
     expect(asked.length, greaterThanOrEqualTo(23));
     expect(total, asked.length * 10);
-    expect(await LocalDb.liveStepsForDay(_label(day)), total);
+    expect((await LocalDb.resolvedStepsForDay(_label(day))).total, total);
   });
 
   test(
@@ -105,7 +105,7 @@ void main() {
       final good = PhonePedometer(stepReader: (from, to) async => 100);
       final fullTotal = await good.syncDay(day);
       expect(fullTotal, isNotNull);
-      expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+      expect((await LocalDb.resolvedStepsForDay(dayId)).total, fullTotal);
 
       // 2. A later sync where hour 5 fails. `null` from this plugin means the
       //    query FAILED (an empty hour returns 0 on both platforms), so the day
@@ -122,7 +122,7 @@ void main() {
       expect(await flaky.syncDay(day), isNull);
 
       // 3. The good total survives untouched.
-      expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+      expect((await LocalDb.resolvedStepsForDay(dayId)).total, fullTotal);
     },
   );
 
@@ -143,7 +143,7 @@ void main() {
       expect(await ped.syncDay(day), 0);
 
       // No phone rows were written, so the band count still shows.
-      expect(await LocalDb.liveStepsForDay(dayId), 777);
+      expect((await LocalDb.resolvedStepsForDay(dayId)).total, 777);
     },
   );
 
@@ -157,7 +157,7 @@ void main() {
       final good = PhonePedometer(stepReader: (from, to) async => 100);
       final fullTotal = await good.syncDay(day);
       expect(fullTotal, isNotNull);
-      expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+      expect((await LocalDb.resolvedStepsForDay(dayId)).total, fullTotal);
 
       // 2. Every hour now reads 0 WITHOUT failing — exactly what a silent iOS
       //    READ denial looks like (`requestAuthorization` reports success even
@@ -173,7 +173,7 @@ void main() {
       );
 
       // 3. The banked day survives.
-      expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+      expect((await LocalDb.resolvedStepsForDay(dayId)).total, fullTotal);
     },
   );
 
@@ -199,7 +199,7 @@ void main() {
         greaterThan(0),
         reason: 'the covered hours must still count',
       );
-      expect(await LocalDb.liveStepsForDay(dayId), total);
+      expect((await LocalDb.resolvedStepsForDay(dayId)).total, total);
     },
   );
 
@@ -224,7 +224,7 @@ void main() {
           'toward daysRead either',
     );
     // And it must not have erased the band's day.
-    expect(await LocalDb.liveStepsForDay(dayId), 321);
+    expect((await LocalDb.resolvedStepsForDay(dayId)).total, 321);
   });
 
   // THE REGRESSION THIS EXISTS FOR: a permission the app never requests is

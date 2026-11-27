@@ -342,66 +342,6 @@ void main() {
     );
   });
 
-  group('MarginalRadioDetector', () {
-    test('trips after 2 consecutive arm→quick-timeouts, one-shot', () {
-      final d = MarginalRadioDetector();
-      expect(
-        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
-        isFalse,
-      );
-      expect(
-        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
-        isTrue,
-      ); // trips
-      expect(
-        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
-        isFalse,
-      ); // already tripped → one-shot
-    });
-
-    test(
-      'a slow timeout (>20s after arm) does not count + resets the streak',
-      () {
-        final d = MarginalRadioDetector();
-        d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true);
-        // 25s later → outside the quick window → resets.
-        expect(
-          d.connectionEnded(
-            wasArmed: true,
-            secondsSinceArm: 25,
-            timedOut: true,
-          ),
-          isFalse,
-        );
-        // Next single quick timeout shouldn't trip (streak was reset).
-        expect(
-          d.connectionEnded(wasArmed: true, secondsSinceArm: 5, timedOut: true),
-          isFalse,
-        );
-      },
-    );
-
-    test('not armed → never counts', () {
-      final d = MarginalRadioDetector();
-      expect(
-        d.connectionEnded(
-          wasArmed: false,
-          secondsSinceArm: null,
-          timedOut: true,
-        ),
-        isFalse,
-      );
-      expect(
-        d.connectionEnded(
-          wasArmed: false,
-          secondsSinceArm: null,
-          timedOut: true,
-        ),
-        isFalse,
-      );
-    });
-  });
-
   group('FrameCorruptionDetector', () {
     test('does not trip below minSamples even at 100% invalid', () {
       final d = FrameCorruptionDetector(minSamples: 20);

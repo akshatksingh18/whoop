@@ -13,6 +13,7 @@ import 'package:whoop_companion/ui2/screens/rough_night.dart';
 import '../../support/audit_visual.dart' show loadAuditFonts;
 import '../../support/coverage_store.dart';
 import '../../support/localized_coverage.dart';
+import '../../support/store_fixtures.dart';
 
 void main() {
   setUpAll(() async {
@@ -65,8 +66,8 @@ void main() {
             'end_ts': end,
             'created_at': 1,
           });
-          await LocalDb.putCycleLog(date(19), 'start');
-          await LocalDb.putCycleLog(date(47), 'start');
+          await seedCycleLog(date(19), 'start');
+          await seedCycleLog(date(47), 'start');
           await LocalDb.putBaseline(
             'crossday',
             jsonEncode({

@@ -57,7 +57,7 @@ void main() {
       expect(end, greaterThan(start));
       expect(end - start, minCoverageSecondsForSteps(1657));
       expect((rows.first['steps'] as num).toInt(), 1657);
-      expect(await LocalDb.liveStepsForDay('2026-08-06'), 1657);
+      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 1657);
     });
 
     test(
@@ -119,7 +119,7 @@ void main() {
           'steps': 1230,
           'day': '2026-08-10',
         });
-        expect(await LocalDb.liveStepsForDay('2026-08-10'), 1230);
+        expect((await LocalDb.resolvedStepsForDay('2026-08-10')).total, 1230);
         final windows = await LocalDb.coverageWindowsOverlapping(
           start,
           start + 3600,

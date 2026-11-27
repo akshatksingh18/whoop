@@ -158,15 +158,6 @@ void main() {
       expect(p.sublist(8), custom);
     });
 
-    test(
-      'simple (7B) = rev1 minus the haptic-mode u16 (same frame once padded)',
-      () {
-        final p = AlarmPayloads.simple(when);
-        expect(p.length, 7);
-        expect(p, <int>[0x01, 0x04, 0x03, 0x02, 0x01, 0x00, 0x40]);
-      },
-    );
-
     test('setPayloadForBand: gen4 rev1 (9B), gen5 index1 rich (21B)', () {
       final g4 = AlarmPayloads.setPayloadForBand(when, isGen5: false);
       // gen4 = the rev-1 form, byte-identical to AlarmPayloads.rev1 — the

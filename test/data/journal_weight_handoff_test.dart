@@ -12,6 +12,7 @@ import 'package:whoop_companion/state/units_controller.dart';
 import 'package:whoop_companion/ui2/screens/journal_compose.dart';
 import 'package:whoop_companion/ui2/ui2.dart';
 import '../support/audit_visual.dart' show loadAuditFonts;
+import '../support/store_fixtures.dart';
 import '../support/coverage_store.dart';
 import '../support/localized_coverage.dart' show invokeControl;
 
@@ -114,7 +115,7 @@ void main() {
     (t) async {
       await t.runAsync(() async {
         await LocalDb.putJournal(day, '["travel"]', 'Authored older note');
-        await LocalDb.putJournalMetrics(day, {
+        await seedJournalMetrics(day, {
           'weight_kg': const JournalMetricValue(70),
           'caffeine_mg': const JournalMetricValue(80, atMinuteOfDay: 600),
         });
@@ -181,7 +182,7 @@ void main() {
     'unreadable input keeps the dialog and saved value until corrected',
     (t) async {
       await t.runAsync(
-        () => LocalDb.putJournalMetrics(day, {
+        () => seedJournalMetrics(day, {
           'weight_kg': const JournalMetricValue(70),
         }),
       );
@@ -216,7 +217,7 @@ void main() {
     'Clear removes only this weight after editor Save, keeping zero and provenance',
     (t) async {
       await t.runAsync(
-        () => LocalDb.putJournalMetrics(day, {
+        () => seedJournalMetrics(day, {
           'weight_kg': const JournalMetricValue(70),
           'caffeine_mg': const JournalMetricValue(0, atMinuteOfDay: 615),
         }),
@@ -252,11 +253,11 @@ void main() {
             dayLabelOf(DateTime(now.year, now.month, now.day - n));
         await t.runAsync(() async {
           for (final e in [(5, 70.0), (3, 71.0), (0, 72.0)]) {
-            await LocalDb.putJournalMetrics(ago(e.$1), {
+            await seedJournalMetrics(ago(e.$1), {
               'weight_kg': JournalMetricValue(e.$2),
             });
           }
-          await LocalDb.putJournalMetrics(ago(2), {
+          await seedJournalMetrics(ago(2), {
             'weight_kg': const JournalMetricValue(0),
           });
         });

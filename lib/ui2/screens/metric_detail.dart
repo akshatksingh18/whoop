@@ -2235,36 +2235,6 @@ Widget detailLinkRow(
   );
 }
 
-/// A two-column legend. Used by the hypnogram and the overnight stack.
-class Legend extends StatelessWidget {
-  final List<(String, Color)> items;
-  const Legend(this.items, {super.key});
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Wrap(
-      spacing: S.x4,
-      runSpacing: S.x2,
-      children: [
-        for (final e in items)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: e.$2, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 5),
-              Text(e.$1, style: F.over.copyWith(color: p.ink2)),
-            ],
-          ),
-      ],
-    );
-  }
-}
-
 /// The mean of the [window] slots ending at each slot, or null where fewer
 /// than [minCount] of them were measured. Gaps are never filled.
 List<double?> rollingMean(

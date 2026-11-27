@@ -601,13 +601,6 @@ void main() {
       final stored = await repo.getWorkout('original');
       expect(stored['calories'], closeTo(run.floorKcal(profile.weightKg)!, 1));
       expect(stored['duration_min'], 2);
-      await repo.endWorkout('original');
-      await repo.endWorkout('original');
-      expect(
-        (await LocalDb.session('original'))!['end_ts'],
-        tsOf(end),
-        reason: 'repeat finish must not extend the stopped session',
-      );
     },
   );
   test(

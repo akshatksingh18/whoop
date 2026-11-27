@@ -5,7 +5,7 @@
 // and the small set of things the app can honestly say are worth doing. The
 // hard part is not the circles: readiness exists on 71 % of days and needs
 // four prior nights before it exists at all, so what a ring does with nothing
-// in it is the design. See [RingTrio]. No insight feed and no general
+// in it is the design. See [_ringOf]. No insight feed and no general
 // health-observation card: those are OBSERVATION, and observation lives on
 // Health. A home screen that also observes is a dashboard, and a dashboard is
 // what this rebuild is replacing.
@@ -135,14 +135,6 @@ String weightUnitNow(BuildContext c) {
   } catch (_) {
     return 'kg';
   }
-}
-
-/// "72.4 kg" → `('72.4', 'kg')`. [UnitsController] owns every conversion and
-/// hands back one string; this only puts the two halves in the two slots a
-/// row has. Never convert in a screen.
-(String, String) splitUnit(String s) {
-  final i = s.lastIndexOf(' ');
-  return i < 0 ? (s, '') : (s.substring(0, i), s.substring(i + 1));
 }
 
 /// The band-sync trigger, or null when there is no AppState above us. Every
@@ -325,7 +317,7 @@ typedef ChartPoint = ({int t, double v});
 
 /// A `[{t, v}]` point list from `getChart`, timestamps INTACT.
 ///
-/// [seriesOf] drops `t`, and everything downstream then labelled its x axis off
+/// A values-only series drops `t`, and everything downstream then labelled its x axis off
 /// the ARRAY INDEX — `'Today'`, `'N days ago'`, weekday letters. `metric_series`
 /// stores one row per DERIVED day, not one per calendar day, so after a sync gap
 /// the newest stored point is days old and was still being called "Today".
@@ -363,13 +355,6 @@ List<double?> denseDays(List<ChartPoint> pts, int days, {DateTime? at}) {
   }
   return out;
 }
-
-/// A `[{t, v}]` point list from `getChart` as a plain series.
-///
-/// Values only — the caller cannot tell WHEN any of them was recorded. Use
-/// [pointsOf] for anything that labels, spans or dates the series; this is for
-/// sparklines, which claim nothing about time.
-List<double> seriesOf(Object? chart) => valuesOf(pointsOf(chart));
 
 /// An x-axis label for a stored point: [todayWord] when the point really is
 /// today's, otherwise "N days ago" counted from the point's OWN date.
@@ -808,66 +793,10 @@ String driverLabel(Object? key, [AppLocalizations? l]) {
 ///     door into the screen that can say more. Three [StatusCard]s is not a
 ///     home screen; a ring with nothing in it and no reason is worse than one.
 ///
-/// Today shows these doors through [_TodayPanel]; this trio is the component
-/// gallery's preview, so its cells open nothing.
-class RingTrio extends StatelessWidget {
-  final HomeData d;
-
-  const RingTrio({super.key, required this.d});
-
-  /// Whether ANY of the three has something to draw. When none do, the screen
-  /// owes the user one written absence, not three empty circles.
-  static bool has(HomeData d) =>
-      HomeRingKind.values.any((k) => _ringOf(k, d, null).why == null);
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final l = AppLocalizations.of(c);
-    final rec = _ringOf(HomeRingKind.recovery, d, l);
-    final strain = _ringOf(HomeRingKind.strain, d, l);
-    final sleep = _ringOf(HomeRingKind.sleep, d, l);
-    Widget cell(_RingState metric, HomeRingKind kind) => Pressable(
-      semanticLabel: metric.spoken,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3, horizontal: S.x1),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(metric.label, style: F.cap.copyWith(color: p.ink2)),
-            const SizedBox(height: S.x2),
-            Text(metric.value, style: F.n24.copyWith(color: metric.ink(p))),
-            const SizedBox(height: S.x1),
-            Text(
-              metric.measured ? metric.sub : 'See details',
-              style: F.over.copyWith(color: p.ink3),
-            ),
-          ],
-        ),
-      ),
-    );
-    final stacked = MediaQuery.textScalerOf(c).scale(10) > 15;
-    final cells = [
-      cell(rec, HomeRingKind.recovery),
-      cell(sleep, HomeRingKind.sleep),
-      cell(strain, HomeRingKind.strain),
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (stacked)
-          ...cells
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [for (final cell in cells) Expanded(child: cell)],
-          ),
-        const SizedBox(height: S.x3),
-        Divider(color: p.line, height: 1),
-      ],
-    );
-  }
-}
+/// Whether ANY of the three has something to draw. When none do, the screen
+/// owes the user one written absence, not three empty circles.
+bool _anyRing(HomeData d) =>
+    HomeRingKind.values.any((k) => _ringOf(k, d, null).why == null);
 
 /// Build 88 Today panel (DESIGN.md, locked mock `1-today`): one cream panel
 /// holding the recovery hero and the day's rows, each a label, its last seven
@@ -1919,7 +1848,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             // diagnostic used to go nowhere but a Firebase breadcrumb. It belongs
             // one tap away, on the Readiness screen: a wall of per-input
             // diagnostics on Home makes the app read as broken.
-            if (RingTrio.has(d))
+            if (_anyRing(d))
               _TodayPanel(
                 d: d,
                 fresh: _freshNight,

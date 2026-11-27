@@ -16,7 +16,6 @@ import 'package:whoop_companion/data/day_label.dart';
 import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/local_repository_impl.dart';
 import 'package:whoop_companion/data/nutrition_store.dart';
-import 'package:whoop_companion/ui2/activity/run_detail.dart' show speedKmh;
 import 'package:whoop_companion/ui2/grammar.dart';
 import 'package:whoop_companion/ui2/screens/food_picker.dart'
     show FoodCategoryFilter, foodsIn;
@@ -132,11 +131,6 @@ void main() {
         'Distance incomplete',
       );
     });
-  });
-
-  test('a walk reads in km/h: 10:17 /km is 5.8 km/h', () {
-    expect(speedKmh(617), '5.8');
-    expect(speedKmh(720), '5.0');
   });
 
   group('food categories', () {

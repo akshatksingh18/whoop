@@ -300,17 +300,6 @@ void main() {
   });
 
   group('review', () {
-    test('closed weeks are Monday to Sunday, months use real lengths', () {
-      final (last, before) = closedWeeks('2026-10-10'); // a Saturday
-      expect(last.from, '2026-09-28');
-      expect(last.to, '2026-10-04');
-      expect(before.from, '2026-09-21');
-      final (m, mb) = closedMonths('2026-03-15');
-      expect(m.from, '2026-02-01');
-      expect(m.days, 28);
-      expect(mb.days, 31);
-    });
-
     test('since start pairs the first 7 days with the last 7 (Build 90)', () {
       final (first, last) = sinceStartWindows('2026-09-01', '2026-10-10')!;
       expect(first.from, '2026-09-01');
@@ -322,115 +311,6 @@ void main() {
         isNull,
         reason: 'a first 7 days that reaches the last 7 is not a comparison',
       );
-    });
-
-    test('sparse evidence asks for more instead of a verdict', () {
-      final r = review(
-        weightBefore: (mean: 80, count: 1, first: null, last: null),
-        weightAfter: (mean: 79.6, count: 2, first: null, last: null),
-        waistChange: null,
-        food: (
-          kcal: null,
-          kcalDays: 0,
-          protein: null,
-          proteinDays: 0,
-          windowDays: 7,
-        ),
-        lifts: const [],
-        sessionsAfter: 2,
-      );
-      expect(r.state, ReviewState.gatherEvidence);
-    });
-
-    test(
-      'stable weight with stronger comparable lifts is consistent with the goal',
-      () {
-        LiftSet s(double l, int r) =>
-            LiftSet(reps: r, load: l, completedAt: DateTime(2026));
-        final r = review(
-          weightBefore: (mean: 80, count: 5, first: null, last: null),
-          weightAfter: (mean: 80.1, count: 6, first: null, last: null),
-          waistChange: -0.25,
-          food: (
-            kcal: 2400,
-            kcalDays: 6,
-            protein: 170,
-            proteinDays: 5,
-            windowDays: 7,
-          ),
-          lifts: [
-            (
-              exercise: 'Bench',
-              mode: LiftLoadMode.perHand,
-              before: s(40, 8),
-              after: s(40, 10),
-              change: SetVerdict.better,
-            ),
-          ],
-          sessionsAfter: 4,
-        );
-        expect(r.state, ReviewState.keepGoing);
-        expect(r.because.join(' '), contains('1 of 1 comparable lifts better'));
-      },
-    );
-
-    test(
-      'B88-07: no lift better and none worse is holding steady, not stronger',
-      () {
-        LiftSet s(double l, int r) =>
-            LiftSet(reps: r, load: l, completedAt: DateTime(2026));
-        final r = review(
-          weightBefore: (mean: 80, count: 5, first: null, last: null),
-          weightAfter: (mean: 80.1, count: 6, first: null, last: null),
-          waistChange: null,
-          food: (
-            kcal: 2400,
-            kcalDays: 6,
-            protein: 170,
-            proteinDays: 5,
-            windowDays: 7,
-          ),
-          lifts: [
-            (
-              exercise: 'Bench',
-              mode: LiftLoadMode.perHand,
-              before: s(40, 8),
-              after: s(40, 8),
-              change: SetVerdict.same,
-            ),
-          ],
-          sessionsAfter: 4,
-        );
-        expect(r.headline, 'Holding steady');
-      },
-    );
-
-    test('B88-07: only not-comparable lifts are no evidence', () {
-      LiftSet s(double l, int r) =>
-          LiftSet(reps: r, load: l, completedAt: DateTime(2026));
-      final r = review(
-        weightBefore: (mean: 80, count: 5, first: null, last: null),
-        weightAfter: (mean: 80.1, count: 6, first: null, last: null),
-        waistChange: null,
-        food: (
-          kcal: 2400,
-          kcalDays: 6,
-          protein: 170,
-          proteinDays: 5,
-          windowDays: 7,
-        ),
-        lifts: [
-          (
-            exercise: 'Curl',
-            mode: LiftLoadMode.perHand,
-            before: s(10, 15),
-            after: s(12, 13),
-            change: SetVerdict.incomparable,
-          ),
-        ],
-        sessionsAfter: 4,
-      );
-      expect(r.state, ReviewState.gatherEvidence);
     });
 
     test('B88-07: one comparator for live and Review', () {

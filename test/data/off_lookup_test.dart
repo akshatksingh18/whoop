@@ -90,7 +90,6 @@ void main() {
       // Fibre is the field that fails first, and this record has none. It is
       // absent, not zero.
       expect(p.fibreG, isNull);
-      expect(p.isBare, isFalse);
     });
 
     test('sodium arrives in milligrams, because OFF files it in grams', () {
@@ -280,11 +279,6 @@ void main() {
       final r = parseOffProduct('x', body(name: 'Mystery snack'));
       expect(r.outcome, OffOutcome.ok);
       expect(r.product!.label, 'Mystery snack');
-      expect(
-        r.product!.isBare,
-        isTrue,
-        reason: 'it logs as a bare eating occasion, which is a valid entry',
-      );
     });
 
     test('no product at all is notFound, not an empty product', () {
@@ -300,34 +294,18 @@ void main() {
   });
 
   group('portion maths', () {
-    test('per 100 g scales, and absent stays absent', () {
-      final p = parseOffProduct('x', parleG()).product!;
-      final v = p.forPortion(50);
-      expect(v.kcal, closeTo(227, 0.001));
-      expect(v.carbsG, closeTo(38.65, 0.001));
-      expect(v.fibreG, isNull, reason: 'scaling nothing is not zero');
+    test('a plausible pack serving mass is kept', () {
+      final withServing = parseOffProduct(
+        'x',
+        body(
+          name: 'Biscuits',
+          servingQuantity: '33',
+          servingSize: '33 g',
+          nutriments: const {'energy-kcal_100g': 400},
+        ),
+      ).product!;
+      expect(withServing.servingG, 33);
     });
-
-    test(
-      'the form opens at the pack serving when there is a plausible one',
-      () {
-        final withServing = parseOffProduct(
-          'x',
-          body(
-            name: 'Biscuits',
-            servingQuantity: '33',
-            servingSize: '33 g',
-            nutriments: const {'energy-kcal_100g': 400},
-          ),
-        ).product!;
-        expect(withServing.servingG, 33);
-        expect(withServing.defaultPortionG, 33);
-        expect(
-          withServing.forPortion(withServing.defaultPortionG).kcal,
-          closeTo(132, 0.001),
-        );
-      },
-    );
 
     test('an implausible serving mass is ignored and 100 g is the basis', () {
       final p = parseOffProduct(
@@ -339,7 +317,6 @@ void main() {
         ),
       ).product!;
       expect(p.servingG, isNull);
-      expect(p.defaultPortionG, 100);
     });
 
     test('a per-SERVING-only record is rebased, not read as per 100 g', () {
@@ -365,8 +342,6 @@ void main() {
       ).product!;
       expect(p.kcal, closeTo(392.86, 0.01));
       expect(p.carbsG, closeTo(78.57, 0.01));
-      // And one serving gets its label back.
-      expect(p.forPortion(28).kcal, closeTo(110, 0.01));
     });
 
     test('a stray sodium_100g does not hijack a per-serving panel', () {
@@ -390,7 +365,6 @@ void main() {
       ).product!;
       expect(p.kcal, closeTo(48, 0.01));
       expect(p.proteinG, closeTo(1.6, 0.01));
-      expect(p.isBare, isFalse);
     });
 
     test('per-serving with no serving mass states nothing at all', () {
@@ -401,7 +375,6 @@ void main() {
         body(name: 'Sachet', nutriments: const {'energy-kcal_serving': 150}),
       ).product!;
       expect(p.kcal, isNull);
-      expect(p.isBare, isTrue);
     });
   });
 

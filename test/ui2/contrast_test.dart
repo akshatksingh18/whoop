@@ -194,7 +194,6 @@ void main() {
           [for (final (_, c) in Hypnogram.legend(p)) c],
           [for (final s in SleepStage.values) Hypnogram.cols(p)[s]],
         );
-        expect([for (final (_, c) in ZoneBar.legend(p)) c], ZoneBar.cols(p));
       }
     });
 

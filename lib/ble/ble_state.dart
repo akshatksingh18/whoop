@@ -928,62 +928,6 @@ class SyncActivityWindow {
   int? expiresAtMs() => _lastMs > 0 ? _lastMs + windowMs : null;
 }
 
-/// Steps accrued since LOCAL MIDNIGHT, from a counter that counts since the BLE
-/// connection began.
-///
-/// The Today tile shows `derived day total + live session steps`, and the live
-/// half is "since this connection started". This app deliberately holds ONE
-/// continuous connection — the whole engine is built around never dropping it —
-/// so that counter routinely spans midnight, and at 00:01 the tile showed
-/// yesterday's steps plus today's and kept climbing from there. Reported from
-/// TestFlight as "steps and calories are not resetting every day, it's
-/// accumulating".
-///
-/// Rebasing at the day boundary is the fix: steps taken before midnight belong
-/// to yesterday, and yesterday's derived total already contains them.
-///
-/// Pure so the boundary behaviour is testable without a clock or a band.
-class LiveStepDayWindow {
-  String? _day;
-  int _base = 0;
-
-  /// [sessionTotal] is the connection-lifetime count; [today] is the local day
-  /// label. Returns what belongs to [today].
-  int stepsToday(int rawSessionTotal, String today) {
-    // A counter cannot be negative. Letting one through would seat `_base`
-    // below zero, and the next ordinary reading would then report the
-    // difference as steps that were never taken.
-    final sessionTotal = rawSessionTotal > 0 ? rawSessionTotal : 0;
-    if (_day == null) {
-      // First observation. The session counter is per-connection and per-
-      // process, so whatever it holds now was walked during this session — on
-      // this day. Rebasing here instead would DISCARD a real walk, which is
-      // what the live-coverage tests caught.
-      _day = today;
-      _base = 0;
-    } else if (_day != today) {
-      // A day boundary crossed while this window was watching: everything the
-      // counter holds belongs to the day that just ended.
-      _day = today;
-      _base = sessionTotal;
-    }
-    // A reconnect zeroes the session counter. Without this the stale, larger
-    // base would make every subsequent reading negative — clamped to 0 below,
-    // so a walk after a reconnect on the same day would silently stop counting.
-    if (sessionTotal < _base) _base = sessionTotal;
-    final n = sessionTotal - _base;
-    return n > 0 ? n : 0;
-  }
-
-  /// The day this window is currently based on — null until first use.
-  ///
-  /// Kept current from the SAMPLE path, not just from the widget that displays
-  /// it: a phone parked on another tab across midnight would otherwise make its
-  /// first post-midnight read the first observation of any day, and count
-  /// yesterday's whole session as today's.
-  String? get day => _day;
-}
-
 /// for [quietPeriod] (or [maxWait] elapses since the first un-derived record so a
 /// never-quiet stream still derives periodically) a derive is scheduled, coalescing
 /// the burst into a single pass. Pure + deterministic so it's unit-testable without
@@ -1177,25 +1121,6 @@ class AlarmPayloads {
     ];
   }
 
-  /// SHORT 7-byte time-only SET_ALARM_TIME payload — [rev1] without the
-  /// trailing haptic-mode u16. At haptic-mode 0 the two serialize to the SAME
-  /// padded frame, so this is not a distinct wire form. REFERENCE ONLY:
-  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Prefer [setPayloadForBand].
-  static List<int> simple(DateTime when) {
-    final ms = when.millisecondsSinceEpoch;
-    final sec = ms ~/ 1000;
-    final subsec = subsecOf(when);
-    return <int>[
-      0x01,
-      sec & 0xff,
-      (sec >> 8) & 0xff,
-      (sec >> 16) & 0xff,
-      (sec >> 24) & 0xff,
-      subsec & 0xff,
-      (subsec >> 8) & 0xff,
-    ];
-  }
-
   /// Generation-correct SET_ALARM_TIME body — 9 bytes on gen4, 21 on gen5.
   ///
   /// WHOOP 4: the REV-1 form ([rev1]) — the official app's wire form, which
@@ -1257,15 +1182,6 @@ class AlarmPayloads {
     required bool isGen5,
     int id = gen5AllSlots,
   }) => isGen5 ? <int>[0x02, id & 0xff] : disable;
-
-  /// Generation-correct GET_ALARM_TIME (0x43) body.
-  ///
-  /// WHOOP 4 takes revision 1 with no operand; WHOOP 5 takes revision 4 plus
-  /// the alarm id to read, defaulting to the slot [setPayloadForBand] arms.
-  static List<int> getPayloadForBand({
-    required bool isGen5,
-    int id = gen5Slot,
-  }) => isGen5 ? <int>[0x04, id & 0xff] : const <int>[0x01];
 
   /// Convert a WALL-CLOCK alarm target into the strap's own RTC frame.
   ///
@@ -1681,8 +1597,7 @@ class BootstrapClockGate {
 /// Which GENERATION a scan result advertises, by its advertised service UUIDs.
 ///
 /// A HINT, NOT THE ACCEPT DECISION — do not turn it back into one. Acceptance
-/// is deliberately broader (`advertisementLooksLikeWhoop` and the scanner's own
-/// match): a band whose 128-bit service UUID spills into the scan-response
+/// is deliberately broader (the scanner's own match): a band whose 128-bit service UUID spills into the scan-response
 /// overflow area advertises only the 16-bit member UUID or its name, and
 /// refusing those would leave WHOOP MG unpairable (#255).
 ///

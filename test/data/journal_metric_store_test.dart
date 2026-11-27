@@ -1,10 +1,9 @@
 // journal_metric round-trip: the numeric half of a journal entry.
 //
-// The behaviour worth pinning is the destructive one. `putJournalMetrics`
-// treats the map it is given as THE day, not a patch on it, so a field the
-// user cleared is deleted rather than left behind. A stale "3 coffees"
-// surviving an edit becomes a reading nobody made, and it lands in a
-// correlation as if it were real.
+// The behaviour worth pinning is the destructive one. A field the user
+// cleared is deleted rather than left behind. A stale "3 coffees" surviving
+// an edit becomes a reading nobody made, and it lands in a correlation as if
+// it were real.
 
 import 'dart:io';
 
@@ -34,6 +33,18 @@ void main() {
     if (await tmp.exists()) await tmp.delete(recursive: true);
   });
 
+  // The app's writer: [changes] patch the day against what was read ([base]).
+  Future<void> save(
+    String date,
+    Map<String, JournalMetricValue?> changes, {
+    Map<String, JournalMetricValue> base = const {},
+  }) async {
+    expect(
+      await LocalDb.saveJournalEdit(date, changes: changes, base: base),
+      isEmpty,
+    );
+  }
+
   setUp(() async {
     final db = await LocalDb.instance;
     await db.delete('journal_metric');
@@ -41,7 +52,7 @@ void main() {
   });
 
   test('a day round-trips, time included', () async {
-    await LocalDb.putJournalMetrics('2026-06-01', {
+    await save('2026-06-01', {
       'mood': const JournalMetricValue(4),
       'caffeine_mg': const JournalMetricValue(200, atMinuteOfDay: 855),
     });
@@ -55,23 +66,23 @@ void main() {
   test('a zero is stored as a real reading', () async {
     // "No caffeine today" is an answer. It has to survive a round trip as 0
     // and not come back as absent.
-    await LocalDb.putJournalMetrics('2026-06-01', {
-      'caffeine_mg': const JournalMetricValue(0),
-    });
+    await save('2026-06-01', {'caffeine_mg': const JournalMetricValue(0)});
     final back = await LocalDb.journalMetricsForDay('2026-06-01');
     expect(back.containsKey('caffeine_mg'), isTrue);
     expect(back['caffeine_mg']!.value, 0);
   });
 
-  test('a field left out of the map is cleared, not merged', () async {
-    await LocalDb.putJournalMetrics('2026-06-01', {
+  test('a cleared field is deleted, not left behind', () async {
+    await save('2026-06-01', {
       'mood': const JournalMetricValue(4),
       'water_ml': const JournalMetricValue(2000),
     });
     // The user cleared water and re-saved.
-    await LocalDb.putJournalMetrics('2026-06-01', {
-      'mood': const JournalMetricValue(4),
-    });
+    await save(
+      '2026-06-01',
+      {'water_ml': null},
+      base: {'water_ml': const JournalMetricValue(2000)},
+    );
 
     final back = await LocalDb.journalMetricsForDay('2026-06-01');
     expect(back.keys, ['mood']);
@@ -83,12 +94,8 @@ void main() {
   });
 
   test('saving one day never touches another', () async {
-    await LocalDb.putJournalMetrics('2026-06-01', {
-      'mood': const JournalMetricValue(2),
-    });
-    await LocalDb.putJournalMetrics('2026-06-02', {
-      'mood': const JournalMetricValue(5),
-    });
+    await save('2026-06-01', {'mood': const JournalMetricValue(2)});
+    await save('2026-06-02', {'mood': const JournalMetricValue(5)});
 
     expect(
       (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
@@ -100,11 +107,13 @@ void main() {
     );
   });
 
-  test('an empty map clears the day', () async {
-    await LocalDb.putJournalMetrics('2026-06-01', {
-      'mood': const JournalMetricValue(3),
-    });
-    await LocalDb.putJournalMetrics('2026-06-01', const {});
+  test('clearing every field clears the day', () async {
+    await save('2026-06-01', {'mood': const JournalMetricValue(3)});
+    await save(
+      '2026-06-01',
+      {'mood': null},
+      base: {'mood': const JournalMetricValue(3)},
+    );
     expect(await LocalDb.journalMetricsForDay('2026-06-01'), isEmpty);
   });
 
@@ -113,16 +122,12 @@ void main() {
   });
 
   test('the correlation read groups by day, oldest first', () async {
-    await LocalDb.putJournalMetrics('2026-06-03', {
-      'mood': const JournalMetricValue(1),
-    });
-    await LocalDb.putJournalMetrics('2026-06-01', {
+    await save('2026-06-03', {'mood': const JournalMetricValue(1)});
+    await save('2026-06-01', {
       'mood': const JournalMetricValue(3),
       'water_ml': const JournalMetricValue(1500),
     });
-    await LocalDb.putJournalMetrics('2026-06-02', {
-      'mood': const JournalMetricValue(2),
-    });
+    await save('2026-06-02', {'mood': const JournalMetricValue(2)});
 
     final all = await LocalDb.journalMetricsByDay();
     expect(all.keys.toList(), ['2026-06-01', '2026-06-02', '2026-06-03']);
@@ -132,18 +137,6 @@ void main() {
       sinceDaysEpoch: '2026-06-02',
     );
     expect(since.keys.toList(), ['2026-06-02', '2026-06-03']);
-  });
-
-  test('field names are remembered across days', () async {
-    // So a user-invented field keeps appearing in the editor after the day it
-    // was invented on.
-    await LocalDb.putJournalMetrics('2026-06-01', {
-      'custom_magnesium': const JournalMetricValue(400),
-    });
-    await LocalDb.putJournalMetrics('2026-06-02', {
-      'mood': const JournalMetricValue(3),
-    });
-    expect(await LocalDb.journalMetricFields(), ['custom_magnesium', 'mood']);
   });
 
   test(
@@ -163,7 +156,7 @@ void main() {
           custom: true,
         ),
       );
-      await LocalDb.putJournalMetrics('2026-06-01', {
+      await save('2026-06-01', {
         'custom_magnesium': const JournalMetricValue(400),
       });
 

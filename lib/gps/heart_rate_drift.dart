@@ -47,22 +47,6 @@ activeRouteSegments(
   }
 }
 
-double activeRouteCoverage(
-  List<RoutePoint> route,
-  WorkoutClock clock,
-  DateTime end,
-) {
-  final total = clock.activeSeconds(end);
-  if (total <= 0) return 0;
-  return (activeRouteSegments(
-            route,
-            clock,
-            end,
-          ).fold<double>(0, (n, s) => n + s.end - s.start) /
-          total)
-      .clamp(0.0, 1.0);
-}
-
 /// Descriptive within-session comparison. No fitness, diagnosis or calorie claim.
 HeartRateDrift? heartRateDrift(
   List<RoutePoint> route,

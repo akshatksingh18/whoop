@@ -389,10 +389,6 @@ class FoodEntry {
   final bool confirmed;
   final String note;
 
-  /// A bare eating occasion: logged, but with no energy attached. Complete and
-  /// valid as a log; it just cannot contribute to an energy average.
-  bool get isBareOccasion => kcal == null;
-
   /// The write-time guard. A photo cannot produce a calorie total: AI photo
   /// estimation misses roughly a third of calories in controlled testing, and
   /// a number that wrong is worse than an honest absence. Until the user
@@ -773,82 +769,16 @@ DayLogState dayLogState(
   return DayLogState.partial;
 }
 
-/// True when [date] counts only because it reached the automatic threshold —
-/// no mark of its own — so the screen can say "counted automatically".
-bool countedAutomatically(NutritionDay d, String? mark) =>
-    mark == null && d.state == DayLogState.complete;
-
-/// One nutrient averaged across a window, with what was left out of it.
-/// [value] null is an absence with a reason attached, never a zero: either no
-/// counted day reported the nutrient at all ([floorDays] 0), or every one that
-/// did reported only a floor.
-class NutrientMean {
-  const NutrientMean(this.value, this.days, this.floorDays);
-
-  /// The mean of [days] COMPLETE totals, or null when there were none.
-  final double? value;
-
-  /// How many counted days reported this nutrient on every occasion. This is
-  /// the denominator the screen must name — it can be smaller than the number
-  /// of counted days, which is the whole point.
-  final int days;
-
-  /// Counted days whose total was a floor, so excluded. Averaging a floor
-  /// understates the mean by exactly the occasions we failed to see.
-  final int floorDays;
-}
-
 /// A rolling window. Daily is the detail view; THIS is the hero — one day of
 /// intake is noise, seven is a habit.
 class NutritionWindow {
   const NutritionWindow(this.days);
   final List<NutritionDay> days;
 
-  int get span => days.length;
-  int get daysLogged => days.where((d) => d.logged).length;
   List<NutritionDay> get counted => [
     for (final d in days)
       if (d.countsTowardAverages) d,
   ];
-
-  /// Days that were logged but had to be excluded. Named on screen, because
-  /// an average quietly computed over four of seven days is a lie of omission.
-  int get daysExcluded =>
-      days.where((d) => d.logged && !d.countsTowardAverages).length;
-
-  /// One nutrient's mean over the counted days, gated PER NUTRIENT.
-  ///
-  /// [NutritionDay.countsTowardAverages] is an ENERGY rule: a day qualifies on
-  /// complete kcal and the user's mark, and says nothing about protein. So
-  /// this used to admit any non-null total — including one that summed past
-  /// occasions carrying no macro figure, i.e. a FLOOR — and print it as a mean
-  /// with no marker. Only [NutrientTotal.complete] totals go in; the floors are
-  /// counted so the screen can say why the number is missing or built on fewer
-  /// days than the energy mean.
-  NutrientMean _mean(NutrientTotal Function(NutritionDay) pick) {
-    final vs = <double>[];
-    var floorDays = 0;
-    for (final d in counted) {
-      final t = pick(d);
-      if (t.complete) {
-        vs.add(t.value!);
-      } else if (t.isFloor) {
-        floorDays++;
-      }
-    }
-    return NutrientMean(
-      vs.isEmpty ? null : vs.reduce((a, b) => a + b) / vs.length,
-      vs.length,
-      floorDays,
-    );
-  }
-
-  /// Energy is unchanged by the per-nutrient gate — a counted day already has
-  /// `kcal.complete` by definition of [DayLogState.complete] — but it goes
-  /// through the same path so there is one mean, not two.
-  NutrientMean get meanKcal => _mean((d) => d.kcal);
-  NutrientMean get meanProtein => _mean((d) => d.protein);
-  NutrientMean get meanFibre => _mean((d) => d.fibre);
 }
 
 // ══════════════════ STORE ══════════════════
@@ -996,21 +926,6 @@ abstract final class NutritionDb {
     }
   }
 
-  /// Save the order of entries the user dragged inside one meal/sub-heading.
-  static Future<void> reorderEntries(Database db, List<String> ids) async {
-    await db.transaction((tx) async {
-      for (var i = 0; i < ids.length; i++) {
-        await tx.update(
-          'food_entry',
-          {'pos': i},
-          where: 'id = ?',
-          whereArgs: [ids[i]],
-        );
-      }
-    });
-    changed();
-  }
-
   /// One drag, saved as one transaction: the regrouped rows and the new
   /// order commit together or not at all, so a failure never leaves half a
   /// rearrangement behind a "not saved" message (B86-05).
@@ -1114,19 +1029,6 @@ abstract final class NutritionDb {
       (out[e.date] ??= []).add(e);
     }
     return out;
-  }
-
-  /// The last distinct things eaten, newest first. This is what makes a repeat
-  /// entry a two-second job, and it is why there is no need for a "favourites"
-  /// concept on top.
-  static Future<List<FoodEntry>> recent(Database db, {int limit = 12}) async {
-    final rows = await db.rawQuery(
-      'SELECT * FROM food_entry WHERE id IN '
-      '(SELECT MAX(id) FROM food_entry GROUP BY label) '
-      'ORDER BY created_at DESC LIMIT ?',
-      [limit],
-    );
-    return [for (final r in rows) FoodEntry.fromRow(r)];
   }
 
   /// Search the dictionary, VERIFIED entries first. Ranking is provenance then

@@ -10,6 +10,7 @@ import 'package:whoop_companion/data/models.dart';
 import 'package:whoop_companion/gps/route_models.dart';
 import '../compute/prepare_handoff_test.dart' show raw;
 import '../support/coverage_store.dart';
+import '../support/store_fixtures.dart';
 
 const _id = 'authored-split-prepare', _ts = 1760004000;
 Future<void> _seed() async {
@@ -165,7 +166,7 @@ void main() {
         final frames = await db.query('decoded_onehz');
         final route = await LocalDb.routePoints(_id);
         final before = await LocalDb.session(_id);
-        final splits = await LocalDb.workoutSplits(_id);
+        final splits = await splitRows(_id);
         final failed = [
           'read-refusal',
           'malformed-route',
@@ -182,7 +183,7 @@ void main() {
           final row = (await LocalDb.session(_id))!;
           expect(row['trace_samples'], failed ? 0 : 240);
           if (failed) expect(row['trace_json'], before!['trace_json']);
-          expect(await LocalDb.workoutSplits(_id), splits);
+          expect(await splitRows(_id), splits);
           expect(await db.query('decoded_onehz'), frames);
           if (mode == 'read-refusal') {
             expect(
@@ -213,11 +214,11 @@ void main() {
           }
           await repo.getWorkout(_id);
           expect((await LocalDb.session(_id))!['trace_samples'], 240);
-          final frozen = await LocalDb.workoutSplits(_id);
+          final frozen = await splitRows(_id);
           expect(frozen, hasLength(2));
           expect(frozen.first['net_elev_m'], isNull);
           await repo.getWorkout(_id);
-          expect(await LocalDb.workoutSplits(_id), frozen);
+          expect(await splitRows(_id), frozen);
         }
         expect(await db.query('decoded_onehz'), frames);
         expect(await db.query('day_result'), isEmpty);
@@ -231,7 +232,7 @@ void main() {
       () async {
         final db = await LocalDb.instance;
         final frames = await db.query('decoded_onehz');
-        final splits = await LocalDb.workoutSplits(_id);
+        final splits = await splitRows(_id);
         Future<void>? mutation;
         var edits = 0, publications = 0;
         onStageRead = () {
@@ -260,12 +261,12 @@ void main() {
         final row = await LocalDb.session(_id);
         if (mode == 'delete') {
           expect(row, isNull);
-          expect(await LocalDb.workoutSplits(_id), isEmpty);
+          expect(await splitRows(_id), isEmpty);
           expect(await LocalDb.routePoints(_id), isEmpty);
         } else {
           expect(row!['trace_samples'], 0);
           expect(row['trace_json'], isNull);
-          expect(await LocalDb.workoutSplits(_id), splits);
+          expect(await splitRows(_id), splits);
           if (mode == 'start') expect(row['start_ts'], _ts + 1);
           if (mode == 'end') expect(row['end_ts'], _ts + 239);
           if (mode == 'status') expect(row['status'], 'live');

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart' show DatabaseException;
 import 'package:whoop_companion/data/db.dart';
 import '../support/coverage_store.dart';
+import '../support/store_fixtures.dart';
 
 const _id = 'authored-atomic-session', _other = 'authored-other-session';
 const _start = 1760004000, _end = _start + 240;
@@ -88,7 +89,7 @@ void main() {
     List<Map<String, Object?>> splits,
   ) async {
     expect(await LocalDb.session(_other), owner);
-    expect(await LocalDb.workoutSplits(_other), splits);
+    expect(await splitRows(_other), splits);
     final metrics = await (await LocalDb.instance).query('metric_series');
     expect(metrics, hasLength(1));
     expect(metrics.single['value'], 1234);
@@ -102,15 +103,15 @@ void main() {
           final db = await LocalDb.instance;
           if (!prior) await LocalDb.putWorkoutSplits(_id, []);
           final before = await LocalDb.session(_id);
-          final splits = await LocalDb.workoutSplits(_id);
+          final splits = await splitRows(_id);
           final other = await LocalDb.session(_other);
-          final otherSplits = await LocalDb.workoutSplits(_other);
+          final otherSplits = await splitRows(_other);
           await db.execute(
             "CREATE TRIGGER authored_split_refusal BEFORE INSERT ON workout_split WHEN NEW.session_id = '$_id' AND NEW.km = $refusedKm BEGIN SELECT RAISE(ABORT, 'authored split refusal'); END",
           );
           await expectLater(_write(), throwsA(isA<DatabaseException>()));
           expect(await LocalDb.session(_id), before);
-          expect(await LocalDb.workoutSplits(_id), splits);
+          expect(await splitRows(_id), splits);
           await unchangedOther(other, otherSplits);
           await db.execute('DROP TRIGGER authored_split_refusal');
           expect(await _write(), 1);
@@ -120,13 +121,13 @@ void main() {
           expect(saved['avg_hr'], 140);
           expect(saved['hrr_bpm'], 17.0);
           expect(saved['type'], 'cycling');
-          final frozen = await LocalDb.workoutSplits(_id);
+          final frozen = await splitRows(_id);
           expect(frozen, [
             for (final r in _new) {'session_id': _id, ...r},
           ]);
           expect(await _write(), 1);
           expect(await LocalDb.session(_id), saved);
-          expect(await LocalDb.workoutSplits(_id), frozen);
+          expect(await splitRows(_id), frozen);
           await unchangedOther(other, otherSplits);
         },
       );
@@ -176,7 +177,7 @@ void main() {
   test(
     'omitted staged rows retain splits and banked null-protected values',
     () async {
-      final before = await LocalDb.workoutSplits(_id);
+      final before = await splitRows(_id);
       expect(
         await LocalDb.setSessionScores(
           _id,
@@ -192,16 +193,16 @@ void main() {
       expect(row['trace_json'], '{"old":true}');
       expect(row['trace_samples'], 12);
       expect(row['hrr_bpm'], 17.0);
-      expect(await LocalDb.workoutSplits(_id), before);
+      expect(await splitRows(_id), before);
     },
   );
   test(
     'an explicit empty replacement clears only the matching owner',
     () async {
       final other = await LocalDb.session(_other);
-      final otherSplits = await LocalDb.workoutSplits(_other);
+      final otherSplits = await splitRows(_other);
       expect(await _write(splits: []), 1);
-      expect(await LocalDb.workoutSplits(_id), isEmpty);
+      expect(await splitRows(_id), isEmpty);
       expect((await LocalDb.session(_id))!['trace_samples'], 240);
       await unchangedOther(other, otherSplits);
     },

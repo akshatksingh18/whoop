@@ -313,7 +313,6 @@ void main() {
             );
             await engine.setStrapName('Synthetic name');
             await engine.getStrapName();
-            await engine.getHello();
             await engine.runAlarm();
             await engine.disableAlarm();
           } else {

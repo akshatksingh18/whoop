@@ -55,32 +55,11 @@ void main() {
       },
     );
   }
-  for (final mode in ['present', 'absent', 'mistyped', 'refused']) {
-    test('ASK provisioned ID $mode does not invent an identity', () async {
-      const id = '00000000-0000-4000-8000-000000000074';
-      reply = switch (mode) {
-        'present' => id,
-        'mistyped' => 74,
-        _ => null,
-      };
-      refuse = mode == 'refused';
-      expect(
-        await AccessorySetup.provisionedId(isIOS: true),
-        mode == 'present' ? id : null,
-      );
-      exact('provisionedId');
-    });
-  }
   for (final refusal in [false, true]) {
     test('ASK deprovision refusal=$refusal remains best effort', () async {
       refuse = refusal;
       await AccessorySetup.removeAll(isIOS: true);
       exact('removeAll');
-      // The next provisioning query is independent of a failed removal.
-      refuse = false;
-      reply = null;
-      expect(await AccessorySetup.provisionedId(isIOS: true), isNull);
-      expect(calls.map((c) => c.method), ['removeAll', 'provisionedId']);
     });
   }
   for (final mode in ['present', 'empty', 'absent', 'mistyped', 'refused']) {
@@ -134,7 +113,6 @@ void main() {
     () async {
       refuse = true;
       expect(await AccessorySetup.isSupported(isIOS: false), false);
-      expect(await AccessorySetup.provisionedId(isIOS: false), isNull);
       await AccessorySetup.removeAll(isIOS: false);
       expect(calls, isEmpty);
     },

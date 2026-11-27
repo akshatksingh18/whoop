@@ -45,8 +45,6 @@ import '../../compute/profile.dart'
         Profile,
         stepCalories,
         runFloorKcal,
-        acsmActiveKcal,
-        movementEquationEstimateKcal,
         workoutEnergyMethodLabel,
         conservativeMet,
         isLiftType;
@@ -119,16 +117,6 @@ Arch archOf(Activity a) {
     Track.duration => Arch.basic,
   };
 }
-
-String archLabel(Arch a) => switch (a) {
-  Arch.route => 'Route',
-  Arch.interval => 'Intervals',
-  Arch.flow => 'Flow',
-  Arch.laps => 'Laps',
-  Arch.journey => 'Elevation',
-  Arch.match => 'Effort',
-  Arch.basic => 'Session',
-};
 
 // ── THE RECORD ─────────────────────────────────────────────────────────────
 
@@ -251,44 +239,6 @@ class ActivityResult {
   final int? avgHr, maxHr;
   final int? _storedCalories;
   final Profile? calculationProfile;
-  double? get acsmCalories => _movementCalories(qualified: true);
-  double? get movementEstimateCalories => _movementCalories(qualified: false);
-
-  double? _movementCalories({required bool qualified}) {
-    final kg = calculationProfile?.weightKg;
-    if (isWalkType(activity.typeKey)) {
-      if (distanceKm == null) return null;
-      return qualified
-          ? acsmActiveKcal(
-              runMeters: 0,
-              walkMeters: distanceKm! * 1000,
-              walkMovingSeconds: movingSec?.toDouble(),
-              weightKg: kg,
-            )
-          : movementEquationEstimateKcal(
-              runMeters: 0,
-              walkMeters: distanceKm! * 1000,
-              weightKg: kg,
-            );
-    }
-    final m = mix;
-    if (!isRunType(activity.typeKey) || m == null) return null;
-    return qualified
-        ? acsmActiveKcal(
-            runMeters: m.runM,
-            walkMeters: m.walkM,
-            runClimbMeters: m.climbM,
-            runMovingSeconds: m.runSec.toDouble(),
-            walkMovingSeconds: m.walkSec.toDouble(),
-            weightKg: kg,
-          )
-        : movementEquationEstimateKcal(
-            runMeters: m.runM,
-            walkMeters: m.walkM,
-            runClimbMeters: m.climbM,
-            weightKg: kg,
-          );
-  }
 
   int? get calories {
     final type = activity.typeKey;

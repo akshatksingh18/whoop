@@ -144,20 +144,20 @@ void main() {
     });
   }
 
-  test('putDayResult encodes on the way in', () {
+  test('DayResultStore.put encodes on the way in', () {
     // The single write seam. All four callers (DerivationEngine x2,
     // cloud_import, whoop_import) go through it, which is the only reason
     // producers can keep building plain [{t,v}] lists in memory.
     final code = stripCommentsAndStrings(
-      File('lib/data/db.dart').readAsStringSync(),
+      File('lib/data/day_result_store.dart').readAsStringSync(),
     );
-    final body = helperBody(code, 'putDayResult');
+    final body = helperBody(code, 'Future<bool> put');
     expect(body, isNotNull);
     expect(
       body,
       contains('SeriesCodec.encodePayloadJson'),
       reason:
-          'putDayResult stopped encoding — new days would be written in '
+          'DayResultStore.put stopped encoding — new days would be written in '
           'the legacy shape and the saving would quietly stop',
     );
   });

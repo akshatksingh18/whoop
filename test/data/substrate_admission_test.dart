@@ -44,7 +44,13 @@ import '../support/root_path_provider.dart';
 /// `db.dart` defines both fragments. Adding a file here is the deliberate act
 /// the invariant asks for — and if you are adding one because you wrote a new
 /// decoded read, you wanted `derivableSourceSql()` instead.
-const _mayWriteThePredicate = {'lib/data/db.dart'};
+const _mayWriteThePredicate = {
+  'lib/data/db.dart',
+  // Its `source IS NOT NULL` asks whether a `metric_series_version` day was
+  // imported, not whether a decoded row may become a number; it moved here
+  // from db.dart with the rest of the day-provenance reads.
+  'lib/data/day_provenance_store.dart',
+};
 
 /// A hand-written admission predicate against the decoded store.
 final _handWritten = RegExp(

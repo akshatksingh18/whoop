@@ -151,6 +151,15 @@ void main() {
           calls.clear();
           await tap(t, action('Re-arm reminders'));
           expect(calls.any((c) => c.method == 'zonedSchedule'), true);
+          // `_run` clears busy before its reload lands, so `flush` can return
+          // while the card still reads the pre-repair state on a slow runner.
+          for (
+            var i = 0;
+            i < 20 && find.text('Running').evaluate().isEmpty;
+            i++
+          ) {
+            await flush(t);
+          }
           expect(find.text('Running'), findsOneWidget);
         } else if (state == 'home') {
           expect(all, contains('Paused because you left Home'));

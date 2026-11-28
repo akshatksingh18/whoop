@@ -53,6 +53,9 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
   entries; tests that only used a removed helper moved onto the live path (coverage-map.md).
 - [x] Re-prove 100% after the 3r removals and the first `LocalDb` store splits: main
   `71621b83` executes 48,386/48,386 (run 46098522214, every job green).
+- [ ] Re-prove 100% on the next publication: main `a532ffa3` failed two source guards that
+  still read `db.dart` (now pointed at `day_result_store.dart` and allowing
+  `day_provenance_store.dart`) and a Push-ups re-arm wait race, all fixed locally.
 - [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
   are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
   per-day export or delete screen is wanted or rejected.

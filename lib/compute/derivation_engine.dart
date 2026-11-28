@@ -660,7 +660,7 @@ class DerivationEngine {
       if (dataNowSec <= 0) {
         _log('derive: no decoded data');
         await _completeEmptyCorrections(
-          await LocalDb.sleepCorrectionDays(),
+          await SleepOverrideStore.correctionDays(),
           stopGen,
         );
         return 0;
@@ -671,14 +671,14 @@ class DerivationEngine {
       // todo set. (No-raw days are guarded in the per-day loop so we never
       // clobber a good manual result with an empty re-derive once raw is pruned.)
       final overrideDays = {
-        ...await LocalDb.sleepOverrideDays(),
+        ...await SleepOverrideStore.overrideDays(),
         // A nap edit on a finalized day has to take effect too — same reason.
         ...await SleepNapStore.editDays(),
       };
       // Accepted intent survives raw retention and a process restart. It can
       // sit outside the remaining raw span, so raw-only scope discovery must
       // not leave it pending forever. Ordinary timezone-held days stay held.
-      final pendingCorrections = await LocalDb.sleepCorrectionDays(
+      final pendingCorrections = await SleepOverrideStore.correctionDays(
         pendingOnly: true,
       );
       final todoDays = [
@@ -916,8 +916,8 @@ class DerivationEngine {
   }) async {
     for (final dayId in days) {
       final revision =
-          expectedRevision ?? await LocalDb.sleepCorrectionRevision();
-      final intent = await LocalDb.sleepCorrection(dayId);
+          expectedRevision ?? await SleepOverrideStore.correctionRevision();
+      final intent = await SleepOverrideStore.correction(dayId);
       if (intent == null ||
           intent['pending'] != true ||
           (expectedGeneration != null &&
@@ -940,8 +940,8 @@ class DerivationEngine {
   }
 
   Future<PreparedDerivationDay> _prepareTargetDay(String dayId) async {
-    final revision = await LocalDb.sleepCorrectionRevision();
-    final generation = await LocalDb.sleepCorrectionGeneration(dayId);
+    final revision = await SleepOverrideStore.correctionRevision();
+    final generation = await SleepOverrideStore.correctionGeneration(dayId);
     // Per-day page/row totals used to live in the shared `_diag` map (reset
     // then accumulated across this day's 2-3 substrate loads). Under
     // concurrent per-day processing (see `run()`), multiple days resetting/
@@ -1003,12 +1003,12 @@ class DerivationEngine {
     _PrepareStats? stats,
     int? sleepIntentGeneration,
   }) async {
-    final intent = await LocalDb.sleepCorrection(dayId);
+    final intent = await SleepOverrideStore.correction(dayId);
     final freshCorrection = intent != null && intent['usable'] != true;
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
     // not shadowed by a stale artifact). The auto path keeps its finalized cache.
-    final overrideRow = await LocalDb.getSleepOverride(dayId);
+    final overrideRow = await SleepOverrideStore.getOverride(dayId);
     final override = overrideRow == null
         ? null
         : SleepWindowOverride(
@@ -1784,7 +1784,7 @@ class DerivationEngine {
       if (rawByDay.isEmpty) {
         _log('rescan: no decoded data');
         await _completeEmptyCorrections(
-          await LocalDb.sleepCorrectionDays(pendingOnly: true),
+          await SleepOverrideStore.correctionDays(pendingOnly: true),
           stopGen,
         );
         return 0;
@@ -2994,7 +2994,7 @@ class DerivationEngine {
     final stopGen = DeriveStop.generation;
     // Read before the inputs, so a correction that lands while they are built
     // supersedes the rollup write below instead of being stamped over.
-    final sleepRevision = await LocalDb.sleepCorrectionRevision();
+    final sleepRevision = await SleepOverrideStore.correctionRevision();
     // Built fresh on every pass, so a row stamped `is_today` is always about
     // today.
     final days = await _crossDayInputs();
@@ -3572,7 +3572,7 @@ class DerivationEngine {
   /// ([_BaselineHistoryCache.load]) no longer trusts this artifact for history,
   /// but it still backs the cheap `signature` rescan gate, so keep it fresh.
   Future<void> _refreshBaselines() async {
-    final sleepRevision = await LocalDb.sleepCorrectionRevision();
+    final sleepRevision = await SleepOverrideStore.correctionRevision();
     final history = await _BaselineHistoryCache.load();
     final artifact = history.toArtifactJson();
     final rolling = ((artifact['rolling'] as Map?) ?? const {})

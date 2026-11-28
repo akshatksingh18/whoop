@@ -42,7 +42,7 @@ void main() {
           ),
           Sample(tsEpoch: older, counter: 1, hr: 60, ax: 0, ay: 0, az: 1),
         );
-        await LocalDb.putSleepOverride(
+        await SleepOverrideStore.putOverride(
           dayId: day,
           onsetTs: start + 900,
           offsetTs: start + 9900,
@@ -84,7 +84,7 @@ void main() {
           } else {
             expect(current['wake_ts'], start + 9600);
           }
-          final intent = (await LocalDb.sleepCorrection(day))!;
+          final intent = (await SleepOverrideStore.correction(day))!;
           final recovered = (intent['recovery'] as List).first as Map;
           expect(
             (recovered['day_results'] as List).any(
@@ -95,7 +95,7 @@ void main() {
             true,
           );
           expect(
-            (await LocalDb.getSleepOverride(day))?['onset_ts'],
+            (await SleepOverrideStore.getOverride(day))?['onset_ts'],
             start + 1200,
           );
         }
@@ -133,7 +133,7 @@ void main() {
         Future<void> accepted(String source, int? onset) async {
           var observed = false;
           for (var i = 0; i < 200; i++) {
-            final row = await LocalDb.getSleepOverride(day);
+            final row = await SleepOverrideStore.getOverride(day);
             final matches = action == 'clear'
                 ? row == null
                 : row?['source'] == source && row?['onset_ts'] == onset;
@@ -178,7 +178,7 @@ void main() {
         await correction;
         await later;
         if (action == 'reset') {
-          expect(await LocalDb.getSleepOverride(day), isNull);
+          expect(await SleepOverrideStore.getOverride(day), isNull);
           expect(await LocalDb.dayResult(day), isNull);
           expect(await LocalDb.lastDecodedRecTs(), isNull);
           expect(app.reanalyzing, false);
@@ -202,7 +202,7 @@ void main() {
             expect(refused, true);
             await expectAcceptedOrUnknownWithRecovery();
             expect(
-              (await LocalDb.getSleepOverride(day))!['onset_ts'],
+              (await SleepOverrideStore.getOverride(day))!['onset_ts'],
               start + 1200,
             );
           } finally {
@@ -212,7 +212,7 @@ void main() {
           }
           await app.setSleepOverride(day, at(1200), at(9600));
         }
-        final override = await LocalDb.getSleepOverride(day);
+        final override = await SleepOverrideStore.getOverride(day);
         final sleep = await repo.getDaySleep(day);
         if (action == 'dispose') {
           await expectAcceptedOrUnknownWithRecovery();

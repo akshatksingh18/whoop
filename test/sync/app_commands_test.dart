@@ -277,14 +277,14 @@ void main() {
     () async {
       final a = DateTime(2026, 1, 1, 23), b = DateTime(2026, 1, 2, 7);
       await app.setSleepOverride('2026-01-02', a, a);
-      expect(await LocalDb.getSleepOverride('2026-01-02'), isNull);
+      expect(await SleepOverrideStore.getOverride('2026-01-02'), isNull);
       await app.setSleepOverride('2026-01-02', a, b);
-      final row = (await LocalDb.getSleepOverride('2026-01-02'))!;
+      final row = (await SleepOverrideStore.getOverride('2026-01-02'))!;
       expect(row['onset_ts'], a.millisecondsSinceEpoch ~/ 1000);
       expect(row['source'], 'manual');
       expect(app.reanalyzing, isFalse);
       await app.clearSleepOverride('2026-01-02');
-      expect(await LocalDb.getSleepOverride('2026-01-02'), isNull);
+      expect(await SleepOverrideStore.getOverride('2026-01-02'), isNull);
     },
   );
   for (final valid in [false, true]) {
@@ -298,17 +298,17 @@ void main() {
         }
         await app.confirmSleep('2026-01-02');
         expect(
-          await LocalDb.getSleepOverride('2026-01-02'),
+          await SleepOverrideStore.getOverride('2026-01-02'),
           valid ? isNotNull : isNull,
         );
         if (valid) {
           expect(
-            (await LocalDb.getSleepOverride('2026-01-02'))!['source'],
+            (await SleepOverrideStore.getOverride('2026-01-02'))!['source'],
             'confirmed',
           );
         }
         await app.rejectSleep('2026-01-02');
-        final rejected = (await LocalDb.getSleepOverride('2026-01-02'))!;
+        final rejected = (await SleepOverrideStore.getOverride('2026-01-02'))!;
         expect(rejected['source'], 'rejected');
         expect(
           (rejected['offset_ts'] as int),

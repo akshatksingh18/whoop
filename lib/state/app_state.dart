@@ -1597,7 +1597,7 @@ class AppState extends ChangeNotifier {
     final onsetSec = onset.millisecondsSinceEpoch ~/ 1000;
     final offsetSec = offset.millisecondsSinceEpoch ~/ 1000;
     if (offsetSec <= onsetSec) return;
-    await LocalDb.acceptSleepCorrection(
+    await SleepOverrideStore.acceptCorrection(
       dayId: date,
       onsetTs: onsetSec,
       offsetTs: offsetSec,
@@ -1615,7 +1615,7 @@ class AppState extends ChangeNotifier {
     final onset = (sleep['onset_ts'] as num?)?.toInt();
     final offset = (sleep['wake_ts'] as num?)?.toInt();
     if (onset == null || offset == null || offset <= onset) return;
-    await LocalDb.acceptSleepCorrection(
+    await SleepOverrideStore.acceptCorrection(
       dayId: date,
       onsetTs: onset,
       offsetTs: offset,
@@ -1641,7 +1641,7 @@ class AppState extends ChangeNotifier {
     // outright), so an absent detected window falls back to a harmless
     // same-day placeholder rather than blocking the rejection.
     final fallback = DateTime.parse(date).millisecondsSinceEpoch ~/ 1000;
-    await LocalDb.acceptSleepCorrection(
+    await SleepOverrideStore.acceptCorrection(
       dayId: date,
       onsetTs: onset ?? fallback,
       offsetTs: offset ?? (fallback + 1),
@@ -1652,7 +1652,7 @@ class AppState extends ChangeNotifier {
 
   /// Remove a manual/confirmed override for [date] — revert to auto/fallback.
   Future<void> clearSleepOverride(String date) async {
-    await LocalDb.acceptSleepCorrection(dayId: date, action: 'clear');
+    await SleepOverrideStore.acceptCorrection(dayId: date, action: 'clear');
     await _reanalyzeForOverride();
   }
 

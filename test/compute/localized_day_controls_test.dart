@@ -233,6 +233,44 @@ void main() {
       },
     );
   }
+  testWidgets(
+    'step details blank every hour after now on a day that has not begun',
+    (t) async {
+      final n = DateTime.now();
+      final next = DateTime(n.year, n.month, n.day + 1);
+      String two(int v) => v.toString().padLeft(2, '0');
+      final tomorrow = '${next.year}-${two(next.month)}-${two(next.day)}';
+      final from = next.millisecondsSinceEpoch ~/ 1000;
+      final data = DayStepsData(
+        day: tomorrow,
+        spans: [
+          DayStepSpan(
+            startTs: from + 600,
+            endTs: from + 1800,
+            steps: 300,
+            fromBand: false,
+          ),
+          DayStepSpan(
+            startTs: from + 32400,
+            endTs: from + 36000,
+            steps: 1200,
+            fromBand: false,
+          ),
+        ],
+        total: 1500,
+        phone: 1500,
+      );
+      await localizedPage(t, DayStepsDetail(data: data));
+      await reveal(t, find.byType(Scrubber).first);
+      final scrub = t.widget<Scrubber>(find.byType(Scrubber).first);
+      expect(scrub.describe(0), contains('300'));
+      expect(
+        scrub.describe(9),
+        contains('not recorded'),
+        reason: 'an hour that has not happened yet is never drawn',
+      );
+    },
+  );
   for (final mode in ['empty', 'untimed', 'measured']) {
     testWidgets(
       'COV-44 localized timeline keeps untimed notes off the clock $mode',

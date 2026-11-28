@@ -48,6 +48,7 @@ import '../build_profile.dart';
 part 'notif_fired_store.dart';
 part 'sleep_nap_store.dart';
 part 'journal_store.dart';
+part 'sleep_override_store.dart';
 
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
@@ -579,7 +580,7 @@ class LocalDb {
         await _createLiveCoverage(db);
         await _createDevice(db);
         await _createWorkoutSuggestions(db);
-        await _createSleepOverride(db);
+        await SleepOverrideStore._create(db);
         await SleepNapStore._create(db);
         await _createWorkoutRoute(db);
         await _createSessionDetail(db);
@@ -751,7 +752,7 @@ class LocalDb {
           await _createWorkoutSuggestions(db);
         }
         if (oldV < 20) {
-          await _createSleepOverride(db);
+          await SleepOverrideStore._create(db);
         }
         if (oldV < 21) {
           // FIRMWARE RESILIENCE: durable archive of historical records we could
@@ -1137,7 +1138,7 @@ class LocalDb {
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
-    await _createSleepOverride(db);
+    await SleepOverrideStore._create(db);
     await SleepNapStore._create(db);
     await _createWorkoutRoute(db);
     await _createSessionDetail(db);
@@ -1503,264 +1504,6 @@ class LocalDb {
         updated_at INTEGER NOT NULL
       )
     ''');
-  }
-
-  // ── SLEEP OVERRIDE (manual / confirmed sleep windows) ───────────────────────
-  // The user's word on when they slept — either typed in manually (Approach 1)
-  // or a confirmation of the HR-led fallback's proposal (Approach 2). Stored
-  // SEPARATELY from the derived day_result so it survives finalization AND any
-  // kAlgoVersion bump: the engine re-applies it on every derive of that day.
-  //   source: 'manual'    — user typed the times
-  //           'confirmed' — user accepted the fallback's proposed window
-  // Times are epoch SECONDS (phone clock; raw rec_ts is SET_CLOCK'd to match).
-  static Future<void> _createSleepOverride(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS sleep_override (
-        day_id TEXT PRIMARY KEY,
-        onset_ts INTEGER NOT NULL,
-        offset_ts INTEGER NOT NULL,
-        source TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    ''');
-  }
-
-  /// Upsert the user's sleep window for [dayId] (local date label). [source] is
-  /// 'manual' or 'confirmed'. Replaces any prior override for that day.
-  static Future<void> putSleepOverride({
-    required String dayId,
-    required int onsetTs,
-    required int offsetTs,
-    required String source,
-  }) async {
-    final db = await instance;
-    await db.insert('sleep_override', {
-      'day_id': dayId,
-      'onset_ts': onsetTs,
-      'offset_ts': offsetTs,
-      'source': source,
-      'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  /// The user's sleep window for [dayId], or null if none.
-  static Future<Map<String, dynamic>?> getSleepOverride(String dayId) async {
-    final db = await instance;
-    final rows = await db.query(
-      'sleep_override',
-      where: 'day_id = ?',
-      whereArgs: [dayId],
-      limit: 1,
-    );
-    return rows.isEmpty ? null : rows.first;
-  }
-
-  static const _correctionArtifacts = [
-    'crossday',
-    'rolling',
-    'rolling_artifact',
-  ];
-
-  static Future<Map<String, dynamic>?> _sleepCorrectionVia(
-    DatabaseExecutor ex,
-    String day,
-  ) async {
-    final rows = await ex.query(
-      'baselines',
-      columns: ['payload_json'],
-      where: 'key = ?',
-      whereArgs: ['sleep_correction:$day'],
-      limit: 1,
-    );
-    return rows.isEmpty
-        ? null
-        : Map<String, dynamic>.from(
-            jsonDecode(rows.first['payload_json'] as String) as Map,
-          );
-  }
-
-  static Future<Map<String, dynamic>?> sleepCorrection(String day) async =>
-      _sleepCorrectionVia(await instance, day);
-
-  static Future<int?> sleepCorrectionGeneration(String day) async =>
-      ((await sleepCorrection(day))?['generation'] as num?)?.toInt();
-
-  static Future<int> sleepCorrectionRevision() async =>
-      await getCursorInt('sleep_correction_revision') ?? 0;
-
-  /// Accept intent and preserve every prior generation in one SQLite transaction.
-  /// The projected row is deliberately partial/unfinalized: unknown is not a
-  /// successful derivation, and cannot license raw pruning.
-  static Future<void> acceptSleepCorrection({
-    required String dayId,
-    required String action,
-    int? onsetTs,
-    int? offsetTs,
-  }) async {
-    if (!{'manual', 'confirmed', 'rejected', 'clear'}.contains(action) ||
-        (action != 'clear' &&
-            (onsetTs == null || offsetTs == null || offsetTs <= onsetTs))) {
-      throw ArgumentError('Invalid sleep correction');
-    }
-    final db = await instance;
-    await db.transaction((txn) async {
-      final prior = await _sleepCorrectionVia(txn, dayId);
-      final results = await txn.query(
-        'day_result',
-        where: 'day_id = ?',
-        whereArgs: [dayId],
-        orderBy: 'algo_version DESC',
-      );
-      final pins = await txn.query(
-        'sync_cursor',
-        where: 'name = ?',
-        whereArgs: [kFrozenHeadlineCursor],
-      );
-      final snapshot = <String, dynamic>{
-        'generation': prior?['generation'],
-        'day_results': results,
-        'override': await txn.query(
-          'sleep_override',
-          where: 'day_id = ?',
-          whereArgs: [dayId],
-        ),
-        'candidates': await txn.query(
-          'sleep_session_candidates',
-          where: 'day_id = ?',
-          whereArgs: [dayId],
-        ),
-        'series': await txn.query(
-          'metric_series',
-          where: 'date = ?',
-          whereArgs: [dayId],
-        ),
-        'series_version': await txn.query(
-          'metric_series_version',
-          where: 'date = ?',
-          whereArgs: [dayId],
-        ),
-        'pin': pins,
-        'artifacts': await txn.query(
-          'baselines',
-          where:
-              'key IN (${List.filled(_correctionArtifacts.length, '?').join(',')})',
-          whereArgs: _correctionArtifacts,
-        ),
-      };
-      final intent = <String, dynamic>{
-        'version': 1,
-        'day': dayId,
-        'generation': ((prior?['generation'] as num?)?.toInt() ?? 0) + 1,
-        'action': action,
-        'pending': true,
-        'usable': false,
-        'recovery': [...?prior?['recovery'] as List?, snapshot],
-      };
-      final now = DateTime.now().millisecondsSinceEpoch;
-      await txn.insert('baselines', {
-        'key': 'sleep_correction:$dayId',
-        'payload_json': jsonEncode(intent),
-        'updated_at': now,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-      if (action == 'clear') {
-        await txn.delete(
-          'sleep_override',
-          where: 'day_id = ?',
-          whereArgs: [dayId],
-        );
-      } else {
-        await txn.insert('sleep_override', {
-          'day_id': dayId,
-          'onset_ts': onsetTs,
-          'offset_ts': offsetTs,
-          'source': action,
-          'created_at': now ~/ 1000,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      final served = results.where(
-        (r) => (r['algo_version'] as int) <= kAlgoVersion,
-      );
-      final old = served.isEmpty
-          ? <String, dynamic>{'date': dayId}
-          : SeriesCodec.decodePayloadJson(served.first['payload_json']);
-      if (old == null) {
-        throw StateError('Cannot safely preserve malformed sleep result');
-      }
-      final projected = SleepCorrection.unknown(old, intent);
-      await txn.insert('day_result', {
-        if (served.isNotEmpty) ...served.first,
-        'day_id': dayId,
-        'algo_version': kAlgoVersion,
-        'payload_json': SeriesCodec.encodePayloadJson(jsonEncode(projected)),
-        'window_json': '{}',
-        'computed_at': now,
-        'finalized': 0,
-        'skipped': 0,
-        'partial': 1,
-        'rhr': null,
-        'rmssd': null,
-        'readiness': null,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-      for (final key in SleepCorrection.nightKeys) {
-        await txn.update(
-          'metric_series',
-          {'value': null},
-          where: 'date = ? AND key = ?',
-          whereArgs: [dayId, key],
-        );
-      }
-      if (pins.isNotEmpty) {
-        Object? pin;
-        try {
-          pin = jsonDecode(pins.first['value'] as String);
-        } on FormatException {
-          // The raw pin is already in recovery. An unreadable display cache
-          // must not prevent the user's durable correction from being accepted.
-        }
-        if (pin is Map && pin['day'] == dayId) {
-          await txn.delete(
-            'sync_cursor',
-            where: 'name = ?',
-            whereArgs: [kFrozenHeadlineCursor],
-          );
-        }
-      }
-      await txn.delete(
-        'baselines',
-        where:
-            'key IN (${List.filled(_correctionArtifacts.length, '?').join(',')})',
-        whereArgs: _correctionArtifacts,
-      );
-      final revision =
-          await _cursorIntVia(txn, 'sleep_correction_revision') ?? 0;
-      await setCursor('sleep_correction_revision', '${revision + 1}', txn: txn);
-    }, exclusive: true);
-  }
-
-  static Future<Set<String>> sleepCorrectionDays({
-    bool pendingOnly = false,
-  }) async {
-    final rows = await (await instance).query(
-      'baselines',
-      columns: ['key', if (pendingOnly) 'payload_json'],
-      where: 'key LIKE ?',
-      whereArgs: ['sleep_correction:%'],
-    );
-    return {
-      for (final row in rows)
-        if (!pendingOnly ||
-            (jsonDecode(row['payload_json'] as String) as Map)['pending'] ==
-                true)
-          (row['key'] as String).substring('sleep_correction:'.length),
-    };
-  }
-
-  /// Every day that currently has a user override — these must be force-derived
-  /// even when finalized, so an edit to a locked day actually takes effect.
-  static Future<Set<String>> sleepOverrideDays() async {
-    final db = await instance;
-    final rows = await db.query('sleep_override', columns: ['day_id']);
-    return {for (final r in rows) r['day_id'] as String};
   }
 
   // ── IMPORTED MEASUREMENTS FROM DEVICES WE ARE NOT ───────────────────────────
@@ -2602,7 +2345,7 @@ class LocalDb {
   }) async {
     final db = await instance;
     await db.transaction((txn) async {
-      final intent = await _sleepCorrectionVia(txn, day);
+      final intent = await SleepOverrideStore._correctionVia(txn, day);
       if (intent != null && intent['usable'] != true) return;
       if ((intent?['generation'] as num?)?.toInt() != sleepIntentGeneration ||
           (sleepRevision != null &&
@@ -6179,7 +5922,7 @@ class LocalDb {
     // SeriesCodec leaves anything it cannot encode exactly as it found it.
     final encodedPayload = SeriesCodec.encodePayloadJson(payloadJson);
     return db.transaction((txn) async {
-      final intent = await _sleepCorrectionVia(txn, dayId);
+      final intent = await SleepOverrideStore._correctionVia(txn, dayId);
       if ((intent?['generation'] as num?)?.toInt() != sleepIntentGeneration ||
           (sleepRevision != null &&
               (await _cursorIntVia(txn, 'sleep_correction_revision') ?? 0) !=
@@ -7218,7 +6961,7 @@ class LocalDb {
       /* no day_result yet: nothing to protect */
     }
     try {
-      var expectedSleepRevision = await sleepCorrectionRevision();
+      var expectedSleepRevision = await SleepOverrideStore.correctionRevision();
       await _checkSleepCorrectionImport(db, src);
       if ((await src.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='body_weight_reading'",
@@ -7945,7 +7688,7 @@ class LocalDb {
   }) async {
     final db = await instance;
     return db.transaction((txn) async {
-      if (_correctionArtifacts.contains(key) &&
+      if (SleepOverrideStore._correctionArtifacts.contains(key) &&
           (await _cursorIntVia(txn, 'sleep_correction_revision') ?? 0) !=
               (sleepRevision ?? 0)) {
         return false;
@@ -7988,7 +7731,7 @@ class LocalDb {
     final db = await instance;
     await db.transaction((txn) async {
       if (sleepDayId != null) {
-        final intent = await _sleepCorrectionVia(txn, sleepDayId);
+        final intent = await SleepOverrideStore._correctionVia(txn, sleepDayId);
         if ((intent?['generation'] as num?)?.toInt() != sleepIntentGeneration) {
           return;
         }
@@ -8519,7 +8262,7 @@ class LocalDb {
   }) async {
     final db = await instance;
     return db.transaction((txn) async {
-      final intent = await _sleepCorrectionVia(txn, dayId);
+      final intent = await SleepOverrideStore._correctionVia(txn, dayId);
       if ((intent?['generation'] as num?)?.toInt() != sleepIntentGeneration) {
         return false;
       }

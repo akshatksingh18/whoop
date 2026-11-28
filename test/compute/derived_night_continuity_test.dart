@@ -95,7 +95,7 @@ void main() {
           try {
             await app.setSleepOverride(day, at(1200), at(9600));
             expect(
-              (await LocalDb.getSleepOverride(day))!['onset_ts'],
+              (await SleepOverrideStore.getOverride(day))!['onset_ts'],
               start + 1200,
             );
             final current = (await LocalDb.dayResult(day))!;
@@ -103,7 +103,7 @@ void main() {
             expect(current['rhr'], isNull);
             expect(current['partial'], 1);
             expect((await repo.getDaySleep(day))['has_sleep'], false);
-            final intent = (await LocalDb.sleepCorrection(day))!;
+            final intent = (await SleepOverrideStore.correction(day))!;
             final recovery = (intent['recovery'] as List).last as Map;
             final archived = (recovery['day_results'] as List).single as Map;
             expect(
@@ -124,11 +124,11 @@ void main() {
         expect(app.insightsRevision.value, greaterThan(revision));
         await app.confirmSleep(day);
         await boundary(1200, 9600, 'confirmed');
-        final confirmed = await LocalDb.getSleepOverride(day);
+        final confirmed = await SleepOverrideStore.getOverride(day);
         final saved = await LocalDb.dayResult(day);
         final confirmedRevision = app.insightsRevision.value;
         await app.setSleepOverride(day, at(9600), at(1200));
-        expect(await LocalDb.getSleepOverride(day), confirmed);
+        expect(await SleepOverrideStore.getOverride(day), confirmed);
         expect(await LocalDb.dayResult(day), saved);
         expect(app.insightsRevision.value, confirmedRevision);
         expect(
@@ -156,7 +156,7 @@ void main() {
         final start = await seedNight();
         const seconds = 3 * 3600;
         if (manual) {
-          await LocalDb.putSleepOverride(
+          await SleepOverrideStore.putOverride(
             dayId: day,
             onsetTs: start + 900,
             offsetTs: start + seconds - 900,
@@ -214,7 +214,10 @@ void main() {
             day,
           });
         } else {
-          expect((await LocalDb.getSleepOverride(day))!['source'], 'confirmed');
+          expect(
+            (await SleepOverrideStore.getOverride(day))!['source'],
+            'confirmed',
+          );
           expect(
             await LocalDb.baseline('sleep_user_profile'),
             isNull,
@@ -241,8 +244,8 @@ void main() {
         rmssd: 44,
         series: {'strain': 8, 'rmssd': 44},
       );
-      await LocalDb.acceptSleepCorrection(dayId: day, action: 'clear');
-      final recovery = (await LocalDb.sleepCorrection(day))!['recovery'];
+      await SleepOverrideStore.acceptCorrection(dayId: day, action: 'clear');
+      final recovery = (await SleepOverrideStore.correction(day))!['recovery'];
       final other = localDayStartSec('2021-04-03')! + 3600;
       await LocalDb.insertRecordsBatch(
         [
@@ -257,7 +260,7 @@ void main() {
         [Sample(tsEpoch: other, counter: 1, hr: 65)],
       );
       await DerivationEngine().run(profile, force: true);
-      final intent = (await LocalDb.sleepCorrection(day))!;
+      final intent = (await SleepOverrideStore.correction(day))!;
       expect(intent['pending'], false);
       expect(intent['usable'], false);
       expect(intent['recovery'], recovery);

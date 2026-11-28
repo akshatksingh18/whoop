@@ -104,7 +104,7 @@ Future<void> originalNight() async {
     readiness: 72,
     series: {'readiness': 72, 'rmssd': 44},
   );
-  await LocalDb.putSleepOverride(
+  await SleepOverrideStore.putOverride(
     dayId: day,
     onsetTs: 1,
     offsetTs: 9000,
@@ -125,7 +125,7 @@ void main() {
       final factory = databaseFactory;
       var accepted = false;
       databaseFactory = SourceReadFactory(factory, table, () async {
-        await LocalDb.acceptSleepCorrection(
+        await SleepOverrideStore.acceptCorrection(
           dayId: day,
           action: 'manual',
           onsetTs: 1800,
@@ -143,13 +143,13 @@ void main() {
       }
       expect(accepted, true);
       expect(
-        (await LocalDb.getSleepOverride(day))!['onset_ts'],
+        (await SleepOverrideStore.getOverride(day))!['onset_ts'],
         1800,
         reason:
             'A restore may not replace the newly accepted window with its older copy',
       );
-      expect((await LocalDb.getSleepOverride(day))!['offset_ts'], 7200);
-      expect((await LocalDb.sleepCorrection(day))!['generation'], 1);
+      expect((await SleepOverrideStore.getOverride(day))!['offset_ts'], 7200);
+      expect((await SleepOverrideStore.correction(day))!['generation'], 1);
       expect((await LocalDb.dayResult(day))!['readiness'], isNull);
       expect(await LocalDb.frozenHeadline(), isNull);
       expect(failure, isA<DbImportException>());
@@ -166,8 +166,8 @@ void main() {
     final backup = await LocalDb.exportCopy();
     await LocalDb.wipeAll();
     await originalNight();
-    await LocalDb.acceptSleepCorrection(dayId: day, action: 'clear');
-    final before = await LocalDb.sleepCorrection(day);
+    await SleepOverrideStore.acceptCorrection(dayId: day, action: 'clear');
+    final before = await SleepOverrideStore.correction(day);
     Object? failure;
     try {
       await LocalDb.importFromDbFile(backup);
@@ -180,7 +180,7 @@ void main() {
       reason:
           'A display-cache-only backup is still an overlap with corrected sleep',
     );
-    expect(await LocalDb.sleepCorrection(day), before);
+    expect(await SleepOverrideStore.correction(day), before);
     expect(
       failure,
       isA<DbImportException>().having((e) => e.records, 'committed rows', 0),
@@ -196,8 +196,10 @@ void main() {
       databaseFactory = SourceReadFactory(
         factory,
         'lift_log',
-        () =>
-            LocalDb.acceptSleepCorrection(dayId: '2021-04-07', action: 'clear'),
+        () => SleepOverrideStore.acceptCorrection(
+          dayId: '2021-04-07',
+          action: 'clear',
+        ),
       );
       try {
         await expectLater(
@@ -207,9 +209,9 @@ void main() {
       } finally {
         databaseFactory = factory;
       }
-      final accepted = await LocalDb.sleepCorrection('2021-04-07');
+      final accepted = await SleepOverrideStore.correction('2021-04-07');
       await LocalDb.importFromDbFile(backup);
-      expect(await LocalDb.sleepCorrection('2021-04-07'), accepted);
+      expect(await SleepOverrideStore.correction('2021-04-07'), accepted);
       expect((await LocalDb.dayResult('2021-04-07'))!['readiness'], isNull);
       expect((await LocalDb.dayResult(day))!['readiness'], 72);
     },
@@ -238,7 +240,7 @@ void main() {
           reason:
               'An older restore may not recreate data after the accepted reset',
         );
-        expect(await LocalDb.getSleepOverride(day), isNull);
+        expect(await SleepOverrideStore.getOverride(day), isNull);
         expect(await LocalDb.frozenHeadline(), isNull);
         expect(await LocalDb.metricSeries('readiness'), isEmpty);
         expect(failure, isA<DbImportException>());
@@ -270,7 +272,7 @@ void main() {
       final db = await LocalDb.instance;
       expect(await db.query('compute_freshness'), isEmpty);
       expect(await LocalDb.dayResult(day), isNull);
-      expect(await LocalDb.getSleepOverride(day), isNull);
+      expect(await SleepOverrideStore.getOverride(day), isNull);
       expect(await LocalDb.frozenHeadline(), isNull);
       expect(await db.query('body_weight_reading'), isEmpty);
       expect(await db.query('day_zone'), isEmpty);

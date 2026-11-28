@@ -3,7 +3,10 @@
 **Status:** 100% handwritten Dart line execution is verified on main `b7b55f8e` (48,380/48,380,
 7,261 passed, 377 skipped, [run 46076034921](https://github.com/akshatksingh18/whoop/actions/runs/46076034921)),
 after the 3r removals and the first two `LocalDb` store splits, with no exclusions, new skips or
-retired-feature activation. The detailed proof below was first established on main `aacaed47`. 100% instrumented Dart execution certifies no radio, sensor or OS
+retired-feature activation. Main `e04a7c13` (journal split) missed only `day_steps.dart`
+471–472, a loop that blanks hours after now and never runs when CI starts at 23:xx; a
+tomorrow-dated test in `localized_day_controls_test.dart` now runs it at any hour, and the next
+publication re-proves 100%. The detailed proof below was first established on main `aacaed47`. 100% instrumented Dart execution certifies no radio, sensor or OS
 delivery; native and physical acceptance stay separate (`bugs.md`, `todo.md`).
 
 ## Current proof

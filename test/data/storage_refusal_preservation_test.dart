@@ -44,7 +44,7 @@ void main() {
         await JournalStore.put(day, '["travel"]', 'Keep authored note');
         final before = await snapshot();
         await expectLater(
-          LocalDb.acceptSleepCorrection(
+          SleepOverrideStore.acceptCorrection(
             dayId: day,
             action: c.$1,
             onsetTs: c.$2,
@@ -76,7 +76,7 @@ void main() {
       await LocalDb.setFrozenHeadline(day, 72, explanation: {'authored': true});
       final before = await snapshot();
       await expectLater(
-        LocalDb.acceptSleepCorrection(
+        SleepOverrideStore.acceptCorrection(
           dayId: day,
           action: 'manual',
           onsetTs: 1,

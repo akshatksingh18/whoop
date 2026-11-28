@@ -43,7 +43,7 @@ Future<void> seed() async {
     series: {'rhr': 52, 'rmssd': 44, 'readiness': 72, 'strain': 8},
     source: 'band',
   );
-  await LocalDb.putSleepOverride(
+  await SleepOverrideStore.putOverride(
     dayId: day,
     onsetTs: 1,
     offsetTs: 9000,
@@ -56,7 +56,7 @@ Future<void> seed() async {
   );
 }
 
-Future<void> accept(String action) => LocalDb.acceptSleepCorrection(
+Future<void> accept(String action) => SleepOverrideStore.acceptCorrection(
   dayId: day,
   action: action,
   onsetTs: 1,
@@ -113,7 +113,7 @@ void main() {
         expect((await LocalDb.metricSeries('strain')).single['value'], 8);
         expect(await LocalDb.frozenHeadline(), isNull);
         expect(await LocalDb.dayResultIds(kAlgoVersion), isNot(contains(day)));
-        final intent = (await LocalDb.sleepCorrection(day))!;
+        final intent = (await SleepOverrideStore.correction(day))!;
         final recovery = (intent['recovery'] as List).single as Map;
         expect(recovery['day_results'], before);
         expect((recovery['pin'] as List).single['value'], pin);
@@ -136,10 +136,13 @@ void main() {
       try {
         await expectLater(accept('clear'), throwsA(isA<Exception>()));
         expect(await db.query('day_result'), before);
-        expect((await LocalDb.getSleepOverride(day))?['source'], 'manual');
+        expect(
+          (await SleepOverrideStore.getOverride(day))?['source'],
+          'manual',
+        );
         expect((await LocalDb.frozenHeadline())?.value, 72);
         expect((await LocalDb.metricSeries('rmssd')).single['value'], 44);
-        expect(await LocalDb.sleepCorrection(day), isNull);
+        expect(await SleepOverrideStore.correction(day), isNull);
       } finally {
         await db.execute('DROP TRIGGER refuse_sleep_intent');
       }
@@ -153,13 +156,16 @@ void main() {
       await accept('manual');
       await accept('clear');
       expect(await publish(1, revision: 1), false);
-      expect((await LocalDb.sleepCorrection(day))?['generation'], 2);
-      expect((await LocalDb.sleepCorrection(day))?['recovery'], hasLength(2));
+      expect((await SleepOverrideStore.correction(day))?['generation'], 2);
+      expect(
+        (await SleepOverrideStore.correction(day))?['recovery'],
+        hasLength(2),
+      );
       expect((await LocalDb.dayResult(day))?['rmssd'], isNull);
       expect(await publish(2, revision: 2), true);
       expect((await LocalDb.dayResult(day))?['rmssd'], 44);
       expect((await LocalDb.metricSeries('rmssd')).single['value'], 44);
-      expect((await LocalDb.sleepCorrection(day))?['usable'], true);
+      expect((await SleepOverrideStore.correction(day))?['usable'], true);
     },
   );
 
@@ -170,8 +176,8 @@ void main() {
       await accept('clear');
       expect(await publish(1, usable: false), true);
       expect((await LocalDb.dayResult(day))?['rmssd'], isNull);
-      expect((await LocalDb.sleepCorrection(day))?['pending'], false);
-      expect((await LocalDb.sleepCorrection(day))?['usable'], false);
+      expect((await SleepOverrideStore.correction(day))?['pending'], false);
+      expect((await SleepOverrideStore.correction(day))?['usable'], false);
       expect(await LocalDb.dayResultIds(kAlgoVersion), isNot(contains(day)));
       expect(
         (await LocalRepositoryImpl(
@@ -236,11 +242,11 @@ void main() {
     () async {
       await seed();
       await accept('clear');
-      final ledger = await LocalDb.sleepCorrection(day);
+      final ledger = await SleepOverrideStore.correction(day);
       final exported = await LocalDb.exportCopy();
       await LocalDb.wipeAll();
       await LocalDb.importFromDbFile(exported);
-      expect(await LocalDb.sleepCorrection(day), ledger);
+      expect(await SleepOverrideStore.correction(day), ledger);
       expect(
         (await LocalRepositoryImpl(
           getProfileMap: () => null,
@@ -258,12 +264,12 @@ void main() {
       await seed();
       final oldBackup = await LocalDb.exportCopy();
       await accept('rejected');
-      final before = await LocalDb.sleepCorrection(day);
+      final before = await SleepOverrideStore.correction(day);
       await expectLater(
         LocalDb.importFromDbFile(oldBackup),
         throwsA(isA<DbImportException>()),
       );
-      expect(await LocalDb.sleepCorrection(day), before);
+      expect(await SleepOverrideStore.correction(day), before);
       expect(
         (await LocalRepositoryImpl(
           getProfileMap: () => null,
@@ -377,7 +383,8 @@ void main() {
       );
       await accept('clear');
       final recovery =
-          ((await LocalDb.sleepCorrection(day))!['recovery'] as List).single
+          ((await SleepOverrideStore.correction(day))!['recovery'] as List)
+                  .single
               as Map;
       expect((recovery['pin'] as List).single['value'], '{retained-unreadable');
       expect((await LocalDb.dayResult(day))!['rmssd'], isNull);
@@ -392,16 +399,21 @@ void main() {
       () async {
         await seed();
         await accept('clear');
-        final recovery = (await LocalDb.sleepCorrection(day))!['recovery'];
+        final recovery = (await SleepOverrideStore.correction(
+          day,
+        ))!['recovery'];
         final engine = DerivationEngine();
         if (forced) {
           expect(await engine.run(profile, force: true), 0);
         } else {
           expect(await engine.run(profile), 0);
         }
-        expect((await LocalDb.sleepCorrection(day))!['pending'], false);
-        expect((await LocalDb.sleepCorrection(day))!['usable'], false);
-        expect((await LocalDb.sleepCorrection(day))!['recovery'], recovery);
+        expect((await SleepOverrideStore.correction(day))!['pending'], false);
+        expect((await SleepOverrideStore.correction(day))!['usable'], false);
+        expect(
+          (await SleepOverrideStore.correction(day))!['recovery'],
+          recovery,
+        );
         final current = (await LocalDb.dayResult(day))!;
         expect(current['partial'], 1);
         expect(current['finalized'], 0);
@@ -411,8 +423,11 @@ void main() {
         expect((await LocalDb.metricSeries('strain')).single['value'], 8);
         expect(await LocalDb.dayResultIds(kAlgoVersion), isNot(contains(day)));
         await LocalDb.close();
-        expect((await LocalDb.sleepCorrection(day))!['pending'], false);
-        expect((await LocalDb.sleepCorrection(day))!['recovery'], recovery);
+        expect((await SleepOverrideStore.correction(day))!['pending'], false);
+        expect(
+          (await SleepOverrideStore.correction(day))!['recovery'],
+          recovery,
+        );
       },
     );
   }
@@ -423,13 +438,13 @@ void main() {
       await seed();
       await accept('clear');
       final db = await LocalDb.instance;
-      final before = await LocalDb.sleepCorrection(day);
+      final before = await SleepOverrideStore.correction(day);
       await db.execute(
         'ALTER TABLE decoded_onehz RENAME TO retained_authored_input',
       );
       try {
         expect(await DerivationEngine().run(profile, force: true), 0);
-        expect(await LocalDb.sleepCorrection(day), before);
+        expect(await SleepOverrideStore.correction(day), before);
         expect((await LocalDb.dayResult(day))!['rmssd'], isNull);
       } finally {
         await db.execute(
@@ -437,7 +452,7 @@ void main() {
         );
       }
       await DerivationEngine().run(profile, force: true);
-      expect((await LocalDb.sleepCorrection(day))!['pending'], false);
+      expect((await SleepOverrideStore.correction(day))!['pending'], false);
     },
   );
 
@@ -447,21 +462,21 @@ void main() {
       await seed();
       await accept('clear');
       final db = await LocalDb.instance;
-      final before = await LocalDb.sleepCorrection(day);
+      final before = await SleepOverrideStore.correction(day);
       await db.execute(
         "CREATE TRIGGER refuse_empty_completion BEFORE INSERT ON day_result BEGIN SELECT RAISE(ABORT, 'authored completion refusal'); END",
       );
       try {
         await DerivationEngine().run(profile, force: true);
-        expect(await LocalDb.sleepCorrection(day), before);
+        expect(await SleepOverrideStore.correction(day), before);
         expect((await LocalDb.dayResult(day))!['partial'], 1);
       } finally {
         await db.execute('DROP TRIGGER refuse_empty_completion');
       }
       await DerivationEngine().run(profile, force: true);
-      expect((await LocalDb.sleepCorrection(day))!['pending'], false);
+      expect((await SleepOverrideStore.correction(day))!['pending'], false);
       expect(
-        (await LocalDb.sleepCorrection(day))!['recovery'],
+        (await SleepOverrideStore.correction(day))!['recovery'],
         before!['recovery'],
       );
     },
@@ -494,8 +509,8 @@ void main() {
           await accept('rejected');
         }
         final beforeSeries = await db.query('metric_series');
-        final beforeLedger = await LocalDb.sleepCorrection(day);
-        final beforeRevision = await LocalDb.sleepCorrectionRevision();
+        final beforeLedger = await SleepOverrideStore.correction(day);
+        final beforeRevision = await SleepOverrideStore.correctionRevision();
         await expectLater(
           LocalDb.importFromDbFile(exported),
           throwsA(
@@ -507,8 +522,8 @@ void main() {
           ),
         );
         expect(await db.query('metric_series'), beforeSeries);
-        expect(await LocalDb.sleepCorrection(day), beforeLedger);
-        expect(await LocalDb.sleepCorrectionRevision(), beforeRevision);
+        expect(await SleepOverrideStore.correction(day), beforeLedger);
+        expect(await SleepOverrideStore.correctionRevision(), beforeRevision);
       },
     );
   }
@@ -524,7 +539,7 @@ void main() {
       await accept('manual');
       await accept('rejected');
       await db.delete('day_result');
-      final before = await LocalDb.sleepCorrection(day);
+      final before = await SleepOverrideStore.correction(day);
       await expectLater(
         LocalDb.importFromDbFile(exported),
         throwsA(
@@ -535,7 +550,7 @@ void main() {
           ),
         ),
       );
-      expect(await LocalDb.sleepCorrection(day), before);
+      expect(await SleepOverrideStore.correction(day), before);
     },
   );
 
@@ -546,7 +561,7 @@ void main() {
         await seed();
         await accept(action);
         await DerivationEngine().run(profile, force: true);
-        final intent = (await LocalDb.sleepCorrection(day))!;
+        final intent = (await SleepOverrideStore.correction(day))!;
         expect(intent['pending'], false);
         expect(intent['usable'], false);
         expect((intent['recovery'] as List).single['day_results'], isNotEmpty);
@@ -555,8 +570,11 @@ void main() {
         ).getDaySleep(day);
         expect(sleep['has_sleep'], false);
         expect(sleep['sleep_source'], action);
-        expect(await LocalDb.sleepCorrectionDays(pendingOnly: true), isEmpty);
-        expect(await LocalDb.sleepCorrectionDays(), {day});
+        expect(
+          await SleepOverrideStore.correctionDays(pendingOnly: true),
+          isEmpty,
+        );
+        expect(await SleepOverrideStore.correctionDays(), {day});
       },
     );
   }
@@ -565,25 +583,28 @@ void main() {
       'disjoint import cannot recycle a publication revision source=$sourceRevision',
       () async {
         const other = '2021-04-07';
-        await LocalDb.acceptSleepCorrection(dayId: other, action: 'clear');
+        await SleepOverrideStore.acceptCorrection(
+          dayId: other,
+          action: 'clear',
+        );
         await LocalDb.setCursor('sleep_correction_revision', '$sourceRevision');
-        final incomingLedger = await LocalDb.sleepCorrection(other);
+        final incomingLedger = await SleepOverrideStore.correction(other);
         final exported = await LocalDb.exportCopy();
         await LocalDb.wipeAll();
         await seed();
         for (var i = 0; i < 5; i++) {
           await accept('clear');
         }
-        final currentLedger = await LocalDb.sleepCorrection(day);
-        expect(await LocalDb.sleepCorrectionRevision(), 5);
+        final currentLedger = await SleepOverrideStore.correction(day);
+        expect(await SleepOverrideStore.correctionRevision(), 5);
         await LocalDb.importFromDbFile(exported);
-        expect(await LocalDb.sleepCorrectionRevision(), greaterThan(5));
+        expect(await SleepOverrideStore.correctionRevision(), greaterThan(5));
         expect(
-          await LocalDb.sleepCorrectionRevision(),
+          await SleepOverrideStore.correctionRevision(),
           greaterThan(sourceRevision),
         );
-        expect(await LocalDb.sleepCorrection(day), currentLedger);
-        expect(await LocalDb.sleepCorrection(other), incomingLedger);
+        expect(await SleepOverrideStore.correction(day), currentLedger);
+        expect(await SleepOverrideStore.correction(other), incomingLedger);
         expect(
           await LocalDb.putBaseline(
             'crossday',
@@ -604,7 +625,7 @@ void main() {
           await LocalDb.putBaseline(
             'crossday',
             '{"fresh":true}',
-            sleepRevision: await LocalDb.sleepCorrectionRevision(),
+            sleepRevision: await SleepOverrideStore.correctionRevision(),
           ),
           true,
         );

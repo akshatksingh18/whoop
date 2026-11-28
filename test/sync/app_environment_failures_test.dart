@@ -208,7 +208,7 @@ void main() {
           await source.close();
           final bytes = await original.readAsBytes();
           await LocalDb.setCursor('authored-recovery', 'keep');
-          final revision = await LocalDb.sleepCorrectionRevision();
+          final revision = await SleepOverrideStore.correctionRevision();
           final app = AppState.forTesting();
           final published = app.insightsRevision.value;
           try {
@@ -246,7 +246,7 @@ void main() {
               app.insightsRevision.value,
               published + (hasJournal ? 2 : 0),
             );
-            expect(await LocalDb.sleepCorrectionRevision(), revision);
+            expect(await SleepOverrideStore.correctionRevision(), revision);
             expect(await LocalDb.getCursor('authored-recovery'), 'keep');
             expect(
               await (await LocalDb.instance).query('journal'),
@@ -262,7 +262,7 @@ void main() {
             expect(await app.importEdgeBackup(repaired.path), 0);
             expect(app.importRollupError, isNull);
             expect(
-              await LocalDb.sleepCorrectionRevision(),
+              await SleepOverrideStore.correctionRevision(),
               greaterThan(revision),
             );
             expect(await original.readAsBytes(), bytes);

@@ -68,7 +68,7 @@ void main() {
       expect((await SleepData.load(repo)).day, prior);
       expect(await db.query('day_result'), results);
       expect(await db.query('metric_series'), series);
-      expect(await LocalDb.sleepCorrection(today), isNull);
+      expect(await SleepOverrideStore.correction(today), isNull);
     },
   );
   for (final action in ['rejected', 'clear', 'manual', 'confirmed']) {
@@ -124,7 +124,7 @@ void main() {
             72,
             explanation: {'authored': 'retained'},
           );
-          await LocalDb.acceptSleepCorrection(
+          await SleepOverrideStore.acceptCorrection(
             dayId: today,
             action: action,
             onsetTs: onset,
@@ -142,7 +142,7 @@ void main() {
                 windowJson: '{}',
                 finalized: true,
                 sleepIntentGeneration: 1,
-                sleepRevision: await LocalDb.sleepCorrectionRevision(),
+                sleepRevision: await SleepOverrideStore.correctionRevision(),
               ),
               isTrue,
             );
@@ -150,7 +150,7 @@ void main() {
           final db = await LocalDb.instance;
           final results = await db.query('day_result');
           final series = await db.query('metric_series');
-          final correction = await LocalDb.sleepCorrection(today);
+          final correction = await SleepOverrideStore.correction(today);
           final pin = await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor);
           final payload =
               jsonDecode(
@@ -184,7 +184,7 @@ void main() {
           expect((home['sleep']['duration_min'] as Map)['note'], reason);
           expect(await db.query('day_result'), results);
           expect(await db.query('metric_series'), series);
-          expect(await LocalDb.sleepCorrection(today), correction);
+          expect(await SleepOverrideStore.correction(today), correction);
           expect(await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor), pin);
         },
       );

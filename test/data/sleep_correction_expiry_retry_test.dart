@@ -47,7 +47,7 @@ void main() {
           readiness: 72,
           series: {'rhr': 52, 'rmssd': 44, 'readiness': 72},
         );
-        await LocalDb.putSleepOverride(
+        await SleepOverrideStore.putOverride(
           dayId: day,
           onsetTs: start - 3600,
           offsetTs: start + 7 * 3600,
@@ -114,7 +114,7 @@ void main() {
             app.logLines.join('\n'),
             contains('sleep-override re-derive deferred:'),
           );
-          final correction = (await LocalDb.sleepCorrection(day))!;
+          final correction = (await SleepOverrideStore.correction(day))!;
           expect(correction['action'], action);
           final recovery = correction['recovery'] as List;
           expect(
@@ -135,7 +135,7 @@ void main() {
           await retryDone.future.timeout(const Duration(seconds: 20));
           expect(passes, 2);
           expect(app.reanalyzing, false);
-          expect((await LocalDb.sleepCorrection(day))!['action'], action);
+          expect((await SleepOverrideStore.correction(day))!['action'], action);
           expect(await db.query('decoded_onehz'), raw);
           expect((await repo.getDaySleep(day))['has_sleep'], false);
           expect((await repo.getDayHrv(day))['rmssd'], isNull);

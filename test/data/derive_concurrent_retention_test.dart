@@ -149,7 +149,7 @@ void main() {
             source: 'manual',
           );
         } else {
-          await LocalDb.putSleepOverride(
+          await SleepOverrideStore.putOverride(
             dayId: older,
             onsetTs: start + 3600,
             offsetTs: start + 3 * 3600,
